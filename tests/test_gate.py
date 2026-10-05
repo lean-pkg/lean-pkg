@@ -155,3 +155,25 @@ def test_gate_noop_has_no_rl_reminder(lp, env, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "already gated" in out
     assert "results-ledger" not in out
+
+
+def test_gate_accepts_receipt_at_evidence_only_descendant(lp, env, tmp_path):
+    from .conftest import _git
+    r = make_receipt(env.repo_a)
+    (env.repo_a / ".lean-receipts").mkdir()
+    (env.repo_a / ".lean-receipts" / "earlier.json").write_text("{}\n")
+    _git(env.repo_a, "add", "-f", ".lean-receipts")
+    _git(env.repo_a, "commit", "-m", "evidence only")
+    assert repo_head(env.repo_a) != r["commit"]
+    assert run_gate(lp, env, r, tmp_path) == 0
+    assert read_reg(env)["packages"]["alpha"]["status"] == "verified-private"
+
+
+def test_gate_rejects_receipt_when_descendant_changes_source(lp, env, tmp_path, capsys):
+    from .conftest import _git
+    r = make_receipt(env.repo_a)
+    (env.repo_a / "Main.lean").write_text("-- changed\n")
+    _git(env.repo_a, "add", "Main.lean")
+    _git(env.repo_a, "commit", "-m", "source change")
+    assert run_gate(lp, env, r, tmp_path) == 1
+    assert "HEAD" in capsys.readouterr().err
