@@ -1,0 +1,114 @@
+# lean-pkg — llms.txt
+
+> Registry and trust gate for Lean 4 formalization packages. Install: `pipx install git+https://github.com/chenle02/lean-pkg.git`.
+> Human docs: README.md, DESIGN.md. Tests: `python3 -m pip install -e '.[test]' && python3 -m pytest -q`.
+> The block below is the exact output of `lean-pkg llms` (kept in sync by tests/test_docs.py).
+
+lean-pkg llms.txt — agent contract for the Lean 4 package registry
+
+PURPOSE
+A registry YAML file is the source of truth for a set of Lean 4 formalization repos.
+lean-pkg is the ONLY write path; GitHub is just the visibility mirror. history[] and the
+event log (lean-package-events.jsonl next to the registry) are append-only.
+Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ./lean-packages.yaml.
+
+STANDING RULES
+- NEVER hand-edit the registry yaml. Use `lean-pkg register` / `lean-pkg update`.
+- Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`).
+- Claim before working: one package = one workspace. Default TTL 24h; `audit` sweeps expired leases.
+- Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
+- Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
+
+STATUS ENUM AND TRANSITIONS (evidence required)
+scratch -> active                  owner_project named
+active -> gate-pending             lower-tier check submitted (terminal executor job identity in notes)
+gate-pending -> verified-private   `gate` accepts a receipt (schema below)
+verified-private -> public         `promote --yes` after a clean dry-run checklist; ONE-WAY flip
+public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
+any -> archived                    `audit --fix` (gh isArchived) or maintainer decision
+
+SUBCOMMANDS (global flags: --registry PATH --events PATH --json)
+board     TUI on a tty, static table otherwise.       ex: lean-pkg board
+list      static table.                                ex: lean-pkg list --json
+status    full record + last 5 history entries.        ex: lean-pkg status my-lean
+register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
+  flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
+         [--visibility private|public] [--status ENUM] [--upstream-target none|mathlib|palomar]
+         [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
+  --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
+  ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
+update    set fields of a registered package; manual status moves need --reason.
+  ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
+claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry).
+  flags: --workspace W --agent A (required) [--ttl HOURS=24] [--reason TEXT] [--force (needs --reason)]
+  ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
+release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera
+gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
+  flags: --receipt PATH (required), --comparator PATH (optional comparator receipt)
+  ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
+comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
+  no status change; event comparator-attached; identical re-attach = no-op. It is required by promote.
+  The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
+  COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1).
+  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status)
+  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json
+promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
+  (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
+  promote refuses without a byte-valid comparator receipt bound to HEAD.
+  ex: lean-pkg promote my-lean          # always read the dry-run checklist first
+audit     sweep expired leases; reconcile gh visibility; receipt/toolchain drift. --fix applies gh -> registry.
+  ex: lean-pkg audit --json
+validate  schema + enum + history sanity.              ex: lean-pkg validate
+llms      this contract.                               ex: lean-pkg llms
+wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
+
+RECEIPT SCHEMA (JSON object; `gate` enforces every line)
+commit         40 lowercase hex; MUST equal HEAD, or HEAD must be an evidence-only descendant of it
+               (only .lean-receipts/ paths differ between the two commits)
+lean_toolchain string; MUST equal the repo's lean-toolchain file content, stripped
+mathlib_rev    nonempty string (full mathlib rev)
+sorry_count    integer; MUST be 0
+axioms         list of strings; subset of gate.axioms_allowed (default exactly: propext, Quot.sound, Classical.choice)
+report_sha256  64 hex chars; SHA-256 of the verification report
+job_id         nonempty terminal executor job identity, unique within that executor
+checker        nonempty exact checker command/mode (e.g. serial leanchecker manifest)
+generated_at   nonempty ISO-8601 timestamp
+
+COMPARATOR RECEIPT SCHEMA ("comparator-receipt/1"; written by comparator-receipt; `promote` re-derives every line from bytes)
+schema          "comparator-receipt/1"
+commit          40 lowercase hex; MUST equal the lower-tier receipt commit, and equal HEAD or have HEAD as
+                an evidence-only descendant (only .lean-receipts/ paths differ)
+lean_toolchain  MUST equal the repo's lean-toolchain file, stripped
+tools           {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
+host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>)
+host_policy     optional; the runner's host-policy reason (an override run is visible here)
+result          "pass" (the runner writes a receipt only on PASS)
+configs[]       MUST list exactly the comparator*.json / comparator/config*.json files tracked at HEAD
+                (no omissions, no extras). Per config: path, sha256 of its HEAD bytes; challenge_module,
+                solution_module, theorem_names[] (non-empty), definition_names[], permitted_axioms[]
+                (subset of gate.axioms_allowed) — each MUST equal the config file at HEAD;
+                log MUST be .lean-receipts/<commit12>-comparator-<cfgname>.log (cfgname = path minus
+                .json, '/' -> '_'); log_sha256; result "pass". The log must contain the full line
+                "Your solution is okay!". A file already at the canonical .lean-receipts path that
+                differs from the receipt being recorded is refused (no silent pointer drift).
+
+EXECUTOR EVIDENCE
+The gate is executor-neutral. The frozen report named by report_sha256 must bind the exact
+candidate commit/tree, source archive, toolchain/dependency pins, complete checker coverage,
+terminal state/exit, and executor-specific identity/resource evidence. Slurm reports bind
+terminal scheduler accounting; hosted reports bind run/attempt/job identity, terminal
+conclusion, immutable workflow/control revision, runner identity, and resources. A pilot,
+partial manifest, pre-terminal marker, or prior-candidate receipt is not gate evidence.
+
+EVENT LINE SCHEMA (one JSON object per line; the same entry is appended to history[])
+ts      ISO-8601 timestamp
+event   one of: registry-created, registered, updated, claimed, claim-refreshed, claim-forced,
+        released, release-forced, lease-expired, gate-passed, promoted, audit-fix,
+        comparator-attached
+name    package name or null
+plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt, ...)
+
+EXIT CODES
+0  success, including dry-runs and the "already gated" no-op
+1  refused or validation failed (stderr has the reason; with --json stdout also gets {"ok": false, "error": ...})
+2  usage error (argparse, or an interactive prompt attempted off-tty)
