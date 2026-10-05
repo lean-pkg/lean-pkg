@@ -1,0 +1,16 @@
+title: lean-pkg
+description: A registry and trust gate for Lean 4 formalization packages.
+theme: jekyll-theme-cayman
+show_downloads: false
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: false
+include:
+  - llms.txt
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor

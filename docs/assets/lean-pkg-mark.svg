@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-labelledby="title desc">
+  <title id="title">lean-pkg</title>
+  <desc id="desc">A rounded shield containing a check mark above two short horizontal lines, representing a verified receipt.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f6f8b"/>
+      <stop offset="1" stop-color="#0a4a63"/>
+    </linearGradient>
+  </defs>
+  <path d="M64 8 L108 24 V62 C108 88 88 108 64 120 C40 108 20 88 20 62 V24 Z" fill="url(#g)" stroke="#06293a" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M42 60 L58 76 L88 42" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="40" y="88" width="48" height="6" rx="3" fill="#cfe9f3"/>
+  <rect x="48" y="100" width="32" height="6" rx="3" fill="#9fd1e3"/>
+</svg>
