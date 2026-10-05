@@ -1,0 +1,187 @@
+---
+title: Getting started
+---
+
+# Getting started
+
+## Install
+
+Python 3.11 or newer. The only Python dependency is PyYAML.
+
+```bash
+pipx install git+https://github.com/chenle02/lean-pkg.git
+# or
+uv tool install git+https://github.com/chenle02/lean-pkg.git
+# or, from a checkout, for development
+python3 -m pip install -e '.[test]'
+```
+
+External tools, needed only by some commands:
+
+| Tool | Needed for |
+|---|---|
+| `git` | everything that reads a package repository |
+| `gh`, authenticated (`gh auth login` or `GH_TOKEN`) | `promote` and `audit`; GitHub is only the visibility mirror |
+| `reuse` (optional) | the REUSE lint line of the promotion checklist |
+| Linux, `elan` (`lean`, `lake`), `go`, `cargo`, `jq` | `comparator-receipt`; the first run builds the pinned comparator toolchain into `~/.cache/lean-ci-tools` (about 25 minutes cold, seconds afterwards) |
+
+## Configuration
+
+| Setting | Meaning |
+|---|---|
+| `--registry PATH`, then env `LEAN_PKG_REGISTRY`, then `./lean-packages.yaml` | registry file, in that order of precedence |
+| `--events PATH`, else `lean-package-events.jsonl` next to the registry | append-only event log |
+| `LEAN_PKG_NOTIFY_CMD` | optional command run once after a successful `promote --yes`, message on stdin |
+| `COMPARATOR_RECEIPT_ALLOWED_HOSTS` | comma-separated host names on which `comparator-receipt` may run |
+| `COMPARATOR_RECEIPT_ALLOW_HOST=1` | explicit override of the host policy (recorded in the receipt) |
+| `SLURM_JOB_ID` | inside a Slurm job the run is always allowed and the job id becomes the receipt `job_id` |
+| `COMPARATOR_CHECK` | an alternative `comparator-check.sh` (default: the copy shipped in the package) |
+
+Each package's `local_path` is resolved relative to `$HOME`, so machines that
+keep checkouts at the same home-relative place can share one registry.
+Absolute paths also work.
+
+## Worked example, end to end
+
+This takes a small Lake project from registration to a promotion dry run.
+Replace `you/my-proof` with your repository.
+
+### 1. The project
+
+```
+~/src/my-proof/
+  lean-toolchain        leanprover/lean4:v4.32.0
+  lakefile.toml
+  lake-manifest.json    tracked; pins Mathlib
+  LICENSE               an OSI license GitHub can detect
+  Challenge.lean        trusted, Mathlib-only statements, proofs replaced by `sorry`
+  Solution.lean         the same theorem names and statements, with proofs
+  comparator.json
+```
+
+`comparator.json` uses the Palomar layout:
+
+```json
+{
+  "challenge_module": "Challenge",
+  "solution_module": "Solution",
+  "theorem_names": ["MyProof.two_mul_le"],
+  "definition_names": [],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "enable_nanoda": true
+}
+```
+
+Several configurations may be declared, as `comparator*.json` at the project
+root or as `comparator/config*.json`. Every one of them must pass. See the
+[comparator tier](comparator.md) for the details.
+
+### 2. A registry and a package entry
+
+```bash
+mkdir -p ~/lean-registry && cd ~/lean-registry
+printf 'version: 1\npackages: {}\n' > lean-packages.yaml   # one-time bootstrap
+export LEAN_PKG_REGISTRY=~/lean-registry/lean-packages.yaml
+
+lean-pkg register my-proof --repo git@github.com:you/my-proof.git \
+    --path src/my-proof --upstream-target palomar
+# my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.32.0, pin=81a5d257c8)
+
+lean-pkg claim my-proof --workspace laptop --agent alice --reason "comparator tier"
+lean-pkg update my-proof --agent alice --status gate-pending --reason "lower-tier check submitted"
+```
+
+After this bootstrap, change the registry only through `lean-pkg`. Never
+edit the YAML by hand.
+
+### 3. The lower-tier receipt
+
+Run your usual checks at the commit you want to certify (`lake build`, a
+sorry scan, `#print axioms` over the exported theorems), freeze the report,
+and write a receipt JSON. `lean-pkg` validates the receipt but does not
+produce it:
+
+```json
+{
+  "commit": "<40-hex HEAD of ~/src/my-proof>",
+  "lean_toolchain": "leanprover/lean4:v4.32.0",
+  "mathlib_rev": "<full Mathlib rev from lake-manifest.json>",
+  "sorry_count": 0,
+  "axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "report_sha256": "<sha256 of the frozen report>",
+  "job_id": "slurm-123456",
+  "checker": "lake build + sorry scan + #print axioms",
+  "generated_at": "2026-10-05T12:00:00+00:00"
+}
+```
+
+### 4. The comparator receipt
+
+From the project directory, with a clean working tree and after
+`lake exe cache get`:
+
+```bash
+cd ~/src/my-proof
+COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
+# == comparator @ 575674928e23...   (tool pins as checked out)
+# ...
+# All configurations accepted.
+# comparator receipt written: .../my-proof/.lean-receipts/cb3d68a21454-comparator.json (1 config(s), commit cb3d68a21454, host policy: host <host> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS)
+```
+
+Inside a Slurm job the host policy is satisfied automatically. The runner
+writes `.lean-receipts/<commit12>-comparator.json` and one
+`.lean-receipts/<commit12>-comparator-<cfgname>.log` per configuration. If
+any configuration fails, it writes nothing.
+
+### 5. Gate with comparator evidence
+
+```bash
+lean-pkg gate my-proof --receipt /path/to/receipt.json \
+    --comparator .lean-receipts/cb3d68a21454-comparator.json
+# receipt copied to .../my-proof/.lean-receipts/cb3d68a21454-slurm-123456.json — NOT committed there; commit it in the verified repo yourself
+# comparator receipt already present at .lean-receipts/cb3d68a21454-comparator.json (not re-copied)
+# my-proof: gate-pending -> verified-private (commit cb3d68a21454) with comparator evidence .lean-receipts/cb3d68a21454-comparator.json
+```
+
+Now commit the evidence in the package repository:
+
+```bash
+git add .lean-receipts && git commit -m "evidence: receipts for cb3d68a21454"
+```
+
+This commit changes only `.lean-receipts/`, so it is an *evidence-only
+descendant* of the certified commit, and both receipts stay valid. See
+[Receipts and trust](receipts.md).
+
+### 6. Re-check the comparator evidence
+
+```bash
+lean-pkg comparator my-proof --check --receipt .lean-receipts/cb3d68a21454-comparator.json
+# my-proof: comparator receipt valid at commit cb3d68a21454 (1 config(s)) — not recorded (--check)
+```
+
+`--check` re-derives the PASS from bytes and records nothing. It works at any
+status, so you can validate a receipt the moment the runner wrote it.
+
+### 7. Promotion dry run
+
+```bash
+lean-pkg promote my-proof
+# promotion checklist for my-proof (~/src/my-proof):
+#   ✓  reuse lint passed
+#   ✓  LICENSE/COPYING present at repo root
+#   ✓  lake-manifest.json tracked at HEAD
+#   ✓  gate receipt bound to HEAD 148818d4c635 (evidence-only descendant of cb3d68a21454 (+3 evidence file(s)))
+#   ✓  comparator PASS bound to HEAD 148818d4c635 (1 config(s), nanoda replay)
+#   ✓  gh visibility matches registry (private)
+#   ✓  automation disclosure not required (upstream_target=palomar)
+# WARNING: a GitHub private→public flip is effectively ONE-WAY — ...
+# DRY RUN — nothing changed. Re-run with --yes to execute.
+```
+
+`lean-pkg promote my-proof --yes` performs the flip
+(`gh repo edit --visibility public`). Forks, clones, and caches stay public
+afterwards, so treat it as irreversible.
+
+Next: [How to](how-to.md) for task recipes, or the [CLI reference](cli.md).
