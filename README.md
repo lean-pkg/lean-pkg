@@ -40,9 +40,11 @@ Three things still go wrong in practice, and `lean-pkg` exists to catch them:
   registry with time-limited leases keeps one package in one workspace at a
   time and records every transition.
 
-The longer-term aim is a catalog of verified results that other projects can
-search, import under a stable identifier, and cite. See
-[Motivation](docs/motivation.md).
+`lean-pkg` is not a library and not a Mathlib fork: every package depends on
+Mathlib, and general results are meant to be upstreamed. The longer-term aim
+is a catalog of verified research results that other projects can search,
+import under a stable identifier, and cite. See [Motivation](docs/motivation.md),
+including [lean-pkg and Mathlib](docs/motivation.md#lean-pkg-and-mathlib).
 
 ## What a receipt proves, and what it does not
 
