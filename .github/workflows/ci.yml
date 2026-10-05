@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: python -m pip install -e '.[test]'
+      - name: Console scripts start
+        run: |
+          lean-pkg --help >/dev/null
+          comparator-receipt --help >/dev/null
+      - name: Test
+        run: python -m pytest -q
+
+  private-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Forbidden-string scan
+        run: bash scripts/private-boundary-check.sh
+      - name: No tab characters
+        run: |
+          if grep -rnP '\t' --include='*.py' --include='*.sh' --include='*.md' \
+               --include='*.toml' --include='*.yml' --include='*.txt' \
+               --exclude-dir=.git .; then
+            echo "tab characters found" >&2
+            exit 1
+          fi
