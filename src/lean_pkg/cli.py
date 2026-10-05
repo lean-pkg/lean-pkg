@@ -185,6 +185,26 @@ def git_head(repo: pathlib.Path) -> str | None:
     return p.stdout.strip() if p.returncode == 0 else None
 
 
+def evidence_only_descendant(repo: pathlib.Path, bound: str,
+                             head: str) -> tuple[bool, str]:
+    """Evidence-only descendant rule (see DESIGN.md): a receipt bound to commit `bound` is
+    accepted at `head` when head == bound, or when head descends from bound and
+    the only paths that differ live under .lean-receipts/ (the evidence itself).
+    Returns (ok, note)."""
+    if bound == head:
+        return True, ""
+    p = git(repo, "merge-base", "--is-ancestor", bound, head)
+    if p.returncode != 0:
+        return False, f"{bound[:12]} is not an ancestor of HEAD {head[:12]}"
+    p = git(repo, "diff", "--name-only", bound, head)
+    paths = [x for x in p.stdout.splitlines() if x.strip()]
+    foreign = [x for x in paths if not x.startswith(".lean-receipts/")]
+    if foreign or not paths:
+        return False, (f"HEAD {head[:12]} differs from {bound[:12]} outside "
+                       f".lean-receipts/: {foreign[:5]}")
+    return True, f"evidence-only descendant of {bound[:12]} (+{len(paths)} evidence file(s))"
+
+
 def ensure_interactive() -> None:
     """Every prompt path must call this first: off a tty, refuse (exit 2)
     instead of blocking on input. Agents always use flags or --json."""
@@ -511,9 +531,11 @@ def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
     head = git_head(repo)
     if head is None:
         raise Fail(f"cannot resolve HEAD in {repo}")
-    if commit != head:
+    ok, note = evidence_only_descendant(repo, commit, head)
+    if not ok:
         raise Fail(f"receipt commit {commit[:12]}… != repo HEAD {head[:12]}… — "
-                   f"the receipt must bind to the current HEAD")
+                   f"the receipt must bind to HEAD or an evidence-only descendant "
+                   f"({note})")
     tc_file = repo / "lean-toolchain"
     if not tc_file.is_file():
         raise Fail(f"{repo}: no lean-toolchain file")
@@ -547,9 +569,9 @@ def sha256_bytes(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
-def git_show_bytes(repo: pathlib.Path, rel: str) -> bytes | None:
-    """Bytes of HEAD:<rel>, or None when the path is not tracked at HEAD."""
-    p = subprocess.run(["git", "-C", str(repo), "show", f"HEAD:{rel}"],
+def git_show_bytes(repo: pathlib.Path, rel: str, rev: str = "HEAD") -> bytes | None:
+    """Bytes of <rev>:<rel>, or None when the path is not tracked there."""
+    p = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{rel}"],
                        capture_output=True)
     return p.stdout if p.returncode == 0 else None
 
@@ -563,9 +585,9 @@ def cfg_name(path: str) -> str:
     return base.replace("/", "_")
 
 
-def head_comparator_configs(repo: pathlib.Path) -> list[str]:
-    """Every comparator configuration tracked at HEAD (the set the runner checks)."""
-    p = git(repo, "ls-tree", "-r", "--name-only", "HEAD")
+def head_comparator_configs(repo: pathlib.Path, rev: str = "HEAD") -> list[str]:
+    """Every comparator configuration tracked at <rev> (the set the runner checks)."""
+    p = git(repo, "ls-tree", "-r", "--name-only", rev)
     if p.returncode != 0:
         return []
     return sorted(x for x in p.stdout.splitlines() if COMPARATOR_CONFIG_RE.match(x))
@@ -598,9 +620,11 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
     head = git_head(repo)
     if head is None:
         raise Fail(f"cannot resolve HEAD in {repo}")
-    if commit != head:
+    ok, note = evidence_only_descendant(repo, commit, head)
+    if not ok:
         raise Fail(f"comparator commit {commit[:12]}… != repo HEAD {head[:12]}… — "
-                   f"the comparator receipt must bind to the current HEAD")
+                   f"the comparator receipt must bind to HEAD or an evidence-only "
+                   f"descendant ({note})")
     if receipt_commit and commit != receipt_commit:
         raise Fail(f"comparator commit {commit[:12]}… != lower-tier receipt commit "
                    f"{receipt_commit[:12]}… — both tiers must bind to one commit")
@@ -628,12 +652,13 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
         raise Fail("comparator configs must be a non-empty list")
     allowed = set((pkg.get("gate") or {}).get("axioms_allowed") or DEFAULT_AXIOMS)
     listed = [_safe_rel(c.get("path"), "config") for c in configs if isinstance(c, dict)]
-    expected = head_comparator_configs(repo)
+    expected = head_comparator_configs(repo, commit)
     if sorted(listed) != expected:
         missing = sorted(set(expected) - set(listed))
         extra = sorted(set(listed) - set(expected))
-        raise Fail(f"comparator receipt must list exactly the configs tracked at HEAD "
-                   f"{head[:12]}: missing {missing}, extra/duplicate {extra}")
+        raise Fail(f"comparator receipt must list exactly the configs tracked at "
+                   f"{commit[:12]} (bound commit; HEAD {head[:12]}): "
+                   f"missing {missing}, extra/duplicate {extra}")
     for i, cfg in enumerate(configs):
         if not isinstance(cfg, dict):
             raise Fail(f"comparator configs[{i}] is not an object")
@@ -644,22 +669,22 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
         if cfg["result"] != "pass":
             raise Fail(f"comparator config {path} result must be 'pass', "
                        f"got {cfg['result']!r}")
-        blob = git_show_bytes(repo, path)
+        blob = git_show_bytes(repo, path, commit)
         if blob is None:
-            raise Fail(f"comparator config {path} is not tracked at HEAD {head[:12]}")
+            raise Fail(f"comparator config {path} is not tracked at {commit[:12]} (HEAD {head[:12]})")
         if sha256_bytes(blob) != str(cfg["sha256"]).lower():
-            raise Fail(f"comparator config {path} sha256 mismatch against HEAD bytes")
+            raise Fail(f"comparator config {path} sha256 mismatch against bytes at {commit[:12]}")
         try:
             blob_cfg = json.loads(blob)
         except ValueError:
             blob_cfg = None
         if not isinstance(blob_cfg, dict):
-            raise Fail(f"comparator config {path} at HEAD is not a JSON object")
+            raise Fail(f"comparator config {path} at {commit[:12]} is not a JSON object")
         for f in ("challenge_module", "solution_module", "theorem_names",
                   "definition_names", "permitted_axioms"):
             if cfg[f] != blob_cfg.get(f):
                 raise Fail(f"comparator config {path}: receipt {f} differs from the "
-                           f"config at HEAD ({cfg[f]!r} vs {blob_cfg.get(f)!r})")
+                           f"config at {commit[:12]} ({cfg[f]!r} vs {blob_cfg.get(f)!r})")
         names = cfg["theorem_names"]
         if not isinstance(names, list) or not names \
                 or not all(isinstance(n, str) and n for n in names):
@@ -960,11 +985,14 @@ def promote_checklist(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
             rcommit = json.loads((repo / receipt_rel).read_text()).get("commit")
         except Exception:
             rcommit = None
-        if rcommit and head and rcommit == head:
-            checks.append(("✓", f"gate receipt bound to HEAD {head[:12]}"))
+        ok, note = (evidence_only_descendant(repo, rcommit, head)
+                    if rcommit and head else (False, "no receipt commit"))
+        if ok:
+            checks.append(("✓", f"gate receipt bound to HEAD {head[:12]}"
+                                + (f" ({note})" if note else "")))
         else:
             checks.append(("✗", f"gate receipt/HEAD drift: "
-                                f"receipt={str(rcommit)[:12]} HEAD={str(head)[:12]}"))
+                                f"receipt={str(rcommit)[:12]} HEAD={str(head)[:12]} ({note})"))
     comp_rel = (pkg.get("gate") or {}).get("comparator")
     if not comp_rel:
         checks.append(("✗", "no comparator receipt recorded — a comparator PASS "
@@ -1122,7 +1150,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False) -> list[dict]:
                 except Exception:
                     rcommit = None
                 head = git_head(repo)
-                if rcommit and head and rcommit != head:
+                if rcommit and head and not evidence_only_descendant(repo, rcommit, head)[0]:
                     note("receipt-drift", name,
                          f"receipt={str(rcommit)[:12]} HEAD={head[:12]}")
         comp_rel = (pkg.get("gate") or {}).get("comparator")
@@ -1133,7 +1161,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False) -> list[dict]:
             else:
                 ccommit = (recorded_json(repo, comp_rel) or {}).get("commit")
                 head = git_head(repo)
-                if ccommit and head and ccommit != head:
+                if ccommit and head and not evidence_only_descendant(repo, ccommit, head)[0]:
                     note("comparator-drift", name,
                          f"comparator={str(ccommit)[:12]} HEAD={head[:12]}")
         nwo = gh_nwo(pkg.get("repo") or "")
@@ -1772,7 +1800,8 @@ llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 
 RECEIPT SCHEMA (JSON object; `gate` enforces every line)
-commit         40 lowercase hex; MUST equal `git -C <repo> rev-parse HEAD`
+commit         40 lowercase hex; MUST equal HEAD, or HEAD must be an evidence-only descendant of it
+               (only .lean-receipts/ paths differ between the two commits)
 lean_toolchain string; MUST equal the repo's lean-toolchain file content, stripped
 mathlib_rev    nonempty string (full mathlib rev)
 sorry_count    integer; MUST be 0
@@ -1784,7 +1813,8 @@ generated_at   nonempty ISO-8601 timestamp
 
 COMPARATOR RECEIPT SCHEMA ("comparator-receipt/1"; written by comparator-receipt; `promote` re-derives every line from bytes)
 schema          "comparator-receipt/1"
-commit          40 lowercase hex; MUST equal repo HEAD and the lower-tier receipt commit
+commit          40 lowercase hex; MUST equal the lower-tier receipt commit, and equal HEAD or have HEAD as
+                an evidence-only descendant (only .lean-receipts/ paths differ)
 lean_toolchain  MUST equal the repo's lean-toolchain file, stripped
 tools           {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
 host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>)

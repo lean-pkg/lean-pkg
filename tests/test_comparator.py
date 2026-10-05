@@ -502,3 +502,62 @@ def test_promote_json_carries_full_comparator_reason(lp, env, fake_gh, capsys):
     assert len(bad) == 1
     assert "reason" in bad[0] and "log_sha256" in bad[0]["reason"]
     assert bad[0]["reason"].endswith(".log")  # full text, not truncated to 140
+
+
+# --- evidence-only descendant rule ----------------------------------------
+
+def commit_evidence(repo, *extra_paths):
+    _git(repo, "add", "-f", ".lean-receipts")
+    for p in extra_paths:
+        (repo / p).write_text("x\n")
+        _git(repo, "add", p)
+    _git(repo, "commit", "-m", "evidence")
+
+
+def test_comparator_accepted_at_evidence_only_descendant(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a)
+    bound = comp["commit"]
+    commit_evidence(env.repo_a)
+    assert repo_head(env.repo_a) != bound
+    validate(lp, env, env.repo_a, comp)  # accepted: HEAD only adds .lean-receipts/
+
+
+def test_comparator_refused_when_descendant_changes_source(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a)
+    commit_evidence(env.repo_a, "NEW.md")
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "NEW.md" in str(e.value) and "HEAD" in str(e.value)
+
+
+def test_comparator_refused_when_bound_commit_is_not_an_ancestor(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a)
+    # a sibling commit that is not an ancestor of HEAD
+    _git(env.repo_a, "checkout", "-q", "-b", "side")
+    (env.repo_a / "SIDE.md").write_text("s\n")
+    _git(env.repo_a, "add", "SIDE.md")
+    _git(env.repo_a, "commit", "-m", "side")
+    side = repo_head(env.repo_a)
+    _git(env.repo_a, "checkout", "-q", "-")
+    comp["commit"] = side
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "HEAD" in str(e.value)
+
+
+def test_promote_passes_after_evidence_commit_on_both_tiers(lp, env, fake_gh, capsys):
+    commit_evidence(env.repo_b)   # seed.json + comparator receipt + log now tracked
+    assert promote(lp, env) == 0
+    out = capsys.readouterr().out
+    assert "evidence-only descendant" in out
+    assert "comparator PASS" in out
+
+
+def test_audit_no_drift_after_evidence_only_commit(lp, env, fake_gh, capsys):
+    commit_evidence(env.repo_b)
+    lp.main(["--registry", str(env.registry), "audit"])
+    out = capsys.readouterr().out
+    assert "receipt-drift" not in out and "comparator-drift" not in out
