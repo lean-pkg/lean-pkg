@@ -36,3 +36,4 @@ lean_pkg = ["scripts/*.sh"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
