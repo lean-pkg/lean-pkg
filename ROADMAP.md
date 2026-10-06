@@ -45,8 +45,13 @@ Acceptance criteria:
 
 ### Trusted PR verifier
 
-Add an independent verifier for index-entry pull requests. The verifier must
-treat all contributor-supplied metadata and receipts as untrusted input.
+Add a separate verification service around `lean-pkg` for index-entry pull
+requests. The core CLI remains a validator, consistent with the current design
+principle that `lean-pkg` itself does not execute Lean. The service invokes
+isolated executors and feeds their outputs back into the existing validators.
+
+The verifier must treat all contributor-supplied metadata and receipts as
+untrusted input.
 
 Minimum verification:
 
@@ -98,6 +103,59 @@ signature should bind the repository, commit, evidence hashes, recomputed trust,
 verifier version, and timestamp. A future Sigstore-style implementation would
 let third parties verify that a certificate was issued by an authorized
 `lean-pkg` verifier rather than by the submitter.
+
+### Conditional certificates and certificate lineage
+
+Make partial verification a first-class publication model rather than an
+informal note. A certificate version should be able to state its verification
+boundary explicitly and point to a predecessor version.
+
+Planned scope fields should distinguish:
+
+- theorem hypotheses;
+- formal Lean dependencies;
+- external literature dependencies;
+- temporary project assumptions;
+- unverified paper scope.
+
+A new certificate may discharge an earlier external dependency, but it must
+never mutate or erase the older certificate. The catalog should show both the
+current strongest certificate and the lineage that led to it.
+
+Trust level and verification scope are separate dimensions: a theorem can have
+strong comparator evidence while still being mathematically conditional on
+explicit external inputs.
+
+### Manuscript and discovery provenance
+
+Track how research artifacts lead to formal claims without treating discovery
+tools as proof sources.
+
+Possible provenance links:
+
+- manuscript repository/commit or released paper version;
+- paper theorem/section identifier;
+- discovery artifact (Python/SymPy/Sage/Mathematica/notebook) path and hash;
+- environment or lockfile identifying the computation;
+- candidate claim produced by the artifact;
+- Lean declaration that formalizes the claim;
+- later certificate versions that verify or strengthen it.
+
+The workflow should support "formalization as a second referee": a Lean pass
+may expose a missing assumption, the manuscript is revised, and a new
+certificate binds the corrected statement and source revision.
+
+### External-reference identifiers
+
+Allow external unformalized dependencies to carry stable bibliographic
+identifiers. Prefer DOI or another durable identifier when available, and allow
+field-specific bibliography keys as an additional human-friendly handle. For
+stochastic-analysis deployments, `SPDEs-Bib` can serve as a curated citation
+source without becoming part of the logical trust base.
+
+A rendered conditional certificate should show a readable citation and an exact
+locator (for example theorem, proposition, or page) for each external
+dependency.
 
 ### Headline theorem change detection
 
@@ -183,9 +241,11 @@ Possible follow-ups:
 1. `lean-pkg index submit`;
 2. trusted pull-request verifier;
 3. reproducible sandbox runner;
-4. signed verification attestations;
-5. fidelity-review and reviewer workflows;
-6. Palomar handoff and catalog improvements.
+4. conditional certificates and certificate lineage;
+5. manuscript/discovery provenance and external-reference identifiers;
+6. signed verification attestations;
+7. fidelity-review and reviewer workflows;
+8. Palomar handoff and catalog improvements.
 
 The first three turn the current CLI/index model into a scalable submission and
 verification service without weakening the principle that trust is independently
