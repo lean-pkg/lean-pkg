@@ -40,6 +40,13 @@ Trust is computed, never typed: `index add` derives it from the evidence
 present, and `index check` recomputes it and refuses an entry whose stated
 trust differs from its evidence.
 
+`comparator` trust also requires coverage: every headline theorem must name,
+in `judged_as`, a theorem that one of the comparator receipt's configurations
+judged (a Challenge restates a theorem under its own name). A comparator
+receipt that judged other statements, such as a smoke configuration, does not
+grade the headline: the entry is lower-tier if a lower-tier receipt exists,
+and refused otherwise.
+
 ## Entry schema (`index-entry/1`)
 
 Keys appear in exactly this order; an unknown key is refused.
@@ -55,7 +62,7 @@ Keys appear in exactly this order; an unknown key is refused.
 | `license_spdx` | SPDX id; a license file must exist at the pin |
 | `trust` | `lower-tier`, `comparator` or `palomar` (computed) |
 | `receipts` | `lower` and `comparator`: repository paths under `.lean-receipts/`, or null |
-| `headline` | list of `name` (fully qualified), `file` (repository-relative `.lean`), `summary` (one sentence) |
+| `headline` | list of `name` (fully qualified), `file` (repository-relative `.lean`), `summary` (one sentence), and optionally `judged_as` (the Challenge theorem name under which a comparator configuration judged it) |
 | `palomar` | list of `id` and `version` |
 | `doi` | null, or `concept` and `versions` (each `doi`, `tag`, `commit`) |
 | `reservoir` | null, or the package's Reservoir page |

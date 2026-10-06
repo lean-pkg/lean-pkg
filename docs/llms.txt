@@ -72,7 +72,7 @@ validate  schema + enum + history sanity.              ex: lean-pkg validate
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
-  add NAME --by HANDLE --headline 'Name :: File.lean :: One sentence.' [--from-registry] [--repo URL]
+  add NAME --by HANDLE --headline 'Name :: File.lean :: One sentence.[ :: ChallengeTheorem]' [--from-registry] [--repo URL]
       [--repo-dir P] [--lower REL] [--comparator REL] [--license SPDX] [--tag T] [--field-tag T] [--consent-recorded]
       [--allow-unpushed]  (default: the pin and evidence must be on a branch of the public repo; consent must be recorded)
       validates the receipts at the pin (their commit) in a clone; trust computed; receipts copied verbatim;
@@ -120,7 +120,7 @@ configs[]       MUST list exactly the comparator*.json / comparator/config*.json
 INDEX ENTRY SCHEMA ("index-entry/1"; YAML keys in this order; unknown keys refused; no local paths)
 schema name repo(https) pin{commit = the receipts' commit, tag|null} lean_toolchain mathlib_rev|null license_spdx
 trust(lower-tier|comparator|palomar; computed, never typed) receipts{lower|null, comparator|null}
-headline[{name, file, summary}] palomar[{id, version}] doi|null reservoir|null formalization_yaml|null
+headline[{name, file, summary, judged_as?}] (comparator trust needs every headline judged_as in a config) palomar[{id, version}] doi|null reservoir|null formalization_yaml|null
 fields[] consent{recorded} added{at, by} notes
 
 EXECUTOR EVIDENCE

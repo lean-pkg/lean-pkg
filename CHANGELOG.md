@@ -8,6 +8,10 @@ change the registry schema or receipt format, always with a migration).
 ## [Unreleased]
 
 ### Changed
+- Index: `comparator` trust requires coverage. Each headline item may carry
+  `judged_as`, the Challenge theorem name; comparator trust needs every
+  headline judged by a configuration in the receipt, else the entry is
+  lower-tier (with a lower-tier receipt) or refused.
 - The comparator PASS predicate is the full line `Your solution is okay!`
   for both mechanisms, as observed in the first live `lake comparator` run
   (2026-10-06); the kernel acceptance phrase alone no longer counts.

@@ -290,3 +290,31 @@ def test_add_refuses_receipt_bytes_with_private_path_strings(lp, tmp_path, capsy
     _git(pkg.repo, "commit", "-m", "evidence")
     assert index_add(lp, tmp_path / "index", pkg) == 1
     assert "private" in capsys.readouterr().err.lower()
+
+
+# --- comparator trust must cover the headline theorems (2026-10-06) ---------
+
+def test_add_downgrades_trust_when_headline_not_judged_by_the_comparator(lp, tmp_path, capsys):
+    """The comparator receipt judges `foo_le_bar` (the config's theorem_names); a headline whose
+    `judged_as` names something else is not comparator-trusted: lower-tier when a lower receipt
+    exists, refused otherwise."""
+    pkg = make_index_package(tmp_path)                      # lower + comparator judging ["foo_le_bar"]
+    root = tmp_path / "index"
+    rc = lp.main(["index", "add", "demo", "--index", str(root), "--repo-dir", str(pkg.repo),
+                  "--repo", pkg.url, "--license", "MIT", "--by", "maintainer", "--consent-recorded",
+                  "--allow-unpushed", "--lower", pkg.lower_rel, "--comparator", pkg.comp_rel,
+                  "--headline", "Demo.foo_le_bar :: Demo/Main.lean :: A trivial demonstration theorem. :: something_else"])
+    assert rc == 0, capsys.readouterr().err
+    e = yaml.safe_load((root / "demo" / "entry.yaml").read_text())
+    assert e["trust"] == "lower-tier" and e["headline"][0]["judged_as"] == "something_else"
+    assert "not judged" in capsys.readouterr().out
+
+
+def test_add_refuses_comparator_only_entry_whose_headline_is_not_judged(lp, tmp_path, capsys):
+    pkg = make_index_package(tmp_path, lower=False)
+    rc = lp.main(["index", "add", "demo", "--index", str(tmp_path / "index"), "--repo-dir", str(pkg.repo),
+                  "--repo", pkg.url, "--license", "MIT", "--by", "maintainer", "--consent-recorded",
+                  "--allow-unpushed", "--comparator", pkg.comp_rel,
+                  "--headline", "Demo.foo_le_bar :: Demo/Main.lean :: A trivial demonstration theorem."])
+    assert rc == 1
+    assert "not judged" in capsys.readouterr().err
