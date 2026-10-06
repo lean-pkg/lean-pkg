@@ -63,3 +63,31 @@ promotion dry run.
 - [CLI reference](cli.md): every subcommand.
 - [Using lean-pkg with agents](agents.md): the LLM entry.
 - [Agent skills](skills.md): lessons for agents on statement fidelity, evidence and publication, with an installer.
+
+## Citation
+
+A Zenodo DOI will be minted for the first public release. Until then, cite
+the repository at a commit:
+
+```bibtex
+@software{lean_pkg,
+  author  = {Chen, Le},
+  title   = {lean-pkg: a registry and trust gate for Lean 4 formalization packages},
+  year    = {2026},
+  version = {0.1.0},
+  url     = {https://github.com/chenle02/lean-pkg},
+  note    = {commit <sha>}
+}
+```
+
+For a verified result, cite the package's Zenodo version DOI (cut at the
+Palomar-registered commit) together with its `PALOMAR-…` id and version;
+see the [FAQ](faq.md#about-the-workflow).
+
+## License
+
+The tool and this documentation are released under the
+[Apache License 2.0](https://github.com/chenle02/lean-pkg/blob/main/LICENSE).
+Each verified package carries its own license; the promotion checklist
+requires one that GitHub can detect.
+

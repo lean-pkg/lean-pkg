@@ -59,5 +59,11 @@ def test_readme_has_motivation_quick_start_and_routes():
     for heading in ("## Why lean-pkg", "## Who is this for", "## Not Palomar, not Mathlib",
                     "## In sixty seconds", "## Learn the workflow", "docs/newcomers.md",
                     "docs/sample-workflow.md", "docs/faq.md", "Functional Programming in Lean",
-                    "Palomar", "llms.txt", "AGENTS.md"):
+                    "Palomar", "llms.txt", "AGENTS.md", "## Citation", "## License", "```bibtex"):
         assert heading in text, heading
+
+
+def test_site_index_has_citation_and_license():
+    text = (ROOT / "docs" / "index.md").read_text()
+    assert "## Citation" in text and "```bibtex" in text and "@software" in text
+    assert "## License" in text and "Apache-2.0" in text
