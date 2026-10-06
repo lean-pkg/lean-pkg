@@ -16,5 +16,7 @@ Derived from each `index-entry/2` headline; `lean-pkg search TERM` finds them.
 
 | Claim | Declaration | Kind | Trust |
 |---|---|---|---|
+| `gromov-filling-lean/gromovfilling-riemannian-universal-fourier-bound` | `GromovFilling.riemannian_universal_fourier_bound` | theorem | lower-tier |
+| `markovprocess-pilot/markovprocesspilot-integral-eval-exittimetrunc-ioo` | `MarkovProcessPilot.integral_eval_exitTimeTrunc_Ioo` | theorem | comparator |
 | `total-coloring-lean/totalcoloring-exists-valid-assignment-of-highdegree` | `TotalColoring.exists_valid_assignment_of_highDegree` | theorem | lower-tier |
 | `total-coloring-lean/totalcoloring-minimalextraction-hasvalidrainbowcoloring-of-inauxiliaryclass` | `TotalColoring.MinimalExtraction.hasValidRainbowColoring_of_inAuxiliaryClass` | theorem | lower-tier |

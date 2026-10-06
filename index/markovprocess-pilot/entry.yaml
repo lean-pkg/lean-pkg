@@ -1,4 +1,4 @@
-schema: index-entry/1
+schema: index-entry/2
 name: markovprocess-pilot
 repo: https://github.com/chenle02/markovprocess-pilot
 pin:
@@ -17,6 +17,14 @@ headline:
   summary: Brownian motion started at x in (a, b), stopped at its exit time from (a, b) truncated at K,
     has mean x.
   judged_as: exit_mean
+claims:
+- id: markovprocess-pilot/markovprocesspilot-integral-eval-exittimetrunc-ioo
+  decl: MarkovProcessPilot.integral_eval_exitTimeTrunc_Ioo
+  kind: theorem
+  summary: Brownian motion started at x in (a, b), stopped at its exit time from (a, b) truncated at K,
+    has mean x.
+  judged_as: exit_mean
+  trust: comparator
 palomar: []
 doi: null
 reservoir: null
