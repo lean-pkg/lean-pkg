@@ -19,6 +19,7 @@ The authoritative, machine-oriented version of this page is
 | `list` | static table, script-friendly | `--json` |
 | `status NAME` | full record plus the last five history entries | |
 | `init` | bootstrap an empty registry file and its event log; refuses an existing registry unless `--force` and it holds no packages | `[--force]` |
+| `migrate` | upgrade the registry schema in place; v1 to v2 adds `license_spdx`, `formalization_yaml`, `palomar[]`, `doi`, `reservoir`, `consent[]` with empty defaults; additive and idempotent; the `registry-migrated` event records it | `[--dry-run]` |
 | `register NAME` | the only write path for new packages; validated, deduping, auto-detects toolchain and Mathlib pin | `--repo URL` `--path HOME-RELATIVE` `[--owner-project]` `[--visibility]` `[--status]` `[--upstream-target none|mathlib|palomar]` `[--automation]` `[--notes]` `[--dry-run]` |
 | `update NAME` | set fields; manual status moves need `--reason` | `--status` `--reason` `--automation` `--notes` `--upstream-target` `--reaudit-after` `--owner-project` `--repo` `--redetect` `--agent` `--force` |
 | `claim NAME` | compare-and-swap lease, 24 h default | `--workspace W` `--agent A` `[--ttl HOURS]` `[--reason]` `[--force]` |

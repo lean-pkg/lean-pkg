@@ -58,6 +58,7 @@ Constraints enforced here:
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import hashlib
 import json
@@ -73,7 +74,16 @@ import yaml
 
 HOME = pathlib.Path.home()
 REGISTRY_ENV = "LEAN_PKG_REGISTRY"
-REGISTRY_VERSION = 1   # schema version written by `init` (v2 arrives with `migrate`)
+REGISTRY_VERSION = 2                 # schema version written by `init` and `migrate`
+SUPPORTED_REGISTRY_VERSIONS = (1, 2) # readable by every command; v1 lacks the v2 keys below
+V2_PACKAGE_DEFAULTS = {
+    "license_spdx": None,        # SPDX id detected or declared (ADR-0070 D5)
+    "formalization_yaml": None,  # repo-relative path when the package has one
+    "palomar": [],               # [{id, version, commit, comparator_config, registered_at, review_outcome, preflight_run}]
+    "doi": None,                 # {"concept": str|None, "versions": [{"doi","tag","commit","minted_at"}]}
+    "reservoir": None,           # {"listed_at": iso, "url": str} or None
+    "consent": [],               # [{"who","role","recorded_at","pointer"}]; pointer is a private-repo path
+}
 DEFAULT_REGISTRY_NAME = "lean-packages.yaml"
 EVENTS_NAME = "lean-package-events.jsonl"
 NOTIFY_ENV = "LEAN_PKG_NOTIFY_CMD"
@@ -920,6 +930,7 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
                  "axioms_allowed": list(DEFAULT_AXIOMS)},
         "promoted_at": None, "promoted_commit": None, "reaudit_after": None,
         "notes": notes or "", "history": [],
+        **copy.deepcopy(V2_PACKAGE_DEFAULTS),
     }
     payload = {"name": name, "dry_run": dry_run, "package": entry,
                "warnings": warnings}
@@ -973,6 +984,44 @@ def do_init(reg_path: pathlib.Path, events_p: pathlib.Path, force: bool) -> tupl
            f"events: {events_p}"]
     return out, {"ok": True, "event": "registry-created", "registry": str(reg_path),
                  "events": str(events_p), "version": REGISTRY_VERSION}
+
+
+def migrate_registry(data: dict) -> tuple[dict, list[str]]:
+    """Pure: return (migrated copy, change log). v1 -> v2 is additive."""
+    out = copy.deepcopy(data)
+    changes: list[str] = []
+    v = out.get("version")
+    if v not in SUPPORTED_REGISTRY_VERSIONS:
+        raise Fail(f"cannot migrate registry version {v!r}; supported: {SUPPORTED_REGISTRY_VERSIONS}")
+    if v == 1:
+        out["version"] = 2
+        changes.append("version: 1 -> 2")
+    for name, pkg in (out.get("packages") or {}).items():
+        for k, default in V2_PACKAGE_DEFAULTS.items():
+            if k not in pkg:
+                pkg[k] = copy.deepcopy(default)
+                changes.append(f"{name}: + {k}")
+    return out, changes
+
+
+def do_migrate(reg_path, events_p, dry_run: bool) -> tuple[list[str], dict]:
+    data = load_registry(reg_path)
+    from_v = data.get("version")
+    new, changes = migrate_registry(data)
+    payload = {"ok": True, "dry_run": dry_run, "from_version": from_v,
+               "to_version": new["version"], "changes": changes}
+    if not changes:
+        return [f"registry already at version {new['version']}; nothing to do"], payload
+    lines = [f"  {c}" for c in changes]
+    if dry_run:
+        lines.append("DRY RUN \u2014 nothing written.")
+        return lines, payload
+    save_registry(reg_path, new)
+    append_event(events_p, now_iso(), None, "registry-migrated",
+                 from_version=from_v, to_version=new["version"], changes=len(changes))
+    lines.append(f"migrated {reg_path}: version {from_v} -> {new['version']} ({len(changes)} change(s))")
+    payload["event"] = "registry-migrated"
+    return lines, payload
 
 def promote_checklist(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
     """(mark, label) pairs; mark in {'✓', '✗', 'WARN'}."""
@@ -1233,8 +1282,9 @@ def validate_registry(data) -> list[str]:
     errors: list[str] = []
     if not isinstance(data, dict):
         return ["top level is not a mapping"]
-    if data.get("version") != 1:
-        errors.append(f"version must be 1, got {data.get('version')!r}")
+    version = data.get("version")
+    if version not in SUPPORTED_REGISTRY_VERSIONS:
+        errors.append(f"version must be one of {SUPPORTED_REGISTRY_VERSIONS}, got {version!r}")
     pkgs = data.get("packages")
     if not isinstance(pkgs, dict):
         errors.append("packages must be a mapping")
@@ -1249,6 +1299,19 @@ def validate_registry(data) -> list[str]:
                 errors.append(f"{pfx}: missing field {f!r}")
         if pkg.get("name") != key:
             errors.append(f"{pfx}: name field {pkg.get('name')!r} != map key {key!r}")
+        if version == 2:
+            for f in V2_PACKAGE_DEFAULTS:
+                if f not in pkg:
+                    errors.append(f"{pfx}: missing v2 field {f!r} (run `lean-pkg migrate`)")
+            for f in ("palomar", "consent"):
+                if f in pkg and not isinstance(pkg[f], list):
+                    errors.append(f"{pfx}.{f}: must be a list")
+            for f in ("doi", "reservoir"):
+                if f in pkg and pkg[f] is not None and not isinstance(pkg[f], dict):
+                    errors.append(f"{pfx}.{f}: must be a mapping or null")
+            for f in ("license_spdx", "formalization_yaml"):
+                if f in pkg and pkg[f] is not None and not isinstance(pkg[f], str):
+                    errors.append(f"{pfx}.{f}: must be a string or null")
         if pkg.get("status") not in STATUSES:
             errors.append(f"{pfx}: bad status {pkg.get('status')!r} "
                           f"(allowed: {', '.join(STATUSES)})")
@@ -1792,6 +1855,7 @@ board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
 init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./lean-packages.yaml init
+migrate   upgrade the registry schema in place (v1 -> v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[]; additive, idempotent). ex: lean-pkg migrate --dry-run
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
          [--visibility private|public] [--status ENUM] [--upstream-target none|mathlib|palomar]
@@ -1887,6 +1951,16 @@ def cmd_llms(args) -> int:
 def cmd_init(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_init(reg_path, events_p, args.force)
+    if args.json_out:
+        print_json(payload)
+    else:
+        print("\n".join(out))
+    return 0
+
+
+def cmd_migrate(args) -> int:
+    reg_path, events_p = registry_path(args), events_path(args)
+    out, payload = do_migrate(reg_path, events_p, args.dry_run)
     if args.json_out:
         print_json(payload)
     else:
@@ -2054,6 +2128,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="re-create only if the existing registry is empty")
     add_json(s)
     s.set_defaults(fn=cmd_init)
+
+    s = sub.add_parser("migrate", help="upgrade the registry schema in place (additive; idempotent)")
+    s.add_argument("--dry-run", action="store_true", help="print the changes; write nothing")
+    add_json(s)
+    s.set_defaults(fn=cmd_migrate)
 
     s = sub.add_parser("register", help="the ONLY write path for new packages: "
                                         "validated, deduping, auto-detecting")

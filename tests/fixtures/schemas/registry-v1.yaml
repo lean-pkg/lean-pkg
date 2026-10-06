@@ -1,0 +1,52 @@
+version: 1
+packages:
+  alpha:
+    name: alpha
+    repo: git@github.com:example/alpha.git
+    local_path: /nonexistent/alpha-repo
+    visibility: private
+    status: gate-pending
+    owner_project: null
+    workspace: null
+    agent: null
+    lease: null
+    lean_toolchain: leanprover/lean4:v4.35.0-rc2
+    mathlib_pin: 81a5d257c8
+    upstream_target: none
+    automation: ''
+    gate:
+      receipt: null
+      axioms_allowed:
+      - propext
+      - Quot.sound
+      - Classical.choice
+    promoted_at: null
+    promoted_commit: null
+    reaudit_after: null
+    notes: ''
+    history: []
+  beta:
+    name: beta
+    repo: git@github.com:example/beta.git
+    local_path: /nonexistent/beta-repo
+    visibility: private
+    status: verified-private
+    owner_project: null
+    workspace: null
+    agent: null
+    lease: null
+    lean_toolchain: leanprover/lean4:v4.35.0-rc2
+    mathlib_pin: 81a5d257c8
+    upstream_target: none
+    automation: ''
+    gate:
+      receipt: .lean-receipts/seed.json
+      axioms_allowed:
+      - propext
+      - Quot.sound
+      - Classical.choice
+    promoted_at: null
+    promoted_commit: null
+    reaudit_after: null
+    notes: ''
+    history: []
