@@ -58,6 +58,35 @@
         results.hidden = false;
       }).catch(function () { results.innerHTML = "<ul><li>Search index unavailable.</li></ul>"; results.hidden = false; });
     }
+    // Copy buttons on code blocks, as GitHub shows them on a README.
+    Array.prototype.forEach.call(main.querySelectorAll("pre"), function (pre) {
+      if (pre.querySelector(".lp-copy")) return;
+      var btn = document.createElement("button");
+      btn.type = "button"; btn.className = "lp-copy"; btn.textContent = "Copy";
+      btn.setAttribute("aria-label", "Copy code to clipboard");
+      function done(ok) {
+        btn.textContent = ok ? "Copied" : "Press Ctrl+C";
+        btn.classList.toggle("lp-copied", ok);
+        setTimeout(function () { btn.textContent = "Copy"; btn.classList.remove("lp-copied"); }, 1600);
+      }
+      btn.addEventListener("click", function () {
+        var code = pre.querySelector("code");
+        var text = (code ? code.textContent : pre.textContent).replace(/\n$/, "");
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+          return;
+        }
+        var ta = document.createElement("textarea");           // fallback for older browsers
+        ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.top = "-1000px";
+        document.body.appendChild(ta); ta.select();
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+        done(ok);
+      });
+      pre.classList.add("lp-has-copy");
+      pre.appendChild(btn);
+    });
     var timer = null;
     input.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(function () { render(input.value); }, 120); });
     input.addEventListener("keydown", function (e) { if (e.key === "Escape") { input.value = ""; render(""); } });

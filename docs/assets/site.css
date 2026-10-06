@@ -28,3 +28,11 @@ html[data-theme="dark"] .page-header { background-image: linear-gradient(120deg,
 .lp-results mark { background: #ffe58f; color: inherit; padding: 0 .1em; }
 html[data-theme="dark"] .lp-results mark { background: #5a4a00; }
 @media (max-width: 42em) { .lp-toolbar { justify-content: stretch; } .lp-toolbar input[type="search"] { max-width: none; } }
+/* copy button on code blocks */
+.main-content pre.lp-has-copy { position: relative; }
+.lp-copy { position: absolute; top: .45rem; right: .45rem; padding: .2rem .55rem; font: 600 .75rem system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--lp-fg); background: var(--lp-panel); border: 1px solid var(--lp-border); border-radius: .35rem; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.main-content pre.lp-has-copy:hover .lp-copy, .lp-copy:focus { opacity: 1; }
+.lp-copy.lp-copied { color: #0a6b3d; border-color: #0a6b3d; }
+html[data-theme="dark"] .lp-copy { color: var(--lp-fg); background: #1b2430; border-color: var(--lp-border); }
+html[data-theme="dark"] .lp-copy.lp-copied { color: #8fd3c2; border-color: #8fd3c2; }
+@media (hover: none) { .lp-copy { opacity: 1; } }
