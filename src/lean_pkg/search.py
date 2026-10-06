@@ -3,7 +3,9 @@
 revision and state (`ok` or `skipped: <reason>`), and a closing line naming every
 source consulted. Local sources (the registry's cached claims, the public index)
 always run and are scored deterministically: exact alias 3, keyword 2, every
-term token present 1; no embeddings. A skipped source is never a zero.
+term token present 1; no embeddings. Network sources (lean_pkg.adapters) run
+unless --offline; each is reported separately and never merged into the local
+score. A skipped source is never a zero.
 """
 
 from __future__ import annotations
@@ -15,9 +17,13 @@ import re
 from . import claims as cl
 from . import cli as core
 from . import index as idx
+from .adapters import github, leansearch, loogle, palomar, reservoir
 
 LOCAL_SOURCES = ("registry", "index")
-SOURCES = LOCAL_SOURCES
+NETWORK_SOURCES = ("loogle", "leansearch", "reservoir", "palomar", "github")
+SOURCES = LOCAL_SOURCES + NETWORK_SOURCES
+ADAPTERS = {"loogle": loogle, "leansearch": leansearch, "reservoir": reservoir,
+            "palomar": palomar, "github": github}
 LATE_STATUSES = ("experimental", "superseded")
 HIT_KEYS = ("source", "id", "package", "decl", "kind", "summary", "trust", "status", "pin",
             "file", "score", "where")
@@ -133,6 +139,20 @@ def index_block(term: str, root: pathlib.Path) -> dict:
     return block("index", "ok", reason, index_revision(root), rank(hits))
 
 
+def adapter_block(source: str, term: str, timeout: float = 10) -> dict:
+    """Run one network adapter; any failure inside it is `skipped`, never fatal, never zero."""
+    try:
+        r = ADAPTERS[source].search(term, timeout=timeout)
+    except Exception as e:                       # one broken source must not end the search
+        return block(source, "skipped", f"adapter error: {type(e).__name__}")
+    if not isinstance(r, dict) or r.get("state") not in ("ok", "skipped") or \
+            not isinstance(r.get("hits"), list):
+        return block(source, "skipped", "adapter returned an unexpected result")
+    if r["state"] == "skipped":
+        return block(source, "skipped", str(r.get("reason") or "unavailable"), r.get("revision"))
+    return block(source, "ok", r.get("reason"), r.get("revision"), r["hits"])
+
+
 # --------------------------------------------------------------------------
 # the search
 
@@ -162,6 +182,10 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
             blocks.append(registry_block(term, reg_path))
         elif src == "index":
             blocks.append(index_block(term, index_dir))
+        elif offline:
+            blocks.append(block(src, "skipped", "offline"))
+        else:
+            blocks.append(adapter_block(src, term))
     date = core.now_iso()[:10]
     payload = {"ok": True, "term": term, "date": date, "package": package, "offline": offline,
                "sources": blocks, "total_hits": sum(len(b["hits"]) for b in blocks)}

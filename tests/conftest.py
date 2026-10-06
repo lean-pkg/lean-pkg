@@ -508,3 +508,17 @@ def searchable(lp, env, tmp_path) -> SimpleNamespace:
 
 def run_search(lp, s: SimpleNamespace, *argv: str) -> int:
     return lp.main(["--registry", str(s.env.registry), "search", *argv, "--index", str(s.index)])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_io_in_search_adapters(monkeypatch, tmp_path):
+    """No test reaches the network or runs `gh` through lean_pkg.adapters, and no test
+    reads the user's cache: every adapter test patches its module's fetch or runner."""
+    adapters = importlib.import_module("lean_pkg.adapters")
+
+    def refuse(*args, **kwargs):
+        pytest.fail("a test reached real network or subprocess I/O through lean_pkg.adapters")
+    monkeypatch.setattr(adapters, "urlopen", refuse)
+    monkeypatch.setattr(adapters, "subprocess_run", refuse)
+    monkeypatch.delenv("LEAN_PKG_RESERVOIR_INDEX", raising=False)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))

@@ -1,0 +1,11 @@
+{
+  "name": "matrix_cookbook",
+  "owner": "example",
+  "fullName": "example/matrix_cookbook",
+  "description": "Identities from the Matrix Cookbook",
+  "keywords": ["matrix"],
+  "license": "MIT",
+  "stars": 40,
+  "sources": [{"type": "git", "host": "github", "repoUrl": "https://github.com/example/lean-matrix-cookbook"}],
+  "schemaVersion": "1.2.0"
+}
