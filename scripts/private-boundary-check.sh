@@ -16,7 +16,6 @@ forbidden=(
   'lech''en'
   'lzc''0090'
   'Green''wood'
-  'Eas''ley'
   'Home''-Dell'
   'csm-lzc''0090-lap'
   'chenle02.duck''dns.org'
@@ -43,6 +42,7 @@ patterns="$(mktemp)"
 trap 'rm -f "$patterns"' EXIT
 printf '%s\n' "${forbidden[@]}" > "$patterns"
 
+# The public name of a university cluster (an acknowledgement, not infrastructure) is not forbidden.
 # Scan only what git would ship: tracked files plus untracked files that are
 # not ignored (so a new file is caught before its first commit, while ignored
 # scratch such as worktree ledgers or caches never trips the check). Outside a
