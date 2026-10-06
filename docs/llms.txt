@@ -31,6 +31,7 @@ SUBCOMMANDS (global flags: --registry PATH --events PATH --json)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
+init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./lean-packages.yaml init
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
          [--visibility private|public] [--status ENUM] [--upstream-target none|mathlib|palomar]

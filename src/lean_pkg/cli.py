@@ -73,6 +73,7 @@ import yaml
 
 HOME = pathlib.Path.home()
 REGISTRY_ENV = "LEAN_PKG_REGISTRY"
+REGISTRY_VERSION = 1   # schema version written by `init` (v2 arrives with `migrate`)
 DEFAULT_REGISTRY_NAME = "lean-packages.yaml"
 EVENTS_NAME = "lean-package-events.jsonl"
 NOTIFY_ENV = "LEAN_PKG_NOTIFY_CMD"
@@ -951,6 +952,28 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
 # --------------------------------------------------------------------------
 # promote
 
+
+def do_init(reg_path: pathlib.Path, events_p: pathlib.Path, force: bool) -> tuple[list[str], dict]:
+    """Bootstrap an empty registry and its event log. Refuses to touch a registry that holds packages."""
+    if reg_path.exists():
+        try:
+            existing = yaml.safe_load(reg_path.read_text()) or {}
+        except yaml.YAMLError:
+            existing = None
+        if not force:
+            raise Fail(f"registry already exists: {reg_path} (use --force only to "
+                       f"re-create an EMPTY registry)")
+        if existing is None or (existing.get("packages") or {}):
+            raise Fail(f"refusing --force: {reg_path} holds packages or is not valid YAML")
+    reg_path.parent.mkdir(parents=True, exist_ok=True)
+    data = {"version": REGISTRY_VERSION, "packages": {}}
+    reg_path.write_text(yaml.safe_dump(data, sort_keys=False))
+    append_event(events_p, now_iso(), None, "registry-created", registry=str(reg_path))
+    out = [f"registry created: {reg_path} (version {REGISTRY_VERSION}); "
+           f"events: {events_p}"]
+    return out, {"ok": True, "event": "registry-created", "registry": str(reg_path),
+                 "events": str(events_p), "version": REGISTRY_VERSION}
+
 def promote_checklist(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
     """(mark, label) pairs; mark in {'✓', '✗', 'WARN'}."""
     checks: list[tuple[str, str]] = []
@@ -1768,6 +1791,7 @@ SUBCOMMANDS (global flags: --registry PATH --events PATH --json)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
+init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./lean-packages.yaml init
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
          [--visibility private|public] [--status ENUM] [--upstream-target none|mathlib|palomar]
@@ -1857,6 +1881,16 @@ EXIT CODES
 
 def cmd_llms(args) -> int:
     print(LLMS_TEXT, end="")
+    return 0
+
+
+def cmd_init(args) -> int:
+    reg_path, events_p = registry_path(args), events_path(args)
+    out, payload = do_init(reg_path, events_p, args.force)
+    if args.json_out:
+        print_json(payload)
+    else:
+        print("\n".join(out))
     return 0
 
 
@@ -2014,6 +2048,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("name")
     add_json(s)
     s.set_defaults(fn=cmd_status)
+
+    s = sub.add_parser("init", help="bootstrap an empty registry and its event log")
+    s.add_argument("--force", action="store_true",
+                   help="re-create only if the existing registry is empty")
+    add_json(s)
+    s.set_defaults(fn=cmd_init)
 
     s = sub.add_parser("register", help="the ONLY write path for new packages: "
                                         "validated, deduping, auto-detecting")
