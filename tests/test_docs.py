@@ -89,3 +89,13 @@ def test_citation_cff_matches_pyproject():
     cff = yaml.safe_load((ROOT / "CITATION.cff").read_text())
     assert cff["version"] == version and cff["license"] == "Apache-2.0"
     assert "chenle02/lean-pkg" in cff["repository-code"]
+
+
+def test_site_has_search_and_theme_toggle():
+    head = (ROOT / "docs" / "_includes" / "head-custom.html").read_text()
+    assert "assets/site.css" in head and "assets/site.js" in head and "prefers-color-scheme" in head
+    assert (ROOT / "docs" / "search.json").read_text().startswith("---\nlayout: null")
+    js = (ROOT / "docs" / "assets" / "site.js").read_text()
+    assert "search.json" in js and "data-theme" in js
+    css = (ROOT / "docs" / "assets" / "site.css").read_text()
+    assert 'html[data-theme="dark"]' in css
