@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "revision": 168,
+  "entries": [
+    {"id": "PALOMAR-2026-10-04-000006", "path": "entries/PALOMAR-2026-10-04-000006-v1.json",
+     "title": "Monotone-Light Factorization of Compact Hausdorff Surjections",
+     "abstract": "Every continuous surjection between compact Hausdorff spaces factors through a quotient.",
+     "formalization": {"theorem_names": ["MonotoneLight.exists_monotone_light_factorization"]},
+     "source": {"repository": "example/monotone-light", "commit": "759906c53ae14a660ab0e473dcf075d859c5a5a9"}}
+  ],
+  "next": "Y3Vyc29yIDI=",
+  "previous": null
+}

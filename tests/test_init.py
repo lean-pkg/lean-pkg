@@ -11,7 +11,7 @@ def test_init_creates_registry_and_events(lp, tmp_path, capsys):
     reg = tmp_path / "r" / "lean-packages.yaml"
     assert lp.main(["--registry", str(reg), "init"]) == 0
     data = yaml.safe_load(reg.read_text())
-    assert data["version"] in (1, 2)
+    assert data["version"] == lp.REGISTRY_VERSION
     assert data["packages"] == {}
     events = (reg.parent / "lean-package-events.jsonl").read_text().splitlines()
     assert len(events) == 1 and json.loads(events[0])["event"] == "registry-created"

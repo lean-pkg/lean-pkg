@@ -45,6 +45,7 @@ def test_render_escapes_pipes_in_summaries(lp, idx, tmp_path):
     f = root / "demo" / "entry.yaml"
     e = yaml.safe_load(f.read_text())
     e["headline"][0]["summary"] = "For all x, |x| is at least 0."
+    e["claims"] = idx.index_claims("demo", e["headline"], e["trust"])
     f.write_text(idx.dump_entry(e))
     assert "\\|x\\|" in idx.render_index(root)
 

@@ -7,6 +7,50 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-06
+
+Claim-level prior-art search (issue #4): search before building, across the
+group's own packages and the public sources, with a citable record.
+
+### Added
+- `claims.yaml` (schema `claims/1`) at a package repository root: named,
+  reusable results with stable ids `<package>/<slug>`, kinds, statuses,
+  aliases, keywords, supersession (acyclic) and dependencies.
+- `lean-pkg claims sync NAME` reads the file at `HEAD`, checks every
+  declaration occurs in its file, and caches the claims with the commit in
+  the registry (event `claims-synced`); `claims list` and `claims check`.
+- `lean-pkg search TERM`: registry claims, the public index, Loogle,
+  LeanSearch, Reservoir (the index data, cached by commit, never the
+  name-only site search), Palomar (results API, cached by revision) and
+  GitHub, in that fixed order; every source `ok` or `skipped: <reason>`,
+  never zero hits when unreachable; `--offline`, `--sources`, `--json`.
+- `lean-pkg search --record` writes `docs/prior-art/<date>-<slug>.md` in the
+  research repository (`decision: pending` for a human) and one
+  `prior-art-searched` event; claims of other private packages are listed
+  only in a private package's record, marked `private-claims: yes`.
+- Index: `index-entry/2` adds `claims[]`, derived from the headline at
+  `index add`; `index check` refuses claims that drift from the headline;
+  `index render` lists them. `index-entry/1` entries stay valid.
+- Advisory notes: `claim` when a package has no recent search and no claims,
+  `index add` when no record at the pin names a headline.
+- Docs page `docs/prior-art.md`.
+
+### Changed
+- Registry version 3: `claims_file`, `claims`, `claims_synced_commit`
+  (additive; `lean-pkg migrate` moves v1 and v2 files forward; both stay
+  readable).
+
+### Fixed (fresh-model review of the branch)
+- A record never says "Not found in registry" when registry hits were
+  withheld for privacy; the Hits cell says `0 shown (+N withheld)`.
+- Search terms are folded (accents stripped, any script's letters count):
+  `Itô` matches `Ito`; `ε` and `黎曼` are valid terms.
+- `--repo-dir` outside the package's own checkout is treated as an unknown
+  target, so other private packages' claims are withheld.
+- Skip reasons are scrubbed of local paths before they reach output or a record.
+- The record is created atomically and never follows a symlink; a malformed
+  registry entry makes the registry source `skipped: unreadable` instead of a traceback.
+
 ## [0.3.2] - 2026-10-06
 
 ### Added

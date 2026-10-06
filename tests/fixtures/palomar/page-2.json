@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "revision": 168,
+  "entries": [
+    {"id": "PALOMAR-2026-10-05-000008", "path": "entries/PALOMAR-2026-10-05-000008-v1.json",
+     "title": "Mean exit time of Brownian motion from an interval",
+     "abstract": "Brownian motion started inside (a, b) and stopped at its exit time has mean x.",
+     "formalization": {"theorem_names": ["MarkovProcessPilot.integral_eval_exitTimeTrunc_Ioo"]},
+     "source": {"repository": "example/markov-pilot", "commit": "affc0746f5c9b2c89bc3f2f9c39f4b95ffada816"}}
+  ],
+  "next": null,
+  "previous": "Y3Vyc29yIDE="
+}

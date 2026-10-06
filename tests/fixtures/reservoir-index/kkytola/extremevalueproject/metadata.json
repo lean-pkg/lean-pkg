@@ -1,0 +1,11 @@
+{
+  "name": "ExtremeValueProject",
+  "owner": "kkytola",
+  "fullName": "kkytola/ExtremeValueProject",
+  "description": "A project to formalize Fisher-Tippett-Gnedenko theorem (default project of course MS-EV0029)",
+  "keywords": [],
+  "license": "Apache-2.0",
+  "stars": 2,
+  "sources": [{"type": "git", "host": "github", "repoUrl": "https://github.com/kkytola/ExtremeValueProject"}],
+  "schemaVersion": "1.2.0"
+}
