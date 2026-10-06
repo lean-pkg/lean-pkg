@@ -87,6 +87,10 @@ already in the shape Palomar accepts. The full comparison is in
 Install the CLI once, then use one **shared private registry** to coordinate
 many independent Lean/Git research repositories.
 
+<p align="center">
+  <img src="docs/assets/global-registry.svg" alt="Architecture diagram: one private global registry coordinates many independent Lean project repositories; a chosen public snapshot can later flow through index review into the lean-pkg public index" width="1100">
+</p>
+
 ```text
 ~/.lean-pkg/registry/          # recommended shared coordination repo
   .git/
