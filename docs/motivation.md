@@ -57,6 +57,46 @@ this tool already enforces. The catalog does not compete with Mathlib; it
 is a curated layer above it, and results that generalize are meant to be
 upstreamed.
 
+## lean-pkg and Mathlib
+
+Mathlib is a *library* of mathematics; `lean-pkg` is *infrastructure* around
+libraries. They are different kinds of object, and every `lean-pkg` package
+depends on Mathlib rather than competing with it.
+
+| | Mathlib | lean-pkg |
+|---|---|---|
+| Kind | one monorepo of theorems and definitions, general-purpose, curated to a uniform standard | a registry, a trust gate, and (planned) a catalog; it contains no mathematics |
+| Unit | a declaration inside one shared library | a *package*: a standalone Lean repository, typically a paper's companion, pinned to a Mathlib revision |
+| Question answered | "is this standard result available, in canonical general form?" | "which packages exist, who holds each, which commit is certified, and what does the evidence prove?" |
+| Acceptance | human review for generality, integration, maintainability, and style, with the kernel check as a floor; one kernel | receipts re-derived from bytes: build and axioms at a pinned commit, plus statement equality between trusted and untrusted modules replayed in an independent kernel |
+| Pace | moves daily; a long review queue; results must be general enough to belong forever | a package moves at research speed on its own pin and is certified at one commit |
+| Papers | no notion of a claim outside the library | first-class: the trusted statement module *is* the paper's claim, and the comparator checks that the proved theorem is that statement |
+
+Why it lives outside Mathlib:
+
+1. **Mathlib does not host registries or gates**, and its own contributing
+   guidance recommends that fast-moving research live in standalone
+   repositories that depend on Mathlib and are indexed by Reservoir.
+   `lean-pkg` manages exactly those repositories.
+2. **Research-frontier results do not belong in a general library yet.** They
+   are too specialized or too recent, and may stay that way for years. They
+   still need to be certified, found, imported, and cited now.
+3. **The gate checks what a library's CI cannot.** Mathlib's CI proves the
+   library compiles inside one kernel. It cannot say whether a package's
+   theorem matches a paper's claim, because Mathlib has no notion of a claim
+   outside itself. The comparator tier exists for that single question.
+4. **Coordination is not a library's problem.** Leases, many machines,
+   coding agents claiming work, one-way publication: a research group has a
+   dozen companions in flight at once.
+5. **Pins versus a moving target.** A receipt names a commit and a Mathlib
+   revision. Upgrading the pin is a separate step with a fresh receipt.
+
+What `lean-pkg` is not: a competing library, a fork of Mathlib, or a place
+where mathematics lives. The registry's `upstream_target: mathlib` state and
+the AI-disclosure requirement exist because the intended end of a general
+result is a Mathlib pull request. A result moving from a package into
+Mathlib is a success for both.
+
 ## Design principles
 
 - **Validator, not executor.** `lean-pkg` never runs Lean. It validates
