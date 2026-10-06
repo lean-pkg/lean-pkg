@@ -50,7 +50,7 @@ promotion dry run.
 ## Pages
 
 - [Start here](newcomers.md): the newcomer path, including the Lean reading list.
-- [Sample workflow](sample-workflow.md): a real package from registration to a promotion dry run.
+- [Sample workflow](sample-workflow.md): a real package from registration to a promotion dry run, with the seven-step diagram.
 - [FAQ](faq.md): common questions, including how this differs from Palomar and Mathlib.
 - [Motivation](motivation.md): the problem this solves and where it is going.
 - [Getting started](getting-started.md): install and a complete worked example.
