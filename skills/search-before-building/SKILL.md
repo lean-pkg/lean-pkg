@@ -32,6 +32,10 @@ also on Reservoir. Two traps make a single search look conclusive:
 - **Descriptions use the author's words, not yours.** The same description
   never says "Gumbel", although the project formalizes the Gumbel
   distribution; only a synonym or a code search finds it.
+- **A Reservoir package name is not always the repository name.** The
+  package `eric-wieser/matrix_cookbook` lives in the repository
+  `eric-wieser/lean-matrix-cookbook`; cloning the package name returns 404
+  and looks like a deleted project. Read the repository URL from the index.
 
 ## Rule
 
@@ -85,13 +89,14 @@ per need: the paper's term, the standard name, and a classical theorem name
    mkdir -p ri && gh api repos/leanprover/reservoir-index/tarball | tar xz -C ri
    ls ri                                    # leanprover-reservoir-index-<commit>
    grep -ril -e 'gumbel' -e 'extreme value' ri/*/ --include=metadata.json
-   jq '{description, keywords, stars, license}' ri/*/<owner>/<name>/metadata.json
+   jq '{description, keywords, stars, license, repo: [.sources[].repoUrl]}' ri/*/<owner>/<name>/metadata.json
    # build history per toolchain (built, tested, requiredUpdate)
    curl -s https://reservoir.lean-lang.org/api/v1/packages/<owner>/<name>/builds \
      | jq '.data[] | {toolchain, built, tested, requiredUpdate, runAt}'
    ```
 
-   Index paths are lower case; the HTTP API accepts the GitHub spelling.
+   Index paths are lower case; the HTTP API takes the package name in any
+   case. Clone from the `repo` URL above, not from the package name.
    Browsing by keyword (`https://reservoir.lean-lang.org/packages?keyword=probability`)
    complements, never replaces, the grep. A Reservoir build only means
    `lake build` succeeded at that toolchain: it says nothing about `sorry`,
