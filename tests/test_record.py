@@ -92,3 +92,10 @@ def test_record_json_payload(lp, env, capsys):
     p = json.loads(capsys.readouterr().out)
     assert p["ok"] and p["event"] == "reservoir-listed"
     assert read_reg(env)["packages"]["beta"]["reservoir"]["url"].endswith("/x")
+
+
+def test_record_refuses_reserved_and_unknown_field_keys(lp, env, capsys):
+    for bad in ("reason=x", "event=y", "name=z", "ts=now", "bogus=1"):
+        assert rec(lp, env, "beta", "reservoir-listed", "url=https://reservoir.example/x", bad) == 1, bad
+        assert "field" in capsys.readouterr().err
+    assert read_events(env) == []

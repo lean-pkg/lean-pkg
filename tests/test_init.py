@@ -40,3 +40,11 @@ def test_init_json_payload(lp, tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is True and payload["event"] == "registry-created"
     assert payload["registry"] == str(reg)
+
+
+def test_init_force_refuses_non_mapping_yaml(lp, tmp_path, capsys):
+    reg = tmp_path / "bad" / "lean-packages.yaml"
+    reg.parent.mkdir()
+    reg.write_text("- not\n- a\n- registry\n")
+    assert lp.main(["--registry", str(reg), "init", "--force"]) == 1
+    assert "YAML" in capsys.readouterr().err
