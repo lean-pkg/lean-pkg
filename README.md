@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/lean-pkg-mark.svg" width="112" height="112" alt="lean-pkg mark: a shield with a check mark and two stacked receipt lines">
+  <img src="docs/assets/logo-256.png" width="160" height="160" alt="lean-pkg logo: a secretary bird in profile, its crest feathers swept back like quill pens">
 </p>
 
 <h1 align="center">lean-pkg</h1>
@@ -94,7 +94,8 @@ once (about 25 minutes), later runs take seconds.
 
 Built with AI assistance: the implementation, tests, and documentation were
 written with Anthropic's Claude, directed and reviewed by the maintainer,
-who is responsible for every merged change. Contributions must disclose AI
+who is responsible for every merged change. The secretary-bird logo and the
+mascot illustration were generated with AI image tools by the maintainer. Contributions must disclose AI
 assistance; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Citation and license
