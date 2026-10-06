@@ -1,0 +1,37 @@
+schema: index-entry/2
+name: demo
+repo: https://github.com/example/demo
+pin:
+  commit: 0123456789abcdef0123456789abcdef01234567
+  tag: v1.0.0
+lean_toolchain: leanprover/lean4:v4.32.0
+mathlib_rev: 81a5d257c8e410db227a6665ed08f64fea08e997
+license_spdx: MIT
+trust: comparator
+receipts:
+  lower: .lean-receipts/0123456789ab-slurm-12345.json
+  comparator: .lean-receipts/0123456789ab-comparator.json
+headline:
+- name: Demo.foo_le_bar
+  file: Demo/Main.lean
+  summary: A trivial demonstration theorem.
+  judged_as: foo_le_bar
+claims:
+- id: demo/demo-foo-le-bar
+  decl: Demo.foo_le_bar
+  kind: theorem
+  summary: A trivial demonstration theorem.
+  judged_as: foo_le_bar
+  trust: comparator
+palomar: []
+doi: null
+reservoir: null
+formalization_yaml: null
+fields:
+- probability
+consent:
+  recorded: true
+added:
+  at: '2026-10-07T12:00:00+00:00'
+  by: maintainer
+notes: ''
