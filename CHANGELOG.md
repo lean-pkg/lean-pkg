@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+- `update --license-spdx SPDX` and `update --formalization-yaml REL` set the
+  registry row's publication facts (previously only `register` could).
+- Docs: how an unfinished project is listed honestly (headlines are what is
+  proved, goals and gaps in `notes`, partial results as `experimental` claims,
+  progress as a new pin), with `total-coloring-lean` as the example; FAQ entry.
+
 ## [0.4.0] - 2026-10-06
 
 Claim-level prior-art search (issue #4): search before building, across the

@@ -227,3 +227,12 @@ def test_prior_art_page_is_linked_and_names_the_contract():
     for row in ("`claims sync NAME`", "`claims list [NAME]`", "`claims check [NAME]`", "`search TERM`"):
         assert row in cli, row
     assert "lean-pkg search" in (ROOT / "skills" / "search-before-building" / "SKILL.md").read_text()
+
+
+def test_docs_explain_listing_an_unfinished_project():
+    page = (ROOT / "docs" / "index-catalog.md").read_text()
+    assert "## An unfinished project as an entry" in page
+    for needle in ("what is proved", "notes", "experimental", "new pin"):
+        assert needle in page, needle
+    faq = (ROOT / "docs" / "faq.md").read_text()
+    assert "not finished" in faq and "index-catalog.md#an-unfinished-project-as-an-entry" in faq

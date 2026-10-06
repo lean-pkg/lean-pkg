@@ -250,6 +250,12 @@ Yes. The search box at the top of every page searches all pages client-side
 so there is no server. The theme toggle next to it follows your system
 preference by default and remembers your choice in the browser.
 
+**Can I list a project that is not finished?**
+Yes, if what you list is what is proved. Headlines must be theorems that exist
+at the pin and that the receipts cover; the goal and the gaps go in `notes`;
+partial or conditional results are claims with status `experimental`. See
+[An unfinished project as an entry](index-catalog.md#an-unfinished-project-as-an-entry).
+
 **Something here is wrong or missing.**
 Open an issue. Corrections to statements of fact about other projects are
 especially welcome; this documentation cites its sources so you can check.

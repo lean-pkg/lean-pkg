@@ -518,7 +518,8 @@ def prior_art_note(pkg: dict, events_p: pathlib.Path, now: dt.datetime | None = 
 # gate: `gate`/`promoted_at`/`promoted_commit`/`visibility` belong to `gate`
 # and `promote`, and `lease`/`workspace`/`agent` to `claim`/`release`.
 UPDATABLE = {"automation", "notes", "upstream_target", "reaudit_after",
-             "owner_project", "repo"}
+             "owner_project", "repo", "license_spdx", "formalization_yaml"}
+SPDX_ID_RE = re.compile(r"^[A-Za-z0-9.+-]+$")
 OWNED_ELSEWHERE = {
     "gate": "lean-pkg gate", "promoted_at": "lean-pkg promote",
     "promoted_commit": "lean-pkg promote", "visibility": "lean-pkg promote",
@@ -555,6 +556,13 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
         if field not in UPDATABLE:
             raise Fail(f"{name}: unknown field {field!r} "
                        f"(settable: {', '.join(sorted(UPDATABLE))})")
+        value = sets[field]
+        if field == "license_spdx" and not SPDX_ID_RE.match(str(value)):
+            raise Fail(f"license_spdx must be an SPDX identifier such as Apache-2.0 or MIT, got {value!r}")
+        if field == "formalization_yaml":
+            pp = pathlib.PurePosixPath(str(value))
+            if pp.is_absolute() or ".." in pp.parts or str(value).startswith("~"):
+                raise Fail(f"formalization_yaml must be a repository-relative path, got {value!r}")
 
     # Lease discipline, the same rule `release` applies: a live lease held by
     # someone else blocks a write unless it is forced with a reason.
@@ -2335,7 +2343,7 @@ def cmd_update(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     sets = {}
     for field in ("automation", "notes", "upstream_target", "reaudit_after",
-                  "owner_project", "repo"):
+                  "owner_project", "repo", "license_spdx", "formalization_yaml"):
         value = getattr(args, field.replace("-", "_"), None)
         if value is not None:
             sets[field] = value
@@ -2520,6 +2528,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--reaudit-after", dest="reaudit_after", metavar="ISO8601")
     s.add_argument("--owner-project", dest="owner_project")
     s.add_argument("--repo", help="remote URL (e.g. after publishing a private dep)")
+    s.add_argument("--license-spdx", dest="license_spdx", metavar="SPDX",
+                   help="the package's license as an SPDX id (what the index and Reservoir expect)")
+    s.add_argument("--formalization-yaml", dest="formalization_yaml", metavar="REL",
+                   help="repository-relative path of the package's formalization.yaml")
     s.add_argument("--status", choices=STATUSES,
                    help="manual transitions only; verified-private is gate's "
                         "and public is promote's")
