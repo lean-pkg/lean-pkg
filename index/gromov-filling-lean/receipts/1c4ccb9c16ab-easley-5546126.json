@@ -1,0 +1,15 @@
+{
+  "commit": "1c4ccb9c16ab4f7b6e34a24b07957b2261cb44ef",
+  "lean_toolchain": "leanprover/lean4:v4.29.0",
+  "mathlib_rev": "8a178386ffc0f5fef0b77738bb5449d50efeea95",
+  "sorry_count": 0,
+  "axioms": [
+    "propext",
+    "Classical.choice",
+    "Quot.sound"
+  ],
+  "report_sha256": "0e9b37f0f9f4cbfcfe87a88c070ecb0d655dda4c3fdd8c27533f3eda24a57ce5",
+  "job_id": "easley-5546126",
+  "checker": "scripts/verify.sh on Auburn University Easley Cluster (lake exe cache get; lake build; scripts/check_no_proof_escapes.sh; scripts/audit_axioms.sh)",
+  "generated_at": "2026-10-06T07:04:48Z"
+}
