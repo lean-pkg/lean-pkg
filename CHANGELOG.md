@@ -12,6 +12,10 @@ change the registry schema or receipt format, always with a migration).
   `--events`, before the registry's sibling file).
 
 ### Fixed
+- Documentation site: complete dark-mode palette (header, links, syntax
+  colours, tables, footer, search, copy buttons) and light-mode contrast,
+  measured to WCAG AA on every page; the workflow diagram is a light card in
+  both themes.
 - A comparator receipt produced under the test-only digest override now
   carries `test_only: true` and is refused by every validator.
 - The toolchain probe requires the judging binaries to be executable, as the
