@@ -486,3 +486,25 @@ def commit_claims(repo: Path, text: str = CLAIMS_YAML, rel: str = "claims.yaml",
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "claims")
     return repo_head(repo)
+
+
+# --- search fixtures (lean-pkg search) --------------------------------------
+
+@pytest.fixture()
+def srch(lp):
+    return importlib.import_module("lean_pkg.search")
+
+
+@pytest.fixture()
+def searchable(lp, env, tmp_path) -> SimpleNamespace:
+    """beta's claims synced into the registry, and an index with one entry (demo)."""
+    commit_claims(env.repo_b)
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 0
+    pkg = make_index_package(tmp_path / "pkgs")
+    root = tmp_path / "index"
+    assert index_add(lp, root, pkg) == 0
+    return SimpleNamespace(env=env, index=root, pkg=pkg)
+
+
+def run_search(lp, s: SimpleNamespace, *argv: str) -> int:
+    return lp.main(["--registry", str(s.env.registry), "search", *argv, "--index", str(s.index)])
