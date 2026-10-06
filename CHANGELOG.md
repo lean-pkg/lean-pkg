@@ -7,6 +7,12 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-06
+
+### Added
+- Index: `markovprocess-pilot` now at comparator trust; its headline theorem
+  is judged through a Mathlib-only Challenge (`exit_mean`) by `lake comparator`.
+
 ### Fixed
 - `COMPARATOR_RECEIPT_HOST_LABEL` now also replaces the host name in the
   receipt's `host_policy` sentence (a copied receipt leaked it).
