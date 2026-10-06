@@ -32,6 +32,30 @@ go public: a build-and-axioms receipt bound to one commit, and a
 untrusted proofs and replayed in an independent kernel. At promotion time it
 re-derives both from bytes.
 
+### Research loop: discover, formalize, verify
+
+Research mathematics is rarely linear. A symbolic computation may suggest a
+formula; Lean may expose a missing hypothesis; the manuscript changes; the
+formalization changes with it. `lean-pkg` is designed to keep the verification
+state attached to exact commits while that loop remains private.
+
+The trust boundary is deliberately asymmetric:
+
+- Python, SymPy, Sage, Mathematica, numerical experiments, or hand calculations
+  may **discover** a candidate claim;
+- Lean states and proves the mathematical claim;
+- `lean-pkg` records which exact source and evidence were actually verified.
+
+A computational discovery is therefore provenance, not proof. If the final Lean
+theorem no longer depends on trusting the computation that suggested it, the
+certificate rests on the Lean proof, not on the exploratory tool.
+
+As formal libraries mature, a result that was initially conditional can be
+re-certified with fewer external dependencies. The roadmap treats that
+progression as certificate lineage rather than overwriting history.
+
+**Develop privately. Discover freely. Verify explicitly. Publish reproducibly.**
+
 ## Who is this for
 
 - **A research group** formalizing its own papers: run the private lifecycle
