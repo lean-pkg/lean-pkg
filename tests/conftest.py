@@ -388,3 +388,47 @@ def fake_notify(lp, monkeypatch) -> list[str]:
 @pytest.fixture()
 def idx(lp):
     return importlib.import_module("lean_pkg.index")
+
+
+MIT_TEXT = ("MIT License\n\nPermission is hereby granted, free of charge, to any person "
+            "obtaining a copy of this software.\n")
+INDEX_URL = "https://github.com/example/{name}"
+
+
+def make_index_package(root: Path, name: str = "demo", *, lower: bool = True,
+                       comparator: bool = True, **comp_overrides) -> SimpleNamespace:
+    """A package repo whose evidence is committed in an evidence-only descendant
+    of the pin: pin = the commit the receipts bind; evidence = pin + .lean-receipts/."""
+    repo = make_repo(root / f"{name}-repo", extra_files={
+        "LICENSE": MIT_TEXT,
+        "lake-manifest.json": MATHLIB_MANIFEST,
+        "Demo/Main.lean": "theorem foo_le_bar : True := trivial\n"})
+    if comparator:
+        add_comparator_config(repo)
+    pin = repo_head(repo)
+    lower_rel = comp_rel = None
+    if lower:
+        lower_rel = f".lean-receipts/{pin[:12]}-slurm-12345.json"
+        (repo / ".lean-receipts").mkdir(exist_ok=True)
+        (repo / lower_rel).write_text(json.dumps(make_receipt(repo), indent=2) + "\n")
+    if comparator:
+        comp = make_comparator_receipt(repo, **comp_overrides)   # writes the log as well
+        comp_rel = f".lean-receipts/{pin[:12]}-comparator.json"
+        (repo / comp_rel).write_text(json.dumps(comp, indent=2) + "\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "evidence")
+    return SimpleNamespace(name=name, repo=repo, pin=pin, evidence=repo_head(repo),
+                           lower_rel=lower_rel, comp_rel=comp_rel,
+                           url=INDEX_URL.format(name=name))
+
+
+def index_add(lp, root: Path, pkg: SimpleNamespace, *extra: str, registry: Path | None = None) -> int:
+    argv = (["--registry", str(registry)] if registry else []) + [
+        "index", "add", pkg.name, "--index", str(root), "--repo-dir", str(pkg.repo),
+        "--repo", pkg.url, "--license", "MIT", "--by", "maintainer", "--consent-recorded",
+        "--headline", "Demo.foo_le_bar :: Demo/Main.lean :: A trivial demonstration theorem."]
+    if pkg.lower_rel:
+        argv += ["--lower", pkg.lower_rel]
+    if pkg.comp_rel:
+        argv += ["--comparator", pkg.comp_rel]
+    return lp.main(argv + list(extra))
