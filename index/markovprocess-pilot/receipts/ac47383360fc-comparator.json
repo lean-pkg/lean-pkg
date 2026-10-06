@@ -1,0 +1,39 @@
+{
+  "commit": "ac47383360fc8aa5d30091ee794b834215d11102",
+  "configs": [
+    {
+      "challenge_module": "Audit.Smoke.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/ac47383360fc-comparator-comparator_config-smoke.log",
+      "log_sha256": "96f5aa1ec0e0d880b20c0d9c4a087e7162fa3019a21b14b7aa74f884d7f1b5fc",
+      "path": "comparator/config-smoke.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "360dd9e28d03dfc7849cc2b4618ca36fe4609f37fcc90b190c5e4d75e70c22c5",
+      "solution_module": "Audit.Smoke.Solution",
+      "theorem_names": [
+        "two_mul_le"
+      ]
+    }
+  ],
+  "generated_at": "2026-10-06T13:05:05+00:00",
+  "host": "home-workstation",
+  "host_policy": "host home-workstation listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS",
+  "job_id": "local-home-workstation-2521286-20261006T130505Z",
+  "lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
+  "mechanism": "toolchain",
+  "result": "pass",
+  "schema": "comparator-receipt/2",
+  "tools": {
+    "con-ron_sha256": "4e5616d94374cae37324dad2594f6230c2bb2297240249fc78ff508f3bc5acef",
+    "lake_sha256": "8ba83c98f76562d03b8dbc33f1057151ba6cbb121679dde76b2260ccc90495e1",
+    "lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
+    "leanchecker_sha256": "9e36e955a251b1313c8eb5b7fa101282d51df109d34d8bb7c1cfdf51985aba29",
+    "leanexport_sha256": "c5bc1a10a21e22cbb3671d65987cdef2076833b14182d823ccb2153adf2fa954",
+    "nanoda_bin_sha256": "8241c5e6baa29490aa118d382f97961b208ae730fdb96545c2abed74c9ece5a8"
+  }
+}

@@ -1,0 +1,36 @@
+schema: index-entry/1
+name: markovprocess-pilot
+repo: https://github.com/chenle02/markovprocess-pilot
+pin:
+  commit: ac47383360fc8aa5d30091ee794b834215d11102
+  tag: null
+lean_toolchain: leanprover/lean4:v4.35.0-rc2
+mathlib_rev: 065356127b1dc0016f66b7283ce0ce2c4055aa55
+license_spdx: Apache-2.0
+trust: lower-tier
+receipts:
+  lower: .lean-receipts/ac47383360fc-home-workstation-2026-10-06-pilot.json
+  comparator: .lean-receipts/ac47383360fc-comparator.json
+headline:
+- name: MarkovProcessPilot.integral_eval_exitTimeTrunc_Ioo
+  file: MarkovProcessPilot/BrownianExit.lean
+  summary: Brownian motion started at x in (a, b), stopped at its exit time from (a, b) truncated at K,
+    has mean x.
+- name: MarkovProcessPilot.isBrownianReal_brownianMotion
+  file: MarkovProcessPilot/BrownianExit.lean
+  summary: The MarkovProcess library's Brownian motion is Brownian in Mathlib's sense.
+palomar: []
+doi: null
+reservoir: null
+formalization_yaml: null
+fields:
+- probability
+- brownian-motion
+consent:
+  recorded: true
+added:
+  at: '2026-10-06T13:06:15+00:00'
+  by: chenle02
+notes: Consumer pilot of scottnarmstrong/MarkovProcess (2026-10-06). The comparator receipt judged only
+  a smoke configuration, so trust is lower-tier until a Mathlib-only Challenge for the exit-time theorem
+  exists (assessed feasible, about 150 to 400 bridge lines). Repository private until the public flip.
