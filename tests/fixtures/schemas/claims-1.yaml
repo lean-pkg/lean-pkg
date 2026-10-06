@@ -1,0 +1,33 @@
+schema: claims/1
+package: she-rough-time-data
+claims:
+- id: she-rough-time-data/stochastic-fubini
+  decl: SheRough.stochastic_fubini_ennreal
+  kind: theorem
+  summary: Stochastic Fubini for nonnegative integrands against a white-noise integral.
+  aliases:
+  - Fubini
+  - stochastic Fubini
+  - exchange of integrals
+  - Walsh integral
+  keywords:
+  - spde
+  - white-noise
+  - fubini
+  file: SheRough/Fubini.lean
+  status: reusable
+  superseded_by: null
+  citation: Chen and Dalang 2015, Theorem 2.6
+  depends_on:
+  - rmt-foundations/semicircle-law
+- id: she-rough-time-data/fubini-bounded
+  decl: SheRough.stochastic_fubini_bounded
+  kind: lemma
+  summary: An earlier bounded-integrand version of stochastic Fubini.
+  aliases: []
+  keywords: []
+  file: SheRough/Fubini.lean
+  status: superseded
+  superseded_by: she-rough-time-data/stochastic-fubini
+  citation: null
+  depends_on: []

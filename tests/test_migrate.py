@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""migrate: registry v1 -> v2 (additive), idempotent, and v1 stays readable."""
+"""migrate: registry v1 -> v3 (additive), idempotent, and v1 stays readable."""
 
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ import yaml
 from .conftest import ROOT, read_events
 
 V1 = ROOT / "tests" / "fixtures" / "schemas" / "registry-v1.yaml"
-V2_KEYS = ["license_spdx", "formalization_yaml", "palomar", "doi", "reservoir", "consent"]
+V2_KEYS = ["license_spdx", "formalization_yaml", "palomar", "doi", "reservoir", "consent",
+           "claims_file", "claims", "claims_synced_commit"]
 
 
 def copy_v1(tmp_path: Path) -> Path:
@@ -21,12 +22,12 @@ def copy_v1(tmp_path: Path) -> Path:
     return reg
 
 
-def test_migrate_v1_to_v2_adds_keys_and_keeps_everything_else(lp, tmp_path):
+def test_migrate_v1_to_v3_adds_keys_and_keeps_everything_else(lp, tmp_path):
     reg = copy_v1(tmp_path)
     before = yaml.safe_load(reg.read_text())
     assert lp.main(["--registry", str(reg), "migrate"]) == 0
     after = yaml.safe_load(reg.read_text())
-    assert after["version"] == 2
+    assert after["version"] == 3
     for name, pkg in after["packages"].items():
         for k in V2_KEYS:
             assert k in pkg, (name, k)
@@ -34,7 +35,7 @@ def test_migrate_v1_to_v2_adds_keys_and_keeps_everything_else(lp, tmp_path):
             assert pkg[k] == v, (name, k)          # nothing old changed
     ev = read_events(type("E", (), {"events": reg.parent / "lean-package-events.jsonl"})())
     assert ev[-1]["event"] == "registry-migrated"
-    assert ev[-1]["from_version"] == 1 and ev[-1]["to_version"] == 2
+    assert ev[-1]["from_version"] == 1 and ev[-1]["to_version"] == 3
 
 
 def test_migrate_is_idempotent(lp, tmp_path):
@@ -69,7 +70,7 @@ def test_write_commands_tolerate_missing_v2_keys(lp, tmp_path, capsys):
 
 def test_validate_rejects_unknown_version(lp, tmp_path, capsys):
     reg = copy_v1(tmp_path)
-    data = yaml.safe_load(reg.read_text()); data["version"] = 3
+    data = yaml.safe_load(reg.read_text()); data["version"] = 4
     reg.write_text(yaml.safe_dump(data, sort_keys=False))
     assert lp.main(["--registry", str(reg), "validate"]) == 1
     assert "version" in capsys.readouterr().out

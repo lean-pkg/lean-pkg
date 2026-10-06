@@ -80,8 +80,8 @@ if __name__ == "__main__":
 
 HOME = pathlib.Path.home()
 REGISTRY_ENV = "LEAN_PKG_REGISTRY"
-REGISTRY_VERSION = 2                 # schema version written by `init` and `migrate`
-SUPPORTED_REGISTRY_VERSIONS = (1, 2) # readable by every command; v1 lacks the v2 keys below
+REGISTRY_VERSION = 3                    # schema version written by `init` and `migrate`
+SUPPORTED_REGISTRY_VERSIONS = (1, 2, 3) # readable by every command; older files lack the keys below
 V2_PACKAGE_DEFAULTS = {
     "license_spdx": None,        # SPDX id detected or declared (ADR-0070 D5)
     "formalization_yaml": None,  # repo-relative path when the package has one
@@ -89,6 +89,11 @@ V2_PACKAGE_DEFAULTS = {
     "doi": None,                 # {"concept": str|None, "versions": [{"doi","tag","commit","minted_at"}]}
     "reservoir": None,           # {"listed_at": iso, "url": str} or None
     "consent": [],               # [{"who","role","recorded_at","pointer"}]; pointer is a private-repo path
+}
+V3_PACKAGE_DEFAULTS = {
+    "claims_file": "claims.yaml",  # repo-relative path of the package's claims/1 file
+    "claims": [],                  # last synced copy of that file's claims (see `claims sync`)
+    "claims_synced_commit": None,  # 40-hex commit the cached claims were read at
 }
 # ADR-0070 D5 evidence events: name -> required --field keys. Each has a registry effect (see do_record).
 EVIDENCE_EVENTS = {
@@ -1028,6 +1033,7 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
         "promoted_at": None, "promoted_commit": None, "reaudit_after": None,
         "notes": notes or "", "history": [],
         **copy.deepcopy(V2_PACKAGE_DEFAULTS),
+        **copy.deepcopy(V3_PACKAGE_DEFAULTS),
     }
     payload = {"name": name, "dry_run": dry_run, "package": entry,
                "warnings": warnings}
@@ -1084,17 +1090,17 @@ def do_init(reg_path: pathlib.Path, events_p: pathlib.Path, force: bool) -> tupl
 
 
 def migrate_registry(data: dict) -> tuple[dict, list[str]]:
-    """Pure: return (migrated copy, change log). v1 -> v2 is additive."""
+    """Pure: return (migrated copy, change log). v1 -> v2 -> v3 is additive."""
     out = copy.deepcopy(data)
     changes: list[str] = []
     v = out.get("version")
     if v not in SUPPORTED_REGISTRY_VERSIONS:
         raise Fail(f"cannot migrate registry version {v!r}; supported: {SUPPORTED_REGISTRY_VERSIONS}")
-    if v == 1:
-        out["version"] = 2
-        changes.append("version: 1 -> 2")
+    if v != REGISTRY_VERSION:
+        out["version"] = REGISTRY_VERSION
+        changes.append(f"version: {v} -> {REGISTRY_VERSION}")
     for name, pkg in (out.get("packages") or {}).items():
-        for k, default in V2_PACKAGE_DEFAULTS.items():
+        for k, default in {**V2_PACKAGE_DEFAULTS, **V3_PACKAGE_DEFAULTS}.items():
             if k not in pkg:
                 pkg[k] = copy.deepcopy(default)
                 changes.append(f"{name}: + {k}")
@@ -1491,11 +1497,24 @@ def validate_registry(data) -> list[str]:
                 errors.append(f"{pfx}: missing field {f!r}")
         if pkg.get("name") != key:
             errors.append(f"{pfx}: name field {pkg.get('name')!r} != map key {key!r}")
-        if version == 2:
+        if version in (2, 3):
             for f in V2_PACKAGE_DEFAULTS:
                 if f not in pkg:
                     errors.append(f"{pfx}: missing v2 field {f!r} (run `lean-pkg migrate`)")
-        if version == 2 or any(f in pkg for f in V2_PACKAGE_DEFAULTS):
+        if version == 3:
+            for f in V3_PACKAGE_DEFAULTS:
+                if f not in pkg:
+                    errors.append(f"{pfx}: missing v3 field {f!r} (run `lean-pkg migrate`)")
+        if version == 3 or any(f in pkg for f in V3_PACKAGE_DEFAULTS):
+            if "claims" in pkg and not isinstance(pkg["claims"], list):
+                errors.append(f"{pfx}.claims: must be a list")
+            cf = pkg.get("claims_file", "claims.yaml")
+            if not isinstance(cf, str) or not cf.strip():
+                errors.append(f"{pfx}.claims_file: must be a non-empty repo-relative path")
+            csc = pkg.get("claims_synced_commit")
+            if csc is not None and not _HEX40.fullmatch(str(csc)):
+                errors.append(f"{pfx}.claims_synced_commit: must be 40 lowercase hex or null")
+        if version in (2, 3) or any(f in pkg for f in V2_PACKAGE_DEFAULTS):
             for f in ("palomar", "consent"):
                 if f in pkg and not isinstance(pkg[f], list):
                     errors.append(f"{pfx}.{f}: must be a list")
@@ -2505,6 +2524,8 @@ def main(argv: list[str] | None = None) -> int:
 
     from . import index as index_mod
     index_mod.add_parsers(sub, add_json)
+    from . import claims as claims_mod
+    claims_mod.add_parsers(sub, add_json)
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)

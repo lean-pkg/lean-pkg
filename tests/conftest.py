@@ -448,3 +448,41 @@ def git_url_map(monkeypatch):
         monkeypatch.setenv(f"GIT_CONFIG_KEY_{i}", f"url.{path}.insteadOf")
         monkeypatch.setenv(f"GIT_CONFIG_VALUE_{i}", url)
     return add
+
+# --- claims fixtures (lean-pkg claims) --------------------------------------
+
+@pytest.fixture()
+def cl(lp):
+    return importlib.import_module("lean_pkg.claims")
+
+
+DEMO_LEAN = "theorem foo_le_bar : True := trivial\n"
+CLAIMS_YAML = """\
+schema: claims/1
+package: beta
+claims:
+- id: beta/foo-le-bar
+  decl: Demo.foo_le_bar
+  kind: theorem
+  summary: A trivial demonstration bound used by the white-noise examples.
+  aliases: [foo bound, trivial bound]
+  keywords: [demo, inequality]
+  file: Demo/Main.lean
+  status: reusable
+  superseded_by: null
+  citation: Demo 2026, Theorem 1
+  depends_on: []
+"""
+
+
+def commit_claims(repo: Path, text: str = CLAIMS_YAML, rel: str = "claims.yaml",
+                  lean: str = DEMO_LEAN) -> str:
+    """Commit Demo/Main.lean and a claims file; return the new HEAD."""
+    (repo / "Demo").mkdir(exist_ok=True)
+    (repo / "Demo" / "Main.lean").write_text(lean)
+    f = repo / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "claims")
+    return repo_head(repo)
