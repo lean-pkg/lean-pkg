@@ -21,6 +21,15 @@ The rules that matter most:
   a host in `COMPARATOR_RECEIPT_ALLOWED_HOSTS`, or an explicit
   `COMPARATOR_RECEIPT_ALLOW_HOST=1`).
 
+## Skills
+
+[skills/README.md](skills/README.md) indexes agent skills for LLM-assisted
+Lean verification (statement fidelity, receipts, publication), with an
+installer (`scripts/install_skills.py`). They defer to `lean-pkg llms` for
+anything about the tool. When you edit a skill, keep its folder name equal to
+its frontmatter `name` and keep the required sections; `tests/test_skills.py`
+enforces both and checks every quoted `lean-pkg` command against the CLI.
+
 ## Working on the tool
 
 ```bash
