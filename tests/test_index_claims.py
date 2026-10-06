@@ -138,3 +138,47 @@ def test_add_refuses_a_local_path_in_a_headline_summary(lp, tmp_path, capsys):
     assert lp.main(argv) == 1
     assert "private local path" in capsys.readouterr().err
     assert not (root / "demo").exists()
+
+
+def _legacy_entry(idx, tmp_path, name="legacy"):
+    root = tmp_path / "index"
+    e = yaml.safe_load(V1.read_text())
+    e.update(name=name, repo=f"https://github.com/example/{name}", trust="lower-tier")
+    e["receipts"]["comparator"] = None
+    (root / name / "receipts").mkdir(parents=True)
+    (root / name / "entry.yaml").write_text(idx.dump_entry(e))
+    (root / name / "receipts" / e["receipts"]["lower"].split("/")[-1]).write_text(
+        json.dumps({"commit": e["pin"]["commit"]}))
+    return root, e
+
+
+def test_migrate_rewrites_a_v1_entry_as_v2_with_derived_claims(lp, idx, tmp_path, capsys):
+    root, e = _legacy_entry(idx, tmp_path)
+    assert lp.main(["index", "migrate", "--index", str(root)]) == 0
+    out = capsys.readouterr().out
+    assert "legacy: index-entry/1 -> index-entry/2" in out
+    m = yaml.safe_load((root / "legacy" / "entry.yaml").read_text())
+    assert m["schema"] == "index-entry/2" and list(m) == list(idx.ENTRY_KEYS)
+    assert m["claims"] == idx.index_claims("legacy", e["headline"], "lower-tier")
+    assert {k: v for k, v in m.items() if k not in ("schema", "claims")} == \
+        {k: v for k, v in e.items() if k != "schema"}
+    assert idx.validate_entry(m, "legacy") == []
+    assert lp.main(["index", "check", "--index", str(root)]) == 0
+
+
+def test_migrate_is_idempotent_and_reports_current_entries(lp, idx, tmp_path, capsys):
+    root, _ = _legacy_entry(idx, tmp_path)
+    assert lp.main(["index", "migrate", "--index", str(root)]) == 0
+    before = (root / "legacy" / "entry.yaml").read_text()
+    capsys.readouterr()
+    assert lp.main(["index", "migrate", "--index", str(root)]) == 0
+    assert "legacy: already index-entry/2" in capsys.readouterr().out
+    assert (root / "legacy" / "entry.yaml").read_text() == before
+
+
+def test_migrate_check_mode_exits_1_and_writes_nothing(lp, idx, tmp_path, capsys):
+    root, _ = _legacy_entry(idx, tmp_path)
+    before = (root / "legacy" / "entry.yaml").read_text()
+    assert lp.main(["index", "migrate", "--index", str(root), "--check"]) == 1
+    assert "legacy: index-entry/1 (run `lean-pkg index migrate`)" in capsys.readouterr().out
+    assert (root / "legacy" / "entry.yaml").read_text() == before

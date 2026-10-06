@@ -1,4 +1,4 @@
-schema: index-entry/1
+schema: index-entry/2
 name: gromov-filling-lean
 repo: https://github.com/lowrank/gromov-filling-lower-bound
 pin:
@@ -16,6 +16,14 @@ headline:
   file: GromovFilling/RiemannianUniversalFourierBound.lean
   summary: A compact connected Riemannian surface whose boundary is an isometric unit circle has area
     at least 14 zeta(3)/pi, about 5.3567.
+claims:
+- id: gromov-filling-lean/gromovfilling-riemannian-universal-fourier-bound
+  decl: GromovFilling.riemannian_universal_fourier_bound
+  kind: theorem
+  summary: A compact connected Riemannian surface whose boundary is an isometric unit circle has area
+    at least 14 zeta(3)/pi, about 5.3567.
+  judged_as: null
+  trust: lower-tier
 palomar: []
 doi: null
 reservoir: null

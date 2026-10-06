@@ -7,6 +7,11 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `index migrate [--check]`: rewrite `index-entry/1` entries as `index-entry/2`
+  with `claims` derived from the headline; the two first entries migrated.
+
 ## [0.4.1] - 2026-10-06
 
 ### Added

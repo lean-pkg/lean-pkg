@@ -81,6 +81,7 @@ index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, e
   check [NAME ...] [--clone | --repo-dir P]   static without a source; else re-derive from bytes at the pin.
       Palomar/Reservoir verified by API when reachable, else "skipped" (never failed, never passed). exit 0/1/2.
   render [--out PATH] [--check]   Markdown table, default <index>/README.md; --check exits 1 when stale.
+  migrate [--check]   rewrite index-entry/1 entries as index-entry/2 (claims derived from the headline).
 claims    claims.yaml (schema claims/1) at the package repo root: named reusable results, cached in the registry.
   sync NAME   read claims.yaml at HEAD (committed bytes only); every decl must occur in its file; event claims-synced.
   list [NAME] | check [NAME]   cached claims with status and derived trust | re-validate; exit 0/1.

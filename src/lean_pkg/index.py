@@ -717,7 +717,7 @@ def _emit(args, out: list[str], payload: dict, rc: int = 0) -> int:
 def cmd_index(args) -> int:
     fn = getattr(args, "index_fn", None)
     if fn is None:
-        raise core.UsageError("index needs an action: add | check | render")
+        raise core.UsageError("index needs an action: add | check | render | migrate")
     return fn(args)
 
 
@@ -761,7 +761,7 @@ def _parser_add(isub, common) -> None:
 
 
 def add_parsers(sub, add_json) -> None:
-    s = sub.add_parser("index", help="the public catalog: add | check | render")
+    s = sub.add_parser("index", help="the public catalog: add | check | render | migrate")
     add_json(s)
     s.set_defaults(fn=cmd_index, index_fn=None)
     isub = s.add_subparsers(dest="index_cmd")
@@ -775,6 +775,7 @@ def add_parsers(sub, add_json) -> None:
     _parser_add(isub, common)
     _parser_check(isub, common)
     _parser_render(isub, common)
+    _parser_migrate(isub, common)
 
 
 PALOMAR_ENTRY_URL = "https://data.palomar-registry.org/entries/{id}-v{version}.json"
@@ -1071,3 +1072,49 @@ def _parser_render(isub, common) -> None:
     r.add_argument("--out", default=None)
     r.add_argument("--check", action="store_true", help="exit 1 when the file is stale; write nothing")
     common(r, run_render)
+
+
+# --------------------------------------------------------------------------
+# migrate: rewrite index-entry/1 files as index-entry/2 (claims[] derived from the headline)
+
+def migrate_entry(name: str, entry: dict) -> dict | None:
+    """The index-entry/2 form of an index-entry/1 entry; None when it is already current."""
+    if entry.get("schema") == ENTRY_SCHEMA:
+        return None
+    if entry.get("schema") != "index-entry/1":
+        raise core.Fail(f"{name}: unknown schema {entry.get('schema')!r}; nothing migrated")
+    new = dict(entry, schema=ENTRY_SCHEMA,
+               claims=index_claims(name, entry.get("headline") or [], entry.get("trust")))
+    errors = validate_entry(new, name)
+    if errors:
+        raise core.Fail(f"{name}: migrated entry would not validate: " + "; ".join(errors))
+    return new
+
+
+def run_migrate(args) -> int:
+    root = index_root(args)
+    out, stale, done = [], [], []
+    for name in entry_names(root):
+        path = root / name / ENTRY_FILE
+        entry = load_entry(path)
+        new = migrate_entry(name, entry)
+        if new is None:
+            out.append(f"{name}: already {ENTRY_SCHEMA}")
+            continue
+        if args.check:
+            out.append(f"{name}: {entry['schema']} (run `lean-pkg index migrate`)")
+            stale.append(name)
+            continue
+        path.write_text(dump_entry(new))
+        out.append(f"{name}: {entry['schema']} -> {ENTRY_SCHEMA} ({len(new['claims'])} claim(s) derived)")
+        done.append(name)
+    if done:
+        out.append("render the table again: `lean-pkg index render`")
+    rc = 1 if stale else 0
+    return _emit(args, out, {"ok": not stale, "migrated": done, "stale": stale}, rc)
+
+
+def _parser_migrate(isub, common) -> None:
+    m = isub.add_parser("migrate", help="rewrite index-entry/1 entries as index-entry/2 (claims derived)")
+    m.add_argument("--check", action="store_true", help="exit 1 when an entry is not current; write nothing")
+    common(m, run_migrate)
