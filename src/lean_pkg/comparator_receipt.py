@@ -350,6 +350,10 @@ def main(argv: list[str] | None = None) -> int:
     if not ok:
         print(f"comparator-receipt: refusing: {why}", file=sys.stderr)
         return 1
+    label = os.environ.get("COMPARATOR_RECEIPT_HOST_LABEL", "").strip()
+    if label:
+        # the label replaces the host name everywhere a receipt or its output names the host
+        why = why.replace(socket.gethostname(), label)
     try:
         project = pathlib.Path(args.project).resolve()
         with importlib.resources.as_file(default_check_script()) as check_default, \

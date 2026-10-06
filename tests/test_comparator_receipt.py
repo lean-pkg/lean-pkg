@@ -375,3 +375,23 @@ def test_runner_host_label_env_replaces_the_hostname(project: Path):
     head = git(project, "rev-parse", "HEAD")
     rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
     assert rec["host"] == "lab-workstation"
+
+
+def test_host_label_also_covers_the_host_policy_reason(project: Path):
+    """A public-safe label must replace the host name everywhere in the receipt, including the
+    host_policy sentence (a copied receipt leaked the real host name through it on 2026-10-06)."""
+    import socket
+    real = socket.gethostname()
+    env = subprocess_env({"COMPARATOR_CHECK": str(STUB), "STUB_MODE": "pass",
+                          "COMPARATOR_FAKE_LAKE_OK": "0",
+                          "COMPARATOR_RECEIPT_ALLOWED_HOSTS": real,
+                          "COMPARATOR_RECEIPT_HOST_LABEL": "lab-workstation"})
+    env.pop("SLURM_JOB_ID", None)
+    env.pop("COMPARATOR_RECEIPT_ALLOW_HOST", None)
+    r = subprocess.run(RECEIPT_CLI, cwd=project, env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    text = (project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text()
+    assert real not in text and "lab-workstation" in text
+    policy = next(l for l in r.stdout.splitlines() if "host policy:" in l).split("host policy:", 1)[1]
+    assert real not in policy and "lab-workstation" in policy
