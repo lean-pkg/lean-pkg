@@ -78,6 +78,26 @@ def toolchain_available(project: pathlib.Path) -> bool:
     return all((prefix / "bin" / tool).is_file() for tool in TOOLCHAIN_TOOLS)
 
 
+def bwrap_preflight() -> None:
+    """`lake comparator` sandboxes its judges with bwrap, which needs an unprivileged user
+    namespace. Ubuntu 24.04 forbids that by default (AppArmor); fail early with the fix."""
+    try:
+        p = subprocess.run(["bwrap", "--ro-bind", "/", "/", "true"], capture_output=True,
+                           text=True, timeout=60)
+    except FileNotFoundError:
+        raise RunnerError("bwrap is not installed; `lake comparator` needs it (package bubblewrap)")
+    except subprocess.TimeoutExpired:
+        raise RunnerError("bwrap did not answer within 60 s; `lake comparator` needs a working bwrap")
+    if p.returncode != 0:
+        detail = (p.stderr or p.stdout).strip().splitlines()[-1:] or ["no output"]
+        raise RunnerError(
+            f"bwrap cannot create a user namespace ({detail[0]}); `lake comparator` runs its judges "
+            f"inside bwrap. On Ubuntu 24.04 this is the AppArmor default "
+            f"(kernel.apparmor_restrict_unprivileged_userns=1). Fix as root: an AppArmor profile for "
+            f"/usr/bin/bwrap with `userns,` (narrow), or "
+            f"`sysctl kernel.apparmor_restrict_unprivileged_userns=0` (broad). Nothing written.")
+
+
 def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str) -> dict:
     """Digests of the judging binaries bundled with the project's toolchain.
     Under the test-only FAKE_LAKE_ENV override, every digest is that of the verify script itself."""
@@ -215,6 +235,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         else:
             if verify is None or not verify.is_file():
                 raise RunnerError(f"verify-comparator script not found: {verify}")
+            if os.environ.get(FAKE_LAKE_ENV) is None:   # real host: check the sandbox first
+                bwrap_preflight()
             log_dir.mkdir(parents=True)
             for cfg_rel in configs:
                 p = subprocess.run(["bash", str(verify), cfg_rel], cwd=project,
