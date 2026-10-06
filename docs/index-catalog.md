@@ -141,6 +141,37 @@ The static check refuses only a stated trust above the evidence; a stated
 trust below it is caught by `--clone` or `--repo-dir`, which recompute trust
 from bytes and require equality.
 
+## An unfinished project as an entry
+
+A project does not have to be finished to be listed; it has to be honest.
+The index lists what is proved at a pin, nothing more, and the tool enforces
+that: the headline theorems must exist in the files named, their receipts must
+validate at the pin, and comparator trust requires every headline to be
+judged. An unfinished project is listed like this:
+
+- **Headlines are the results that are proved today**, in the project's own
+  words; the goal it is working toward goes in `notes`, together with what is
+  not proved. `index add` refuses a headline whose declaration is not in the
+  file at the pin, so the entry cannot run ahead of the code.
+- **Trust comes from the receipts, not from ambition.** A sorry-free library
+  with a lower-tier receipt is `lower-tier`; a comparator receipt that judges
+  the headline lifts it to `comparator`; the Palomar level needs a registered
+  result. A project below Palomar's toolchain floor can still reach comparator
+  trust through the legacy mechanism.
+- **Partial and conditional results are claims, not headlines.** The
+  package's `claims.yaml` marks reusable results `reusable` and conditional or
+  provisional ones `experimental` (with the hypothesis in the summary), so
+  `lean-pkg search` finds them with their status. Conditional certificates are
+  a planned schema extension; until then the summary carries the condition.
+- **Progress is a new pin.** Each milestone is a receipt at a new commit and a
+  pull request that replaces the entry; the index history is the project's
+  verified timeline.
+
+The lab's own example is `total-coloring-lean`: a 700-theorem, sorry-free
+library whose README states that it proves an auxiliary edge-coloring theorem
+and a Δ+3 total assignment, and does not prove Vizing's theorem or the
+conjecture. Its entry says exactly that.
+
 ## Pull requests
 
 A contributor adds `index/<name>/` and the rendered `index/README.md` in one
