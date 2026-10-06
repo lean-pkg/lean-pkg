@@ -9,7 +9,7 @@ title: Agent skills
 `lean-pkg` ships a set of **skills** for coding agents that formalize
 mathematics in Lean 4. A skill is a folder with a `SKILL.md` file: a short,
 named lesson that an agent such as Claude Code or Codex loads when a task
-matches its description. These eighteen skills are lessons from real
+matches its description. These nineteen skills are lessons from real
 formalization failures, rewritten for general use.
 
 They cover what a green `lake build` does not:
@@ -63,6 +63,7 @@ what it did.
 | Skill | Use it when |
 |---|---|
 | `lean-verification-workflow` | choosing a skill (the router) |
+| `search-before-building` | before any new definition, lemma or library: Loogle, Mathlib, Reservoir, Palomar, GitHub |
 | `lean-fidelity-audit-taxonomy` | checking a Lean statement or definition against the paper |
 | `lean-weakened-hypothesis-vacuity` | a relaxed hypothesis is claimed to cover a new case |
 | `lean-partial-formalization-boundary` | analytic facts enter as hypotheses or contract fields |

@@ -86,6 +86,13 @@ the lifecycle's fidelity records answer the second. A package that passes
 lean-pkg's comparator tier uses the Palomar layout and is already in the
 shape Palomar accepts.
 
+Reservoir lists a package automatically once it is public, licensed, not a
+fork, has a root manifest and 2 stars, and then rebuilds it on new
+toolchains; it checks that a package builds, never what its theorems say, so
+it is the place to *search before building* and the place a released package
+appears, while the trust questions stay with Palomar and lean-pkg (see the
+[FAQ](faq.md#reservoir)).
+
 ### Mathlib in particular
 
 

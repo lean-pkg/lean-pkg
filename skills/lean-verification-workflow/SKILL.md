@@ -32,6 +32,7 @@ publication (prose versus evidence).
 
 | Task | Skill |
 |---|---|
+| before writing a new definition, lemma or library: does it already exist (Loogle, Mathlib, Reservoir, Palomar, GitHub)? | `search-before-building` |
 | use the registry: register, claim, gate, comparator, promote | `lean-pkg-agent` (after `lean-pkg llms`) |
 | decide what to formalize while the paper is being written; pin Lean and Mathlib | `lean-paper-companion` |
 | record which paper claims are verified, conditional, partial or excluded; cold second read | `lean-claim-ledger` |
@@ -50,7 +51,7 @@ publication (prose versus evidence).
 | Palomar, DOI, Reservoir, citation | `lean-publishing` |
 | extract a library or contribute to Mathlib | `lean-upstreaming` |
 
-Typical order for one paper: companion, ledger, fidelity skills as each
+Typical order for one paper: search before building, companion, ledger, fidelity skills as each
 statement is written, axiom audit and receipts at each milestone, lean-pkg
 gate and comparator, then publishing.
 
