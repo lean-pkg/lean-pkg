@@ -74,6 +74,7 @@ wiki      render a Markdown status page.               ex: lean-pkg wiki --out s
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
   add NAME --by HANDLE --headline 'Name :: File.lean :: One sentence.' [--from-registry] [--repo URL]
       [--repo-dir P] [--lower REL] [--comparator REL] [--license SPDX] [--tag T] [--field-tag T] [--consent-recorded]
+      [--allow-unpushed]  (default: the pin and evidence must be on a branch of the public repo; consent must be recorded)
       validates the receipts at the pin (their commit) in a clone; trust computed; receipts copied verbatim;
       duplicate repo+commit refused; never writes local_path; event index-added (event log only).
   check [NAME ...] [--clone | --repo-dir P]   static without a source; else re-derive from bytes at the pin.

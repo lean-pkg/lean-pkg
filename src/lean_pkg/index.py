@@ -34,7 +34,7 @@ ENTRY_KEYS = ("schema", "name", "repo", "pin", "lean_toolchain", "mathlib_rev",
 TRUST_LEVELS = ("lower-tier", "comparator", "palomar")
 TRUST_RANK = {t: i for i, t in enumerate(TRUST_LEVELS, 1)}
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-HTTPS_RE = re.compile(r"^https://[A-Za-z0-9.-]+(?::\d+)?/[^\s@]+$")
+HTTPS_RE = re.compile(r"^https://[A-Za-z0-9.-]+(?::\d+)?/[A-Za-z0-9._~/%+-]+$")
 PALOMAR_ID_RE = re.compile(r"^PALOMAR-\d{4}-\d{2}-\d{2}-\d{6}$")
 FIELD_TAG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 PRIVATE_PATH_RE = re.compile(r"(^[/~])|(/home/)|(/Users/)|([A-Za-z]:\\)")
@@ -249,7 +249,8 @@ def clone_at(source: str, dest: pathlib.Path) -> pathlib.Path:
 
 
 def checkout_pin(clone: pathlib.Path, commit: str) -> None:
-    p = core.git(clone, "checkout", "--quiet", "--detach", commit)
+    # core.symlinks=false: a symlink in the tree becomes a plain file, never a link to follow
+    p = core.git(clone, "-c", "core.symlinks=false", "checkout", "--quiet", "--detach", commit)
     if p.returncode != 0:
         raise core.Fail(f"pin {commit[:12]} is not in the repository: {p.stderr.strip()[:200]}")
 
@@ -278,18 +279,91 @@ def find_evidence(clone: pathlib.Path, rel: str, pin: str | None) -> tuple[str, 
                     f"on any branch; commit and push the evidence first (untracked files do not count)")
 
 
+def _symlink_components_at(clone: pathlib.Path, commit: str, rel: str) -> list[str]:
+    """Path prefixes of `rel` that are symlinks (mode 120000) in the tree at `commit`."""
+    parts = pathlib.PurePosixPath(rel).parts
+    prefixes = ["/".join(parts[:i]) for i in range(1, len(parts) + 1)]
+    p = core.git(clone, "ls-tree", "-r", commit, "--", *prefixes)
+    hits = []
+    for line in p.stdout.splitlines():
+        meta, _, path = line.partition("\t")
+        if meta.startswith("120000") and path in prefixes:
+            hits.append(path)
+    return hits
+
+
+def _safe_write(clone: pathlib.Path, rel: str, blob: bytes) -> None:
+    """Write `blob` at clone/rel, refusing any symlink on the way (never write outside the clone)."""
+    if not _is_rel(rel):
+        raise core.Fail(f"evidence path {rel!r} is not repository-relative")
+    cur = clone
+    for part in pathlib.PurePosixPath(rel).parts[:-1]:
+        cur = cur / part
+        if cur.is_symlink():
+            raise core.Fail(f"evidence path {rel!r} crosses a symlink ({cur.relative_to(clone)}); refused")
+        if cur.exists() and not cur.is_dir():
+            raise core.Fail(f"evidence path {rel!r} crosses a non-directory ({cur.relative_to(clone)}); refused")
+        cur.mkdir(exist_ok=True)
+    dest = clone / rel
+    if dest.is_symlink():
+        raise core.Fail(f"evidence path {rel!r} is a symlink; refused")
+    if dest.resolve().parent != (clone / rel).parent.resolve() or clone.resolve() not in dest.resolve().parents:
+        raise core.Fail(f"evidence path {rel!r} resolves outside the clone; refused")
+    dest.write_bytes(blob)
+
+
 def materialize(clone: pathlib.Path, pin: str, rels: list[str]) -> dict[str, bytes]:
     """Check out the pin and write each evidence file from its committed bytes into the
-    working tree, so HEAD == pin and the existing validators read exactly those bytes."""
+    working tree, so HEAD == pin and the existing validators read exactly those bytes.
+    Symlinks are never followed: the tree at the pin is checked for symlink components and
+    every write is guarded."""
     checkout_pin(clone, pin)
     out: dict[str, bytes] = {}
     for rel in rels:
+        links = _symlink_components_at(clone, pin, rel)
+        if links:
+            raise core.Fail(f"evidence path {rel!r} crosses a symlink at the pin ({', '.join(links)}); refused")
         _, blob = find_evidence(clone, rel, pin)
-        dest = clone / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(blob)
+        _safe_write(clone, rel, blob)
         out[rel] = blob
     return out
+
+
+def evidence_commit(clone: pathlib.Path, rel: str, pin: str) -> str:
+    """The commit (pin or evidence-only descendant) whose version of `rel` find_evidence uses."""
+    p = core.git(clone, "log", "--all", "--format=%H", "--", rel)
+    for c in [x for x in p.stdout.split() if x]:
+        if core.git_show_bytes(clone, rel, c) is None:
+            continue
+        ok, _ = core.evidence_only_descendant(clone, pin, c)
+        if ok:
+            return c
+    raise core.Fail(f"{rel} is not committed at the pin or in an evidence-only descendant of it")
+
+
+def reachable_on(clone: pathlib.Path, public_repo: str, shas: list[str]) -> list[str]:
+    """Fetch the public repository's branches into refs/remotes/public/ and return the shas
+    among `shas` that no public branch contains."""
+    p = core.git(clone, "fetch", "--quiet", "--no-tags", public_repo,
+                 "+refs/heads/*:refs/remotes/public/*")
+    if p.returncode != 0:
+        raise core.Fail(f"cannot fetch {public_repo} to verify the pin: {p.stderr.strip()[:200]}")
+    missing = []
+    for sha in shas:
+        q = core.git(clone, "for-each-ref", "--contains", sha, "refs/remotes/public")
+        if q.returncode != 0 or not q.stdout.strip():
+            missing.append(sha)
+    return missing
+
+
+def private_strings_in(blob: bytes, where: str) -> list[str]:
+    """String values in a JSON document that look like private local paths."""
+    try:
+        data = json.loads(blob)
+    except ValueError:
+        return []
+    return [f"{where}: {w} looks like a private local path: {s!r}"
+            for w, s in _strings(data, where) if PRIVATE_PATH_RE.search(s)]
 
 
 def mathlib_rev_at(clone: pathlib.Path) -> str | None:
@@ -448,8 +522,8 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
         raise core.Fail("consent not recorded: a public listing needs every coauthor's recorded "
                         "consent (ADR-0070 D4); pass --consent-recorded, or record it first with "
                         "`lean-pkg record NAME consent-recorded ...` and use --from-registry")
-    palomar = [{"id": p["id"], "version": int(p["version"])} for p in pkg.get("palomar") or []
-               if p.get("id") and p.get("version") and not p.get("withdrawn_at")]
+    palomar_rows = [p for p in pkg.get("palomar") or []
+                    if p.get("id") and p.get("version") and not p.get("withdrawn_at")]
     doi = None
     if pkg.get("doi"):
         doi = {"concept": pkg["doi"].get("concept"),
@@ -462,14 +536,30 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
     with tempfile.TemporaryDirectory(prefix="lean-pkg-index-") as tmp:
         clone = clone_at(source or repo, pathlib.Path(tmp) / "pkg")
         pin, _ = find_evidence(clone, lower_rel or comp_rel, None)
+        palomar = [{"id": p["id"], "version": int(p["version"])} for p in palomar_rows
+                   if p.get("commit") == pin]          # a registration at another commit does not grade this pin
         for other in entry_names(root):
-            o = load_entry(root / other / ENTRY_FILE)
+            try:
+                o = load_entry(root / other / ENTRY_FILE)
+            except core.Fail:
+                continue                                # a broken sibling is check's business, not add's
             if _repo_key(str(o.get("repo"))) == _repo_key(repo) and \
                     (o.get("pin") or {}).get("commit") == pin:
                 raise core.Fail(f"duplicate: entry {other!r} already lists {repo} at {pin[:12]}")
+        if source and not opts.get("allow_unpushed"):
+            shas = sorted({pin, *[evidence_commit(clone, r, pin) for r in (lower_rel, comp_rel) if r]})
+            missing = reachable_on(clone, repo, shas)
+            if missing:
+                raise core.Fail(f"commit(s) {', '.join(s[:12] for s in missing)} not reachable from any branch "
+                                f"of {repo}; push the pin and the evidence first (or pass --allow-unpushed "
+                                f"for a provisional entry that `index check --clone` will refuse until pushed)")
         res = derive(clone, pin, lower_rel, comp_rel)
         if res["failures"]:
             raise core.Fail("; ".join(res["failures"]))
+        leaks = [x for r in (lower_rel, comp_rel) if r for x in private_strings_in(res["bytes"][r], r)]
+        if leaks:
+            raise core.Fail("receipt copies are public; refused: " + "; ".join(leaks)
+                            + " (set COMPARATOR_RECEIPT_HOST_LABEL / use public-safe checker strings)")
         trust = compute_trust(res["lower_ok"], res["comparator_ok"], palomar)
         entry = {
             "schema": ENTRY_SCHEMA, "name": name, "repo": repo,
@@ -499,6 +589,9 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
     out = [f"{name}: index entry written at {d / ENTRY_FILE} (trust {trust}, pin {pin[:12]}"
            + (f", {res['mechanism']} comparator" if res["mechanism"] else "") + ")",
            f"receipts copied: {', '.join(copied)}"]
+    if source and opts.get("allow_unpushed"):
+        out.append("provisional: --allow-unpushed skipped the public-repository check; "
+                   "`index check --clone` will fail until the pin and evidence are pushed")
     if events_p is not None:
         core.append_event(events_p, core.now_iso(), name, "index-added", repo=repo,
                           commit=pin, trust=trust, index=str(root))
@@ -537,7 +630,8 @@ def run_add(args) -> int:
             "headline": args.headline, "fields": args.field_tag,
             "formalization_yaml": args.formalization_yaml,
             "consent_recorded": args.consent_recorded, "by": args.by,
-            "notes": args.notes, "repo_dir": args.repo_dir}
+            "notes": args.notes, "repo_dir": args.repo_dir,
+            "allow_unpushed": args.allow_unpushed}
     out, payload = do_index_add(root, events_p, reg, args.name, opts)
     return _emit(args, out, payload)
 
@@ -559,6 +653,8 @@ def _parser_add(isub, common) -> None:
     a.add_argument("--consent-recorded", action="store_true",
                    help="every coauthor agreed to the listing (the pointer stays private)")
     a.add_argument("--by", required=True, help="public handle of the person adding the entry")
+    a.add_argument("--allow-unpushed", action="store_true",
+                   help="do not verify that the pin and evidence are on the public repository (provisional entry)")
     a.add_argument("--notes", default="")
     common(a, run_add)
 
@@ -586,12 +682,17 @@ PALOMAR_ENTRY_URL = "https://data.palomar-registry.org/entries/{id}-v{version}.j
 # --------------------------------------------------------------------------
 # network (tests monkeypatch these; None means unreachable)
 
-def palomar_entry_status(entry_id: str, version: int) -> int | None:
+def palomar_entry_fetch(entry_id: str, version: int):
+    """The Palomar entry JSON (dict) on 200, the HTTP status (int) otherwise, None when unreachable.
+    Tests monkeypatch this."""
     req = urllib.request.Request(PALOMAR_ENTRY_URL.format(id=entry_id, version=version),
                                  headers={"User-Agent": "lean-pkg"})
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
-            return int(r.status)
+            try:
+                return json.loads(r.read().decode("utf-8"))
+            except ValueError:
+                return int(r.status)
     except urllib.error.HTTPError as e:
         return int(e.code)
     except (urllib.error.URLError, TimeoutError, OSError):
@@ -606,10 +707,20 @@ def network_checks(entry: dict) -> tuple[dict, list[str]]:
     if entry.get("palomar"):
         seen = []
         for p in entry["palomar"]:
-            st = palomar_entry_status(p["id"], p["version"])
-            seen.append(st)
-            if st is not None and st != 200:
-                failures.append(f"palomar {p['id']} v{p['version']}: data.palomar-registry.org answered {st}")
+            got = palomar_entry_fetch(p["id"], p["version"])
+            seen.append(got)
+            if got is None:
+                continue
+            if not isinstance(got, dict):
+                failures.append(f"palomar {p['id']} v{p['version']}: data.palomar-registry.org answered {got}")
+                continue
+            src = got.get("source") or {}
+            commit = str(src.get("commit") or "")
+            url = str(src.get("repository_url") or "")
+            if commit != entry["pin"]["commit"] or (url and _repo_key(url) != _repo_key(entry["repo"])):
+                failures.append(f"palomar {p['id']} v{p['version']} is registered for "
+                                f"{url or '?'} at {commit[:12] or '?'}, not {entry['repo']} at "
+                                f"{entry['pin']['commit'][:12]}")
         states["palomar"] = ("skipped" if any(s is None for s in seen) and not failures
                              else "failed" if failures else "verified")
     if entry.get("reservoir"):
@@ -720,7 +831,10 @@ def do_index_check(root: pathlib.Path, names: list[str], repo_dir: str | None,
     seen: dict = {}
     reports = []
     for n in sorted(set(all_names) - set(targets)):   # duplicates are judged against the whole index
-        e = load_entry(root / n / ENTRY_FILE)
+        try:
+            e = load_entry(root / n / ENTRY_FILE)
+        except core.Fail:
+            continue                                   # reported when that entry itself is checked
         if isinstance(e.get("pin"), dict):
             seen.setdefault((_repo_key(str(e.get("repo"))), e["pin"].get("commit")), n)
     for n in targets:
@@ -773,11 +887,17 @@ def render_index(root: pathlib.Path) -> str:
     legacy = False
     for n in entry_names(root):
         e = load_entry(root / n / ENTRY_FILE)
+        errors = validate_entry(e, n)
+        if errors:
+            raise core.Fail(f"cannot render: entry {n!r} is invalid: " + "; ".join(errors))
         trust = e["trust"]
         if trust == "comparator" and e["receipts"]["comparator"]:
             f = root / n / RECEIPTS_DIR / pathlib.PurePosixPath(e["receipts"]["comparator"]).name
-            mech = comparator_mechanism(json.loads(f.read_text())) if f.is_file() else None
-            if mech:
+            try:
+                mech = comparator_mechanism(json.loads(f.read_text())) if f.is_file() else None
+            except ValueError:
+                raise core.Fail(f"cannot render: receipt copy for {n!r} is not valid JSON")
+            if mech in ("legacy", "toolchain"):
                 trust = f"comparator ({mech})"
                 legacy = legacy or mech == "legacy"
         tc = e["lean_toolchain"].split(":", 1)[-1]

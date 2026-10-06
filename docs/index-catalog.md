@@ -93,6 +93,21 @@ evidence-only descendant of it (untracked files do not count), checks out the
 pin, and runs the same validators as `gate` and `comparator`. It refuses a
 second entry for the same repository and commit.
 
+By default `index add` also fetches the public repository's branches and
+refuses a pin or an evidence commit that no public branch contains, so an
+entry never points at history that only exists on one machine.
+`--allow-unpushed` skips that check for a provisional entry (the output says
+so); `index check --clone` refuses such an entry until the commits are
+pushed. Receipt copies are public: a receipt whose strings look like a local
+path is refused, and the comparator runner records
+`COMPARATOR_RECEIPT_HOST_LABEL` instead of the host name when that variable
+is set.
+
+A Palomar registration grades an entry only when its `commit` equals the
+pin: `index add` keeps only those rows, and `index check` fetches each
+Palomar entry and compares its `source.commit` and `source.repository_url`
+with the entry.
+
 ## Checking entries
 
 ```bash
@@ -111,6 +126,10 @@ passes, 1 on any failure, 2 on a usage error.
 
 A repository whose HEAD has moved past the pin still passes: the pin is the
 claim. The rendered table shows the pin, not HEAD.
+
+The static check refuses only a stated trust above the evidence; a stated
+trust below it is caught by `--clone` or `--repo-dir`, which recompute trust
+from bytes and require equality.
 
 ## Pull requests
 
