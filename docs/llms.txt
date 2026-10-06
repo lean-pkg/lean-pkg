@@ -38,7 +38,8 @@ record    record a D5 evidence event; required --field keys per event:
           consent-recorded: who role pointer | palomar-preflight-pass: commit run
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
           palomar-registered: commit id version comparator_config | palomar-withdrawn: id version
-          doi-minted: doi tag commit [concept] | reservoir-listed: url | mathlib-pr-opened: url
+          doi-minted: doi tag commit [concept] | reservoir-listed: url (the package's https://reservoir.lean-lang.org/@owner/name page;
+          verified against Reservoir's API: 404 refuses, unreachable records verified=false) | mathlib-pr-opened: url
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
