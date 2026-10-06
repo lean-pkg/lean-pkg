@@ -26,9 +26,9 @@ Contributions are pull requests against `main`.
 - **Tool changes** (code, tests, docs): keep each PR to one logical change.
   Every PR must pass `make check` (tests, private-boundary check, tab
   scan, version agreement). The maintainer runs it locally before merging
-  and clones can enforce it on push with `git config core.hooksPath
-  .githooks`; the same targets run as hosted CI once the repository is
-  public (GitHub Actions is free there). Releases: see `RELEASING.md`.
+  and a clone can enforce it on push by opting into the hook directory
+  (see `RELEASING.md`); the same targets run as hosted CI once the
+  repository is public (GitHub Actions is free there).
 - **Package entries** (once the catalog exists): a PR adds or updates an
   entry that points to a public package repository at a pinned commit, with
   its `formalization.yaml`. Code stays in the package repository, not here.

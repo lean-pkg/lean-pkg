@@ -9,7 +9,7 @@ change the registry schema or receipt format, always with a migration).
 
 ## [0.1.0] - 2026-10-05
 
-First tagged release: the tool extracted from Le-AI-Lab into its own
+First tagged release: the tool extracted from its private lab origin into its own
 repository, with the comparator tier and the documentation site. The
 repository is private at this version; checks were run locally (see
 RELEASING.md).
