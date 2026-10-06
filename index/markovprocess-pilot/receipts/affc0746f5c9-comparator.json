@@ -1,10 +1,28 @@
 {
-  "commit": "ac47383360fc8aa5d30091ee794b834215d11102",
+  "commit": "affc0746f5c9b2c89bc3f2f9c39f4b95ffada816",
   "configs": [
+    {
+      "challenge_module": "Audit.Exit.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/affc0746f5c9-comparator-comparator_config-exit.log",
+      "log_sha256": "a6e31d37b9db2bcf873e9fa45ba8b60484ba62fab0efecac7b982e301a51838f",
+      "path": "comparator/config-exit.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "8f0d414845979d085ae971e60665dc0105135ead0d0a485fc424e85694441f21",
+      "solution_module": "Audit.Exit.Solution",
+      "theorem_names": [
+        "exit_mean"
+      ]
+    },
     {
       "challenge_module": "Audit.Smoke.Challenge",
       "definition_names": [],
-      "log": ".lean-receipts/ac47383360fc-comparator-comparator_config-smoke.log",
+      "log": ".lean-receipts/affc0746f5c9-comparator-comparator_config-smoke.log",
       "log_sha256": "96f5aa1ec0e0d880b20c0d9c4a087e7162fa3019a21b14b7aa74f884d7f1b5fc",
       "path": "comparator/config-smoke.json",
       "permitted_axioms": [
@@ -20,10 +38,10 @@
       ]
     }
   ],
-  "generated_at": "2026-10-06T13:05:05+00:00",
+  "generated_at": "2026-10-06T13:21:54+00:00",
   "host": "home-workstation",
   "host_policy": "host home-workstation listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS",
-  "job_id": "local-home-workstation-2521286-20261006T130505Z",
+  "job_id": "local-home-workstation-2560657-20261006T132154Z",
   "lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
   "mechanism": "toolchain",
   "result": "pass",
