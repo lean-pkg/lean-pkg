@@ -47,6 +47,57 @@ axioms, each `Solution` theorem has exactly its `Challenge` statement, the
 proofs replay in a second kernel, and the evidence bytes match. It does not
 prove the Lean statement matches the paper's intent; a human reads that.
 
+**Does lean-pkg require end-to-end formalization?**
+No. The current receipt machinery certifies the formal theorem and evidence at
+a pinned commit; it does not require that every mathematical fact used by the
+paper originate inside the same repository. A conditional theorem should make
+its mathematical inputs explicit in its statement or formal interfaces.
+Structured "conditional certificate" and certificate-lineage metadata are
+planned rather than current schema fields.
+
+**What does a conditional verification mean?**
+It means Lean has checked the stated consequence from explicitly declared
+inputs, while some mathematical dependencies may remain outside the current
+formalization boundary. The important distinction is between theorem
+hypotheses, kernel-checked Lean dependencies, external results from the
+literature, temporary project assumptions, and material that is simply outside
+scope. A conditional certificate must never be described as verification of
+more than that boundary.
+
+**Should an external theorem be added as a Lean axiom?**
+Usually no. Prefer a theorem hypothesis, structure field, or abstract interface
+that exposes the dependency in the formal statement. Introducing a new trusted
+axiom would enlarge Lean's logical trust base and would conflict with the
+receipt discipline that audits permitted axioms.
+
+**Can a certificate become stronger later?**
+Yes in principle, and the roadmap proposes explicit certificate lineage for
+this. If an external result is later formalized, a new pinned certificate can
+replace that dependency with a formal Lean theorem. The earlier certificate
+should remain immutable historical evidence rather than being rewritten.
+
+**Can Lean verification help improve a manuscript before publication?**
+Yes. This is a central research use case: formalization can expose missing
+hypotheses, statement drift, or hidden dependencies while the paper is still
+being written. The manuscript and Lean development can then be revised
+together, with each new receipt tied to the exact source commit it certifies.
+
+**Can symbolic or numerical computation be part of the workflow?**
+Yes. Python, SymPy, Sage, Mathematica, numerical experiments, and similar tools
+are excellent discovery engines. Their output is provenance, not proof. The
+strongest workflow is: use computation to propose a formula, state that claim
+precisely in Lean, and let the Lean proof—not the exploratory calculation—carry
+the verification claim. The roadmap proposes structured discovery-artifact
+provenance so a future certificate can record how a theorem was found without
+confusing that history with evidence.
+
+**Do I have to make a work-in-progress repository public to use lean-pkg?**
+No. The private lifecycle exists specifically so development, receipts, and
+re-certification can remain private. A public index entry, however, must point
+to source and evidence that independent reviewers can retrieve and re-derive at
+the pinned commit. Publishing a certificate does not require publishing every
+failed experiment, agent conversation, or abandoned branch.
+
 **Why does `promote` refuse even though the registry says the receipt exists?**
 Because `promote` re-derives everything from bytes at that moment: config
 hashes at the certified commit, log hashes on disk, the PASS line, the
