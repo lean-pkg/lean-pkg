@@ -110,7 +110,8 @@ html[data-theme="dark"] .site-footer-owner { color: var(--lp-fg); }
 .site-footer-credits { color: var(--lp-fg-muted); }
 
 /* images: the workflow diagram is a light card in both themes; a hairline keeps its edge in dark mode */
-html[data-theme="dark"] .main-content img[src$="workflow.svg"] { border: 1px solid var(--lp-border); border-radius: 12px; }
+html[data-theme="dark"] .main-content img[src$="workflow.svg"],
+html[data-theme="dark"] .main-content img[src$="global-registry.svg"] { border: 1px solid var(--lp-border); border-radius: 12px; }
 
 /* toolbar: search box and theme toggle */
 .lp-toolbar { display: flex; gap: .6rem; align-items: center; justify-content: flex-end; margin: -0.5rem 0 1.2rem 0; flex-wrap: wrap; }
