@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 460" width="1040" height="460" role="img" aria-labelledby="t d">
+  <title id="t">lean-pkg sample workflow</title>
+  <desc id="d">Seven steps from registering a package to the promotion dry run. Steps 1 and 2 feed the lower-tier receipt; steps 3 and 4 feed the comparator receipt; step 5 gates on both; step 6 commits the evidence; step 7 is the dry run before the one-way flip, after which Reservoir, Palomar and Zenodo take over.</desc>
+  <defs>
+    <style>
+      .box { fill: #1f6f8b; stroke: #0a4a63; stroke-width: 2; }
+      .box.think { fill: #d97706; stroke: #92400e; }
+      .box.oneway { fill: #7c2d12; stroke: #431407; }
+      .box.eco { fill: #f4f1ea; stroke: #0a4a63; stroke-width: 2; stroke-dasharray: 6 4; }
+      .lbl { font: 600 15px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #ffffff; }
+      .sub { font: 12.5px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #e6f0f4; }
+      .num { font: 700 13px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0a4a63; }
+      .eco .lbl, .ecol { font: 600 14px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #0a4a63; }
+      .note { font: italic 13px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #6b7a85; }
+      .arrow { stroke: #6b7a85; stroke-width: 2.5; fill: none; marker-end: url(#head); }
+      .receipt { fill: #fff8e1; stroke: #d97706; stroke-width: 1.5; }
+      .rlbl { font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #92400e; }
+      .badge { fill: #ffffff; stroke: #0a4a63; stroke-width: 2; }
+      @media (prefers-color-scheme: dark) {
+        .note { fill: #9fb0bf; }
+        .arrow { stroke: #9fb0bf; }
+        .num { fill: #cfd8df; }
+        .box.eco { fill: #151c24; stroke: #6cc3e0; }
+        .eco .lbl, .ecol { fill: #cfd8df; }
+        .badge { fill: #151c24; stroke: #6cc3e0; }
+      }
+    </style>
+    <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7a85"/>
+    </marker>
+  </defs>
+
+  <!-- row 1: the two evidence tracks -->
+  <g transform="translate(20,40)">
+    <circle class="badge" cx="0" cy="40" r="14"/><text class="num" x="0" y="45" text-anchor="middle">1</text>
+    <rect class="box" x="22" y="10" width="190" height="60" rx="10"/>
+    <text class="lbl" x="117" y="35" text-anchor="middle">register + claim</text>
+    <text class="sub" x="117" y="55" text-anchor="middle">lean-pkg register / claim</text>
+  </g>
+  <g transform="translate(260,40)">
+    <circle class="badge" cx="0" cy="40" r="14"/><text class="num" x="0" y="45" text-anchor="middle">2</text>
+    <rect class="box" x="22" y="10" width="200" height="60" rx="10"/>
+    <text class="lbl" x="122" y="35" text-anchor="middle">prove · build · audit</text>
+    <text class="sub" x="122" y="55" text-anchor="middle">lake build · sorry scan · #print axioms</text>
+  </g>
+  <path class="arrow" d="M 232 80 H 280"/>
+  <!-- lower receipt -->
+  <g transform="translate(520,52)">
+    <rect class="receipt" x="0" y="0" width="150" height="56" rx="6"/>
+    <text class="rlbl" x="75" y="22" text-anchor="middle">lower-tier receipt</text>
+    <text class="rlbl" x="75" y="42" text-anchor="middle">commit · toolchain · axioms</text>
+  </g>
+  <path class="arrow" d="M 482 80 H 518"/>
+
+  <!-- row 2 -->
+  <g transform="translate(20,150)">
+    <circle class="badge" cx="0" cy="40" r="14"/><text class="num" x="0" y="45" text-anchor="middle">3</text>
+    <rect class="box think" x="22" y="10" width="190" height="60" rx="10"/>
+    <text class="lbl" x="117" y="35" text-anchor="middle">state the claim</text>
+    <text class="sub" x="117" y="55" text-anchor="middle">Challenge.lean · Solution.lean · config</text>
+  </g>
+  <g transform="translate(260,150)">
+    <circle class="badge" cx="0" cy="40" r="14"/><text class="num" x="0" y="45" text-anchor="middle">4</text>
+    <rect class="box" x="22" y="10" width="200" height="60" rx="10"/>
+    <text class="lbl" x="122" y="35" text-anchor="middle">comparator-receipt</text>
+    <text class="sub" x="122" y="55" text-anchor="middle">independent kernel replay · writes only on PASS</text>
+  </g>
+  <path class="arrow" d="M 232 190 H 280"/>
+  <g transform="translate(520,162)">
+    <rect class="receipt" x="0" y="0" width="150" height="56" rx="6"/>
+    <text class="rlbl" x="75" y="22" text-anchor="middle">comparator receipt</text>
+    <text class="rlbl" x="75" y="42" text-anchor="middle">config sha · log sha · PASS</text>
+  </g>
+  <path class="arrow" d="M 482 190 H 518"/>
+  <text class="note" x="20" y="240">step 3 is the only step that takes real thought: every notion restated from Mathlib so a reader needs no trust in your library</text>
+
+  <!-- gate -->
+  <g transform="translate(720,100)">
+    <circle class="badge" cx="0" cy="40" r="14"/><text class="num" x="0" y="45" text-anchor="middle">5</text>
+    <rect class="box" x="22" y="0" width="180" height="80" rx="10"/>
+    <text class="lbl" x="112" y="30" text-anchor="middle">gate</text>
+    <text class="sub" x="112" y="50" text-anchor="middle">both receipts re-derived from bytes</text>
+    <text class="sub" x="112" y="68" text-anchor="middle">→ verified-private</text>
+  </g>
+  <path class="arrow" d="M 670 80 C 700 80, 700 125, 740 125"/>
+  <path class="arrow" d="M 670 190 C 700 190, 700 155, 740 155"/>
+
+  <!-- row 3: commit evidence, promote -->
+  <g transform="translate(720,230)">
+    <circle class="badge" cx="0" cy="40" r="14"/><text class="num" x="0" y="45" text-anchor="middle">6</text>
+    <rect class="box" x="22" y="10" width="180" height="60" rx="10"/>
+    <text class="lbl" x="112" y="35" text-anchor="middle">commit the evidence</text>
+    <text class="sub" x="112" y="55" text-anchor="middle">.lean-receipts/ only → still valid</text>
+  </g>
+  <path class="arrow" d="M 832 180 V 238"/>
+  <g transform="translate(720,330)">
+    <circle class="badge" cx="0" cy="40" r="14"/><text class="num" x="0" y="45" text-anchor="middle">7</text>
+    <rect class="box oneway" x="22" y="10" width="180" height="60" rx="10"/>
+    <text class="lbl" x="112" y="35" text-anchor="middle">promote (dry run)</text>
+    <text class="sub" x="112" y="55" text-anchor="middle">read every line · --yes is one-way</text>
+  </g>
+  <path class="arrow" d="M 832 300 V 338"/>
+
+  <!-- ecosystem after the flip -->
+  <g class="eco" transform="translate(40,330)">
+    <rect class="box eco" x="0" y="10" width="620" height="60" rx="10"/>
+    <text class="ecol" x="310" y="35" text-anchor="middle">after --yes, the ecosystem takes over</text>
+    <text class="ecol" x="310" y="56" text-anchor="middle">Reservoir (listing, automatic) · Palomar (register the headline theorem) · Zenodo (version DOI at the registered commit)</text>
+  </g>
+  <path class="arrow" d="M 742 370 H 668"/>
+  <text class="note" x="40" y="425">orange: human judgment · dark red: irreversible · dashed: outside lean-pkg · receipts are plain JSON files committed next to the code</text>
+</svg>

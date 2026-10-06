@@ -99,3 +99,10 @@ def test_site_has_search_and_theme_toggle():
     assert "search.json" in js and "data-theme" in js
     css = (ROOT / "docs" / "assets" / "site.css").read_text()
     assert 'html[data-theme="dark"]' in css
+
+
+def test_workflow_diagram_exists_and_is_valid_svg():
+    import xml.dom.minidom
+    svg = ROOT / "docs" / "assets" / "workflow.svg"
+    xml.dom.minidom.parse(str(svg))
+    assert "assets/workflow.svg" in (ROOT / "docs" / "sample-workflow.md").read_text()

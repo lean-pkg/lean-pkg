@@ -4,6 +4,8 @@ title: Sample workflow
 
 [← lean-pkg documentation](index.md)
 
+<img src="assets/workflow.svg" alt="The seven steps of the sample workflow: register and claim, prove-build-audit, state the claim, comparator receipt, gate, commit the evidence, promote dry run; then Reservoir, Palomar and Zenodo" style="max-width:100%;height:auto">
+
 A real session, start to finish, on a real package. The package is small on
 purpose: a consumer of Scott Armstrong's
 [MarkovProcess](https://github.com/scottnarmstrong/MarkovProcess) library
