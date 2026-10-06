@@ -98,10 +98,23 @@ who is responsible for every merged change. The secretary-bird logo and the
 mascot illustration were generated with AI image tools by the maintainer. Contributions must disclose AI
 assistance; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Citation and license
+## Citation
 
-A Zenodo DOI will be minted for the first public release; until then cite
-the repository at a commit (`@software{lean_pkg, author={Chen, Le},
-title={lean-pkg: a registry and trust gate for Lean 4 formalization
-packages}, year={2026}, url={https://github.com/chenle02/lean-pkg}}`).
-Apache-2.0, see [LICENSE](LICENSE).
+A Zenodo DOI will be minted for the first public release. Until then, cite
+the repository at a commit:
+
+```bibtex
+@software{lean_pkg,
+  author  = {Chen, Le},
+  title   = {lean-pkg: a registry and trust gate for Lean 4 formalization packages},
+  year    = {2026},
+  version = {0.1.0},
+  url     = {https://github.com/chenle02/lean-pkg},
+  note    = {commit <sha>}
+}
+```
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE). Contributions are accepted under the
+same license; see [CONTRIBUTING.md](CONTRIBUTING.md).
