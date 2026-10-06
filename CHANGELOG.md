@@ -7,11 +7,37 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-07
+
+The index schema (milestone M1's catalog layer, pulled forward): a public,
+forkable list of trust-graded packages whose every row can be re-derived
+from bytes at its pin.
+
 ### Added
+- `index/<name>/entry.yaml`, schema `index-entry/1` (keys in a fixed order;
+  unknown keys refused; no local paths), with verbatim receipt copies under
+  `index/<name>/receipts/`. The index root is `--index PATH`, env
+  `LEAN_PKG_INDEX`, or `./index`.
+- `lean-pkg index add NAME`: builds an entry from the registry row
+  (`--from-registry`) or from flags, reads the receipts from a clone at the
+  pin, validates them with the `gate` and `comparator` validators, computes
+  the trust level (`lower-tier`, `comparator`, `palomar`), refuses a
+  duplicate repository and commit, and appends `index-added` to the event log.
+- `lean-pkg index check [NAME ...] [--clone | --repo-dir PATH]`: static
+  checks, or a re-derivation from bytes at the pin (receipts, logs,
+  toolchain, `lake-manifest.json`, license, tag, headline files) with trust
+  recomputed; Palomar ids and Reservoir listings are verified by API when
+  reachable and reported as skipped otherwise. Exit 0, 1 or 2; `--json`.
+- `lean-pkg index render [--out PATH] [--check]`: the Markdown table
+  `index/README.md`, with a do-not-hand-edit banner; a test keeps it current.
+- Docs: [The index](docs/index-catalog.md); CONTRIBUTING, the pull-request
+  template and the index-entry issue template use the schema's field names.
+
 - `LEAN_PKG_EVENTS`: environment variable for the event-log path (after
   `--events`, before the registry's sibling file).
 
 ### Fixed
+- `lean_pkg.__version__` now agrees with `pyproject.toml` (it still read 0.1.0).
 - Documentation site: complete dark-mode palette (header, links, syntax
   colours, tables, footer, search, copy buttons) and light-mode contrast,
   measured to WCAG AA on every page; the workflow diagram is a light card in
@@ -20,6 +46,7 @@ change the registry schema or receipt format, always with a migration).
   carries `test_only: true` and is refused by every validator.
 - The toolchain probe requires the judging binaries to be executable, as the
   vendored script does.
+
 
 ## [0.2.0] - 2026-10-06
 
