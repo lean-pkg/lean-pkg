@@ -1,0 +1,9 @@
+version = 1
+SPDX-PackageName = "lean-pkg"
+SPDX-PackageDownloadLocation = "https://github.com/chenle02/lean-pkg"
+
+[[annotations]]
+path = ["**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 Le Chen"
+SPDX-License-Identifier = "Apache-2.0"

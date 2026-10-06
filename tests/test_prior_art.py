@@ -160,3 +160,12 @@ def test_json_reports_the_record(lp, searchable, capsys):
     p = json.loads(capsys.readouterr().out)
     assert p["record"] == {"path": f"docs/prior-art/{today(lp)}-foo-bound.md", "event": "prior-art-searched",
                            "withheld": 0, "private_claims": False}
+
+
+def test_record_slug_truncation_keeps_distinct_terms_distinct():
+    from lean_pkg.prior_art import record_slug
+    base = "stochastic fubini theorem for the walsh dalang integral with a time dependent kernel"
+    a, b = record_slug(base + " alpha"), record_slug(base + " beta")
+    assert a != b and len(a) <= 70 and len(b) <= 70
+    assert record_slug("stochastic fubini") == "stochastic-fubini"   # short terms are unchanged
+    assert record_slug(base + " alpha") == a                          # deterministic

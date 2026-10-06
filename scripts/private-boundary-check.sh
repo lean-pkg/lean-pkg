@@ -3,13 +3,18 @@
 # to a private operations environment (host names, user names, private paths,
 # private notification channels, internal agent names).
 #
-# Usage: bash scripts/private-boundary-check.sh [DIR]   (default: repo root)
+# Usage: bash scripts/private-boundary-check.sh [DIR]             tree: what git would ship now
+#        bash scripts/private-boundary-check.sh --history [DIR]   every blob and commit message
+#                                                                reachable from any ref (the public
+#                                                                flip exposes all of it)
 #
 # Each forbidden string is written below as two adjacent quoted halves, so
 # this file never contains the literal it forbids and can be scanned like
 # every other file. Matching is case-sensitive and fixed-string.
 set -euo pipefail
 
+mode=tree
+if [ "${1:-}" = "--history" ]; then mode=history; shift; fi
 root="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 forbidden=(
@@ -48,7 +53,24 @@ printf '%s\n' "${forbidden[@]}" > "$patterns"
 # scratch such as worktree ledgers or caches never trips the check). Outside a
 # git checkout, fall back to a recursive scan that skips VCS metadata, caches,
 # virtualenvs and build output.
-if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+if [ "$mode" = history ]; then
+  git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "private-boundary-check: --history needs a git checkout" >&2; exit 2; }
+  hits=""
+  # every blob reachable from any ref, once each, labelled by one path it had
+  while read -r otype osha opath; do
+    [ "$otype" = blob ] || continue
+    found="$(git -C "$root" cat-file -p "$osha" | grep -nIiF -f "$patterns" -- || true)"
+    [ -n "$found" ] || continue
+    hits="${hits}$(printf '%s\n' "$found" | sed "s#^#${opath}@${osha:0:12}:#")"$'\n'
+  done < <(git -C "$root" rev-list --all --objects | git -C "$root" cat-file --batch-check='%(objecttype) %(objectname) %(rest)' | sort -u -k2,2)
+  # every commit message
+  while read -r c; do
+    found="$(git -C "$root" log -1 --format=%B "$c" | grep -iF -f "$patterns" -- || true)"
+    [ -n "$found" ] || continue
+    hits="${hits}$(printf '%s\n' "$found" | sed "s#^#commit-message:${c:0:12}:#")"$'\n'
+  done < <(git -C "$root" rev-list --all)
+  hits="${hits%$'\n'}"
+elif git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   hits="$(cd "$root" && git ls-files -z --cached --others --exclude-standard \
     | xargs -0 -r grep -nIiF -f "$patterns" -- || true)"
 else
@@ -77,8 +99,8 @@ if [ -n "$hits" ]; then
 fi
 
 if [ -n "$hits" ]; then
-  echo "private-boundary-check: FAIL: forbidden strings found:" >&2
+  echo "private-boundary-check: FAIL ($mode): forbidden strings found:" >&2
   printf '%s\n' "$hits" >&2
   exit 1
 fi
-echo "private-boundary-check: OK (${#forbidden[@]} forbidden strings, ${#allowed_public[@]} public-URL exception(s), none found under $root)"
+echo "private-boundary-check: OK ($mode: ${#forbidden[@]} forbidden strings, ${#allowed_public[@]} public-URL exception(s), none found under $root)"

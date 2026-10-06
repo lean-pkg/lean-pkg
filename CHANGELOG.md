@@ -9,6 +9,16 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `scripts/private-boundary-check.sh --history` and `make history`: scan every
+  blob and commit message reachable from any ref (the public-flip prerequisite).
+- REUSE 3.3 compliance: `REUSE.toml`, `LICENSES/Apache-2.0.txt`, `make reuse`
+  (part of `make check`; skipped with a notice when the tool is absent).
+
+### Fixed
+
+- Prior-art record slugs longer than 60 characters get an 8-hex suffix of the
+  full slug, so two long terms sharing a prefix no longer share a record file.
+
 - `index migrate [--check]`: rewrite `index-entry/1` entries as `index-entry/2`
   with `claims` derived from the headline; the two first entries migrated.
 
