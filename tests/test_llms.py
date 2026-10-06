@@ -8,7 +8,7 @@ def test_llms_exits_zero_and_covers_contract(lp, capsys):
     rc = lp.main(["llms"])
     assert rc == 0
     out = capsys.readouterr().out
-    for cmd in ("board", "list", "status", "register", "claim", "release",
+    for cmd in ("board", "list", "status", "init", "register", "claim", "release",
                 "gate", "promote", "audit", "validate", "llms", "wiki"):
         assert cmd in out, f"subcommand {cmd!r} missing from llms text"
     for field in ("commit", "lean_toolchain", "mathlib_rev", "sorry_count",
