@@ -1,0 +1,15 @@
+{
+  "commit": "55edc8145228ebe48da378188d632a6991144919",
+  "lean_toolchain": "leanprover/lean4:v4.32.0",
+  "mathlib_rev": "81a5d257c8e410db227a6665ed08f64fea08e997",
+  "sorry_count": 0,
+  "axioms": [
+    "propext",
+    "Classical.choice",
+    "Quot.sound"
+  ],
+  "report_sha256": "67f35ea5ea6d88b26f335b51fa49cce3bec86ebe0d6a267f9a9eb8de3be196f7",
+  "job_id": "home-workstation-2026-10-06-total-coloring",
+  "checker": "lake build + sorry scan + #print axioms on a lab workstation (Lean v4.32.0)",
+  "generated_at": "2026-10-06T17:55:52Z"
+}

@@ -7,9 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-06
+
 ### Added
 - `update --license-spdx SPDX` and `update --formalization-yaml REL` set the
   registry row's publication facts (previously only `register` could).
+- Index: third entry `total-coloring-lean` (lower-tier at 55edc814; the
+  example of an unfinished project: two proved headlines, goal and gaps in
+  notes).
 - Docs: how an unfinished project is listed honestly (headlines are what is
   proved, goals and gaps in `notes`, partial results as `experimental` claims,
   progress as a new pin), with `total-coloring-lean` as the example; FAQ entry.
