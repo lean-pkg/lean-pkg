@@ -342,10 +342,16 @@ def registry_path(args) -> pathlib.Path:
     return pathlib.Path.cwd() / DEFAULT_REGISTRY_NAME
 
 
+EVENTS_ENV = "LEAN_PKG_EVENTS"
+
+
 def events_path(args) -> pathlib.Path:
-    """--events, else a sibling lean-package-events.jsonl of the registry."""
+    """--events, else env LEAN_PKG_EVENTS, else a sibling lean-package-events.jsonl of the registry."""
     if getattr(args, "events", None):
         return pathlib.Path(args.events).expanduser()
+    env = os.environ.get(EVENTS_ENV, "").strip()
+    if env:
+        return pathlib.Path(env).expanduser()
     return registry_path(args).parent / EVENTS_NAME
 
 
@@ -669,6 +675,9 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
     for f in COMPARATOR_FIELDS:
         if f not in comp:
             raise Fail(f"comparator receipt missing required field {f!r}")
+    if comp.get("test_only"):
+        raise Fail("comparator receipt is marked test_only (produced under the test-only digest "
+                   "override); it is not evidence")
     schema = comp["schema"]
     if schema not in COMPARATOR_SCHEMAS:
         raise Fail(f"comparator schema must be one of {COMPARATOR_SCHEMAS}, got {schema!r}")
@@ -2043,7 +2052,7 @@ verified-private -> public         `promote --yes` after a clean dry-run checkli
 public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
 any -> archived                    `audit --fix` (gh isArchived) or maintainer decision
 
-SUBCOMMANDS (global flags: --registry PATH --events PATH --json)
+SUBCOMMANDS (global flags: --registry PATH --events PATH --json; env LEAN_PKG_REGISTRY, LEAN_PKG_EVENTS)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
@@ -2111,6 +2120,7 @@ tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commi
                 64-hex sha256 of the judging binaries under `lean --print-prefix`/bin
 host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>)
 host_policy     optional; the runner's host-policy reason (an override run is visible here)
+test_only       if present and true the receipt was produced under a test-only override and is REFUSED
 result          "pass" (the runner writes a receipt only on PASS)
 configs[]       MUST list exactly the comparator*.json / comparator/config*.json files tracked at HEAD
                 (no omissions, no extras). Per config: path, sha256 of its HEAD bytes; challenge_module,
