@@ -86,9 +86,10 @@ def test_audit_warns_preflight_missing_for_palomar_target(lp, env, fake_gh, caps
     assert "palomar-preflight-missing" in capsys.readouterr().out
 
 
-def test_record_json_payload(lp, env, capsys):
+def test_record_json_payload(lp, env, capsys, monkeypatch):
+    monkeypatch.setattr(lp, "reservoir_listing_status", lambda owner, name: 200)
     assert lp.main(["--registry", str(env.registry), "--json", "record", "beta",
-                    "reservoir-listed", "--field", "url=https://reservoir.example/x"]) == 0
+                    "reservoir-listed", "--field", "url=https://reservoir.lean-lang.org/@example/x"]) == 0
     p = json.loads(capsys.readouterr().out)
     assert p["ok"] and p["event"] == "reservoir-listed"
     assert read_reg(env)["packages"]["beta"]["reservoir"]["url"].endswith("/x")
@@ -99,3 +100,49 @@ def test_record_refuses_reserved_and_unknown_field_keys(lp, env, capsys):
         assert rec(lp, env, "beta", "reservoir-listed", "url=https://reservoir.example/x", bad) == 1, bad
         assert "field" in capsys.readouterr().err
     assert read_events(env) == []
+
+
+# --- reservoir-listed is verified against the Reservoir API when it is reachable ---
+
+def _patch_reservoir(lp, monkeypatch, status):
+    calls = []
+
+    def fake(owner, name):
+        calls.append((owner, name))
+        return status
+
+    monkeypatch.setattr(lp, "reservoir_listing_status", fake)
+    return calls
+
+
+def test_reservoir_listed_verified_when_api_returns_200(lp, env, monkeypatch):
+    calls = _patch_reservoir(lp, monkeypatch, 200)
+    assert lp.main(["--registry", str(env.registry), "record", "beta", "reservoir-listed",
+                    "--field", "url=https://reservoir.lean-lang.org/@example/beta"]) == 0
+    assert calls == [("example", "beta")]
+    r = read_reg(env)["packages"]["beta"]["reservoir"]
+    assert r["verified"] is True and r["verified_at"]
+
+
+def test_reservoir_listed_refused_when_api_returns_404(lp, env, monkeypatch, capsys):
+    _patch_reservoir(lp, monkeypatch, 404)
+    assert lp.main(["--registry", str(env.registry), "record", "beta", "reservoir-listed",
+                    "--field", "url=https://reservoir.lean-lang.org/@example/beta"]) == 1
+    assert "not listed" in capsys.readouterr().err
+    assert read_reg(env)["packages"]["beta"]["reservoir"] is None
+
+
+def test_reservoir_listed_recorded_unverified_when_offline(lp, env, monkeypatch, capsys):
+    _patch_reservoir(lp, monkeypatch, None)          # network unreachable
+    assert lp.main(["--registry", str(env.registry), "record", "beta", "reservoir-listed",
+                    "--field", "url=https://reservoir.lean-lang.org/@example/beta"]) == 0
+    assert "unverified" in capsys.readouterr().out
+    r = read_reg(env)["packages"]["beta"]["reservoir"]
+    assert r["verified"] is False
+
+
+def test_reservoir_listed_url_shape_refused(lp, env, monkeypatch, capsys):
+    _patch_reservoir(lp, monkeypatch, 200)
+    assert lp.main(["--registry", str(env.registry), "record", "beta", "reservoir-listed",
+                    "--field", "url=https://example.invalid/not-reservoir"]) == 1
+    assert "reservoir.lean-lang.org" in capsys.readouterr().err

@@ -69,6 +69,8 @@ import shlex
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 
 import yaml
 
@@ -97,6 +99,22 @@ EVIDENCE_EVENTS = {
     "mathlib-pr-opened":       ("url",),
 }
 _HEX40 = re.compile(r"[0-9a-f]{40}")
+RESERVOIR_URL_RE = re.compile(r"^https://reservoir\.lean-lang\.org/@([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/?$")
+RESERVOIR_API = "https://reservoir.lean-lang.org/api/v1/packages/{owner}/{name}"
+
+
+def reservoir_listing_status(owner: str, name: str) -> int | None:
+    """HTTP status of Reservoir's package endpoint (200 = listed, 404 = not listed),
+    or None when the network is unreachable. Tests monkeypatch this function."""
+    req = urllib.request.Request(RESERVOIR_API.format(owner=owner, name=name),
+                                 headers={"User-Agent": "lean-pkg"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return int(r.status)
+    except urllib.error.HTTPError as e:
+        return int(e.code)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
 DEFAULT_REGISTRY_NAME = "lean-packages.yaml"
 EVENTS_NAME = "lean-package-events.jsonl"
 NOTIFY_ENV = "LEAN_PKG_NOTIFY_CMD"
@@ -1123,6 +1141,7 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
     for k, d in V2_PACKAGE_DEFAULTS.items():      # tolerate a v1 registry
         pkg.setdefault(k, copy.deepcopy(d))
     ts = now_iso()
+    extra_out: list[str] = []
     if event == "consent-recorded":
         pkg["consent"].append({"who": fields["who"], "role": fields["role"],
                                "pointer": fields["pointer"], "recorded_at": ts})
@@ -1160,10 +1179,26 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
                               "commit": fields["commit"], "minted_at": ts})
         pkg["doi"] = d
     elif event == "reservoir-listed":
-        pkg["reservoir"] = {"url": fields["url"], "listed_at": ts}
+        m = RESERVOIR_URL_RE.match(str(fields["url"]).strip())
+        if not m:
+            raise Fail("url must be the package's Reservoir page, "
+                       "https://reservoir.lean-lang.org/@<owner>/<name>")
+        owner, repo_name = m.group(1), m.group(2)
+        status = reservoir_listing_status(owner, repo_name)
+        if status == 404:
+            raise Fail(f"{owner}/{repo_name} is not listed on Reservoir (API 404); listing is "
+                       f"automatic for a public, non-fork GitHub repository with a root "
+                       f"lake-manifest.json, a detected OSI license and at least 2 stars")
+        verified = status == 200
+        pkg["reservoir"] = {"url": fields["url"], "listed_at": ts, "verified": verified,
+                            "verified_at": ts if verified else None}
+        if not verified:
+            extra_out.append(f"reservoir listing unverified (API status {status!r}; network "
+                             f"unreachable or unexpected); re-run `record` later to verify")
     record(reg, events_p, pkg, event, reason=reason or "", **fields)
     save_registry(reg_path, reg)
-    return [f"{name}: {event} recorded"], {"ok": True, "name": name, "event": event, "fields": fields}
+    return [f"{name}: {event} recorded", *extra_out], {"ok": True, "name": name, "event": event,
+                                                       "fields": fields, "notes": extra_out}
 
 def promote_checklist(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
     """(mark, label) pairs; mark in {'✓', '✗', 'WARN'}."""
@@ -2018,7 +2053,8 @@ record    record a D5 evidence event; required --field keys per event:
           consent-recorded: who role pointer | palomar-preflight-pass: commit run
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
           palomar-registered: commit id version comparator_config | palomar-withdrawn: id version
-          doi-minted: doi tag commit [concept] | reservoir-listed: url | mathlib-pr-opened: url
+          doi-minted: doi tag commit [concept] | reservoir-listed: url (the package's https://reservoir.lean-lang.org/@owner/name page;
+          verified against Reservoir's API: 404 refuses, unreachable records verified=false) | mathlib-pr-opened: url
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
