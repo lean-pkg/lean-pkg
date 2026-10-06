@@ -432,3 +432,18 @@ def index_add(lp, root: Path, pkg: SimpleNamespace, *extra: str, registry: Path 
     if pkg.comp_rel:
         argv += ["--comparator", pkg.comp_rel]
     return lp.main(argv + list(extra))
+
+
+@pytest.fixture()
+def git_url_map(monkeypatch):
+    """Map a public https URL to a local repo for every git call (url.<path>.insteadOf),
+    so `index check --clone` never touches the network."""
+    pairs: list[tuple[str, str]] = []
+
+    def add(url: str, path: Path) -> None:
+        i = len(pairs)
+        pairs.append((url, str(path)))
+        monkeypatch.setenv("GIT_CONFIG_COUNT", str(len(pairs)))
+        monkeypatch.setenv(f"GIT_CONFIG_KEY_{i}", f"url.{path}.insteadOf")
+        monkeypatch.setenv(f"GIT_CONFIG_VALUE_{i}", url)
+    return add

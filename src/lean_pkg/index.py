@@ -14,6 +14,8 @@ import os
 import pathlib
 import re
 import tempfile
+import urllib.error
+import urllib.request
 
 import yaml
 
@@ -574,3 +576,181 @@ def add_parsers(sub, add_json) -> None:
         p.set_defaults(fn=cmd_index, index_fn=fn)
 
     _parser_add(isub, common)
+    _parser_check(isub, common)
+
+
+PALOMAR_ENTRY_URL = "https://data.palomar-registry.org/entries/{id}-v{version}.json"
+
+
+# --------------------------------------------------------------------------
+# network (tests monkeypatch these; None means unreachable)
+
+def palomar_entry_status(entry_id: str, version: int) -> int | None:
+    req = urllib.request.Request(PALOMAR_ENTRY_URL.format(id=entry_id, version=version),
+                                 headers={"User-Agent": "lean-pkg"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return int(r.status)
+    except urllib.error.HTTPError as e:
+        return int(e.code)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+
+
+def network_checks(entry: dict) -> tuple[dict, list[str]]:
+    """({"palomar": state, "reservoir": state}, failures). state: verified | skipped | failed | n/a.
+    Unreachable is `skipped`: never a failure and never a pass."""
+    states = {"palomar": "n/a", "reservoir": "n/a"}
+    failures: list[str] = []
+    if entry.get("palomar"):
+        seen = []
+        for p in entry["palomar"]:
+            st = palomar_entry_status(p["id"], p["version"])
+            seen.append(st)
+            if st is not None and st != 200:
+                failures.append(f"palomar {p['id']} v{p['version']}: data.palomar-registry.org answered {st}")
+        states["palomar"] = ("skipped" if any(s is None for s in seen) and not failures
+                             else "failed" if failures else "verified")
+    if entry.get("reservoir"):
+        m = core.RESERVOIR_URL_RE.match(entry["reservoir"])
+        st = core.reservoir_listing_status(m.group(1), m.group(2)) if m else 404
+        if st is None:
+            states["reservoir"] = "skipped"
+        elif st == 200:
+            states["reservoir"] = "verified"
+        else:
+            states["reservoir"] = "failed"
+            failures.append(f"reservoir {entry['reservoir']}: API answered {st}")
+    return states, failures
+
+
+# --------------------------------------------------------------------------
+# check
+
+def static_problems(root: pathlib.Path, name: str, entry: dict) -> list[str]:
+    errors = validate_entry(entry, name)
+    if errors:
+        return errors
+    rec = entry["receipts"]
+    copies = {}
+    for k in ("lower", "comparator"):
+        if rec[k]:
+            f = root / name / RECEIPTS_DIR / pathlib.PurePosixPath(rec[k]).name
+            if not f.is_file():
+                errors.append(f"receipts.{k}: copy missing at {f.relative_to(root)}")
+                continue
+            try:
+                copies[k] = json.loads(f.read_text())
+            except ValueError:
+                errors.append(f"receipts.{k}: copy is not valid JSON")
+                continue
+            if copies[k].get("commit") != entry["pin"]["commit"]:
+                errors.append(f"receipts.{k}: copy binds {str(copies[k].get('commit'))[:12]}, "
+                              f"not the pin {entry['pin']['commit'][:12]}")
+    supported = compute_trust("lower" in copies, "comparator" in copies, entry["palomar"])
+    if supported is None or TRUST_RANK[entry["trust"]] > TRUST_RANK[supported]:
+        errors.append(f"trust {entry['trust']!r} exceeds its evidence ({supported or 'none'})")
+    return errors
+
+
+def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: bool,
+                seen: dict) -> dict:
+    rep = {"name": name, "ok": False, "trust_stated": None, "trust_computed": None,
+           "mechanism": None, "failures": [], "notes": [],
+           "network": {"palomar": "n/a", "reservoir": "n/a"}}
+    try:
+        entry = load_entry(root / name / ENTRY_FILE)
+    except core.Fail as e:
+        rep["failures"].append(str(e))
+        return rep
+    rep["trust_stated"] = entry.get("trust")
+    rep["failures"] += static_problems(root, name, entry)
+    if rep["failures"]:
+        return rep
+    key = (_repo_key(entry["repo"]), entry["pin"]["commit"])
+    if key in seen:
+        rep["failures"].append(f"duplicate of entry {seen[key]!r} (same repo and commit)")
+    seen.setdefault(key, name)
+    if not entry["consent"]["recorded"]:
+        rep["notes"].append("consent not recorded: every coauthor must agree before this entry is published")
+    if source is None and not clone_it:
+        rep["notes"].append("static check only: pass --clone (or --repo-dir) to re-derive from bytes")
+        rep["ok"] = not rep["failures"]
+        return rep
+    with tempfile.TemporaryDirectory(prefix="lean-pkg-index-") as tmp:
+        try:
+            clone = clone_at(source or entry["repo"], pathlib.Path(tmp) / "pkg")
+            res = derive(clone, entry["pin"]["commit"], entry["receipts"]["lower"],
+                         entry["receipts"]["comparator"])
+        except core.Fail as e:
+            rep["failures"].append(str(e))
+            return rep
+        rep["mechanism"] = res["mechanism"]
+        rep["failures"] += res["failures"]
+        for k in ("lower", "comparator"):
+            rel = entry["receipts"][k]
+            if rel and rel in res["bytes"]:
+                copy = (root / name / RECEIPTS_DIR / pathlib.PurePosixPath(rel).name).read_bytes()
+                if copy != res["bytes"][rel]:
+                    rep["failures"].append(f"receipts.{k}: index copy differs from the bytes in the repository")
+        rep["failures"] += at_pin_problems(clone, entry, res)
+    computed = compute_trust(res["lower_ok"], res["comparator_ok"], entry["palomar"])
+    rep["trust_computed"] = computed
+    if computed != entry["trust"]:
+        rep["failures"].append(f"stated trust {entry['trust']!r} != computed {computed!r}"
+                               + (" (stated trust exceeds its evidence)"
+                                  if computed is None or TRUST_RANK[entry["trust"]] > TRUST_RANK[computed]
+                                  else ""))
+    rep["network"], nf = network_checks(entry)
+    rep["failures"] += nf
+    for k, v in rep["network"].items():
+        if v == "skipped":
+            rep["notes"].append(f"{k} verification skipped: network unreachable")
+    rep["ok"] = not rep["failures"]
+    return rep
+
+
+def do_index_check(root: pathlib.Path, names: list[str], repo_dir: str | None,
+                   clone_it: bool) -> tuple[list[str], dict, int]:
+    if repo_dir and len(names) != 1:
+        raise core.UsageError("--repo-dir needs exactly one NAME")
+    all_names = entry_names(root)
+    targets = names or all_names
+    seen: dict = {}
+    reports = []
+    for n in sorted(set(all_names) - set(targets)):   # duplicates are judged against the whole index
+        e = load_entry(root / n / ENTRY_FILE)
+        if isinstance(e.get("pin"), dict):
+            seen.setdefault((_repo_key(str(e.get("repo"))), e["pin"].get("commit")), n)
+    for n in targets:
+        if n not in all_names:
+            reports.append({"name": n, "ok": False, "failures": [f"no entry {n!r} under {root}"],
+                            "notes": [], "network": {}, "trust_stated": None,
+                            "trust_computed": None, "mechanism": None})
+            continue
+        reports.append(check_entry(root, n, repo_dir, clone_it, seen))
+    ok = all(r["ok"] for r in reports)
+    lines = []
+    for r in reports:
+        tag = "PASS" if r["ok"] else "FAIL"
+        what = r.get("trust_computed") or r.get("trust_stated") or "?"
+        mech = f", {r['mechanism']}" if r.get("mechanism") else ""
+        lines.append(f"{tag} {r['name']} ({what}{mech})")
+        lines += [f"  fail: {x}" for x in r["failures"]] + [f"  note: {x}" for x in r["notes"]]
+    lines.append(f"{len(reports)} entr{'y' if len(reports) == 1 else 'ies'} checked: "
+                 + ("all pass" if ok else "FAILED"))
+    mode = "bytes" if (repo_dir or clone_it) else "static"
+    return lines, {"ok": ok, "mode": mode, "index": str(root), "entries": reports}, (0 if ok else 1)
+
+
+def run_check(args) -> int:
+    out, payload, rc = do_index_check(index_root(args), args.names, args.repo_dir, args.clone)
+    return _emit(args, out, payload, rc)
+
+
+def _parser_check(isub, common) -> None:
+    c = isub.add_parser("check", help="static check, or re-derive entries from bytes at the pin; exit 0/1/2")
+    c.add_argument("names", nargs="*", metavar="NAME")
+    c.add_argument("--clone", action="store_true", help="clone each entry's repo at the pin into a temp dir")
+    c.add_argument("--repo-dir", default=None, help="local clone for a single NAME (never modified)")
+    common(c, run_check)
