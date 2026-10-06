@@ -7,7 +7,7 @@ authors:
     given-names: Le
     affiliation: "Auburn University"
 version: "0.3.0"
-date-released: "2026-10-07"
+date-released: "2026-10-06"
 license: Apache-2.0
 repository-code: "https://github.com/chenle02/lean-pkg"
 url: "https://chenle02.github.io/lean-pkg/"
