@@ -43,11 +43,20 @@ patterns="$(mktemp)"
 trap 'rm -f "$patterns"' EXIT
 printf '%s\n' "${forbidden[@]}" > "$patterns"
 
-# Scan every file except VCS metadata, caches, virtualenvs and build output.
-hits="$(grep -rnIF -f "$patterns" "$root" \
-  --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=.pytest_cache \
-  --exclude-dir=.venv --exclude-dir=venv --exclude-dir=build --exclude-dir=dist \
-  --exclude-dir='*.egg-info' || true)"
+# Scan only what git would ship: tracked files plus untracked files that are
+# not ignored (so a new file is caught before its first commit, while ignored
+# scratch such as worktree ledgers or caches never trips the check). Outside a
+# git checkout, fall back to a recursive scan that skips VCS metadata, caches,
+# virtualenvs and build output.
+if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  hits="$(cd "$root" && git ls-files -z --cached --others --exclude-standard \
+    | xargs -0 -r grep -nIF -f "$patterns" -- || true)"
+else
+  hits="$(grep -rnIF -f "$patterns" "$root" \
+    --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=.pytest_cache \
+    --exclude-dir=.venv --exclude-dir=venv --exclude-dir=build --exclude-dir=dist \
+    --exclude-dir='*.egg-info' || true)"
+fi
 
 if [ -n "$hits" ]; then
   # Re-check the matched CONTENT only (drop the "path:line:" prefix, which may
