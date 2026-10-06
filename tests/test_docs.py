@@ -38,7 +38,8 @@ def test_docs_llms_txt_mirrors_root():
 def test_docs_site_has_entry_pages():
     for name in ("index.md", "motivation.md", "getting-started.md", "how-to.md",
                  "lifecycle.md", "receipts.md", "comparator.md", "cli.md",
-                 "agents.md", "_config.yml", "llms.txt"):
+                 "agents.md", "newcomers.md", "sample-workflow.md", "faq.md",
+                 "_config.yml", "llms.txt"):
         assert (ROOT / "docs" / name).is_file(), name
 
 
@@ -55,7 +56,8 @@ def test_relative_links_resolve():
 
 def test_readme_has_motivation_quick_start_and_routes():
     text = (ROOT / "README.md").read_text()
-    for heading in ("## Why lean-pkg", "## Who is this for", "## Where lean-pkg sits",
-                    "## Quick start", "## How to use", "## Documentation",
+    for heading in ("## Why lean-pkg", "## Who is this for", "## Not Palomar, not Mathlib",
+                    "## In sixty seconds", "## Learn the workflow", "docs/newcomers.md",
+                    "docs/sample-workflow.md", "docs/faq.md", "Functional Programming in Lean",
                     "Palomar", "llms.txt", "AGENTS.md"):
         assert heading in text, heading

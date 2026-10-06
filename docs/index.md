@@ -14,7 +14,8 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 
 | You are | Start with |
 |---|---|
-| **new here** | [Motivation](motivation.md), then [Getting started](getting-started.md) |
+| **new here** | [Start here](newcomers.md): the reading path, then the [sample workflow](sample-workflow.md) |
+| **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
 | **using the tool** | [How to](how-to.md) and the [CLI reference](cli.md) |
 | **auditing a package** | [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [Lifecycle](lifecycle.md) |
 | **a coding agent** | [Using lean-pkg with agents](agents.md) and [llms.txt](llms.txt) |
@@ -46,6 +47,9 @@ promotion dry run.
 
 ## Pages
 
+- [Start here](newcomers.md): the newcomer path, including the Lean reading list.
+- [Sample workflow](sample-workflow.md): a real package from registration to a promotion dry run.
+- [FAQ](faq.md): common questions, including how this differs from Palomar and Mathlib.
 - [Motivation](motivation.md): the problem this solves and where it is going.
 - [Getting started](getting-started.md): install and a complete worked example.
 - [How to](how-to.md): task recipes.
