@@ -127,7 +127,7 @@ html[data-theme="dark"] .main-content img[src$="workflow.svg"] { border: 1px sol
 @media (max-width: 42em) { .lp-toolbar { justify-content: stretch; } .lp-toolbar input[type="search"] { max-width: none; } }
 
 /* copy button on code blocks */
-.main-content pre.lp-has-copy { position: relative; }
+.main-content pre.lp-has-copy { position: relative; padding-right: 4.5rem; }
 .lp-copy { position: absolute; top: .45rem; right: .45rem; padding: .2rem .55rem; font: 600 .75rem system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--lp-fg); background: var(--lp-panel); border: 1px solid var(--lp-control-border); border-radius: .35rem; cursor: pointer; opacity: 0; transition: opacity .15s; }
 .main-content pre.lp-has-copy:hover .lp-copy, .lp-copy:focus { opacity: 1; }
 .lp-copy.lp-copied { color: var(--lp-copied); border-color: var(--lp-copied); }

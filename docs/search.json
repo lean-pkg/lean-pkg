@@ -4,5 +4,5 @@ sitemap: false
 ---
 [
 {% assign first = true %}{% for p in site.pages %}{% if p.url contains ".html" or p.url == "/" %}{% unless p.url contains "/search.json" or p.url contains "/assets/" %}{% unless first %},{% endunless %}{% assign first = false %}
-  {"title": {{ p.title | default: p.name | jsonify }}, "url": {{ p.url | relative_url | jsonify }}, "text": {{ p.content | strip_html | strip_newlines | truncate: 6000 | jsonify }}}{% endunless %}{% endif %}{% endfor %}
+  {"title": {{ p.title | default: p.name | jsonify }}, "url": {{ p.url | relative_url | jsonify }}, "text": {{ p.content | replace: "<", " <" | strip_html | strip_newlines | truncate: 6000 | jsonify }}}{% endunless %}{% endif %}{% endfor %}
 ]
