@@ -426,6 +426,7 @@ def index_add(lp, root: Path, pkg: SimpleNamespace, *extra: str, registry: Path 
     argv = (["--registry", str(registry)] if registry else []) + [
         "index", "add", pkg.name, "--index", str(root), "--repo-dir", str(pkg.repo),
         "--repo", pkg.url, "--license", "MIT", "--by", "maintainer", "--consent-recorded",
+        "--allow-unpushed",
         "--headline", "Demo.foo_le_bar :: Demo/Main.lean :: A trivial demonstration theorem."]
     if pkg.lower_rel:
         argv += ["--lower", pkg.lower_rel]

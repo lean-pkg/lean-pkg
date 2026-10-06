@@ -120,3 +120,10 @@ def test_load_entry_refuses_non_mapping(idx, lp, tmp_path):
     f.write_text("- a\n- b\n")
     with pytest.raises(lp.Fail):
         idx.load_entry(f)
+
+
+def test_repo_url_with_table_breaking_characters_refused(idx):
+    e = entry()
+    for bad in ("https://github.com/ex|ample/demo", "https://github.com/example/demo)"):
+        e["repo"] = bad
+        assert any("repo" in x for x in idx.validate_entry(e, "demo")), bad

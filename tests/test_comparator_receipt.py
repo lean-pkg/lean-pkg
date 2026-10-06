@@ -367,3 +367,11 @@ def test_fake_digest_override_marks_receipt_test_only(project: Path):
     head = git(project, "rev-parse", "HEAD")
     rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
     assert rec["test_only"] is True
+
+
+def test_runner_host_label_env_replaces_the_hostname(project: Path):
+    r = run_runner(project, extra_env={"COMPARATOR_RECEIPT_HOST_LABEL": "lab-workstation"})
+    assert r.returncode == 0, r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+    assert rec["host"] == "lab-workstation"

@@ -139,7 +139,7 @@ def test_check_network_unreachable_is_skipped_not_failed(lp, idx, tmp_path, monk
     pkg, root = added(lp, tmp_path)
     edit_entry(root, "demo", lambda e: e.update(
         trust="palomar", palomar=[PAL], reservoir="https://reservoir.lean-lang.org/@example/demo"))
-    monkeypatch.setattr(idx, "palomar_entry_status", lambda i, v: None)
+    monkeypatch.setattr(idx, "palomar_entry_fetch", lambda i, v: None)
     monkeypatch.setattr(lp, "reservoir_listing_status", lambda o, n: None)
     capsys.readouterr()
     assert check(lp, root, "demo", "--repo-dir", str(pkg.repo), "--json") == 0
@@ -153,7 +153,8 @@ def test_check_network_verified_and_failed(lp, idx, tmp_path, monkeypatch, capsy
     edit_entry(root, "demo", lambda e: e.update(
         trust="palomar", palomar=[PAL], reservoir="https://reservoir.lean-lang.org/@example/demo"))
     calls = []
-    monkeypatch.setattr(idx, "palomar_entry_status", lambda i, v: calls.append((i, v)) or 200)
+    monkeypatch.setattr(idx, "palomar_entry_fetch", lambda i, v: calls.append((i, v)) or
+                        {"source": {"commit": pkg.pin, "repository_url": pkg.url}})
     monkeypatch.setattr(lp, "reservoir_listing_status", lambda o, n: 404)
     capsys.readouterr()
     assert check(lp, root, "demo", "--repo-dir", str(pkg.repo), "--json") == 1
@@ -213,3 +214,33 @@ def test_check_notes_missing_consent_without_failing(lp, tmp_path, capsys):
     edit_entry(root, "demo", lambda e: e.update(consent={"recorded": True}))
     assert check(lp, root, "demo", "--repo-dir", str(pkg.repo)) == 0
     assert "consent not recorded" not in capsys.readouterr().out
+
+
+# --- review fixes (2026-10-06) ---------------------------------------------
+
+def test_check_palomar_entry_bound_elsewhere_fails(lp, idx, tmp_path, monkeypatch, capsys):
+    """Important: a Palomar id must name this repository at this pin."""
+    pkg, root = added(lp, tmp_path)
+    edit_entry(root, "demo", lambda e: e.update(trust="palomar", palomar=[PAL]))
+    monkeypatch.setattr(idx, "palomar_entry_fetch", lambda i, v: {"source": {"commit": "f" * 40,
+                                                                             "repository_url": pkg.url}})
+    capsys.readouterr()
+    assert check(lp, root, "demo", "--repo-dir", str(pkg.repo), "--json") == 1
+    rep = json.loads(capsys.readouterr().out)["entries"][0]
+    assert rep["network"]["palomar"] == "failed" and any("ffffffffffff" in f for f in rep["failures"])
+
+
+def test_check_one_name_ignores_an_unrelated_broken_entry(lp, tmp_path, capsys):
+    pkg, root = added(lp, tmp_path)
+    (root / "broken").mkdir()
+    (root / "broken" / "entry.yaml").write_text("- not\n- a mapping\n")
+    assert check(lp, root, "demo") == 0
+    assert check(lp, root) == 1              # asked for everything: the broken one is reported
+
+
+def test_render_fails_cleanly_on_a_malformed_entry(lp, tmp_path, capsys):
+    pkg, root = added(lp, tmp_path)
+    edit_entry(root, "demo", lambda e: e.pop("trust"))
+    assert lp.main(["index", "render", "--index", str(root)]) == 1
+    err = capsys.readouterr().err
+    assert "trust" in err and "Traceback" not in err

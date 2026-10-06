@@ -32,6 +32,16 @@ from bytes at its pin.
   `index/README.md`, with a do-not-hand-edit banner; a test keeps it current.
 - Docs: [The index](docs/index-catalog.md); CONTRIBUTING, the pull-request
   template and the index-entry issue template use the schema's field names.
+- Safety of the index (from the fresh-model review): evidence files are
+  written with symlinks refused at the pin and on disk; a rename into
+  `.lean-receipts/` is no longer evidence-only (`gate` benefits too); a
+  Palomar id grades an entry only at its registered commit and `check`
+  compares the Palomar entry's source with the index entry; `index add`
+  verifies that the pin and evidence are on a public branch unless
+  `--allow-unpushed`; receipt copies with local-path strings are refused;
+  `COMPARATOR_RECEIPT_HOST_LABEL` gives receipts a public-safe host; `render`
+  fails cleanly on a malformed entry; one broken entry no longer blocks
+  checking another; the private-boundary check is case-insensitive.
 
 - `LEAN_PKG_EVENTS`: environment variable for the event-log path (after
   `--events`, before the registry's sibling file).

@@ -258,7 +258,7 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     p = git(repo, "merge-base", "--is-ancestor", bound, head)
     if p.returncode != 0:
         return False, f"{bound[:12]} is not an ancestor of HEAD {head[:12]}"
-    p = git(repo, "diff", "--name-only", bound, head)
+    p = git(repo, "diff", "--no-renames", "--name-only", bound, head)   # a rename into .lean-receipts/ is a source change
     paths = [x for x in p.stdout.splitlines() if x.strip()]
     foreign = [x for x in paths if not x.startswith(".lean-receipts/")]
     if foreign or not paths:
@@ -2102,6 +2102,7 @@ wiki      render a Markdown status page.               ex: lean-pkg wiki --out s
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
   add NAME --by HANDLE --headline 'Name :: File.lean :: One sentence.' [--from-registry] [--repo URL]
       [--repo-dir P] [--lower REL] [--comparator REL] [--license SPDX] [--tag T] [--field-tag T] [--consent-recorded]
+      [--allow-unpushed]  (default: the pin and evidence must be on a branch of the public repo; consent must be recorded)
       validates the receipts at the pin (their commit) in a clone; trust computed; receipts copied verbatim;
       duplicate repo+commit refused; never writes local_path; event index-added (event log only).
   check [NAME ...] [--clone | --repo-dir P]   static without a source; else re-derive from bytes at the pin.
