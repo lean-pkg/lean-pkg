@@ -7,7 +7,7 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-10-07
+## [0.3.0] - 2026-10-06
 
 The index schema (milestone M1's catalog layer, pulled forward): a public,
 forkable list of trust-graded packages whose every row can be re-derived
@@ -32,6 +32,8 @@ from bytes at its pin.
   `index/README.md`, with a do-not-hand-edit banner; a test keeps it current.
 - Docs: [The index](docs/index-catalog.md); CONTRIBUTING, the pull-request
   template and the index-entry issue template use the schema's field names.
+- First index entry: `gromov-filling-lean` (lower-tier; Lean v4.29.0; pin
+  1c4ccb9c; receipt produced on the Auburn University Easley Cluster).
 - Safety of the index (from the fresh-model review): evidence files are
   written with symlinks refused at the pin and on disk; a rename into
   `.lean-receipts/` is no longer evidence-only (`gate` benefits too); a
