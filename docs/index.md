@@ -37,15 +37,23 @@ undone in practice.
 
 ## Quick start
 
+Install the CLI once, then use one private Git-backed registry to coordinate
+many independent research repositories:
+
+<img src="assets/global-registry.svg" alt="Architecture diagram: one private global registry coordinates many independent Lean project repositories; a chosen public snapshot can later flow through index review into the lean-pkg public index" style="max-width:100%;height:auto">
+
 ```bash
 pipx install git+https://github.com/chenle02/lean-pkg.git
-mkdir -p ~/lean-registry && printf 'version: 1\npackages: {}\n' > ~/lean-registry/lean-packages.yaml
-export LEAN_PKG_REGISTRY=~/lean-registry/lean-packages.yaml
+mkdir -p ~/.lean-pkg/registry
+git -C ~/.lean-pkg/registry init
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
 ```
 
-Continue with [Getting started](getting-started.md) for the receipts and the
-promotion dry run.
+Continue with [Getting started](getting-started.md) for the initial registry
+commit, receipts, and promotion dry run. A future `lean-pkg init --global`
+will automate the registry bootstrap; it is not implemented yet.
 
 ## Pages
 
