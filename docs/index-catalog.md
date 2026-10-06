@@ -47,13 +47,15 @@ receipt that judged other statements, such as a smoke configuration, does not
 grade the headline: the entry is lower-tier if a lower-tier receipt exists,
 and refused otherwise.
 
-## Entry schema (`index-entry/1`)
+## Entry schema (`index-entry/2`; `index-entry/1` still validates)
 
-Keys appear in exactly this order; an unknown key is refused.
+Keys appear in exactly this order; an unknown key is refused. `index add`
+writes `index-entry/2`, which adds `claims` after `headline`; an
+`index-entry/1` entry has no `claims` key and stays valid.
 
 | Key | Value |
 |---|---|
-| `schema` | `index-entry/1` |
+| `schema` | `index-entry/2` (or `index-entry/1`) |
 | `name` | the directory name |
 | `repo` | public https URL |
 | `pin` | `commit` (40 hex, the receipts' commit) and `tag` (or null; at the pin or an evidence-only descendant) |
@@ -63,6 +65,7 @@ Keys appear in exactly this order; an unknown key is refused.
 | `trust` | `lower-tier`, `comparator` or `palomar` (computed) |
 | `receipts` | `lower` and `comparator`: repository paths under `.lean-receipts/`, or null |
 | `headline` | list of `name` (fully qualified), `file` (repository-relative `.lean`), `summary` (one sentence), and optionally `judged_as` (the Challenge theorem name under which a comparator configuration judged it) |
+| `claims` | `index-entry/2` only: one claim per headline item, derived at `index add` and never typed: `id` (`<name>/<slug of the declaration>`), `decl`, `kind` (`theorem`), `summary`, `judged_as`, `trust` (the entry's); `lean-pkg search` finds them ([Prior-art search](prior-art.md)) |
 | `palomar` | list of `id` and `version` |
 | `doi` | null, or `concept` and `versions` (each `doi`, `tag`, `commit`) |
 | `reservoir` | null, or the package's Reservoir page |

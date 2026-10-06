@@ -7,6 +7,39 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-07
+
+Claim-level prior-art search (issue #4): search before building, across the
+group's own packages and the public sources, with a citable record.
+
+### Added
+- `claims.yaml` (schema `claims/1`) at a package repository root: named,
+  reusable results with stable ids `<package>/<slug>`, kinds, statuses,
+  aliases, keywords, supersession (acyclic) and dependencies.
+- `lean-pkg claims sync NAME` reads the file at `HEAD`, checks every
+  declaration occurs in its file, and caches the claims with the commit in
+  the registry (event `claims-synced`); `claims list` and `claims check`.
+- `lean-pkg search TERM`: registry claims, the public index, Loogle,
+  LeanSearch, Reservoir (the index data, cached by commit, never the
+  name-only site search), Palomar (results API, cached by revision) and
+  GitHub, in that fixed order; every source `ok` or `skipped: <reason>`,
+  never zero hits when unreachable; `--offline`, `--sources`, `--json`.
+- `lean-pkg search --record` writes `docs/prior-art/<date>-<slug>.md` in the
+  research repository (`decision: pending` for a human) and one
+  `prior-art-searched` event; claims of other private packages are listed
+  only in a private package's record, marked `private-claims: yes`.
+- Index: `index-entry/2` adds `claims[]`, derived from the headline at
+  `index add`; `index check` refuses claims that drift from the headline;
+  `index render` lists them. `index-entry/1` entries stay valid.
+- Advisory notes: `claim` when a package has no recent search and no claims,
+  `index add` when no record at the pin names a headline.
+- Docs page `docs/prior-art.md`.
+
+### Changed
+- Registry version 3: `claims_file`, `claims`, `claims_synced_commit`
+  (additive; `lean-pkg migrate` moves v1 and v2 files forward; both stay
+  readable).
+
 ## [0.3.2] - 2026-10-06
 
 ### Added

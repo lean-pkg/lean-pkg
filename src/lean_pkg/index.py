@@ -567,6 +567,19 @@ def at_pin_problems(clone: pathlib.Path, entry: dict, receipts: dict) -> list[st
     return out
 
 
+def prior_art_notes(clone: pathlib.Path, headline: list[dict]) -> list[str]:
+    """Advisory: headline items that no prior-art record at the pin names. A record under
+    docs/prior-art/*.md counts for a headline when it contains the last component of its name."""
+    d = clone / "docs" / "prior-art"
+    texts = [p.read_text(errors="replace") for p in sorted(d.glob("*.md"))] if d.is_dir() else []
+    missing = [h["name"] for h in headline
+               if not any(h["name"].rsplit(".", 1)[-1] in t for t in texts)]
+    if not missing:
+        return []
+    return [f"note: no prior-art record under docs/prior-art/ at the pin names {', '.join(missing)} "
+            f"(advisory; `lean-pkg search TERM --record` writes one)"]
+
+
 def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | None,
                  name: str, opts: dict) -> tuple[list[str], dict]:
     if not NAME_RE.fullmatch(name):
@@ -627,6 +640,7 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
         res = derive(clone, pin, lower_rel, comp_rel)
         if res["failures"]:
             raise core.Fail("; ".join(res["failures"]))
+        notes = prior_art_notes(clone, headline)
         leaks = [x for r in (lower_rel, comp_rel) if r for x in private_strings_in(res["bytes"][r], r)]
         if leaks:
             raise core.Fail("receipt copies are public; refused: " + "; ".join(leaks)
@@ -675,6 +689,7 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
            f"receipts copied: {', '.join(copied)}"]
     if coverage_note:
         out.append(coverage_note)
+    out += notes
     if source and opts.get("allow_unpushed"):
         out.append("provisional: --allow-unpushed skipped the public-repository check; "
                    "`index check --clone` will fail until the pin and evidence are pushed")
@@ -685,7 +700,7 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
         out.append("no event log (no registry here and no --events): index-added not recorded")
     return out, {"ok": True, "name": name, "event": "index-added", "trust": trust,
                  "commit": pin, "mechanism": res["mechanism"], "entry": str(d / ENTRY_FILE),
-                 "receipts": copied}
+                 "receipts": copied, "notes": notes}
 
 
 # --------------------------------------------------------------------------
