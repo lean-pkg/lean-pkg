@@ -4,6 +4,8 @@ title: How to
 
 [&larr; lean-pkg documentation](index.md)
 
+*Dry run first. `--yes` is one-way.*
+
 Task recipes. Every command accepts `--json` for scripts and never prompts
 off a terminal.
 

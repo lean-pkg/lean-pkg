@@ -4,6 +4,8 @@ title: The comparator tier
 
 [&larr; lean-pkg documentation](index.md)
 
+*Check the theorem you claimed, not just the one that compiled.*
+
 ## The layout
 
 The project declares, next to its `lean-toolchain`, a trusted statement

@@ -34,7 +34,7 @@ def frontmatter(path: Path) -> tuple[dict, str]:
 
 def test_skill_count_is_in_range():
     assert 12 <= len(SKILL_DIRS) <= 18, SKILL_IDS
-    assert "lean-workflow" in SKILL_IDS
+    assert "lean-verification-workflow" in SKILL_IDS
 
 
 @pytest.mark.parametrize("skill", SKILL_DIRS, ids=SKILL_IDS)
@@ -195,12 +195,12 @@ def test_installer_links_into_project_and_is_idempotent(tmp_path):
 def test_installer_user_level_codex_location(tmp_path):
     p = _install("--agent", "codex", home=tmp_path)
     assert p.returncode == 0, p.stderr
-    assert (tmp_path / ".agents" / "skills" / "lean-workflow" / "SKILL.md").is_file()
+    assert (tmp_path / ".agents" / "skills" / "lean-verification-workflow" / "SKILL.md").is_file()
 
 
 def test_installer_refuses_existing_skill_without_force(tmp_path):
     project = tmp_path / "proj"
-    existing = project / ".claude" / "skills" / "lean-workflow"
+    existing = project / ".claude" / "skills" / "lean-verification-workflow"
     existing.mkdir(parents=True)
     (existing / "SKILL.md").write_text("someone else's router\n")
     p = _install("--agent", "claude", "--project", str(project), home=tmp_path)
@@ -212,5 +212,5 @@ def test_installer_refuses_existing_skill_without_force(tmp_path):
     assert forced.returncode == 0, forced.stdout
     backups = list((project / ".claude" / "skills.bak").iterdir())
     assert len(backups) == 1 and (backups[0] / "SKILL.md").read_text() == "someone else's router\n"
-    assert (existing / "SKILL.md").read_text() == (SKILLS / "lean-workflow" / "SKILL.md").read_text()
+    assert (existing / "SKILL.md").read_text() == (SKILLS / "lean-verification-workflow" / "SKILL.md").read_text()
     assert not existing.is_symlink()

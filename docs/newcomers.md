@@ -4,6 +4,8 @@ title: Start here
 
 [← lean-pkg documentation](index.md)
 
+*Read one chapter. Run one sample.*
+
 You are new to Lean, or new to verified research, or both. This page is the
 shortest honest path from zero to a certified package. Budget: one or two
 weeks of part-time reading, then an afternoon for the sample workflow.

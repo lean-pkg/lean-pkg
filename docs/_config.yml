@@ -1,5 +1,5 @@
 title: lean-pkg
-description: A registry and trust gate for Lean 4 formalization packages.
+description: Prove it. Then prove you proved it.
 theme: jekyll-theme-cayman
 show_downloads: false
 plugins:

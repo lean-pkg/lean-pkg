@@ -4,6 +4,8 @@ title: Agent skills
 
 [&larr; lean-pkg documentation](index.md)
 
+*Don't build wheels. Depend on them.*
+
 `lean-pkg` ships a set of **skills** for coding agents that formalize
 mathematics in Lean 4. A skill is a folder with a `SKILL.md` file: a short,
 named lesson that an agent such as Claude Code or Codex loads when a task
@@ -35,7 +37,7 @@ may be published.
 From a checkout of the repository, paste this into your agent:
 
 ```text
-Read skills/README.md in this lean-pkg checkout and install its skills for the agent I am using with scripts/install_skills.py, first with --dry-run; do not replace any existing skill, and tell me how to invoke lean-workflow.
+Read skills/README.md in this lean-pkg checkout and install its skills for the agent I am using with scripts/install_skills.py, first with --dry-run; do not replace any existing skill, and tell me how to invoke lean-verification-workflow.
 ```
 
 Or run the installer:
@@ -60,7 +62,7 @@ what it did.
 
 | Skill | Use it when |
 |---|---|
-| `lean-workflow` | choosing a skill (the router) |
+| `lean-verification-workflow` | choosing a skill (the router) |
 | `lean-fidelity-audit-taxonomy` | checking a Lean statement or definition against the paper |
 | `lean-weakened-hypothesis-vacuity` | a relaxed hypothesis is claimed to cover a new case |
 | `lean-partial-formalization-boundary` | analytic facts enter as hypotheses or contract fields |
@@ -82,7 +84,7 @@ what it did.
 Mathlib search, naming, elaboration performance, project architecture and
 multi-agent orchestration are deliberately left to Scott Armstrong's
 [LeanAutoformalizationSkills](https://github.com/scottnarmstrong/LeanAutoformalizationSkills);
-the two sets install side by side (only the `lean-workflow` routers share a
+the two sets install side by side (only the `lean-verification-workflow` routers share a
 name). The full index, with links to each skill, is
 [skills/README.md](https://github.com/chenle02/lean-pkg/blob/main/skills/README.md).
 

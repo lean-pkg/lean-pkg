@@ -17,7 +17,7 @@ there rather than restating it.
 Paste this into your agent, from a checkout of this repository:
 
 ```text
-Read skills/README.md in this lean-pkg checkout and install its skills for the agent I am using with scripts/install_skills.py, first with --dry-run; do not replace any existing skill, and tell me how to invoke lean-workflow.
+Read skills/README.md in this lean-pkg checkout and install its skills for the agent I am using with scripts/install_skills.py, first with --dry-run; do not replace any existing skill, and tell me how to invoke lean-verification-workflow.
 ```
 
 Or run the installer directly:
@@ -31,14 +31,14 @@ python3 scripts/install_skills.py --agent both --project /path/to/lean-project
 It links each skill folder (use `--copy` to copy), never replaces an existing
 skill that is not its own link unless you pass `--force` (which moves the old
 one aside), and prints a table of what it did. Start a new agent session
-afterwards; invoke `/lean-workflow` in Claude Code or `$lean-workflow` in
+afterwards; invoke `/lean-verification-workflow` in Claude Code or `$lean-verification-workflow` in
 Codex, or just describe the task.
 
 ## Index
 
 | Skill | Use it when |
 |---|---|
-| [lean-workflow](lean-workflow/SKILL.md) | you need to pick a skill; the router |
+| [lean-verification-workflow](lean-verification-workflow/SKILL.md) | you need to pick a skill; the router |
 | **Fidelity** | |
 | [lean-fidelity-audit-taxonomy](lean-fidelity-audit-taxonomy/SKILL.md) | checking a Lean statement or definition against the paper |
 | [lean-weakened-hypothesis-vacuity](lean-weakened-hypothesis-vacuity/SKILL.md) | a relaxed hypothesis is claimed to cover a new case |
@@ -73,10 +73,10 @@ are covered well by Scott Armstrong's
 [LeanAutoformalizationSkills](https://github.com/scottnarmstrong/LeanAutoformalizationSkills)
 (its `lean-search-discovery`, `lean-naming-style`, `lean-elaboration`,
 `lean-project-architecture`, `lean-orchestrator`, `lean-statement-audit` and
-`build-proof-dependency-graph` skills). The two sets can be installed side
-by side. Only the routers share a name (`lean-workflow`): the installer
-refuses the second one and reports the conflict, so keep whichever router you
-prefer, or pass `--force` to move the other aside.
+`build-proof-dependency-graph` skills). The two sets install side by side
+without name clashes: our router is `lean-verification-workflow`, his is
+`lean-workflow`. If a future skill name ever collides, the installer refuses
+the second one and reports it; pass `--force` to move the other aside.
 
 ## License and AI disclosure
 

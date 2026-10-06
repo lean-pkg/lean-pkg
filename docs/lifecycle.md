@@ -4,6 +4,8 @@ title: Lifecycle
 
 [&larr; lean-pkg documentation](index.md)
 
+*Verified before it goes public. One package, one workspace, at a time.*
+
 ## One registry, append-only history
 
 A single YAML registry (`version: 1`, a `packages` map) is the source of
