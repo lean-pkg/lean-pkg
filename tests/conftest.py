@@ -396,13 +396,14 @@ INDEX_URL = "https://github.com/example/{name}"
 
 
 def make_index_package(root: Path, name: str = "demo", *, lower: bool = True,
-                       comparator: bool = True, **comp_overrides) -> SimpleNamespace:
+                       comparator: bool = True, extra_files: dict | None = None,
+                       **comp_overrides) -> SimpleNamespace:
     """A package repo whose evidence is committed in an evidence-only descendant
     of the pin: pin = the commit the receipts bind; evidence = pin + .lean-receipts/."""
     repo = make_repo(root / f"{name}-repo", extra_files={
         "LICENSE": MIT_TEXT,
         "lake-manifest.json": MATHLIB_MANIFEST,
-        "Demo/Main.lean": "theorem foo_le_bar : True := trivial\n"})
+        "Demo/Main.lean": "theorem foo_le_bar : True := trivial\n", **(extra_files or {})})
     if comparator:
         add_comparator_config(repo)
     pin = repo_head(repo)

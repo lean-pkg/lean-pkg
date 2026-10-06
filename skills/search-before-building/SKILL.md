@@ -58,6 +58,18 @@ Work in a scratch directory outside the repository. Try at least two phrasings
 per need: the paper's term, the standard name, and a classical theorem name
 (for example "Gumbel", "extreme value", "Fisher-Tippett").
 
+With lean-pkg 0.4 or later, one command per phrasing covers your registry's
+claims, the public index and steps 1, 3, 4 and 6, and writes the record of
+step 7 into the package's repository with `decision: pending`:
+
+```bash
+lean-pkg search 'Gumbel' --package my-lean --record
+```
+
+Read its closing line: a source marked `skipped` was not searched, so run that
+step by hand or say so in the record. Steps 2 and 5 always stay manual. See
+the [Prior-art search](https://github.com/chenle02/lean-pkg/blob/main/docs/prior-art.md) page.
+
 1. **Loogle** (Mathlib and its dependencies, by name or type pattern):
 
    ```bash
