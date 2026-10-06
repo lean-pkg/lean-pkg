@@ -648,3 +648,17 @@ def test_runner_and_validator_share_the_pass_predicate():
     import lean_pkg.comparator_receipt as cr
     import lean_pkg.cli as cli
     assert cr.comparator_pass is cli.comparator_pass
+
+
+def test_test_only_receipt_is_refused_by_the_validator(lp, env):
+    """A receipt produced under the test-only digest override must never count as evidence."""
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a, schema="comparator-receipt/2", mechanism="toolchain",
+                                   test_only=True,
+                                   tools={"lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
+                                          "lake_sha256": "a" * 64, "leanexport_sha256": "b" * 64,
+                                          "leanchecker_sha256": "c" * 64, "nanoda_bin_sha256": "d" * 64,
+                                          "con-ron_sha256": "e" * 64})
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "test_only" in str(e.value)

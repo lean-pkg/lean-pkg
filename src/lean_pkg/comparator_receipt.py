@@ -75,7 +75,8 @@ def toolchain_available(project: pathlib.Path) -> bool:
     if p.returncode != 0 or not p.stdout.strip():
         return False
     prefix = pathlib.Path(p.stdout.strip())
-    return all((prefix / "bin" / tool).is_file() for tool in TOOLCHAIN_TOOLS)
+    return all(os.access(prefix / "bin" / tool, os.X_OK) and (prefix / "bin" / tool).is_file()
+               for tool in TOOLCHAIN_TOOLS)
 
 
 def bwrap_preflight() -> None:
@@ -113,7 +114,7 @@ def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str)
     prefix = pathlib.Path(p.stdout.strip())
     for tool in TOOLCHAIN_TOOLS:
         binp = prefix / "bin" / tool
-        if not binp.is_file():
+        if not (binp.is_file() and os.access(binp, os.X_OK)):
             raise RunnerError(f"toolchain {toolchain} does not bundle {tool}; the toolchain "
                               f"mechanism needs Lean {TOOLCHAIN_FLOOR} or later")
         tools[f"{tool}_sha256"] = sha256_file(binp)
@@ -281,7 +282,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                or f"local-{host}-{os.getpid()}-{now.strftime('%Y%m%dT%H%M%SZ')}")
         receipt = {
             "schema": SCHEMA, "mechanism": mechanism, "commit": commit,
-            "lean_toolchain": toolchain, "tools": tools, "host": host, "host_policy": host_policy, "job_id": job,
+            "lean_toolchain": toolchain, "tools": tools, "host": host,
+            **({"test_only": True} if os.environ.get(FAKE_LAKE_ENV) is not None else {}), "host_policy": host_policy, "job_id": job,
             "generated_at": now.isoformat(timespec="seconds"),
             "result": "pass", "configs": entries,
         }

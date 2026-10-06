@@ -48,3 +48,16 @@ def test_init_force_refuses_non_mapping_yaml(lp, tmp_path, capsys):
     reg.write_text("- not\n- a\n- registry\n")
     assert lp.main(["--registry", str(reg), "init", "--force"]) == 1
     assert "YAML" in capsys.readouterr().err
+
+
+def test_events_path_env_var_is_honoured(lp, tmp_path, monkeypatch):
+    reg = tmp_path / "r" / "lean-packages.yaml"
+    ev = tmp_path / "elsewhere" / "events.jsonl"
+    monkeypatch.setenv("LEAN_PKG_EVENTS", str(ev))
+    assert lp.main(["--registry", str(reg), "init"]) == 0
+    assert ev.is_file() and not (reg.parent / "lean-package-events.jsonl").exists()
+    # an explicit --events still wins
+    ev2 = tmp_path / "explicit.jsonl"
+    assert lp.main(["--registry", str(tmp_path / "r2" / "lean-packages.yaml"),
+                    "--events", str(ev2), "init"]) == 0
+    assert ev2.is_file()

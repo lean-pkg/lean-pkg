@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+- `LEAN_PKG_EVENTS`: environment variable for the event-log path (after
+  `--events`, before the registry's sibling file).
+
+### Fixed
+- A comparator receipt produced under the test-only digest override now
+  carries `test_only: true` and is refused by every validator.
+- The toolchain probe requires the judging binaries to be executable, as the
+  vendored script does.
+
 ## [0.2.0] - 2026-10-06
 
 Milestone M0 of the charter: a tool the lab can consume instead of its own

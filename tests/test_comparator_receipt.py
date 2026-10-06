@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -341,3 +342,28 @@ def test_toolchain_mechanism_runs_when_bwrap_works(project: Path, tmp_path: Path
     head = git(project, "rev-parse", "HEAD")
     rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
     assert rec["mechanism"] == "toolchain" and len(rec["tools"]["lake_sha256"]) == 64
+
+
+def test_toolchain_probe_requires_executable_binaries(cr, tmp_path: Path, monkeypatch):
+    prefix = tmp_path / "tc"
+    (prefix / "bin").mkdir(parents=True)
+    for tool in cr.TOOLCHAIN_TOOLS:
+        (prefix / "bin" / tool).write_text("#!/bin/sh\nexit 0\n")   # present but NOT executable
+    fakes = tmp_path / "fakes"
+    fakes.mkdir()
+    (fakes / "lean").write_text(f"#!/bin/sh\n[ \"$1\" = --print-prefix ] && echo {prefix}\nexit 0\n")
+    (fakes / "lean").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fakes}:{os.environ.get('PATH', '')}")
+    monkeypatch.delenv("COMPARATOR_FAKE_LAKE_OK", raising=False)
+    assert cr.toolchain_available(tmp_path) is False
+    for tool in cr.TOOLCHAIN_TOOLS:
+        (prefix / "bin" / tool).chmod(0o755)
+    assert cr.toolchain_available(tmp_path) is True
+
+
+def test_fake_digest_override_marks_receipt_test_only(project: Path):
+    r = run_runner_mech(project, "toolchain")
+    assert r.returncode == 0, r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+    assert rec["test_only"] is True
