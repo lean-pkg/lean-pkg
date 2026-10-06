@@ -25,8 +25,8 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 
 ## In one paragraph
 
-A package moves `scratch → active → gate-pending → verified-private →
-public → upstreamed`. The move to `verified-private` requires a lower-tier
+A package moves through
+`scratch → active → gate-pending → verified-private → public → upstreamed`. The move to `verified-private` requires a lower-tier
 receipt (`lake build`, sorry scan, `#print axioms`, bound to one commit). The
 move to `public` additionally requires a comparator receipt: trusted
 `Challenge.lean` statements checked against untrusted `Solution.lean` proofs

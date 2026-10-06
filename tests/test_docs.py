@@ -67,3 +67,25 @@ def test_site_index_has_citation_and_license():
     text = (ROOT / "docs" / "index.md").read_text()
     assert "## Citation" in text and "```bibtex" in text and "@software" in text
     assert "## License" in text and "Apache-2.0" in text
+
+
+def test_no_inline_code_spans_cross_lines():
+    bad = []
+    for md in [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "CONTRIBUTING.md",
+               ROOT / "DESIGN.md", *sorted((ROOT / "docs").glob("*.md"))]:
+        in_fence = False
+        for n, line in enumerate(md.read_text().split("\n"), 1):
+            if line.strip().startswith("```"):
+                in_fence = not in_fence
+                continue
+            if not in_fence and line.count("`") % 2:
+                bad.append(f"{md.relative_to(ROOT)}:{n}")
+    assert bad == [], "inline code spans must not cross lines (GitHub renders them badly): " + ", ".join(bad)
+
+
+def test_citation_cff_matches_pyproject():
+    import tomllib, yaml
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    cff = yaml.safe_load((ROOT / "CITATION.cff").read_text())
+    assert cff["version"] == version and cff["license"] == "Apache-2.0"
+    assert "chenle02/lean-pkg" in cff["repository-code"]

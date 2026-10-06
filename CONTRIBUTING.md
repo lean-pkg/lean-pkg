@@ -24,12 +24,14 @@ Mathlib's contribution norms, including its rules on AI assistance.
 Contributions are pull requests against `main`.
 
 - **Tool changes** (code, tests, docs): keep each PR to one logical change.
-  Every PR must pass CI, which runs `pytest` on Python 3.11 and 3.12 plus
-  the private-boundary check (`scripts/private-boundary-check.sh`).
+  Every PR must pass the checks: `pytest` on a supported Python plus
+  the private-boundary check (`scripts/private-boundary-check.sh`). The
+  maintainer runs them locally before merging; the same jobs run as hosted
+  CI once the repository is public (GitHub Actions is free there).
 - **Package entries** (once the catalog exists): a PR adds or updates an
   entry that points to a public package repository at a pinned commit, with
   its `formalization.yaml`. Code stays in the package repository, not here.
-  CI will clone the package at the pin, run `comparator-check.sh` and the
+  The checks will clone the package at the pin, run the comparator and the
   lower-tier checks (`lake build`, sorry scan, `#print axioms`), validate
   the receipt pair with `lean-pkg comparator --check`, check the license
   (REUSE lint), and check the AI-disclosure block in `formalization.yaml`.
