@@ -145,17 +145,15 @@ COMPARATOR_MECHANISMS = ("toolchain", "legacy")
 COMPARATOR_TOOLCHAIN_DIGESTS = ["lake_sha256", "leanexport_sha256", "leanchecker_sha256",
                                 "nanoda_bin_sha256", "con-ron_sha256"]
 COMPARATOR_PASS_LINE = "Your solution is okay!"
-# One acceptance predicate per mechanism, shared with the runner (comparator_receipt imports it):
-# legacy = the full line from comparator-check.sh; toolchain = `lake comparator` output, whose exact
-# acceptance line is confirmed on a v4.35 host (M0 Task 4 Step 6) — until then either the legacy
-# line or the kernel's acceptance phrase counts.
-COMPARATOR_TOOLCHAIN_PASS_RE = re.compile(r"^Your solution is okay!$|accepts the solution", re.MULTILINE)
+# One acceptance predicate for both mechanisms, shared with the runner (comparator_receipt imports
+# it). Observed live on 2026-10-06 (Lean v4.35.0-rc2): `lake comparator` prints the per-kernel lines
+# ("con-ron kernel accepts the solution", "nanoda kernel accepts the solution", "Lean default kernel
+# accepts the solution") and then the full line "Your solution is okay!"; the legacy stack prints the
+# same final line. Only that full line counts.
 
 
 def comparator_pass(log_text: str, mechanism: str) -> bool:
-    """True when a comparator log shows acceptance under the given mechanism."""
-    if mechanism == "toolchain":
-        return bool(COMPARATOR_TOOLCHAIN_PASS_RE.search(log_text))
+    """True when a comparator log shows acceptance: the full line COMPARATOR_PASS_LINE."""
     return COMPARATOR_PASS_LINE in log_text.splitlines()
 COMPARATOR_TOOLS = ["comparator", "lean4export", "nanoda", "landrun"]
 COMPARATOR_FIELDS = ["schema", "commit", "lean_toolchain", "tools", "host",
@@ -803,8 +801,7 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
         lines = log_bytes.decode("utf-8", "replace").splitlines()
         if not comparator_pass("\n".join(lines), mechanism):
             raise Fail(f"comparator log {log_rel} has no PASS line for the {mechanism} mechanism "
-                       f"({COMPARATOR_PASS_LINE!r} as a full line"
-                       + (", or the kernel's acceptance phrase)" if mechanism == "toolchain" else ")"))
+                       f"({COMPARATOR_PASS_LINE!r} as a full line)")
 
 
 def load_json_object(path_arg, what: str) -> tuple[pathlib.Path, dict]:
@@ -2140,9 +2137,9 @@ configs[]       MUST list exactly the comparator*.json / comparator/config*.json
                 solution_module, theorem_names[] (non-empty), definition_names[], permitted_axioms[]
                 (subset of gate.axioms_allowed) — each MUST equal the config file at HEAD;
                 log MUST be .lean-receipts/<commit12>-comparator-<cfgname>.log (cfgname = path minus
-                .json, '/' -> '_'); log_sha256; result "pass". The log must show acceptance for the
-                mechanism (legacy: the full line "Your solution is okay!"; toolchain: that line or the
-                kernel's acceptance phrase). A file already at the canonical .lean-receipts path that
+                .json, '/' -> '_'); log_sha256; result "pass". The log must contain the full line
+                "Your solution is okay!" (both mechanisms; `lake comparator` prints it last, after the
+                per-kernel acceptance lines). A file already at the canonical .lean-receipts path that
                 differs from the receipt being recorded is refused (no silent pointer drift).
 
 INDEX ENTRY SCHEMA ("index-entry/1"; YAML keys in this order; unknown keys refused; no local paths)

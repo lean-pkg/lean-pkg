@@ -75,6 +75,12 @@ solution is judged. The receipt records the choice in its `mechanism` field.
 | `legacy` | the pinned comparator, lean4export, nanoda and landrun stack built by `comparator-check.sh` | any toolchain that lean4export has a tag for; kept for packages below the floor | the four 40-hex commits actually used |
 | `auto` (default) | | `toolchain` when the project's toolchain bundles the judging binaries, else `legacy` | as above |
 
+First live run of the toolchain mechanism (2026-10-06, Lean v4.35.0-rc2, a
+one-theorem smoke configuration): `lake comparator` printed one acceptance
+line per kernel (con-ron, NanoDa, Lean's default kernel) and finally
+`Your solution is okay!`, and the runner wrote a schema-2 receipt that
+`lean-pkg comparator --check` accepted.
+
 `--mechanism toolchain` on a toolchain below the floor refuses with a message
 that names the floor and writes nothing. A `legacy` pass is evidence of a
 second-kernel replay, not of what Palomar will say; only the `toolchain`
