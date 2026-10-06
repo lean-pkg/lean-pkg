@@ -158,3 +158,10 @@ def test_governance_files_exist_and_agree():
     assert r.returncode == 0, r.stderr
     assert "0.2.0" in r.stdout
     assert "AI assistance" in (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text()
+
+
+def test_site_code_blocks_get_a_copy_button():
+    js = (ROOT / "docs" / "assets" / "site.js").read_text()
+    css = (ROOT / "docs" / "assets" / "site.css").read_text()
+    assert "lp-copy" in js and "navigator.clipboard" in js and "execCommand" in js   # with a fallback
+    assert ".lp-copy" in css and 'html[data-theme="dark"] .lp-copy' in css
