@@ -34,6 +34,10 @@ public flip).
   mechanism `tools`; schema 1 still validates.
 - `gate` on an already-public package records the receipt and the
   `gate-passed` event without changing the status.
+- `record NAME reservoir-listed` verifies the listing against Reservoir's
+  package API (a 404 refuses; an unreachable network records `verified: false`).
+- The toolchain mechanism checks that `bwrap` can create a user namespace
+  before judging and names the Ubuntu 24.04 AppArmor fix when it cannot.
 - Governance: `SECURITY.md`, issue and pull-request templates with a required
   AI-assistance line, `docs/decisions/` (0001 files and git only; 0002
   benevolent maintainer with deputies), deputy and succession lines in

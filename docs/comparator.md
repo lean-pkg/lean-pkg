@@ -80,6 +80,17 @@ that names the floor and writes nothing. A `legacy` pass is evidence of a
 second-kernel replay, not of what Palomar will say; only the `toolchain`
 mechanism is Palomar-predictive.
 
+## Host requirements for the toolchain mechanism
+
+`lake comparator` sandboxes its judges with `bwrap` (bubblewrap), which needs
+an unprivileged user namespace. Ubuntu 24.04 forbids that by default through
+AppArmor, and the symptom is `bwrap: setting up uid map: Permission denied`.
+The runner checks `bwrap --ro-bind / / true` before judging and refuses with
+the fix in its message: as root, either an AppArmor profile for
+`/usr/bin/bwrap` that grants `userns` (narrow, recommended) or
+`sysctl kernel.apparmor_restrict_unprivileged_userns=0` (broad). The legacy
+mechanism uses landrun (Landlock) and is not affected.
+
 ## Host policy
 
 The comparator build is heavy. The runner allows a run only when one of

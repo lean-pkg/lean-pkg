@@ -296,3 +296,48 @@ def test_toolchain_mechanism_writes_nothing_on_reject(project: Path):
     r = run_runner_mech(project, "toolchain", stub_mode="fail")
     assert r.returncode == 1
     assert not (project / ".lean-receipts").exists()
+
+
+# --- bwrap preflight: Ubuntu 24.04 forbids unprivileged user namespaces by default ---
+
+def _fake_toolchain_host(tmp_path: Path, bwrap_ok: bool) -> dict:
+    """A PATH with a fake `lean` (prints a prefix whose bin/ holds the five judges) and a
+    fake `bwrap` that either works or fails the way AppArmor makes it fail."""
+    prefix = tmp_path / "toolchain"
+    (prefix / "bin").mkdir(parents=True)
+    for tool in ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron"):
+        (prefix / "bin" / tool).write_text("#!/bin/sh\nexit 0\n")
+        (prefix / "bin" / tool).chmod(0o755)
+    fakes = tmp_path / "fakes"
+    fakes.mkdir()
+    (fakes / "lean").write_text(f"#!/bin/sh\n[ \"$1\" = --print-prefix ] && echo {prefix}\nexit 0\n")
+    body = "#!/bin/sh\nexit 0\n" if bwrap_ok else \
+        "#!/bin/sh\necho 'bwrap: setting up uid map: Permission denied' >&2\nexit 1\n"
+    (fakes / "bwrap").write_text(body)
+    for f in ("lean", "bwrap"):
+        (fakes / f).chmod(0o755)
+    env = subprocess_env({"COMPARATOR_VERIFY": str(STUB_TC), "STUB_MODE": "pass",
+                          "COMPARATOR_RECEIPT_ALLOW_HOST": "1"})
+    env.pop("COMPARATOR_FAKE_LAKE_OK", None)
+    env.pop("SLURM_JOB_ID", None)
+    env["PATH"] = f"{fakes}:{env.get('PATH', '')}"
+    return env
+
+
+def test_toolchain_mechanism_refuses_when_bwrap_cannot_unshare(project: Path, tmp_path: Path):
+    env = _fake_toolchain_host(tmp_path, bwrap_ok=False)
+    r = subprocess.run([*RECEIPT_CLI, "--mechanism", "toolchain"], cwd=project, env=env,
+                       capture_output=True, text=True)
+    assert r.returncode == 1
+    assert "bwrap" in r.stderr and "user namespace" in r.stderr and "apparmor" in r.stderr.lower()
+    assert not (project / ".lean-receipts").exists()
+
+
+def test_toolchain_mechanism_runs_when_bwrap_works(project: Path, tmp_path: Path):
+    env = _fake_toolchain_host(tmp_path, bwrap_ok=True)
+    r = subprocess.run([*RECEIPT_CLI, "--mechanism", "toolchain"], cwd=project, env=env,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+    assert rec["mechanism"] == "toolchain" and len(rec["tools"]["lake_sha256"]) == 64
