@@ -117,7 +117,8 @@ the repository at a commit:
 ```
 
 Releases are listed in [CHANGELOG.md](CHANGELOG.md); the process is in
-[RELEASING.md](RELEASING.md). Design choices are recorded in
+[RELEASING.md](RELEASING.md). Proposed future directions are in
+[ROADMAP.md](ROADMAP.md). Design choices are recorded in
 [docs/decisions](docs/decisions/README.md); security reports go by
 [SECURITY.md](SECURITY.md).
 
