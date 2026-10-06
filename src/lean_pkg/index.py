@@ -156,8 +156,20 @@ def validate_entry(entry, dirname: str | None = None) -> list[str]:
         errors.append("headline must be a non-empty list")
     else:
         for i, h in enumerate(hl):
-            if not _exact_keys(h, ("name", "file", "summary"), f"headline[{i}]", errors):
+            if not isinstance(h, dict):
+                errors.append(f"headline[{i}] must be a mapping")
                 continue
+            extra_h = sorted(set(h) - {"name", "file", "summary", "judged_as"})
+            missing_h = [k for k in ("name", "file", "summary") if k not in h]
+            if extra_h:
+                errors.append(f"headline[{i}]: unknown key(s) {extra_h}")
+            if missing_h:
+                errors.append(f"headline[{i}]: missing key(s) {missing_h}")
+            if extra_h or missing_h:
+                continue
+            if "judged_as" in h and h["judged_as"] is not None and not (
+                    isinstance(h["judged_as"], str) and h["judged_as"].strip() and " " not in h["judged_as"]):
+                errors.append(f"headline[{i}].judged_as must be null or the Challenge theorem name")
             if not isinstance(h["name"], str) or not h["name"].strip() or " " in h["name"]:
                 errors.append(f"headline[{i}].name must be a fully qualified Lean name")
             if not (_is_rel(h["file"]) and h["file"].endswith(".lean")):
@@ -447,10 +459,29 @@ def _repo_key(url: str) -> str:
 
 
 def parse_headline(item: str) -> dict:
-    parts = [x.strip() for x in str(item).split(" :: ", 2)]
-    if len(parts) != 3 or not all(parts):
-        raise core.Fail(f"--headline expects 'Name :: path/File.lean :: One sentence.', got {item!r}")
-    return {"name": parts[0], "file": parts[1], "summary": parts[2]}
+    parts = [x.strip() for x in str(item).split(" :: ", 3)]
+    if len(parts) not in (3, 4) or not all(parts):
+        raise core.Fail(f"--headline expects 'Name :: path/File.lean :: One sentence.[ :: ChallengeTheorem]', got {item!r}")
+    out = {"name": parts[0], "file": parts[1], "summary": parts[2]}
+    if len(parts) == 4:
+        out["judged_as"] = parts[3]
+    return out
+
+
+def judged_names(comp) -> set[str]:
+    """Theorem and definition names the comparator receipt's configurations judged."""
+    names: set[str] = set()
+    for c in (comp or {}).get("configs") or []:
+        if isinstance(c, dict):
+            names.update(str(x) for x in (c.get("theorem_names") or []))
+            names.update(str(x) for x in (c.get("definition_names") or []))
+    return names
+
+
+def unjudged_headlines(headline: list[dict], comp) -> list[str]:
+    """Headline names whose `judged_as` is missing or not among the judged names."""
+    judged = judged_names(comp)
+    return [h["name"] for h in headline if not (h.get("judged_as") and h["judged_as"] in judged)]
 
 
 def headline_problems(clone: pathlib.Path, headline: list[dict]) -> list[str]:
@@ -560,7 +591,19 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
         if leaks:
             raise core.Fail("receipt copies are public; refused: " + "; ".join(leaks)
                             + " (set COMPARATOR_RECEIPT_HOST_LABEL / use public-safe checker strings)")
-        trust = compute_trust(res["lower_ok"], res["comparator_ok"], palomar)
+        coverage_note = None
+        comparator_covers = res["comparator_ok"]
+        if res["comparator_ok"]:
+            unjudged = unjudged_headlines(headline, res["comparator"])
+            if unjudged:
+                msg = (f"headline theorem(s) {', '.join(unjudged)} not judged by the comparator receipt "
+                       f"(judged: {', '.join(sorted(judged_names(res['comparator']))) or 'none'}); "
+                       f"give each headline its Challenge name as a fourth '::' part")
+                if not res["lower_ok"]:
+                    raise core.Fail(msg + "; a comparator-only entry needs every headline judged")
+                comparator_covers = False
+                coverage_note = msg + "; trust is lower-tier"
+        trust = compute_trust(res["lower_ok"], comparator_covers, palomar)
         entry = {
             "schema": ENTRY_SCHEMA, "name": name, "repo": repo,
             "pin": {"commit": pin, "tag": opts.get("tag")},
@@ -589,6 +632,8 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
     out = [f"{name}: index entry written at {d / ENTRY_FILE} (trust {trust}, pin {pin[:12]}"
            + (f", {res['mechanism']} comparator" if res["mechanism"] else "") + ")",
            f"receipts copied: {', '.join(copied)}"]
+    if coverage_note:
+        out.append(coverage_note)
     if source and opts.get("allow_unpushed"):
         out.append("provisional: --allow-unpushed skipped the public-repository check; "
                    "`index check --clone` will fail until the pin and evidence are pushed")
@@ -759,7 +804,15 @@ def static_problems(root: pathlib.Path, name: str, entry: dict) -> list[str]:
             if copies[k].get("commit") != entry["pin"]["commit"]:
                 errors.append(f"receipts.{k}: copy binds {str(copies[k].get('commit'))[:12]}, "
                               f"not the pin {entry['pin']['commit'][:12]}")
-    supported = compute_trust("lower" in copies, "comparator" in copies, entry["palomar"])
+    comparator_covers = "comparator" in copies
+    if comparator_covers:
+        unjudged = unjudged_headlines(entry["headline"], copies["comparator"])
+        if unjudged:
+            comparator_covers = False
+            if entry["trust"] == "comparator":
+                errors.append(f"headline theorem(s) {', '.join(unjudged)} not judged by the comparator "
+                              f"receipt copy (judged: {', '.join(sorted(judged_names(copies['comparator']))) or 'none'})")
+    supported = compute_trust("lower" in copies, comparator_covers, entry["palomar"])
     if supported is None or TRUST_RANK[entry["trust"]] > TRUST_RANK[supported]:
         errors.append(f"trust {entry['trust']!r} exceeds its evidence ({supported or 'none'})")
     return errors
@@ -806,7 +859,13 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
                 if copy != res["bytes"][rel]:
                     rep["failures"].append(f"receipts.{k}: index copy differs from the bytes in the repository")
         rep["failures"] += at_pin_problems(clone, entry, res)
-    computed = compute_trust(res["lower_ok"], res["comparator_ok"], entry["palomar"])
+    comparator_covers = res["comparator_ok"]
+    if res["comparator_ok"]:
+        unjudged = unjudged_headlines(entry["headline"], res["comparator"])
+        if unjudged:
+            comparator_covers = False
+            rep["notes"].append(f"headline theorem(s) {', '.join(unjudged)} not judged by the comparator receipt")
+    computed = compute_trust(res["lower_ok"], comparator_covers, entry["palomar"])
     rep["trust_computed"] = computed
     if computed != entry["trust"]:
         rep["failures"].append(f"stated trust {entry['trust']!r} != computed {computed!r}"

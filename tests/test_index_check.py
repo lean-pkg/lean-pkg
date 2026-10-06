@@ -244,3 +244,15 @@ def test_render_fails_cleanly_on_a_malformed_entry(lp, tmp_path, capsys):
     assert lp.main(["index", "render", "--index", str(root)]) == 1
     err = capsys.readouterr().err
     assert "trust" in err and "Traceback" not in err
+
+
+def test_check_recomputes_trust_from_headline_coverage(lp, tmp_path, capsys):
+    """An entry stating comparator trust for a headline the comparator never judged fails check."""
+    pkg, root = added(lp, tmp_path)                         # headline Demo.foo_le_bar, judged
+    edit_entry(root, "demo", lambda e: e["headline"].__setitem__(0, {"name": "Demo.unjudged",
+                                                                    "file": "Demo/Main.lean",
+                                                                    "summary": "Never judged."}))
+    (pkg.repo / "Demo" / "Main.lean").write_text("theorem foo_le_bar : True := trivial\ntheorem unjudged : True := trivial\n")
+    _git(pkg.repo, "commit", "-am", "later work")
+    assert check(lp, root, "demo", "--repo-dir", str(pkg.repo)) == 1
+    assert "not judged" in capsys.readouterr().out

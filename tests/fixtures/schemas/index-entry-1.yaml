@@ -15,6 +15,7 @@ headline:
 - name: Demo.foo_le_bar
   file: Demo/Main.lean
   summary: A trivial demonstration theorem.
+  judged_as: foo_le_bar
 palomar: []
 doi: null
 reservoir: null
