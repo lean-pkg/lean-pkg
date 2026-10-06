@@ -4,6 +4,8 @@ title: Motivation
 
 [&larr; lean-pkg documentation](index.md)
 
+*Mathlib holds the theorems. Palomar keeps the record. lean-pkg keeps the trust.*
+
 ## The gap between "it compiles" and "it is verified"
 
 A Lean file that builds with no `sorry` is a strong signal, but it is not the

@@ -2,7 +2,7 @@
 title: lean-pkg
 ---
 
-**A registry and trust gate for Lean 4 formalization packages.** One
+*Prove it. Then prove you proved it.* **A registry and trust gate for Lean 4 formalization packages.** One
 append-only registry says which packages exist, who is working on each one,
 and what evidence binds a package to a verified commit. Nothing becomes
 public without two receipts, and the second one is re-derived from bytes.

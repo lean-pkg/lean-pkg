@@ -5,8 +5,8 @@
 <h1 align="center">lean-pkg</h1>
 
 <p align="center">
-  <strong>A registry and trust gate for Lean 4 formalization packages.</strong><br>
-  Know which packages exist, who holds each one, and what evidence binds it to a verified commit, before anything becomes public.
+  <strong><em>Prove it. Then prove you proved it.</em></strong><br>
+  A registry and trust gate for Lean 4 formalization packages: know which packages exist, who holds each one, and what evidence binds it to a verified commit, before anything becomes public.
 </p>
 
 <p align="center">
@@ -20,6 +20,8 @@
 ---
 
 ## Why lean-pkg
+
+*A green build is a claim. A receipt is evidence.*
 
 A Lean project that builds with zero `sorry` is not yet a verified theorem.
 The statement may have drifted from the paper's claim, the check ran in the

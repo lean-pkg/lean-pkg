@@ -4,6 +4,8 @@ title: Receipts and trust
 
 [&larr; lean-pkg documentation](index.md)
 
+*Evidence you can re-derive, or it isn't evidence.*
+
 ## Two tiers
 
 | Tier | Produced by | Validated by | Proves |

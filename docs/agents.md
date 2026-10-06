@@ -4,6 +4,8 @@ title: Using lean-pkg with agents
 
 [&larr; lean-pkg documentation](index.md)
 
+*Agents claim before they work, and never flip to public.*
+
 Coding agents are first-class users of `lean-pkg`. The tool never prompts,
 every subcommand has `--json`, and the contract an agent needs is one file.
 

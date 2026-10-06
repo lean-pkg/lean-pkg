@@ -1,5 +1,5 @@
 ---
-name: lean-workflow
+name: lean-verification-workflow
 description: "Router for LLM-assisted Lean verification: pick the right skill for statement fidelity, proof engineering seams, evidence and receipts, publication, or the lean-pkg registry, and start from lean-pkg llms whenever a package is registered with lean-pkg. Trigger phrases: verify a paper in Lean, which Lean skill, Lean verification workflow, formalize and publish, lean-pkg, trust gate, is this formalization faithful, prepare receipts, Palomar."
 license: Apache-2.0
 ---
