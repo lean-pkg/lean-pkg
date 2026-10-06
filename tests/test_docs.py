@@ -119,3 +119,22 @@ def test_release_files_agree_and_release_script_refuses_bad_input():
     assert "\t" not in (ROOT / "Makefile").read_text()
     bad = subprocess.run(["bash", str(ROOT / "scripts" / "release.sh"), "not-a-version"], capture_output=True, text=True)
     assert bad.returncode == 2 and "usage" in bad.stderr
+
+
+def test_boundary_check_scans_only_files_git_would_ship(tmp_path):
+    """Git-ignored scratch (worktree ledgers, caches) is not shipped, so it must not fail the check;
+    an uncommitted but not-ignored file is shipped by the next commit, so it must."""
+    import subprocess
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(ROOT), str(clone)], check=True)
+    leak = "Le-AI-" + "Lab"                      # a forbidden string, assembled so this file stays clean
+    with (clone / ".gitignore").open("a") as f:
+        f.write("scratch/\n")
+    (clone / "scratch").mkdir()
+    (clone / "scratch" / "ledger.md").write_text(leak + "\n")
+    script = str(ROOT / "scripts" / "private-boundary-check.sh")
+    ok = subprocess.run(["bash", script, str(clone)], capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    (clone / "notes.md").write_text(leak + "\n")
+    bad = subprocess.run(["bash", script, str(clone)], capture_output=True, text=True)
+    assert bad.returncode == 1 and "notes.md" in bad.stdout + bad.stderr
