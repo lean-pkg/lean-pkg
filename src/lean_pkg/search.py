@@ -27,12 +27,25 @@ ADAPTERS = {"loogle": loogle, "leansearch": leansearch, "reservoir": reservoir,
 LATE_STATUSES = ("experimental", "superseded")
 HIT_KEYS = ("source", "id", "package", "decl", "kind", "summary", "trust", "status", "pin",
             "file", "score", "where")
-_TOKEN_SPLIT = re.compile(r"[^0-9a-z]+")
+_TOKEN_SPLIT = re.compile(r"[\W_]+", re.UNICODE)
+_PATHLIKE = re.compile(r"(?:~|/home/|/Users/|[A-Za-z]:\\)\S*")
+
+
+def fold(text) -> str:
+    """NFKD, strip combining marks, casefold: Itô -> ito, Black–Scholes keeps its words."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(text or ""))
+    return "".join(ch for ch in s if not unicodedata.combining(ch)).casefold()
+
+
+def scrub_paths(text) -> str:
+    """Replace anything that looks like a local path with <path> (skip reasons come from outside)."""
+    return _PATHLIKE.sub("<path>", str(text or ""))
 
 
 def tokens(text) -> list[str]:
-    """Lowercase alphanumeric tokens: `white-noise Fubini` -> ['white', 'noise', 'fubini']."""
-    return [t for t in _TOKEN_SPLIT.split(str(text or "").lower()) if t]
+    """Lowercase alphanumeric tokens of any script; accents folded; split on non-word runs."""
+    return [tok for tok in _TOKEN_SPLIT.split(fold(text)) if tok]
 
 
 def norm(text) -> str:
@@ -72,8 +85,8 @@ def _hit(source: str, c: dict, package: str, trust, pin, score: int, where: str)
 
 def block(source: str, state: str, reason: str | None = None, revision: str | None = None,
           hits: list | None = None) -> dict:
-    return {"source": source, "state": state, "reason": reason, "revision": revision,
-            "hits": hits or []}
+    return {"source": source, "state": state, "reason": scrub_paths(reason) if reason else reason,
+            "revision": revision, "hits": hits or []}
 
 
 # --------------------------------------------------------------------------
@@ -86,9 +99,16 @@ def registry_revision(path: pathlib.Path) -> str:
 def registry_block(term: str, reg_path: pathlib.Path) -> dict:
     if not reg_path.is_file():
         return block("registry", "skipped", "no registry file")
-    reg = core.load_registry(reg_path)
+    try:
+        reg = core.load_registry(reg_path)
+    except core.Fail as e:
+        return block("registry", "skipped", f"unreadable: {e}")
+    pkgs = reg.get("packages") or {}
+    bad = [n for n, p in pkgs.items() if not isinstance(p, dict)]
+    if not isinstance(pkgs, dict) or bad:
+        return block("registry", "skipped", f"unreadable registry (packages.{bad[0] if bad else '?'} is not a mapping)")
     hits = []
-    for name in sorted(reg.get("packages") or {}):
+    for name in sorted(pkgs):
         pkg = reg["packages"][name]
         trust, pin = cl.package_trust(pkg), pkg.get("claims_synced_commit")
         for c in pkg.get("claims") or []:

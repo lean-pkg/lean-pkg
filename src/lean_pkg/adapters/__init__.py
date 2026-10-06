@@ -26,7 +26,13 @@ import urllib.request
 USER_AGENT = "lean-pkg"
 urlopen = urllib.request.urlopen
 subprocess_run = subprocess.run
-_WORD = re.compile(r"[^0-9a-z]+")
+_WORD = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def fold(text) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(text or ""))
+    return "".join(ch for ch in s if not unicodedata.combining(ch)).casefold()
 
 
 def http_get(url: str, body: bytes | None = None, timeout: float = 10) -> tuple[int, bytes] | None:
@@ -74,7 +80,7 @@ def hit(name, summary, url, **extra) -> dict:
 
 
 def words(text) -> list[str]:
-    return [w for w in _WORD.split(str(text or "").lower()) if w]
+    return [w for w in _WORD.split(fold(text)) if w]
 
 
 def matches(term: str, *texts) -> bool:

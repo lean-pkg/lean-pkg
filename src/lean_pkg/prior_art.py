@@ -45,7 +45,7 @@ def _q(term: str) -> str:
 def not_found_line(payload: dict) -> str | None:
     """The spec's zero-hit wording, over exactly the sources that ran and found nothing."""
     zero = [f"{b['source']} at {b['revision'] or 'unknown revision'}" for b in payload["sources"]
-            if b["state"] == "ok" and not b["hits"]]
+            if b["state"] == "ok" and not b["hits"] and not b.get("withheld")]
     if not zero:
         return None
     return f"Not found in {', '.join(zero)} on {payload['date']} for {_q(payload['term'])}."
@@ -72,7 +72,8 @@ def render_record(payload: dict, *, withheld: int, private_claims: bool) -> str:
              "| Source | Revision | State | Hits |", "|---|---|---|---|"]
     for b in payload["sources"]:
         state = "ok" if b["state"] == "ok" else f"skipped: {b['reason']}"
-        hits = str(len(b["hits"])) if b["state"] == "ok" else "-"
+        w = b.get("withheld") or 0
+        hits = (f"{len(b['hits'])} shown (+{w} withheld)" if w else str(len(b["hits"]))) if b["state"] == "ok" else "-"
         lines.append(f"| {b['source']} | {_cell(b['revision'] or '-')} | {_cell(state)} | {hits} |")
     lines.append("")
     nf = not_found_line(payload)
@@ -122,6 +123,13 @@ def _target(reg_path: pathlib.Path, reg: dict | None, package: str | None,
         raise core.Fail("refusing to write a search record into the registry directory; "
                         "records live in the research repository (--package or --repo-dir)")
     vis = pkg.get("visibility") if pkg is not None else "unknown"
+    if repo_dir and pkg is not None:
+        try:
+            own = core.repo_path(pkg).resolve()
+        except Exception:
+            own = None
+        if own is None or own != target.resolve():
+            vis = "unknown"          # the privacy level follows the folder written into
     return target, vis if vis in ("private", "public") else "unknown"
 
 
@@ -142,7 +150,7 @@ def _withhold(payload: dict, reg: dict | None, package: str | None, visibility: 
                     continue
                 listed_private = listed_private or foreign_private
                 keep.append(h)
-            b = {**b, "hits": keep}
+            b = {**b, "hits": keep, "withheld": len(b["hits"]) - len(keep)}
         blocks.append(b)
     return {**payload, "sources": blocks}, withheld, listed_private
 
@@ -154,13 +162,17 @@ def write_record(payload: dict, *, reg_path: pathlib.Path, events_p: pathlib.Pat
     target, visibility = _target(reg_path, reg, package, repo_dir)
     rel = record_rel(payload["date"], payload["term"])
     dest = target / rel
-    if dest.exists():
+    if dest.exists() or dest.is_symlink():
         raise core.Fail(f"{rel} already exists in {target}; a record is never overwritten "
                         f"(edit it, or search with another phrasing)")
     shown, withheld, private_claims = _withhold(payload, reg, package, visibility)
     text = render_record(shown, withheld=withheld, private_claims=private_claims)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(text)
+    try:
+        with open(dest, "x", encoding="utf-8") as f:     # atomic create; refuses a symlink or a race
+            f.write(text)
+    except FileExistsError:
+        raise core.Fail(f"{rel} appeared in {target} during the write; nothing overwritten")
     out = [f"record written: {dest} (decision: pending; edit it, then commit it in that repository)"]
     sources = {b["source"]: (b["state"] if b["state"] == "ok" else f"skipped: {b['reason']}")
                for b in payload["sources"]}
