@@ -32,6 +32,82 @@ green build, and all three have bitten real formalization projects:
 | same-kernel trust | every proof replayed in the independent `nanoda` kernel inside a `landrun` sandbox |
 | status words | receipts bound to a commit, a toolchain, tool pins, file hashes, and a PASS line; `promote` re-derives the PASS from bytes |
 
+## Formalization as a second referee
+
+Formalization can improve a paper before it is finished. In practice, a Lean
+development may reveal a hidden hypothesis, an unjustified reduction, a mismatch
+between the informal theorem and the formal statement, or a dependency that the
+manuscript treated as "standard" without naming it.
+
+The useful research loop is therefore:
+
+`manuscript → computation/conjecture → Lean formalization → discovered gap → manuscript revision → re-verification`.
+
+The loop may stay private. `lean-pkg` already provides the commit-bound
+lifecycle, append-only history, receipts, and re-certification rules needed to
+track changing evidence without publishing intermediate work. Planned
+certificate-lineage metadata will make the mathematical boundary itself
+explicit across revisions.
+
+### Discovery is provenance, not proof
+
+Symbolic or numerical computation is often the fastest way to discover the
+right formula. That is a strength, not a defect, provided the trust boundary is
+clear.
+
+A Python, SymPy, Sage, Mathematica, Julia, Maple, or notebook artifact may
+suggest a candidate theorem. If Lean then proves the theorem independently, the
+final verification does not rely on trusting the exploratory computation. The
+computation remains valuable provenance: it explains how the claim was found,
+which script and environment produced it, and which formal theorem eventually
+certified it.
+
+A future provenance record should be able to bind, for example:
+
+- discovery tool and version;
+- script/notebook path and commit or content hash;
+- environment lockfile or package versions;
+- candidate formula or claim produced;
+- the Lean declaration that formalizes the claim;
+- the certificate version that verifies it.
+
+The rule is simple: **computation may propose; only the declared verification
+boundary determines what is certified.**
+
+### Conditional verification is still verification
+
+End-to-end formalization is not required for a result to be useful. In fields
+where library coverage is thin, a theorem may be proved in Lean conditional on
+explicit mathematical inputs that have not yet been formalized.
+
+Those inputs should normally appear as theorem hypotheses, structures, or
+abstract interfaces—not as new trusted Lean axioms. That distinction keeps
+`#print axioms` meaningful: a conditional theorem can still use only the
+standard permitted axioms while making its mathematical assumptions visible in
+the theorem statement.
+
+A conditional certificate should distinguish:
+
+- **theorem hypotheses**: part of the mathematical claim and not expected to
+  disappear;
+- **formal dependencies**: already kernel-checked Lean results;
+- **external dependencies**: cited mathematical results not yet formalized;
+- **project assumptions**: temporary interfaces introduced because supporting
+  infrastructure is missing;
+- **unverified scope**: portions of the paper for which the certificate makes no
+  claim.
+
+The honest interpretation is then: *if the declared external inputs are
+mathematically valid, Lean certifies the stated consequence inside this
+boundary.*
+
+As the ecosystem grows, external dependencies can be replaced by formal ones.
+A new certificate should supersede the old one without erasing it, so the
+verification history becomes progressively stronger rather than merely
+"pass/fail". This planned **certificate lineage** is especially important in
+areas such as stochastic analysis, where today's conditional result may become
+tomorrow's end-to-end formalization.
+
 ## Coordination is the other half
 
 Research formalization is rarely one repository. It is a dozen companions
