@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reserved-Name Mint Site"
+  short_description: "Locate where congr_simp or eq_1 is minted"
+  default_prompt: "Use $lean-reserved-name-mint-site to locate the declaration that mints this reserved-name lemma."

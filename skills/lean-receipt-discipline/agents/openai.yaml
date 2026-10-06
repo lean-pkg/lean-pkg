@@ -1,0 +1,4 @@
+interface:
+  display_name: "Receipt Discipline"
+  short_description: "Bind verification results to commits"
+  default_prompt: "Use $lean-receipt-discipline to turn this verification run into a commit-bound receipt."

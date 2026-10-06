@@ -1,0 +1,4 @@
+interface:
+  display_name: "Statement vs Use Span Audit"
+  short_description: "Check lemma statements cover every use"
+  default_prompt: "Use $statement-vs-use-span-audit to rank labels by use span and check each statement covers its uses."

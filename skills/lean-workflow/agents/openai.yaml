@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lean Verification Workflow"
+  short_description: "Route Lean fidelity, evidence and publication tasks"
+  default_prompt: "Use $lean-workflow to follow the Lean verification workflow for this repository, starting from lean-pkg llms if the package is registered."

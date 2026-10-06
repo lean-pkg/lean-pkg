@@ -1,0 +1,4 @@
+interface:
+  display_name: "Elaboration Boundaries"
+  short_description: "Pin types where downstream elaboration fails"
+  default_prompt: "Use $lean-elaboration-boundaries to find and pin the elaboration boundary behind this downstream failure."

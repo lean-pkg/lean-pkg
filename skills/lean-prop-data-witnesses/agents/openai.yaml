@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prop-to-Data Witnesses"
+  short_description: "Keep facts across choose and Or-to-Type"
+  default_prompt: "Use $lean-prop-data-witnesses to repair this chosen witness or direction tag without losing facts."

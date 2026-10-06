@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fidelity Audit Taxonomy"
+  short_description: "Classify Lean-versus-paper divergences"
+  default_prompt: "Use $lean-fidelity-audit-taxonomy to audit these Lean statements against the paper and classify every finding."
