@@ -1,0 +1,4 @@
+interface:
+  display_name: "lean-pkg Agent"
+  short_description: "Use the lean-pkg registry and trust gate"
+  default_prompt: "Use $lean-pkg-agent to run lean-pkg llms and take this package through the registry workflow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Honest Named Hypotheses"
+  short_description: "Defer unproved inputs as named hypotheses"
+  default_prompt: "Use $lean-honest-named-hypotheses to package this unproved input as an honest named hypothesis."

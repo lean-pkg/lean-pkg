@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lean Publishing"
+  short_description: "Palomar, DOI and Reservoir publication"
+  default_prompt: "Use $lean-publishing to prepare this formalization for Palomar and a DOI, leaving human decisions to me."

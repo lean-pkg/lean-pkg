@@ -1,0 +1,4 @@
+interface:
+  display_name: "Weakened Hypothesis Vacuity"
+  short_description: "Check a widened theorem is not vacuous"
+  default_prompt: "Use $lean-weakened-hypothesis-vacuity to check that the newly admitted case of this generalized theorem is not vacuous."

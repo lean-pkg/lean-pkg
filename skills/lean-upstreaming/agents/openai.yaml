@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lean Upstreaming"
+  short_description: "Extract libraries and contribute to Mathlib"
+  default_prompt: "Use $lean-upstreaming to plan the extraction of reusable declarations from this closed project."

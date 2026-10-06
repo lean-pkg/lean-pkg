@@ -1,0 +1,4 @@
+interface:
+  display_name: "Exact Axiom Audit"
+  short_description: "Exact-inventory print axioms audit"
+  default_prompt: "Use $lean-axiom-audit to build or fix the exact-inventory axiom audit and its negative control."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vendor Namespace Isolation"
+  short_description: "Resolve colliding Lean declaration names"
+  default_prompt: "Use $lean-vendor-namespace-isolation to isolate the colliding vendored library without moving pins."

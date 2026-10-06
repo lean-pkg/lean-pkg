@@ -1,0 +1,4 @@
+interface:
+  display_name: "Large Finite Computation"
+  short_description: "Tame closed Finset and decide blowups"
+  default_prompt: "Use $lean-large-finite-computation to restructure this expensive closed computation without changing its statement."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Partial Formalization Boundary"
+  short_description: "Attack contracts that may encode a defect"
+  default_prompt: "Use $lean-partial-formalization-boundary to review what this partial formalization's contracts can and cannot express."

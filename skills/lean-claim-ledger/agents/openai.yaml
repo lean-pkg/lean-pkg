@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claim Ledger"
+  short_description: "Track which paper claims Lean verifies"
+  default_prompt: "Use $lean-claim-ledger to build or update the paper-to-Lean claim ledger."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lean Paper Companion"
+  short_description: "Formalize high-value seams during a paper"
+  default_prompt: "Use $lean-paper-companion to choose the next high-value Lean seam for this paper."
