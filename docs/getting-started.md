@@ -6,7 +6,9 @@ title: Getting started
 
 ## Install
 
-Python 3.11 or newer. The only Python dependency is PyYAML.
+Python 3.11 or newer. The only Python dependency is PyYAML. Git is a core
+requirement for package provenance: receipts bind to Git commits and several
+checks inspect Git ancestry and working-tree state.
 
 ```bash
 pipx install git+https://github.com/chenle02/lean-pkg.git
@@ -40,6 +42,58 @@ External tools, needed only by some commands:
 Each package's `local_path` is resolved relative to `$HOME`, so machines that
 keep checkouts at the same home-relative place can share one registry.
 Absolute paths also work.
+
+## Recommended layout: one registry, many projects
+
+Install `lean-pkg` once and use one shared registry to coordinate many
+independent Lean/Git repositories:
+
+<img src="assets/global-registry.svg" alt="Architecture diagram: one private global registry coordinates many independent Lean project repositories; a chosen public snapshot can later flow through index review into the lean-pkg public index" style="max-width:100%;height:auto">
+
+```text
+~/.lean-pkg/registry/
+  .git/
+  lean-packages.yaml
+  lean-package-events.jsonl
+
+~/src/
+  paper-a/        # independent Git repo
+  paper-b/        # independent Git repo
+  paper-c/        # independent Git repo
+```
+
+The research repositories hold the mathematics, Lean source, comparator files,
+and their own committed `.lean-receipts/`. The registry repository holds the
+cross-project coordination state and append-only event history.
+
+Keep the registry repository private by default. It may contain pre-publication
+project names, local paths, agent/workspace identifiers, notes, and lifecycle
+status.
+
+### Bootstrap the shared registry today
+
+The current CLI can create the registry files, while Git initialization is done
+explicitly:
+
+```bash
+mkdir -p ~/.lean-pkg/registry
+git -C ~/.lean-pkg/registry init
+
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+
+git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
+git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
+
+export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
+```
+
+After that initial commit, modify the registry through `lean-pkg`, not by
+hand, and commit meaningful registry changes as part of your normal coordination
+workflow.
+
+A proposed future `lean-pkg init --global` will automate this Git-backed
+bootstrap and allow a custom registry-repository location. It is described in
+the [roadmap](../ROADMAP.md) and is not implemented yet.
 
 ## Worked example, end to end
 
@@ -78,10 +132,10 @@ root or as `comparator/config*.json`. Every one of them must pass. See the
 
 ### 2. A registry and a package entry
 
+Assume the shared registry from the setup above:
+
 ```bash
-mkdir -p ~/lean-registry && cd ~/lean-registry
-printf 'version: 1\npackages: {}\n' > lean-packages.yaml   # one-time bootstrap
-export LEAN_PKG_REGISTRY=~/lean-registry/lean-packages.yaml
+export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
 
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git \
     --path src/my-proof --upstream-target palomar

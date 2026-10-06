@@ -19,7 +19,49 @@ the maintainer out of the mechanical verification loop.
 5. **Palomar and Reservoir are complementary.** `lean-pkg` should hand off
    cleanly to external ecosystem services rather than duplicate them.
 
-## Priority 0: make contribution one-step and independently verifiable
+## Priority 0: make first-run setup and contribution frictionless
+
+### Global registry bootstrap
+
+Add a first-run command that creates the recommended private Git-backed
+coordination repository:
+
+```text
+~/.lean-pkg/registry/
+  .git/
+  lean-packages.yaml
+  lean-package-events.jsonl
+```
+
+Proposed interface:
+
+```bash
+lean-pkg init --global
+lean-pkg init --global --path ~/research/lean-registry
+```
+
+The command should:
+
+- create the target directory only when safe;
+- initialize the registry and event log;
+- initialize Git when the directory is not already a repository;
+- make one atomic initial commit;
+- refuse to overwrite unrelated files unless explicitly forced;
+- record the chosen location as the configured global default;
+- print the exact files and Git commit it created;
+- support `--json` and non-interactive operation.
+
+The intended registry lookup order after implementation is: explicit
+`--registry`, then `LEAN_PKG_REGISTRY`, then the configured global registry,
+then the existing project-local fallback.
+
+A companion `lean-pkg registry status` should report the selected registry
+location, Git status/branch, optional remote, and last registry commit without
+mutating anything.
+
+The registry repository should remain private by default because it can contain
+pre-publication project names, local paths, agent/workspace identifiers, notes,
+and lifecycle state.
 
 ### `lean-pkg index submit`
 
@@ -238,14 +280,15 @@ Possible follow-ups:
 
 ## Suggested implementation order
 
-1. `lean-pkg index submit`;
-2. trusted pull-request verifier;
-3. reproducible sandbox runner;
-4. conditional certificates and certificate lineage;
-5. manuscript/discovery provenance and external-reference identifiers;
-6. signed verification attestations;
-7. fidelity-review and reviewer workflows;
-8. Palomar handoff and catalog improvements.
+1. global registry bootstrap and `registry status`;
+2. `lean-pkg index submit`;
+3. trusted pull-request verifier;
+4. reproducible sandbox runner;
+5. conditional certificates and certificate lineage;
+6. manuscript/discovery provenance and external-reference identifiers;
+7. signed verification attestations;
+8. fidelity-review and reviewer workflows;
+9. Palomar handoff and catalog improvements.
 
 The first three turn the current CLI/index model into a scalable submission and
 verification service without weakening the principle that trust is independently
