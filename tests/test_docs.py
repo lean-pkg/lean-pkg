@@ -152,11 +152,11 @@ def test_governance_files_exist_and_agree():
         assert (ROOT / f).is_file(), f
     assert not (ROOT / "docs" / "release.md").exists()  # RELEASING.md is the runbook
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
-    assert version == "0.3.0"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), version      # never hard-code the version here
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "check-versions.py")],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    assert "0.3.0" in r.stdout
+    assert version in r.stdout
     assert "AI assistance" in (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text()
 
 
