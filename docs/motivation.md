@@ -2,7 +2,7 @@
 title: Motivation
 ---
 
-# Motivation
+[&larr; lean-pkg documentation](index.md)
 
 ## The gap between "it compiles" and "it is verified"
 

@@ -2,7 +2,7 @@
 title: The comparator tier
 ---
 
-# The comparator tier
+[&larr; lean-pkg documentation](index.md)
 
 ## The layout
 
