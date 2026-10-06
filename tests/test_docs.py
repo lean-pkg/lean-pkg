@@ -106,3 +106,16 @@ def test_workflow_diagram_exists_and_is_valid_svg():
     svg = ROOT / "docs" / "assets" / "workflow.svg"
     xml.dom.minidom.parse(str(svg))
     assert "assets/workflow.svg" in (ROOT / "docs" / "sample-workflow.md").read_text()
+
+
+def test_release_files_agree_and_release_script_refuses_bad_input():
+    import subprocess
+    out = subprocess.run(["python3", str(ROOT / "scripts" / "check-versions.py")], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.startswith("versions: ")
+    text = (ROOT / "CHANGELOG.md").read_text()
+    assert "## [Unreleased]" in text and "## [0.1.0] - 2026-10-05" in text
+    assert (ROOT / "RELEASING.md").is_file() and (ROOT / "Makefile").read_text().startswith("#")
+    assert "\t" not in (ROOT / "Makefile").read_text()
+    bad = subprocess.run(["bash", str(ROOT / "scripts" / "release.sh"), "not-a-version"], capture_output=True, text=True)
+    assert bad.returncode == 2 and "usage" in bad.stderr

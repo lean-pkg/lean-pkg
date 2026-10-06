@@ -114,6 +114,9 @@ the repository at a commit:
 }
 ```
 
+Releases are listed in [CHANGELOG.md](CHANGELOG.md); the process is in
+[RELEASING.md](RELEASING.md).
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE). Contributions are accepted under the
