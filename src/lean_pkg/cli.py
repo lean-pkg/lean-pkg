@@ -84,6 +84,19 @@ V2_PACKAGE_DEFAULTS = {
     "reservoir": None,           # {"listed_at": iso, "url": str} or None
     "consent": [],               # [{"who","role","recorded_at","pointer"}]; pointer is a private-repo path
 }
+# ADR-0070 D5 evidence events: name -> required --field keys. Each has a registry effect (see do_record).
+EVIDENCE_EVENTS = {
+    "consent-recorded":        ("who", "role", "pointer"),
+    "palomar-preflight-pass":  ("commit", "run"),
+    "palomar-submitted":       ("commit", "submission_id", "comparator_config"),
+    "palomar-review":          ("commit", "outcome"),
+    "palomar-registered":      ("commit", "id", "version", "comparator_config"),
+    "palomar-withdrawn":       ("id", "version"),
+    "doi-minted":              ("doi", "tag", "commit"),
+    "reservoir-listed":        ("url",),
+    "mathlib-pr-opened":       ("url",),
+}
+_HEX40 = re.compile(r"[0-9a-f]{40}")
 DEFAULT_REGISTRY_NAME = "lean-packages.yaml"
 EVENTS_NAME = "lean-package-events.jsonl"
 NOTIFY_ENV = "LEAN_PKG_NOTIFY_CMD"
@@ -1023,6 +1036,73 @@ def do_migrate(reg_path, events_p, dry_run: bool) -> tuple[list[str], dict]:
     payload["event"] = "registry-migrated"
     return lines, payload
 
+
+def _palomar_entry(pkg: dict, commit: str) -> dict:
+    pal = pkg.setdefault("palomar", [])
+    for e in pal:
+        if e.get("commit") == commit:
+            return e
+    e = {"commit": commit, "id": None, "version": None, "comparator_config": None,
+         "registered_at": None, "review_outcome": None, "preflight_run": None}
+    pal.append(e)
+    return e
+
+
+def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -> tuple[list[str], dict]:
+    """Record a D5 evidence event: required fields checked, registry effect applied, event appended."""
+    if event not in EVIDENCE_EVENTS:
+        raise Fail(f"unknown evidence event {event!r}; one of {sorted(EVIDENCE_EVENTS)}")
+    missing = [f for f in EVIDENCE_EVENTS[event] if not str(fields.get(f, "")).strip()]
+    if missing:
+        raise Fail(f"{event} requires --field for: {', '.join(missing)}")
+    if "commit" in fields and not _HEX40.fullmatch(str(fields["commit"])):
+        raise Fail(f"commit must be a 40-hex sha, got {fields['commit']!r}")
+    pkg = get_pkg(reg, name)
+    for k, d in V2_PACKAGE_DEFAULTS.items():      # tolerate a v1 registry
+        pkg.setdefault(k, copy.deepcopy(d))
+    ts = now_iso()
+    if event == "consent-recorded":
+        pkg["consent"].append({"who": fields["who"], "role": fields["role"],
+                               "pointer": fields["pointer"], "recorded_at": ts})
+    elif event in ("palomar-preflight-pass", "palomar-submitted", "palomar-review", "palomar-registered"):
+        e = _palomar_entry(pkg, fields["commit"])
+        if event == "palomar-preflight-pass":
+            e["preflight_run"] = fields["run"]
+        elif event == "palomar-submitted":
+            e["submission_id"] = fields["submission_id"]
+            e["comparator_config"] = fields["comparator_config"]
+        elif event == "palomar-review":
+            if fields["outcome"] not in ("neutral", "revision_required", "rejected"):
+                raise Fail("outcome must be neutral | revision_required | rejected")
+            e["review_outcome"] = fields["outcome"]
+        else:
+            try:
+                e["version"] = int(fields["version"])
+            except ValueError:
+                raise Fail(f"version must be an integer, got {fields['version']!r}")
+            e["id"] = fields["id"]
+            e["comparator_config"] = fields["comparator_config"]
+            e["registered_at"] = ts
+    elif event == "palomar-withdrawn":
+        for e in pkg["palomar"]:
+            if e.get("id") == fields["id"] and str(e.get("version")) == str(fields["version"]):
+                e["withdrawn_at"] = ts
+                break
+        else:
+            raise Fail(f"no palomar entry {fields['id']} v{fields['version']} to withdraw")
+    elif event == "doi-minted":
+        d = pkg.get("doi") or {"concept": None, "versions": []}
+        if fields.get("concept"):
+            d["concept"] = fields["concept"]
+        d["versions"].append({"doi": fields["doi"], "tag": fields["tag"],
+                              "commit": fields["commit"], "minted_at": ts})
+        pkg["doi"] = d
+    elif event == "reservoir-listed":
+        pkg["reservoir"] = {"url": fields["url"], "listed_at": ts}
+    record(reg, events_p, pkg, event, reason=reason or "", **fields)
+    save_registry(reg_path, reg)
+    return [f"{name}: {event} recorded"], {"ok": True, "name": name, "event": event, "fields": fields}
+
 def promote_checklist(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
     """(mark, label) pairs; mark in {'✓', '✗', 'WARN'}."""
     checks: list[tuple[str, str]] = []
@@ -1199,6 +1279,11 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False) -> list[dict]:
             pkg["workspace"] = None
             pkg["agent"] = None
             mutated = True
+        if pkg.get("upstream_target") == "palomar" and pkg.get("status") in ("verified-private", "public") \
+                and not any(e.get("preflight_run") for e in (pkg.get("palomar") or []) if isinstance(e, dict)):
+            note("palomar-preflight-missing", name,
+                 "upstream_target=palomar but no palomar-preflight-pass recorded "
+                 "(lean-pkg record NAME palomar-preflight-pass --field commit=… --field run=…)")
         repo = repo_path(pkg) if pkg.get("local_path") else None
         if repo is None or not repo.is_dir():
             note("missing-path", name, str(repo))
@@ -1312,6 +1397,15 @@ def validate_registry(data) -> list[str]:
             for f in ("license_spdx", "formalization_yaml"):
                 if f in pkg and pkg[f] is not None and not isinstance(pkg[f], str):
                     errors.append(f"{pfx}.{f}: must be a string or null")
+            doi = pkg.get("doi")
+            if isinstance(doi, dict):
+                pal_commits = [e.get("commit") for e in (pkg.get("palomar") or []) if isinstance(e, dict)]
+                for v in doi.get("versions") or []:
+                    c = str((v or {}).get("commit") or "")
+                    if c and c not in pal_commits:
+                        known = ", ".join(str(x)[:12] for x in pal_commits) or "none"
+                        errors.append(f"{pfx}: doi {v.get('doi')} commit {c[:12]} matches no "
+                                      f"palomar entry (palomar commits: {known})")
         if pkg.get("status") not in STATUSES:
             errors.append(f"{pfx}: bad status {pkg.get('status')!r} "
                           f"(allowed: {', '.join(STATUSES)})")
@@ -1856,6 +1950,12 @@ list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
 init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place (v1 -> v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[]; additive, idempotent). ex: lean-pkg migrate --dry-run
+record    record a D5 evidence event; required --field keys per event:
+          consent-recorded: who role pointer | palomar-preflight-pass: commit run
+          palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
+          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version
+          doi-minted: doi tag commit [concept] | reservoir-listed: url | mathlib-pr-opened: url
+          ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
          [--visibility private|public] [--status ENUM] [--upstream-target none|mathlib|palomar]
@@ -1927,9 +2027,9 @@ partial manifest, pre-terminal marker, or prior-candidate receipt is not gate ev
 
 EVENT LINE SCHEMA (one JSON object per line; the same entry is appended to history[])
 ts      ISO-8601 timestamp
-event   one of: registry-created, registered, updated, claimed, claim-refreshed, claim-forced,
+event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
         released, release-forced, lease-expired, gate-passed, promoted, audit-fix,
-        comparator-attached
+        comparator-attached, and the evidence events listed under `record`
 name    package name or null
 plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt, ...)
 
@@ -1961,6 +2061,23 @@ def cmd_init(args) -> int:
 def cmd_migrate(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_migrate(reg_path, events_p, args.dry_run)
+    if args.json_out:
+        print_json(payload)
+    else:
+        print("\n".join(out))
+    return 0
+
+
+def cmd_record(args) -> int:
+    reg_path, events_p = registry_path(args), events_path(args)
+    fields: dict = {}
+    for item in args.field or []:
+        if "=" not in item:
+            raise Fail(f"--field expects KEY=VALUE, got {item!r}")
+        k, v = item.split("=", 1)
+        fields[k.strip()] = v
+    out, payload = do_record(reg_path, load_registry(reg_path), events_p,
+                             args.name, args.event, fields, args.reason)
     if args.json_out:
         print_json(payload)
     else:
@@ -2133,6 +2250,15 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dry-run", action="store_true", help="print the changes; write nothing")
     add_json(s)
     s.set_defaults(fn=cmd_migrate)
+
+    s = sub.add_parser("record", help="record a publication evidence event (consent, Palomar, DOI, Reservoir, Mathlib PR)")
+    s.add_argument("name")
+    s.add_argument("event", help="one of: " + ", ".join(EVIDENCE_EVENTS))
+    s.add_argument("--field", action="append", metavar="KEY=VALUE",
+                   help="event field (repeatable); required keys per event are listed by `lean-pkg llms`")
+    s.add_argument("--reason", default="", help="free-text reason stored with the event")
+    add_json(s)
+    s.set_defaults(fn=cmd_record)
 
     s = sub.add_parser("register", help="the ONLY write path for new packages: "
                                         "validated, deduping, auto-detecting")
