@@ -91,6 +91,22 @@ the verification claim. The roadmap proposes structured discovery-artifact
 provenance so a future certificate can record how a theorem was found without
 confusing that history with evidence.
 
+**How is AI-assistance disclosure different from discovery provenance?**
+AI disclosure records *where AI participated*: for example, generating a
+SymPy script, proposing Mathematica transformations, drafting Lean code, or
+editing documentation. Discovery provenance records *how a candidate
+mathematical claim was found*: the concrete notebook, script, software
+environment, content hash, and output that led to the conjecture.
+
+Neither is proof evidence. The verification record is separate and answers a
+different question: which exact Lean theorem, at which commit, was checked
+under which assumptions and receipts? A future certificate should keep all
+three channels distinct and link them when useful.
+
+Journal disclosure requirements remain journal-specific. A detailed
+`lean-pkg` provenance record can support an author's disclosure, but it does
+not replace the wording or policy required by a venue.
+
 **Do I have to make a work-in-progress repository public to use lean-pkg?**
 No. The private lifecycle exists specifically so development, receipts, and
 re-certification can remain private. A public index entry, however, must point
