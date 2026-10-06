@@ -48,6 +48,8 @@ Absolute paths also work.
 Install `lean-pkg` once and use one shared registry to coordinate many
 independent Lean/Git repositories:
 
+<img src="assets/global-registry.svg" alt="Architecture diagram: one private global registry coordinates many independent Lean project repositories; a chosen public snapshot can later flow through index review into the lean-pkg public index" style="max-width:100%;height:auto">
+
 ```text
 ~/.lean-pkg/registry/
   .git/
