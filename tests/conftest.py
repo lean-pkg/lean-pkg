@@ -382,3 +382,9 @@ def fake_notify(lp, monkeypatch) -> list[str]:
         return "sent"
     monkeypatch.setattr(lp, "notify", _notify)
     return calls
+
+# --- index fixtures (lean-pkg index) ---------------------------------------
+
+@pytest.fixture()
+def idx(lp):
+    return importlib.import_module("lean_pkg.index")
