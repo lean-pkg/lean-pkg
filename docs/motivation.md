@@ -74,6 +74,29 @@ A future provenance record should be able to bind, for example:
 The rule is simple: **computation may propose; only the declared verification
 boundary determines what is certified.**
 
+### Three records, three questions
+
+A reproducible research record should keep three channels separate:
+
+1. **Verification evidence** answers: *why should I trust this mathematical
+   claim?* It contains the Lean declaration, exact source pin, assumptions,
+   receipts, comparator evidence, and verification boundary.
+2. **Discovery provenance** answers: *how was this claim found?* It may record
+   symbolic or numerical tools, scripts, notebooks, environments, content
+   hashes, and intermediate candidate formulas.
+3. **AI-assistance disclosure** answers: *where did AI participate?* It should
+   identify the model/tool and its role in conjecture generation, code,
+   formalization, documentation, or review.
+
+These records may cross-reference one another, but they must not collapse into
+one trust score. An AI-assisted Mathematica notebook can be excellent discovery
+provenance without contributing any proof evidence; conversely, a Lean proof
+can remain valid even if the exploratory notebook is unavailable.
+
+For publication, a journal's required AI-disclosure paragraph remains the
+authoritative disclosure for that venue. A `lean-pkg` provenance record can
+support it with more reproducible detail; it does not replace journal policy.
+
 ### Conditional verification is still verification
 
 End-to-end formalization is not required for a result to be useful. In fields
