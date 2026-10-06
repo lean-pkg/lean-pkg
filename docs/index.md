@@ -18,7 +18,7 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 | **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
 | **using the tool** | [How to](how-to.md) and the [CLI reference](cli.md) |
 | **auditing a package** | [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [Lifecycle](lifecycle.md) |
-| **a coding agent** | [Using lean-pkg with agents](agents.md) and [llms.txt](llms.txt) |
+| **a coding agent** | [Using lean-pkg with agents](agents.md), [llms.txt](llms.txt), and the [agent skills](skills.md) |
 | **contributing** | [CONTRIBUTING](https://github.com/chenle02/lean-pkg/blob/main/CONTRIBUTING.md) and [MAINTAINERS](https://github.com/chenle02/lean-pkg/blob/main/MAINTAINERS.md) |
 
 ## In one paragraph
@@ -60,3 +60,4 @@ promotion dry run.
   host policy, the tool pins.
 - [CLI reference](cli.md): every subcommand.
 - [Using lean-pkg with agents](agents.md): the LLM entry.
+- [Agent skills](skills.md): lessons for agents on statement fidelity, evidence and publication, with an installer.

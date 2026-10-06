@@ -38,7 +38,7 @@ def test_docs_llms_txt_mirrors_root():
 def test_docs_site_has_entry_pages():
     for name in ("index.md", "motivation.md", "getting-started.md", "how-to.md",
                  "lifecycle.md", "receipts.md", "comparator.md", "cli.md",
-                 "agents.md", "newcomers.md", "sample-workflow.md", "faq.md",
+                 "agents.md", "newcomers.md", "sample-workflow.md", "faq.md", "skills.md",
                  "_config.yml", "llms.txt"):
         assert (ROOT / "docs" / name).is_file(), name
 
