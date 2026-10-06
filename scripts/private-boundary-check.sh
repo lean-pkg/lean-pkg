@@ -50,10 +50,21 @@ hits="$(grep -rnIF -f "$patterns" "$root" \
   --exclude-dir='*.egg-info' || true)"
 
 if [ -n "$hits" ]; then
+  # Re-check the matched CONTENT only (drop the "path:line:" prefix, which may
+  # itself contain a private path on a developer machine) after removing the
+  # allowed public prefixes.
   for pub in "${allowed_public[@]}"; do
     hits="$(printf '%s\n' "$hits" | sed "s#${pub}#<public-url>/#g")"
   done
-  hits="$(printf '%s\n' "$hits" | grep -F -f "$patterns" || true)"
+  kept=""
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    content="${hit#*:}"; content="${content#*:}"
+    if printf '%s\n' "$content" | grep -qF -f "$patterns"; then
+      kept="${kept}${hit}"$'\n'
+    fi
+  done <<< "$hits"
+  hits="${kept%$'\n'}"
 fi
 
 if [ -n "$hits" ]; then
