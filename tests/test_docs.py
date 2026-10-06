@@ -38,7 +38,7 @@ def test_docs_llms_txt_mirrors_root():
 def test_docs_site_has_entry_pages():
     for name in ("index.md", "motivation.md", "getting-started.md", "how-to.md",
                  "lifecycle.md", "receipts.md", "comparator.md", "cli.md",
-                 "agents.md", "newcomers.md", "sample-workflow.md", "faq.md", "skills.md", "index-catalog.md",
+                 "agents.md", "newcomers.md", "sample-workflow.md", "faq.md", "skills.md", "index-catalog.md", "prior-art.md",
                  "_config.yml", "llms.txt"):
         assert (ROOT / "docs" / name).is_file(), name
 
@@ -210,3 +210,20 @@ def test_package_dunder_version_agrees_with_pyproject():
     import lean_pkg
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     assert lean_pkg.__version__ == version
+
+
+def test_prior_art_page_is_linked_and_names_the_contract():
+    page = (ROOT / "docs" / "prior-art.md").read_text()
+    assert page.startswith("---\ntitle: Prior-art search\n---\n")
+    assert "[&larr; lean-pkg documentation](index.md)" in page
+    for needle in ("claims/1", "lean-pkg claims sync", "lean-pkg search", "--record", "--offline",
+                   "skipped: <reason>", "decision: pending", "require", "reuse", "vendor", "contribute",
+                   "build", "prior-art-searched", "private-claims: yes", "Not found in", "index-entry/2",
+                   "never the site's name-only box", "30 days"):
+        assert needle in page, needle
+    assert "prior-art.md" in (ROOT / "docs" / "index.md").read_text()
+    assert "docs/prior-art.md" in (ROOT / "README.md").read_text()
+    cli = (ROOT / "docs" / "cli.md").read_text()
+    for row in ("`claims sync NAME`", "`claims list [NAME]`", "`claims check [NAME]`", "`search TERM`"):
+        assert row in cli, row
+    assert "lean-pkg search" in (ROOT / "skills" / "search-before-building" / "SKILL.md").read_text()

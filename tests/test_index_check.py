@@ -26,9 +26,15 @@ def check(lp, root, *argv):
 
 
 def edit_entry(root, name, fn):
+    """Edit an entry; an index-entry/2's claims[] is re-derived from the edited headline and
+    trust, exactly as `index add` would write them (the edit under test stays the only defect)."""
+    import importlib
     f = root / name / "entry.yaml"
     e = yaml.safe_load(f.read_text())
     fn(e)
+    if "claims" in e:
+        e["claims"] = importlib.import_module("lean_pkg.index").index_claims(
+            e.get("name"), e.get("headline") or [], e.get("trust"))
     f.write_text(yaml.safe_dump(e, sort_keys=False))
 
 

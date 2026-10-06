@@ -1,3 +1,3 @@
 """lean-pkg: lifecycle registry and trust gate for Lean 4 formalization packages."""
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"

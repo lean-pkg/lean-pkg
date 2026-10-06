@@ -396,13 +396,14 @@ INDEX_URL = "https://github.com/example/{name}"
 
 
 def make_index_package(root: Path, name: str = "demo", *, lower: bool = True,
-                       comparator: bool = True, **comp_overrides) -> SimpleNamespace:
+                       comparator: bool = True, extra_files: dict | None = None,
+                       **comp_overrides) -> SimpleNamespace:
     """A package repo whose evidence is committed in an evidence-only descendant
     of the pin: pin = the commit the receipts bind; evidence = pin + .lean-receipts/."""
     repo = make_repo(root / f"{name}-repo", extra_files={
         "LICENSE": MIT_TEXT,
         "lake-manifest.json": MATHLIB_MANIFEST,
-        "Demo/Main.lean": "theorem foo_le_bar : True := trivial\n"})
+        "Demo/Main.lean": "theorem foo_le_bar : True := trivial\n", **(extra_files or {})})
     if comparator:
         add_comparator_config(repo)
     pin = repo_head(repo)
@@ -448,3 +449,77 @@ def git_url_map(monkeypatch):
         monkeypatch.setenv(f"GIT_CONFIG_KEY_{i}", f"url.{path}.insteadOf")
         monkeypatch.setenv(f"GIT_CONFIG_VALUE_{i}", url)
     return add
+
+# --- claims fixtures (lean-pkg claims) --------------------------------------
+
+@pytest.fixture()
+def cl(lp):
+    return importlib.import_module("lean_pkg.claims")
+
+
+DEMO_LEAN = "theorem foo_le_bar : True := trivial\n"
+CLAIMS_YAML = """\
+schema: claims/1
+package: beta
+claims:
+- id: beta/foo-le-bar
+  decl: Demo.foo_le_bar
+  kind: theorem
+  summary: A trivial demonstration bound used by the white-noise examples.
+  aliases: [foo bound, trivial bound]
+  keywords: [demo, inequality]
+  file: Demo/Main.lean
+  status: reusable
+  superseded_by: null
+  citation: Demo 2026, Theorem 1
+  depends_on: []
+"""
+
+
+def commit_claims(repo: Path, text: str = CLAIMS_YAML, rel: str = "claims.yaml",
+                  lean: str = DEMO_LEAN) -> str:
+    """Commit Demo/Main.lean and a claims file; return the new HEAD."""
+    (repo / "Demo").mkdir(exist_ok=True)
+    (repo / "Demo" / "Main.lean").write_text(lean)
+    f = repo / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "claims")
+    return repo_head(repo)
+
+
+# --- search fixtures (lean-pkg search) --------------------------------------
+
+@pytest.fixture()
+def srch(lp):
+    return importlib.import_module("lean_pkg.search")
+
+
+@pytest.fixture()
+def searchable(lp, env, tmp_path) -> SimpleNamespace:
+    """beta's claims synced into the registry, and an index with one entry (demo)."""
+    commit_claims(env.repo_b)
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 0
+    pkg = make_index_package(tmp_path / "pkgs")
+    root = tmp_path / "index"
+    assert index_add(lp, root, pkg) == 0
+    return SimpleNamespace(env=env, index=root, pkg=pkg)
+
+
+def run_search(lp, s: SimpleNamespace, *argv: str) -> int:
+    return lp.main(["--registry", str(s.env.registry), "search", *argv, "--index", str(s.index)])
+
+
+@pytest.fixture(autouse=True)
+def _no_real_io_in_search_adapters(monkeypatch, tmp_path):
+    """No test reaches the network or runs `gh` through lean_pkg.adapters, and no test
+    reads the user's cache: every adapter test patches its module's fetch or runner."""
+    adapters = importlib.import_module("lean_pkg.adapters")
+
+    def refuse(*args, **kwargs):
+        pytest.fail("a test reached real network or subprocess I/O through lean_pkg.adapters")
+    monkeypatch.setattr(adapters, "urlopen", refuse)
+    monkeypatch.setattr(adapters, "subprocess_run", refuse)
+    monkeypatch.delenv("LEAN_PKG_RESERVOIR_INDEX", raising=False)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))

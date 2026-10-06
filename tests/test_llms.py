@@ -21,7 +21,7 @@ def test_llms_exits_zero_and_covers_contract(lp, capsys):
     assert "The gate is executor-neutral" in out
     assert "A pilot," in out
     assert "partial manifest" in out
-    assert len(out.splitlines()) <= 140
+    assert len(out.splitlines()) <= 160
 
 
 def test_llms_mentions_event_names_and_status_enum(lp, capsys):
@@ -49,4 +49,14 @@ def test_llms_documents_index(lp, capsys):
     out = capsys.readouterr().out
     for needle in ("index     public catalog", "LEAN_PKG_INDEX", "index-entry/1", "index-added",
                    "computed, never typed", '"skipped"', "check [NAME ...]", "render [--out PATH]"):
+        assert needle in out, needle
+
+
+def test_llms_documents_claims_and_search(lp, capsys):
+    assert lp.main(["llms"]) == 0
+    out = capsys.readouterr().out
+    for needle in ("claims    claims.yaml", "claims/1", "sync NAME", "search    TERM", "--offline", "--record",
+                   "registry, index, loogle, leansearch, reservoir, palomar, github", "skipped: <reason>",
+                   "decision: pending", "claims-synced", "prior-art-searched", "index-entry/2",
+                   "v3 adds claims_file"):
         assert needle in out, needle
