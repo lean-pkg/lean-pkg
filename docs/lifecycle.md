@@ -37,6 +37,7 @@ scratch | active | gate-pending | verified-private | public | upstreamed | archi
 | active → gate-pending | `update --status` | lower-tier check submitted |
 | gate-pending → active | `update --status` | check abandoned |
 | gate-pending → verified-private | `gate` | a valid lower-tier receipt, optionally with comparator evidence |
+| public → public | `gate` | a package that was public before it was ever gated (for example a collaborator-owned repository): the receipt and the `gate-passed` event are recorded, the status does not change |
 | verified-private → gate-pending | `update --status` | re-certification after a content change |
 | verified-private → public | `promote --yes` | clean checklist, including a byte-valid comparator PASS |
 | public → upstreamed | maintainer | Mathlib PR merged or Palomar entry |

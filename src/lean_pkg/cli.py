@@ -824,9 +824,15 @@ def do_gate(reg_path, reg, events_p, name, receipt_arg,
                      f"nothing to do"], payload)
         raise Fail(f"{name}: already gated with this receipt; to add or replace "
                    f"comparator evidence use `lean-pkg comparator {name} --receipt ...`")
-    if pkg.get("status") != "gate-pending":
-        raise Fail(f"{name}: gate requires status gate-pending, "
-                   f"got {pkg.get('status')!r}")
+    # gate-pending is the designed entry. A package that was public before it was
+    # ever gated (for example a collaborator-owned repository registered as public)
+    # may also receive evidence: the status stays public, the receipt and the
+    # gate-passed event are recorded. verified-private re-certifies through the
+    # manual move back to gate-pending.
+    if pkg.get("status") not in ("gate-pending", "public"):
+        raise Fail(f"{name}: gate requires status gate-pending (or public, for "
+                   f"evidence on an already-public package), got {pkg.get('status')!r}")
+    was_public = pkg.get("status") == "public"
     validate_receipt(pkg, repo, receipt)
     commit = receipt["commit"]
     if comp is not None:
@@ -857,15 +863,25 @@ def do_gate(reg_path, reg, events_p, name, receipt_arg,
         fields["comparator"] = comp_rel
     else:
         pkg["gate"].setdefault("comparator", None)
-    pkg["status"] = "verified-private"
+    if was_public:
+        fields["status_unchanged"] = True
+        new_status = "public"
+    else:
+        new_status = "verified-private"
+    pkg["status"] = new_status
     record(reg, events_p, pkg, "gate-passed", **fields)
     save_registry(reg_path, reg)
-    out.append(f"{name}: gate-pending -> verified-private (commit {commit[:12]})"
-               + (f" with comparator evidence {comp_rel}" if comp_rel else ""))
+    if was_public:
+        out.append(f"{name}: public, evidence recorded, status unchanged (commit {commit[:12]})"
+                   + (f" with comparator evidence {comp_rel}" if comp_rel else ""))
+    else:
+        out.append(f"{name}: gate-pending -> verified-private (commit {commit[:12]})"
+                   + (f" with comparator evidence {comp_rel}" if comp_rel else ""))
     out.append(RL_REMINDER.format(name=name))
     payload = {"ok": True, "name": name, "event": "gate-passed",
-               "status": "verified-private", "gate": pkg["gate"],
-               "receipt": dest_rel, "commit": commit, "rl_reminder": True}
+               "status": new_status, "gate": pkg["gate"],
+               "receipt": dest_rel, "commit": commit, "rl_reminder": True,
+               "status_unchanged": was_public}
     if comp_rel:
         payload["comparator"] = comp_rel
     return out, payload
@@ -1959,6 +1975,7 @@ STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
 active -> gate-pending             lower-tier check submitted (terminal executor job identity in notes)
 gate-pending -> verified-private   `gate` accepts a receipt (schema below)
+public -> public                   `gate` on an already-public package records evidence; status unchanged
 verified-private -> public         `promote --yes` after a clean dry-run checklist; ONE-WAY flip
 public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
 any -> archived                    `audit --fix` (gh isArchived) or maintainer decision

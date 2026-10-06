@@ -23,6 +23,7 @@ STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
 active -> gate-pending             lower-tier check submitted (terminal executor job identity in notes)
 gate-pending -> verified-private   `gate` accepts a receipt (schema below)
+public -> public                   `gate` on an already-public package records evidence; status unchanged
 verified-private -> public         `promote --yes` after a clean dry-run checklist; ONE-WAY flip
 public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
 any -> archived                    `audit --fix` (gh isArchived) or maintainer decision
