@@ -6,6 +6,12 @@ title: Start here
 
 *Read one chapter. Run one sample.*
 
+<img src="assets/mascot-clerk.png" width="150" alt="cartoon secretary bird holding a receipt with a check mark, one foot on a snake" style="float:right;margin:0 0 1rem 1.5rem">
+
+The mascot is a secretary bird: the bird named for a clerk, because its crest
+feathers look like quill pens tucked behind an ear, that keeps the records
+and stamps out the snakes.
+
 You are new to Lean, or new to verified research, or both. This page is the
 shortest honest path from zero to a certified package. Budget: one or two
 weeks of part-time reading, then an afternoon for the sample workflow.
