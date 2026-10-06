@@ -84,10 +84,33 @@ already in the shape Palomar accepts. The full comparison is in
 
 ## In sixty seconds
 
+Install the CLI once, then use one **shared private registry** to coordinate
+many independent Lean/Git research repositories.
+
+```text
+~/.lean-pkg/registry/          # recommended shared coordination repo
+  .git/
+  lean-packages.yaml
+  lean-package-events.jsonl
+
+~/src/
+  paper-a/                     # its own Git repo and Lean project
+  paper-b/                     # another independent Git repo
+  paper-c/
+```
+
+Today, bootstrap the shared registry explicitly:
+
 ```bash
 pipx install git+https://github.com/chenle02/lean-pkg.git
-mkdir -p ~/lean-registry && printf 'version: 1\npackages: {}\n' > ~/lean-registry/lean-packages.yaml
-export LEAN_PKG_REGISTRY=~/lean-registry/lean-packages.yaml
+
+mkdir -p ~/.lean-pkg/registry
+git -C ~/.lean-pkg/registry init
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
+git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
+
+export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
 
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
 lean-pkg claim my-proof --workspace laptop --agent you --reason "first receipt"
@@ -96,6 +119,14 @@ COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
 lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.json
 lean-pkg promote my-proof                      # dry run: the checklist says what is missing
 ```
+
+The registry repository is the cross-project coordination history; each research
+repository keeps its own mathematics and committed `.lean-receipts/` evidence.
+Keep the shared registry private unless you intentionally want to expose
+pre-publication project names, paths, notes, and status history.
+
+A future one-command bootstrap such as `lean-pkg init --global` is proposed in
+the [roadmap](ROADMAP.md); it is not implemented yet.
 
 ## Learn the workflow
 
