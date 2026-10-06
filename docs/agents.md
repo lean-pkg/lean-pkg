@@ -20,8 +20,8 @@ every subcommand has `--json`, and the contract an agent needs is one file.
 ## The rules an agent must follow
 
 1. Never hand-edit the registry YAML. Use `register` and `update`.
-2. Claim a package before working on it (`claim --workspace --agent
-   --reason`), release it when done. A refusal names the holder; do not
+2. Claim a package before working on it with `claim --workspace --agent --reason`,
+   and release it when done. A refusal names the holder; do not
    `--force` without a human reason.
 3. Pass flags and `--json`. Nothing prompts; a prompt path exits 2.
 4. `promote` is a dry run unless `--yes`. Never pass `--yes` unless a human
