@@ -7,6 +7,40 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-06
+
+Milestone M0 of the charter: a tool the lab can consume instead of its own
+copy. Checks were run locally with `make check` (hosted CI turns on at the
+public flip).
+
+### Added
+- `lean-pkg init`: bootstrap an empty registry and its event log; refuses an
+  existing registry unless `--force` and it holds no packages.
+- Registry schema v2 and `lean-pkg migrate`: additive publication fields per
+  package (`license_spdx`, `formalization_yaml`, `palomar[]`, `doi`,
+  `reservoir`, `consent[]`); v1 registries stay readable by every command;
+  `migrate` is idempotent and has `--dry-run`.
+- `lean-pkg record NAME EVENT --field K=V`: evidence events with required
+  fields and registry effects (`consent-recorded`, `palomar-preflight-pass`,
+  `palomar-submitted`, `palomar-review`, `palomar-registered`,
+  `palomar-withdrawn`, `doi-minted`, `reservoir-listed`, `mathlib-pr-opened`);
+  `validate` refuses a DOI whose commit no Palomar entry names; `audit` finds
+  `palomar-preflight-missing`.
+- `comparator-receipt --mechanism auto|toolchain|legacy`: the toolchain
+  mechanism runs `lake comparator` with the toolchain's bundled NanoDa and
+  con-ron through the vendored PalomarTemplate `verify-comparator.sh`
+  (Lean v4.35.0-rc2 or later, what Palomar runs); legacy keeps the pinned
+  stack. Receipt schema `comparator-receipt/2` with `mechanism` and per-
+  mechanism `tools`; schema 1 still validates.
+- `gate` on an already-public package records the receipt and the
+  `gate-passed` event without changing the status.
+- Governance: `SECURITY.md`, issue and pull-request templates with a required
+  AI-assistance line, `docs/decisions/` (0001 files and git only; 0002
+  benevolent maintainer with deputies), deputy and succession lines in
+  `MAINTAINERS.md`.
+- Private-boundary check scans only files git would ship.
+
+
 ## [0.1.0] - 2026-10-05
 
 First tagged release: the tool extracted from its private lab origin into its own

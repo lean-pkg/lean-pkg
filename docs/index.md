@@ -63,6 +63,7 @@ promotion dry run.
 - [CLI reference](cli.md): every subcommand.
 - [Using lean-pkg with agents](agents.md): the LLM entry.
 - [Agent skills](skills.md): lessons for agents on statement fidelity, evidence and publication, with an installer.
+- [Decisions](decisions/README.md): dated records of the choices that shape the tool.
 
 ## Citation
 

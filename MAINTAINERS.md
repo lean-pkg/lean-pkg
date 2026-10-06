@@ -4,7 +4,10 @@
 |---|---|
 | Tool, catalog, releases (maintainer of record) | Le Chen ([@chenle02](https://github.com/chenle02)) |
 
-Succession: successor: to be named by the maintainer of record
+Deputy (operations, releases): to be named by the maintainer of record.
+
+Succession: the deputy may cut a release if the maintainer is unavailable
+for 30 days (decision [0002](docs/decisions/0002-benevolent-maintainer-with-deputies.md)).
 
 Contact: open an issue in this repository.
 

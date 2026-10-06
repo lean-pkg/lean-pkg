@@ -138,3 +138,23 @@ def test_boundary_check_scans_only_files_git_would_ship(tmp_path):
     (clone / "notes.md").write_text(leak + "\n")
     bad = subprocess.run(["bash", script, str(clone)], capture_output=True, text=True)
     assert bad.returncode == 1 and "notes.md" in bad.stdout + bad.stderr
+
+
+def test_governance_files_exist_and_agree():
+    import subprocess, sys, tomllib
+    for f in ("CHANGELOG.md", "SECURITY.md", "CITATION.cff", "MAINTAINERS.md", "Makefile",
+              "RELEASING.md", "scripts/check-versions.py", "scripts/release.sh",
+              ".githooks/pre-push",
+              ".github/ISSUE_TEMPLATE/bug_report.md", ".github/ISSUE_TEMPLATE/index_entry.md",
+              ".github/PULL_REQUEST_TEMPLATE.md", "docs/decisions/README.md",
+              "docs/decisions/0001-files-and-git-only.md",
+              "docs/decisions/0002-benevolent-maintainer-with-deputies.md"):
+        assert (ROOT / f).is_file(), f
+    assert not (ROOT / "docs" / "release.md").exists()  # RELEASING.md is the runbook
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    assert version == "0.2.0"
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "check-versions.py")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "0.2.0" in r.stdout
+    assert "AI assistance" in (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text()
