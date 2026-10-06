@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-06
+
 ### Changed
 - Index: `comparator` trust requires coverage. Each headline item may carry
   `judged_as`, the Challenge theorem name; comparator trust needs every
