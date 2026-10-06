@@ -7,6 +7,10 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+- `COMPARATOR_RECEIPT_HOST_LABEL` now also replaces the host name in the
+  receipt's `host_policy` sentence (a copied receipt leaked it).
+
 ## [0.3.1] - 2026-10-06
 
 ### Changed
