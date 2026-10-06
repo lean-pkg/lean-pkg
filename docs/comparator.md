@@ -64,6 +64,22 @@ The runner wraps the script so that evidence is either complete or absent:
 - records `host`, `job_id` (the Slurm job id, or `local-<host>-<pid>-<stamp>`),
   `host_policy`, and `generated_at`.
 
+## Mechanisms
+
+`comparator-receipt --mechanism auto|toolchain|legacy` chooses how the
+solution is judged. The receipt records the choice in its `mechanism` field.
+
+| Mechanism | What judges | When it applies | What `tools` records |
+|---|---|---|---|
+| `toolchain` | `lake comparator` from the project's own toolchain, with the NanoDa and con-ron kernels the toolchain bundles; the vendored PalomarTemplate `verify-comparator.sh` drives it | Lean v4.35.0-rc2 or later (Palomar's floor). This is what the registry itself runs, so a local pass predicts a Palomar pass | `lean_toolchain` plus the sha256 of `lake`, `leanexport`, `leanchecker`, `nanoda_bin` and `con-ron` under `lean --print-prefix`/bin |
+| `legacy` | the pinned comparator, lean4export, nanoda and landrun stack built by `comparator-check.sh` | any toolchain that lean4export has a tag for; kept for packages below the floor | the four 40-hex commits actually used |
+| `auto` (default) | | `toolchain` when the project's toolchain bundles the judging binaries, else `legacy` | as above |
+
+`--mechanism toolchain` on a toolchain below the floor refuses with a message
+that names the floor and writes nothing. A `legacy` pass is evidence of a
+second-kernel replay, not of what Palomar will say; only the `toolchain`
+mechanism is Palomar-predictive.
+
 ## Host policy
 
 The comparator build is heavy. The runner allows a run only when one of

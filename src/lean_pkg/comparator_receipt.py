@@ -31,8 +31,17 @@ import subprocess
 import sys
 import tempfile
 
-SCHEMA = "comparator-receipt/1"
+SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
+# Acceptance patterns for the toolchain mechanism (`lake comparator`): exit 0 AND one of these in the
+# log. The exact line printed by `lake comparator` is to be confirmed on a v4.35 host (M0 Task 4
+# Step 6); until then both the legacy line and the kernel acceptance phrase count.
+TOOLCHAIN_PASS_RE = re.compile(r"^Your solution is okay!$|accepts the solution", re.MULTILINE)
+MECHANISMS = ("auto", "toolchain", "legacy")
+TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
+TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
+FAKE_LAKE_ENV = "COMPARATOR_FAKE_LAKE_OK"  # test-only: "1"/"0" overrides the toolchain probe
+VERIFY_ENV = "COMPARATOR_VERIFY"           # path of verify-comparator.sh (default: the vendored copy)
 PIN_RE = re.compile(r"^== (comparator|lean4export|nanoda_lib|landrun) @ ([0-9a-f]{40})",
                     re.MULTILINE)
 PIN_KEYS = {"comparator": "comparator", "lean4export": "lean4export",
@@ -46,6 +55,51 @@ class RunnerError(Exception):
 def default_check_script():
     """The comparator-check.sh shipped as package data (a Traversable)."""
     return importlib.resources.files("lean_pkg") / "scripts" / "comparator-check.sh"
+
+
+def default_verify_script():
+    """The vendored PalomarTemplate verify-comparator.sh (toolchain mechanism)."""
+    return importlib.resources.files("lean_pkg") / "scripts" / "verify-comparator.sh"
+
+
+def toolchain_available(project: pathlib.Path) -> bool:
+    """True when the project's toolchain ships `lake comparator` (Lean >= v4.35.0-rc2)."""
+    fake = os.environ.get(FAKE_LAKE_ENV)
+    if fake is not None:
+        return fake == "1"
+    # The same test the upstream script makes: the toolchain must bundle every judging binary.
+    # (`lake comparator --help` is not a reliable probe: older lakes exit 0 on unknown help.)
+    try:
+        p = subprocess.run(["lean", "--print-prefix"], cwd=project, capture_output=True,
+                           text=True, timeout=120)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    if p.returncode != 0 or not p.stdout.strip():
+        return False
+    prefix = pathlib.Path(p.stdout.strip())
+    return all((prefix / "bin" / tool).is_file() for tool in TOOLCHAIN_TOOLS)
+
+
+def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str) -> dict:
+    """Digests of the judging binaries bundled with the project's toolchain.
+    Under the test-only FAKE_LAKE_ENV override, every digest is that of the verify script itself."""
+    tools: dict = {"lean_toolchain": toolchain}
+    if os.environ.get(FAKE_LAKE_ENV) is not None:
+        d = sha256_file(verify)
+        for tool in TOOLCHAIN_TOOLS:
+            tools[f"{tool}_sha256"] = d
+        return tools
+    p = subprocess.run(["lean", "--print-prefix"], cwd=project, capture_output=True, text=True)
+    if p.returncode != 0 or not p.stdout.strip():
+        raise RunnerError("cannot resolve the toolchain prefix (`lean --print-prefix` failed)")
+    prefix = pathlib.Path(p.stdout.strip())
+    for tool in TOOLCHAIN_TOOLS:
+        binp = prefix / "bin" / tool
+        if not binp.is_file():
+            raise RunnerError(f"toolchain {toolchain} does not bundle {tool}; the toolchain "
+                              f"mechanism needs Lean {TOOLCHAIN_FLOOR} or later")
+        tools[f"{tool}_sha256"] = sha256_file(binp)
+    return tools
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +172,8 @@ def git(project: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True)
 
 
-def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "") -> dict:
+def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
+        mechanism: str = "auto", verify: pathlib.Path | None = None) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     if not check.is_file():
@@ -137,17 +192,43 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "") -> di
         raise RunnerError("no comparator configuration found "
                           "(comparator*.json or comparator/config*.json)")
     toolchain = (project / "lean-toolchain").read_text().strip()
+    if mechanism not in MECHANISMS:
+        raise RunnerError(f"unknown mechanism {mechanism!r}; one of {MECHANISMS}")
+    available = toolchain_available(project)
+    if mechanism == "auto":
+        mechanism = "toolchain" if available else "legacy"
+    elif mechanism == "toolchain" and not available:
+        raise RunnerError(f"this toolchain ({toolchain}) has no `lake comparator`; the toolchain "
+                          f"mechanism needs Lean {TOOLCHAIN_FLOOR} or later (Palomar's floor); "
+                          f"use --mechanism legacy")
+    print(f"mechanism: {mechanism}")
     with tempfile.TemporaryDirectory(prefix="comparator-receipt.") as tmp:
         log_dir = pathlib.Path(tmp) / "logs"
-        env = os.environ.copy()
-        env["LOG_DIR"] = str(log_dir)
-        p = subprocess.run(["bash", str(check)], cwd=project, env=env,
-                           capture_output=True, text=True)
-        sys.stdout.write(p.stdout)
-        if p.returncode != 0:
-            sys.stderr.write(p.stderr)
-            raise RunnerError(f"comparator-check exited {p.returncode}; nothing written")
-        pins = parse_pins(p.stdout)
+        if mechanism == "legacy":
+            env = os.environ.copy()
+            env["LOG_DIR"] = str(log_dir)
+            p = subprocess.run(["bash", str(check)], cwd=project, env=env,
+                               capture_output=True, text=True)
+            sys.stdout.write(p.stdout)
+            if p.returncode != 0:
+                sys.stderr.write(p.stderr)
+                raise RunnerError(f"comparator-check exited {p.returncode}; nothing written")
+            tools = parse_pins(p.stdout)
+        else:
+            if verify is None or not verify.is_file():
+                raise RunnerError(f"verify-comparator script not found: {verify}")
+            log_dir.mkdir(parents=True)
+            for cfg_rel in configs:
+                p = subprocess.run(["bash", str(verify), cfg_rel], cwd=project,
+                                   capture_output=True, text=True)
+                log_text = p.stdout + (("\n" + p.stderr) if p.stderr else "")
+                (log_dir / f"{cfg_name(cfg_rel)}.log").write_text(log_text, encoding="utf-8")
+                sys.stdout.write(p.stdout)
+                if p.returncode != 0 or not TOOLCHAIN_PASS_RE.search(log_text):
+                    sys.stderr.write(p.stderr)
+                    raise RunnerError(f"{cfg_rel}: lake comparator did not accept the solution "
+                                      f"(exit {p.returncode}); nothing written")
+            tools = toolchain_tools(project, verify, toolchain)
         entries = []
         staged: list[tuple[pathlib.Path, pathlib.Path]] = []
         for cfg_rel in configs:
@@ -155,8 +236,10 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "") -> di
             src_log = log_dir / f"{name}.log"
             if not src_log.is_file():
                 raise RunnerError(f"no log for {cfg_rel} at {src_log}; nothing written")
-            lines = src_log.read_text(encoding="utf-8", errors="replace").splitlines()
-            if PASS_LINE not in lines:
+            log_text = src_log.read_text(encoding="utf-8", errors="replace")
+            accepted = (PASS_LINE in log_text.splitlines()) if mechanism == "legacy" \
+                else bool(TOOLCHAIN_PASS_RE.search(log_text))
+            if not accepted:
                 raise RunnerError(f"{cfg_rel}: log lacks the PASS line; nothing written")
             cfg = json.loads((project / cfg_rel).read_bytes())
             log_rel = f".lean-receipts/{commit[:12]}-comparator-{name}.log"
@@ -178,8 +261,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "") -> di
         job = (os.environ.get("SLURM_JOB_ID")
                or f"local-{host}-{os.getpid()}-{now.strftime('%Y%m%dT%H%M%SZ')}")
         receipt = {
-            "schema": SCHEMA, "commit": commit, "lean_toolchain": toolchain,
-            "tools": pins, "host": host, "host_policy": host_policy, "job_id": job,
+            "schema": SCHEMA, "mechanism": mechanism, "commit": commit,
+            "lean_toolchain": toolchain, "tools": tools, "host": host, "host_policy": host_policy, "job_id": job,
             "generated_at": now.isoformat(timespec="seconds"),
             "result": "pass", "configs": entries,
         }
@@ -215,7 +298,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "") -> di
                     pass
             raise RunnerError(f"could not write evidence into .lean-receipts/ ({e}); "
                               f"nothing written")
-    return {"receipt": str(rec_path), "commit": commit, "configs": len(entries)}
+    return {"receipt": str(rec_path), "commit": commit, "configs": len(entries),
+            "mechanism": mechanism}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -228,6 +312,14 @@ def main(argv: list[str] | None = None) -> int:
                     default=os.environ.get("COMPARATOR_CHECK") or None,
                     help="comparator-check.sh to run (env COMPARATOR_CHECK; "
                          "default: the copy shipped with lean-pkg)")
+    ap.add_argument("--mechanism", choices=MECHANISMS, default="auto",
+                    help="toolchain: `lake comparator` with the toolchain's bundled kernels "
+                         f"(Lean {TOOLCHAIN_FLOOR}+, what Palomar runs); legacy: the pinned "
+                         "comparator/lean4export/nanoda/landrun stack; auto (default): toolchain "
+                         "when available, else legacy")
+    ap.add_argument("--verify", default=os.environ.get(VERIFY_ENV) or None,
+                    help="verify-comparator.sh for the toolchain mechanism (env COMPARATOR_VERIFY; "
+                         "default: the vendored PalomarTemplate copy)")
     args = ap.parse_args(argv)
     ok, why = host_policy_ok(os.environ.get("SLURM_JOB_ID"),
                              os.environ.get(ALLOW_HOST_ENV) == "1",
@@ -238,13 +330,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"comparator-receipt: refusing: {why}", file=sys.stderr)
         return 1
     try:
-        if args.check:
-            res = run(pathlib.Path(args.project).resolve(),
-                      pathlib.Path(args.check).resolve(), host_policy=why)
-        else:
-            with importlib.resources.as_file(default_check_script()) as check:
-                res = run(pathlib.Path(args.project).resolve(),
-                          pathlib.Path(check).resolve(), host_policy=why)
+        project = pathlib.Path(args.project).resolve()
+        with importlib.resources.as_file(default_check_script()) as check_default, \
+                importlib.resources.as_file(default_verify_script()) as verify_default:
+            check = pathlib.Path(args.check).resolve() if args.check else pathlib.Path(check_default).resolve()
+            verify = pathlib.Path(args.verify).resolve() if args.verify else pathlib.Path(verify_default).resolve()
+            res = run(project, check, host_policy=why, mechanism=args.mechanism, verify=verify)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
         return 1

@@ -117,7 +117,11 @@ LEASE_FIELDS = ["workspace", "agent", "claimed_at", "ttl_hours", "reason"]
 RECEIPT_FIELDS = ["commit", "lean_toolchain", "mathlib_rev", "sorry_count",
                   "axioms", "report_sha256", "job_id", "checker",
                   "generated_at"]
-COMPARATOR_SCHEMA = "comparator-receipt/1"
+COMPARATOR_SCHEMAS = ("comparator-receipt/1", "comparator-receipt/2")
+COMPARATOR_SCHEMA = COMPARATOR_SCHEMAS[-1]
+COMPARATOR_MECHANISMS = ("toolchain", "legacy")
+COMPARATOR_TOOLCHAIN_DIGESTS = ["lake_sha256", "leanexport_sha256", "leanchecker_sha256",
+                                "nanoda_bin_sha256", "con-ron_sha256"]
 COMPARATOR_PASS_LINE = "Your solution is okay!"
 COMPARATOR_TOOLS = ["comparator", "lean4export", "nanoda", "landrun"]
 COMPARATOR_FIELDS = ["schema", "commit", "lean_toolchain", "tools", "host",
@@ -635,9 +639,16 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
     for f in COMPARATOR_FIELDS:
         if f not in comp:
             raise Fail(f"comparator receipt missing required field {f!r}")
-    if comp["schema"] != COMPARATOR_SCHEMA:
-        raise Fail(f"comparator schema must be {COMPARATOR_SCHEMA!r}, "
-                   f"got {comp['schema']!r}")
+    schema = comp["schema"]
+    if schema not in COMPARATOR_SCHEMAS:
+        raise Fail(f"comparator schema must be one of {COMPARATOR_SCHEMAS}, got {schema!r}")
+    if schema == "comparator-receipt/1":
+        mechanism = "legacy"
+    else:
+        mechanism = comp.get("mechanism")
+        if mechanism not in COMPARATOR_MECHANISMS:
+            raise Fail(f"comparator mechanism must be one of {COMPARATOR_MECHANISMS}, "
+                       f"got {mechanism!r}")
     commit = str(comp["commit"])
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise Fail(f"comparator commit is not a full lowercase 40-hex sha: {commit!r}")
@@ -662,10 +673,18 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
     tools = comp["tools"]
     if not isinstance(tools, dict):
         raise Fail("comparator tools must be a mapping")
-    for tname in COMPARATOR_TOOLS:
-        v = str(tools.get(tname) or "")
-        if not re.fullmatch(r"[0-9a-f]{40}", v):
-            raise Fail(f"comparator tools.{tname} must be a 40-hex commit, got {v!r}")
+    if mechanism == "legacy":
+        for tname in COMPARATOR_TOOLS:
+            v = str(tools.get(tname) or "")
+            if not re.fullmatch(r"[0-9a-f]{40}", v):
+                raise Fail(f"comparator tools.{tname} must be a 40-hex commit, got {v!r}")
+    else:
+        if not str(tools.get("lean_toolchain") or "").strip():
+            raise Fail("comparator tools.lean_toolchain is empty (toolchain mechanism)")
+        for tname in COMPARATOR_TOOLCHAIN_DIGESTS:
+            v = str(tools.get(tname) or "")
+            if not re.fullmatch(r"[0-9a-f]{64}", v):
+                raise Fail(f"comparator tools.{tname} must be a 64-hex sha256, got {v!r}")
     for f in ("host", "job_id", "generated_at"):
         if not str(comp[f]).strip():
             raise Fail(f"comparator field {f!r} is empty")
@@ -1999,12 +2018,16 @@ job_id         nonempty terminal executor job identity, unique within that execu
 checker        nonempty exact checker command/mode (e.g. serial leanchecker manifest)
 generated_at   nonempty ISO-8601 timestamp
 
-COMPARATOR RECEIPT SCHEMA ("comparator-receipt/1"; written by comparator-receipt; `promote` re-derives every line from bytes)
-schema          "comparator-receipt/1"
+COMPARATOR RECEIPT SCHEMA ("comparator-receipt/2"; "comparator-receipt/1" still validates; written by comparator-receipt; `promote` re-derives every line from bytes)
+schema          "comparator-receipt/2" (or "/1": legacy mechanism implied)
+mechanism       "toolchain" (lake comparator + the toolchain's bundled NanoDa/con-ron; Lean v4.35.0-rc2+; what Palomar runs)
+                or "legacy" (pinned comparator/lean4export/nanoda/landrun stack); comparator-receipt --mechanism auto|toolchain|legacy
 commit          40 lowercase hex; MUST equal the lower-tier receipt commit, and equal HEAD or have HEAD as
                 an evidence-only descendant (only .lean-receipts/ paths differ)
 lean_toolchain  MUST equal the repo's lean-toolchain file, stripped
-tools           {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
+tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
+                toolchain: {lean_toolchain, lake_sha256, leanexport_sha256, leanchecker_sha256, nanoda_bin_sha256, con-ron_sha256}:
+                64-hex sha256 of the judging binaries under `lean --print-prefix`/bin
 host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>)
 host_policy     optional; the runner's host-policy reason (an override run is visible here)
 result          "pass" (the runner writes a receipt only on PASS)

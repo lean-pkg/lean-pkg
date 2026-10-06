@@ -50,7 +50,8 @@ def project(tmp_path: Path) -> Path:
 
 def run_runner(project: Path, mode: str = "pass", allow: bool = True,
                extra_env: dict | None = None):
-    env = subprocess_env({"COMPARATOR_CHECK": str(STUB), "STUB_MODE": mode})
+    env = subprocess_env({"COMPARATOR_CHECK": str(STUB), "STUB_MODE": mode,
+                          "COMPARATOR_FAKE_LAKE_OK": "0"})   # hermetic: never probe a real toolchain
     env.pop("SLURM_JOB_ID", None)
     env.pop("COMPARATOR_RECEIPT_ALLOWED_HOSTS", None)
     if allow:
@@ -136,7 +137,7 @@ def test_runner_pass_writes_receipt_and_logs(project: Path):
     rec_path = project / ".lean-receipts" / f"{head[:12]}-comparator.json"
     assert rec_path.is_file()
     rec = json.loads(rec_path.read_text())
-    assert rec["schema"] == "comparator-receipt/1"
+    assert rec["schema"] == "comparator-receipt/2" and rec["mechanism"] == "legacy"
     assert rec["commit"] == head
     assert rec["lean_toolchain"] == "leanprover/lean4:v4.32.0"
     assert rec["tools"] == {"comparator": "5" * 40, "lean4export": "6" * 40,
@@ -233,3 +234,65 @@ def test_runner_records_host_policy_reason(project: Path):
     head = git(project, "rev-parse", "HEAD")
     rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
     assert rec["host_policy"] == "allowed by COMPARATOR_RECEIPT_ALLOW_HOST=1"
+
+
+# --- mechanisms (ADR-0058 D7): toolchain (lake comparator) vs legacy (pinned stack) ---
+
+STUB_TC = ROOT / "tests" / "fixtures" / "verify-comparator-stub.sh"
+
+
+def run_runner_mech(project: Path, mechanism: str, stub_mode: str = "pass", lake_ok: bool = True):
+    env = subprocess_env({"COMPARATOR_CHECK": str(STUB), "COMPARATOR_VERIFY": str(STUB_TC),
+                          "STUB_MODE": stub_mode, "COMPARATOR_RECEIPT_ALLOW_HOST": "1",
+                          "COMPARATOR_FAKE_LAKE_OK": "1" if lake_ok else "0"})
+    env.pop("SLURM_JOB_ID", None)
+    env.pop("COMPARATOR_RECEIPT_ALLOWED_HOSTS", None)
+    return subprocess.run([*RECEIPT_CLI, "--mechanism", mechanism], cwd=project, env=env,
+                          capture_output=True, text=True)
+
+
+def test_toolchain_mechanism_writes_schema2_receipt(project: Path):
+    r = run_runner_mech(project, "toolchain")
+    assert r.returncode == 0, r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+    assert rec["schema"] == "comparator-receipt/2" and rec["mechanism"] == "toolchain"
+    for k in ("lean_toolchain", "nanoda_bin_sha256", "con-ron_sha256", "lake_sha256"):
+        assert k in rec["tools"], k
+    assert all(len(v) == 64 for k, v in rec["tools"].items() if k.endswith("_sha256"))
+
+
+def test_legacy_mechanism_writes_schema2_with_pins(project: Path):
+    r = run_runner_mech(project, "legacy")
+    assert r.returncode == 0, r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+    assert rec["schema"] == "comparator-receipt/2" and rec["mechanism"] == "legacy"
+    assert set(rec["tools"]) == {"comparator", "lean4export", "nanoda", "landrun"}
+
+
+def test_toolchain_mechanism_refuses_old_toolchain(project: Path):
+    (project / "lean-toolchain").write_text("leanprover/lean4:v4.32.2\n")
+    git(project, "commit", "-am", "old toolchain")
+    r = run_runner_mech(project, "toolchain", lake_ok=False)
+    assert r.returncode == 1
+    assert "v4.35.0-rc2" in r.stderr and "lake comparator" in r.stderr
+    assert not (project / ".lean-receipts").exists()
+
+
+def test_auto_picks_toolchain_when_available(project: Path):
+    r = run_runner_mech(project, "auto", lake_ok=True)
+    assert r.returncode == 0, r.stderr
+    assert "mechanism: toolchain" in r.stdout
+
+
+def test_auto_falls_back_to_legacy(project: Path):
+    r = run_runner_mech(project, "auto", lake_ok=False)
+    assert r.returncode == 0, r.stderr
+    assert "mechanism: legacy" in r.stdout
+
+
+def test_toolchain_mechanism_writes_nothing_on_reject(project: Path):
+    r = run_runner_mech(project, "toolchain", stub_mode="fail")
+    assert r.returncode == 1
+    assert not (project / ".lean-receipts").exists()

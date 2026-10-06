@@ -82,12 +82,16 @@ job_id         nonempty terminal executor job identity, unique within that execu
 checker        nonempty exact checker command/mode (e.g. serial leanchecker manifest)
 generated_at   nonempty ISO-8601 timestamp
 
-COMPARATOR RECEIPT SCHEMA ("comparator-receipt/1"; written by comparator-receipt; `promote` re-derives every line from bytes)
-schema          "comparator-receipt/1"
+COMPARATOR RECEIPT SCHEMA ("comparator-receipt/2"; "comparator-receipt/1" still validates; written by comparator-receipt; `promote` re-derives every line from bytes)
+schema          "comparator-receipt/2" (or "/1": legacy mechanism implied)
+mechanism       "toolchain" (lake comparator + the toolchain's bundled NanoDa/con-ron; Lean v4.35.0-rc2+; what Palomar runs)
+                or "legacy" (pinned comparator/lean4export/nanoda/landrun stack); comparator-receipt --mechanism auto|toolchain|legacy
 commit          40 lowercase hex; MUST equal the lower-tier receipt commit, and equal HEAD or have HEAD as
                 an evidence-only descendant (only .lean-receipts/ paths differ)
 lean_toolchain  MUST equal the repo's lean-toolchain file, stripped
-tools           {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
+tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
+                toolchain: {lean_toolchain, lake_sha256, leanexport_sha256, leanchecker_sha256, nanoda_bin_sha256, con-ron_sha256}:
+                64-hex sha256 of the judging binaries under `lean --print-prefix`/bin
 host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>)
 host_policy     optional; the runner's host-policy reason (an override run is visible here)
 result          "pass" (the runner writes a receipt only on PASS)
