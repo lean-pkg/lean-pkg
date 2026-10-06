@@ -2526,6 +2526,8 @@ def main(argv: list[str] | None = None) -> int:
     index_mod.add_parsers(sub, add_json)
     from . import claims as claims_mod
     claims_mod.add_parsers(sub, add_json)
+    from . import search as search_mod
+    search_mod.add_parsers(sub, add_json)
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)
