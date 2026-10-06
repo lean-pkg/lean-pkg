@@ -40,11 +40,13 @@ Three things still go wrong in practice, and `lean-pkg` exists to catch them:
   registry with time-limited leases keeps one package in one workspace at a
   time and records every transition.
 
-`lean-pkg` is not a library and not a Mathlib fork: every package depends on
-Mathlib, and general results are meant to be upstreamed. The longer-term aim
-is a catalog of verified research results that other projects can search,
-import under a stable identifier, and cite. See [Motivation](docs/motivation.md),
-including [lean-pkg and Mathlib](docs/motivation.md#lean-pkg-and-mathlib).
+`lean-pkg` is not a library, not a Mathlib fork, and not a registry of record:
+every package depends on Mathlib, public results are registered in Palomar,
+and general results are meant to be upstreamed. The longer-term aim is a
+field-curated index of verified research results, keyed to Palomar ids, that
+people and agents check before proving something again. See
+[Motivation](docs/motivation.md), including
+[lean-pkg, Palomar, Reservoir and Mathlib](docs/motivation.md#lean-pkg-palomar-reservoir-and-mathlib).
 
 ## What a receipt proves, and what it does not
 
@@ -54,6 +56,35 @@ including [lean-pkg and Mathlib](docs/motivation.md#lean-pkg-and-mathlib).
 | Each `Solution` theorem has exactly the statement of its trusted `Challenge` namesake | anything about theorems not listed in `comparator.json` |
 | The proofs replay in an independent kernel inside a sandbox | that dependencies beyond the pinned Mathlib are sound |
 | The evidence bytes on disk hash to what the receipt recorded, at the certified commit or an evidence-only descendant of it | that the repository is public, licensed, or documented (those are separate checklist items) |
+
+## Who is this for
+
+| You are | You use lean-pkg to | How often |
+|---|---|---|
+| **a research group formalizing its own papers** | run the private lifecycle: register a companion, claim it, produce receipts as milestones land, gate, and promote only when the evidence is complete | weekly, mostly through agents, with a human reading each dry run |
+| **a mathematician asking "is this already verified in Lean?"** | read the field index on the documentation site: statement, hypotheses, paper correspondence, the Palomar id, the library pin | occasionally, before starting a proof |
+| **an LLM agent proving something** | fetch `llms.txt` and the index first, import a verified result instead of re-deriving it, and follow the registry contract when it works on a package | at the start of every proof task |
+| **a contributor** | send a pull request: code to the tool, or an index entry describing a result you verified and registered | when you have something verified |
+
+## Where lean-pkg sits
+
+lean-pkg is not a library and not a registry of record. Every package depends
+on [Mathlib](https://github.com/leanprover-community/mathlib4); public
+verified results are registered in [Palomar](https://palomar-registry.org/),
+which archives them, assigns stable ids, and replays proofs in independent
+kernels; public packages are indexed by
+[Reservoir](https://reservoir.lean-lang.org/). lean-pkg covers what those do
+not: the months *before* a result is public (leases, receipts, gates), and a
+field-curated index *after* it is public (hypotheses, paper correspondence,
+who uses it), keyed to Palomar ids and library pins. A package that passes
+lean-pkg's comparator tier is already in the shape Palomar accepts.
+
+| | Mathlib | Palomar | Reservoir | lean-pkg |
+|---|---|---|---|---|
+| holds | general theorems | verified statements at pinned commits | package listings | lifecycle state, receipts, index entries |
+| checks | one kernel, human review | comparator + independent kernels, LLM review | license, manifest, stars | receipts re-derived from bytes, both tiers |
+| starts | at a Mathlib PR | at submission | at publication | at the first commit of a companion |
+| citable as | Mathlib declaration | `PALOMAR-…` id | — | the package's Zenodo DOI + Palomar id |
 
 ## Quick start
 

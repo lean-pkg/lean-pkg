@@ -57,7 +57,35 @@ this tool already enforces. The catalog does not compete with Mathlib; it
 is a curated layer above it, and results that generalize are meant to be
 upstreamed.
 
-## lean-pkg and Mathlib
+## lean-pkg, Palomar, Reservoir and Mathlib
+
+Four things exist in this space and they do different jobs. **Palomar**
+(palomar-registry.org) is the public registry of record for Lean-verified
+results: an entry pins one public repository commit, checks the formal
+statement against the proof with the Comparator and replays the proof in
+independent kernels, runs an LLM editorial review, archives every
+dependency, and assigns a stable `PALOMAR-…` id. **Reservoir** is the
+automatic index of public Lean packages. **Mathlib** is the general library.
+lean-pkg does not compete with any of them; it is what they leave out.
+
+| Need | Who covers it |
+|---|---|
+| a general theorem in canonical form | Mathlib |
+| a durable, independently replayed record of a research result | Palomar |
+| discovering public packages | Reservoir |
+| the months before a result is public: who holds which package, what is certified at which commit, evidence that is complete before anyone sees it | **lean-pkg** (private lifecycle) |
+| finding a verified result *in a field's own language*, with its hypotheses, its paper correspondence, and who already uses it | **lean-pkg** (field index, keyed to Palomar ids and library pins) |
+
+Palomar states that an entry "fixes a reviewable snapshot of its own
+statement, not a library for later submissions", and that registration is
+not a certificate that the formal statement matches the informal one. Those
+two sentences mark lean-pkg's territory: the index answers the first, and
+the lifecycle's fidelity records answer the second. A package that passes
+lean-pkg's comparator tier uses the Palomar layout and is already in the
+shape Palomar accepts.
+
+### Mathlib in particular
+
 
 Mathlib is a *library* of mathematics; `lean-pkg` is *infrastructure* around
 libraries. They are different kinds of object, and every `lean-pkg` package
