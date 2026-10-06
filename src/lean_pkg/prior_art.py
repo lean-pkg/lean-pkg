@@ -25,9 +25,21 @@ TOP_PER_SOURCE = 5
 DECISIONS = ("require", "reuse", "vendor", "contribute", "build")
 
 
+SLUG_MAX = 60
+
+
 def record_slug(term: str) -> str:
+    """Kebab slug of the search term; a term longer than SLUG_MAX is cut there and gets an
+    8-hex suffix of the full slug, so two long terms that agree on their first 60 characters
+    still get distinct record files."""
+    import hashlib
     from .search import tokens
-    return "-".join(tokens(term))[:60].strip("-") or "search"
+    full = "-".join(tokens(term)).strip("-")
+    if not full:
+        return "search"
+    if len(full) <= SLUG_MAX:
+        return full
+    return full[:SLUG_MAX].strip("-") + "-" + hashlib.sha256(full.encode()).hexdigest()[:8]
 
 
 def record_rel(date: str, term: str) -> str:

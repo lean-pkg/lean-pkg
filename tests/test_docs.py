@@ -236,3 +236,26 @@ def test_docs_explain_listing_an_unfinished_project():
         assert needle in page, needle
     faq = (ROOT / "docs" / "faq.md").read_text()
     assert "not finished" in faq and "index-catalog.md#an-unfinished-project-as-an-entry" in faq
+
+
+def test_boundary_check_history_mode_scans_every_commit(tmp_path):
+    """`--history` fails on a forbidden string in ANY reachable blob or commit message, even when
+    the current tree is clean (the public flip exposes the whole history, not just HEAD)."""
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com", "HOME": str(tmp_path),
+           "PATH": __import__("os").environ["PATH"]}
+    g = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, env=env, capture_output=True)
+    g("init", "-q"); leak = "Le-AI-" + "Lab"
+    (repo / "notes.md").write_text(leak + "\n"); g("add", "."); g("commit", "-q", "-m", "first")
+    (repo / "notes.md").write_text("clean\n"); g("add", "."); g("commit", "-q", "-m", "scrubbed")
+    script = str(ROOT / "scripts" / "private-boundary-check.sh")
+    tree = subprocess.run(["bash", script, str(repo)], capture_output=True, text=True)
+    assert tree.returncode == 0, tree.stdout + tree.stderr          # HEAD is clean
+    hist = subprocess.run(["bash", script, "--history", str(repo)], capture_output=True, text=True)
+    assert hist.returncode == 1 and "notes.md" in hist.stdout + hist.stderr
+    (repo / "x.md").write_text("ok\n"); g("add", "."); g("commit", "-q", "-m", "mentions " + "tele" + "gram")
+    hist2 = subprocess.run(["bash", script, "--history", str(repo)], capture_output=True, text=True)
+    assert hist2.returncode == 1 and "commit-message:" in hist2.stdout + hist2.stderr

@@ -1,9 +1,9 @@
 # lean-pkg: local gates. No tab characters: recipes use '>' as the prefix.
 # `make check` is the release gate; hosted CI runs the same targets once the repository is public.
 .RECIPEPREFIX := >
-.PHONY: check test boundary tabs versions release
+.PHONY: check test boundary tabs versions reuse history release
 
-check: test boundary tabs versions
+check: test boundary tabs versions reuse
 > @echo "check: all gates green"
 
 test:
@@ -17,6 +17,15 @@ tabs:
 
 versions:
 > python3 scripts/check-versions.py
+
+# REUSE 3.3 compliance (gate G3 of the public-flip checklist); skipped, not passed, when the tool is absent.
+reuse:
+> @if command -v reuse >/dev/null 2>&1; then reuse lint -q && echo "reuse: compliant"; else echo "reuse: SKIPPED (pipx install reuse)"; fi
+
+# Every blob and commit message reachable from any ref. Not part of `check`: a hit here is fixed
+# only by rewriting history, which is a maintainer decision before the public flip (RELEASING.md).
+history:
+> bash scripts/private-boundary-check.sh --history
 
 # make release VERSION=0.1.0  (runs scripts/release.sh; see RELEASING.md)
 release:

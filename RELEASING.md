@@ -44,3 +44,13 @@ pre-push hook enforces it in clones that opt in:
 ```bash
 git config core.hooksPath .githooks
 ```
+
+## Before the public flip
+
+`make check` scans the tree git would ship. The flip exposes every commit, so
+run `make history` (every blob and commit message reachable from any ref)
+and get it green first. A hit there is removed only by rewriting history or
+by publishing from a fresh history; both are maintainer decisions recorded in
+`docs/decisions/`. `make reuse` (REUSE 3.3 compliance, `pipx install reuse`)
+is part of `make check` and must report "compliant", not "SKIPPED", on the
+release machine.
