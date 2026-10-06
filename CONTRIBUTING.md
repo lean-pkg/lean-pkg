@@ -29,14 +29,15 @@ Contributions are pull requests against `main`.
   and a clone can enforce it on push by opting into the hook directory
   (see `RELEASING.md`); the same targets run as hosted CI once the
   repository is public (GitHub Actions is free there).
-- **Package entries** (once the catalog exists): a PR adds or updates an
-  entry that points to a public package repository at a pinned commit, with
-  its `formalization.yaml`. Code stays in the package repository, not here.
-  The checks will clone the package at the pin, run the comparator and the
-  lower-tier checks (`lake build`, sorry scan, `#print axioms`), validate
-  the receipt pair with `lean-pkg comparator --check`, check the license
-  (REUSE lint), and check the AI-disclosure block in `formalization.yaml`.
-  A PR cannot merge without a green run.
+- **Index entries**: a PR adds `index/<name>/` (an `entry.yaml` of schema
+  `index-entry/1` and the verbatim receipt copies under `receipts/`) written
+  by `lean-pkg index add`, plus the re-rendered `index/README.md`. Code and
+  logs stay in the package repository, not here. Before merging, the
+  maintainer runs `lean-pkg index check --clone <name>`, which clones the
+  package at the pin, re-derives the receipts and logs from bytes, checks the
+  toolchain, `lake-manifest.json`, license and tag at the pin, and recomputes
+  the trust level; its output goes into the review. A PR cannot merge without
+  a passing run. See [The index](docs/index-catalog.md).
 - **Human review** covers what machines cannot check: whether the Lean
   statement says what the paper says, naming, and documentation. Reviewers
   do not have to be maintainers.

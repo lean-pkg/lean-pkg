@@ -93,6 +93,10 @@ mechanism uses landrun (Landlock) and is not affected.
 
 ## Host policy
 
+The receipt records the host name. Set `COMPARATOR_RECEIPT_HOST_LABEL` to a
+public-safe label (for example `lab-workstation`) when the receipt will be
+copied into a public index; the label replaces the host name in the receipt.
+
 The comparator build is heavy. The runner allows a run only when one of
 these holds, and records which in `host_policy`:
 

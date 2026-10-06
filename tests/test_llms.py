@@ -21,7 +21,7 @@ def test_llms_exits_zero_and_covers_contract(lp, capsys):
     assert "The gate is executor-neutral" in out
     assert "A pilot," in out
     assert "partial manifest" in out
-    assert len(out.splitlines()) <= 125
+    assert len(out.splitlines()) <= 140
 
 
 def test_llms_mentions_event_names_and_status_enum(lp, capsys):
@@ -41,4 +41,12 @@ def test_llms_documents_comparator_tier(lp, capsys):
     for needle in ("--comparator", "comparator <name>", "comparator-receipt/1",
                    "Your solution is okay!", "required by promote",
                    "comparator-attached"):
+        assert needle in out, needle
+
+
+def test_llms_documents_index(lp, capsys):
+    assert lp.main(["llms"]) == 0
+    out = capsys.readouterr().out
+    for needle in ("index     public catalog", "LEAN_PKG_INDEX", "index-entry/1", "index-added",
+                   "computed, never typed", '"skipped"', "check [NAME ...]", "render [--out PATH]"):
         assert needle in out, needle

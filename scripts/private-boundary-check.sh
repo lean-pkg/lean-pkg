@@ -50,9 +50,9 @@ printf '%s\n' "${forbidden[@]}" > "$patterns"
 # virtualenvs and build output.
 if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   hits="$(cd "$root" && git ls-files -z --cached --others --exclude-standard \
-    | xargs -0 -r grep -nIF -f "$patterns" -- || true)"
+    | xargs -0 -r grep -nIiF -f "$patterns" -- || true)"
 else
-  hits="$(grep -rnIF -f "$patterns" "$root" \
+  hits="$(grep -rnIiF -f "$patterns" "$root" \
     --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=.pytest_cache \
     --exclude-dir=.venv --exclude-dir=venv --exclude-dir=build --exclude-dir=dist \
     --exclude-dir='*.egg-info' || true)"

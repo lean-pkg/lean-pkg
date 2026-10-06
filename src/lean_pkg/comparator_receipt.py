@@ -276,7 +276,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                 "log_sha256": sha256_file(src_log),
                 "result": "pass",
             })
-        host = socket.gethostname()
+        host = os.environ.get("COMPARATOR_RECEIPT_HOST_LABEL", "").strip() or socket.gethostname()
         now = dt.datetime.now(dt.timezone.utc)
         job = (os.environ.get("SLURM_JOB_ID")
                or f"local-{host}-{os.getpid()}-{now.strftime('%Y%m%dT%H%M%SZ')}")
