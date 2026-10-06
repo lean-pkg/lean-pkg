@@ -55,6 +55,7 @@ def test_relative_links_resolve():
 
 def test_readme_has_motivation_quick_start_and_routes():
     text = (ROOT / "README.md").read_text()
-    for heading in ("## Why lean-pkg", "## Quick start", "## How to use",
-                    "## Documentation", "llms.txt", "AGENTS.md"):
+    for heading in ("## Why lean-pkg", "## Who is this for", "## Where lean-pkg sits",
+                    "## Quick start", "## How to use", "## Documentation",
+                    "Palomar", "llms.txt", "AGENTS.md"):
         assert heading in text, heading
