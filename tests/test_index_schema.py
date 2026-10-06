@@ -27,7 +27,7 @@ def test_dump_keeps_schema_key_order_and_round_trips(idx):
     assert idx.dump_entry(e) == text
     shuffled = dict(reversed(list(e.items())))
     assert idx.dump_entry(shuffled) == text
-    assert list(yaml.safe_load(idx.dump_entry(e))) == list(idx.ENTRY_KEYS)
+    assert list(yaml.safe_load(idx.dump_entry(e))) == list(idx.ENTRY_KEYS_BY_SCHEMA["index-entry/1"])
 
 
 def test_unknown_top_level_key_refused(idx):
@@ -38,7 +38,7 @@ def test_unknown_top_level_key_refused(idx):
 
 
 @pytest.mark.parametrize("path,value,needle", [
-    (("schema",), "index-entry/2", "schema"),
+    (("schema",), "index-entry/3", "schema"),
     (("name",), "other", "directory"),
     (("repo",), "git@github.com:example/demo.git", "https"),
     (("repo",), "https://user:token@github.com/example/demo", "https"),

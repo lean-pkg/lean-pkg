@@ -1,6 +1,7 @@
 # lean-pkg index -- the public, forkable catalog of trust-graded packages
-"""Index entries: `index/<name>/entry.yaml` (schema `index-entry/1`) plus
-verbatim receipt copies under `index/<name>/receipts/`.
+"""Index entries: `index/<name>/entry.yaml` (schema `index-entry/2`; `index-entry/1`
+still validates) plus verbatim receipt copies under `index/<name>/receipts/`.
+`index-entry/2` adds `claims[]`, one claim per headline item, derived at `index add`.
 
 Everything is a file. `index add` writes an entry from a package clone at its
 pin; `index check` re-derives every claim from bytes at the pin; `index render`
@@ -22,15 +23,18 @@ import yaml
 from . import cli as core
 
 
-ENTRY_SCHEMA = "index-entry/1"
-SUPPORTED_ENTRY_SCHEMAS = (ENTRY_SCHEMA,)
+ENTRY_SCHEMA = "index-entry/2"
+SUPPORTED_ENTRY_SCHEMAS = ("index-entry/1", ENTRY_SCHEMA)
 INDEX_ENV = "LEAN_PKG_INDEX"
 DEFAULT_INDEX_DIR = "index"
 ENTRY_FILE = "entry.yaml"
 RECEIPTS_DIR = "receipts"
-ENTRY_KEYS = ("schema", "name", "repo", "pin", "lean_toolchain", "mathlib_rev",
-              "license_spdx", "trust", "receipts", "headline", "palomar", "doi",
-              "reservoir", "formalization_yaml", "fields", "consent", "added", "notes")
+ENTRY_KEYS_V1 = ("schema", "name", "repo", "pin", "lean_toolchain", "mathlib_rev",
+                 "license_spdx", "trust", "receipts", "headline", "palomar", "doi",
+                 "reservoir", "formalization_yaml", "fields", "consent", "added", "notes")
+ENTRY_KEYS = ENTRY_KEYS_V1[:10] + ("claims",) + ENTRY_KEYS_V1[10:]
+ENTRY_KEYS_BY_SCHEMA = {"index-entry/1": ENTRY_KEYS_V1, "index-entry/2": ENTRY_KEYS}
+INDEX_CLAIM_KEYS = ("id", "decl", "kind", "summary", "judged_as", "trust")
 TRUST_LEVELS = ("lower-tier", "comparator", "palomar")
 TRUST_RANK = {t: i for i, t in enumerate(TRUST_LEVELS, 1)}
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -74,8 +78,21 @@ def load_entry(path: pathlib.Path) -> dict:
     return data
 
 
+def entry_keys(entry: dict) -> tuple[str, ...]:
+    """The key order of the entry's own schema (the current schema when it is unknown)."""
+    return ENTRY_KEYS_BY_SCHEMA.get(entry.get("schema"), ENTRY_KEYS)
+
+
+def index_claims(name: str, headline: list[dict], trust) -> list[dict]:
+    """claims[] of an index-entry/2: one per headline item, derived, never typed."""
+    from .claims import slug_of_decl
+    return [{"id": f"{name}/{slug_of_decl(h['name'])}", "decl": h["name"], "kind": "theorem",
+             "summary": h["summary"], "judged_as": h.get("judged_as"), "trust": trust}
+            for h in headline]
+
+
 def dump_entry(entry: dict) -> str:
-    ordered = {k: entry[k] for k in ENTRY_KEYS}
+    ordered = {k: entry[k] for k in entry_keys(entry)}
     return yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False,
                           allow_unicode=True, width=100)
 
@@ -112,19 +129,20 @@ def _exact_keys(obj, keys, where, errors) -> bool:
 
 
 def validate_entry(entry, dirname: str | None = None) -> list[str]:
-    """Every error in an `index-entry/1` mapping; [] when valid. Unknown keys are refused."""
+    """Every error in an `index-entry/1` or `/2` mapping; [] when valid. Unknown keys are refused."""
     errors: list[str] = []
     if not isinstance(entry, dict):
         return ["entry is not a mapping"]
-    extra = sorted(set(entry) - set(ENTRY_KEYS))
+    keys = entry_keys(entry)
+    if entry.get("schema") not in SUPPORTED_ENTRY_SCHEMAS:
+        errors.append(f"schema must be one of {SUPPORTED_ENTRY_SCHEMAS}, got {entry.get('schema')!r}")
+    extra = sorted(set(entry) - set(keys))
     if extra:
-        errors.append(f"unknown key(s) {extra} (schema {ENTRY_SCHEMA} allows {list(ENTRY_KEYS)})")
-    missing = [k for k in ENTRY_KEYS if k not in entry]
+        errors.append(f"unknown key(s) {extra} (schema {entry.get('schema')} allows {list(keys)})")
+    missing = [k for k in keys if k not in entry]
     if missing:
         errors.append(f"missing key(s) {missing}")
         return errors
-    if entry["schema"] not in SUPPORTED_ENTRY_SCHEMAS:
-        errors.append(f"schema must be one of {SUPPORTED_ENTRY_SCHEMAS}, got {entry['schema']!r}")
     name = entry["name"]
     if not isinstance(name, str) or not NAME_RE.fullmatch(name):
         errors.append(f"name {name!r} must match [A-Za-z0-9][A-Za-z0-9._-]*")
@@ -177,6 +195,8 @@ def validate_entry(entry, dirname: str | None = None) -> list[str]:
             s = h["summary"]
             if not isinstance(s, str) or not s.strip() or "\n" in s.strip() or len(s) > 300:
                 errors.append(f"headline[{i}].summary must be one sentence (one line, at most 300 characters)")
+    if "claims" in keys:
+        errors += _index_claim_errors(entry, errors)
     pal = entry["palomar"]
     if not isinstance(pal, list):
         errors.append("palomar must be a list")
@@ -219,6 +239,26 @@ def validate_entry(entry, dirname: str | None = None) -> list[str]:
         if PRIVATE_PATH_RE.search(s):
             errors.append(f"{where} looks like a private local path: {s!r}")
     return errors
+
+
+def _index_claim_errors(entry: dict, prior: list[str]) -> list[str]:
+    """claims[] of an index-entry/2 must be exactly what index_claims derives from the headline."""
+    from .claims import CLAIM_ID_RE
+    cs = entry["claims"]
+    if not isinstance(cs, list):
+        return ["claims must be a list"]
+    out: list[str] = []
+    for i, c in enumerate(cs):
+        if _exact_keys(c, INDEX_CLAIM_KEYS, f"claims[{i}]", out) and not (
+                isinstance(c["id"], str) and CLAIM_ID_RE.match(c["id"])):
+            out.append(f"claims[{i}].id must be <name>/<slug>, got {c['id']!r}")
+    if out or any(x.startswith("headline") for x in prior):
+        return out
+    if cs != index_claims(entry["name"], entry["headline"], entry["trust"]):
+        out.append("claims[] must be derived from the headline (one per item: id <name>/<slug of the "
+                   "name>, kind theorem, its summary and judged_as, the entry's trust); nothing is typed "
+                   "by hand: re-run `lean-pkg index add`")
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -611,7 +651,8 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
             "mathlib_rev": mathlib_rev_at(clone),
             "license_spdx": license_spdx, "trust": trust,
             "receipts": {"lower": lower_rel or None, "comparator": comp_rel or None},
-            "headline": headline, "palomar": palomar, "doi": doi, "reservoir": reservoir,
+            "headline": headline, "claims": index_claims(name, headline, trust),
+            "palomar": palomar, "doi": doi, "reservoir": reservoir,
             "formalization_yaml": opts.get("formalization_yaml") or pkg.get("formalization_yaml"),
             "fields": list(opts.get("fields") or []),
             "consent": {"recorded": consent_recorded},
@@ -942,7 +983,7 @@ def _cell(s: str) -> str:
 
 
 def render_index(root: pathlib.Path) -> str:
-    rows = []
+    rows, claim_rows = [], []
     legacy = False
     for n in entry_names(root):
         e = load_entry(root / n / ENTRY_FILE)
@@ -973,6 +1014,8 @@ def render_index(root: pathlib.Path) -> str:
             links.append(f"[Reservoir]({e['reservoir']})")
         rows.append(f"| [{_cell(n)}]({e['repo']}) | {trust} | {_cell(tc)} | {head} | {pin} | "
                     f"{' · '.join(links)} |")
+        claim_rows += [f"| `{_cell(c['id'])}` | `{_cell(c['decl'])}` | {c['kind']} | {c['trust']} |"
+                       for c in e.get("claims") or []]
     out = [RENDER_BANNER, "", "# lean-pkg index", "",
            "Generated by `lean-pkg index render` from `index/<name>/entry.yaml`. Do not edit this "
            "file by hand: change the entry and re-render. Every row can be re-derived with "
@@ -985,6 +1028,10 @@ def render_index(root: pathlib.Path) -> str:
         if legacy:
             out += ["", "`comparator (legacy)`: checked with the pinned comparator stack; it is not "
                         "predictive of Palomar acceptance, which runs the toolchain mechanism."]
+        if claim_rows:
+            out += ["", "## Claims", "",
+                    "Derived from each `index-entry/2` headline; `lean-pkg search TERM` finds them.", "",
+                    "| Claim | Declaration | Kind | Trust |", "|---|---|---|---|", *claim_rows]
     out.append("")
     return "\n".join(out)
 
