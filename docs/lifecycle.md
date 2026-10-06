@@ -8,12 +8,15 @@ title: Lifecycle
 
 ## One registry, append-only history
 
-A single YAML registry (`version: 1`, a `packages` map) is the source of
+A single YAML registry (`version: 2`, a `packages` map; `lean-pkg migrate`
+upgrades a `version: 1` file in place, additively) is the source of
 truth. Each entry records the repository URL, a `$HOME`-relative
 `local_path`, visibility, status, the current lease, the Lean toolchain and
 Mathlib pin (detected at `register`), the upstream target
 (`none | mathlib | palomar`), an `automation` AI-disclosure note, the `gate`
-evidence pointers (`receipt`, `comparator`, `axioms_allowed`), promotion
+evidence pointers (`receipt`, `comparator`, `axioms_allowed`), the v2
+publication fields (`license_spdx`, `formalization_yaml`, `palomar[]`, `doi`,
+`reservoir`, `consent[]`; empty until recorded), promotion
 stamps, a `reaudit_after` date, notes, and `history[]`.
 
 Every transition appends one entry to `history[]` and one JSON line to the

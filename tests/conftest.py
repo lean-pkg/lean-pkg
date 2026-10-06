@@ -254,6 +254,12 @@ def base_pkg(name: str, repo_path: Path, status: str, **kw) -> dict:
         "reaudit_after": None,
         "notes": "",
         "history": [],
+        "license_spdx": None,
+        "formalization_yaml": None,
+        "palomar": [],
+        "doi": None,
+        "reservoir": None,
+        "consent": [],
     }
     pkg.update(kw)
     return pkg
@@ -285,7 +291,7 @@ def env(tmp_path: Path) -> Env:
     comp_rel = f".lean-receipts/{repo_head(repo_b)[:12]}-comparator.json"
     (repo_b / comp_rel).write_text(json.dumps(comp_b, indent=2))
     reg = {
-        "version": 1,
+        "version": 2,
         "packages": {
             "alpha": base_pkg("alpha", repo_a, "gate-pending"),
             "beta": base_pkg("beta", repo_b, "verified-private",
