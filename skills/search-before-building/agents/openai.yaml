@@ -1,0 +1,4 @@
+interface:
+  display_name: "Search Before Building"
+  short_description: "Find Lean prior art before writing new code"
+  default_prompt: "Use $search-before-building to search Loogle, Mathlib, Reservoir, Palomar and GitHub before I formalize this."

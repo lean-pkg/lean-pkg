@@ -107,6 +107,62 @@ version the registry file plus its event log. See
 By the package's Zenodo version DOI, cut at the commit Palomar registered,
 plus the `PALOMAR-…` id with its version. Both name the same bytes.
 
+## Reservoir
+
+**How is lean-pkg different from Reservoir?**
+[Reservoir](https://reservoir.lean-lang.org/) is the Lean FRO's package index
+for Lake. It finds public Lake packages on GitHub automatically, about once a
+day, and builds each one against new Lean toolchains, so it answers "which
+packages exist, and do they still build?". A Reservoir build runs
+`lake build` (and `lake test` if the package has a driver); it does not scan
+for `sorry`, audit axioms, compare a statement with a paper, or replay
+proofs in a second kernel. lean-pkg covers trust and lifecycle around a
+package: who holds it, what was certified at which commit, whether the
+evidence is complete before release, and what was recorded after (Palomar
+id, DOI, Reservoir listing). [Palomar](https://palomar-registry.org/) is the
+registry of kernel-checked research results.
+
+| Question | Reservoir | Palomar | lean-pkg |
+|---|---|---|---|
+| Which public Lake packages exist? | yes (automatic) | no | no |
+| Does a package build on a given toolchain? | yes (build history per toolchain) | for the registered commit only | no; it validates your receipts |
+| Is a theorem kernel-checked against its stated challenge? | no | yes (comparator, independent kernels) | validates the comparator receipt before release (comparator tier) |
+| Who is working on this package, and what is certified at which commit? | no | no | yes (leases, gate, receipts) |
+| What was published, where, and with whose consent? | no | the registration | yes (evidence events) |
+
+The three are complementary: a package can be held and certified in
+lean-pkg, registered in Palomar, and listed on Reservoir, and lean-pkg
+records the last two as facts.
+
+**Do I need to register my package on Reservoir?**
+No, and you cannot: there is no submission form. Reservoir lists a
+repository automatically once it is public on GitHub, has a
+`lake-manifest.json` at its root, has an OSI license that GitHub detects,
+is not a fork (a repository made with GitHub's "Use this template" counts as
+a fork), and has at least 2 stars. Set `description`, `keywords` and
+`versionTags` (and optionally `homepage`) in the lakefile: they are what
+Reservoir displays and what people search. To opt out, set
+`reservoir := false`. The listing is confirmed when
+`https://reservoir.lean-lang.org/api/v1/packages/<owner>/<name>` returns
+HTTP 200 (404 means not listed yet); then record it with
+`lean-pkg record NAME reservoir-listed --field url=<package page>`.
+lean-pkg stores the fact; it does not query Reservoir for you.
+
+**Should I search Reservoir before formalizing?**
+Yes, and not only Reservoir. Before writing any new definition, lemma or
+library, run the
+[search-before-building](https://github.com/chenle02/lean-pkg/blob/main/skills/search-before-building/SKILL.md)
+skill: Loogle, Mathlib at your pin, the Reservoir index, Palomar, known
+authors and a GitHub code search, with every query recorded, zero hits
+included. One trap: the search box on the Reservoir site matches package
+*names* only, so `kkytola/ExtremeValueProject`, whose description says
+"Fisher-Tippett-Gnedenko", never appears for "Fisher-Tippett". Search the
+descriptions in the index repository (`leanprover/reservoir-index`) instead,
+with several phrasings: the same description never says "Gumbel". The indexes barely overlap (in
+October 2026 only 22 of 363 Palomar source repositories were on
+Reservoir), and zero hits in all of them still do not prove that nothing
+exists.
+
 ## Contributing
 
 **I verified something. How do I add it to the index?**

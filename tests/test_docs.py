@@ -165,3 +165,22 @@ def test_site_code_blocks_get_a_copy_button():
     css = (ROOT / "docs" / "assets" / "site.css").read_text()
     assert "lp-copy" in js and "navigator.clipboard" in js and "execCommand" in js   # with a fallback
     assert ".lp-copy" in css and 'html[data-theme="dark"] .lp-copy' in css
+def test_faq_has_reservoir_section_and_search_skill_is_listed():
+    """Reservoir vs lean-pkg, automatic listing and search-before-building stay documented."""
+    faq = (ROOT / "docs" / "faq.md").read_text()
+    headings = [line for line in faq.splitlines() if line.startswith("#")]
+    assert any("Reservoir" in h for h in headings), headings
+    for question in ("How is lean-pkg different from Reservoir?",
+                     "Do I need to register my package on Reservoir?",
+                     "Should I search Reservoir before formalizing?"):
+        assert question in faq, question
+    for fact in ("reservoir := false", "/api/v1/packages/", "reservoir-listed", "2 stars",
+                 "names* only", "search-before-building"):
+        assert fact in faq, fact
+    skill = ROOT / "skills" / "search-before-building" / "SKILL.md"
+    assert skill.is_file()
+    assert "name: search-before-building" in skill.read_text()
+    assert "search-before-building/SKILL.md" in (ROOT / "skills" / "README.md").read_text()
+    assert "`search-before-building`" in (ROOT / "docs" / "skills.md").read_text()
+    assert "search-before-building" in (ROOT / "skills" / "lean-paper-companion" / "SKILL.md").read_text()
+    assert "Reservoir" in (ROOT / "docs" / "motivation.md").read_text()

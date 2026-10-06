@@ -33,7 +33,7 @@ def frontmatter(path: Path) -> tuple[dict, str]:
 
 
 def test_skill_count_is_in_range():
-    assert 12 <= len(SKILL_DIRS) <= 18, SKILL_IDS
+    assert 12 <= len(SKILL_DIRS) <= 20, SKILL_IDS
     assert "lean-verification-workflow" in SKILL_IDS
 
 

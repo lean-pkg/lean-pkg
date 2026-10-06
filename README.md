@@ -49,7 +49,9 @@ re-derives both from bytes.
 Public verified results are registered in [Palomar](https://palomar-registry.org/),
 which archives them and assigns stable ids. Every package depends on
 [Mathlib](https://github.com/leanprover-community/mathlib4). Public packages
-are indexed by [Reservoir](https://reservoir.lean-lang.org/). `lean-pkg`
+are indexed by [Reservoir](https://reservoir.lean-lang.org/), automatically
+(no registration step), which checks that they build but not what they prove;
+search it before building anything new. `lean-pkg`
 covers what those leave out: the months *before* a result is public, and a
 field-curated index *after*. A package that passes its comparator tier is
 already in the shape Palomar accepts. The full comparison is in

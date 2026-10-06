@@ -6,6 +6,14 @@ license: Apache-2.0
 
 # Lean companion for a paper in progress
 
+**Step 0: search before building.** Before formalizing any new definition,
+lemma or library for the paper, run the
+[`search-before-building`](../search-before-building/SKILL.md) skill: Loogle,
+Mathlib at the pin, the Reservoir index (not the site's name-only search),
+Palomar, known authors and the GitHub long tail. Record every query,
+including zero hits, and decide require, vendor, contribute or build before
+the first line of new Lean.
+
 ## Problem
 
 A paper mixes elementary algebra Lean can check today, deep published inputs,
@@ -47,6 +55,8 @@ lake update && lake exe cache get && lake build
 
 For each stable lemma in the active proof:
 
+0. Search before building (`search-before-building`) unless the object is
+   already recorded as searched.
 1. Write the micro-contract: objects, hypotheses, quantifier order,
    conclusion.
 2. Formalize the smallest high-value seam before downstream prose depends on

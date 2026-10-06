@@ -1,6 +1,6 @@
 # Agent skills for LLM-assisted Lean verification
 
-Eighteen skills for coding agents (Claude Code, Codex, or any harness that
+Nineteen skills for coding agents (Claude Code, Codex, or any harness that
 reads `SKILL.md` folders) that formalize mathematics in Lean 4 for a paper.
 They focus on three things a green build does not give you: **fidelity** of
 each statement to the paper, **evidence** that binds results to exact bytes,
@@ -39,6 +39,8 @@ Codex, or just describe the task.
 | Skill | Use it when |
 |---|---|
 | [lean-verification-workflow](lean-verification-workflow/SKILL.md) | you need to pick a skill; the router |
+| **Before building** | |
+| [search-before-building](search-before-building/SKILL.md) | before any new definition, lemma or library: Loogle, Mathlib, Reservoir, Palomar, GitHub |
 | **Fidelity** | |
 | [lean-fidelity-audit-taxonomy](lean-fidelity-audit-taxonomy/SKILL.md) | checking a Lean statement or definition against the paper |
 | [lean-weakened-hypothesis-vacuity](lean-weakened-hypothesis-vacuity/SKILL.md) | a relaxed hypothesis is claimed to cover a new case |
@@ -67,13 +69,16 @@ pinned revision.
 
 ## Deliberately not here
 
-Mathlib search and discovery, naming and style, elaboration performance,
+Searching *inside* Mathlib (finding the right lemma name), naming and style, elaboration performance,
 project architecture, multi-agent orchestration and source dependency graphs
 are covered well by Scott Armstrong's
 [LeanAutoformalizationSkills](https://github.com/scottnarmstrong/LeanAutoformalizationSkills)
 (its `lean-search-discovery`, `lean-naming-style`, `lean-elaboration`,
 `lean-project-architecture`, `lean-orchestrator`, `lean-statement-audit` and
-`build-proof-dependency-graph` skills). The two sets install side by side
+`build-proof-dependency-graph` skills). Our `search-before-building` asks the
+earlier question, whether the object exists anywhere (Reservoir, Palomar,
+GitHub) before you write it, and defers to `lean-search-discovery` once you
+are inside Mathlib. The two sets install side by side
 without name clashes: our router is `lean-verification-workflow`, his is
 `lean-workflow`. If a future skill name ever collides, the installer refuses
 the second one and reports it; pass `--force` to move the other aside.

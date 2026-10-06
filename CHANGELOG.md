@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+- Agent skill `search-before-building`: Loogle, Mathlib at the pin, the
+  Reservoir index (not the name-only site search), Palomar, known authors and
+  the GitHub long tail, with every query recorded and one decision per need;
+  step 0 of `lean-paper-companion` and a row in the router.
+- FAQ section on Reservoir: how it differs from lean-pkg and Palomar, why
+  there is nothing to register (listing is automatic), and searching it
+  before formalizing.
+
 ## [0.2.0] - 2026-10-06
 
 Milestone M0 of the charter: a tool the lab can consume instead of its own
