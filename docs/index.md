@@ -19,7 +19,7 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 | **new here** | [Start here](newcomers.md): the reading path, then the [sample workflow](sample-workflow.md) |
 | **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
 | **using the tool** | [How to](how-to.md) and the [CLI reference](cli.md) |
-| **auditing a package** | [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [Lifecycle](lifecycle.md) |
+| **auditing a package** | [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [The index](index-catalog.md), [Lifecycle](lifecycle.md) |
 | **a coding agent** | [Using lean-pkg with agents](agents.md), [llms.txt](llms.txt), and the [agent skills](skills.md) |
 | **contributing** | [CONTRIBUTING](https://github.com/chenle02/lean-pkg/blob/main/CONTRIBUTING.md) and [MAINTAINERS](https://github.com/chenle02/lean-pkg/blob/main/MAINTAINERS.md) |
 
@@ -60,6 +60,8 @@ promotion dry run.
   descendant rule, and the trust boundary.
 - [The comparator tier](comparator.md): the Palomar layout, the runner, the
   host policy, the tool pins.
+- [The index](index-catalog.md): the public catalog of trust-graded packages, its
+  entry schema, and how to add and check an entry.
 - [CLI reference](cli.md): every subcommand.
 - [Using lean-pkg with agents](agents.md): the LLM entry.
 - [Agent skills](skills.md): lessons for agents on statement fidelity, evidence and publication, with an installer.

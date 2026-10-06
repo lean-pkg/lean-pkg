@@ -1,24 +1,35 @@
 ---
 name: Index entry
-about: Propose a verified package for the catalog (once the index exists)
+about: Propose a verified package for the index (schema index-entry/1; see docs/index-catalog.md)
 title: "index: <package name>"
 labels: index
 ---
 
-**Package repository** (public, with a license GitHub detects):
+Field names below are the keys of `index/<name>/entry.yaml`. Trust is not
+asked for: `lean-pkg index add` computes it from the receipts.
 
-**Pinned commit** (40-hex) and **tag**:
+**`name`** (the directory under `index/`):
 
-**Toolchain** (`lean-toolchain`) and **Mathlib revision** (from `lake-manifest.json`):
+**`repo`** (public https URL, with a license GitHub detects):
 
-**Headline theorems** (fully qualified names, one per line):
+**`pin.commit`** (40 hex, the commit the receipts bind) and **`pin.tag`** (or none):
 
-**Evidence**
-- Lower-tier receipt: path in the repository (`.lean-receipts/...`)
-- Comparator receipt: path, mechanism (`toolchain` or `legacy`)
-- Palomar id and version, if registered:
-- Zenodo version DOI, if minted:
+**`lean_toolchain`** and **`mathlib_rev`** (as in `lean-toolchain` and `lake-manifest.json` at the pin):
 
-**Consent**: every coauthor of the result has agreed to the listing (yes/no).
+**`license_spdx`**:
+
+**`headline`** (one per line: fully qualified name, repository-relative `.lean` file, one-sentence summary):
+
+**`receipts.lower`** (path under `.lean-receipts/`, committed at the pin or in an evidence-only descendant):
+
+**`receipts.comparator`** (path, and its mechanism: `toolchain` or `legacy`):
+
+**`palomar`** (id and version, if registered), **`doi`** (version DOI, if minted), **`reservoir`** (listing URL, if any):
+
+**`formalization_yaml`** (path, if the package has one):
+
+**`fields`** (lowercase tags, for example `probability`):
+
+**`consent.recorded`**: every coauthor of the result has agreed to the listing (yes/no; the records stay private).
 
 **AI assistance**: which tools were used and how (required; see the PR template).

@@ -74,6 +74,10 @@ import urllib.request
 
 import yaml
 
+if __name__ == "__main__":
+    # `python -m lean_pkg.cli`: lean_pkg.index imports this very module (one Fail class).
+    sys.modules.setdefault("lean_pkg.cli", sys.modules[__name__])
+
 HOME = pathlib.Path.home()
 REGISTRY_ENV = "LEAN_PKG_REGISTRY"
 REGISTRY_VERSION = 2                 # schema version written by `init` and `migrate`
@@ -254,7 +258,7 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     p = git(repo, "merge-base", "--is-ancestor", bound, head)
     if p.returncode != 0:
         return False, f"{bound[:12]} is not an ancestor of HEAD {head[:12]}"
-    p = git(repo, "diff", "--name-only", bound, head)
+    p = git(repo, "diff", "--no-renames", "--name-only", bound, head)   # a rename into .lean-receipts/ is a source change
     paths = [x for x in p.stdout.splitlines() if x.strip()]
     foreign = [x for x in paths if not x.startswith(".lean-receipts/")]
     if foreign or not paths:
@@ -2095,6 +2099,15 @@ audit     sweep expired leases; reconcile gh visibility; receipt/toolchain drift
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
+index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
+  add NAME --by HANDLE --headline 'Name :: File.lean :: One sentence.' [--from-registry] [--repo URL]
+      [--repo-dir P] [--lower REL] [--comparator REL] [--license SPDX] [--tag T] [--field-tag T] [--consent-recorded]
+      [--allow-unpushed]  (default: the pin and evidence must be on a branch of the public repo; consent must be recorded)
+      validates the receipts at the pin (their commit) in a clone; trust computed; receipts copied verbatim;
+      duplicate repo+commit refused; never writes local_path; event index-added (event log only).
+  check [NAME ...] [--clone | --repo-dir P]   static without a source; else re-derive from bytes at the pin.
+      Palomar/Reservoir verified by API when reachable, else "skipped" (never failed, never passed). exit 0/1/2.
+  render [--out PATH] [--check]   Markdown table, default <index>/README.md; --check exits 1 when stale.
 
 RECEIPT SCHEMA (JSON object; `gate` enforces every line)
 commit         40 lowercase hex; MUST equal HEAD, or HEAD must be an evidence-only descendant of it
@@ -2132,6 +2145,12 @@ configs[]       MUST list exactly the comparator*.json / comparator/config*.json
                 kernel's acceptance phrase). A file already at the canonical .lean-receipts path that
                 differs from the receipt being recorded is refused (no silent pointer drift).
 
+INDEX ENTRY SCHEMA ("index-entry/1"; YAML keys in this order; unknown keys refused; no local paths)
+schema name repo(https) pin{commit = the receipts' commit, tag|null} lean_toolchain mathlib_rev|null license_spdx
+trust(lower-tier|comparator|palomar; computed, never typed) receipts{lower|null, comparator|null}
+headline[{name, file, summary}] palomar[{id, version}] doi|null reservoir|null formalization_yaml|null
+fields[] consent{recorded} added{at, by} notes
+
 EXECUTOR EVIDENCE
 The gate is executor-neutral. The frozen report named by report_sha256 must bind the exact
 candidate commit/tree, source archive, toolchain/dependency pins, complete checker coverage,
@@ -2144,7 +2163,7 @@ EVENT LINE SCHEMA (one JSON object per line; the same entry is appended to histo
 ts      ISO-8601 timestamp
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
         released, release-forced, lease-expired, gate-passed, promoted, audit-fix,
-        comparator-attached, and the evidence events listed under `record`
+        comparator-attached, index-added, and the evidence events listed under `record`
 name    package name or null
 plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt, ...)
 
@@ -2486,6 +2505,9 @@ def main(argv: list[str] | None = None) -> int:
                         "next to the registry)")
     add_json(s)
     s.set_defaults(fn=cmd_wiki)
+
+    from . import index as index_mod
+    index_mod.add_parsers(sub, add_json)
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)

@@ -32,6 +32,9 @@ The authoritative, machine-oriented version of this page is
 | `validate` | schema, enum, and history sanity; exit 0 or 1 | |
 | `llms` | print the agent contract | |
 | `wiki` | render a Markdown status page | `[--out PATH]` `[--candidates PATH]` |
+| `index add NAME` | write `index/<name>/entry.yaml` from a clone at the pin: receipts validated with the `gate` and `comparator` validators and copied verbatim, trust computed, duplicates refused, event `index-added` | `--by HANDLE` `--headline 'NAME :: FILE :: SUMMARY'` `[--from-registry]` `[--repo URL]` `[--repo-dir PATH]` `[--lower REL]` `[--comparator REL]` `[--license SPDX]` `[--tag T]` `[--field-tag T]` `[--formalization-yaml REL]` `[--consent-recorded]` `[--notes]` `[--index PATH]` |
+| `index check [NAME ...]` | static checks, or re-derive each entry from bytes at the pin and recompute trust; Palomar and Reservoir verified when reachable, else skipped; exit 0, 1 or 2 | `[--clone]` `[--repo-dir PATH]` `[--index PATH]` |
+| `index render` | write the Markdown table (default `index/README.md`) | `[--out PATH]` `[--check]` `[--index PATH]` |
 
 `comparator-receipt [--project DIR] [--check SCRIPT]` is the separate console
 script that produces comparator receipts; see

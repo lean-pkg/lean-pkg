@@ -81,6 +81,8 @@ findings of `audit`. Comparator configurations are read at X, not at H.
 
 Receipts and logs are copied into `<repo>/.lean-receipts/` by `gate` and
 `comparator` (never committed by the tool; you commit them). The registry
-stores only the relative paths; `promote` re-reads the bytes.
+stores only the relative paths; `promote` re-reads the bytes. An
+[index entry](index-catalog.md) keeps verbatim copies of the receipts (not
+the logs) and `index check --clone` re-derives them at the pin.
 
 Next: [The comparator tier](comparator.md).
