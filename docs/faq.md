@@ -121,6 +121,12 @@ tool and the parts it touched, write review comments in your own words, and
 be able to explain every line you submit. See the repository's
 `CONTRIBUTING.md`.
 
+**Does the site have search and a dark mode?**
+Yes. The search box at the top of every page searches all pages client-side
+(press `/` to focus it); the index is a JSON file generated at build time,
+so there is no server. The theme toggle next to it follows your system
+preference by default and remembers your choice in the browser.
+
 **Something here is wrong or missing.**
 Open an issue. Corrections to statements of fact about other projects are
 especially welcome; this documentation cites its sources so you can check.

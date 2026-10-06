@@ -2,3 +2,13 @@
 <link rel="icon" type="image/png" sizes="64x64" href="{{ "/assets/favicon-64.png" | relative_url }}">
 <link rel="shortcut icon" href="{{ "/assets/favicon.ico" | relative_url }}">
 <link rel="apple-touch-icon" href="{{ "/assets/logo-256.png" | relative_url }}">
+<link rel="stylesheet" href="{{ "/assets/site.css" | relative_url }}">
+<script>
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem("lp-theme"); } catch (e) {}
+    if (!t) { t = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light"; }
+    document.documentElement.setAttribute("data-theme", t);
+  })();
+</script>
+<script defer src="{{ "/assets/site.js" | relative_url }}"></script>
