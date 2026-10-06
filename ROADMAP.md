@@ -65,10 +65,6 @@ and lifecycle state.
 
 ### `lean-pkg index submit`
 
-
-
-### `lean-pkg index submit`
-
 Add a contributor-facing command that turns a valid local index entry into a
 pull request.
 
