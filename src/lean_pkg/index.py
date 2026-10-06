@@ -13,6 +13,7 @@ import json
 import os
 import pathlib
 import re
+import tempfile
 
 import yaml
 
@@ -225,3 +226,351 @@ def comparator_mechanism(comp: dict | None) -> str | None:
     if comp.get("schema") == "comparator-receipt/1":
         return "legacy"
     return comp.get("mechanism")
+
+
+LICENSE_MARKERS = {
+    "MIT": "Permission is hereby granted",
+    "Apache-2.0": "Apache License",
+    "BSD-3-Clause": "Redistribution and use",
+    "BSD-2-Clause": "Redistribution and use",
+}
+
+
+# --------------------------------------------------------------------------
+# the package at its pin
+
+def clone_at(source: str, dest: pathlib.Path) -> pathlib.Path:
+    p = core.run(["git", "clone", "--quiet", "--no-checkout", str(source), str(dest)])
+    if p.returncode != 0:
+        raise core.Fail(f"git clone {source} failed: {p.stderr.strip()[:300]}")
+    return dest
+
+
+def checkout_pin(clone: pathlib.Path, commit: str) -> None:
+    p = core.git(clone, "checkout", "--quiet", "--detach", commit)
+    if p.returncode != 0:
+        raise core.Fail(f"pin {commit[:12]} is not in the repository: {p.stderr.strip()[:200]}")
+
+
+def find_evidence(clone: pathlib.Path, rel: str, pin: str | None) -> tuple[str, bytes]:
+    """(pin, bytes) of the evidence file `rel` as committed in the pin itself or in an
+    evidence-only descendant of it, searched over every ref of the clone. With pin None,
+    the pin is read from the receipt's own `commit` field."""
+    p = core.git(clone, "log", "--all", "--format=%H", "--", rel)
+    for c in [x for x in p.stdout.split() if x]:
+        blob = core.git_show_bytes(clone, rel, c)
+        if blob is None:
+            continue
+        bound = pin
+        if bound is None:
+            try:
+                bound = str(json.loads(blob).get("commit") or "")
+            except (ValueError, AttributeError):
+                continue
+            if not core._HEX40.fullmatch(bound):
+                continue
+        ok, _ = core.evidence_only_descendant(clone, bound, c)
+        if ok:
+            return bound, blob
+    raise core.Fail(f"{rel} is not committed at the pin or in an evidence-only descendant of it "
+                    f"on any branch; commit and push the evidence first (untracked files do not count)")
+
+
+def materialize(clone: pathlib.Path, pin: str, rels: list[str]) -> dict[str, bytes]:
+    """Check out the pin and write each evidence file from its committed bytes into the
+    working tree, so HEAD == pin and the existing validators read exactly those bytes."""
+    checkout_pin(clone, pin)
+    out: dict[str, bytes] = {}
+    for rel in rels:
+        _, blob = find_evidence(clone, rel, pin)
+        dest = clone / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(blob)
+        out[rel] = blob
+    return out
+
+
+def mathlib_rev_at(clone: pathlib.Path) -> str | None:
+    mf = clone / "lake-manifest.json"
+    if not mf.is_file():
+        return None
+    try:
+        data = json.loads(mf.read_text())
+    except ValueError:
+        raise core.Fail("lake-manifest.json at the pin is not valid JSON")
+    for p in data.get("packages") or []:
+        if str(p.get("name", "")).lower() in ("mathlib", "«mathlib»") and p.get("rev"):
+            return str(p["rev"])
+    return None
+
+
+def license_problem(clone: pathlib.Path, spdx: str) -> str | None:
+    for n in core.LICENSE_NAMES:
+        f = clone / n
+        if f.is_file():
+            marker = LICENSE_MARKERS.get(spdx)
+            if marker and marker not in f.read_text(errors="replace"):
+                return f"{n} at the pin does not read like {spdx} (no {marker!r})"
+            return None
+    return f"no license file ({', '.join(core.LICENSE_NAMES)}) at the pin"
+
+
+PUBLIC_GATE_PKG = {"gate": {"axioms_allowed": list(core.DEFAULT_AXIOMS)}}
+
+
+def derive(clone: pathlib.Path, pin: str, lower_rel: str | None,
+           comp_rel: str | None) -> dict:
+    """Validate the receipts at the pin with the registry's own validators.
+    Returns {lower, comparator, lower_ok, comparator_ok, mechanism, bytes, failures}."""
+    rels = [r for r in (lower_rel, comp_rel) if r]
+    got = materialize(clone, pin, rels)
+    res = {"lower": None, "comparator": None, "lower_ok": False, "comparator_ok": False,
+           "mechanism": None, "bytes": got, "failures": []}
+    if lower_rel:
+        try:
+            res["lower"] = json.loads(got[lower_rel])
+            core.validate_receipt(PUBLIC_GATE_PKG, clone, res["lower"])
+            if res["lower"]["commit"] != pin:
+                raise core.Fail(f"lower-tier receipt binds {res['lower']['commit'][:12]}, not the pin")
+            res["lower_ok"] = True
+        except (ValueError, core.Fail) as e:
+            res["failures"].append(f"lower-tier receipt {lower_rel}: {e}")
+    if comp_rel:
+        try:
+            res["comparator"] = json.loads(got[comp_rel])
+            res["mechanism"] = comparator_mechanism(res["comparator"])
+            logs = [c.get("log") for c in res["comparator"].get("configs") or []
+                    if isinstance(c, dict) and isinstance(c.get("log"), str)]
+            got.update(materialize(clone, pin, logs))
+            lower_commit = res["lower"]["commit"] if res["lower_ok"] else None
+            core.validate_comparator(PUBLIC_GATE_PKG, clone, res["comparator"], lower_commit)
+            if res["comparator"]["commit"] != pin:
+                raise core.Fail(f"comparator receipt binds {res['comparator']['commit'][:12]}, not the pin")
+            res["comparator_ok"] = True
+        except (ValueError, core.Fail) as e:
+            res["failures"].append(f"comparator receipt {comp_rel}: {e}")
+    return res
+
+
+# --------------------------------------------------------------------------
+# add
+
+def https_repo(url: str) -> str:
+    url = str(url or "").strip()
+    nwo = core.gh_nwo(url)
+    if nwo:
+        return f"https://github.com/{nwo}"
+    if HTTPS_RE.match(url):
+        return url[:-4] if url.endswith(".git") else url.rstrip("/")
+    raise core.Fail(f"repo {url!r} is not a public https or GitHub URL; pass --repo https://...")
+
+
+def _repo_key(url: str) -> str:
+    u = url.lower().rstrip("/")
+    return u[:-4] if u.endswith(".git") else u
+
+
+def parse_headline(item: str) -> dict:
+    parts = [x.strip() for x in str(item).split(" :: ", 2)]
+    if len(parts) != 3 or not all(parts):
+        raise core.Fail(f"--headline expects 'Name :: path/File.lean :: One sentence.', got {item!r}")
+    return {"name": parts[0], "file": parts[1], "summary": parts[2]}
+
+
+def headline_problems(clone: pathlib.Path, headline: list[dict]) -> list[str]:
+    out = []
+    for h in headline:
+        f = clone / h["file"]
+        if not f.is_file():
+            out.append(f"headline file {h['file']} is not tracked at the pin")
+        elif h["name"].rsplit(".", 1)[-1] not in f.read_text(errors="replace"):
+            out.append(f"headline {h['name']}: {h['name'].rsplit('.', 1)[-1]!r} does not occur in {h['file']}")
+    return out
+
+
+def at_pin_problems(clone: pathlib.Path, entry: dict, receipts: dict) -> list[str]:
+    """Checks shared by add and check: toolchain, manifest, license, tag, headline."""
+    out = []
+    tc = (clone / "lean-toolchain").read_text().strip() if (clone / "lean-toolchain").is_file() else None
+    if tc != entry["lean_toolchain"]:
+        out.append(f"lean_toolchain {entry['lean_toolchain']!r} != lean-toolchain at the pin {tc!r}")
+    try:
+        rev = mathlib_rev_at(clone)
+    except core.Fail as e:
+        rev = None
+        out.append(str(e))
+    if rev != entry["mathlib_rev"]:
+        out.append(f"mathlib_rev {entry['mathlib_rev']!r} != lake-manifest.json at the pin {rev!r}")
+    lower = receipts.get("lower")
+    if lower and rev and str(lower.get("mathlib_rev")) != rev:
+        out.append(f"lower-tier receipt mathlib_rev {lower.get('mathlib_rev')!r} != lake-manifest.json {rev!r}")
+    lp = license_problem(clone, entry["license_spdx"])
+    if lp:
+        out.append(lp)
+    tag = entry["pin"]["tag"]
+    if tag:
+        p = core.git(clone, "rev-parse", "--verify", "--quiet", f"refs/tags/{tag}^{{commit}}")
+        if p.returncode != 0:
+            out.append(f"tag {tag!r} does not exist in the repository")
+        else:
+            ok, _ = core.evidence_only_descendant(clone, entry["pin"]["commit"], p.stdout.strip())
+            if not ok:
+                out.append(f"tag {tag!r} is neither the pin nor an evidence-only descendant of it")
+    out += headline_problems(clone, entry["headline"])
+    return out
+
+
+def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | None,
+                 name: str, opts: dict) -> tuple[list[str], dict]:
+    if not NAME_RE.fullmatch(name):
+        raise core.Fail(f"bad entry name {name!r}")
+    d = root / name
+    if (d / ENTRY_FILE).exists():
+        raise core.Fail(f"index entry {name!r} already exists at {d / ENTRY_FILE}; "
+                        f"change it by pull request (there is no in-place update in {ENTRY_SCHEMA})")
+    pkg = core.get_pkg(reg, name) if reg is not None else {}
+    gate = pkg.get("gate") or {}
+    repo = https_repo(opts.get("repo") or pkg.get("repo"))
+    lower_rel = opts.get("lower") or gate.get("receipt")
+    comp_rel = opts.get("comparator") or gate.get("comparator")
+    if not lower_rel and not comp_rel:
+        raise core.Fail("no receipt: pass --lower and/or --comparator (repo-relative .lean-receipts/ paths)")
+    license_spdx = opts.get("license") or pkg.get("license_spdx")
+    if not license_spdx:
+        raise core.Fail("license_spdx unknown: pass --license SPDX-ID")
+    if not opts.get("headline"):
+        raise core.Fail("at least one --headline 'Name :: path/File.lean :: One sentence.' is required")
+    headline = [parse_headline(h) for h in opts["headline"]]
+    consent_recorded = bool(opts.get("consent_recorded") or pkg.get("consent"))
+    if not consent_recorded:
+        raise core.Fail("consent not recorded: a public listing needs every coauthor's recorded "
+                        "consent (ADR-0070 D4); pass --consent-recorded, or record it first with "
+                        "`lean-pkg record NAME consent-recorded ...` and use --from-registry")
+    palomar = [{"id": p["id"], "version": int(p["version"])} for p in pkg.get("palomar") or []
+               if p.get("id") and p.get("version") and not p.get("withdrawn_at")]
+    doi = None
+    if pkg.get("doi"):
+        doi = {"concept": pkg["doi"].get("concept"),
+               "versions": [{"doi": v["doi"], "tag": v["tag"], "commit": v["commit"]}
+                            for v in pkg["doi"].get("versions") or []]}
+    reservoir = (pkg.get("reservoir") or {}).get("url") if isinstance(pkg.get("reservoir"), dict) else None
+    source = opts.get("repo_dir")
+    if not source and pkg.get("local_path") and core.repo_path(pkg).is_dir():
+        source = str(core.repo_path(pkg))
+    with tempfile.TemporaryDirectory(prefix="lean-pkg-index-") as tmp:
+        clone = clone_at(source or repo, pathlib.Path(tmp) / "pkg")
+        pin, _ = find_evidence(clone, lower_rel or comp_rel, None)
+        for other in entry_names(root):
+            o = load_entry(root / other / ENTRY_FILE)
+            if _repo_key(str(o.get("repo"))) == _repo_key(repo) and \
+                    (o.get("pin") or {}).get("commit") == pin:
+                raise core.Fail(f"duplicate: entry {other!r} already lists {repo} at {pin[:12]}")
+        res = derive(clone, pin, lower_rel, comp_rel)
+        if res["failures"]:
+            raise core.Fail("; ".join(res["failures"]))
+        trust = compute_trust(res["lower_ok"], res["comparator_ok"], palomar)
+        entry = {
+            "schema": ENTRY_SCHEMA, "name": name, "repo": repo,
+            "pin": {"commit": pin, "tag": opts.get("tag")},
+            "lean_toolchain": (clone / "lean-toolchain").read_text().strip(),
+            "mathlib_rev": mathlib_rev_at(clone),
+            "license_spdx": license_spdx, "trust": trust,
+            "receipts": {"lower": lower_rel or None, "comparator": comp_rel or None},
+            "headline": headline, "palomar": palomar, "doi": doi, "reservoir": reservoir,
+            "formalization_yaml": opts.get("formalization_yaml") or pkg.get("formalization_yaml"),
+            "fields": list(opts.get("fields") or []),
+            "consent": {"recorded": consent_recorded},
+            "added": {"at": core.now_iso(), "by": opts["by"]},
+            "notes": opts.get("notes") or "",
+        }
+        errors = validate_entry(entry, name)
+        errors += at_pin_problems(clone, entry, res)
+        if errors:
+            raise core.Fail("index entry refused: " + "; ".join(errors))
+        (d / RECEIPTS_DIR).mkdir(parents=True, exist_ok=True)
+        copied = []
+        for rel in (lower_rel, comp_rel):
+            if rel:
+                (d / RECEIPTS_DIR / pathlib.PurePosixPath(rel).name).write_bytes(res["bytes"][rel])
+                copied.append(f"{name}/{RECEIPTS_DIR}/{pathlib.PurePosixPath(rel).name}")
+        (d / ENTRY_FILE).write_text(dump_entry(entry))
+    out = [f"{name}: index entry written at {d / ENTRY_FILE} (trust {trust}, pin {pin[:12]}"
+           + (f", {res['mechanism']} comparator" if res["mechanism"] else "") + ")",
+           f"receipts copied: {', '.join(copied)}"]
+    if events_p is not None:
+        core.append_event(events_p, core.now_iso(), name, "index-added", repo=repo,
+                          commit=pin, trust=trust, index=str(root))
+    else:
+        out.append("no event log (no registry here and no --events): index-added not recorded")
+    return out, {"ok": True, "name": name, "event": "index-added", "trust": trust,
+                 "commit": pin, "mechanism": res["mechanism"], "entry": str(d / ENTRY_FILE),
+                 "receipts": copied}
+
+
+# --------------------------------------------------------------------------
+# CLI glue: lean_pkg.cli.main calls add_parsers(sub, add_json)
+
+def _emit(args, out: list[str], payload: dict, rc: int = 0) -> int:
+    if args.json_out:
+        core.print_json(payload)
+    else:
+        print("\n".join(out))
+    return rc
+
+
+def cmd_index(args) -> int:
+    fn = getattr(args, "index_fn", None)
+    if fn is None:
+        raise core.UsageError("index needs an action: add | check | render")
+    return fn(args)
+
+
+def run_add(args) -> int:
+    root = index_root(args)
+    reg_path = core.registry_path(args)
+    reg = core.load_registry(reg_path) if args.from_registry else None
+    events_p = core.events_path(args) if (args.events or reg_path.is_file()) else None
+    opts = {"repo": args.repo, "tag": args.tag, "lower": args.lower,
+            "comparator": args.comparator, "license": args.license,
+            "headline": args.headline, "fields": args.field_tag,
+            "formalization_yaml": args.formalization_yaml,
+            "consent_recorded": args.consent_recorded, "by": args.by,
+            "notes": args.notes, "repo_dir": args.repo_dir}
+    out, payload = do_index_add(root, events_p, reg, args.name, opts)
+    return _emit(args, out, payload)
+
+
+def _parser_add(isub, common) -> None:
+    a = isub.add_parser("add", help="write <index>/<name>/entry.yaml from a clone at the pin")
+    a.add_argument("name")
+    a.add_argument("--from-registry", action="store_true",
+                   help="start from the registry row (repo, receipts, license, palomar, doi, reservoir)")
+    a.add_argument("--repo-dir", default=None, help="local clone to read from (never modified)")
+    a.add_argument("--repo", default=None, help="public https URL (a GitHub ssh URL is converted)")
+    a.add_argument("--tag", default=None, help="release tag at the pin or an evidence-only descendant")
+    a.add_argument("--lower", default=None, metavar="REL", help="lower-tier receipt, .lean-receipts/...json")
+    a.add_argument("--comparator", default=None, metavar="REL", help="comparator receipt, .lean-receipts/...json")
+    a.add_argument("--license", default=None, metavar="SPDX")
+    a.add_argument("--headline", action="append", metavar="'NAME :: FILE :: SUMMARY'")
+    a.add_argument("--field-tag", action="append", metavar="TAG", help="free field tag (repeatable)")
+    a.add_argument("--formalization-yaml", default=None, metavar="REL")
+    a.add_argument("--consent-recorded", action="store_true",
+                   help="every coauthor agreed to the listing (the pointer stays private)")
+    a.add_argument("--by", required=True, help="public handle of the person adding the entry")
+    a.add_argument("--notes", default="")
+    common(a, run_add)
+
+
+def add_parsers(sub, add_json) -> None:
+    s = sub.add_parser("index", help="the public catalog: add | check | render")
+    add_json(s)
+    s.set_defaults(fn=cmd_index, index_fn=None)
+    isub = s.add_subparsers(dest="index_cmd")
+
+    def common(p, fn) -> None:
+        p.add_argument("--index", default=None,
+                       help=f"index root (default: ${INDEX_ENV}, else ./{DEFAULT_INDEX_DIR})")
+        add_json(p)
+        p.set_defaults(fn=cmd_index, index_fn=fn)
+
+    _parser_add(isub, common)

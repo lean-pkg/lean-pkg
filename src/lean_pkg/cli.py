@@ -74,6 +74,10 @@ import urllib.request
 
 import yaml
 
+if __name__ == "__main__":
+    # `python -m lean_pkg.cli`: lean_pkg.index imports this very module (one Fail class).
+    sys.modules.setdefault("lean_pkg.cli", sys.modules[__name__])
+
 HOME = pathlib.Path.home()
 REGISTRY_ENV = "LEAN_PKG_REGISTRY"
 REGISTRY_VERSION = 2                 # schema version written by `init` and `migrate`
@@ -2486,6 +2490,9 @@ def main(argv: list[str] | None = None) -> int:
                         "next to the registry)")
     add_json(s)
     s.set_defaults(fn=cmd_wiki)
+
+    from . import index as index_mod
+    index_mod.add_parsers(sub, add_json)
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)
