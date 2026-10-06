@@ -6,11 +6,15 @@ title: Sample workflow
 
 <img src="assets/workflow.svg" alt="The seven steps of the sample workflow: register and claim, prove-build-audit, state the claim, comparator receipt, gate, commit the evidence, promote dry run; then Reservoir, Palomar and Zenodo" style="max-width:100%;height:auto">
 
-A real session, start to finish, on a real package. The package is small on
+A session on a real package, start to finish. The package is small on
 purpose: a consumer of Scott Armstrong's
 [MarkovProcess](https://github.com/scottnarmstrong/MarkovProcess) library
-that proves two theorems about Brownian motion. Everything below was run on
-2026-10-05; outputs are lightly shortened.
+that proves two theorems about Brownian motion. Steps 0 to 2 were run on
+2026-10-05 and their outputs are lightly shortened. Steps 3 to 6 show the
+commands and the output shape for the exit-time theorem; that Challenge has
+not been written yet, so those outputs are illustrative. The first real
+toolchain-mechanism run on this package (2026-10-06) used a one-theorem
+smoke configuration and is shown at the end of step 4.
 
 ## 0. The package
 
@@ -123,6 +127,19 @@ COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
 # Your solution is okay!
 # PASS comparator/config-exit.json
 # comparator receipt written: .../.lean-receipts/<c12>-comparator.json (1 config(s), commit <c12>, host policy: host laptop listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS)
+```
+
+What a real run printed on 2026-10-06 (Lean v4.35.0-rc2, smoke configuration
+`comparator/config-smoke.json`, one Mathlib-only theorem; host label set):
+
+```text
+mechanism: toolchain
+con-ron: accepted 1319 declarations (--verified)
+con-ron kernel accepts the solution
+nanoda kernel accepts the solution
+Lean default kernel accepts the solution
+Your solution is okay!
+comparator receipt written: …/.lean-receipts/1c229d029984-comparator.json (1 config(s), commit 1c229d029984, host policy: host … listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS)
 ```
 
 The runner wrote nothing until every configuration passed. Check the

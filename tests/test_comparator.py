@@ -622,9 +622,10 @@ def _rewrite_log(repo, comp, text):
     return comp
 
 
-def test_toolchain_receipt_accepts_kernel_accept_line(lp, env):
-    """`lake comparator` may print only the kernel's acceptance phrase; the runner
-    accepts that for the toolchain mechanism, so the validator must too."""
+def test_toolchain_receipt_refuses_kernel_accept_line_alone(lp, env):
+    """Observed live on 2026-10-06: `lake comparator` ends with the full line
+    `Your solution is okay!` after the per-kernel acceptance lines. Only that
+    full line counts, for both mechanisms."""
     add_comparator_config(env.repo_a)
     comp = make_comparator_receipt(env.repo_a, schema="comparator-receipt/2", mechanism="toolchain",
                                    tools={"lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
@@ -632,6 +633,21 @@ def test_toolchain_receipt_accepts_kernel_accept_line(lp, env):
                                           "leanchecker_sha256": "c" * 64, "nanoda_bin_sha256": "d" * 64,
                                           "con-ron_sha256": "e" * 64})
     _rewrite_log(env.repo_a, comp, "Running nanoda kernel on solution\nnanoda kernel accepts the solution\n")
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "PASS" in str(e.value)
+
+
+def test_toolchain_receipt_accepts_the_observed_live_log(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a, schema="comparator-receipt/2", mechanism="toolchain",
+                                   tools={"lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
+                                          "lake_sha256": "a" * 64, "leanexport_sha256": "b" * 64,
+                                          "leanchecker_sha256": "c" * 64, "nanoda_bin_sha256": "d" * 64,
+                                          "con-ron_sha256": "e" * 64})
+    _rewrite_log(env.repo_a, comp, "con-ron: accepted 1319 declarations (--verified)\n"
+                 "con-ron kernel accepts the solution\nnanoda kernel accepts the solution\n"
+                 "Lean default kernel accepts the solution\nYour solution is okay!\n")
     validate(lp, env, env.repo_a, comp)
 
 

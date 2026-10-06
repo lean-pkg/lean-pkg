@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+- The comparator PASS predicate is the full line `Your solution is okay!`
+  for both mechanisms, as observed in the first live `lake comparator` run
+  (2026-10-06); the kernel acceptance phrase alone no longer counts.
+- The sample workflow page says which steps were run and which are
+  illustrative; it shows the live toolchain run.
+
 ## [0.3.0] - 2026-10-06
 
 The index schema (milestone M1's catalog layer, pulled forward): a public,
