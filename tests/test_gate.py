@@ -177,3 +177,24 @@ def test_gate_rejects_receipt_when_descendant_changes_source(lp, env, tmp_path, 
     _git(env.repo_a, "commit", "-m", "source change")
     assert run_gate(lp, env, r, tmp_path) == 1
     assert "HEAD" in capsys.readouterr().err
+
+
+def test_gate_records_evidence_for_already_public_package(lp, env, tmp_path, capsys):
+    """A package that became public before it was ever gated (for example a
+    collaborator-owned repository) can still receive a receipt: the status stays
+    public, gate.receipt and the gate-passed event are recorded."""
+    from .conftest import write_reg
+    reg = read_reg(env)
+    reg["packages"]["alpha"]["status"] = "public"
+    reg["packages"]["alpha"]["visibility"] = "public"
+    write_reg(env, reg)
+    r = make_receipt(env.repo_a)
+    assert run_gate(lp, env, r, tmp_path) == 0
+    out = capsys.readouterr().out
+    assert "status unchanged" in out and "verified-private" not in out
+    pkg = read_reg(env)["packages"]["alpha"]
+    assert pkg["status"] == "public"
+    assert pkg["gate"]["receipt"].startswith(".lean-receipts/")
+    assert pkg["history"][-1]["event"] == "gate-passed"
+    assert pkg["history"][-1]["status_unchanged"] is True
+    assert read_events(env)[-1]["event"] == "gate-passed"
