@@ -123,6 +123,18 @@ COMPARATOR_MECHANISMS = ("toolchain", "legacy")
 COMPARATOR_TOOLCHAIN_DIGESTS = ["lake_sha256", "leanexport_sha256", "leanchecker_sha256",
                                 "nanoda_bin_sha256", "con-ron_sha256"]
 COMPARATOR_PASS_LINE = "Your solution is okay!"
+# One acceptance predicate per mechanism, shared with the runner (comparator_receipt imports it):
+# legacy = the full line from comparator-check.sh; toolchain = `lake comparator` output, whose exact
+# acceptance line is confirmed on a v4.35 host (M0 Task 4 Step 6) — until then either the legacy
+# line or the kernel's acceptance phrase counts.
+COMPARATOR_TOOLCHAIN_PASS_RE = re.compile(r"^Your solution is okay!$|accepts the solution", re.MULTILINE)
+
+
+def comparator_pass(log_text: str, mechanism: str) -> bool:
+    """True when a comparator log shows acceptance under the given mechanism."""
+    if mechanism == "toolchain":
+        return bool(COMPARATOR_TOOLCHAIN_PASS_RE.search(log_text))
+    return COMPARATOR_PASS_LINE in log_text.splitlines()
 COMPARATOR_TOOLS = ["comparator", "lean4export", "nanoda", "landrun"]
 COMPARATOR_FIELDS = ["schema", "commit", "lean_toolchain", "tools", "host",
                      "job_id", "generated_at", "result", "configs"]
@@ -758,9 +770,10 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
         if sha256_bytes(log_bytes) != str(cfg["log_sha256"]).lower():
             raise Fail(f"comparator log_sha256 mismatch for {log_rel}")
         lines = log_bytes.decode("utf-8", "replace").splitlines()
-        if COMPARATOR_PASS_LINE not in lines:
-            raise Fail(f"comparator log {log_rel} has no PASS line "
-                       f"({COMPARATOR_PASS_LINE!r} as a full line)")
+        if not comparator_pass("\n".join(lines), mechanism):
+            raise Fail(f"comparator log {log_rel} has no PASS line for the {mechanism} mechanism "
+                       f"({COMPARATOR_PASS_LINE!r} as a full line"
+                       + (", or the kernel's acceptance phrase)" if mechanism == "toolchain" else ")"))
 
 
 def load_json_object(path_arg, what: str) -> tuple[pathlib.Path, dict]:
@@ -862,7 +875,15 @@ def do_gate(reg_path, reg, events_p, name, receipt_arg,
         pkg["gate"]["comparator"] = comp_rel
         fields["comparator"] = comp_rel
     else:
-        pkg["gate"].setdefault("comparator", None)
+        prev_comp = pkg["gate"].get("comparator")
+        prev = recorded_json(repo, prev_comp) if prev_comp else None
+        if prev_comp and (prev is None or str(prev.get("commit")) != commit):
+            pkg["gate"]["comparator"] = None
+            fields["comparator_cleared"] = prev_comp
+            out.append(f"comparator evidence {prev_comp} cleared: it was bound to another commit; "
+                       f"attach a fresh one with `lean-pkg comparator {name} --receipt ...`")
+        else:
+            pkg["gate"].setdefault("comparator", None)
     if was_public:
         fields["status_unchanged"] = True
         new_status = "public"
@@ -1022,8 +1043,8 @@ def do_init(reg_path: pathlib.Path, events_p: pathlib.Path, force: bool) -> tupl
         if not force:
             raise Fail(f"registry already exists: {reg_path} (use --force only to "
                        f"re-create an EMPTY registry)")
-        if existing is None or (existing.get("packages") or {}):
-            raise Fail(f"refusing --force: {reg_path} holds packages or is not valid YAML")
+        if not isinstance(existing, dict) or (existing.get("packages") or {}):
+            raise Fail(f"refusing --force: {reg_path} holds packages or is not a valid YAML registry")
     reg_path.parent.mkdir(parents=True, exist_ok=True)
     data = {"version": REGISTRY_VERSION, "packages": {}}
     reg_path.write_text(yaml.safe_dump(data, sort_keys=False))
@@ -1090,6 +1111,12 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
     missing = [f for f in EVIDENCE_EVENTS[event] if not str(fields.get(f, "")).strip()]
     if missing:
         raise Fail(f"{event} requires --field for: {', '.join(missing)}")
+    allowed = set(EVIDENCE_EVENTS[event]) | ({"concept"} if event == "doi-minted" else set())
+    unknown = sorted(set(fields) - allowed)
+    if unknown:
+        raise Fail(f"{event}: unknown --field key(s) {', '.join(unknown)}; allowed: "
+                   f"{', '.join(sorted(allowed))} (name, event, ts and reason are reserved; "
+                   f"use --reason for free text)")
     if "commit" in fields and not _HEX40.fullmatch(str(fields["commit"])):
         raise Fail(f"commit must be a 40-hex sha, got {fields['commit']!r}")
     pkg = get_pkg(reg, name)
@@ -1423,6 +1450,7 @@ def validate_registry(data) -> list[str]:
             for f in V2_PACKAGE_DEFAULTS:
                 if f not in pkg:
                     errors.append(f"{pfx}: missing v2 field {f!r} (run `lean-pkg migrate`)")
+        if version == 2 or any(f in pkg for f in V2_PACKAGE_DEFAULTS):
             for f in ("palomar", "consent"):
                 if f in pkg and not isinstance(pkg[f], list):
                     errors.append(f"{pfx}.{f}: must be a list")
@@ -2053,8 +2081,9 @@ configs[]       MUST list exactly the comparator*.json / comparator/config*.json
                 solution_module, theorem_names[] (non-empty), definition_names[], permitted_axioms[]
                 (subset of gate.axioms_allowed) — each MUST equal the config file at HEAD;
                 log MUST be .lean-receipts/<commit12>-comparator-<cfgname>.log (cfgname = path minus
-                .json, '/' -> '_'); log_sha256; result "pass". The log must contain the full line
-                "Your solution is okay!". A file already at the canonical .lean-receipts path that
+                .json, '/' -> '_'); log_sha256; result "pass". The log must show acceptance for the
+                mechanism (legacy: the full line "Your solution is okay!"; toolchain: that line or the
+                kernel's acceptance phrase). A file already at the canonical .lean-receipts path that
                 differs from the receipt being recorded is refused (no silent pointer drift).
 
 EXECUTOR EVIDENCE

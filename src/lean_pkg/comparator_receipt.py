@@ -33,10 +33,8 @@ import tempfile
 
 SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
-# Acceptance patterns for the toolchain mechanism (`lake comparator`): exit 0 AND one of these in the
-# log. The exact line printed by `lake comparator` is to be confirmed on a v4.35 host (M0 Task 4
-# Step 6); until then both the legacy line and the kernel acceptance phrase count.
-TOOLCHAIN_PASS_RE = re.compile(r"^Your solution is okay!$|accepts the solution", re.MULTILINE)
+# Acceptance is decided by the same predicate the validator uses (one source of truth).
+from .cli import comparator_pass  # noqa: E402
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -224,7 +222,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                 log_text = p.stdout + (("\n" + p.stderr) if p.stderr else "")
                 (log_dir / f"{cfg_name(cfg_rel)}.log").write_text(log_text, encoding="utf-8")
                 sys.stdout.write(p.stdout)
-                if p.returncode != 0 or not TOOLCHAIN_PASS_RE.search(log_text):
+                if p.returncode != 0 or not comparator_pass(log_text, "toolchain"):
                     sys.stderr.write(p.stderr)
                     raise RunnerError(f"{cfg_rel}: lake comparator did not accept the solution "
                                       f"(exit {p.returncode}); nothing written")
@@ -237,8 +235,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
             if not src_log.is_file():
                 raise RunnerError(f"no log for {cfg_rel} at {src_log}; nothing written")
             log_text = src_log.read_text(encoding="utf-8", errors="replace")
-            accepted = (PASS_LINE in log_text.splitlines()) if mechanism == "legacy" \
-                else bool(TOOLCHAIN_PASS_RE.search(log_text))
+            accepted = comparator_pass(log_text, mechanism)
             if not accepted:
                 raise RunnerError(f"{cfg_rel}: log lacks the PASS line; nothing written")
             cfg = json.loads((project / cfg_rel).read_bytes())

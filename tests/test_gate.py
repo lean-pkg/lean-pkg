@@ -198,3 +198,26 @@ def test_gate_records_evidence_for_already_public_package(lp, env, tmp_path, cap
     assert pkg["history"][-1]["event"] == "gate-passed"
     assert pkg["history"][-1]["status_unchanged"] is True
     assert read_events(env)[-1]["event"] == "gate-passed"
+
+
+def test_regating_public_package_clears_a_comparator_bound_elsewhere(lp, env, tmp_path, capsys):
+    """beta is gated with a receipt+comparator pair. Once public, a fresh receipt at a
+    new commit without --comparator must not leave the old comparator pointer in
+    place (the pair would bind to two commits)."""
+    from .conftest import write_reg, _git
+    reg = read_reg(env)
+    reg["packages"]["beta"]["status"] = "public"
+    reg["packages"]["beta"]["visibility"] = "public"
+    write_reg(env, reg)
+    assert reg["packages"]["beta"]["gate"]["comparator"]
+    (env.repo_b / "More.lean").write_text("theorem more : True := trivial\n")
+    _git(env.repo_b, "add", "More.lean")
+    _git(env.repo_b, "commit", "-m", "more")
+    r = make_receipt(env.repo_b)
+    p = write_receipt(tmp_path, r, name="beta-receipt.json")
+    assert lp.main(["--registry", str(env.registry), "gate", "beta", "--receipt", str(p)]) == 0
+    out = capsys.readouterr().out
+    pkg = read_reg(env)["packages"]["beta"]
+    assert pkg["status"] == "public"
+    assert pkg["gate"]["comparator"] is None
+    assert "comparator" in out and "cleared" in out

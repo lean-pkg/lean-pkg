@@ -84,3 +84,14 @@ def test_register_writes_v2_keys(lp, env, tmp_path, capsys):
     out = capsys.readouterr().out
     for k in V2_KEYS:
         assert f"{k}:" in out, k
+
+
+def test_validate_checks_doi_binding_on_v1_registry(lp, tmp_path, capsys):
+    """The D5 binding rule applies whenever the keys are present, migrated or not."""
+    reg = copy_v1(tmp_path)
+    c = "0123456789abcdef0123456789abcdef01234567"
+    assert lp.main(["--registry", str(reg), "record", "beta", "doi-minted", "--field", "doi=10.5281/zenodo.9",
+                    "--field", "tag=v1.0.0", "--field", f"commit={c}"]) == 0
+    assert lp.main(["--registry", str(reg), "validate"]) == 1
+    out = capsys.readouterr().out
+    assert c[:12] in out and "palomar" in out
