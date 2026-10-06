@@ -1,0 +1,57 @@
+schema: index-entry/2
+name: total-coloring-lean
+repo: https://github.com/chenle02/total-coloring-lean
+pin:
+  commit: 55edc8145228ebe48da378188d632a6991144919
+  tag: null
+lean_toolchain: leanprover/lean4:v4.32.0
+mathlib_rev: 81a5d257c8e410db227a6665ed08f64fea08e997
+license_spdx: Apache-2.0
+trust: lower-tier
+receipts:
+  lower: .lean-receipts/55edc8145228-home-workstation-2026-10-06-total-coloring.json
+  comparator: null
+headline:
+- name: TotalColoring.exists_valid_assignment_of_highDegree
+  file: TotalColoring/HighDegreeTotalColoring.lean
+  summary: Every finite graph with at most twice its maximum degree many vertices has a valid total assignment
+    with maximum degree plus three colors, with no parity hypothesis.
+- name: TotalColoring.MinimalExtraction.hasValidRainbowColoring_of_inAuxiliaryClass
+  file: TotalColoring/CriticalAllDClosure.lean
+  summary: Every finite member of the matching-plus-star auxiliary class has a proper edge coloring with
+    D plus two colors that is rainbow on the distinguished set, at every order.
+claims:
+- id: total-coloring-lean/totalcoloring-exists-valid-assignment-of-highdegree
+  decl: TotalColoring.exists_valid_assignment_of_highDegree
+  kind: theorem
+  summary: Every finite graph with at most twice its maximum degree many vertices has a valid total assignment
+    with maximum degree plus three colors, with no parity hypothesis.
+  judged_as: null
+  trust: lower-tier
+- id: total-coloring-lean/totalcoloring-minimalextraction-hasvalidrainbowcoloring-of-inauxiliaryclass
+  decl: TotalColoring.MinimalExtraction.hasValidRainbowColoring_of_inAuxiliaryClass
+  kind: theorem
+  summary: Every finite member of the matching-plus-star auxiliary class has a proper edge coloring with
+    D plus two colors that is rainbow on the distinguished set, at every order.
+  judged_as: null
+  trust: lower-tier
+palomar: []
+doi: null
+reservoir: null
+formalization_yaml: null
+fields:
+- graph-theory
+- total-coloring
+- edge-coloring
+consent:
+  recorded: true
+added:
+  at: '2026-10-06T17:59:19+00:00'
+  by: chenle02
+notes: 'An unfinished project, listed as the example of one. Goal: kernel-checked foundations for total
+  coloring (toward the Total Coloring Conjecture) via an all-orders auxiliary edge-coloring theorem and
+  an auxiliary-to-total transfer. Not proved at this pin: the Total Coloring Conjecture; any unconditional
+  Delta plus two total coloring; Vizing''s theorem; existence of the required extensions or partitions
+  (five conditional endpoints take them as hypotheses and are listed as experimental claims). Lower-tier
+  evidence only; below Palomar''s toolchain floor (v4.32.0), so comparator trust would use the legacy
+  mechanism.'
