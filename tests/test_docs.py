@@ -38,7 +38,7 @@ def test_docs_llms_txt_mirrors_root():
 def test_docs_site_has_entry_pages():
     for name in ("index.md", "motivation.md", "getting-started.md", "how-to.md",
                  "lifecycle.md", "receipts.md", "comparator.md", "cli.md",
-                 "agents.md", "newcomers.md", "sample-workflow.md", "faq.md", "skills.md",
+                 "agents.md", "newcomers.md", "sample-workflow.md", "faq.md", "skills.md", "index-catalog.md",
                  "_config.yml", "llms.txt"):
         assert (ROOT / "docs" / name).is_file(), name
 
@@ -152,11 +152,11 @@ def test_governance_files_exist_and_agree():
         assert (ROOT / f).is_file(), f
     assert not (ROOT / "docs" / "release.md").exists()  # RELEASING.md is the runbook
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
-    assert version == "0.2.0"
+    assert version == "0.3.0"
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "check-versions.py")],
                        capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
-    assert "0.2.0" in r.stdout
+    assert "0.3.0" in r.stdout
     assert "AI assistance" in (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text()
 
 
@@ -184,3 +184,29 @@ def test_faq_has_reservoir_section_and_search_skill_is_listed():
     assert "`search-before-building`" in (ROOT / "docs" / "skills.md").read_text()
     assert "search-before-building" in (ROOT / "skills" / "lean-paper-companion" / "SKILL.md").read_text()
     assert "Reservoir" in (ROOT / "docs" / "motivation.md").read_text()
+
+
+def test_index_catalog_page_is_linked_and_names_the_schema():
+    page = (ROOT / "docs" / "index-catalog.md").read_text()
+    for needle in ("index-entry/1", "lower-tier", "comparator", "palomar", "computed, never typed",
+                   "skipped", "lean-pkg index check --clone"):
+        assert needle in page, needle
+    assert "index-catalog.md" in (ROOT / "docs" / "index.md").read_text()
+    assert "docs/index-catalog.md" in (ROOT / "README.md").read_text()
+    assert "index check --clone" in (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text()
+    assert "index check --clone" in (ROOT / "CONTRIBUTING.md").read_text()
+
+
+def test_index_entry_issue_template_uses_schema_field_names():
+    text = (ROOT / ".github" / "ISSUE_TEMPLATE" / "index_entry.md").read_text()
+    for key in ("name", "repo", "pin.commit", "pin.tag", "lean_toolchain", "mathlib_rev",
+                "license_spdx", "headline", "receipts.lower", "receipts.comparator", "palomar",
+                "doi", "reservoir", "formalization_yaml", "fields", "consent.recorded"):
+        assert f"`{key}`" in text, key
+
+
+def test_package_dunder_version_agrees_with_pyproject():
+    import tomllib
+    import lean_pkg
+    version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    assert lean_pkg.__version__ == version
