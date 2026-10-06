@@ -2,7 +2,7 @@
 title: Receipts and trust
 ---
 
-# Receipts and trust
+[&larr; lean-pkg documentation](index.md)
 
 ## Two tiers
 

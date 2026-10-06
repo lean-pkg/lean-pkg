@@ -2,7 +2,7 @@
 title: CLI reference
 ---
 
-# CLI reference
+[&larr; lean-pkg documentation](index.md)
 
 Global flags: `--registry PATH`, `--events PATH`, `--json`. Every subcommand
 also accepts `--json` after its name. Exit codes: 0 success or dry run,

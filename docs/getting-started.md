@@ -2,7 +2,7 @@
 title: Getting started
 ---
 
-# Getting started
+[&larr; lean-pkg documentation](index.md)
 
 ## Install
 

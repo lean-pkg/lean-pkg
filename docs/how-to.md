@@ -2,7 +2,7 @@
 title: How to
 ---
 
-# How to
+[&larr; lean-pkg documentation](index.md)
 
 Task recipes. Every command accepts `--json` for scripts and never prompts
 off a terminal.

@@ -2,7 +2,7 @@
 title: Lifecycle
 ---
 
-# Lifecycle
+[&larr; lean-pkg documentation](index.md)
 
 ## One registry, append-only history
 
