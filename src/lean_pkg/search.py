@@ -230,9 +230,18 @@ def render_text(payload: dict) -> list[str]:
 # CLI glue: lean_pkg.cli.main calls add_parsers(sub, add_json)
 
 def cmd_search(args) -> int:
-    out, payload = do_search(args.term, reg_path=core.registry_path(args),
+    if args.repo_dir and not args.record:
+        raise core.UsageError("--repo-dir is only used with --record")
+    reg_path = core.registry_path(args)
+    out, payload = do_search(args.term, reg_path=reg_path,
                              index_dir=idx.index_root(args), package=args.package,
                              sources=parse_sources(args.sources), offline=args.offline)
+    if args.record:
+        from . import prior_art
+        events_p = core.events_path(args) if (args.events or reg_path.is_file()) else None
+        lines, payload["record"] = prior_art.write_record(payload, reg_path=reg_path,
+                                                          events_p=events_p, repo_dir=args.repo_dir)
+        out += lines
     if args.json_out:
         core.print_json(payload)
     else:
@@ -251,5 +260,9 @@ def add_parsers(sub, add_json) -> None:
                    help="subset of: " + ",".join(SOURCES) + " (order is fixed)")
     s.add_argument("--index", default=None,
                    help=f"index root (default: ${idx.INDEX_ENV}, else ./{idx.DEFAULT_INDEX_DIR})")
+    s.add_argument("--record", action="store_true",
+                   help="write docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-dir) "
+                        "and a prior-art-searched event")
+    s.add_argument("--repo-dir", default=None, help="research repository for --record")
     add_json(s)
     s.set_defaults(fn=cmd_search)
