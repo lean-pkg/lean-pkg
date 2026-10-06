@@ -561,3 +561,53 @@ def test_audit_no_drift_after_evidence_only_commit(lp, env, fake_gh, capsys):
     lp.main(["--registry", str(env.registry), "audit"])
     out = capsys.readouterr().out
     assert "receipt-drift" not in out and "comparator-drift" not in out
+
+
+# --- receipt schema 2 (mechanisms) and schema refusal ---
+
+def test_schema1_receipt_still_validates(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a)          # schema 1 shape
+    validate(lp, env, env.repo_a, comp)
+
+
+def test_schema2_toolchain_receipt_validates(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a, schema="comparator-receipt/2", mechanism="toolchain",
+                                   tools={"lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
+                                          "lake_sha256": "a" * 64, "leanexport_sha256": "b" * 64,
+                                          "leanchecker_sha256": "c" * 64, "nanoda_bin_sha256": "d" * 64,
+                                          "con-ron_sha256": "e" * 64})
+    validate(lp, env, env.repo_a, comp)
+
+
+def test_schema2_legacy_receipt_validates(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a, schema="comparator-receipt/2", mechanism="legacy")
+    validate(lp, env, env.repo_a, comp)
+
+
+def test_schema2_bad_mechanism_refused(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a, schema="comparator-receipt/2", mechanism="magic")
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "mechanism" in str(e.value)
+
+
+def test_schema2_toolchain_short_digest_refused(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a, schema="comparator-receipt/2", mechanism="toolchain",
+                                   tools={"lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
+                                          "lake_sha256": "a" * 40})
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "sha256" in str(e.value)
+
+
+def test_unknown_schema_refused(lp, env):
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a, schema="comparator-receipt/3")
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "schema" in str(e.value)

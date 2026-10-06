@@ -43,14 +43,15 @@ commit or tree, the toolchain and dependency pins, complete checker
 coverage, the terminal state, and executor identity. A pilot run, a partial
 manifest, or a receipt for a previous candidate is not gate evidence.
 
-## Comparator receipt schema (`comparator-receipt/1`)
+## Comparator receipt schema (`comparator-receipt/2`; `/1` still validates)
 
 | Field | Rule |
 |---|---|
-| `schema` | `"comparator-receipt/1"` |
+| `schema` | `"comparator-receipt/2"` (a `"comparator-receipt/1"` receipt is read as the legacy mechanism) |
+| `mechanism` | `"toolchain"` (`lake comparator` with the toolchain's bundled kernels, Lean v4.35.0-rc2+) or `"legacy"` (pinned stack); see [Comparator](comparator.md#mechanisms) |
 | `commit` | equals the lower-tier receipt commit; HEAD, or HEAD is an evidence-only descendant |
 | `lean_toolchain` | equals the repo's `lean-toolchain` |
-| `tools` | `comparator`, `lean4export`, `nanoda`, `landrun`: 40-hex commits actually used |
+| `tools` | legacy: `comparator`, `lean4export`, `nanoda`, `landrun` as 40-hex commits; toolchain: `lean_toolchain` and the 64-hex sha256 of `lake`, `leanexport`, `leanchecker`, `nanoda_bin`, `con-ron` |
 | `host`, `job_id`, `generated_at` | nonempty |
 | `host_policy` | the runner's host-policy reason (an override run is visible here) |
 | `result` | `"pass"` (the runner writes a receipt only on PASS) |
