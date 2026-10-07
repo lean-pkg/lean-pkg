@@ -7,8 +7,9 @@ check: test boundary tabs versions reuse
 > @echo "check: all gates green"
 
 # A private bytecode cache per run: concurrent runs never share pytest's rewritten .pyc files.
+# The EXIT trap removes it on every exit, including Ctrl-C (INT/TERM/HUP exit through it).
 test:
-> @d=$$(mktemp -d) && PYTHONPYCACHEPREFIX="$$d" python3 -m pytest -q -p no:cacheprovider; rc=$$?; rm -rf "$$d"; exit $$rc
+> @d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && trap 'exit 130' INT TERM HUP && PYTHONPYCACHEPREFIX="$$d" python3 -m pytest -q -p no:cacheprovider
 
 boundary:
 > bash scripts/private-boundary-check.sh

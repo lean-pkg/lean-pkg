@@ -269,3 +269,42 @@ def test_make_test_uses_a_private_bytecode_cache():
     assert "PYTHONPYCACHEPREFIX=" in recipe and "mktemp -d" in recipe and "rm -rf" in recipe, recipe
     assert "-p no:cacheprovider" in recipe
     assert "safe to run concurrently" in (ROOT / "RELEASING.md").read_text()
+
+
+def test_make_test_removes_its_bytecode_cache_on_sigint(tmp_path):
+    """Interrupting `make test` (Ctrl-C reaches the whole process group) must not leak the temp dir."""
+    import os, shutil, signal, subprocess, time
+    make = shutil.which("make")
+    if make is None:
+        import pytest
+        pytest.skip("make not installed")
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    marker = tmp_path / "prefix.txt"
+    (fakebin / "python3").write_text(f'#!/bin/sh\nprintf %s "$PYTHONPYCACHEPREFIX" > "{marker}"\n'
+                                     'mkdir -p "$PYTHONPYCACHEPREFIX/x"\nexec sleep 30\n')
+    (fakebin / "python3").chmod(0o755)
+    env = dict(os.environ, PATH=f"{fakebin}{os.pathsep}{os.environ['PATH']}")
+    p = subprocess.Popen([make, "-s", "-C", str(ROOT), "test"], env=env, start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(100):
+            if marker.is_file() and marker.read_text():
+                break
+            time.sleep(0.05)
+        prefix = marker.read_text()
+        assert prefix and os.path.isdir(prefix)
+        os.killpg(p.pid, signal.SIGINT)
+        p.wait(timeout=10)
+    finally:
+        if p.poll() is None:
+            os.killpg(p.pid, signal.SIGKILL)
+    assert p.returncode != 0
+    for _ in range(40):
+        if not os.path.exists(prefix):
+            break
+        time.sleep(0.05)
+    leaked = os.path.exists(prefix)
+    if leaked:
+        shutil.rmtree(prefix, ignore_errors=True)
+    assert not leaked, f"{prefix} leaked after SIGINT"

@@ -94,7 +94,7 @@ change the registry schema or receipt format, always with a migration).
 
 - `make test` runs pytest with a private bytecode cache
   (`PYTHONPYCACHEPREFIX` in a fresh `mktemp -d` directory, removed
-  afterwards; `-p no:cacheprovider` kept), so concurrent runs no longer share
+  afterwards by an EXIT trap, also on Ctrl-C; `-p no:cacheprovider` kept), so concurrent runs no longer share
   pytest's rewritten `.pyc` files (a segmentation fault inside
   `_pytest/assertion/rewrite.py` was observed with two sessions at once). The
   gate is safe to run concurrently (RELEASING.md).
