@@ -84,6 +84,14 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- Packages whose `local_path` is a subdirectory of their git repository
+  (`lean/`, `lean/contrib/`): the evidence-only-descendant rule compared
+  repository-root paths with `.lean-receipts/`, so `lean/.lean-receipts/...`
+  never matched and any later commit, even a paper edit outside the package,
+  was drift for `gate`, `promote` and `audit`. Paths are now judged relative
+  to the package directory: only changes under it count, and within it only
+  `.lean-receipts/` is evidence (DESIGN.md).
+
 - `make test` runs pytest with a private bytecode cache
   (`PYTHONPYCACHEPREFIX` in a fresh `mktemp -d` directory, removed
   afterwards; `-p no:cacheprovider` kept), so concurrent runs no longer share

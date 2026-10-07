@@ -297,15 +297,23 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     """Evidence-only descendant rule (see DESIGN.md): a receipt bound to commit `bound` is
     accepted at `head` when head == bound, or when head descends from bound and
     the only paths that differ live under .lean-receipts/ (the evidence itself).
+    Paths are taken relative to the package directory `repo`: when the package is a
+    subdirectory of its git repository (lean/, lean/contrib/), only changes under that
+    directory count, and within it only <dir>/.lean-receipts/ is evidence.
     Returns (ok, note)."""
     if bound == head:
         return True, ""
     p = git(repo, "merge-base", "--is-ancestor", bound, head)
     if p.returncode != 0:
         return False, f"{bound[:12]} is not an ancestor of HEAD {head[:12]}"
-    p = git(repo, "diff", "--no-renames", "--name-only", bound, head)   # a rename into .lean-receipts/ is a source change
+    prefix = git(repo, "rev-parse", "--show-prefix").stdout.strip()
+    # --relative: only paths under the package directory, relative to it.
+    # --no-renames: a rename into .lean-receipts/ is a source change.
+    p = git(repo, "diff", "--no-renames", "--name-only", "--relative", bound, head)
     paths = [x for x in p.stdout.splitlines() if x.strip()]
     foreign = [x for x in paths if not x.startswith(".lean-receipts/")]
+    if prefix and not paths:
+        return True, f"descendant of {bound[:12]} with no change under {prefix}"
     if foreign or not paths:
         return False, (f"HEAD {head[:12]} differs from {bound[:12]} outside "
                        f".lean-receipts/: {foreign[:5]}")

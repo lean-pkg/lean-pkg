@@ -87,6 +87,15 @@ it can never be tracked at the commit it names. The rule:
 > descends from X and `git diff --name-only X H` is non-empty and contains
 > only paths under `.lean-receipts/`. Any other difference is drift.
 
+Paths are judged relative to the package directory (`local_path`). When a
+package lives in a subdirectory of its git repository (for example `lean/` or
+`lean/contrib/` beside a paper), only changes under that directory count:
+within it only `<dir>/.lean-receipts/` is evidence, and changes elsewhere in
+the repository (the paper, other packages, a root-level `.lean-receipts/`)
+are not source changes of this package, so H is accepted even when nothing
+under the package directory changed. At the repository root the rule is
+exactly the one quoted above.
+
 The source closure therefore stays byte-identical to the certified commit,
 while the evidence travels with the code. The rule applies to both tiers, to
 the promote checklist, and to the `receipt-drift` / `comparator-drift`
