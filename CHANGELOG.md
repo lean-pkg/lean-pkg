@@ -81,6 +81,15 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `lean-pkg audit` no longer prints one `warn` line per package whose `repo`
+  is not a GitHub URL (the line echoed the repo path, which may be private).
+  Each such package gets a `no-github-mirror` finding with the fixed detail
+  "repo is not on GitHub; visibility not mirrored"; the human output collapses
+  them into one line "N package(s) without a GitHub mirror (visibility not
+  checked): a, b, c", and `--json` keeps one finding per package. `gh query
+  failed` warnings are unchanged. Check names longer than the column (such as
+  `below-toolchain-floor`) are now separated from the package name by a space.
+
 - `lean-pkg audit` judges `receipt-drift` and `comparator-drift` against the
   package's reference branch (the remote default branch from
   `refs/remotes/origin/HEAD`, else `main`, else HEAD; local refs only), not

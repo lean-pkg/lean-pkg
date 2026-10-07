@@ -68,9 +68,9 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
   promote refuses without a byte-valid comparator receipt bound to HEAD.
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
-audit     sweep expired leases; reconcile gh visibility; receipt/comparator/toolchain/formalization.yaml drift. --fix applies gh -> registry.
-  ex: lean-pkg audit --json   [--toolchain-floor VERSION] (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2,
-  Palomar's floor): finding below-toolchain-floor (rc < release; nightly -> toolchain-unparsed; scratch/archived exempt).
+audit     sweep leases; reconcile gh visibility (--fix: gh -> registry); receipt/comparator/toolchain/formalization.yaml drift.
+  [--toolchain-floor V] (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
+  nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a lines: version, install (editable: HEAD, behind/ahead from local refs), registry, events, index, tools on PATH,
           python; exit 1 only when the registry is unreadable. `lean-pkg --version` prints `lean-pkg <version>`.

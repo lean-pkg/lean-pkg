@@ -1487,7 +1487,20 @@ def resolve_toolchain_floor(flag: str | None) -> str:
 
 
 def render_finding(f: dict) -> str:
-    return f"{f['check']:<20}{f['name']}: {f['detail']}"
+    return f"{(f['check'] + ' ').ljust(20)}{f['name']}: {f['detail']}"
+
+
+NO_GITHUB_MIRROR_DETAIL = "repo is not on GitHub; visibility not mirrored"
+
+
+def render_findings(findings: list[dict]) -> list[str]:
+    """Human audit output: no-github-mirror findings collapse into one summary line."""
+    mirror = [f["name"] for f in findings if f["check"] == "no-github-mirror"]
+    lines = [render_finding(f) for f in findings if f["check"] != "no-github-mirror"]
+    if mirror:
+        lines.append(f"{len(mirror)} package(s) without a GitHub mirror (visibility not checked): "
+                     + ", ".join(mirror))
+    return lines
 
 
 def audit_registry(reg_path, reg, events_p, fix: bool = False,
@@ -1592,8 +1605,8 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
                 note(check, name, detail)
         nwo = gh_nwo(pkg.get("repo") or "")
         if not nwo:
-            note("warn", name,
-                 f"cannot parse GitHub owner/repo from {pkg.get('repo')!r}")
+            # no path echo: the repo may be a private local path, and findings are printed
+            note("no-github-mirror", name, NO_GITHUB_MIRROR_DETAIL)
             continue
         p = gh("repo", "view", nwo, "--json", "visibility,isArchived")
         if p.returncode != 0:
@@ -2058,7 +2071,7 @@ class _Tui:
         try:
             findings = audit_registry(self.reg_path, self.reg, self.events_p,
                                       fix=False)
-            text = "\n".join(render_finding(f) for f in findings) or "no findings"
+            text = "\n".join(render_findings(findings)) or "no findings"
             self.show_text("audit", text)
             self.msg = f"audit: {len(findings)} finding(s)"
         except Fail as e:
@@ -2268,9 +2281,9 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
   promote refuses without a byte-valid comparator receipt bound to HEAD.
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
-audit     sweep expired leases; reconcile gh visibility; receipt/comparator/toolchain/formalization.yaml drift. --fix applies gh -> registry.
-  ex: lean-pkg audit --json   [--toolchain-floor VERSION] (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2,
-  Palomar's floor): finding below-toolchain-floor (rc < release; nightly -> toolchain-unparsed; scratch/archived exempt).
+audit     sweep leases; reconcile gh visibility (--fix: gh -> registry); receipt/comparator/toolchain/formalization.yaml drift.
+  [--toolchain-floor V] (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
+  nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a lines: version, install (editable: HEAD, behind/ahead from local refs), registry, events, index, tools on PATH,
           python; exit 1 only when the registry is unreadable. `lean-pkg --version` prints `lean-pkg <version>`.
@@ -2526,8 +2539,7 @@ def cmd_audit(args) -> int:
     if args.json_out:
         print_json({"ok": True, "fix": args.fix, "findings": findings})
     else:
-        print("\n".join(render_finding(f) for f in findings)
-              if findings else "no findings")
+        print("\n".join(render_findings(findings)) if findings else "no findings")
     return 0
 
 

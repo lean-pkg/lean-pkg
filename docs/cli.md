@@ -74,7 +74,10 @@ one judged), `formalization-missing`, `formalization-drift` (the written
 [formalization.yaml](formalization.md)), `visibility-mismatch`, `archived-upstream`,
 `below-toolchain-floor` (the registry's `lean_toolchain` is older than the floor),
 `toolchain-unparsed` (a nightly or other string that is not `vMAJOR.MINOR.PATCH[-rcN]`;
-never compared), and `warn` for GitHub queries that could not be made.
+never compared), `no-github-mirror` (the `repo` is not a GitHub URL, so visibility is not
+mirrored; the detail never echoes the path, and the human output collapses these into one
+line "N package(s) without a GitHub mirror (visibility not checked): a, b" while `--json`
+keeps one finding per package), and `warn` for GitHub queries that could not be made.
 
 The toolchain floor is `--toolchain-floor VERSION`, else the environment variable
 `LEAN_PKG_TOOLCHAIN_FLOOR`, else `leanprover/lean4:v4.35.0-rc2` (Palomar's floor: the first
