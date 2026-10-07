@@ -129,3 +129,18 @@ def test_doctor_without_git_on_path_does_not_crash(lp, env, tmp_path, monkeypatc
     assert "warn tool git: not on PATH" in lines
     install = next(x for x in lines if " install:" in x)
     assert install.startswith("warn") and "git not on PATH" in install
+
+
+def test_doctor_exits_1_on_unsupported_schema_version_and_docs_agree(lp, env, fake_path, installed, capsys):
+    from .conftest import ROOT
+    env.registry.write_text("version: 999\npackages: {}\n")
+    rc, cap = _doctor(lp, env, capsys)
+    assert rc == 1
+    line = next(x for x in cap.out.splitlines() if " registry:" in x or x.startswith("warn registry"))
+    assert line.startswith("warn registry:") and "schema version 999" in line and "unsupported" in line
+    rule = "unreadable or its schema version is unsupported"
+    assert rule in lp.LLMS_TEXT.replace("\n          ", " ")
+    assert rule in (ROOT / "docs" / "cli.md").read_text()
+    assert rule in (ROOT / "CHANGELOG.md").read_text().replace("\n  ", " ")
+    for text in (lp.LLMS_TEXT, (ROOT / "docs" / "cli.md").read_text(), (ROOT / "CHANGELOG.md").read_text()):
+        assert "only when the registry is unreadable" not in text.replace("\n  ", " ").replace("\n          ", " ")

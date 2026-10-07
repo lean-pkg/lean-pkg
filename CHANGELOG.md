@@ -73,7 +73,8 @@ change the registry schema or receipt format, always with a migration).
   behind/ahead counts against `origin/<branch>` from local refs only, never
   fetched), the registry and its schema version, the event log, the index and
   its entry count, `lake`/`elan`/`git`/`gh`/`reuse`/`bwrap`/`comparator`/`nanoda`
-  on PATH, and the Python version. Exit 0 unless the registry is unreadable.
+  on PATH, and the Python version. Exit 1 when the registry is unreadable or
+  its schema version is unsupported, else 0.
 
 ### Changed
 

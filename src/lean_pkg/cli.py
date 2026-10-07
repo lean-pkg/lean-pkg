@@ -2303,7 +2303,7 @@ audit     sweep leases; reconcile gh visibility (--fix: gh -> registry); receipt
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a lines: version, install (editable: HEAD, behind/ahead from local refs), registry, events, index, tools on PATH,
-          python; exit 1 only when the registry is unreadable. `lean-pkg --version` prints `lean-pkg <version>`.
+          python; exit 1 when the registry is unreadable or its schema version is unsupported. `lean-pkg --version`.
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
@@ -2598,7 +2598,8 @@ def install_check(d: pathlib.Path) -> tuple[str, str]:
 
 
 def doctor_checks(args) -> tuple[list[dict], bool]:
-    """Every doctor line as {"level", "item", "detail"}; ok is False only when the registry is unreadable."""
+    """Every doctor line as {"level", "item", "detail"}; ok is False when the registry is unreadable or its schema
+    version is unsupported."""
     from . import __version__
     from . import index as index_mod
     checks: list[dict] = []
@@ -2617,7 +2618,7 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
         level = "ok" if ver in SUPPORTED_REGISTRY_VERSIONS else "warn"
         reg_ok = level == "ok"
         add(level, "registry", f"{reg_p} (schema version {ver}, {len(data['packages'])} package(s))"
-            + ("" if reg_ok else f"; supported: {', '.join(map(str, SUPPORTED_REGISTRY_VERSIONS))}"))
+            + ("" if reg_ok else f"; unsupported, supported: {', '.join(map(str, SUPPORTED_REGISTRY_VERSIONS))}"))
     except (Fail, OSError, ValueError) as e:
         reg_ok = False
         add("warn", "registry", f"{reg_p} unreadable: {e}")
@@ -2837,7 +2838,8 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_validate)
 
     s = sub.add_parser("doctor", help="installation, registry, index and tool diagnostics; "
-                                      "exit 1 only when the registry is unreadable")
+                                      "exit 1 when the registry is unreadable or its schema "
+                                      "version is unsupported")
     add_json(s)
     s.set_defaults(fn=cmd_doctor)
 

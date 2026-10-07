@@ -73,7 +73,7 @@ audit     sweep leases; reconcile gh visibility (--fix: gh -> registry); receipt
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a lines: version, install (editable: HEAD, behind/ahead from local refs), registry, events, index, tools on PATH,
-          python; exit 1 only when the registry is unreadable. `lean-pkg --version` prints `lean-pkg <version>`.
+          python; exit 1 when the registry is unreadable or its schema version is unsupported. `lean-pkg --version`.
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
