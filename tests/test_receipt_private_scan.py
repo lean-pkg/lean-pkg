@@ -115,3 +115,37 @@ def test_index_private_strings_in_scans_keys_without_echo(idx):
     blob = json.dumps({"artifacts": {PRIVATE: "x"}}).encode()
     hits = idx.private_strings_in(blob, "r.json")
     assert len(hits) == 1 and "r.json.artifacts.<key#0>" in hits[0] and "someone" not in hits[0]
+
+
+# --- review pass: the WARN wording matches what happened to the receipt
+
+def _warns(err):
+    return [line for line in err.splitlines() if line.startswith("WARN")]
+
+
+def test_warn_wording_on_copy(lp, env, tmp_path, capsys):
+    assert _gate(lp, env, tmp_path, checker=PRIVATE) == 0
+    (w,) = _warns(capsys.readouterr().err)
+    assert "now in .lean-receipts/ as is" in w
+
+
+def test_warn_wording_on_already_gated_noop(lp, env, tmp_path, capsys):
+    assert _gate(lp, env, tmp_path, checker=PRIVATE) == 0
+    capsys.readouterr()
+    assert _gate(lp, env, tmp_path, checker=PRIVATE) == 0
+    (w,) = _warns(capsys.readouterr().err)
+    assert "already recorded; nothing copied now" in w and "as is" not in w
+
+
+def test_warn_wording_when_a_later_check_refuses(lp, env, tmp_path, capsys):
+    assert _gate(lp, env, tmp_path, checker=PRIVATE, sorry_count=1) == 1
+    err = capsys.readouterr().err
+    (w,) = _warns(err)
+    assert "nothing copied" in w and "as is" not in w and "sorry_count" in err
+    assert not (env.repo_a / ".lean-receipts").exists()
+
+
+def test_warn_wording_under_comparator_check(lp, env, tmp_path, capsys):
+    assert _attach(lp, env, tmp_path, "--check", host=PRIVATE) == 0
+    (w,) = _warns(capsys.readouterr().err)
+    assert "nothing copied (--check)" in w and "as is" not in w

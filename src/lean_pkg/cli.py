@@ -940,20 +940,52 @@ def copy_comparator(repo: pathlib.Path, commit: str,
                       f"commit it with its logs in the verified repo yourself")
 
 
-def receipt_private_strings(blobs: list[tuple[str, bytes]], refuse: bool) -> list[dict]:
-    """Scan receipt bytes for private strings before they are copied into the repository.
-    Each hit is {"field", "kind"} (the value itself is never echoed). Without `refuse` every hit
-    is a WARN line on stderr (a receipt may legitimately be private); with it, a refusal."""
+def receipt_private_strings(blobs: list[tuple[str, bytes]], refuse: bool,
+                            sink: list | None = None) -> list[dict]:
+    """Scan receipt bytes (keys and values) for private strings before they are copied into the
+    repository. Each hit is {"field", "kind"} (the private text itself is never echoed). With
+    `refuse`, any hit is a refusal; otherwise the hits are returned (and appended to `sink`) and
+    the caller prints them with warn_private once it knows what happened to the receipt."""
     from .index import private_string_hits
     hits = [{"field": f, "kind": k} for where, blob in blobs
             for f, k, _ in private_string_hits(blob, where)]
     if hits and refuse:
         raise Fail("--refuse-private: receipt holds private strings, nothing copied: "
                    + "; ".join(f"{h['field']} ({h['kind']})" for h in hits))
-    for h in hits:
-        print(f"WARN: {h['field']} looks like a {h['kind']}; the receipt is copied into the "
-              f"repository as is (--refuse-private refuses)", file=sys.stderr)
+    if sink is not None:
+        sink.extend(hits)
     return hits
+
+
+# What happened to the receipt, by outcome event, for the private-string WARN line.
+PRIVATE_WARN_OUTCOME = {
+    "gate-passed": "the receipt is now in .lean-receipts/ as is",
+    "comparator-attached": "the receipt is now in .lean-receipts/ as is",
+    "already-gated": "already recorded; nothing copied now",
+    "already-attached": "already recorded; nothing copied now",
+    "comparator-checked": "nothing copied (--check)",
+    None: "nothing copied (refused; reason below)",
+}
+
+
+def warn_private(hits: list[dict], event: str | None) -> None:
+    outcome = PRIVATE_WARN_OUTCOME.get(event, PRIVATE_WARN_OUTCOME[None])
+    for h in hits:
+        print(f"WARN: {h['field']} looks like a {h['kind']}; {outcome} "
+              f"(--refuse-private refuses such a receipt)", file=sys.stderr)
+
+
+def _with_private_warnings(fn, *args, **kwargs) -> tuple[list[str], dict]:
+    """Run do_gate/do_comparator's body and print the private-string WARN lines worded for
+    the outcome: copied, already recorded, --check, or refused for another reason."""
+    sink: list[dict] = []
+    try:
+        out, payload = fn(*args, private_sink=sink, **kwargs)
+    except Fail:
+        warn_private(sink, None)
+        raise
+    warn_private(sink, payload.get("event"))
+    return out, payload
 
 
 def recorded_json(repo: pathlib.Path, rel) -> dict | None:
@@ -967,6 +999,12 @@ def recorded_json(repo: pathlib.Path, rel) -> dict | None:
 
 def do_gate(reg_path, reg, events_p, name, receipt_arg,
             comparator_arg=None, refuse_private: bool = False) -> tuple[list[str], dict]:
+    return _with_private_warnings(_do_gate, reg_path, reg, events_p, name, receipt_arg,
+                                  comparator_arg, refuse_private)
+
+
+def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
+             refuse_private: bool = False, private_sink=None) -> tuple[list[str], dict]:
     pkg = get_pkg(reg, name)
     repo = repo_path(pkg)
     if not repo.is_dir():
@@ -977,7 +1015,7 @@ def do_gate(reg_path, reg, events_p, name, receipt_arg,
         cp, comp = load_json_object(comparator_arg, "comparator receipt")
     private = receipt_private_strings([("receipt", rp.read_bytes())]
                                       + ([("comparator", cp.read_bytes())] if cp else []),
-                                      refuse_private)
+                                      refuse_private, private_sink)
     gate = pkg.get("gate") or {}
     # Idempotent retry: an identical receipt (pair) already recorded is a
     # no-op success, so agent retries are safe.
@@ -1065,12 +1103,18 @@ def do_gate(reg_path, reg, events_p, name, receipt_arg,
 
 def do_comparator(reg_path, reg, events_p, name, receipt_arg,
                   check_only: bool = False, refuse_private: bool = False) -> tuple[list[str], dict]:
+    return _with_private_warnings(_do_comparator, reg_path, reg, events_p, name, receipt_arg,
+                                  check_only, refuse_private)
+
+
+def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool = False,
+                   refuse_private: bool = False, private_sink=None) -> tuple[list[str], dict]:
     pkg = get_pkg(reg, name)
     repo = repo_path(pkg)
     if not repo.is_dir():
         raise Fail(f"{name}: local_path does not exist: {repo}")
     cp, comp = load_json_object(receipt_arg, "comparator receipt")
-    private = receipt_private_strings([("comparator", cp.read_bytes())], refuse_private)
+    private = receipt_private_strings([("comparator", cp.read_bytes())], refuse_private, private_sink)
     gate = pkg.get("gate") or {}
     if check_only:
         lower = recorded_json(repo, gate.get("receipt"))
