@@ -65,6 +65,14 @@ change the registry schema or receipt format, always with a migration).
   `vMAJOR.MINOR.PATCH[-rcN]` with an rc older than its release; nightly and
   other strings are reported as `toolchain-unparsed`, never compared.
 
+- `lean-pkg --version` prints `lean-pkg <version>` and exits 0.
+- `lean-pkg doctor [--json]`: one `ok`/`warn`/`n/a` line each for the
+  version, the install (editable checkouts add short HEAD, branch, and
+  behind/ahead counts against `origin/<branch>` from local refs only, never
+  fetched), the registry and its schema version, the event log, the index and
+  its entry count, `lake`/`elan`/`git`/`gh`/`reuse`/`bwrap`/`comparator`/`nanoda`
+  on PATH, and the Python version. Exit 0 unless the registry is unreadable.
+
 ### Changed
 
 - The vendored `scripts/comparator-check.sh` now carries the lab additions

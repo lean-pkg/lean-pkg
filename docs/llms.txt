@@ -72,6 +72,8 @@ audit     sweep expired leases; reconcile gh visibility; receipt/comparator/tool
   ex: lean-pkg audit --json   [--toolchain-floor VERSION] (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2,
   Palomar's floor): finding below-toolchain-floor (rc < release; nightly -> toolchain-unparsed; scratch/archived exempt).
 validate  schema + enum + history sanity.              ex: lean-pkg validate
+doctor    ok/warn/n/a lines: version, install (editable: HEAD, behind/ahead from local refs), registry, events, index, tools on PATH,
+          python; exit 1 only when the registry is unreadable. `lean-pkg --version` prints `lean-pkg <version>`.
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).

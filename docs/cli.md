@@ -4,7 +4,8 @@ title: CLI reference
 
 [&larr; lean-pkg documentation](index.md)
 
-Global flags: `--registry PATH`, `--events PATH`, `--json`. Every subcommand
+Global flags: `--registry PATH`, `--events PATH`, `--json`, `--version` (prints
+`lean-pkg <version>`, exit 0). Every subcommand
 also accepts `--json` after its name. Exit codes: 0 success or dry run,
 1 refusal or validation failure (reason on stderr; with `--json` also
 `{"ok": false, "error": ...}` on stdout), 2 usage error or a prompt attempted
@@ -30,6 +31,7 @@ The authoritative, machine-oriented version of this page is
 | `promote NAME` | promotion checklist; dry run unless `--yes`; the flip is one-way | `[--yes]` |
 | `audit` | sweep expired leases; reconcile GitHub visibility and archived flag; receipt, comparator, toolchain, formalization.yaml drift; toolchain floor | `[--fix]` `[--toolchain-floor VERSION]` |
 | `validate` | schema, enum, and history sanity; exit 0 or 1 | |
+| `doctor` | one `ok`/`warn`/`n/a` line each: version; install kind and path (an editable install inside a git checkout adds its short HEAD, branch, and behind/ahead counts against `origin/<branch>` from local refs only, never fetched); registry path and schema version; events path; index path and entry count; `lake`, `elan`, `git`, `gh`, `reuse`, `bwrap`, `comparator`, `nanoda` on PATH; Python version. Exit 0 unless the registry is unreadable (a missing registry counts) | |
 | `llms` | print the agent contract | |
 | `wiki` | render a Markdown status page | `[--out PATH]` `[--candidates PATH]` |
 | `index add NAME` | write `index/<name>/entry.yaml` from a clone at the pin: receipts validated with the `gate` and `comparator` validators and copied verbatim, trust computed, duplicates refused, event `index-added` | `--by HANDLE` `--headline 'NAME :: FILE :: SUMMARY'` `[--from-registry]` `[--repo URL]` `[--repo-dir PATH]` `[--lower REL]` `[--comparator REL]` `[--license SPDX]` `[--tag T]` `[--field-tag T]` `[--formalization-yaml REL]` `[--consent-recorded]` `[--notes]` `[--index PATH]` |

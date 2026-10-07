@@ -2272,6 +2272,8 @@ audit     sweep expired leases; reconcile gh visibility; receipt/comparator/tool
   ex: lean-pkg audit --json   [--toolchain-floor VERSION] (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2,
   Palomar's floor): finding below-toolchain-floor (rc < release; nightly -> toolchain-unparsed; scratch/archived exempt).
 validate  schema + enum + history sanity.              ex: lean-pkg validate
+doctor    ok/warn/n/a lines: version, install (editable: HEAD, behind/ahead from local refs), registry, events, index, tools on PATH,
+          python; exit 1 only when the registry is unreadable. `lean-pkg --version` prints `lean-pkg <version>`.
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
@@ -2529,6 +2531,92 @@ def cmd_audit(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------
+# doctor
+
+DOCTOR_TOOLS = ("lake", "elan", "git", "gh", "reuse", "bwrap", "comparator", "nanoda")
+DOCTOR_REQUIRED_TOOLS = ("lake", "elan", "git")   # missing -> warn; the others are optional (n/a)
+
+
+def package_dir() -> pathlib.Path:
+    """Directory of the imported lean_pkg package (tests monkeypatch this)."""
+    from . import __file__ as pkg_file
+    return pathlib.Path(pkg_file).resolve().parent
+
+
+def install_check(d: pathlib.Path) -> tuple[str, str]:
+    """(level, detail) for the install: editable when the package lives inside a git checkout,
+    with HEAD, branch and behind/ahead against origin/<branch> from local refs only (never fetched)."""
+    top = git(d, "rev-parse", "--show-toplevel")
+    if top.returncode != 0 or not top.stdout.strip():
+        return "ok", f"installed {d}"
+    root = pathlib.Path(top.stdout.strip())
+    short = git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?"
+    br = git(root, "symbolic-ref", "-q", "--short", "HEAD")
+    branch = br.stdout.strip() if br.returncode == 0 else ""
+    head = f"editable {root} @ {short}"
+    if not branch:
+        return "warn", head + " (detached HEAD)"
+    counts = git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
+    if counts.returncode != 0:
+        return "warn", f"{head} on {branch}; no local origin/{branch} ref to compare (fetch to be sure)"
+    behind, ahead = (int(x) for x in counts.stdout.split())
+    level = "warn" if behind else "ok"
+    return level, (f"{head} on {branch}; {behind} behind, {ahead} ahead of origin/{branch} "
+                   f"(local refs; fetch to be sure)")
+
+
+def doctor_checks(args) -> tuple[list[dict], bool]:
+    """Every doctor line as {"level", "item", "detail"}; ok is False only when the registry is unreadable."""
+    from . import __version__
+    from . import index as index_mod
+    checks: list[dict] = []
+
+    def add(level, item, detail):
+        checks.append({"level": level, "item": item, "detail": detail})
+
+    add("ok", "version", f"lean-pkg {__version__}")
+    level, detail = install_check(package_dir())
+    add(level, "install", detail)
+    reg_ok = True
+    reg_p = registry_path(args)
+    try:
+        data = load_registry(reg_p)
+        ver = data.get("version")
+        level = "ok" if ver in SUPPORTED_REGISTRY_VERSIONS else "warn"
+        reg_ok = level == "ok"
+        add(level, "registry", f"{reg_p} (schema version {ver}, {len(data['packages'])} package(s))"
+            + ("" if reg_ok else f"; supported: {', '.join(map(str, SUPPORTED_REGISTRY_VERSIONS))}"))
+    except (Fail, OSError, ValueError) as e:
+        reg_ok = False
+        add("warn", "registry", f"{reg_p} unreadable: {e}")
+    ev = events_path(args)
+    add("ok" if ev.is_file() else "n/a", "events", f"{ev}" + ("" if ev.is_file() else " (not created yet)"))
+    root = index_mod.index_root(args)
+    if root.is_dir():
+        add("ok", "index", f"{root} ({len(index_mod.entry_names(root))} entries)")
+    else:
+        add("n/a", "index", f"{root} (not present)")
+    for t in DOCTOR_TOOLS:
+        where = shutil.which(t)
+        if where:
+            add("ok", f"tool {t}", where)
+        else:
+            add("warn" if t in DOCTOR_REQUIRED_TOOLS else "n/a", f"tool {t}", "not on PATH")
+    add("ok", "python", f"{sys.version.split()[0]} ({sys.executable})")
+    return checks, reg_ok
+
+
+def cmd_doctor(args) -> int:
+    checks, ok = doctor_checks(args)
+    if args.json_out:
+        print_json({"ok": ok, "checks": checks})
+    else:
+        for c in checks:
+            print(f"{c['level']} {c['item']}: {c['detail']}")
+    return 0 if ok else 1
+
+
 def cmd_validate(args) -> int:
     reg_path = registry_path(args)
     try:
@@ -2561,6 +2649,8 @@ def main(argv: list[str] | None = None) -> int:
                          f"registry)")
     ap.add_argument("--json", dest="json_out", action="store_true",
                     help="machine-readable JSON on stdout (exit codes unchanged)")
+    from . import __version__
+    ap.add_argument("--version", action="version", version=f"lean-pkg {__version__}")
     sub = ap.add_subparsers(dest="cmd")
 
     def add_json(s):
@@ -2714,6 +2804,11 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("validate", help="schema + enum + history sanity; exit 0/1")
     add_json(s)
     s.set_defaults(fn=cmd_validate)
+
+    s = sub.add_parser("doctor", help="installation, registry, index and tool diagnostics; "
+                                      "exit 1 only when the registry is unreadable")
+    add_json(s)
+    s.set_defaults(fn=cmd_doctor)
 
     s = sub.add_parser("llms", help="print the agent-oriented usage contract")
     add_json(s)
