@@ -37,7 +37,9 @@ changes evidence.
 ## Gates
 
 `make check` runs the test suite, the private-boundary check, the tab scan,
-and the version-agreement check. Hosted CI runs the same targets once the
+and the version-agreement check. The gate is safe to run concurrently: `make test` gives
+each run a private bytecode cache (`PYTHONPYCACHEPREFIX` in a fresh temporary directory,
+removed afterwards), so two sessions never share pytest's rewritten `.pyc` files. Hosted CI runs the same targets once the
 repository is public; until then the maintainer runs them locally and the
 pre-push hook enforces it in clones that opt in:
 

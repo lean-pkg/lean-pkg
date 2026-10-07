@@ -81,6 +81,13 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `make test` runs pytest with a private bytecode cache
+  (`PYTHONPYCACHEPREFIX` in a fresh `mktemp -d` directory, removed
+  afterwards; `-p no:cacheprovider` kept), so concurrent runs no longer share
+  pytest's rewritten `.pyc` files (a segmentation fault inside
+  `_pytest/assertion/rewrite.py` was observed with two sessions at once). The
+  gate is safe to run concurrently (RELEASING.md).
+
 - `lean-pkg audit` no longer prints one `warn` line per package whose `repo`
   is not a GitHub URL (the line echoed the repo path, which may be private).
   Each such package gets a `no-github-mirror` finding with the fixed detail

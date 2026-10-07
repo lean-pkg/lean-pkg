@@ -260,3 +260,12 @@ def test_boundary_check_history_mode_scans_every_commit(tmp_path):
     (repo / "x.md").write_text("ok\n"); g("add", "."); g("commit", "-q", "-m", "mentions " + "tele" + "gram")
     hist2 = subprocess.run(["bash", script, "--history", str(repo)], capture_output=True, text=True)
     assert hist2.returncode == 1 and "commit-message:" in hist2.stdout + hist2.stderr
+
+
+def test_make_test_uses_a_private_bytecode_cache():
+    """Two concurrent `make test` runs must not share pytest's rewritten-bytecode cache."""
+    mk = (ROOT / "Makefile").read_text()
+    recipe = mk.split("\ntest:\n", 1)[1].split("\n\n", 1)[0]
+    assert "PYTHONPYCACHEPREFIX=" in recipe and "mktemp -d" in recipe and "rm -rf" in recipe, recipe
+    assert "-p no:cacheprovider" in recipe
+    assert "safe to run concurrently" in (ROOT / "RELEASING.md").read_text()

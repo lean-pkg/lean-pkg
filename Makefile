@@ -6,8 +6,9 @@
 check: test boundary tabs versions reuse
 > @echo "check: all gates green"
 
+# A private bytecode cache per run: concurrent runs never share pytest's rewritten .pyc files.
 test:
-> python3 -m pytest -q -p no:cacheprovider
+> @d=$$(mktemp -d) && PYTHONPYCACHEPREFIX="$$d" python3 -m pytest -q -p no:cacheprovider; rc=$$?; rm -rf "$$d"; exit $$rc
 
 boundary:
 > bash scripts/private-boundary-check.sh
