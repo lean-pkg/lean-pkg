@@ -64,7 +64,10 @@ Any `✗` refuses; `WARN` does not.
 
 `lease-expired` (cleared, event appended), `missing-path`, `toolchain-drift`,
 `toolchain-missing`, `receipt-missing`, `receipt-drift`, `comparator-missing`,
-`comparator-drift`, `formalization-missing`, `formalization-drift` (the written
+`comparator-drift` (both judged against the reference branch: the remote default
+branch from `refs/remotes/origin/HEAD`, else `main`, else HEAD; local refs only, never
+fetched), `checkout-branch` (informational: the checkout is on another branch than the
+one judged), `formalization-missing`, `formalization-drift` (the written
 `formalization.yaml` no longer equals what `lean-pkg formalization` emits; see
 [formalization.yaml](formalization.md)), `visibility-mismatch`, `archived-upstream`,
 and `warn` for GitHub queries that could not be made. Only `--fix` mutates visibility

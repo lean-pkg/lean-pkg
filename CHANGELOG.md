@@ -59,6 +59,14 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `lean-pkg audit` judges `receipt-drift` and `comparator-drift` against the
+  package's reference branch (the remote default branch from
+  `refs/remotes/origin/HEAD`, else `main`, else HEAD; local refs only), not
+  the checkout's HEAD, so a checkout parked on a feature branch no longer
+  reports false drift. The evidence-only-descendant rule is unchanged. When
+  the checkout is on another branch, a `checkout-branch` finding says
+  "checkout on X; judged against B" and drift details carry the same note.
+
 - Prior-art record slugs longer than 60 characters get an 8-hex suffix of the
   full slug, so two long terms sharing a prefix no longer share a record file.
 

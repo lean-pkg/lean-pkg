@@ -251,6 +251,33 @@ def git_head(repo: pathlib.Path) -> str | None:
     return p.stdout.strip() if p.returncode == 0 else None
 
 
+def _rev(repo: pathlib.Path, ref: str) -> str | None:
+    p = git(repo, "rev-parse", "--verify", "-q", ref + "^{commit}")
+    return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else None
+
+
+def reference_branch(repo: pathlib.Path) -> tuple[str | None, str | None]:
+    """The branch a package's evidence is judged against, and its local tip, from local refs only.
+    Order: the remote default branch (refs/remotes/origin/HEAD), else `main`; the tip is
+    refs/heads/<b>, else refs/remotes/origin/<b>. With neither, (None, HEAD).
+    The registry has no per-package branch field, so none is consulted."""
+    candidates = []
+    p = git(repo, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
+    if p.returncode == 0 and p.stdout.strip().startswith("refs/remotes/origin/"):
+        candidates.append(p.stdout.strip()[len("refs/remotes/origin/"):])
+    candidates.append("main")
+    for b in candidates:
+        tip = _rev(repo, f"refs/heads/{b}") or _rev(repo, f"refs/remotes/origin/{b}")
+        if tip:
+            return b, tip
+    return None, git_head(repo)
+
+
+def current_branch(repo: pathlib.Path) -> str:
+    p = git(repo, "symbolic-ref", "-q", "--short", "HEAD")
+    return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else "detached HEAD"
+
+
 def evidence_only_descendant(repo: pathlib.Path, bound: str,
                              head: str) -> tuple[bool, str]:
     """Evidence-only descendant rule (see DESIGN.md): a receipt bound to commit `bound` is
@@ -1463,7 +1490,18 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False) -> list[dict]:
                      f"registry={pkg.get('lean_toolchain')} file={actual}")
         else:
             note("toolchain-missing", name, str(tc))
-        receipt_rel = (pkg.get("gate") or {}).get("receipt")
+        gate_rec = pkg.get("gate") or {}
+        ref_branch = ref_tip = None
+        off_ref = ""
+        if gate_rec.get("receipt") or gate_rec.get("comparator"):
+            ref_branch, ref_tip = reference_branch(repo)
+            here = current_branch(repo)
+            if ref_branch and here != ref_branch:
+                off_ref = f"checkout on {here}; judged against {ref_branch}"
+                note("checkout-branch", name, off_ref)
+        ref_label = ref_branch or "HEAD"
+        suffix = f" ({off_ref})" if off_ref else ""
+        receipt_rel = gate_rec.get("receipt")
         if receipt_rel:
             rp = repo / receipt_rel
             if not rp.is_file():
@@ -1473,21 +1511,19 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False) -> list[dict]:
                     rcommit = json.loads(rp.read_text()).get("commit")
                 except Exception:
                     rcommit = None
-                head = git_head(repo)
-                if rcommit and head and not evidence_only_descendant(repo, rcommit, head)[0]:
+                if rcommit and ref_tip and not evidence_only_descendant(repo, rcommit, ref_tip)[0]:
                     note("receipt-drift", name,
-                         f"receipt={str(rcommit)[:12]} HEAD={head[:12]}")
-        comp_rel = (pkg.get("gate") or {}).get("comparator")
+                         f"receipt={str(rcommit)[:12]} {ref_label}={ref_tip[:12]}{suffix}")
+        comp_rel = gate_rec.get("comparator")
         if comp_rel:
             cpth = repo / comp_rel
             if not cpth.is_file():
                 note("comparator-missing", name, str(comp_rel))
             else:
                 ccommit = (recorded_json(repo, comp_rel) or {}).get("commit")
-                head = git_head(repo)
-                if ccommit and head and not evidence_only_descendant(repo, ccommit, head)[0]:
+                if ccommit and ref_tip and not evidence_only_descendant(repo, ccommit, ref_tip)[0]:
                     note("comparator-drift", name,
-                         f"comparator={str(ccommit)[:12]} HEAD={head[:12]}")
+                         f"comparator={str(ccommit)[:12]} {ref_label}={ref_tip[:12]}{suffix}")
         if pkg.get("formalization_yaml"):
             # formalization-missing | formalization-drift | warn: the written
             # formalization.yaml must equal what the generator emits today.
