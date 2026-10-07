@@ -60,3 +60,11 @@ def test_llms_documents_claims_and_search(lp, capsys):
                    "decision: pending", "claims-synced", "prior-art-searched", "index-entry/2",
                    "v3 adds claims_file"):
         assert needle in out, needle
+
+
+def test_llms_documents_audit_reference_branch(lp, capsys):
+    assert lp.main(["llms"]) == 0
+    out = capsys.readouterr().out
+    for needle in ("reference branch", "origin/HEAD", "master", "checkout-branch", "--version",
+                   "below-toolchain-floor", "no-github-mirror", "toolchain-unparsed"):
+        assert needle in out, needle

@@ -2310,7 +2310,7 @@ verified-private -> public         `promote --yes` after a clean dry-run checkli
 public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
 any -> archived                    `audit --fix` (gh isArchived) or maintainer decision
 
-SUBCOMMANDS (global flags: --registry PATH --events PATH --json; env LEAN_PKG_REGISTRY, LEAN_PKG_EVENTS)
+SUBCOMMANDS (global flags: --registry PATH --events PATH --json; env LEAN_PKG_REGISTRY, LEAN_PKG_EVENTS; --version prints the version)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
@@ -2350,12 +2350,12 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
   promote refuses without a byte-valid comparator receipt bound to HEAD.
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
-audit     sweep leases; reconcile gh visibility (--fix: gh -> registry); receipt/comparator/toolchain/formalization.yaml drift.
-  [--toolchain-floor V] (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
+audit     sweep leases; gh visibility (--fix: gh -> registry); toolchain/formalization.yaml drift; receipt/comparator drift judged
+  at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
+  --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a lines: version, install (editable: HEAD, behind/ahead from local refs), registry, events, index, tools on PATH,
-          python; exit 1 when the registry is unreadable or its schema version is unsupported. `lean-pkg --version`.
+doctor    ok/warn/n/a: version, install, registry, events, index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported.
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
