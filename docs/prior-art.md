@@ -83,6 +83,16 @@ Sources, always in this order:
 | `palomar` | titles, abstracts, theorem names and repositories in Palomar's results API, cached by revision | the registry revision |
 | `github` | `gh search repos` and `gh search code`, Lean only | `live` |
 
+Palomar caches are complete, revision-consistent snapshots: every page must
+carry the same registry revision, and paging errors or repeated cursors are
+reported as skipped sources rather than zero hits. Cached rows carry a schema,
+completion marker and content hash; malformed or changed caches are refreshed
+from live pages. The snapshots-v1 cache directory is separate from older
+bare-list caches, so older running clients never read the new envelope. A
+legacy cache alone is not used as offline search evidence. Concurrent searches
+write separate temporary files and publish the cache atomically.
+
+
 Local sources are scored deterministically: an exact alias scores 3, a
 keyword 2, a match of every word of the term 1; matching is case-insensitive.
 Reusable claims are listed before experimental and superseded ones. Network
