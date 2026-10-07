@@ -74,3 +74,44 @@ def test_comparator_refuse_private_copies_nothing(lp, env, tmp_path, capsys):
     assert _attach(lp, env, tmp_path, "--refuse-private", host=PRIVATE) == 1
     assert "comparator.host" in capsys.readouterr().err
     assert not (env.repo_b / rel).exists()
+
+
+# --- review pass: dict keys are scanned too, and a private key is never echoed as a label
+
+KEYED = {PRIVATE: "a" * 64, "ok-key": {PRIVATE + ".log": PRIVATE}}
+
+
+def test_gate_detects_private_keys_without_echoing_them(lp, env, tmp_path, capsys):
+    assert _gate(lp, env, tmp_path, "--json", artifacts=KEYED) == 0
+    cap = capsys.readouterr()
+    fields = [h["field"] for h in json.loads(cap.out)["private_strings"]]
+    assert fields == ["receipt.artifacts.<key#0>", "receipt.artifacts.ok-key.<key#0>",
+                      "receipt.artifacts.ok-key.<key#0>"], fields
+    assert "someone" not in cap.out + cap.err
+
+
+def test_gate_refuse_private_on_a_private_key(lp, env, tmp_path, capsys):
+    assert _gate(lp, env, tmp_path, "--refuse-private", artifacts={PRIVATE: "x"}) == 1
+    cap = capsys.readouterr()
+    assert "receipt.artifacts.<key#0>" in cap.err and "someone" not in cap.out + cap.err
+    assert not (env.repo_a / ".lean-receipts").exists()
+
+
+def test_comparator_detects_private_keys_without_echoing_them(lp, env, tmp_path, capsys):
+    rel = read_reg(env)["packages"]["beta"]["gate"]["comparator"]
+    _drop_recorded_comparator(env)
+    assert _attach(lp, env, tmp_path, "--refuse-private", artifacts={PRIVATE: "x"}) == 1
+    cap = capsys.readouterr()
+    assert "comparator.artifacts.<key#0>" in cap.err and "someone" not in cap.out + cap.err
+    assert not (env.repo_b / rel).exists()
+    assert _attach(lp, env, tmp_path, "--json", artifacts={PRIVATE: "x"}) == 0
+    cap = capsys.readouterr()
+    assert json.loads(cap.out)["private_strings"] == [{"field": "comparator.artifacts.<key#0>",
+                                                       "kind": "private local path"}]
+    assert "someone" not in cap.out + cap.err
+
+
+def test_index_private_strings_in_scans_keys_without_echo(idx):
+    blob = json.dumps({"artifacts": {PRIVATE: "x"}}).encode()
+    hits = idx.private_strings_in(blob, "r.json")
+    assert len(hits) == 1 and "r.json.artifacts.<key#0>" in hits[0] and "someone" not in hits[0]

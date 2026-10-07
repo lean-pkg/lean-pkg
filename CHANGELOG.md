@@ -56,7 +56,9 @@ change the registry schema or receipt format, always with a migration).
   `.lean-receipts/`: each hit is a stderr `WARN` naming the field and the
   kind of string (never the value) and an entry of `"private_strings"` in the
   JSON payload. `--refuse-private` turns the warning into a refusal (exit 1,
-  nothing copied).
+  nothing copied). Mapping keys are scanned as well as values; a private key
+  is labelled by position (`receipt.artifacts.<key#0>`), never by its text
+  (also in the `index add` scan).
 
 - `lean-pkg audit --toolchain-floor VERSION` (env `LEAN_PKG_TOOLCHAIN_FLOOR`,
   default `leanprover/lean4:v4.35.0-rc2`, Palomar's floor): a

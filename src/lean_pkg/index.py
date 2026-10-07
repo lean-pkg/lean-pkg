@@ -408,13 +408,34 @@ def reachable_on(clone: pathlib.Path, public_repo: str, shas: list[str]) -> list
     return missing
 
 
+def _private_walk(obj, where):
+    """(label, is_key, string) for every mapping key and string value. A key that looks private is
+    labelled by position (`<key#i>`), never by its text, both for itself and for what lies below it."""
+    if isinstance(obj, str):
+        yield where, False, obj
+    elif isinstance(obj, dict):
+        for i, (k, v) in enumerate(obj.items()):
+            k = str(k)
+            if PRIVATE_PATH_RE.search(k):
+                label = f"{where}.<key#{i}>"
+                yield label, True, k
+            else:
+                label = f"{where}.{k}"
+            yield from _private_walk(v, label)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from _private_walk(v, f"{where}[{i}]")
+
+
 def private_string_hits(blob: bytes, where: str) -> list[tuple[str, str, str]]:
-    """(field, kind, value) for every string value in a JSON document that looks private."""
+    """(field, kind, string) for every mapping key or string value in a JSON document that looks
+    private. `field` never contains the private text itself (private keys are positional)."""
     try:
         data = json.loads(blob)
     except ValueError:
         return []
-    return [(w, "private local path", s) for w, s in _strings(data, where) if PRIVATE_PATH_RE.search(s)]
+    return [(w, "private local path", s) for w, _key, s in _private_walk(data, where)
+            if PRIVATE_PATH_RE.search(s)]
 
 
 def private_strings_in(blob: bytes, where: str) -> list[str]:
@@ -423,8 +444,8 @@ def private_strings_in(blob: bytes, where: str) -> list[str]:
         data = json.loads(blob)
     except ValueError:
         return []
-    return [f"{where}: {w} looks like a private local path: {s!r}"
-            for w, s in _strings(data, where) if PRIVATE_PATH_RE.search(s)]
+    return [f"{where}: {w} looks like a private local path" + ("" if is_key else f": {s!r}")
+            for w, is_key, s in _private_walk(data, where) if PRIVATE_PATH_RE.search(s)]
 
 
 def mathlib_rev_at(clone: pathlib.Path) -> str | None:
