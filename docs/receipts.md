@@ -87,4 +87,9 @@ stores only the relative paths; `promote` re-reads the bytes. An
 [index entry](index-catalog.md) keeps verbatim copies of the receipts (not
 the logs) and `index check --clone` re-derives them at the pin.
 
+`lean-pkg formalization` reports the receipts under `status.evidence` of the
+package's `formalization.yaml` (commit, gate receipt, comparator receipt) and
+lists every tracked comparator configuration under `status.main_results`; see
+[formalization.yaml](formalization.md).
+
 Next: [The comparator tier](comparator.md).
