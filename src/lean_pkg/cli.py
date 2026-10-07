@@ -1546,7 +1546,9 @@ def parse_lean_toolchain(text) -> tuple[int, int, int, int, int] | None:
 
 
 def resolve_toolchain_floor(flag: str | None) -> str:
-    floor = flag or os.environ.get(TOOLCHAIN_FLOOR_ENV, "").strip() or DEFAULT_TOOLCHAIN_FLOOR
+    # an explicit flag, even an empty one, is used as given; an empty env variable counts as unset
+    floor = flag if flag is not None else (os.environ.get(TOOLCHAIN_FLOOR_ENV, "").strip()
+                                           or DEFAULT_TOOLCHAIN_FLOOR)
     if parse_lean_toolchain(floor) is None:
         raise UsageError(f"toolchain floor {floor!r} is not [leanprover/lean4:]vMAJOR.MINOR.PATCH[-rcN]")
     return floor

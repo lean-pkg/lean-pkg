@@ -90,3 +90,9 @@ def test_audit_exempts_scratch_and_archived_and_flags_unparsed(lp, env, fake_gh,
 def test_audit_refuses_an_unparsable_floor(lp, env, fake_gh, capsys):
     assert lp.main(["--registry", str(env.registry), "audit", "--toolchain-floor", "nightly"]) == 2
     assert "toolchain floor" in capsys.readouterr().err
+
+
+def test_audit_refuses_an_empty_floor_flag(lp, env, fake_gh, capsys, monkeypatch):
+    monkeypatch.delenv("LEAN_PKG_TOOLCHAIN_FLOOR", raising=False)
+    assert lp.main(["--registry", str(env.registry), "audit", "--toolchain-floor", ""]) == 2
+    assert "toolchain floor" in capsys.readouterr().err
