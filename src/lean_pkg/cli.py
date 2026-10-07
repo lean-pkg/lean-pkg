@@ -2576,6 +2576,8 @@ def package_dir() -> pathlib.Path:
 def install_check(d: pathlib.Path) -> tuple[str, str]:
     """(level, detail) for the install: editable when the package lives inside a git checkout,
     with HEAD, branch and behind/ahead against origin/<branch> from local refs only (never fetched)."""
+    if shutil.which("git") is None:
+        return "warn", f"{d} (git not on PATH; install kind unknown)"
     top = git(d, "rev-parse", "--show-toplevel")
     if top.returncode != 0 or not top.stdout.strip():
         return "ok", f"installed {d}"

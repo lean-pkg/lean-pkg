@@ -115,3 +115,17 @@ def test_doctor_exits_1_on_unreadable_registry(lp, env, fake_path, installed, ca
     rc, cap = _doctor(lp, env, capsys)
     assert rc == 1
     assert any(line.startswith("warn registry:") for line in cap.out.splitlines())
+
+
+# --- review pass
+
+def test_doctor_without_git_on_path_does_not_crash(lp, env, tmp_path, monkeypatch, capsys):
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    rc, cap = _doctor(lp, env, capsys)
+    assert rc == 0, cap.err
+    lines = cap.out.splitlines()
+    assert "warn tool git: not on PATH" in lines
+    install = next(x for x in lines if " install:" in x)
+    assert install.startswith("warn") and "git not on PATH" in install
