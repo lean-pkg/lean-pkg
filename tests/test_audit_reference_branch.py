@@ -140,3 +140,21 @@ def test_master_only_repo_resolves_to_master(lp, tmp_path):
     _git(repo, "checkout", "-q", "-b", "feature")
     branch, tip, _ = lp.reference_branch(repo)
     assert branch == "master" and tip == _git(repo, "rev-parse", "refs/heads/master").stdout.strip()
+
+
+def test_detached_head_at_the_reference_tip_is_not_off_branch(lp, env, fake_gh, capsys):
+    _on_main(env.repo_b)
+    _git(env.repo_b, "checkout", "-q", "--detach", "main")
+    findings = [f for f in _audit_json(lp, env, capsys) if f["name"] == "beta"]
+    assert not [f for f in findings if f["check"] == "checkout-branch"], findings
+
+
+def test_detached_head_elsewhere_is_still_reported(lp, env, fake_gh, capsys):
+    _on_main(env.repo_b)
+    (env.repo_b / "Smoke.lean").write_text("-- smoke\n")
+    _git(env.repo_b, "add", "Smoke.lean")
+    _git(env.repo_b, "commit", "-q", "-m", "smoke")
+    _git(env.repo_b, "checkout", "-q", "--detach", "HEAD")
+    _git(env.repo_b, "branch", "-f", "main", "HEAD~1")
+    notes = [f for f in _audit_json(lp, env, capsys) if f["check"] == "checkout-branch"]
+    assert [n["detail"] for n in notes] == ["checkout on detached HEAD; judged against main"]

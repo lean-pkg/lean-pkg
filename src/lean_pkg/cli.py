@@ -1635,7 +1635,8 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
         if gate_rec.get("receipt") or gate_rec.get("comparator"):
             ref_branch, ref_tip, ref_note = reference_branch(repo)
             here = current_branch(repo)
-            if ref_branch and here != ref_branch:
+            at_tip = here == "detached HEAD" and git_head(repo) == ref_tip
+            if ref_branch and here != ref_branch and not at_tip:
                 off_ref = f"checkout on {here}; judged against {ref_branch}"
             if ref_note:
                 off_ref = f"{off_ref}; {ref_note}" if off_ref else ref_note
