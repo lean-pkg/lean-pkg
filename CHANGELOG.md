@@ -51,6 +51,13 @@ change the registry schema or receipt format, always with a migration).
 - REUSE 3.3 compliance: `REUSE.toml`, `LICENSES/Apache-2.0.txt`, `make reuse`
   (part of `make check`; skipped with a notice when the tool is absent).
 
+- `lean-pkg gate` and `lean-pkg comparator` scan the receipt bytes for
+  private local paths (the `index add` scan) before copying them into
+  `.lean-receipts/`: each hit is a stderr `WARN` naming the field and the
+  kind of string (never the value) and an entry of `"private_strings"` in the
+  JSON payload. `--refuse-private` turns the warning into a refusal (exit 1,
+  nothing copied).
+
 ### Changed
 
 - The vendored `scripts/comparator-check.sh` now carries the lab additions

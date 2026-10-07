@@ -25,8 +25,8 @@ The authoritative, machine-oriented version of this page is
 | `update NAME` | set fields; manual status moves need `--reason` | `--status` `--reason` `--automation` `--notes` `--upstream-target` `--reaudit-after` `--owner-project` `--repo` `--redetect` `--agent` `--force` `[--license-spdx SPDX]` `[--formalization-yaml REL]` |
 | `claim NAME` | compare-and-swap lease, 24 h default | `--workspace W` `--agent A` `[--ttl HOURS]` `[--reason]` `[--force]` |
 | `release NAME` | release a lease; holder-only unless forced | `[--agent]` `[--force]` |
-| `gate NAME` | validate a lower-tier receipt; `gate-pending → verified-private`; identical re-gate is a no-op | `--receipt PATH` `[--comparator PATH]` |
-| `comparator NAME` | attach comparator evidence to a gated package (event `comparator-attached`), or validate only | `--receipt PATH` `[--check]` |
+| `gate NAME` | validate a lower-tier receipt; `gate-pending → verified-private`; identical re-gate is a no-op; receipt bytes are scanned for private local paths before the copy into `.lean-receipts/` (stderr `WARN` naming the field, `private_strings` in JSON) | `--receipt PATH` `[--comparator PATH]` `[--refuse-private]` (refuse, exit 1, nothing copied) |
+| `comparator NAME` | attach comparator evidence to a gated package (event `comparator-attached`), or validate only; same private-string scan as `gate` | `--receipt PATH` `[--check]` `[--refuse-private]` |
 | `promote NAME` | promotion checklist; dry run unless `--yes`; the flip is one-way | `[--yes]` |
 | `audit` | sweep expired leases; reconcile GitHub visibility and archived flag; receipt, comparator, toolchain, formalization.yaml drift | `[--fix]` |
 | `validate` | schema, enum, and history sanity; exit 0 or 1 | |

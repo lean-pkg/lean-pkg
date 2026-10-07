@@ -918,6 +918,22 @@ def copy_comparator(repo: pathlib.Path, commit: str,
                       f"commit it with its logs in the verified repo yourself")
 
 
+def receipt_private_strings(blobs: list[tuple[str, bytes]], refuse: bool) -> list[dict]:
+    """Scan receipt bytes for private strings before they are copied into the repository.
+    Each hit is {"field", "kind"} (the value itself is never echoed). Without `refuse` every hit
+    is a WARN line on stderr (a receipt may legitimately be private); with it, a refusal."""
+    from .index import private_string_hits
+    hits = [{"field": f, "kind": k} for where, blob in blobs
+            for f, k, _ in private_string_hits(blob, where)]
+    if hits and refuse:
+        raise Fail("--refuse-private: receipt holds private strings, nothing copied: "
+                   + "; ".join(f"{h['field']} ({h['kind']})" for h in hits))
+    for h in hits:
+        print(f"WARN: {h['field']} looks like a {h['kind']}; the receipt is copied into the "
+              f"repository as is (--refuse-private refuses)", file=sys.stderr)
+    return hits
+
+
 def recorded_json(repo: pathlib.Path, rel) -> dict | None:
     if not rel:
         return None
@@ -928,7 +944,7 @@ def recorded_json(repo: pathlib.Path, rel) -> dict | None:
 
 
 def do_gate(reg_path, reg, events_p, name, receipt_arg,
-            comparator_arg=None) -> tuple[list[str], dict]:
+            comparator_arg=None, refuse_private: bool = False) -> tuple[list[str], dict]:
     pkg = get_pkg(reg, name)
     repo = repo_path(pkg)
     if not repo.is_dir():
@@ -937,6 +953,9 @@ def do_gate(reg_path, reg, events_p, name, receipt_arg,
     cp = comp = None
     if comparator_arg is not None:
         cp, comp = load_json_object(comparator_arg, "comparator receipt")
+    private = receipt_private_strings([("receipt", rp.read_bytes())]
+                                      + ([("comparator", cp.read_bytes())] if cp else []),
+                                      refuse_private)
     gate = pkg.get("gate") or {}
     # Idempotent retry: an identical receipt (pair) already recorded is a
     # no-op success, so agent retries are safe.
@@ -946,7 +965,7 @@ def do_gate(reg_path, reg, events_p, name, receipt_arg,
         if comp is None or (rec_comp is not None and rec_comp == comp):
             payload = {"ok": True, "name": name, "event": "already-gated",
                        "status": pkg.get("status"), "gate": pkg.get("gate"),
-                       "receipt": gate.get("receipt")}
+                       "receipt": gate.get("receipt"), "private_strings": private}
             return ([f"{name}: already gated (receipt {gate.get('receipt')}); "
                      f"nothing to do"], payload)
         raise Fail(f"{name}: already gated with this receipt; to add or replace "
@@ -1016,19 +1035,20 @@ def do_gate(reg_path, reg, events_p, name, receipt_arg,
     payload = {"ok": True, "name": name, "event": "gate-passed",
                "status": new_status, "gate": pkg["gate"],
                "receipt": dest_rel, "commit": commit, "rl_reminder": True,
-               "status_unchanged": was_public}
+               "status_unchanged": was_public, "private_strings": private}
     if comp_rel:
         payload["comparator"] = comp_rel
     return out, payload
 
 
 def do_comparator(reg_path, reg, events_p, name, receipt_arg,
-                  check_only: bool = False) -> tuple[list[str], dict]:
+                  check_only: bool = False, refuse_private: bool = False) -> tuple[list[str], dict]:
     pkg = get_pkg(reg, name)
     repo = repo_path(pkg)
     if not repo.is_dir():
         raise Fail(f"{name}: local_path does not exist: {repo}")
     cp, comp = load_json_object(receipt_arg, "comparator receipt")
+    private = receipt_private_strings([("comparator", cp.read_bytes())], refuse_private)
     gate = pkg.get("gate") or {}
     if check_only:
         lower = recorded_json(repo, gate.get("receipt"))
@@ -1040,13 +1060,13 @@ def do_comparator(reg_path, reg, events_p, name, receipt_arg,
                + ("" if lower_commit else "; no lower-tier receipt recorded yet"))
         payload = {"ok": True, "name": name, "event": "comparator-checked",
                    "recorded": False, "commit": comp["commit"], "configs": n,
-                   "lower_receipt_commit": lower_commit}
+                   "lower_receipt_commit": lower_commit, "private_strings": private}
         return [msg], payload
     rec_comp = recorded_json(repo, gate.get("comparator"))
     if rec_comp is not None and rec_comp == comp:
         payload = {"ok": True, "name": name, "event": "already-attached",
                    "status": pkg.get("status"), "gate": gate,
-                   "comparator": gate.get("comparator")}
+                   "comparator": gate.get("comparator"), "private_strings": private}
         return ([f"{name}: comparator receipt already attached "
                  f"({gate.get('comparator')}); nothing to do"], payload)
     if pkg.get("status") not in ("verified-private", "public"):
@@ -1067,7 +1087,7 @@ def do_comparator(reg_path, reg, events_p, name, receipt_arg,
                  f"{len(comp['configs'])} config(s))"]
     payload = {"ok": True, "name": name, "event": "comparator-attached",
                "status": pkg.get("status"), "gate": pkg["gate"],
-               "comparator": comp_rel, "commit": commit}
+               "comparator": comp_rel, "commit": commit, "private_strings": private}
     return out, payload
 
 
@@ -2195,13 +2215,14 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
-  flags: --receipt PATH (required), --comparator PATH (optional comparator receipt)
+  flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt:
+  refuse, exit 1, nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}])
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op. It is required by promote.
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1).
-  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status)
+  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private
   ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
@@ -2422,7 +2443,8 @@ def cmd_update(args) -> int:
 def cmd_gate(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_gate(reg_path, load_registry(reg_path), events_p,
-                           args.name, args.receipt, args.comparator)
+                           args.name, args.receipt, args.comparator,
+                           refuse_private=args.refuse_private)
     if args.json_out:
         print_json(payload)
     else:
@@ -2433,7 +2455,8 @@ def cmd_gate(args) -> int:
 def cmd_comparator(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_comparator(reg_path, load_registry(reg_path), events_p,
-                                 args.name, args.receipt, args.check)
+                                 args.name, args.receipt, args.check,
+                                 refuse_private=args.refuse_private)
     if args.json_out:
         print_json(payload)
     else:
@@ -2612,6 +2635,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--comparator", default=None, metavar="PATH",
                    help="optional comparator receipt JSON; "
                         "required later by promote")
+    s.add_argument("--refuse-private", action="store_true",
+                   help="refuse (exit 1, nothing copied) when a receipt holds private strings; "
+                        "default is a WARN line")
     add_json(s)
     s.set_defaults(fn=cmd_gate)
 
@@ -2621,6 +2647,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--receipt", required=True, help="path to comparator receipt JSON")
     s.add_argument("--check", action="store_true",
                    help="validate only; record nothing (works at any status)")
+    s.add_argument("--refuse-private", action="store_true",
+                   help="refuse (exit 1, nothing copied) when the receipt holds private strings; "
+                        "default is a WARN line")
     add_json(s)
     s.set_defaults(fn=cmd_comparator)
 

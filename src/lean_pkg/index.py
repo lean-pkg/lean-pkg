@@ -408,6 +408,15 @@ def reachable_on(clone: pathlib.Path, public_repo: str, shas: list[str]) -> list
     return missing
 
 
+def private_string_hits(blob: bytes, where: str) -> list[tuple[str, str, str]]:
+    """(field, kind, value) for every string value in a JSON document that looks private."""
+    try:
+        data = json.loads(blob)
+    except ValueError:
+        return []
+    return [(w, "private local path", s) for w, s in _strings(data, where) if PRIVATE_PATH_RE.search(s)]
+
+
 def private_strings_in(blob: bytes, where: str) -> list[str]:
     """String values in a JSON document that look like private local paths."""
     try:

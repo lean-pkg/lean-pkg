@@ -55,13 +55,14 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
-  flags: --receipt PATH (required), --comparator PATH (optional comparator receipt)
+  flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt:
+  refuse, exit 1, nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}])
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op. It is required by promote.
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1).
-  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status)
+  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private
   ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
