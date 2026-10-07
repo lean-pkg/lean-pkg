@@ -35,6 +35,7 @@ SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
 # Acceptance is decided by the same predicate the validator uses (one source of truth).
 from .cli import comparator_pass  # noqa: E402
+from .holes import check_definition_holes  # noqa: E402
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -175,6 +176,33 @@ def parse_pins(text: str) -> dict:
     return pins
 
 
+STANDARD_AXIOMS = frozenset({"propext", "Quot.sound", "Classical.choice"})
+
+
+def lint_configs(project: pathlib.Path, configs: list[str]) -> None:
+    """Configuration-level rules, checked before anything is built so a refusal
+    writes nothing: permitted_axioms within the standard three, and definition
+    holes carrying a human judged_as sign-off (see holes.py)."""
+    for cfg_rel in configs:
+        try:
+            cfg = json.loads((project / cfg_rel).read_bytes())
+        except ValueError as e:
+            raise RunnerError(f"{cfg_rel}: not valid JSON ({e}); nothing written")
+        if not isinstance(cfg, dict):
+            raise RunnerError(f"{cfg_rel}: not a JSON object; nothing written")
+        ax = cfg.get("permitted_axioms")
+        if not isinstance(ax, list) or not all(isinstance(a, str) for a in ax):
+            raise RunnerError(f"{cfg_rel}: permitted_axioms must be a list of strings; nothing written")
+        extra = sorted(set(ax) - STANDARD_AXIOMS)
+        if extra:
+            raise RunnerError(f"{cfg_rel}: permitted_axioms {extra} outside the standard "
+                              f"{sorted(STANDARD_AXIOMS)}; nothing written")
+        try:
+            check_definition_holes(cfg, cfg_rel)
+        except ValueError as e:
+            raise RunnerError(f"{e}; nothing written")
+
+
 def list_configs(project: pathlib.Path) -> list[str]:
     cwd = os.getcwd()
     os.chdir(project)
@@ -210,6 +238,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
     if not configs:
         raise RunnerError("no comparator configuration found "
                           "(comparator*.json or comparator/config*.json)")
+    lint_configs(project, configs)
     toolchain = (project / "lean-toolchain").read_text().strip()
     if mechanism not in MECHANISMS:
         raise RunnerError(f"unknown mechanism {mechanism!r}; one of {MECHANISMS}")
@@ -272,6 +301,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                 "theorem_names": list(cfg.get("theorem_names") or []),
                 "definition_names": list(cfg.get("definition_names") or []),
                 "permitted_axioms": list(cfg.get("permitted_axioms") or []),
+                **({"judged_as": cfg["judged_as"]} if isinstance(cfg.get("judged_as"), dict) else {}),
                 "log": log_rel,
                 "log_sha256": sha256_file(src_log),
                 "result": "pass",

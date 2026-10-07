@@ -395,3 +395,68 @@ def test_host_label_also_covers_the_host_policy_reason(project: Path):
     assert real not in text and "lab-workstation" in text
     policy = next(l for l in r.stdout.splitlines() if "host policy:" in l).split("host policy:", 1)[1]
     assert real not in policy and "lab-workstation" in policy
+
+
+# --- definition holes: refused before the check script runs ---------------------
+
+def _write_cfg(project: Path, cfg: dict) -> None:
+    (project / "comparator.json").write_text(json.dumps(cfg, indent=2) + "\n")
+    git(project, "add", "comparator.json")
+    git(project, "commit", "-m", "cfg")
+
+
+def _base_cfg(**over) -> dict:
+    cfg = {"challenge_module": "Challenge", "solution_module": "Solution",
+           "theorem_names": ["foo"], "definition_names": [],
+           "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+           "enable_nanoda": True}
+    cfg.update(over)
+    return cfg
+
+
+def test_runner_refuses_holes_without_sign_off_and_writes_nothing(project: Path):
+    _write_cfg(project, _base_cfg(definition_names=["Foo.bar"]))
+    r = run_runner(project)
+    assert r.returncode == 1
+    assert "definition_names is non-empty" in r.stderr
+    assert "nothing written" in r.stderr
+    assert "== comparator @" not in r.stdout        # the stub never ran
+    assert not (project / ".lean-receipts").exists()
+
+
+def test_runner_refuses_agent_reviewer(project: Path):
+    _write_cfg(project, _base_cfg(definition_names=["Foo.bar"], judged_as={
+        "reviewer": "opencode-worker", "date": "2026-10-07", "definitions": ["Foo.bar"]}))
+    r = run_runner(project)
+    assert r.returncode == 1
+    assert "agent/model token" in r.stderr
+    assert not (project / ".lean-receipts").exists()
+
+
+def test_runner_refuses_nonstandard_axiom_before_running(project: Path):
+    _write_cfg(project, _base_cfg(permitted_axioms=["propext", "Lean.ofReduceBool"]))
+    r = run_runner(project)
+    assert r.returncode == 1
+    assert "permitted_axioms" in r.stderr and "nothing written" in r.stderr
+    assert not (project / ".lean-receipts").exists()
+
+
+def test_runner_records_judged_as_with_human_sign_off(project: Path):
+    signoff = {"reviewer": "Le Chen", "date": "2026-10-07",
+               "definitions": ["Foo.bar"], "basis": "compared bodies"}
+    _write_cfg(project, _base_cfg(definition_names=["Foo.bar"], judged_as=signoff))
+    r = run_runner(project)
+    assert r.returncode == 0, r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+    cfg = rec["configs"][0]
+    assert cfg["definition_names"] == ["Foo.bar"]
+    assert cfg["judged_as"] == signoff
+
+
+def test_runner_omits_judged_as_when_absent(project: Path):
+    r = run_runner(project)
+    assert r.returncode == 0, r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+    assert "judged_as" not in rec["configs"][0]

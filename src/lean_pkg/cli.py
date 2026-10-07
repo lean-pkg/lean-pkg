@@ -74,6 +74,7 @@ import urllib.request
 
 import yaml
 
+from .holes import check_definition_holes
 if __name__ == "__main__":
     # `python -m lean_pkg.cli`: lean_pkg.index imports this very module (one Fail class).
     sys.modules.setdefault("lean_pkg.cli", sys.modules[__name__])
@@ -834,6 +835,12 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
         if extra:
             raise Fail(f"comparator config {path}: permitted_axioms {extra} outside "
                        f"allowed set {sorted(allowed)}")
+        # Definition holes (value-blind in comparator) need a human judged_as sign-off,
+        # judged against the config bytes at the bound commit, never the receipt's copy.
+        try:
+            check_definition_holes(blob_cfg, f"comparator config {path}")
+        except ValueError as e:
+            raise Fail(str(e)) from None
         log_rel = _safe_rel(cfg["log"], "log")
         if not log_rel.startswith(".lean-receipts/"):
             raise Fail(f"comparator log must live under .lean-receipts/: {log_rel!r}")
@@ -2212,6 +2219,10 @@ configs[]       MUST list exactly the comparator*.json / comparator/config*.json
                 (no omissions, no extras). Per config: path, sha256 of its HEAD bytes; challenge_module,
                 solution_module, theorem_names[] (non-empty), definition_names[], permitted_axioms[]
                 (subset of gate.axioms_allowed) — each MUST equal the config file at HEAD;
+                a config with non-empty definition_names MUST carry judged_as {reviewer (a human, never
+                a model/agent token), date YYYY-MM-DD, definitions ⊇ definition_names, basis?} in the
+                file at HEAD — comparator never compares hole bodies (checked by the runner before a run
+                and by every validator; judged_as is copied into the entry when present);
                 log MUST be .lean-receipts/<commit12>-comparator-<cfgname>.log (cfgname = path minus
                 .json, '/' -> '_'); log_sha256; result "pass". The log must contain the full line
                 "Your solution is okay!" (both mechanisms; `lake comparator` prints it last, after the

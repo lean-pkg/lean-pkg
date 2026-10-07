@@ -163,15 +163,18 @@ def cfg_name(cfg_rel: str) -> str:
 def add_comparator_config(repo: Path, name: str = "comparator.json",
                           theorem_names=("foo_le_bar",),
                           permitted_axioms=("propext", "Quot.sound",
-                                            "Classical.choice")) -> str:
+                                            "Classical.choice"),
+                          definition_names=(), judged_as: dict | None = None) -> str:
     cfg = {
         "challenge_module": "Challenge",
         "solution_module": "Solution",
         "theorem_names": list(theorem_names),
-        "definition_names": [],
+        "definition_names": list(definition_names),
         "permitted_axioms": list(permitted_axioms),
         "enable_nanoda": True,
     }
+    if judged_as is not None:
+        cfg["judged_as"] = judged_as
     p = repo / name
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(cfg, indent=2) + "\n")

@@ -678,3 +678,65 @@ def test_test_only_receipt_is_refused_by_the_validator(lp, env):
     with pytest.raises(lp.Fail) as e:
         validate(lp, env, env.repo_a, comp)
     assert "test_only" in str(e.value)
+
+
+# --- definition holes need a human judged_as sign-off (holes.py) ---------------
+
+HUMAN_SIGNOFF = {"reviewer": "Le Chen", "date": "2026-10-07",
+                 "definitions": ["Foo.bar", "Foo.baz"],
+                 "basis": "bodies compared side by side"}
+
+
+def test_holes_without_sign_off_refused(lp, env):
+    add_comparator_config(env.repo_a, definition_names=("Foo.bar",))
+    comp = make_comparator_receipt(env.repo_a)
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    msg = str(e.value)
+    assert "definition_names is non-empty" in msg and "judged_as" in msg
+    assert "never by body" in msg
+
+
+def test_holes_with_human_sign_off_pass(lp, env):
+    add_comparator_config(env.repo_a, definition_names=("Foo.bar", "Foo.baz"),
+                          judged_as=HUMAN_SIGNOFF)
+    comp = make_comparator_receipt(env.repo_a)
+    validate(lp, env, env.repo_a, comp)  # no exception
+
+
+@pytest.mark.parametrize("reviewer", ["codex-brennan-root", "Claude Fable 5.1",
+                                      "gpt_6", "an AI assistant", "   "])
+def test_agent_or_blank_reviewer_refused(lp, env, reviewer):
+    add_comparator_config(env.repo_a, definition_names=("Foo.bar",),
+                          judged_as=dict(HUMAN_SIGNOFF, reviewer=reviewer))
+    comp = make_comparator_receipt(env.repo_a)
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "judged_as.reviewer" in str(e.value)
+
+
+def test_uncovered_hole_refused(lp, env):
+    add_comparator_config(env.repo_a, definition_names=("Foo.bar", "Foo.baz"),
+                          judged_as=dict(HUMAN_SIGNOFF, definitions=["Foo.bar"]))
+    comp = make_comparator_receipt(env.repo_a)
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "does not cover definition hole(s): Foo.baz" in str(e.value)
+
+
+def test_bad_sign_off_date_refused(lp, env):
+    add_comparator_config(env.repo_a, definition_names=("Foo.bar",),
+                          judged_as=dict(HUMAN_SIGNOFF, date="7 Oct 2026"))
+    comp = make_comparator_receipt(env.repo_a)
+    with pytest.raises(lp.Fail) as e:
+        validate(lp, env, env.repo_a, comp)
+    assert "ISO date" in str(e.value)
+
+
+def test_sign_off_is_judged_against_bytes_at_commit_not_receipt(lp, env):
+    # The receipt entry carries no judged_as; the rule reads the tracked config.
+    add_comparator_config(env.repo_a, definition_names=("Foo.bar", "Foo.baz"),
+                          judged_as=HUMAN_SIGNOFF)
+    comp = make_comparator_receipt(env.repo_a)
+    assert "judged_as" not in comp["configs"][0]
+    validate(lp, env, env.repo_a, comp)  # still accepted: the config at HEAD is signed
