@@ -59,7 +59,7 @@ def test_reference_branch_prefers_origin_head(lp, tmp_path):
     clone = tmp_path / "clone"
     _git(tmp_path, "clone", "-q", str(origin), str(clone))
     _git(clone, "checkout", "-q", "-b", "feature")
-    branch, tip = lp.reference_branch(clone)
+    branch, tip, _ = lp.reference_branch(clone)
     assert branch == "trunk"
     assert tip == _git(clone, "rev-parse", "refs/remotes/origin/trunk").stdout.strip()
 
@@ -68,6 +68,75 @@ def test_reference_branch_falls_back_to_head(lp, tmp_path):
     from .conftest import make_repo
     repo = make_repo(tmp_path / "r")
     _git(repo, "branch", "-M", "work")
-    branch, tip = lp.reference_branch(repo)
+    branch, tip, _ = lp.reference_branch(repo)
     assert branch is None
     assert tip == _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+
+# --- review pass: stale local branch vs fetched origin, master fallback
+
+import yaml
+
+from .conftest import base_pkg, make_repo, read_events
+
+
+def _clone_pair(tmp_path):
+    """A bare origin on main, the package checkout A, and a second clone B."""
+    seed = make_repo(tmp_path / "seed")
+    _git(seed, "branch", "-M", "main")
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "clone", "-q", "--bare", str(seed), str(origin))
+    a, b = tmp_path / "a", tmp_path / "b"
+    _git(tmp_path, "clone", "-q", str(origin), str(a))
+    _git(tmp_path, "clone", "-q", str(origin), str(b))
+    return origin, a, b
+
+
+def _registry_for(tmp_path, repo, commit):
+    rel = ".lean-receipts/r.json"
+    (repo / ".lean-receipts").mkdir(exist_ok=True)
+    (repo / rel).write_text(json.dumps({"commit": commit}))
+    reg = {"version": 2, "packages": {"pkg": base_pkg("pkg", repo, "verified-private",
+                                                      gate={"receipt": rel, "comparator": None})}}
+    p = tmp_path / "reg.yaml"
+    p.write_text(yaml.safe_dump(reg, sort_keys=False))
+    return p
+
+
+def test_fetched_origin_newer_than_stale_local_main_is_the_tip(lp, tmp_path, fake_gh, capsys):
+    origin, a, b = _clone_pair(tmp_path)
+    (b / "New.lean").write_text("-- new\n")
+    _git(b, "add", "New.lean")
+    _git(b, "commit", "-q", "-m", "new on main")
+    _git(b, "push", "-q", "origin", "main")
+    _git(a, "fetch", "-q", "origin")                       # local main stays behind
+    new_tip = _git(a, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+    assert _git(a, "rev-parse", "refs/heads/main").stdout.strip() != new_tip
+    _git(a, "checkout", "-q", "-b", "feature", "origin/main")
+    reg = _registry_for(tmp_path, a, new_tip)
+    assert lp.main(["--registry", str(reg), "audit", "--json"]) == 0
+    findings = json.loads(capsys.readouterr().out)["findings"]
+    assert not [f for f in findings if f["check"] == "receipt-drift"], findings
+    branch, tip, note = lp.reference_branch(a)
+    assert (branch, tip, note) == ("main", new_tip, "")
+
+
+def test_diverged_local_and_origin_prefers_origin_with_a_note(lp, tmp_path):
+    origin, a, b = _clone_pair(tmp_path)
+    for repo, f in ((b, "B.lean"), (a, "A.lean")):
+        (repo / f).write_text("-- x\n")
+        _git(repo, "add", f)
+        _git(repo, "commit", "-q", "-m", f)
+    _git(b, "push", "-q", "origin", "main")
+    _git(a, "fetch", "-q", "origin")
+    branch, tip, note = lp.reference_branch(a)
+    assert branch == "main" and tip == _git(a, "rev-parse", "refs/remotes/origin/main").stdout.strip()
+    assert "diverged" in note
+
+
+def test_master_only_repo_resolves_to_master(lp, tmp_path):
+    repo = make_repo(tmp_path / "m")
+    _git(repo, "branch", "-M", "master")
+    _git(repo, "checkout", "-q", "-b", "feature")
+    branch, tip, _ = lp.reference_branch(repo)
+    assert branch == "master" and tip == _git(repo, "rev-parse", "refs/heads/master").stdout.strip()

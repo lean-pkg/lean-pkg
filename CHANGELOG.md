@@ -101,7 +101,9 @@ change the registry schema or receipt format, always with a migration).
 
 - `lean-pkg audit` judges `receipt-drift` and `comparator-drift` against the
   package's reference branch (the remote default branch from
-  `refs/remotes/origin/HEAD`, else `main`, else HEAD; local refs only), not
+  `refs/remotes/origin/HEAD`, else `main`, else `master`, else HEAD; local refs
+  only; when the local branch and `origin/<b>` both exist, the tip that contains
+  the other, and origin with a note when they diverged), not
   the checkout's HEAD, so a checkout parked on a feature branch no longer
   reports false drift. The evidence-only-descendant rule is unchanged. When
   the checkout is on another branch, a `checkout-branch` finding says

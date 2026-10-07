@@ -256,21 +256,35 @@ def _rev(repo: pathlib.Path, ref: str) -> str | None:
     return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else None
 
 
-def reference_branch(repo: pathlib.Path) -> tuple[str | None, str | None]:
-    """The branch a package's evidence is judged against, and its local tip, from local refs only.
-    Order: the remote default branch (refs/remotes/origin/HEAD), else `main`; the tip is
-    refs/heads/<b>, else refs/remotes/origin/<b>. With neither, (None, HEAD).
+def _is_ancestor(repo: pathlib.Path, a: str, b: str) -> bool:
+    return git(repo, "merge-base", "--is-ancestor", a, b).returncode == 0
+
+
+def reference_branch(repo: pathlib.Path) -> tuple[str | None, str | None, str]:
+    """The branch a package's evidence is judged against, its tip, and a note; local refs only.
+    Order: the remote default branch (refs/remotes/origin/HEAD), else `main`, else `master`.
+    When both refs/heads/<b> and refs/remotes/origin/<b> exist, the tip is the one that contains
+    the other (a fetched origin ahead of a never-pulled local branch wins); when they diverged,
+    origin wins and the note says so. With no candidate branch, (None, HEAD, "").
     The registry has no per-package branch field, so none is consulted."""
     candidates = []
     p = git(repo, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
     if p.returncode == 0 and p.stdout.strip().startswith("refs/remotes/origin/"):
         candidates.append(p.stdout.strip()[len("refs/remotes/origin/"):])
-    candidates.append("main")
+    candidates += [b for b in ("main", "master") if b not in candidates]
     for b in candidates:
-        tip = _rev(repo, f"refs/heads/{b}") or _rev(repo, f"refs/remotes/origin/{b}")
-        if tip:
-            return b, tip
-    return None, git_head(repo)
+        local = _rev(repo, f"refs/heads/{b}")
+        remote = _rev(repo, f"refs/remotes/origin/{b}")
+        if not (local or remote):
+            continue
+        if not (local and remote) or local == remote:
+            return b, local or remote, ""
+        if _is_ancestor(repo, local, remote):
+            return b, remote, ""
+        if _is_ancestor(repo, remote, local):
+            return b, local, ""
+        return b, remote, f"local {b} and origin/{b} diverged; judged against origin/{b}"
+    return None, git_head(repo), ""
 
 
 def current_branch(repo: pathlib.Path) -> str:
@@ -1567,10 +1581,13 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
         ref_branch = ref_tip = None
         off_ref = ""
         if gate_rec.get("receipt") or gate_rec.get("comparator"):
-            ref_branch, ref_tip = reference_branch(repo)
+            ref_branch, ref_tip, ref_note = reference_branch(repo)
             here = current_branch(repo)
             if ref_branch and here != ref_branch:
                 off_ref = f"checkout on {here}; judged against {ref_branch}"
+            if ref_note:
+                off_ref = f"{off_ref}; {ref_note}" if off_ref else ref_note
+            if off_ref:
                 note("checkout-branch", name, off_ref)
         ref_label = ref_branch or "HEAD"
         suffix = f" ({off_ref})" if off_ref else ""
