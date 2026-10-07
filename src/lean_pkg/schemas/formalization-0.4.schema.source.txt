@@ -1,0 +1,15 @@
+formalization-0.4.schema.json -- vendored copy, byte-for-byte, of
+
+  https://raw.githubusercontent.com/mathlib-initiative/formalization.yaml/main/schema/v0.4.schema.json
+
+Repository: https://github.com/mathlib-initiative/formalization.yaml (Apache-2.0)
+Upstream commit: 99c678e569c7c4c0772db297c5ddd5e4c9b6322e (main, 2026-08-25T17:06:01Z;
+  the last commit touching schema/v0.4.schema.json at fetch time)
+Fetched: 2026-10-07
+SHA-256: 25ff6b25ca4511635aff4443cf20480c15e59dddf19591c730950b442ea54fce
+
+Upstream publishes a dispatcher, schema/formalization.schema.json, that routes on the
+file's `version` ("v0.3" | "v0.4"; latest when unset) to this leaf schema. lean-pkg
+emits `version: v0.4` and validates against the leaf directly, so no network and no
+`$ref` resolution are needed. Refresh: re-download, update the commit, date and hash
+above, and run the test suite (tests/test_formalization.py pins the hash).

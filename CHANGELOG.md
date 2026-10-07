@@ -9,6 +9,26 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `lean-pkg formalization NAME [--write] [--out PATH] [--force] [--author NAME]`:
+  render the package's `formalization.yaml` (mathlib-initiative schema v0.4,
+  the file Palomar reads) from the registry and the repository at HEAD.
+  Derived keys are regenerated every run (`project.name`, `project.license`,
+  `automation.notes`, `status.sorry_count`/`axioms`/`evidence` from the gate
+  receipt, `status.main_results` from every tracked comparator configuration
+  with `judged_as` carried for definition holes, `alignment` from
+  `claims.yaml`); every other key is kept from the existing file, seeded on
+  first render from registry data (authors from `consent[]` owners/authors,
+  Mathlib `builds-on`) or with a marked `[PLACEHOLDER]` and a stderr warning.
+  Nothing is invented: the registry holds no paper metadata, so `sources` is
+  a placeholder until a human fills it. `--write` is idempotent, refuses a
+  differing file without `--force`, and sets `formalization_yaml` through the
+  `update` path. Validated against the vendored v0.4 JSON schema
+  (`src/lean_pkg/schemas/`, upstream commit `99c678e5`, fetched 2026-10-07)
+  with `jsonschema` when importable, else a structural check (docs/formalization.md).
+- `lean-pkg audit`: `formalization-missing` and `formalization-drift`
+  findings for packages whose `formalization_yaml` is set (the file no longer
+  equals what the generator emits); `audit` never rewrites it.
+
 - Definition holes need a human sign-off: a comparator configuration with a
   non-empty `definition_names` is refused unless it carries
   `judged_as {reviewer, date, definitions ⊇ definition_names, basis?}` naming

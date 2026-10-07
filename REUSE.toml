@@ -7,3 +7,12 @@ path = ["**"]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026 Le Chen"
 SPDX-License-Identifier = "Apache-2.0"
+
+# Vendored, byte-for-byte: the mathlib-initiative formalization.yaml v0.4 JSON schema
+# (provenance in src/lean_pkg/schemas/formalization-0.4.schema.source.txt). A later
+# table overrides the aggregate one above for the paths it names.
+[[annotations]]
+path = ["src/lean_pkg/schemas/formalization-0.4.schema.json"]
+precedence = "override"
+SPDX-FileCopyrightText = "mathlib-initiative/formalization.yaml contributors"
+SPDX-License-Identifier = "Apache-2.0"

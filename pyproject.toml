@@ -32,7 +32,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-lean_pkg = ["scripts/*.sh"]
+lean_pkg = ["scripts/*.sh", "schemas/*.json", "schemas/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

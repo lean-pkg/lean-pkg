@@ -28,7 +28,7 @@ The authoritative, machine-oriented version of this page is
 | `gate NAME` | validate a lower-tier receipt; `gate-pending → verified-private`; identical re-gate is a no-op | `--receipt PATH` `[--comparator PATH]` |
 | `comparator NAME` | attach comparator evidence to a gated package (event `comparator-attached`), or validate only | `--receipt PATH` `[--check]` |
 | `promote NAME` | promotion checklist; dry run unless `--yes`; the flip is one-way | `[--yes]` |
-| `audit` | sweep expired leases; reconcile GitHub visibility and archived flag; receipt, comparator, toolchain drift | `[--fix]` |
+| `audit` | sweep expired leases; reconcile GitHub visibility and archived flag; receipt, comparator, toolchain, formalization.yaml drift | `[--fix]` |
 | `validate` | schema, enum, and history sanity; exit 0 or 1 | |
 | `llms` | print the agent contract | |
 | `wiki` | render a Markdown status page | `[--out PATH]` `[--candidates PATH]` |
@@ -39,6 +39,7 @@ The authoritative, machine-oriented version of this page is
 | `claims sync NAME` | read `claims.yaml` (schema `claims/1`) at `HEAD` of the checkout, check every `decl` occurs in its `file`, cache the claims and the commit in the registry; event `claims-synced`; identical re-sync is a no-op | |
 | `claims list [NAME]` | table of cached claims: id, kind, status, trust (derived from the receipts), pin, declaration | |
 | `claims check [NAME]` | re-validate cached claims (schema, unique ids, acyclic supersession, declarations at the synced commit); exit 0 or 1 | |
+| `formalization NAME` | render `formalization.yaml` (mathlib-initiative v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout by default; `--write` writes `<repo>/<formalization_yaml or formalization.yaml>`, is a no-op when equal, refuses a differing file without `--force`, then sets the registry pointer (event `updated`); validated against the vendored schema; see [formalization.yaml](formalization.md) | `[--write]` `[--out PATH]` `[--force]` `[--author NAME]…` `[--agent A]` |
 | `search TERM` | prior-art search in the fixed order registry, index, loogle, leansearch, reservoir, palomar, github; each source `ok` or `skipped: <reason>`; exit 0 even with zero hits; see [Prior-art search](prior-art.md) | `[--package NAME]` `[--offline]` `[--sources a,b,c]` `[--record]` `[--repo-dir PATH]` `[--index PATH]` |
 
 `comparator-receipt [--project DIR] [--check SCRIPT]` is the separate console
@@ -63,6 +64,8 @@ Any `✗` refuses; `WARN` does not.
 
 `lease-expired` (cleared, event appended), `missing-path`, `toolchain-drift`,
 `toolchain-missing`, `receipt-missing`, `receipt-drift`, `comparator-missing`,
-`comparator-drift`, `visibility-mismatch`, `archived-upstream`, and `warn`
-for GitHub queries that could not be made. Only `--fix` mutates visibility
+`comparator-drift`, `formalization-missing`, `formalization-drift` (the written
+`formalization.yaml` no longer equals what `lean-pkg formalization` emits; see
+[formalization.yaml](formalization.md)), `visibility-mismatch`, `archived-upstream`,
+and `warn` for GitHub queries that could not be made. Only `--fix` mutates visibility
 and archived state; lease sweeps always apply.
