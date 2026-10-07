@@ -2626,13 +2626,14 @@ def package_dir() -> pathlib.Path:
 
 
 def install_check(d: pathlib.Path) -> tuple[str, str]:
-    """(level, detail) for the install: editable when the package lives inside a git checkout,
+    """(level, detail) for the install: editable when the package's __init__.py is tracked by a git checkout,
     with HEAD, branch and behind/ahead against origin/<branch> from local refs only (never fetched)."""
     if shutil.which("git") is None:
         return "warn", f"{d} (git not on PATH; install kind unknown)"
     top = git(d, "rev-parse", "--show-toplevel")
-    if top.returncode != 0 or not top.stdout.strip():
-        return "ok", f"installed {d}"
+    tracked = git(d, "ls-files", "--error-unmatch", "__init__.py").returncode == 0
+    if top.returncode != 0 or not top.stdout.strip() or not tracked:
+        return "ok", f"installed {d}"   # not tracked: e.g. site-packages that sit inside a checkout
     root = pathlib.Path(top.stdout.strip())
     short = git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?"
     br = git(root, "symbolic-ref", "-q", "--short", "HEAD")

@@ -82,11 +82,11 @@ def test_doctor_editable_install_reports_branch_and_counts_without_fetching(lp, 
     _git(repo, "branch", "-M", "main")
     base = _git(repo, "rev-parse", "HEAD").stdout.strip()
     _git(repo, "update-ref", "refs/remotes/origin/main", base)
-    (repo / "x.txt").write_text("x\n")
-    _git(repo, "add", "x.txt")
-    _git(repo, "commit", "-q", "-m", "local work")
     pkgdir = repo / "src" / "lean_pkg"
     pkgdir.mkdir(parents=True)
+    (pkgdir / "__init__.py").write_text("")
+    _git(repo, "add", "src/lean_pkg/__init__.py")
+    _git(repo, "commit", "-q", "-m", "local work")
     monkeypatch.setattr(lp, "package_dir", lambda: pkgdir)
     calls = []
     real_git = lp.git
@@ -144,3 +144,15 @@ def test_doctor_exits_1_on_unsupported_schema_version_and_docs_agree(lp, env, fa
     assert rule in (ROOT / "CHANGELOG.md").read_text().replace("\n  ", " ")
     for text in (lp.LLMS_TEXT, (ROOT / "docs" / "cli.md").read_text(), (ROOT / "CHANGELOG.md").read_text()):
         assert "only when the registry is unreadable" not in text.replace("\n  ", " ").replace("\n          ", " ")
+
+
+def test_untracked_package_inside_a_git_checkout_is_not_editable(lp, env, fake_path, tmp_path, monkeypatch, capsys):
+    """e.g. a virtualenv's site-packages that happens to sit inside some git checkout."""
+    repo = make_repo(tmp_path / "outer")
+    pkgdir = repo / ".venv" / "lib" / "site-packages" / "lean_pkg"
+    pkgdir.mkdir(parents=True)
+    (pkgdir / "__init__.py").write_text("")
+    monkeypatch.setattr(lp, "package_dir", lambda: pkgdir)
+    rc, cap = _doctor(lp, env, capsys)
+    line = next(x for x in cap.out.splitlines() if " install:" in x)
+    assert line.startswith("ok install: installed ") and "editable" not in line

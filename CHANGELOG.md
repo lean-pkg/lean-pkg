@@ -69,8 +69,8 @@ change the registry schema or receipt format, always with a migration).
 
 - `lean-pkg --version` prints `lean-pkg <version>` and exits 0.
 - `lean-pkg doctor [--json]`: one `ok`/`warn`/`n/a` line each for the
-  version, the install (editable checkouts add short HEAD, branch, and
-  behind/ahead counts against `origin/<branch>` from local refs only, never
+  version, the install (an editable checkout, one whose git index tracks the
+  package, adds short HEAD, branch, and behind/ahead counts against `origin/<branch>` from local refs only, never
   fetched), the registry and its schema version, the event log, the index and
   its entry count, `lake`/`elan`/`git`/`gh`/`reuse`/`bwrap`/`comparator`/`nanoda`
   on PATH, and the Python version. Exit 1 when the registry is unreadable or
