@@ -121,6 +121,10 @@ configs[]       MUST list exactly the comparator*.json / comparator/config*.json
                 (no omissions, no extras). Per config: path, sha256 of its HEAD bytes; challenge_module,
                 solution_module, theorem_names[] (non-empty), definition_names[], permitted_axioms[]
                 (subset of gate.axioms_allowed) — each MUST equal the config file at HEAD;
+                a config with non-empty definition_names MUST carry judged_as {reviewer (a human, never
+                a model/agent token), date YYYY-MM-DD, definitions ⊇ definition_names, basis?} in the
+                file at HEAD — comparator never compares hole bodies (checked by the runner before a run
+                and by every validator; judged_as is copied into the entry when present);
                 log MUST be .lean-receipts/<commit12>-comparator-<cfgname>.log (cfgname = path minus
                 .json, '/' -> '_'); log_sha256; result "pass". The log must contain the full line
                 "Your solution is okay!" (both mechanisms; `lake comparator` prints it last, after the

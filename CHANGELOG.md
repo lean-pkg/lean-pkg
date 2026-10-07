@@ -9,10 +9,33 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- Definition holes need a human sign-off: a comparator configuration with a
+  non-empty `definition_names` is refused unless it carries
+  `judged_as {reviewer, date, definitions ⊇ definition_names, basis?}` naming
+  a human (model/agent tokens refused). Enforced by `comparator-check.sh`, by
+  `comparator-receipt` before anything is built (nothing written), and by
+  every validator against the file at the bound commit. The runner copies
+  `judged_as` into the receipt entry when present (optional field; old
+  receipts still validate). Rationale: comparator compares holes by name and
+  type only, never by body (`src/lean_pkg/holes.py`, docs/comparator.md).
+- `comparator-check.sh --configs <glob>` (repeatable discovery override) and
+  `--lint-configs` (configuration rules only, jq-only, no build).
+- `comparator-check.sh`: `LEAN4EXPORT_ALLOW_TOOLCHAIN_MISMATCH=1` with
+  `LEAN4EXPORT_COMMIT` builds lean4export under the project toolchain in a
+  dedicated checkout and verifies the binary's reported Lean version, for
+  point releases lean4export never tagged (v4.34.1); the deviation is printed
+  on its own `== lean4export toolchain override:` line.
+
 - `scripts/private-boundary-check.sh --history` and `make history`: scan every
   blob and commit message reachable from any ref (the public-flip prerequisite).
 - REUSE 3.3 compliance: `REUSE.toml`, `LICENSES/Apache-2.0.txt`, `make reuse`
   (part of `make check`; skipped with a notice when the tool is absent).
+
+### Changed
+
+- The vendored `scripts/comparator-check.sh` now carries the lab additions
+  above and is no longer byte-for-byte the Palomar verifier script; tool pins
+  are unchanged.
 
 ### Fixed
 

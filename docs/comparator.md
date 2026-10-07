@@ -49,6 +49,62 @@ each configuration it:
 
 All configurations must pass; the script exits non-zero otherwise.
 
+## Definition holes need a human sign-off
+
+`definition_names` lists challenge definitions whose body the solution may
+supply. comparator checks such a hole by name, universes, type and safety only
+(`Comparator/Compare.lean`), never by body, and its README says hole solutions
+must be checked by an additional, potentially human, verifier. So a
+configuration with a non-empty `definition_names` is refused — by
+`comparator-check.sh`, by `comparator-receipt` before anything is built, and by
+`gate --comparator`, `comparator` and `promote` against the file at the bound
+commit — unless it records that verifier:
+
+```json
+{
+  "definition_names": ["MyProof.witness"],
+  "judged_as": {
+    "reviewer": "Le Chen",
+    "date": "2026-10-07",
+    "definitions": ["MyProof.witness"],
+    "basis": "solution body compared with the challenge statement side by side"
+  }
+}
+```
+
+`reviewer` must be a non-empty human name; a value containing a model or agent
+token (`claude`, `codex`, `gpt`, `opus`, `sonnet`, `fable`, `agent`, `bot`,
+`opencode`, `assistant`, `llm`, `ai`, as a whole word or `-`/`_` token, any
+case) is refused. `date` is `YYYY-MM-DD`. `definitions` must cover every
+`definition_names` entry. `basis` is free text. This is a declaration, not a
+verification: the tool records who signed, it cannot compare the bodies.
+comparator's `Config` derives `Lean.FromJson`, which ignores unknown fields, so
+`judged_as` may stay in the file; `comparator-check.sh` strips it from the copy
+it hands to comparator anyway. The runner copies `judged_as` into the receipt's
+config entry when present.
+
+Background: OpenAI's 2026-10-06 mathematics release lists 42 concrete challenge
+definitions as holes across 9 of its 405 configurations, one of them a whole
+`MainStatement : Prop`, with no reviewer named.
+
+## `comparator-check.sh` options and overrides
+
+- `--configs <glob>` (repeatable, relative to the project): check these files
+  instead of the default `comparator*.json` / `comparator/config*.json`.
+- `--lint-configs`: only the configuration rules above (axiom subset,
+  definition-hole sign-off); needs just `jq`, no toolchain or build.
+- `LEAN4EXPORT_COMMIT=<40-hex>`: use this lean4export source instead of the
+  release tag named after the project's Lean version.
+- `LEAN4EXPORT_ALLOW_TOOLCHAIN_MISMATCH=1` (with `LEAN4EXPORT_COMMIT`): when
+  that source pins a different Lean, build it under the project toolchain in a
+  dedicated checkout and verify the binary reports the project's Lean version.
+  For a point release lean4export never tagged, e.g. Lean v4.34.1 (tags jump
+  v4.34.0 → v4.35.0-rc1), use the nearest lower tag's commit:
+  `LEAN4EXPORT_COMMIT=076e8e57707e813375e8f9da8bf989799ace9680` (v4.34.0)
+  built under v4.34.1 reports version 4.34.1. The deviation is printed on a
+  `== lean4export toolchain override:` line in every log, next to the usual
+  `== lean4export @ <commit>` pin line the runner parses.
+
 ## What `comparator-receipt` adds
 
 The runner wraps the script so that evidence is either complete or absent:
