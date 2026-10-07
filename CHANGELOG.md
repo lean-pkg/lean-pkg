@@ -58,6 +58,13 @@ change the registry schema or receipt format, always with a migration).
   JSON payload. `--refuse-private` turns the warning into a refusal (exit 1,
   nothing copied).
 
+- `lean-pkg audit --toolchain-floor VERSION` (env `LEAN_PKG_TOOLCHAIN_FLOOR`,
+  default `leanprover/lean4:v4.35.0-rc2`, Palomar's floor): a
+  `below-toolchain-floor` finding for every package whose `lean_toolchain` is
+  older, except `scratch` and `archived` ones. Versions compare as
+  `vMAJOR.MINOR.PATCH[-rcN]` with an rc older than its release; nightly and
+  other strings are reported as `toolchain-unparsed`, never compared.
+
 ### Changed
 
 - The vendored `scripts/comparator-check.sh` now carries the lab additions

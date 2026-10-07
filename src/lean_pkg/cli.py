@@ -1462,14 +1462,46 @@ def do_promote(reg_path, reg, events_p, name, yes) -> tuple[list[str], int, dict
 # --------------------------------------------------------------------------
 # audit
 
+TOOLCHAIN_FLOOR_ENV = "LEAN_PKG_TOOLCHAIN_FLOOR"
+DEFAULT_TOOLCHAIN_FLOOR = "leanprover/lean4:v4.35.0-rc2"   # Palomar's floor (lake comparator)
+FLOOR_EXEMPT_STATUSES = ("scratch", "archived")
+_TOOLCHAIN_RE = re.compile(r"^(?:leanprover/lean4:)?v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$")
+
+
+def parse_lean_toolchain(text) -> tuple[int, int, int, int, int] | None:
+    """Sort key for a Lean toolchain string `[leanprover/lean4:]vMAJOR.MINOR.PATCH[-rcN]`,
+    or None (unparsed: nightlies, channel names, anything else are never compared).
+    An rc sorts before the release of the same version: (M, m, p, 0, N) < (M, m, p, 1, 0)."""
+    m = _TOOLCHAIN_RE.match(str(text or "").strip())
+    if not m:
+        return None
+    major, minor, patch, rc = m.groups()
+    return (int(major), int(minor), int(patch)) + ((0, int(rc)) if rc is not None else (1, 0))
+
+
+def resolve_toolchain_floor(flag: str | None) -> str:
+    floor = flag or os.environ.get(TOOLCHAIN_FLOOR_ENV, "").strip() or DEFAULT_TOOLCHAIN_FLOOR
+    if parse_lean_toolchain(floor) is None:
+        raise UsageError(f"toolchain floor {floor!r} is not [leanprover/lean4:]vMAJOR.MINOR.PATCH[-rcN]")
+    return floor
+
+
 def render_finding(f: dict) -> str:
     return f"{f['check']:<20}{f['name']}: {f['detail']}"
 
 
-def audit_registry(reg_path, reg, events_p, fix: bool = False) -> list[dict]:
+def audit_registry(reg_path, reg, events_p, fix: bool = False,
+                   toolchain_floor: str | None = None) -> list[dict]:
     """Structured findings: {"check", "name", "detail", "fixed"}. May mutate
-    (lease sweeps always; visibility/archive reconciliation only with fix)."""
+    (lease sweeps always; visibility/archive reconciliation only with fix).
+    toolchain_floor None: the environment's floor, else the default (the TUI path)."""
     findings: list[dict] = []
+    if toolchain_floor is None:
+        try:
+            toolchain_floor = resolve_toolchain_floor(None)
+        except UsageError:
+            toolchain_floor = DEFAULT_TOOLCHAIN_FLOOR
+    floor_key = parse_lean_toolchain(toolchain_floor)
     now = dt.datetime.now(dt.timezone.utc)
     mutated = False
 
@@ -1498,6 +1530,14 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False) -> list[dict]:
             note("palomar-preflight-missing", name,
                  "upstream_target=palomar but no palomar-preflight-pass recorded "
                  "(lean-pkg record NAME palomar-preflight-pass --field commit=… --field run=…)")
+        tc_reg = str(pkg.get("lean_toolchain") or "").strip()
+        if tc_reg and floor_key and pkg.get("status") not in FLOOR_EXEMPT_STATUSES:
+            key = parse_lean_toolchain(tc_reg)
+            if key is None:
+                note("toolchain-unparsed", name,
+                     f"{tc_reg} is not a release or rc toolchain; not compared with the floor {toolchain_floor}")
+            elif key < floor_key:
+                note("below-toolchain-floor", name, f"{tc_reg} is older than the floor {toolchain_floor}")
         repo = repo_path(pkg) if pkg.get("local_path") else None
         if repo is None or not repo.is_dir():
             note("missing-path", name, str(repo))
@@ -2229,7 +2269,8 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
   promote refuses without a byte-valid comparator receipt bound to HEAD.
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
 audit     sweep expired leases; reconcile gh visibility; receipt/comparator/toolchain/formalization.yaml drift. --fix applies gh -> registry.
-  ex: lean-pkg audit --json
+  ex: lean-pkg audit --json   [--toolchain-floor VERSION] (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2,
+  Palomar's floor): finding below-toolchain-floor (rc < release; nightly -> toolchain-unparsed; scratch/archived exempt).
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
@@ -2477,8 +2518,9 @@ def cmd_promote(args) -> int:
 
 def cmd_audit(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
+    floor = resolve_toolchain_floor(args.toolchain_floor)
     findings = audit_registry(reg_path, load_registry(reg_path), events_p,
-                              fix=args.fix)
+                              fix=args.fix, toolchain_floor=floor)
     if args.json_out:
         print_json({"ok": True, "fix": args.fix, "findings": findings})
     else:
@@ -2663,6 +2705,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("audit", help="sweep expired leases; reconcile gh; drift checks")
     s.add_argument("--fix", action="store_true",
                    help="update registry visibility/archive state from gh")
+    s.add_argument("--toolchain-floor", default=None, metavar="VERSION",
+                   help=f"oldest acceptable lean_toolchain (default: ${TOOLCHAIN_FLOOR_ENV}, "
+                        f"else {DEFAULT_TOOLCHAIN_FLOOR})")
     add_json(s)
     s.set_defaults(fn=cmd_audit)
 

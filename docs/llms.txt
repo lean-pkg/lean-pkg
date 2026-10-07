@@ -69,7 +69,8 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
   promote refuses without a byte-valid comparator receipt bound to HEAD.
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
 audit     sweep expired leases; reconcile gh visibility; receipt/comparator/toolchain/formalization.yaml drift. --fix applies gh -> registry.
-  ex: lean-pkg audit --json
+  ex: lean-pkg audit --json   [--toolchain-floor VERSION] (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2,
+  Palomar's floor): finding below-toolchain-floor (rc < release; nightly -> toolchain-unparsed; scratch/archived exempt).
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md

@@ -28,7 +28,7 @@ The authoritative, machine-oriented version of this page is
 | `gate NAME` | validate a lower-tier receipt; `gate-pending → verified-private`; identical re-gate is a no-op; receipt bytes are scanned for private local paths before the copy into `.lean-receipts/` (stderr `WARN` naming the field, `private_strings` in JSON) | `--receipt PATH` `[--comparator PATH]` `[--refuse-private]` (refuse, exit 1, nothing copied) |
 | `comparator NAME` | attach comparator evidence to a gated package (event `comparator-attached`), or validate only; same private-string scan as `gate` | `--receipt PATH` `[--check]` `[--refuse-private]` |
 | `promote NAME` | promotion checklist; dry run unless `--yes`; the flip is one-way | `[--yes]` |
-| `audit` | sweep expired leases; reconcile GitHub visibility and archived flag; receipt, comparator, toolchain, formalization.yaml drift | `[--fix]` |
+| `audit` | sweep expired leases; reconcile GitHub visibility and archived flag; receipt, comparator, toolchain, formalization.yaml drift; toolchain floor | `[--fix]` `[--toolchain-floor VERSION]` |
 | `validate` | schema, enum, and history sanity; exit 0 or 1 | |
 | `llms` | print the agent contract | |
 | `wiki` | render a Markdown status page | `[--out PATH]` `[--candidates PATH]` |
@@ -70,5 +70,12 @@ fetched), `checkout-branch` (informational: the checkout is on another branch th
 one judged), `formalization-missing`, `formalization-drift` (the written
 `formalization.yaml` no longer equals what `lean-pkg formalization` emits; see
 [formalization.yaml](formalization.md)), `visibility-mismatch`, `archived-upstream`,
-and `warn` for GitHub queries that could not be made. Only `--fix` mutates visibility
+`below-toolchain-floor` (the registry's `lean_toolchain` is older than the floor),
+`toolchain-unparsed` (a nightly or other string that is not `vMAJOR.MINOR.PATCH[-rcN]`;
+never compared), and `warn` for GitHub queries that could not be made.
+
+The toolchain floor is `--toolchain-floor VERSION`, else the environment variable
+`LEAN_PKG_TOOLCHAIN_FLOOR`, else `leanprover/lean4:v4.35.0-rc2` (Palomar's floor: the first
+toolchain with `lake comparator`). An rc is older than the release of the same version.
+`scratch` and `archived` packages are exempt. An unparsable floor is a usage error (exit 2). Only `--fix` mutates visibility
 and archived state; lease sweeps always apply.
