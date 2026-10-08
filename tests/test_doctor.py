@@ -12,7 +12,7 @@ import pytest
 
 from .conftest import _git, make_repo
 
-TOOLS = ("lake", "elan", "git", "gh", "reuse", "bwrap", "comparator", "nanoda")
+TOOLS = ("lake", "lean", "elan", "git", "gh", "reuse", "bwrap", "comparator", "nanoda", "go", "cargo", "jq")
 
 
 def test_version_flag(lp, capsys):
@@ -25,9 +25,10 @@ def test_version_flag(lp, capsys):
 
 @pytest.fixture()
 def fake_path(tmp_path, monkeypatch):
-    """PATH holds only git (real, symlinked) and fake lake + bwrap."""
-    bindir = tmp_path / "bin"
-    bindir.mkdir()
+    """PATH holds only git (real, symlinked) and fake lake + bwrap, in a fake elan home's bin."""
+    bindir = tmp_path / "elan" / "bin"
+    bindir.mkdir(parents=True)
+    monkeypatch.setenv("ELAN_HOME", str(tmp_path / "elan"))
     (bindir / "git").symlink_to(shutil.which("git"))
     for t in ("lake", "bwrap"):
         f = bindir / t
@@ -156,3 +157,51 @@ def test_untracked_package_inside_a_git_checkout_is_not_editable(lp, env, fake_p
     rc, cap = _doctor(lp, env, capsys)
     line = next(x for x in cap.out.splitlines() if " install:" in x)
     assert line.startswith("ok install: installed ") and "editable" not in line
+
+
+def _exe(path):
+    path.write_text("#!/bin/sh\nexit 0\n")
+    path.chmod(0o755)
+
+
+def _line(cap, tool):
+    return next(x for x in cap.out.splitlines() if f" tool {tool}:" in x)
+
+
+def test_doctor_warns_when_lake_or_lean_on_path_is_not_elans(lp, env, fake_path, installed, tmp_path,
+                                                            monkeypatch, capsys):
+    distro = tmp_path / "usr-bin"
+    distro.mkdir()
+    for t in ("lake", "lean"):
+        _exe(distro / t)
+    _exe(fake_path / "lean")                       # elan's proxies exist, but come later on PATH
+    monkeypatch.setenv("PATH", f"{distro}{os.pathsep}{fake_path}")
+    rc, cap = _doctor(lp, env, capsys)
+    assert rc == 0, cap.err
+    for t in ("lake", "lean"):
+        line = _line(cap, t)
+        assert line.startswith(f"warn tool {t}: {distro / t} is not elan's ({fake_path / t})"), line
+        assert "lean-toolchain" in line and f"put {fake_path} first on PATH" in line
+
+
+def test_doctor_accepts_elans_proxy_directly_or_through_a_symlink(lp, env, fake_path, installed, tmp_path,
+                                                                  monkeypatch, capsys):
+    _exe(fake_path / "lean")
+    links = tmp_path / "links"
+    links.mkdir()
+    (links / "lake").symlink_to(fake_path / "lake")   # e.g. /usr/local/bin/lake -> ~/.elan/bin/lake
+    monkeypatch.setenv("PATH", f"{links}{os.pathsep}{fake_path}")
+    rc, cap = _doctor(lp, env, capsys)
+    assert rc == 0, cap.err
+    assert _line(cap, "lake") == f"ok tool lake: {links / 'lake'}"
+    assert _line(cap, "lean") == f"ok tool lean: {fake_path / 'lean'}"
+
+
+def test_doctor_reports_go_cargo_jq_for_comparator_receipt(lp, env, fake_path, installed, capsys):
+    _exe(fake_path / "jq")
+    rc, cap = _doctor(lp, env, capsys)
+    assert rc == 0, cap.err
+    assert _line(cap, "jq") == f"ok tool jq: {fake_path / 'jq'}"
+    for t in ("go", "cargo"):
+        line = _line(cap, t)
+        assert line.startswith(f"n/a tool {t}: not on PATH") and "comparator-receipt" in line, line

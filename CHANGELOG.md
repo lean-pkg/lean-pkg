@@ -9,6 +9,9 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `lean-pkg doctor` also reports `lean`, `go`, `cargo` and `jq`, and warns
+  when the `lake` or `lean` on PATH is not elan's proxy (`$ELAN_HOME/bin`,
+  default `~/.elan/bin`), since such a binary ignores `lean-toolchain`.
 - Index: `markovprocess-pilot` re-pinned at `9bb873e7aa31` after its history
   was cleaned and the repository made public; fresh lower-tier and comparator
   receipts (toolchain mechanism). Every index entry is now public and passes

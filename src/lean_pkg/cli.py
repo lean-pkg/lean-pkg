@@ -2618,8 +2618,27 @@ def cmd_audit(args) -> int:
 # --------------------------------------------------------------------------
 # doctor
 
-DOCTOR_TOOLS = ("lake", "elan", "git", "gh", "reuse", "bwrap", "comparator", "nanoda")
+DOCTOR_TOOLS = ("lake", "lean", "elan", "git", "gh", "reuse", "bwrap", "comparator", "nanoda",
+                "go", "cargo", "jq")
 DOCTOR_REQUIRED_TOOLS = ("lake", "elan", "git")   # missing -> warn; the others are optional (n/a)
+DOCTOR_COMPARATOR_TOOLS = ("go", "cargo", "jq")   # needed only to build the legacy comparator tools
+DOCTOR_ELAN_TOOLS = ("lake", "lean")              # must be elan's, or lean-toolchain is ignored
+
+
+def elan_bin() -> pathlib.Path:
+    """elan's proxy directory: $ELAN_HOME/bin, else ~/.elan/bin."""
+    home = os.environ.get("ELAN_HOME", "").strip()
+    return (pathlib.Path(home) if home else pathlib.Path.home() / ".elan") / "bin"
+
+
+def is_elan_proxy(where: str, tool: str) -> bool:
+    """True when `where` (a PATH hit for `tool`) is elan's proxy: it sits in elan's bin directory, or
+    resolves to the same file as the proxy there (e.g. a symlink to it)."""
+    proxy = elan_bin() / tool
+    p = pathlib.Path(where)
+    if p.parent.resolve() == proxy.parent.resolve():
+        return True
+    return proxy.exists() and p.resolve() == proxy.resolve()
 
 
 def package_dir() -> pathlib.Path:
@@ -2687,8 +2706,13 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
         add("n/a", "index", f"{root} (not present)")
     for t in DOCTOR_TOOLS:
         where = shutil.which(t)
-        if where:
+        if where and t in DOCTOR_ELAN_TOOLS and not is_elan_proxy(where, t):
+            add("warn", f"tool {t}", f"{where} is not elan's ({elan_bin() / t}); a {t} outside elan ignores "
+                f"each project's lean-toolchain: put {elan_bin()} first on PATH")
+        elif where:
             add("ok", f"tool {t}", where)
+        elif t in DOCTOR_COMPARATOR_TOOLS:
+            add("n/a", f"tool {t}", "not on PATH (needed by comparator-receipt to build the legacy comparator tools)")
         else:
             add("warn" if t in DOCTOR_REQUIRED_TOOLS else "n/a", f"tool {t}", "not on PATH")
     add("ok", "python", f"{sys.version.split()[0]} ({sys.executable})")
