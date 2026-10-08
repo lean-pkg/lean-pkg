@@ -18,6 +18,18 @@ uv tool install git+https://github.com/lean-pkg/lean-pkg.git
 python3 -m pip install -e '.[test]'
 ```
 
+While the repository is private, the `https` URL above needs GitHub
+credentials. Either run `gh auth setup-git` once, or install over SSH:
+
+```bash
+pipx install git+ssh://git@github.com/lean-pkg/lean-pkg.git
+```
+
+The documentation site is offline while the repository is private; the same
+pages are the Markdown files under `docs/` on GitHub. `lean-pkg doctor`
+exits 1 until a registry exists (see below); that is expected on a fresh
+install.
+
 External tools, needed only by some commands:
 
 | Tool | Needed for |
@@ -25,7 +37,7 @@ External tools, needed only by some commands:
 | `git` | everything that reads a package repository |
 | `gh`, authenticated (`gh auth login` or `GH_TOKEN`) | `promote` and `audit`; GitHub is only the visibility mirror |
 | `reuse` (optional) | the REUSE lint line of the promotion checklist |
-| Linux, `elan` (`lean`, `lake`), `go`, `cargo`, `jq` | `comparator-receipt`; the first run builds the pinned comparator toolchain into `~/.cache/lean-ci-tools` (about 25 minutes cold, seconds afterwards) |
+| Linux, `elan` (`lean`, `lake`), `go`, `cargo`, `jq` | `comparator-receipt`. Linux only: the legacy mechanism sandboxes with landrun (Landlock) and the toolchain mechanism with `bwrap`; macOS is not supported. The first run builds the pinned comparator tools into `~/.cache/lean-ci-tools` (override with `TOOLS_DIR`): from about 2 minutes on a fast machine to about 25 minutes cold, seconds afterwards. Budget several GB of disk for the Lean toolchain and the Mathlib cache |
 
 ## Configuration
 
@@ -112,6 +124,24 @@ Replace `you/my-proof` with your repository.
   Solution.lean         the same theorem names and statements, with proofs
   comparator.json
 ```
+
+`lakefile.toml` must declare a library for each of the two modules, or
+`lake build Challenge` fails with `unknown target`:
+
+```toml
+[[lean_lib]]
+name = "Challenge"
+
+[[lean_lib]]
+name = "Solution"
+```
+
+For several challenges, keep them under one directory and declare it once,
+for example `Audit/<Name>/Challenge.lean` with
+`[[lean_lib]] name = "Audit"` and `globs = ["Audit.+"]`; the configuration
+then names the modules `Audit.<Name>.Challenge` and `Audit.<Name>.Solution`.
+[The comparator tier](comparator.md#writing-the-challenge-and-the-solution)
+explains what goes in each file.
 
 `comparator.json` uses the Palomar layout:
 

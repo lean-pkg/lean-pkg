@@ -32,6 +32,95 @@ This is the [Palomar submission layout](https://github.com/PalomarRegistry/Palom
 Keeping it means a package that passes here is also in the shape Palomar
 accepts.
 
+## Writing the Challenge and the Solution
+
+The comparator proves one thing: each `Solution` theorem has exactly the type
+of its `Challenge` namesake and is proved from the permitted axioms. Whether
+the `Challenge` says what the paper says is a human judgement. Write it for a
+reader who trusts Mathlib and nothing else.
+
+**Challenge** (trusted, read by people):
+
+- `import Mathlib` and nothing from your project. Every object in a statement
+  is written in Mathlib's vocabulary: unfold your project's definitions into
+  Mathlib terms, or quantify over any object with the Mathlib property that
+  characterizes it.
+- Each proof is `sorry`. Keep `definition_names` empty; a non-empty list
+  needs a named human sign-off (next section).
+- A docstring above each theorem says in words what it claims and which
+  result of the paper it is.
+
+**Solution** (untrusted, checked by machine):
+
+- Imports Mathlib and your project, and any other dependency the proofs need
+  (a non-Mathlib library may appear here, never in the Challenge).
+- Restates each Challenge theorem with the same name and the same type, and
+  proves it by bridging to your project's theorem: small lemmas showing that
+  the Mathlib-vocabulary objects of the Challenge equal your project's
+  definitions, then a rewrite and an application of the project result.
+  Helper lemmas go in a namespace of their own so they cannot collide with a
+  Challenge name.
+- A project result that is a `def` (data) rather than a `theorem` gets a
+  theorem stating the property you actually certify; list that theorem.
+
+**Configuration**: `theorem_names` lists the Challenge names, fully
+qualified. One configuration per claim, or per small group of claims, keeps
+failures readable. Check the configurations alone, with no build, from the
+project directory, using the script in a clone of this repository:
+
+```bash
+bash ~/src/lean-pkg/src/lean_pkg/scripts/comparator-check.sh --lint-configs
+# LINT-OK comparator.json
+# All 1 configuration(s) lint clean.
+```
+
+The smallest complete pair, from a smoke test:
+
+```lean
+-- Challenge.lean
+import Mathlib
+
+theorem two_mul_le (n : ℕ) : n ≤ 2 * n := by sorry
+```
+
+```lean
+-- Solution.lean
+import Mathlib
+
+theorem two_mul_le (n : ℕ) : n ≤ 2 * n := by omega
+```
+
+A realistic Challenge states, for example, that Brownian motion stopped at a
+truncated exit time has mean equal to its start point, with the law and the
+stopping time written in Mathlib terms (`ProbabilityTheory.IsBrownianReal`,
+`MeasureTheory.hittingBtwn`); its Solution proves two bridge lemmas (Mathlib's
+hitting time equals the library's exit time, and any such law equals the
+library's Brownian motion) and then applies the library theorem.
+
+### Do not weaken the statement
+
+The comparator cannot catch a Challenge that is weaker than the paper. Before
+a Challenge is committed, a person checks each theorem against the source:
+
+1. Every hypothesis of the paper's statement is present, and no hypothesis is
+   added that the paper does not have.
+2. Quantifiers, parameter ranges and constants match: nothing is specialized
+   to a case the paper does not restrict to.
+3. The conclusion is the paper's conclusion, not a consequence of it or a
+   special case.
+4. A conditional result keeps its assumptions in the theorem's type; they are
+   never dropped to make the statement provable.
+5. The statement is not vacuous: its hypotheses can be satisfied, and the
+   conclusion is not trivially true (for instance an identity that holds for
+   any input).
+6. Write the paper's label, the quoted statement from the source and the
+   Challenge theorem side by side, and have a second reader sign each row.
+
+The [lean-claim-ledger](../skills/lean-claim-ledger/SKILL.md),
+[lean-fidelity-audit-taxonomy](../skills/lean-fidelity-audit-taxonomy/SKILL.md)
+and [lean-weakened-hypothesis-vacuity](../skills/lean-weakened-hypothesis-vacuity/SKILL.md)
+skills describe this audit in detail.
+
 ## What `comparator-check.sh` does
 
 The script is vendored unchanged from the Palomar verifier workflow. For
@@ -141,6 +230,11 @@ line per kernel (con-ron, NanoDa, Lean's default kernel) and finally
 that names the floor and writes nothing. A `legacy` pass is evidence of a
 second-kernel replay, not of what Palomar will say; only the `toolchain`
 mechanism is Palomar-predictive.
+
+A package below the floor (for example Lean v4.32.x) can only get a `legacy`
+receipt. That is evidence of statement equality and second-kernel replay; it
+says nothing about Palomar. If Palomar is the target, move the package to a
+toolchain at or above the floor first.
 
 ## Host requirements for the toolchain mechanism
 

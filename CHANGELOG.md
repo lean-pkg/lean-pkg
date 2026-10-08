@@ -9,6 +9,15 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `docs/existing-package-comparator.md`: step-by-step guide to adding the
+  comparator tier to a package that already builds, for a collaborator who
+  knows little Lean.
+- `docs/comparator.md`: how to write the Challenge and the Solution, a
+  checklist against weakened statements, and what a package below the
+  toolchain floor gets.
+- `docs/getting-started.md`: installing while the repository is private,
+  Linux-only sandboxing and disk needs, and the `lean_lib` entries the
+  Challenge and Solution modules need.
 - `docs/stranger-test.md`: who may run the gate G1 stranger test, what counts
   as success, and the transcript template.
 - `lean-pkg formalization NAME [--write] [--out PATH] [--force] [--author NAME]`:

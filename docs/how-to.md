@@ -72,7 +72,9 @@ COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
 
 Or inside Slurm: `srun ... comparator-receipt`. The runner refuses on a dirty
 tree, naming the files, and writes nothing unless every configuration passes.
-Details and the host policy: [The comparator tier](comparator.md).
+Details and the host policy: [The comparator tier](comparator.md). Adding
+the comparator tier to a package that already builds, step by step:
+[Add the comparator tier to an existing package](existing-package-comparator.md).
 
 ## Gate, with or without comparator evidence
 

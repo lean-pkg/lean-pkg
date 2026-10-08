@@ -50,7 +50,8 @@ package itself in 7 s.
 ## 1. Register and claim
 
 ```bash
-export LEAN_PKG_REGISTRY=~/lean-registry/lean-packages.yaml   # bootstrap: printf 'version: 1\npackages: {}\n' > that file
+export LEAN_PKG_REGISTRY=~/lean-registry/lean-packages.yaml
+lean-pkg init                                                 # once: creates the registry and its event log
 
 lean-pkg register markovprocess-pilot \
     --repo git@github.com:you/markovprocess-pilot.git \
