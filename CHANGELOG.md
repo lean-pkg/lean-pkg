@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-08
+
 ### Added
 
 - `lean-pkg doctor` also reports `lean`, `go`, `cargo` and `jq`, and warns
