@@ -9,6 +9,10 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- Index: `markovprocess-pilot` re-pinned at `9bb873e7aa31` after its history
+  was cleaned and the repository made public; fresh lower-tier and comparator
+  receipts (toolchain mechanism). Every index entry is now public and passes
+  `index check --clone`.
 - Decision 0006 (proposed): the public-flip gates G1 to G7 with their
   evidence and what is still open.
 - `docs/existing-package-comparator.md`: a section for packages that forbid

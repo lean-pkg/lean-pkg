@@ -1,0 +1,15 @@
+{
+ "commit": "9bb873e7aa3139e07dff30a7e2f41a470540a139",
+ "lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
+ "mathlib_rev": "065356127b1dc0016f66b7283ce0ce2c4055aa55",
+ "sorry_count": 0,
+ "axioms": [
+  "propext",
+  "Classical.choice",
+  "Quot.sound"
+ ],
+ "report_sha256": "b75f0662634e71614c7094bbc0acb3891a45e3a142c1f2ce345a533c2ddb1f34",
+ "job_id": "home-workstation-2026-10-08-pilot",
+ "checker": "lake build + lake build Audit + sorry scan + #print axioms on a lab workstation (Lean v4.35.0-rc2)",
+ "generated_at": "2026-10-08T21:28:21Z"
+}

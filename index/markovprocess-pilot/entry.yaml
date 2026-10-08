@@ -2,15 +2,15 @@ schema: index-entry/2
 name: markovprocess-pilot
 repo: https://github.com/chenle02/markovprocess-pilot
 pin:
-  commit: affc0746f5c9b2c89bc3f2f9c39f4b95ffada816
+  commit: 9bb873e7aa3139e07dff30a7e2f41a470540a139
   tag: null
 lean_toolchain: leanprover/lean4:v4.35.0-rc2
 mathlib_rev: 065356127b1dc0016f66b7283ce0ce2c4055aa55
 license_spdx: Apache-2.0
 trust: comparator
 receipts:
-  lower: .lean-receipts/affc0746f5c9-home-workstation-2026-10-06-pilot-exit.json
-  comparator: .lean-receipts/affc0746f5c9-comparator.json
+  lower: .lean-receipts/9bb873e7aa31-home-workstation-2026-10-08-pilot.json
+  comparator: .lean-receipts/9bb873e7aa31-comparator.json
 headline:
 - name: MarkovProcessPilot.integral_eval_exitTimeTrunc_Ioo
   file: MarkovProcessPilot/BrownianExit.lean
@@ -35,9 +35,10 @@ fields:
 consent:
   recorded: true
 added:
-  at: '2026-10-06T13:24:20+00:00'
+  at: '2026-10-08T21:39:17+00:00'
   by: chenle02
-notes: Consumer pilot of scottnarmstrong/MarkovProcess (2026-10-06). The headline theorem is judged by
-  lake comparator through a Mathlib-only Challenge (Audit/Exit/Challenge.lean, theorem exit_mean, quantified
-  over any law that is Brownian in Mathlib's sense); the Solution bridges Mathlib's IsBrownianReal to
-  the library's brownianMotion. Repository private until the public flip.
+notes: 'Consumer pilot of scottnarmstrong/MarkovProcess (2026-10-06). The headline theorem is judged by
+  lake comparator (toolchain mechanism, Lean v4.35.0-rc2: con-ron, NanoDa and Lean''s kernel) through
+  a Mathlib-only Challenge (Audit/Exit/Challenge.lean, theorem exit_mean, quantified over any law that
+  is Brownian in Mathlib''s sense); the Solution bridges Mathlib''s IsBrownianReal to the library''s brownianMotion.
+  Re-pinned on 2026-10-08 after the repository''s history was cleaned and it was made public.'
