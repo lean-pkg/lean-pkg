@@ -223,6 +223,65 @@ first. Then:
 Start with one claim, take it through steps 6 to 8, and only then do the
 rest.
 
+### If the package forbids `sorry` or treats warnings as errors
+
+Many packages enforce their own trust rules, and a Challenge breaks three
+common ones: a scan that rejects every `sorry`, `warningAsError = true`, and
+`lake exe mk_all --check` in CI. Do not weaken the rule for the whole
+package. Make one narrow exception, document it in the package's own
+contributor rules (its `AGENTS.md` or `CONTRIBUTING.md`), and propose it as a
+pull request if the package works that way.
+
+1. **The placeholder scan.** Allow `sorry` in `Audit/*/Challenge.lean` only,
+   keep every other placeholder (`admit`, `axiom`, `native_decide`) forbidden
+   there, and allow a Challenge to import only Mathlib. Every other file,
+   each `Solution.lean` included, keeps the full rule; the comparator
+   independently refuses a Solution that uses `sorry`. In a script that the
+   package's checks and CI both call:
+
+   ```bash
+   word='(^|[^[:alnum:]_])(%s)([^[:alnum:]_]|$)'
+   status=0
+   git grep -n -E "$(printf "$word" 'sorry|admit|axiom|native_decide')" \
+     -- '*.lean' ':(exclude)Audit/*/Challenge.lean' && status=1
+   git grep -n -E "$(printf "$word" 'admit|axiom|native_decide')" \
+     -- 'Audit/*/Challenge.lean' && status=1
+   git grep -n -E '^import ' -- 'Audit/*/Challenge.lean' \
+     | grep -v -E ':import Mathlib[[:space:]]*$' && status=1
+   exit "$status"
+   ```
+
+   `git grep` scans tracked files only: stage new Audit files before running
+   it. Test it once against seeded violations (a `sorry` in a Solution, an
+   `admit` in a Challenge, a non-Mathlib import in a Challenge); it must
+   report all three. A complete, commented version is
+   [total-coloring-lean's `scripts/check-placeholders.sh`](https://github.com/chenle02/total-coloring-lean/blob/main/scripts/check-placeholders.sh).
+
+2. **`warningAsError`.** Each Challenge warns about its `sorry`. Turn the
+   option off for the `Audit` library alone; package-level options still
+   apply to every other library:
+
+   ```toml
+   [[lean_lib]]
+   name = "Audit"
+   globs = ["Audit.+"]
+   leanOptions = { warningAsError = false }
+   ```
+
+3. **`mk_all --check`.** It expects every library to have a root module that
+   imports all of its files. `Audit` cannot have one: each Challenge and its
+   Solution declare the same name, so they cannot be imported together. Limit
+   the check to the package's own library, and build the audit as its own CI
+   step:
+
+   ```bash
+   lake exe mk_all --check --lib <PackageLibrary>
+   lake build Audit
+   ```
+
+Without the `--lib` restriction the check fails with
+`File 'Audit.lean' does not exist`.
+
 ## 6. Check each statement by hand
 
 Go through the checklist in

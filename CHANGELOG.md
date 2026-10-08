@@ -9,6 +9,10 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `docs/existing-package-comparator.md`: a section for packages that forbid
+  `sorry`, set `warningAsError`, or run `mk_all --check` in CI: a scoped
+  Challenge exception with a tested placeholder scan, the `Audit`
+  `leanOptions` override, and `mk_all --check --lib`.
 - Index: `total-coloring-lean` re-pinned at `533f9430cb45` with a comparator
   receipt for both headline theorems (legacy mechanism); trust is now
   `comparator`.
