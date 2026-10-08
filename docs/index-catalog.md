@@ -172,7 +172,9 @@ judged. An unfinished project is listed like this:
 The lab's own example is `total-coloring-lean`: a 700-theorem, sorry-free
 library whose README states that it proves an auxiliary edge-coloring theorem
 and a Δ+3 total assignment, and does not prove Vizing's theorem or the
-conjecture. Its entry says exactly that.
+conjecture. Its entry says exactly that. Its second pin added comparator
+evidence for both headline theorems, with Mathlib-only Challenge statements
+in the package's `Audit/` directory.
 
 ## Pull requests
 

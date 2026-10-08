@@ -9,6 +9,9 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- Index: `total-coloring-lean` re-pinned at `533f9430cb45` with a comparator
+  receipt for both headline theorems (legacy mechanism); trust is now
+  `comparator`.
 - `scripts/bootstrap-collaborator.sh OWNER/PACKAGE`: one-command collaborator
   setup (machine and GitHub access checks, pipx install, checkouts under
   `~/src`, a committed personal registry with the package registered, Codex

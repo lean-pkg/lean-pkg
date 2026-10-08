@@ -1,0 +1,55 @@
+{
+  "commit": "533f9430cb4595faa9878bf2eecb8350ce57a068",
+  "configs": [
+    {
+      "challenge_module": "Audit.AuxiliaryClass.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/533f9430cb45-comparator-comparator_config-auxiliary-class.log",
+      "log_sha256": "047e4c997b595e2f1baee700110138e8eecb70b5822b5c8a82df75a3b04c8d07",
+      "path": "comparator/config-auxiliary-class.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "75f8380c00d1d69dffba3691d26e5621d304f03bdf4057dfb4da3ae47d55d49f",
+      "solution_module": "Audit.AuxiliaryClass.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.AuxiliaryClass.exists_rainbow_edge_coloring_of_auxiliaryClass"
+      ]
+    },
+    {
+      "challenge_module": "Audit.HighDegree.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/533f9430cb45-comparator-comparator_config-high-degree.log",
+      "log_sha256": "d8534486f08b264efa9e6453e29e7b2b4c1d98969e8912c347489d70316e363c",
+      "path": "comparator/config-high-degree.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "ab02df978661cf26a3023ef101b5c780a2408470dd696ca0d70ac8d59cd0bdd9",
+      "solution_module": "Audit.HighDegree.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.HighDegree.exists_total_coloring_of_card_le_two_mul_maxDegree"
+      ]
+    }
+  ],
+  "generated_at": "2026-10-08T20:48:25+00:00",
+  "host": "home-workstation",
+  "host_policy": "host home-workstation listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS",
+  "job_id": "local-home-workstation-1503884-20261008T204825Z",
+  "lean_toolchain": "leanprover/lean4:v4.32.0",
+  "mechanism": "legacy",
+  "result": "pass",
+  "schema": "comparator-receipt/2",
+  "tools": {
+    "comparator": "575674928e239f5bc452aab72d1dd7b0f1326494",
+    "landrun": "811cfff51ceaf3d9843708aa6d22e9b84ccac8b4",
+    "lean4export": "4e7915201d3f9f04470d9eae002fa695f7cdc589",
+    "nanoda": "68d5ca9db226849b41a6fff59d796ff19d0a8840"
+  }
+}

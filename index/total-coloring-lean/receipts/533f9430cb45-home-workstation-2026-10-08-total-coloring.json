@@ -1,0 +1,15 @@
+{
+ "commit": "533f9430cb4595faa9878bf2eecb8350ce57a068",
+ "lean_toolchain": "leanprover/lean4:v4.32.0",
+ "mathlib_rev": "81a5d257c8e410db227a6665ed08f64fea08e997",
+ "sorry_count": 0,
+ "axioms": [
+  "propext",
+  "Classical.choice",
+  "Quot.sound"
+ ],
+ "report_sha256": "bdd713216481c1b0e61705151d08f878236ae56b7cf00257d2469b092a6f52d7",
+ "job_id": "home-workstation-2026-10-08-total-coloring",
+ "checker": "lake build + lake build Audit + lake env leanchecker + scripts/check-placeholders.sh + #print axioms on a lab workstation (Lean v4.32.0)",
+ "generated_at": "2026-10-08T20:51:13Z"
+}
