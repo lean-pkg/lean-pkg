@@ -1,0 +1,12 @@
+lean-pkg
+Copyright (c) 2026 Le Chen and Auburn University
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes two files from other projects, each under the Apache License,
+Version 2.0, with its origin recorded in the file or beside it:
+
+- src/lean_pkg/scripts/verify-comparator.sh, from
+  https://github.com/PalomarRegistry/PalomarTemplate
+- src/lean_pkg/schemas/formalization-0.4.schema.json, from
+  https://github.com/mathlib-initiative/formalization.yaml

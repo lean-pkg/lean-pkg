@@ -78,6 +78,9 @@ change the registry schema or receipt format, always with a migration).
 
 ### Changed
 
+- Copyright notice is now "Copyright (c) 2026 Le Chen and Auburn University",
+  confirmed with Auburn IPX for release under Apache-2.0 (decision 0004);
+  new `NOTICE` file.
 - The vendored `scripts/comparator-check.sh` now carries the lab additions
   above and is no longer byte-for-byte the Palomar verifier script; tool pins
   are unchanged.

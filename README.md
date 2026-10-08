@@ -183,5 +183,6 @@ Releases are listed in [CHANGELOG.md](CHANGELOG.md); the process is in
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE). Contributions are accepted under the
-same license; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Copyright (c) 2026 Le Chen and Auburn University. Licensed under Apache-2.0;
+see [LICENSE](LICENSE) and [NOTICE](NOTICE). Contributions are accepted under
+the same license; see [CONTRIBUTING.md](CONTRIBUTING.md).

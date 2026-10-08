@@ -308,3 +308,15 @@ def test_make_test_removes_its_bytecode_cache_on_sigint(tmp_path):
     if leaked:
         shutil.rmtree(prefix, ignore_errors=True)
     assert not leaked, f"{prefix} leaked after SIGINT"
+
+
+def test_copyright_statement_is_the_ipx_confirmed_one_everywhere():
+    """Auburn IPX confirmed the notice on 2026-10-08 (decision 0004): every place that
+    states lean-pkg's copyright must carry exactly this holder line."""
+    holder = "2026 Le Chen and Auburn University"
+    assert f"Copyright (c) {holder}" in (ROOT / "LICENSE").read_text()
+    assert f"Copyright (c) {holder}" in (ROOT / "NOTICE").read_text()
+    assert f'SPDX-FileCopyrightText = "{holder}"' in (ROOT / "REUSE.toml").read_text()
+    assert f"Copyright (c) {holder}" in (ROOT / "README.md").read_text()
+    for f in ("LICENSE", "NOTICE", "REUSE.toml", "README.md"):
+        assert "2026 Le Chen\"" not in (ROOT / f).read_text() and "Copyright 2026 Le Chen\n" not in (ROOT / f).read_text()

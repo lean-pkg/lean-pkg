@@ -5,7 +5,7 @@ SPDX-PackageDownloadLocation = "https://github.com/chenle02/lean-pkg"
 [[annotations]]
 path = ["**"]
 precedence = "aggregate"
-SPDX-FileCopyrightText = "2026 Le Chen"
+SPDX-FileCopyrightText = "2026 Le Chen and Auburn University"
 SPDX-License-Identifier = "Apache-2.0"
 
 # Vendored, byte-for-byte: the mathlib-initiative formalization.yaml v0.4 JSON schema
