@@ -9,6 +9,8 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- Decision 0006 (proposed): the public-flip gates G1 to G7 with their
+  evidence and what is still open.
 - `docs/existing-package-comparator.md`: a section for packages that forbid
   `sorry`, set `warningAsError`, or run `mk_all --check` in CI: a scoped
   Challenge exception with a tested placeholder scan, the `Audit`
