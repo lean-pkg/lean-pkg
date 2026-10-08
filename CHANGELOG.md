@@ -9,6 +9,12 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `scripts/bootstrap-collaborator.sh OWNER/PACKAGE`: one-command collaborator
+  setup (machine and GitHub access checks, pipx install, checkouts under
+  `~/src`, a committed personal registry with the package registered, Codex
+  skills, `doctor`), idempotent, ending READY or NOT READY; tested offline
+  under a fake HOME. It is step 0 of the comparator guide, which also gains a
+  note on starting the setup from Codex.
 - `docs/existing-package-comparator.md`: step-by-step guide to adding the
   comparator tier to a package that already builds, for a collaborator who
   knows little Lean.

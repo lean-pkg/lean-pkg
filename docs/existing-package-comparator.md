@@ -14,26 +14,104 @@ lower tier. The goal is a `Challenge`/`Solution` layout that the comparator
 accepts. Each step says what to run and what you should see. Keep a dated log
 as you go; the [stranger-test template](stranger-test.md) works for that.
 
-## 0. Get access and install
+## 0. Get access and set up
+
+Two things only you can do, first:
 
 1. Accept the GitHub invitations to `lean-pkg/lean-pkg` and to the package's
    repository.
-2. Install the tool and check it:
+2. Log in: `gh auth login`. Install `git`, `gh`, `python3` (3.11 or newer),
+   `pipx` and `elan` if they are missing; `go`, `cargo` and `jq` are needed
+   from step 7 on.
 
-   ```bash
-   gh auth setup-git          # once; or use the git+ssh:// form below
-   pipx install git+https://github.com/lean-pkg/lean-pkg.git
-   # private repo without gh: pipx install git+ssh://git@github.com/lean-pkg/lean-pkg.git
-   lean-pkg --version         # lean-pkg 0.4.1 or later
-   ```
+Then one command does the rest. It checks the machine and your GitHub access,
+installs lean-pkg, clones this repository and the package under `~/src`,
+creates your personal registry in `~/.lean-pkg/registry` (a git repository,
+committed), registers the package there, installs the agent skills for Codex,
+and runs `lean-pkg doctor`:
 
-3. Clone this repository too, for the agent skills and the configuration
-   linter: `git clone git@github.com:lean-pkg/lean-pkg.git ~/src/lean-pkg`.
+```bash
+gh repo clone lean-pkg/lean-pkg ~/src/lean-pkg
+bash ~/src/lean-pkg/scripts/bootstrap-collaborator.sh <owner>/<package>
+# == 1. machine and tools
+#   [ok]   git
+#   ...
+# == 5. personal registry ~/.lean-pkg/registry/lean-packages.yaml (yours; the owner keeps their own)
+#   [ok]   registry created and committed
+#   [ok]   <package> registered and committed
+#   ...
+# READY (0 warning(s))
+```
 
-You should see the version line. `lean-pkg doctor` exits 1 until you create a
-registry in step 7; that is expected.
+It ends with `READY` (exit 0) or `NOT READY` and the failed line, which names
+the step to take (an invitation, a login, a missing tool). Running it again is
+safe: it fast-forwards clean checkouts and changes nothing that is already
+set up. It never pushes, gates, promotes or builds. Add the line it prints to
+your shell startup file:
+
+```bash
+export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
+```
+
+The registry is yours. The owner keeps the authoritative one; you never need
+access to it.
+
+<details markdown="1">
+<summary>The same steps by hand</summary>
+
+```bash
+gh auth setup-git
+pipx install git+https://github.com/lean-pkg/lean-pkg.git
+lean-pkg --version                                  # 0.4.1 or later
+git clone https://github.com/lean-pkg/lean-pkg.git ~/src/lean-pkg
+git clone https://github.com/<owner>/<package>.git ~/src/<package>
+
+mkdir -p ~/.lean-pkg/registry && git -C ~/.lean-pkg/registry init
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
+git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
+export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
+lean-pkg register <package> --repo git@github.com:<owner>/<package>.git --path src/<package>
+git -C ~/.lean-pkg/registry add -A && git -C ~/.lean-pkg/registry commit -m "registry: register <package>"
+
+python3 ~/src/lean-pkg/scripts/install_skills.py --agent codex
+lean-pkg doctor
+```
+
+`--path` is relative to your home directory, so keep the checkout under it.
+
+</details>
+
+### Starting from Codex
+
+You can hand all of step 0 to Codex. Setup installs into your home directory
+(`~/.local`, `~/.lean-pkg`, `~/.agents`, `~/src`) and needs the network,
+which Codex's default sandbox does not allow, so start it from your home
+directory and approve its requests:
+
+```bash
+codex -C ~ -a on-request
+```
+
+and give it:
+
+> Run `gh repo clone lean-pkg/lean-pkg ~/src/lean-pkg` (or
+> `git -C ~/src/lean-pkg pull --ff-only` if it exists), then
+> `bash ~/src/lean-pkg/scripts/bootstrap-collaborator.sh <owner>/<package>`,
+> and show me its output. If it ends with NOT READY, stop and tell me which
+> step I must take. If READY, do step 2 of
+> `~/src/lean-pkg/docs/existing-package-comparator.md` with the build log
+> saved to a file, report the wall time and the last 20 lines, and stop.
+> Do not edit Lean, ledger, configuration or documentation files, do not
+> commit in the package, and never push or run `gate`, `promote`,
+> `comparator-receipt` or anything with `--force`.
+
+Lines in the package's own `README` or `AGENTS.md` that name the owner's
+machines or registry describe the owner's setup, not yours.
 
 ## 1. Check the machine
+
+The step 0 script checks all of this and warns about what is missing.
 
 - Linux. The comparator run sandboxes its judges (landrun or `bwrap`); macOS
   is not supported.
@@ -42,11 +120,10 @@ registry in step 7; that is expected.
 - Several GB free for the Lean toolchain and the Mathlib cache, plus the
   package's own dependencies.
 
-## 2. Clone and build the package
+## 2. Build the package
 
 ```bash
-git clone <package repository URL> ~/src/<package>
-cd ~/src/<package>
+cd ~/src/<package>          # cloned in step 0
 lake exe cache get
 lake build
 ```
@@ -170,18 +247,15 @@ If a configuration fails, nothing is written; the per-configuration log in
 older than Lean v4.35.0-rc2 gets a `legacy` receipt
 ([mechanisms](comparator.md#mechanisms)).
 
-Check the receipt with a registry of your own (it never touches the owner's):
+Check the receipt against your personal registry from step 0 (it never
+touches the owner's):
 
 ```bash
-mkdir -p ~/.lean-pkg/registry
-lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
-export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
-lean-pkg register <package> --repo <package repository URL> --path src/<package>
 lean-pkg comparator <package> --receipt .lean-receipts/<commit12>-comparator.json --check
 # <package>: comparator receipt valid at commit <commit12> (1 config(s)) — not recorded (--check); ...
 ```
 
-`--path` is relative to your home directory. Commit the receipt as an
+Commit the receipt as an
 evidence-only commit (`git add .lean-receipts && git commit`) and push.
 
 ## 8. Hand over to the owner
@@ -197,9 +271,9 @@ The owner produces a new lower-tier receipt at your commit and runs
 An agent is good at the bridge proofs in the Solution and at repetitive
 configuration work. It must not decide what a Challenge says.
 
-1. Install the skills from your clone of this repository:
-   `python3 ~/src/lean-pkg/scripts/install_skills.py --agent codex --dry-run`
-   (or `--agent claude`), then again without `--dry-run`.
+1. Step 0 installed the skills for Codex. For Claude Code, run
+   `python3 ~/src/lean-pkg/scripts/install_skills.py --agent claude --dry-run`,
+   then again without `--dry-run`.
 2. Give it `lean-pkg llms`, the package's `AGENTS.md`, and the skills
    [lean-claim-ledger](../skills/lean-claim-ledger/SKILL.md),
    [lean-fidelity-audit-taxonomy](../skills/lean-fidelity-audit-taxonomy/SKILL.md),

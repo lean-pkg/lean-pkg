@@ -103,6 +103,11 @@ After that initial commit, modify the registry through `lean-pkg`, not by
 hand, and commit meaningful registry changes as part of your normal coordination
 workflow.
 
+A collaborator setting up for one package can run
+`scripts/bootstrap-collaborator.sh OWNER/PACKAGE` instead, which also checks
+access, clones and registers the package
+(step 0 of [the comparator guide](existing-package-comparator.md)).
+
 A proposed future `lean-pkg init --global` will automate this Git-backed
 bootstrap and allow a custom registry-repository location. It is described in
 the [roadmap](../ROADMAP.md) and is not implemented yet.
