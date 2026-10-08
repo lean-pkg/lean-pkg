@@ -83,6 +83,8 @@ change the registry schema or receipt format, always with a migration).
   new `NOTICE` file.
 - Until a deputy is named, succession is covered by the maintainer's GitHub
   account successor (decision 0005); `MAINTAINERS.md` points to it.
+- Decision 0003 accepted (rewrite history once before the public flip);
+  `scripts/rewrite-history.sh` performs and verifies the rewrite.
 - The repository moved to the `lean-pkg` organization:
   <https://github.com/lean-pkg/lean-pkg>, documentation at
   <https://lean-pkg.github.io/lean-pkg/>. GitHub redirects the old repository
