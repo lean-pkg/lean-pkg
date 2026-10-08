@@ -78,6 +78,22 @@ comm -23 old-labels.txt new-labels.txt     # labels that disappeared
 comm -13 old-labels.txt new-labels.txt     # labels that are new
 ```
 
+A label diff only finds labels that appeared or disappeared. A label can
+survive while the statement under it is replaced, so for every label the
+ledger uses that is in both files, put the two statements side by side and
+compare them:
+
+```bash
+# print the environment that carries a label, in each file (repeat per label)
+for f in old.tex new.tex; do
+  echo "== $f"
+  awk -v L='\\label{L:example}' '
+    index($0, L) { p = 1; if (match($0, /\\begin\{[^}]*\}/)) env = substr($0, RSTART + 7, RLENGTH - 8) }
+    p { print }
+    p && ((env != "" && index($0, "\\end{" env "}")) || (env == "" && /\\end\{/)) { exit }' "$f"
+done
+```
+
 Then, for every ledger row, record one of: unchanged, renumbered only,
 statement changed, removed, split, new. A changed or removed statement needs
 the owner's decision before it gets a Challenge. Follow the package's own
@@ -92,7 +108,10 @@ Read [Writing the Challenge and the Solution](comparator.md#writing-the-challeng
 first. Then:
 
 1. Make a directory per claim group, for example
-   `Audit/<Claim>/Challenge.lean` and `Audit/<Claim>/Solution.lean`.
+   `Audit/<Claim>/Challenge.lean` and `Audit/<Claim>/Solution.lean`. Put the
+   Challenge theorems in their own namespace, such as
+   `<Package>Audit.<Claim>`, never in the project's namespace: the Solution
+   imports the project, and a duplicate name does not compile.
 2. Declare it once in `lakefile.toml`:
 
    ```toml

@@ -45,6 +45,10 @@ reader who trusts Mathlib and nothing else.
   is written in Mathlib's vocabulary: unfold your project's definitions into
   Mathlib terms, or quantify over any object with the Mathlib property that
   characterizes it.
+- Put the theorems in a namespace of their own, for example
+  `<Package>Audit.<Claim>`. The Solution imports your project, so a Challenge
+  theorem whose full name is already a project declaration (say
+  `MyPackage.cos_sq`) cannot be restated there.
 - Each proof is `sorry`. Keep `definition_names` empty; a non-empty list
   needs a named human sign-off (next section).
 - A docstring above each theorem says in words what it claims and which

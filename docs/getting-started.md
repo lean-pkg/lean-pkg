@@ -209,6 +209,11 @@ cd ~/src/my-proof
 COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
 # == comparator @ 575674928e23...   (tool pins as checked out)
 # ...
+# nanoda kernel accepts the solution
+# Running Lean default kernel on solution.
+# Lean default kernel accepts the solution
+# Your solution is okay!
+# PASS comparator.json
 # All 1 comparator configuration(s) accepted.
 # comparator receipt written: .../my-proof/.lean-receipts/cb3d68a21454-comparator.json (1 config(s), commit cb3d68a21454, host policy: host <host> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS)
 # commit .lean-receipts/ in this repo, then record it:
@@ -216,9 +221,10 @@ COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
 #   (or at gate time: lean-pkg gate <name> --receipt R.json --comparator .../my-proof/.lean-receipts/cb3d68a21454-comparator.json)
 ```
 
-The acceptance line above is the `legacy` mechanism's; under the `toolchain`
-mechanism `lake comparator` ends with `Your solution is okay!` instead
-([mechanisms](comparator.md#mechanisms)). Either way, the line to look for is
+This is the `legacy` mechanism's output. Both mechanisms print
+`Your solution is okay!` for each accepted configuration
+([mechanisms](comparator.md#mechanisms)); the `PASS` and `All ... accepted.`
+lines come from the legacy check. The line to look for is
 `comparator receipt written:`, which appears only when every configuration
 is accepted.
 
