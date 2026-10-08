@@ -179,9 +179,18 @@ cd ~/src/my-proof
 COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
 # == comparator @ 575674928e23...   (tool pins as checked out)
 # ...
-# All configurations accepted.
+# All 1 comparator configuration(s) accepted.
 # comparator receipt written: .../my-proof/.lean-receipts/cb3d68a21454-comparator.json (1 config(s), commit cb3d68a21454, host policy: host <host> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS)
+# commit .lean-receipts/ in this repo, then record it:
+#   lean-pkg comparator <name> --receipt .../my-proof/.lean-receipts/cb3d68a21454-comparator.json
+#   (or at gate time: lean-pkg gate <name> --receipt R.json --comparator .../my-proof/.lean-receipts/cb3d68a21454-comparator.json)
 ```
+
+The acceptance line above is the `legacy` mechanism's; under the `toolchain`
+mechanism `lake comparator` ends with `Your solution is okay!` instead
+([mechanisms](comparator.md#mechanisms)). Either way, the line to look for is
+`comparator receipt written:`, which appears only when every configuration
+is accepted.
 
 Inside a Slurm job the host policy is satisfied automatically. The runner
 writes `.lean-receipts/<commit12>-comparator.json` and one
