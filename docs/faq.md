@@ -218,7 +218,7 @@ lean-pkg stores the fact; it does not query Reservoir for you.
 **Should I search Reservoir before formalizing?**
 Yes, and not only Reservoir. Before writing any new definition, lemma or
 library, run the
-[search-before-building](https://github.com/chenle02/lean-pkg/blob/main/skills/search-before-building/SKILL.md)
+[search-before-building](https://github.com/lean-pkg/lean-pkg/blob/main/skills/search-before-building/SKILL.md)
 skill: Loogle, Mathlib at your pin, the Reservoir index, Palomar, known
 authors and a GitHub code search, with every query recorded, zero hits
 included. One trap: the search box on the Reservoir site matches package

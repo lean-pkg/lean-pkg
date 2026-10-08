@@ -12,7 +12,7 @@ on Palomar, and on GitHub. `lean-pkg search` runs all of them in a fixed
 order, says which ones it could not reach, and with `--record` writes a dated,
 citable record into the research repository. The manual procedure, with the
 traps it avoids, is the
-[search-before-building skill](https://github.com/chenle02/lean-pkg/blob/main/skills/search-before-building/SKILL.md).
+[search-before-building skill](https://github.com/lean-pkg/lean-pkg/blob/main/skills/search-before-building/SKILL.md).
 
 ## Claims
 

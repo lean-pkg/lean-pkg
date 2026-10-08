@@ -68,7 +68,7 @@ lean-pkg search 'Gumbel' --package my-lean --record
 
 Read its closing line: a source marked `skipped` was not searched, so run that
 step by hand or say so in the record. Steps 2 and 5 always stay manual. See
-the [Prior-art search](https://github.com/chenle02/lean-pkg/blob/main/docs/prior-art.md) page.
+the [Prior-art search](https://github.com/lean-pkg/lean-pkg/blob/main/docs/prior-art.md) page.
 
 1. **Loogle** (Mathlib and its dependencies, by name or type pattern):
 

@@ -11,9 +11,9 @@ requirement for package provenance: receipts bind to Git commits and several
 checks inspect Git ancestry and working-tree state.
 
 ```bash
-pipx install git+https://github.com/chenle02/lean-pkg.git
+pipx install git+https://github.com/lean-pkg/lean-pkg.git
 # or
-uv tool install git+https://github.com/chenle02/lean-pkg.git
+uv tool install git+https://github.com/lean-pkg/lean-pkg.git
 # or, from a checkout, for development
 python3 -m pip install -e '.[test]'
 ```

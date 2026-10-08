@@ -3,7 +3,7 @@
 This is a short summary of the package lifecycle that `lean-pkg` enforces.
 For the exact agent-facing contract, run `lean-pkg llms`. The guided
 documentation lives under [docs/](docs/index.md) and at
-<https://chenle02.github.io/lean-pkg/>.
+<https://lean-pkg.github.io/lean-pkg/>.
 
 ## One registry, append-only history
 

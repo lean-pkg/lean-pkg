@@ -9,8 +9,8 @@ authors:
 version: "0.4.1"
 date-released: "2026-10-06"
 license: Apache-2.0
-repository-code: "https://github.com/chenle02/lean-pkg"
-url: "https://chenle02.github.io/lean-pkg/"
+repository-code: "https://github.com/lean-pkg/lean-pkg"
+url: "https://lean-pkg.github.io/lean-pkg/"
 keywords:
   - Lean 4
   - formal verification

@@ -19,7 +19,7 @@ They cover what a green `lake build` does not:
   re-derive it?
 - **publication**: does the public claim stay within the evidence?
 
-Source: [`skills/`](https://github.com/chenle02/lean-pkg/tree/main/skills)
+Source: [`skills/`](https://github.com/lean-pkg/lean-pkg/tree/main/skills)
 (Apache-2.0).
 
 ## How they relate to llms.txt and the sample workflow
@@ -87,7 +87,7 @@ multi-agent orchestration are deliberately left to Scott Armstrong's
 [LeanAutoformalizationSkills](https://github.com/scottnarmstrong/LeanAutoformalizationSkills);
 the two sets install side by side (only the `lean-verification-workflow` routers share a
 name). The full index, with links to each skill, is
-[skills/README.md](https://github.com/chenle02/lean-pkg/blob/main/skills/README.md).
+[skills/README.md](https://github.com/lean-pkg/lean-pkg/blob/main/skills/README.md).
 
 Written with AI assistance and reviewed by the maintainer; see
-[CONTRIBUTING](https://github.com/chenle02/lean-pkg/blob/main/CONTRIBUTING.md).
+[CONTRIBUTING](https://github.com/lean-pkg/lean-pkg/blob/main/CONTRIBUTING.md).

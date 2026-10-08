@@ -83,6 +83,10 @@ change the registry schema or receipt format, always with a migration).
   new `NOTICE` file.
 - Until a deputy is named, succession is covered by the maintainer's GitHub
   account successor (decision 0005); `MAINTAINERS.md` points to it.
+- The repository moved to the `lean-pkg` organization:
+  <https://github.com/lean-pkg/lean-pkg>, documentation at
+  <https://lean-pkg.github.io/lean-pkg/>. GitHub redirects the old repository
+  URL; the old documentation URL does not redirect.
 - The vendored `scripts/comparator-check.sh` now carries the lab additions
   above and is no longer byte-for-byte the Palomar verifier script; tool pins
   are unchanged.

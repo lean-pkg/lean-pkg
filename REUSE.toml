@@ -1,6 +1,6 @@
 version = 1
 SPDX-PackageName = "lean-pkg"
-SPDX-PackageDownloadLocation = "https://github.com/chenle02/lean-pkg"
+SPDX-PackageDownloadLocation = "https://github.com/lean-pkg/lean-pkg"
 
 [[annotations]]
 path = ["**"]

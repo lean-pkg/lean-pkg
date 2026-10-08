@@ -10,10 +10,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/chenle02/lean-pkg/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/chenle02/lean-pkg/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/lean-pkg/lean-pkg/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lean-pkg/lean-pkg/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB.svg">
-  <a href="https://chenle02.github.io/lean-pkg/"><img alt="Documentation" src="https://img.shields.io/badge/docs-site-0A7E8C.svg"></a>
+  <a href="https://lean-pkg.github.io/lean-pkg/"><img alt="Documentation" src="https://img.shields.io/badge/docs-site-0A7E8C.svg"></a>
   <a href="llms.txt"><img alt="LLM entry: llms.txt" src="https://img.shields.io/badge/LLM%20entry-llms.txt-6f42c1.svg"></a>
 </p>
 
@@ -106,7 +106,7 @@ many independent Lean/Git research repositories.
 Today, bootstrap the shared registry explicitly:
 
 ```bash
-pipx install git+https://github.com/chenle02/lean-pkg.git
+pipx install git+https://github.com/lean-pkg/lean-pkg.git
 
 mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init
@@ -142,7 +142,7 @@ the [roadmap](ROADMAP.md); it is not implemented yet.
 | an agent | [llms.txt](llms.txt) · [AGENTS.md](AGENTS.md) · [Using lean-pkg with agents](docs/agents.md) · [Agent skills](skills/README.md) |
 | stuck | [FAQ](docs/faq.md) |
 
-Documentation site: <https://chenle02.github.io/lean-pkg/>.
+Documentation site: <https://lean-pkg.github.io/lean-pkg/>.
 
 ## Requirements
 
@@ -170,7 +170,7 @@ the repository at a commit:
   title   = {lean-pkg: a registry and trust gate for Lean 4 formalization packages},
   year    = {2026},
   version = {0.1.0},
-  url     = {https://github.com/chenle02/lean-pkg},
+  url     = {https://github.com/lean-pkg/lean-pkg},
   note    = {commit <sha>}
 }
 ```

@@ -89,7 +89,7 @@ def test_citation_cff_matches_pyproject():
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
     cff = yaml.safe_load((ROOT / "CITATION.cff").read_text())
     assert cff["version"] == version and cff["license"] == "Apache-2.0"
-    assert "chenle02/lean-pkg" in cff["repository-code"]
+    assert "lean-pkg/lean-pkg" in cff["repository-code"]
 
 
 def test_site_has_search_and_theme_toggle():

@@ -29,7 +29,7 @@ changes evidence.
    tag, pushes it, and opens the GitHub release with the changelog section as
    notes.
 5. Request a Pages build if docs changed:
-   `gh api -X POST repos/chenle02/lean-pkg/pages/builds`.
+   `gh api -X POST repos/lean-pkg/lean-pkg/pages/builds`.
 6. Once the repository is public: Zenodo archives the GitHub release
    automatically; paste the version DOI into `CITATION.cff` (`doi:`) and
    the changelog entry in the next patch.

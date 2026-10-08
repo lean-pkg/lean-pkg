@@ -1,7 +1,7 @@
 # lean-pkg — llms.txt
 
-> Registry and trust gate for Lean 4 formalization packages. Install: `pipx install git+https://github.com/chenle02/lean-pkg.git`.
-> Human docs: https://chenle02.github.io/lean-pkg/ (source: docs/), README.md, DESIGN.md. Tests: `python3 -m pip install -e '.[test]' && python3 -m pytest -q`.
+> Registry and trust gate for Lean 4 formalization packages. Install: `pipx install git+https://github.com/lean-pkg/lean-pkg.git`.
+> Human docs: https://lean-pkg.github.io/lean-pkg/ (source: docs/), README.md, DESIGN.md. Tests: `python3 -m pip install -e '.[test]' && python3 -m pytest -q`.
 > The block below is the exact output of `lean-pkg llms` (kept in sync by tests/test_docs.py).
 
 lean-pkg llms.txt — agent contract for the Lean 4 package registry

@@ -15,7 +15,7 @@ every subcommand has `--json`, and the contract an agent needs is one file.
 |---|---|
 | [llms.txt](llms.txt) | the exact output of `lean-pkg llms`: standing rules, transitions with required evidence, every subcommand with an example, both receipt schemas, the event schema, exit codes. Fetch this first. |
 | `lean-pkg llms` | the same text from the installed tool, always current |
-| [AGENTS.md](https://github.com/chenle02/lean-pkg/blob/main/AGENTS.md) | the modification contract for agents working **on** the tool (layout, tests, conventions) |
+| [AGENTS.md](https://github.com/lean-pkg/lean-pkg/blob/main/AGENTS.md) | the modification contract for agents working **on** the tool (layout, tests, conventions) |
 
 ## The rules an agent must follow
 
@@ -52,4 +52,4 @@ Work done with AI assistance must be disclosed in pull requests to this
 repository and, for packages targeting Mathlib, in the package's
 `automation` field (`lean-pkg update NAME --automation "..."`), which the
 promotion checklist requires when `upstream_target` is `mathlib`. See
-[CONTRIBUTING](https://github.com/chenle02/lean-pkg/blob/main/CONTRIBUTING.md).
+[CONTRIBUTING](https://github.com/lean-pkg/lean-pkg/blob/main/CONTRIBUTING.md).

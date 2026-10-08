@@ -9,7 +9,7 @@ append-only registry says which packages exist, who is working on each one,
 and what evidence binds a package to a verified commit. Nothing becomes
 public without two receipts, and the second one is re-derived from bytes.
 
-Source and issues: <https://github.com/chenle02/lean-pkg>. License:
+Source and issues: <https://github.com/lean-pkg/lean-pkg>. License:
 Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 
 ## Choose your door
@@ -21,7 +21,7 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 | **using the tool** | [How to](how-to.md), the [CLI reference](cli.md) and [Prior-art search](prior-art.md) |
 | **auditing a package** | [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [formalization.yaml](formalization.md), [The index](index-catalog.md), [Lifecycle](lifecycle.md) |
 | **a coding agent** | [Using lean-pkg with agents](agents.md), [llms.txt](llms.txt), and the [agent skills](skills.md) |
-| **contributing** | [CONTRIBUTING](https://github.com/chenle02/lean-pkg/blob/main/CONTRIBUTING.md) and [MAINTAINERS](https://github.com/chenle02/lean-pkg/blob/main/MAINTAINERS.md) |
+| **contributing** | [CONTRIBUTING](https://github.com/lean-pkg/lean-pkg/blob/main/CONTRIBUTING.md) and [MAINTAINERS](https://github.com/lean-pkg/lean-pkg/blob/main/MAINTAINERS.md) |
 
 ## In one paragraph
 
@@ -43,7 +43,7 @@ many independent research repositories:
 <img src="assets/global-registry.svg" alt="Architecture diagram: one private global registry coordinates many independent Lean project repositories; a chosen public snapshot can later flow through index review into the lean-pkg public index" style="max-width:100%;height:auto">
 
 ```bash
-pipx install git+https://github.com/chenle02/lean-pkg.git
+pipx install git+https://github.com/lean-pkg/lean-pkg.git
 mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init
 lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
@@ -92,7 +92,7 @@ the repository at a commit:
   title   = {lean-pkg: a registry and trust gate for Lean 4 formalization packages},
   year    = {2026},
   version = {0.1.0},
-  url     = {https://github.com/chenle02/lean-pkg},
+  url     = {https://github.com/lean-pkg/lean-pkg},
   note    = {commit <sha>}
 }
 ```
@@ -104,7 +104,7 @@ see the [FAQ](faq.md#about-the-workflow).
 ## License
 
 The tool and this documentation are released under the
-[Apache License 2.0](https://github.com/chenle02/lean-pkg/blob/main/LICENSE).
+[Apache License 2.0](https://github.com/lean-pkg/lean-pkg/blob/main/LICENSE).
 Each verified package carries its own license; the promotion checklist
 requires one that GitHub can detect.
 
