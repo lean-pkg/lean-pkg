@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- Index: `markovprocess-pilot` re-pinned at `05d99d75df82`, the commit that
+  credits Scott Armstrong for the lemma adapted from MarkovProcess and cites
+  MarkovProcess; fresh lower-tier and comparator receipts (toolchain
+  mechanism).
+
 ## [0.5.0] - 2026-10-08
 
 ### Added
