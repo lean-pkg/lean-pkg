@@ -20,6 +20,7 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 | **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
 | **using the tool** | [How to](how-to.md), the [CLI reference](cli.md) and [Prior-art search](prior-art.md) |
 | **auditing a package** | [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [formalization.yaml](formalization.md), [The index](index-catalog.md), [Lifecycle](lifecycle.md) |
+| **testing it from scratch** | [Stranger test](stranger-test.md): run it from the docs alone and record what happened |
 | **a coding agent** | [Using lean-pkg with agents](agents.md), [llms.txt](llms.txt), and the [agent skills](skills.md) |
 | **contributing** | [CONTRIBUTING](https://github.com/lean-pkg/lean-pkg/blob/main/CONTRIBUTING.md) and [MAINTAINERS](https://github.com/lean-pkg/lean-pkg/blob/main/MAINTAINERS.md) |
 

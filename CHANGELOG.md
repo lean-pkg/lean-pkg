@@ -9,6 +9,8 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `docs/stranger-test.md`: who may run the gate G1 stranger test, what counts
+  as success, and the transcript template.
 - `lean-pkg formalization NAME [--write] [--out PATH] [--force] [--author NAME]`:
   render the package's `formalization.yaml` (mathlib-initiative schema v0.4,
   the file Palomar reads) from the registry and the repository at HEAD.

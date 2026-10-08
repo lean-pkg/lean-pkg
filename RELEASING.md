@@ -57,3 +57,7 @@ by publishing from a fresh history; both are maintainer decisions recorded in
 (dry run by default, `--push` to publish), then reset every other clone. `make reuse` (REUSE 3.3 compliance, `pipx install reuse`)
 is part of `make check` and must report "compliant", not "SKIPPED", on the
 release machine.
+
+Gate G1 (stranger test) needs a dated transcript from someone outside the
+project who ran the tool from the documentation alone; the template is
+[docs/stranger-test.md](docs/stranger-test.md).
