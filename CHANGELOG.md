@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `list` and `board` accept `--fields a,b,c` (JSON and text), the same validation and dotted
+  paths as `status --fields` (one implementation): each package record is cut to those keys,
+  `--json` keeps the dump's shape and adds a `fields` list, text prints YAML; `board --fields`
+  never opens the TUI. `--only` stays a pure package filter (full records). `list --json --only
+  NAME --fields status` used to exit 2. (#29)
+
 ### Changed
 
 - `lean-pkg --version` says which build runs: `lean-pkg X.Y.Z (<short-sha>[+dirty], editable

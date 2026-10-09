@@ -3384,13 +3384,14 @@ def only_packages(reg: dict, only: str | None) -> dict:
     return out
 
 
-def select_fields(pkg: dict, fields: list[str]) -> dict:
-    """`status --fields`: the sub-tree of the package record holding just these keys, same nesting as the
-    full record. A dotted path walks mappings (gate.receipt, lease.agent); through a null it yields null.
-    A top-level key outside PACKAGE_FIELDS (and absent from the record), or a missing key inside a mapping,
-    is a usage error listing the valid keys at that level."""
+def select_fields(pkg: dict, fields: list[str], also_known: tuple[str, ...] = ()) -> dict:
+    """`status/list/board --fields`: the sub-tree of the package record holding just these keys, same nesting
+    as the full record. A dotted path walks mappings (gate.receipt, lease.agent); through a null it yields
+    null. A top-level key outside PACKAGE_FIELDS (and absent from the record and also_known), or a missing
+    key inside a mapping, is a usage error listing the valid keys at that level."""
     table = [k for k, _, _ in PACKAGE_FIELDS]
-    known = table + [k for k in pkg if k not in table]   # plus any additive key the record already has
+    extra = [k for k in [*pkg, *also_known] if k not in table]   # plus any additive key a record already has
+    known = table + list(dict.fromkeys(extra))
     out: dict = {}
     whole: set[tuple[str, ...]] = set()
     for path in fields:
@@ -3425,15 +3426,54 @@ def select_fields(pkg: dict, fields: list[str]) -> dict:
     return out
 
 
+def fields_arg(args) -> list[str] | None:
+    """The parsed `--fields a,b,c` of status/list/board, or None when the flag is absent."""
+    fields = getattr(args, "fields", None)
+    return None if fields is None else csv_names(fields, "--fields")
+
+
+def trim_packages(reg: dict, names: list[str]) -> dict:
+    """`list`/`board --fields`: every package record cut to select_fields(names); the dump's other keys are
+    kept. Validation is status's, against PACKAGE_FIELDS plus any additive key some record has; with no
+    package at all the top-level names are still checked."""
+    pkgs = reg.get("packages") or {}
+    extra = tuple(dict.fromkeys(k for p in pkgs.values() if isinstance(p, dict) for k in p))
+    if not pkgs:
+        select_fields({}, names)
+    out = dict(reg)
+    out["packages"] = {k: select_fields(v, names, extra) for k, v in pkgs.items()}
+    return out
+
+
+def print_dump(args, reg: dict) -> int:
+    """`list`/`board` off the TUI: --json dumps the (filtered, trimmed) registry; text is the table, or with
+    --fields the selected keys of each package as YAML."""
+    names = fields_arg(args)
+    if args.json_out:
+        view = with_expiry(reg)
+        if names is not None:
+            view = trim_packages(view, names)
+            view["fields"] = names
+        print_json(view)
+    elif names is not None:
+        picked = trim_packages(reg, names)["packages"]
+        print(yaml.safe_dump(picked, sort_keys=False, default_flow_style=False, width=120).rstrip()
+              if picked else "{}")
+    else:
+        print("\n".join(table_lines(reg)))
+    return 0
+
+
+def static_view(args) -> bool:
+    """`board` prints the static table/dump instead of the TUI: --json, --only or --fields given."""
+    return bool(getattr(args, "json_out", False)) or getattr(args, "only", None) is not None \
+        or getattr(args, "fields", None) is not None
+
+
 def cmd_board(args) -> int:
     reg_path = registry_path(args)
-    only = getattr(args, "only", None)
-    if args.json_out:
-        print_json(with_expiry(only_packages(load_registry(reg_path), only)))
-        return 0
-    if only is not None:   # a filtered view is the static table; the TUI always shows the whole registry
-        print("\n".join(table_lines(only_packages(load_registry(reg_path), only))))
-        return 0
+    if static_view(args):   # a filtered or trimmed view; the TUI always shows the whole registry
+        return print_dump(args, only_packages(load_registry(reg_path), getattr(args, "only", None)))
     if board_interactive():
         try:
             import curses
@@ -3447,12 +3487,7 @@ def cmd_board(args) -> int:
 
 
 def cmd_list(args) -> int:
-    reg = only_packages(load_registry(registry_path(args)), getattr(args, "only", None))
-    if args.json_out:
-        print_json(with_expiry(reg))
-        return 0
-    print("\n".join(table_lines(reg)))
-    return 0
+    return print_dump(args, only_packages(load_registry(registry_path(args)), getattr(args, "only", None)))
 
 
 def package_fields_help() -> str:
@@ -3460,7 +3495,7 @@ def package_fields_help() -> str:
     width = max(len(k) for k, _, _ in PACKAGE_FIELDS)
     rows = [f"  {k.ljust(width)}  {meaning}" + ("" if tier == "v1" else f" [{tier}]")
             for k, tier, meaning in PACKAGE_FIELDS]
-    return ("package record (the \"package\" object of --json; [v2]/[v3]: added by that schema "
+    return ("package record (the \"package\" object of status --json, each entry of \"packages\" in list/board --json; [v2]/[v3]: added by that schema "
             "version, [optional]: absent unless set):\n" + "\n".join(rows))
 
 
@@ -3468,9 +3503,8 @@ def cmd_status(args) -> int:
     reg = load_registry(registry_path(args))
     pkg = get_pkg(reg, args.name)
     hist = pkg.get("history") or []
-    fields = getattr(args, "fields", None)
-    if fields is not None:
-        names = csv_names(fields, "--fields")
+    names = fields_arg(args)
+    if names is not None:
         picked = select_fields(pkg, names)
         if args.json_out:
             print_json({"ok": True, "name": args.name, "package": picked,
@@ -3946,8 +3980,8 @@ public -> upstreamed               `update --status`: a recorded mathlib-pr-merg
 any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public never returns to a private status
 
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path})
-board     TUI on a tty, static table otherwise; --only NAME[,NAME] restricts the table/--json dump (never the TUI). ex: lean-pkg board --json --only my-lean
-list      static table; --only NAME[,NAME] restricts the table/--json dump to those packages (shape unchanged). ex: lean-pkg list --json --only my-lean
+board     TUI on a tty, static table otherwise; --only and --fields as for list (either: never the TUI). ex: lean-pkg board --json --only my-lean
+list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML). ex: lean-pkg list --json --only my-lean --fields status
 status    full record + last 5 history entries; --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
@@ -5035,15 +5069,24 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--no-commit", dest="no_commit", action="store_true", default=argparse.SUPPRESS,
                        help="never commit or push (overrides the env)")
 
-    only_help = ("only these packages (comma-separated names); the same table or --json shape, "
-                 "restricted; an unknown name exits 1")
-    s = sub.add_parser("board", help="curses TUI on a tty; static table otherwise")
+    only_help = ("filters PACKAGES, never fields: only these packages (comma-separated names), each with its "
+                 "full record (cached claims included); the same table or --json shape, restricted; an unknown "
+                 "name exits 1")
+    list_fields_help = ("trims FIELDS, never packages: each package record cut to these keys, comma-separated; "
+                        "the same validation and dotted paths as `status --fields` (gate.receipt, lease.agent; an "
+                        "unknown field exits 2 listing the valid keys); --json keeps the dump's shape plus a "
+                        "`fields` list, text prints the selected keys of each package as YAML")
+    s = sub.add_parser("board", help="curses TUI on a tty; static table otherwise",
+                       formatter_class=argparse.RawDescriptionHelpFormatter, epilog=package_fields_help())
     s.add_argument("--only", metavar="NAME[,NAME]", default=None,
                    help=only_help + "; never opens the TUI")
+    s.add_argument("--fields", metavar="a,b,c", default=None, help=list_fields_help + "; never opens the TUI")
     add_json(s)
     s.set_defaults(fn=cmd_board)
-    s = sub.add_parser("list", help="static table, pipe-friendly")
+    s = sub.add_parser("list", help="static table, pipe-friendly",
+                       formatter_class=argparse.RawDescriptionHelpFormatter, epilog=package_fields_help())
     s.add_argument("--only", metavar="NAME[,NAME]", default=None, help=only_help)
+    s.add_argument("--fields", metavar="a,b,c", default=None, help=list_fields_help)
     add_json(s)
     s.set_defaults(fn=cmd_list)
 
@@ -5052,9 +5095,9 @@ def main(argv: list[str] | None = None) -> int:
                        epilog=package_fields_help())
     s.add_argument("name")
     s.add_argument("--fields", metavar="a,b,c", default=None,
-                   help="only these keys of the package record, comma-separated; dotted paths reach into "
-                        "mappings (gate.receipt, lease.agent); --json keeps the nesting, text prints YAML; "
-                        "an unknown field exits 2 listing the valid keys")
+                   help="trims FIELDS: only these keys of the package record, comma-separated; dotted paths "
+                        "reach into mappings (gate.receipt, lease.agent); --json keeps the nesting, text prints "
+                        "YAML; an unknown field exits 2 listing the valid keys")
     add_json(s)
     s.set_defaults(fn=cmd_status)
 
@@ -5360,9 +5403,7 @@ def is_write_invocation(args) -> bool:
     if cmd == "search":
         return bool(getattr(args, "record", False))
     if cmd in ("board", None):
-        return (getattr(args, "fn", None) is cmd_board and not getattr(args, "json_out", False)
-                and getattr(args, "only", None) is None
-                and board_interactive())
+        return getattr(args, "fn", None) is cmd_board and not static_view(args) and board_interactive()
     return False
 
 
