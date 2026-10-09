@@ -10,3 +10,5 @@ venv/
 htmlcov/
 .worktrees/
 .superpowers/
+# public-safety patterns for lean-pkg's own self-scan: they list private strings, never commit them
+.lean-pkg-private-patterns

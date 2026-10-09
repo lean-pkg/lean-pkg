@@ -11,6 +11,10 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `make public-safety`: lean-pkg's own `public-safety --strict` scan of this repository, history
+  included, over a fresh clone registered in a throwaway registry; needs the untracked
+  `.lean-pkg-private-patterns` (now in `.gitignore`). A release checklist step (RELEASING.md) and
+  gate G8 of decision 0006.
 - `release NAME --fresh-repo DIR --from-tree SRCDIR`: export a hand-cleaned working tree (not a commit
   of the source repository) with the same exclusions, public-safety scan and single commit; in a git
   checkout the source's `.gitignore` applies. The message records `source commit: none (hand-cleaned

@@ -1,7 +1,7 @@
 # lean-pkg: local gates. No tab characters: recipes use '>' as the prefix.
 # `make check` is the release gate; hosted CI runs the same targets once the repository is public.
 .RECIPEPREFIX := >
-.PHONY: check test boundary tabs versions reuse history release
+.PHONY: check test boundary tabs versions reuse history public-safety release
 
 check: test boundary tabs versions reuse
 > @echo "check: all gates green"
@@ -28,6 +28,20 @@ reuse:
 # only by rewriting history, which is a maintainer decision before the public flip (RELEASING.md).
 history:
 > bash scripts/private-boundary-check.sh --history
+
+# lean-pkg's own public-safety scan (RELEASING.md): a fresh clone carrying every ref, registered as
+# lean-pkg-self in a throwaway registry, scanned with this checkout's code, history included, --strict.
+# Needs the untracked .lean-pkg-private-patterns at the repository root; never touches a real registry.
+public-safety:
+> @test -f .lean-pkg-private-patterns || { echo "public-safety: .lean-pkg-private-patterns missing at the repository root (untracked; see RELEASING.md)"; exit 2; }
+> @d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && trap 'exit 130' INT TERM HUP && \
+>  git clone -q . "$$d/lean-pkg" && git -C "$$d/lean-pkg" fetch -q origin '+refs/*:refs/selfscan/*' && \
+>  cp .lean-pkg-private-patterns "$$d/lean-pkg/" && \
+>  export LEAN_PKG_REGISTRY="$$d/lean-packages.yaml" PYTHONPATH="$$PWD/src" && \
+>  unset LEAN_PKG_COMMIT LEAN_PKG_PUSH LEAN_PKG_EVENTS LEAN_PKG_INDEX LEAN_PKG_HOME LEAN_PKG_REGISTRY_SNAPSHOT && \
+>  python3 -m lean_pkg.cli init >/dev/null && \
+>  python3 -m lean_pkg.cli register lean-pkg-self --repo https://github.com/lean-pkg/lean-pkg --path "$$d/lean-pkg" --owner-project lean-pkg --status scratch >/dev/null && \
+>  python3 -m lean_pkg.cli public-safety lean-pkg-self --history --strict
 
 # make release VERSION=0.1.0  (runs scripts/release.sh; see RELEASING.md)
 release:

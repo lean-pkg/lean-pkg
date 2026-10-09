@@ -216,4 +216,9 @@ blocking, so the run exits 0 only when nothing manuscript-shaped is left.
 `release --fresh-repo` itself refuses only on blocking hits and lists the
 warnings in its plan.
 
+public-safety is necessary, not sufficient: a second release audit found two
+comment-only paper-specific leaks (provenance and proof-narrative wording)
+that no pattern can catch. Keep an independent human-style read of comments
+and docstrings before adopting the public tree.
+
 Next: [The comparator tier](comparator.md).

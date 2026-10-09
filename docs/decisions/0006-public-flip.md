@@ -7,7 +7,8 @@ repository stays private until every gate below is signed).
 
 Making `lean-pkg/lean-pkg` public is one-way: forks, caches and clones cannot
 be withdrawn. The public-hub RFC sets seven gates, G1 to G7, that must all
-hold first, and the maintainer signs each one. This record lists, for each
+hold first, and the maintainer signs each one; G8, added on 2026-10-09,
+records lean-pkg's own public-safety scan of this repository. This record lists, for each
 gate, the evidence as of 2026-10-08 and what is still open, so that each
 signature points at something checkable.
 
@@ -22,10 +23,11 @@ signature points at something checkable.
 | G5 Index | At least two reference-grade entries keyed to Palomar ids or library pins, and a working `search` over the index. | Three entries, all pinned to commits, all in public repositories, and `lean-pkg index check --clone` re-derives all three from those repositories. All three at comparator trust: `total-coloring-lean` (pin `533f9430cb45`, legacy mechanism), `markovprocess-pilot` (pin `05d99d75df82`, toolchain mechanism, which is what Palomar runs) and `gromov-filling-lean` (pin `ba787a3eb26e`, legacy mechanism). `lean-pkg search` covers the index (`tests/test_search.py`). No entry has a Palomar id yet; the gate allows library pins instead. | — | ready to sign |
 | G6 Institutional | A written determination covering a public, Apache-licensed tool and catalog. | Auburn University's IP office agreed to the notice and the license: decision [0004](0004-copyright-and-license-confirmed-by-auburn.md). | — | met |
 | G7 Maintainers | `MAINTAINERS.md` with at least one named successor. | `MAINTAINERS.md` names the maintainer of record; decision [0005](0005-github-account-successor-until-a-deputy-is-named.md) covers succession through the maintainer's GitHub account successor until a deputy is named. | A deputy is not named, and the account-successor setting is not yet confirmed. Fully met when a named deputy is added. | open |
+| G8 Public-safety self-scan clean | `make public-safety` (lean-pkg's own `public-safety --strict --history` over a fresh clone with every ref, registered in a throwaway registry; RELEASING.md checklist step 3) reports 0 blocking and 0 warnings, with the untracked `.lean-pkg-private-patterns` (block lines for the private-boundary list, never a raw private string; anchored allow lines for fixtures). Signed with: the date, the summary line (without the clone path), and the patterns file's line count. | 2026-10-09, at `4e9615d` (the recalibrated latex-label family of #37): `0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)` under `--strict`, patterns file 57 lines (13 block, 9 allow); also clean under v0.7.10 (`ef7e698`) with two more allow lines for its latex-label false positives. The first run without the file had 264 hits (193 blocking, 71 warnings), all classified: tool self-documentation of its own built-in patterns, test fixtures, the maintainer's public homepage URL, and 13 latex-label false positives; no real private string. | Re-run before the flip on the commit to be made public, and sign with that run's date and line. | ready to sign |
 
 ## Decision (proposed)
 
-Make the repository public when G1, G2, G5 and G7 are signed, in this order:
+Make the repository public when G1, G2, G5, G7 and G8 are signed, in this order:
 
 1. Cut a release that matches the documentation (the changes listed under
    Unreleased in `CHANGELOG.md`), with `scripts/release.sh`.
@@ -39,6 +41,6 @@ Make the repository public when G1, G2, G5 and G7 are signed, in this order:
 
 - Each gate's row is replaced by its signature (date, and the commit or
   document that proves it) when the maintainer signs it; the status becomes
-  accepted when all seven are signed.
+  accepted when all eight are signed.
 - After the flip, private material can no longer be removed from what was
   published; anything found later is handled as a new decision.
