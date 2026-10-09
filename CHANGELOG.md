@@ -15,6 +15,9 @@ change the registry schema or receipt format, always with a migration).
   says on stderr how many changes it wrote so the two registry files get
   committed together; `--json` carries a `fixed` count. The TUI's `a` is
   read-only. (#9)
+- Advisory notes from `claim` and `index add` (missing prior-art search or
+  record) go to stderr, so the last stdout line is the result and
+  `lean-pkg claim ... | tail -1` scripts see it; `--json` keeps `notes`. (#6)
 - Index: `gromov-filling-lean` re-pinned at `ba787a3eb26e` with a comparator
   receipt for Theorem 1.1 (legacy mechanism), whose Challenge copies the
   project's surface-area definitions into a Mathlib-only `Defs.lean`; trust is

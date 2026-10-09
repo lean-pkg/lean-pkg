@@ -14,6 +14,7 @@ import json
 import os
 import pathlib
 import re
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -719,7 +720,6 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
            f"receipts copied: {', '.join(copied)}"]
     if coverage_note:
         out.append(coverage_note)
-    out += notes
     if source and opts.get("allow_unpushed"):
         out.append("provisional: --allow-unpushed skipped the public-repository check; "
                    "`index check --clone` will fail until the pin and evidence are pushed")
@@ -764,7 +764,11 @@ def run_add(args) -> int:
             "notes": args.notes, "repo_dir": args.repo_dir,
             "allow_unpushed": args.allow_unpushed}
     out, payload = do_index_add(root, events_p, reg, args.name, opts)
-    return _emit(args, out, payload)
+    rc = _emit(args, out, payload)
+    if not args.json_out:
+        for note in payload["notes"]:        # advisory: stderr, so stdout's last line is the result
+            print(note, file=sys.stderr)
+    return rc
 
 
 def _parser_add(isub, common) -> None:

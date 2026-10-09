@@ -18,8 +18,10 @@ def claim(lp, env, name="alpha", *extra):
 
 def test_claim_notes_a_package_with_no_search_and_no_claims(lp, env, capsys):
     assert claim(lp, env) == 0                          # advisory: the claim still succeeds
-    out = capsys.readouterr().out
-    assert NOTE in out and "lean-pkg search TERM --package alpha --record" in out
+    captured = capsys.readouterr()
+    assert NOTE in captured.err and "lean-pkg search TERM --package alpha --record" in captured.err
+    assert NOTE not in captured.out                     # stdout ends with the result line (#6)
+    assert captured.out.strip().splitlines()[-1].startswith("alpha: lease claimed")
     assert read_reg(env)["packages"]["alpha"]["lease"]["agent"] == "a"
 
 
@@ -34,7 +36,8 @@ def test_no_note_after_a_recent_recorded_search(lp, searchable, capsys):
     assert run_search(lp, searchable, "foo bound", "--offline", "--package", "alpha", "--record") == 0
     capsys.readouterr()
     assert claim(lp, env) == 0
-    assert NOTE not in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert NOTE not in captured.out + captured.err
 
 
 def test_a_search_older_than_30_days_does_not_count(lp, env, capsys):
@@ -42,7 +45,7 @@ def test_a_search_older_than_30_days_does_not_count(lp, env, capsys):
     env.events.write_text(json.dumps({"ts": old, "event": "prior-art-searched", "name": "alpha",
                                       "term": "x"}) + "\n" + "not json\n")
     assert claim(lp, env) == 0
-    assert NOTE in capsys.readouterr().out
+    assert NOTE in capsys.readouterr().err
 
 
 def test_no_note_when_claims_are_synced(lp, env, capsys):
@@ -50,20 +53,24 @@ def test_no_note_when_claims_are_synced(lp, env, capsys):
     assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 0
     capsys.readouterr()
     assert claim(lp, env, "beta") == 0
-    assert NOTE not in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert NOTE not in captured.out + captured.err
 
 
 def test_no_note_when_the_checkout_has_a_claims_file(lp, env, capsys):
     (env.repo_a / "claims.yaml").write_text("schema: claims/1\npackage: alpha\nclaims: []\n")
     assert claim(lp, env) == 0
-    assert NOTE not in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert NOTE not in captured.out + captured.err
 
 
 def test_index_add_notes_a_headline_without_a_record(lp, tmp_path, capsys):
     root = tmp_path / "index"
     assert index_add(lp, root, make_index_package(tmp_path)) == 0
-    assert "note: no prior-art record under docs/prior-art/ at the pin names Demo.foo_le_bar" in \
-        capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert "note: no prior-art record under docs/prior-art/ at the pin names Demo.foo_le_bar" in captured.err
+    assert "note:" not in captured.out
+    assert "receipts copied:" in captured.out       # the result stays on stdout
 
 
 def test_index_add_is_quiet_when_a_record_at_the_pin_names_the_headline(lp, tmp_path, capsys):

@@ -2387,7 +2387,7 @@ search    TERM [--package NAME] [--offline] [--sources a,b,c] [--record [--repo-
   order: registry, index, loogle, leansearch, reservoir, palomar, github; each "ok" or "skipped: <reason>" (never zero hits).
   local score: exact alias 3, keyword 2, every term word 1. exit 0 even with zero hits; 2 on usage errors.
   --record: docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-dir; never the registry dir; never
-  overwritten; "decision: pending" for a human) + event prior-art-searched. claim/index add print advisory notes.
+  overwritten; "decision: pending" for a human) + event prior-art-searched. claim/index add print advisory notes on stderr (`notes` in --json).
 
 RECEIPT SCHEMA (JSON object; `gate` enforces every line)
 commit         40 lowercase hex; MUST equal HEAD, or HEAD must be an evidence-only descendant of it
@@ -2531,12 +2531,12 @@ def cmd_claim(args) -> int:
                             args.reason, args.force)
     note = prior_art_note(get_pkg(reg, args.name), events_p)
     payload["notes"] = [note] if note else []
-    if note:
-        out.append(note)
     if args.json_out:
         print_json(payload)
     else:
         print("\n".join(out))
+        if note:
+            print(note, file=sys.stderr)   # advisory: stderr, so stdout's last line is the result
     return 0
 
 
