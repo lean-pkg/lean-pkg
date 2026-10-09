@@ -17,6 +17,12 @@ change the registry schema or receipt format, always with a migration).
   toolchain and config hash match a completed setup skips straight to the comparison.
   `--from-prepared DIR` reuses another directory's setup and refuses a mismatch. The receipt
   gains an additive `stages` summary. (#26.1)
+- `lean-pkg gate NAME --receipt R [--comparator C] --check`: read-only validation against HEAD
+  (binding, the derived-only `formalization.yaml` rule, toolchain at the bound commit, sorry
+  count, axioms; with `--comparator` both tiers). It prints `✓` lines or the refusal `gate`
+  would print, writes nothing, records no event and works at any status (exit 0/1).
+  `comparator --check` now prints the same binding `✓` lines and adds `checks[]` and `head` to
+  its JSON. (#26.2)
 
 ## [0.7.2] - 2026-10-09
 

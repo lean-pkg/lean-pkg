@@ -1864,6 +1864,43 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
                        f"({COMPARATOR_PASS_LINE!r} as a full line)")
 
 
+def binding_lines(pkg: dict, repo: pathlib.Path, commit: str, toolchain) -> list[str]:
+    """The ✓ lines of a validated binding (#26.2): commit vs HEAD, the formalization.yaml rule, the
+    toolchain at the bound commit. Called only after the validator passed, so every line is a pass."""
+    head = git_head(repo) or ""
+    _ok, note = evidence_only_descendant(repo, commit, head, formalization_rel(pkg))
+    out = [f"✓ binding: commit {commit[:12]} is HEAD" if commit == head
+           else f"✓ binding: HEAD {head[:12]}: {note}"]
+    rel = formalization_rel(pkg)
+    if rel and commit != head:
+        changed = git(repo, "diff", "--no-renames", "--name-only", "--relative", commit, head, "--", rel)
+        out.append(f"✓ {rel}: only derived keys changed since {commit[:12]} (evidence-only rule)"
+                   if changed.stdout.strip() else f"✓ {rel}: unchanged since {commit[:12]}")
+    elif not rel:
+        out.append("✓ formalization.yaml: no registry pointer, so no exception was applied")
+    out.append(f"✓ lean_toolchain {str(toolchain).strip()} = lean-toolchain committed at {commit[:12]}")
+    return out
+
+
+def receipt_check_lines(pkg: dict, repo: pathlib.Path, receipt: dict) -> list[str]:
+    allowed = sorted(set((pkg.get("gate") or {}).get("axioms_allowed") or DEFAULT_AXIOMS))
+    return binding_lines(pkg, repo, receipt["commit"], receipt["lean_toolchain"]) + [
+        "✓ sorry_count 0",
+        f"✓ axioms {sorted(receipt['axioms'])} within {allowed}",
+        f"✓ mathlib_rev, report_sha256, job_id {receipt['job_id']}, checker, generated_at well-formed"]
+
+
+def comparator_check_lines(pkg: dict, repo: pathlib.Path, comp: dict, lower_commit: str | None,
+                           with_binding: bool = True) -> list[str]:
+    mech = "legacy" if comp.get("schema") == "comparator-receipt/1" else comp.get("mechanism")
+    out = binding_lines(pkg, repo, comp["commit"], comp["lean_toolchain"]) if with_binding else []
+    out.append(f"✓ comparator: {len(comp['configs'])} config(s) re-derived from bytes at {comp['commit'][:12]}, "
+               f"each log PASS ({mech} mechanism)")
+    out.append(f"✓ comparator commit = lower-tier receipt commit {lower_commit[:12]}" if lower_commit
+               else "· no lower-tier receipt to pair with (commit equality not checked)")
+    return out
+
+
 def load_json_object(path_arg, what: str) -> tuple[pathlib.Path, dict]:
     p = pathlib.Path(str(path_arg)).expanduser()
     if not p.is_file():
@@ -1956,6 +1993,47 @@ def do_gate(reg_path, reg, events_p, name, receipt_arg,
             refuse_dirty: bool = False) -> tuple[list[str], dict]:
     return _with_private_warnings(_do_gate, reg_path, reg, events_p, name, receipt_arg,
                                   comparator_arg, refuse_private, refuse_dirty=refuse_dirty)
+
+
+def do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: bool = False,
+                  refuse_dirty: bool = False) -> tuple[list[str], dict]:
+    return _with_private_warnings(_do_gate_check, reg, name, receipt_arg, comparator_arg, refuse_private,
+                                  refuse_dirty=refuse_dirty)
+
+
+def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: bool = False,
+                   private_sink=None, refuse_dirty: bool = False) -> tuple[list[str], dict]:
+    """`gate NAME --receipt R --check` (#26.2): every validation `gate` makes, against HEAD; writes
+    nothing, records no event, works at any status. The mirror of `comparator --check`."""
+    pkg = get_pkg(reg, name)
+    repo = repo_path(pkg)
+    if not repo.is_dir():
+        raise Fail(f"{name}: local_path does not exist: {repo}")
+    dirty = dirty_guard(repo, name, refuse_dirty)
+    rp, receipt = load_json_object(receipt_arg, "receipt")
+    cp = comp = None
+    if comparator_arg is not None:
+        cp, comp = load_json_object(comparator_arg, "comparator receipt")
+    private = receipt_private_strings([("receipt", rp.read_bytes())]
+                                      + ([("comparator", cp.read_bytes())] if cp else []),
+                                      refuse_private, private_sink)
+    validate_receipt(pkg, repo, receipt)
+    commit = receipt["commit"]
+    checks = receipt_check_lines(pkg, repo, receipt)
+    if comp is not None:
+        validate_comparator(pkg, repo, comp, commit)
+        checks += comparator_check_lines(pkg, repo, comp, commit, with_binding=False)
+    status = pkg.get("status")
+    if status not in ("gate-pending", "public"):
+        checks.append(f"· status {status}: `gate` itself needs gate-pending (or public)")
+    msg = (f"{name}: receipt valid at commit {commit[:12]}"
+           + (f" with comparator ({len(comp['configs'])} config(s))" if comp else "")
+           + " — not recorded (--check)")
+    payload = {"ok": True, "name": name, "event": "gate-checked", "recorded": False, "commit": commit,
+               "head": git_head(repo), "status": status, "checks": checks,
+               "comparator": ({"commit": comp["commit"], "configs": len(comp["configs"])} if comp else None),
+               "private_strings": private, "dirty": dirty}
+    return [msg] + [f"  {c}" for c in checks], payload
 
 
 def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
@@ -2089,11 +2167,12 @@ def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool 
         msg = (f"{name}: comparator receipt valid at commit {comp['commit'][:12]} "
                f"({n} config(s)) — not recorded (--check)"
                + ("" if lower_commit else "; no lower-tier receipt recorded yet"))
+        checks = comparator_check_lines(pkg, repo, comp, lower_commit or None)
         payload = {"ok": True, "name": name, "event": "comparator-checked",
                    "recorded": False, "commit": comp["commit"], "configs": n,
-                   "lower_receipt_commit": lower_commit, "private_strings": private,
-                   "dirty": dirty}
-        return [msg], payload
+                   "lower_receipt_commit": lower_commit, "head": git_head(repo), "checks": checks,
+                   "private_strings": private, "dirty": dirty}
+        return [msg] + [f"  {c}" for c in checks], payload
     rec_comp = recorded_json(repo, gate.get("comparator"))
     if rec_comp is not None and rec_comp == comp:
         payload = {"ok": True, "name": name, "event": "already-attached",
@@ -3675,7 +3754,7 @@ release   holder-only unless --force --reason (released_by: --agent, else force)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
-  nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written)
+  nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; no write, no event; exit 0/1; JSON event gate-checked, checks[]; comparator --check prints the same binding ✓ lines)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op. It is required by promote.
@@ -3999,7 +4078,12 @@ def do_gate_refresh(reg_path, reg, events_p, args) -> tuple[list[str], dict, lis
 
 def cmd_gate(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
-    if getattr(args, "refresh_formalization", False):
+    if getattr(args, "check", False):
+        if getattr(args, "refresh_formalization", False) or getattr(args, "agent", None) is not None:
+            raise UsageError("gate --check writes nothing; --refresh-formalization and --agent do not apply")
+        out, payload = do_gate_check(load_registry(reg_path), args.name, args.receipt, args.comparator,
+                                     refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
+    elif getattr(args, "refresh_formalization", False):
         out, payload, warnings = do_gate_refresh(reg_path, load_registry(reg_path), events_p, args)
         for w in warnings:
             print(f"lean-pkg: warning: {w}", file=sys.stderr)
@@ -4815,6 +4899,9 @@ def main(argv: list[str] | None = None) -> int:
                         "refuses when nothing would change")
     s.add_argument("--agent", default=None,
                    help="with --refresh-formalization: the live lease holder, if any (the file write needs it)")
+    s.add_argument("--check", action="store_true",
+                   help="validate only, against HEAD (with --comparator: both tiers); write nothing, record "
+                        "nothing (works at any status), like `comparator --check`")
     add_json(s)
     s.set_defaults(fn=cmd_gate)
 
@@ -4942,11 +5029,13 @@ UNLOCKED_WRITES = ("index", "search", "board", None)
 def is_write_invocation(args) -> bool:
     """Does this invocation, as parsed, write the registry or its event log? The one predicate behind the
     registry lock (locks_registry) and committed mode (commit_mode). Dry runs and read-only forms are not
-    writes: register/update/migrate --dry-run, promote without --yes, audit without --fix, comparator
+    writes: register/update/migrate --dry-run, promote without --yes, audit without --fix, gate --check, comparator
     --check, formalization without --write or with --no-registry, claims list/check, index check/render/migrate, search without
     --record, board off a tty or with --json."""
     cmd = getattr(args, "cmd", None)
-    if cmd in ("init", "record", "register", "claim", "release", "renew", "update", "gate", "migrate"):
+    if cmd == "gate":
+        return not getattr(args, "check", False)
+    if cmd in ("init", "record", "register", "claim", "release", "renew", "update", "migrate"):
         return not getattr(args, "dry_run", False)
     if cmd == "comparator":
         return not getattr(args, "check", False) and not is_host_check(args) \
