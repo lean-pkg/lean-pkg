@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-10-09
+
 ### Added
 
 - `comparator config --from-claims NAME --checkout DIR`: use another checkout of the package
