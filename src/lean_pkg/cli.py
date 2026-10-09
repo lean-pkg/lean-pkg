@@ -209,6 +209,7 @@ PACKAGE_FIELDS = (
     ("claims", "v3", "cached claims from the last `claims sync` (can be hundreds of KB) [bulk]"),
     ("claims_synced_commit", "v3", "40-hex commit the cached claims were read at, or null"),
     ("paper", "optional", "{arxiv, status} of the paper behind a paper-coupled package"),
+    ("namespace_notes", "optional", "{Lean root namespace: why sharing it with another package is intended}"),
 )
 REQUIRED_FIELDS = [k for k, tier, _ in PACKAGE_FIELDS if tier == "v1"]
 BULK_FIELDS = [k for k, _, meaning in PACKAGE_FIELDS if meaning.endswith("[bulk]")]
@@ -1252,12 +1253,22 @@ def prior_art_note(pkg: dict, events_p: pathlib.Path, now: dt.datetime | None = 
 # gate: `gate`/`promoted_at`/`promoted_commit`/`visibility` belong to `gate`
 # and `promote`, and `lease`/`workspace`/`agent` to `claim`/`release`.
 UPDATABLE = {"automation", "notes", "upstream_target", "reaudit_after",
-             "owner_project", "repo", "license_spdx", "formalization_yaml", "paper"}
+             "owner_project", "repo", "license_spdx", "formalization_yaml", "paper", "namespace_notes"}
 # Paper-coupled packages (#22.10): optional `paper: {arxiv, status}`; promote refuses while the paper is
 # unpublished and no arXiv id is recorded (so a public flip cannot disclose results before the preprint).
 PAPER_STATUSES = ("unpublished", "preprint", "published")
 PAPER_KEYS = ("arxiv", "status")
 ARXIV_ID_RE = re.compile(r"^(?:\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?$")
+
+
+def namespace_notes_errors(notes, pfx: str) -> list[str]:
+    """namespace_notes: absent, null, or a mapping of non-empty namespace -> non-empty text."""
+    if notes is None:
+        return []
+    if not isinstance(notes, dict):
+        return [f"{pfx}.namespace_notes: must be a mapping {{namespace: text}} or null"]
+    return [f"{pfx}.namespace_notes.{k}: namespace and note must be non-empty strings"
+            for k, v in notes.items() if not (isinstance(k, str) and k.strip() and isinstance(v, str) and v.strip())]
 
 
 def paper_errors(paper, pfx: str) -> list[str]:
@@ -1418,6 +1429,23 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
             if errs:
                 raise Fail("; ".join(errs))
             sets[field] = {k: merged[k] for k in PAPER_KEYS}
+        if field == "namespace_notes":   # {ns: text} merged into the recorded notes (#32)
+            text = str(value.get("text") or "").strip()
+            require_nonempty("--namespace-note", text)
+            namespaces = value.get("namespaces")
+            if not namespaces:
+                try:
+                    repo = repo_path(pkg)
+                except (KeyError, TypeError, ValueError):
+                    repo = None
+                clashes = namespace_clashes(reg, repo, skip=name) if repo is not None and repo.is_dir() else {}
+                namespaces = sorted(clashes)
+                if not namespaces:
+                    raise Fail(f"{name}: no Lean root namespace of this checkout is shared with another package; "
+                               f"name one with --namespace NS")
+            merged = dict(pkg.get("namespace_notes") or {})
+            merged.update({ns: text for ns in namespaces})
+            sets[field] = merged
         if field == "formalization_yaml":
             pp = pathlib.PurePosixPath(str(value))
             if pp.is_absolute() or ".." in pp.parts or str(value).startswith("~"):
@@ -3199,8 +3227,17 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
         if repo is None or not repo.is_dir():
             continue
         for ns, others in namespace_clashes(reg, repo, skip=name).items():
-            note("duplicate-namespace", name, f"Lean root namespace {ns} is also used by "
-                 + ", ".join(others) + "; the two cannot be built or imported together")
+            notes = {n: ((reg["packages"].get(n) or {}).get("namespace_notes") or {}).get(ns)
+                     for n in [name, *others]}
+            base = (f"Lean root namespace {ns} is also used by " + ", ".join(others)
+                    + "; the two cannot be built or imported together")
+            if all(isinstance(v, str) and v.strip() for v in notes.values()):
+                note("duplicate-namespace", name, f"{base}; noted as intended: {notes[name]}", level="info")
+            else:
+                missing = [n for n, v in notes.items() if not (isinstance(v, str) and v.strip())]
+                note("duplicate-namespace", name, f"{base}; rename one lean_lib, or record the collision as "
+                     f"intended on both packages: `lean-pkg update {missing[0]} --namespace-note TEXT "
+                     f"--namespace {ns}` (no note yet: {', '.join(missing)})")
 
     for name in sorted(reg["packages"]):   # informational (#23.1): never fixed; the history keeps every record
         pkg = reg["packages"][name] or {}
@@ -3425,6 +3462,7 @@ def validate_registry(data) -> list[str]:
                         errors.append(f"{pfx}: doi {v.get('doi')} commit {c[:12]} matches no "
                                       f"palomar entry (palomar commits: {known})")
         errors += paper_errors(pkg.get("paper"), pfx)
+        errors += namespace_notes_errors(pkg.get("namespace_notes"), pfx)
         if pkg.get("status") not in STATUSES:
             errors.append(f"{pfx}: bad status {pkg.get('status')!r} "
                           f"(allowed: {', '.join(STATUSES)})")
@@ -4173,7 +4211,7 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields; manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
+update    set fields; manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
@@ -4436,6 +4474,10 @@ def cmd_update(args) -> int:
             require_nonempty("--paper-arxiv", paper["arxiv"])
             paper["arxiv"] = paper["arxiv"].strip().removeprefix("arXiv:").removeprefix("arxiv:")
         sets["paper"] = paper
+    if args.namespace_note is not None:
+        sets["namespace_notes"] = {"text": args.namespace_note, "namespaces": args.namespace or []}
+    elif args.namespace:
+        raise UsageError("--namespace goes with --namespace-note TEXT")
     if args.path is not None:
         if sets or args.status is not None:
             raise UsageError("--path is a relocation on its own; set other fields in a separate update")
@@ -5387,6 +5429,12 @@ def main(argv: list[str] | None = None) -> int:
                         "preprint)")
     s.add_argument("--paper-status", dest="paper_status", choices=PAPER_STATUSES,
                    help="the verified paper's status; promote refuses while unpublished without an arXiv id")
+    s.add_argument("--namespace-note", dest="namespace_note", metavar="TEXT",
+                   help="record why this package shares a Lean root namespace with another (namespace_notes); "
+                        "audit's duplicate-namespace is info once both packages carry a note for it")
+    s.add_argument("--namespace", action="append", metavar="NS",
+                   help="with --namespace-note: the namespace (repeatable); default every root namespace this "
+                        "checkout shares with another registered package")
     s.add_argument("--status", choices=STATUSES,
                    help="manual transitions only; verified-private is gate's "
                         "and public is promote's")

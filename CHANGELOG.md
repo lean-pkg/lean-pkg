@@ -20,6 +20,11 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `audit` `duplicate-namespace` had no way to record an intended collision (a comparator
+  `Challenge`/`Solution` layout, say). New `lean-pkg update NAME --namespace-note TEXT [--namespace NS]`
+  stores `namespace_notes: {NS: TEXT}` (optional, additive; `validate` checks its shape); the finding is
+  `info` with the note once every package sharing the namespace has one, else `warn` naming the
+  command. (#32)
 - `audit` `missing-path`: the detail gives the recorded path and the fix (`lean-pkg update NAME --path
   DIR --reason "checkout moved" --dry-run`, then without `--dry-run`), and says "found at DIR" when a
   directory next to the recorded one has a lakefile and the package's git remote. (#32)
