@@ -14,6 +14,11 @@ change the registry schema or receipt format, always with a migration).
   `--json` keeps the dump's shape and adds a `fields` list, text prints YAML; `board --fields`
   never opens the TUI. `--only` stays a pure package filter (full records). `list --json --only
   NAME --fields status` used to exit 2. (#29)
+- `--no-claims` on `status`, `list` and `board`: drops the bulk cached arrays (the package-record
+  keys tagged `[bulk]` in `status --help` and docs/cli.md; today `claims`, which can be hundreds
+  of KB) from each record, every other key and the output shape unchanged; `--json` adds an
+  `omitted` list. The `--help` of the three commands and docs/cli.md now say precisely that
+  `--only` filters packages and `--fields` trims fields. (#29)
 
 ### Changed
 

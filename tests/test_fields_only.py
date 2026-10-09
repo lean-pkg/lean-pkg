@@ -193,3 +193,63 @@ def test_list_and_board_help_say_only_filters_packages_and_fields_trims_fields(l
         assert "trims FIELDS" in out
         if cmd != "status":
             assert "filters PACKAGES, never fields" in out and "trims FIELDS, never packages" in out
+
+
+# --- #29: --no-claims drops the [bulk] keys, nothing else
+
+def _with_bulk_claims(lp, env, n=400):
+    data = yaml.safe_load(env.registry.read_text())
+    data["packages"]["alpha"]["claims"] = [{"id": f"c{i}", "decl": f"Alpha.thm{i}", "statement": "x" * 200}
+                                           for i in range(n)]
+    env.registry.write_text(yaml.safe_dump(data, sort_keys=False))
+
+
+def test_bulk_fields_come_from_the_table_and_are_tagged(lp, capsys):
+    import pytest
+    assert lp.BULK_FIELDS == ["claims"]
+    with pytest.raises(SystemExit):
+        lp.main(["status", "--help"])
+    line = next(x for x in capsys.readouterr().out.splitlines() if x.split()[:1] == ["claims"])
+    assert "[bulk]" in line
+
+
+def test_no_claims_output_is_small_and_otherwise_unchanged(lp, env, capsys):
+    _with_bulk_claims(lp, env)
+    for cmd in ("list", "board"):
+        rc, full_cap = _run(lp, env, capsys, cmd, "--json", "--only", "alpha")
+        rc, cap = _run(lp, env, capsys, cmd, "--json", "--only", "alpha", "--no-claims")
+        assert rc == 0, cap.err
+        full, small = json.loads(full_cap.out), json.loads(cap.out)
+        assert len(full_cap.out) > 80_000 and len(cap.out) < 10_000
+        assert small["omitted"] == ["claims"] and set(small) == set(full) | {"omitted"}
+        want = {k: v for k, v in full["packages"]["alpha"].items() if k != "claims"}
+        assert small["packages"]["alpha"] == want
+    rc, full_cap = _run(lp, env, capsys, "status", "alpha", "--json")
+    rc, cap = _run(lp, env, capsys, "status", "alpha", "--json", "--no-claims")
+    full, small = json.loads(full_cap.out), json.loads(cap.out)
+    assert len(cap.out) < 10_000 and set(small) == set(full) | {"omitted"}
+    assert small["package"] == {k: v for k, v in full["package"].items() if k != "claims"}
+    assert small["history_count"] == full["history_count"]
+    rc, cap = _run(lp, env, capsys, "status", "alpha", "--no-claims")
+    assert rc == 0 and len(cap.out) < 10_000 and "claims:" not in cap.out.replace("claims_", "")
+    assert "history (last" in cap.out
+
+
+def test_no_claims_with_fields_and_text_table(lp, env, capsys, monkeypatch):
+    _with_bulk_claims(lp, env, n=3)
+    rc, cap = _run(lp, env, capsys, "list", "--json", "--only", "alpha", "--fields", "status,claims", "--no-claims")
+    assert rc == 0 and json.loads(cap.out)["packages"] == {"alpha": {"status": "gate-pending"}}
+    rc, cap = _run(lp, env, capsys, "status", "alpha", "--json", "--fields", "claims,name", "--no-claims")
+    assert json.loads(cap.out)["package"] == {"name": "alpha"}
+    monkeypatch.setattr(lp, "board_interactive", lambda: True)
+    monkeypatch.setattr(lp, "_Tui", lambda *a, **k: (_ for _ in ()).throw(AssertionError("TUI opened")))
+    table = _run(lp, env, capsys, "list")[1].out
+    for cmd in ("list", "board"):
+        rc, cap = _run(lp, env, capsys, cmd, "--no-claims")
+        assert rc == 0 and cap.out == table
+
+
+def test_without_no_claims_records_keep_their_claims(lp, env, capsys):
+    _with_bulk_claims(lp, env, n=2)
+    data = json.loads(_run(lp, env, capsys, "list", "--json", "--only", "alpha")[1].out)
+    assert "omitted" not in data and len(data["packages"]["alpha"]["claims"]) == 2

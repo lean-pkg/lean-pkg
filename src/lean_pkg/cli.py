@@ -177,7 +177,8 @@ DEFAULT_TTL_HOURS = 24
 # The package record, one row per top-level key: (key, tier, meaning). The single source of truth for
 # `status --help`, `status --fields` validation, docs/cli.md "Package record" (tests keep them equal) and
 # validate's REQUIRED_FIELDS. Tiers: v1 (validate requires it at every schema version), v2/v3 (the
-# V2/V3_PACKAGE_DEFAULTS keys `migrate` adds), optional (absent unless set).
+# V2/V3_PACKAGE_DEFAULTS keys `migrate` adds), optional (absent unless set). A meaning ending "[bulk]" marks
+# a large cached array: `--no-claims` on status/list/board drops exactly those keys (BULK_FIELDS).
 PACKAGE_FIELDS = (
     ("name", "v1", "package name; equals its key under packages"),
     ("repo", "v1", "git URL (or local bare path) of the repository"),
@@ -205,11 +206,12 @@ PACKAGE_FIELDS = (
     ("reservoir", "v2", "{listed_at, url} once Reservoir lists it, or null"),
     ("consent", "v2", "consent records [{who, role, recorded_at, pointer}]"),
     ("claims_file", "v3", "repo-relative path of the claims/1 file"),
-    ("claims", "v3", "cached claims from the last `claims sync`"),
+    ("claims", "v3", "cached claims from the last `claims sync` (can be hundreds of KB) [bulk]"),
     ("claims_synced_commit", "v3", "40-hex commit the cached claims were read at, or null"),
     ("paper", "optional", "{arxiv, status} of the paper behind a paper-coupled package"),
 )
 REQUIRED_FIELDS = [k for k, tier, _ in PACKAGE_FIELDS if tier == "v1"]
+BULK_FIELDS = [k for k, _, meaning in PACKAGE_FIELDS if meaning.endswith("[bulk]")]
 LEASE_FIELDS = ["workspace", "agent", "claimed_at", "ttl_hours", "reason"]
 RECEIPT_FIELDS = ["commit", "lean_toolchain", "mathlib_rev", "sorry_count",
                   "axioms", "report_sha256", "job_id", "checker",
@@ -3445,18 +3447,34 @@ def trim_packages(reg: dict, names: list[str]) -> dict:
     return out
 
 
+def drop_bulk(pkg: dict) -> dict:
+    """`--no-claims`: the package record without its BULK_FIELDS keys; every other key as it was."""
+    return {k: v for k, v in pkg.items() if k not in BULK_FIELDS}
+
+
+def no_claims_view(reg: dict) -> dict:
+    out = dict(reg)
+    out["packages"] = {k: drop_bulk(v) for k, v in (reg.get("packages") or {}).items()}
+    return out
+
+
 def print_dump(args, reg: dict) -> int:
     """`list`/`board` off the TUI: --json dumps the (filtered, trimmed) registry; text is the table, or with
-    --fields the selected keys of each package as YAML."""
+    --fields the selected keys of each package as YAML. --no-claims drops BULK_FIELDS from each record."""
     names = fields_arg(args)
+    no_claims = bool(getattr(args, "no_claims", False))
     if args.json_out:
         view = with_expiry(reg)
         if names is not None:
             view = trim_packages(view, names)
             view["fields"] = names
+        if no_claims:
+            view = no_claims_view(view)
+            view["omitted"] = list(BULK_FIELDS)
         print_json(view)
     elif names is not None:
-        picked = trim_packages(reg, names)["packages"]
+        picked = trim_packages(reg, names)
+        picked = (no_claims_view(picked) if no_claims else picked)["packages"]
         print(yaml.safe_dump(picked, sort_keys=False, default_flow_style=False, width=120).rstrip()
               if picked else "{}")
     else:
@@ -3465,9 +3483,9 @@ def print_dump(args, reg: dict) -> int:
 
 
 def static_view(args) -> bool:
-    """`board` prints the static table/dump instead of the TUI: --json, --only or --fields given."""
+    """`board` prints the static table/dump instead of the TUI: --json, --only, --fields or --no-claims given."""
     return bool(getattr(args, "json_out", False)) or getattr(args, "only", None) is not None \
-        or getattr(args, "fields", None) is not None
+        or getattr(args, "fields", None) is not None or bool(getattr(args, "no_claims", False))
 
 
 def cmd_board(args) -> int:
@@ -3504,18 +3522,23 @@ def cmd_status(args) -> int:
     pkg = get_pkg(reg, args.name)
     hist = pkg.get("history") or []
     names = fields_arg(args)
+    no_claims = bool(getattr(args, "no_claims", False))
+    omitted = {"omitted": list(BULK_FIELDS)} if no_claims else {}
     if names is not None:
         picked = select_fields(pkg, names)
+        picked = drop_bulk(picked) if no_claims else picked
         if args.json_out:
             print_json({"ok": True, "name": args.name, "package": picked,
-                        "history_count": len(hist), "fields": names})
+                        "history_count": len(hist), "fields": names, **omitted})
         else:
             print(yaml.safe_dump({args.name: picked}, sort_keys=False,
                                  default_flow_style=False, width=120).rstrip())
         return 0
+    if no_claims:
+        pkg = drop_bulk(pkg)
     if args.json_out:
         print_json({"ok": True, "name": args.name, "package": pkg,
-                    "history_count": len(hist)})
+                    "history_count": len(hist), **omitted})
         return 0
     view = dict(pkg)
     view["history"] = f"<{len(hist)} entries; last 5 below>"
@@ -3980,9 +4003,9 @@ public -> upstreamed               `update --status`: a recorded mathlib-pr-merg
 any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public never returns to a private status
 
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path})
-board     TUI on a tty, static table otherwise; --only and --fields as for list (either: never the TUI). ex: lean-pkg board --json --only my-lean
-list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML). ex: lean-pkg list --json --only my-lean --fields status
-status    full record + last 5 history entries; --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
+board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
+list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
+status    full record + last 5 history entries; --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
@@ -5070,23 +5093,28 @@ def main(argv: list[str] | None = None) -> int:
                        help="never commit or push (overrides the env)")
 
     only_help = ("filters PACKAGES, never fields: only these packages (comma-separated names), each with its "
-                 "full record (cached claims included); the same table or --json shape, restricted; an unknown "
+                 "full record (cached claims included: --no-claims or --fields shrink it); the same table or --json shape, restricted; an unknown "
                  "name exits 1")
     list_fields_help = ("trims FIELDS, never packages: each package record cut to these keys, comma-separated; "
                         "the same validation and dotted paths as `status --fields` (gate.receipt, lease.agent; an "
                         "unknown field exits 2 listing the valid keys); --json keeps the dump's shape plus a "
                         "`fields` list, text prints the selected keys of each package as YAML")
+    no_claims_help = ("drop the bulk cached arrays (" + ", ".join(BULK_FIELDS) + "; the [bulk] keys below) from "
+                      "each package record; every other key unchanged; --json adds an `omitted` list")
     s = sub.add_parser("board", help="curses TUI on a tty; static table otherwise",
                        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=package_fields_help())
     s.add_argument("--only", metavar="NAME[,NAME]", default=None,
                    help=only_help + "; never opens the TUI")
     s.add_argument("--fields", metavar="a,b,c", default=None, help=list_fields_help + "; never opens the TUI")
+    s.add_argument("--no-claims", dest="no_claims", action="store_true",
+                   help=no_claims_help + "; never opens the TUI")
     add_json(s)
     s.set_defaults(fn=cmd_board)
     s = sub.add_parser("list", help="static table, pipe-friendly",
                        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=package_fields_help())
     s.add_argument("--only", metavar="NAME[,NAME]", default=None, help=only_help)
     s.add_argument("--fields", metavar="a,b,c", default=None, help=list_fields_help)
+    s.add_argument("--no-claims", dest="no_claims", action="store_true", help=no_claims_help)
     add_json(s)
     s.set_defaults(fn=cmd_list)
 
@@ -5098,6 +5126,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="trims FIELDS: only these keys of the package record, comma-separated; dotted paths "
                         "reach into mappings (gate.receipt, lease.agent); --json keeps the nesting, text prints "
                         "YAML; an unknown field exits 2 listing the valid keys")
+    s.add_argument("--no-claims", dest="no_claims", action="store_true", help=no_claims_help)
     add_json(s)
     s.set_defaults(fn=cmd_status)
 
