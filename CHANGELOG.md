@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-09
+
 ### Added
 
 - Committed mode: a `--push` rejected as non-fast-forward is retried once:
