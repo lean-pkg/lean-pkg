@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- Consent re-recorded with the same `who`, `role` and `pointer` is now a
+  no-op (`already recorded`, exit 0, `"already_recorded": true`), like a
+  repeated `palomar-preflight-pass`; a changed pointer is still a new record.
+  `publish --dry-run` and the human `status` view show each (who, role)
+  once (`status --json` keeps every record), and `audit` gains the
+  informational finding `consent-duplicate`. (#23.1)
+
 ## [0.7.0] - 2026-10-09
 
 ### Added

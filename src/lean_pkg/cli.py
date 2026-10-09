@@ -2322,6 +2322,21 @@ def _evidence_version(v) -> int:
     return n
 
 
+def consent_unique(pkg: dict) -> list[dict]:
+    """consent[] entries deduplicated by (who, role), first record kept: how consent is displayed (#23.1).
+    The registry keeps every record; a re-recorded consent is shown once."""
+    seen: set[tuple[str, str]] = set()
+    out: list[dict] = []
+    for c in pkg.get("consent") or []:
+        if not isinstance(c, dict):
+            continue
+        key = (str(c.get("who")), str(c.get("role")))
+        if key not in seen:
+            seen.add(key)
+            out.append(c)
+    return out
+
+
 def check_evidence_fields(pkg: dict, event: str, fields: dict) -> list[str]:
     """Shape and binding checks on an evidence event's --field values, before any effect.
     Refuses (naming the rule) or returns warning notes, which are also printed on stderr."""
@@ -2400,6 +2415,15 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
                    "already_recorded": True, "private_strings": private}
         return [f"{name}: {event} already recorded for commit {fields['commit'][:12]} "
                 f"(run {fields['run']}); nothing to do", *notes], payload
+    if event == "consent-recorded" and any(       # #23.1: re-recording the same consent is a no-op
+            isinstance(c, dict) and (str(c.get("who")), str(c.get("role")), str(c.get("pointer")))
+            == (str(fields["who"]), str(fields["role"]), str(fields["pointer"]))
+            for c in current.get("consent") or []):
+        warn_private_evidence(private)
+        payload = {"ok": True, "name": name, "event": event, "fields": fields, "notes": notes,
+                   "already_recorded": True, "private_strings": private}
+        return [f"{name}: {event} already recorded for {fields['who']} ({fields['role']}, same "
+                f"pointer); nothing to do", *notes], payload
     before = validate_registry(reg)
     original = reg
     reg = copy.deepcopy(reg)                      # effects go to a copy until the result validates
@@ -2782,6 +2806,16 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
             note("duplicate-namespace", name, f"Lean root namespace {ns} is also used by "
                  + ", ".join(others) + "; the two cannot be built or imported together")
 
+    for name in sorted(reg["packages"]):   # informational (#23.1): never fixed; the history keeps every record
+        pkg = reg["packages"][name] or {}
+        allc = [c for c in pkg.get("consent") or [] if isinstance(c, dict)]
+        uniq = consent_unique(pkg)
+        if len(allc) > len(uniq):
+            counts = collections.Counter((str(c.get("who")), str(c.get("role"))) for c in allc)
+            dups = [f"{w} ({r}) x{n}" for (w, r), n in counts.items() if n > 1]
+            note("consent-duplicate", name, "consent recorded more than once for " + ", ".join(dups)
+                 + "; displayed once (re-recording the same consent is now a no-op)")
+
     def untracked(name, repo, tip, rel, label) -> None:
         if tip and git(repo, "cat-file", "-e", f"{tip}:./{rel}").returncode != 0:
             note("receipt-untracked", name, f"{rel} exists in the working tree but is not tracked at "
@@ -3108,6 +3142,8 @@ def cmd_status(args) -> int:
         return 0
     view = dict(pkg)
     view["history"] = f"<{len(hist)} entries; last 5 below>"
+    if isinstance(pkg.get("consent"), list) and len(consent_unique(pkg)) < len(pkg["consent"]):
+        view["consent"] = consent_unique(pkg)     # #23.1: shown once per (who, role); --json keeps every record
     print(yaml.safe_dump({args.name: view}, sort_keys=False,
                          default_flow_style=False, width=120).rstrip())
     print(f"history (last {min(5, len(hist))} of {len(hist)}):")
@@ -3574,7 +3610,7 @@ init      bootstrap an empty registry + event log (event: file name + version; -
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
 record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys (all required, others refused; commit 40-hex, version integer):
-          consent-recorded: who role pointer (a /home, /Users, ~ path: WARN + private_strings) | palomar-preflight-pass: commit run (same commit+run again: already recorded, exit 0)
+          consent-recorded: who role pointer (a /home, /Users, ~ path: WARN + private_strings; same who+role+pointer again: already recorded, exit 0) | palomar-preflight-pass: commit run (same commit+run again: already recorded, exit 0)
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
           palomar-registered: commit id version(int) comparator_config (status public|upstreamed; config tracked at HEAD) | palomar-withdrawn: id version(int) (of a recorded entry) | mathlib-pr-opened, mathlib-pr-merged: url (https://github.com/...)
           doi-minted: doi(10.NNNN/x) tag commit [concept] (rule doi-in-palomar: commit already recorded by a palomar-* event) | reservoir-listed: url (the
@@ -3613,7 +3649,7 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
-  nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace). ex: lean-pkg audit --json
+  nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts), tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms

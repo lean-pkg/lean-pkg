@@ -99,7 +99,7 @@ def claims_item(pkg: dict, repo, head: str | None) -> tuple[str, str]:
 
 
 def consent_item(pkg: dict) -> tuple[str, str]:
-    consent = [c for c in pkg.get("consent") or [] if isinstance(c, dict)]
+    consent = core.consent_unique(pkg)        # one name per (who, role), however often recorded (#23.1)
     if consent:
         who = ", ".join(str(c.get("who")) for c in consent)
         return ("✓", f"consent recorded ({who})")
