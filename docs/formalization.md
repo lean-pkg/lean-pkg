@@ -82,6 +82,10 @@ through the same path as `lean-pkg update` (append-only history, event
 `updated`), skipping that step when the pointer is already set. A live lease
 held by another agent blocks the registry write, as for `update`; pass
 `--agent HOLDER`. The file is **not** committed; commit it with the package.
+After a new gate receipt,
+`lean-pkg gate NAME --receipt R --refresh-formalization` does both steps at
+once, so `status.evidence` never lags the receipt (see
+[CLI reference](cli.md)).
 `--write` is therefore a registry write (it takes the registry lock and is
 covered by `--commit`) whenever the pointer is not yet set. During a registry
 freeze, `--write --no-registry` writes the file the same way (lease checked,

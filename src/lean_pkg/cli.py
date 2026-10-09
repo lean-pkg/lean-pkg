@@ -3596,7 +3596,7 @@ release   holder-only unless --force --reason (released_by: --agent, else force)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
-  nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[])
+  nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op. It is required by promote.
@@ -3874,11 +3874,62 @@ def cmd_update(args) -> int:
     return 0
 
 
+def refresh_preflight(reg: dict, name: str, agent: str | None) -> None:
+    """--refresh-formalization, before the gate writes anything: the package's checkout exists, no other
+    agent holds a live lease (the file write needs it), and the current render passes the schema (a kept
+    key that fails it would otherwise refuse only after the gate has been recorded)."""
+    from . import formalization as fz
+    pkg = get_pkg(reg, name)
+    repo = repo_path(pkg)
+    if not repo.is_dir() or git_head(repo) is None:
+        raise Fail(f"{name}: --refresh-formalization needs the git checkout at {repo}")
+    refuse_invalid_lease(name, pkg.get("lease"))
+    lease = pkg.get("lease")
+    if lease_live(lease, dt.datetime.now(dt.timezone.utc)) and agent != lease.get("agent"):
+        raise Fail(f"{name}: lease held by {lease.get('agent')} — pass --agent {lease.get('agent')}; "
+                   f"nothing written")
+    _text, doc, _w, _existing = fz.render_for(pkg, repo)
+    mode, errors = fz.validate_doc(doc)
+    if errors:
+        raise Fail(f"{name}: formalization.yaml would fail the {fz.SCHEMA_VERSION} schema ({mode}); fix "
+                   f"its kept keys first; nothing written:\n  " + "\n  ".join(errors))
+
+
+def do_gate_refresh(reg_path, reg, events_p, args) -> tuple[list[str], dict, list[str]]:
+    """`gate NAME --receipt R --refresh-formalization` (#22.4): gate, then regenerate formalization.yaml
+    (derived keys, including status.evidence, from the new receipt; kept keys survive) in one step.
+    Refuses, writing nothing, when the gate is an identical re-gate and the file is already current."""
+    from . import formalization as fz
+    refresh_preflight(reg, args.name, args.agent)
+    out, payload = do_gate(reg_path, reg, events_p, args.name, args.receipt, args.comparator,
+                           refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
+    gated = payload.get("event") == "gate-passed"
+    pkg = get_pkg(reg, args.name)
+    if not gated:
+        text, _doc, _w, existing = fz.render_for(pkg, repo_path(pkg))
+        if existing == text and pkg.get("formalization_yaml") == fz.target_rel(pkg):
+            raise Fail(f"{args.name}: nothing to refresh: already gated with this receipt and "
+                       f"{fz.target_rel(pkg)} is current; nothing written")
+    f_lines, f_payload, warnings = fz.do_formalization(
+        reg_path, reg, events_p, args.name, write=True, out=None, force=True, authors=None,
+        agent=args.agent, reason="lean-pkg gate --refresh-formalization")
+    payload["formalization"] = {k: f_payload[k] for k in ("path", "written", "unchanged", "registry_updated",
+                                                         "validation", "placeholders")}
+    return out + f_lines, payload, warnings
+
+
 def cmd_gate(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
-    out, payload = do_gate(reg_path, load_registry(reg_path), events_p,
-                           args.name, args.receipt, args.comparator,
-                           refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
+    if getattr(args, "refresh_formalization", False):
+        out, payload, warnings = do_gate_refresh(reg_path, load_registry(reg_path), events_p, args)
+        for w in warnings:
+            print(f"lean-pkg: warning: {w}", file=sys.stderr)
+    elif getattr(args, "agent", None) is not None:
+        raise UsageError("gate --agent is used only with --refresh-formalization")
+    else:
+        out, payload = do_gate(reg_path, load_registry(reg_path), events_p,
+                               args.name, args.receipt, args.comparator,
+                               refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
     if args.json_out:
         print_json(payload)
     else:
@@ -4659,6 +4710,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--refuse-dirty", action="store_true",
                    help="refuse when tracked files are modified in the checkout; default is a WARN "
                         "line (receipts are always checked against the bound commit)")
+    s.add_argument("--refresh-formalization", action="store_true",
+                   help="after the gate, regenerate the package's formalization.yaml (derived keys, "
+                        "including status.evidence; kept keys survive) and set its registry pointer; "
+                        "refuses when nothing would change")
+    s.add_argument("--agent", default=None,
+                   help="with --refresh-formalization: the live lease holder, if any (the file write needs it)")
     add_json(s)
     s.set_defaults(fn=cmd_gate)
 

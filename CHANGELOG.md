@@ -35,6 +35,12 @@ change the registry schema or receipt format, always with a migration).
   set with `update NAME --paper-arxiv ID` (status becomes `preprint`) and
   `--paper-status S`. `promote` gains a `✗` line while the paper is
   unpublished and no arXiv id is recorded; `validate` checks the field. (#22.10)
+- `gate NAME --receipt R --refresh-formalization [--agent A]` gates and then
+  regenerates `formalization.yaml` (with `--write --force` semantics: kept
+  keys survive) and its registry pointer in one step. Another agent's live
+  lease and a kept key failing the schema refuse before the gate; an
+  identical re-gate whose file is current is refused with nothing written.
+  `--json` gains `"formalization"`. (#22.4)
 
 ## [0.6.0] - 2026-10-09
 
