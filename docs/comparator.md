@@ -640,6 +640,23 @@ Otherwise it refuses with a message naming all three options. In CI, set the
 runner's hostname in `COMPARATOR_RECEIPT_ALLOWED_HOSTS` or use the explicit
 override; the override is visible in the receipt either way.
 
+### Which hosts can produce receipts
+
+The policy above says where a run is *allowed*; whether a host *can* produce a
+receipt depends on its kernel and tools. Run `lean-pkg comparator host-check`
+on the candidate host before sending it work. It checks the kernel, the
+Landlock ABI, whether `bwrap` can create a user namespace, and the tools each
+mechanism needs, then prints `mechanism toolchain: ok|fail` and
+`mechanism legacy: ok|fail` (exit 0 when some mechanism can run, 1 when none
+can). A host that fails `mechanism toolchain` cannot produce `toolchain`
+receipts, the mechanism Palomar runs: the usual causes are a missing `bwrap`,
+or a kernel or AppArmor policy that forbids unprivileged user namespaces. Such
+a host may still produce `legacy` receipts if Landlock is available.
+`lean-pkg doctor` reports the same verdict on its `host` line, and its `tool comparator`
+line points at `host-check` when `bwrap` is missing. Which of your own hosts
+passes is a fact about your infrastructure: record it in your private registry
+notes, not in public documentation.
+
 The maintainer's lab runs the Slurm route on the Auburn University Easley
 Cluster: `SLURM_JOB_ID` jobs there produced lower-tier receipts (`lake build`
 plus axiom audit) and comparator receipts (statement comparison and kernel

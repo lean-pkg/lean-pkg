@@ -430,3 +430,17 @@ def test_doctor_registry_repo_without_origin_remote_says_so(lp, env, fake_path, 
     lp.main(["--registry", str(reg), "doctor"])
     line = _line(capsys.readouterr(), "registry-repo")
     assert "no local origin/main ref to compare" in line and "no origin remote" not in line, line
+
+
+def test_doctor_comparator_line_points_at_host_check_without_bwrap(lp, env, fake_path, installed, capsys):
+    (fake_path / "bwrap").unlink()
+    rc, cap = _doctor(lp, env, capsys)
+    line = next(x for x in cap.out.splitlines() if "tool comparator:" in x)
+    assert line.endswith("; bwrap is missing: run `lean-pkg comparator host-check` to see whether this host "
+                         "can produce receipts")
+
+
+def test_doctor_comparator_line_is_plain_with_bwrap(lp, env, fake_path, installed, capsys):
+    rc, cap = _doctor(lp, env, capsys)
+    line = next(x for x in cap.out.splitlines() if "tool comparator:" in x)
+    assert "bwrap is missing" not in line

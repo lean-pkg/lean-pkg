@@ -4239,7 +4239,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once); a failed gh query: check warn, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); --no-gh: gh-skipped (info); missing-path: recorded path + `update NAME --path DIR --reason .. --dry-run` (+ "found at DIR": a sibling with lakefile + same remote). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
+doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed; tool comparator without bwrap: run `comparator host-check`), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, index/ beside the registry if present, ./index; check/render/migrate exit 1 when it is missing).
@@ -5207,12 +5207,19 @@ def _doctor_tool(add, t: str) -> None:
         add("warn", f"tool {t}", f"{where} is not elan's ({elan_bin() / t}); a {t} outside elan ignores "
             f"each project's lean-toolchain: put {elan_bin()} first on PATH")
     elif where:
-        add("ok", f"tool {t}", where)
+        add("ok", f"tool {t}", where + _doctor_bwrap_note(t))
     elif t in DOCTOR_REQUIRED_TOOLS:
         add("warn", f"tool {t}", "not on PATH")
     else:
         hint = DOCTOR_TOOL_HINTS.get(t)
-        add("n/a", f"tool {t}", "not on PATH" + (f" ({hint})" if hint else ""))
+        add("n/a", f"tool {t}", "not on PATH" + (f" ({hint})" if hint else "") + _doctor_bwrap_note(t))
+
+
+def _doctor_bwrap_note(t: str) -> str:
+    """The comparator line's pointer when bwrap is missing: the toolchain mechanism needs it (#32)."""
+    if t != "comparator" or shutil.which("bwrap"):
+        return ""
+    return "; bwrap is missing: run `lean-pkg comparator host-check` to see whether this host can produce receipts"
 
 
 def cmd_doctor(args) -> int:

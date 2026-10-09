@@ -20,6 +20,9 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- docs/comparator.md "Host policy" gains "Which hosts can produce receipts": run `lean-pkg comparator
+  host-check` on the candidate host; one that fails `mechanism toolchain` cannot produce `toolchain`
+  receipts. `doctor`'s `tool comparator` line says to run `host-check` when `bwrap` is missing. (#32)
 - `audit` `duplicate-namespace` had no way to record an intended collision (a comparator
   `Challenge`/`Solution` layout, say). New `lean-pkg update NAME --namespace-note TEXT [--namespace NS]`
   stores `namespace_notes: {NS: TEXT}` (optional, additive; `validate` checks its shape); the finding is
