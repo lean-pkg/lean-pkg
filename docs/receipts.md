@@ -139,7 +139,9 @@ current tree is clean. The sequence:
    message reachable from any ref. Private strings specific to the package
    go in an untracked `.lean-pkg-private-patterns` (one regular expression
    per line; `allow: REGEX` exempts a public string). Hits are printed
-   redacted. `promote` runs the same scan and refuses while hits remain.
+   redacted. `promote` runs the same scan and refuses while blocking hits
+   remain. Warn-only hits (the `latex-label` family and `warn:` lines) are
+   printed as `WARN` lines and do not block unless `--strict` is given.
 2. Fix the hits. A hit only in the tree is fixed with a commit, followed by
    a new gate, since the gate-bound commit changes. A hit in the history
    needs a history rewrite, or, simpler, a fresh-history export:
@@ -158,5 +160,45 @@ current tree is clean. The sequence:
    `lean-pkg comparator NAME --receipt ...`.
 5. `lean-pkg publish NAME --dry-run --public-safety`, push the new
    repository, and `lean-pkg promote NAME` (dry run first, then `--yes`).
+
+### Paper-incubated packages
+
+A package that formalizes an unposted manuscript leaks it through content,
+not only through paths. A doc-comment such as "the bound of `lem:main_bound`"
+or "Theorem 3.2 of the draft" quotes the numbering and labels of a paper that
+is not public, and no path appears in it. The built-in `latex-label` family
+reports the common forms as warnings: cross-reference keys (`lem:`, `thm:`,
+`cor:`, `prop:`, `def:`, `eq:`, `sec:`, `rem:`, `ex:`, `fig:`, `tab:`,
+`conj:`, also with `-`), `main.tex`, `\ref{`, `\eqref{`, `\cite{`, `\label{`,
+`\input{`, `\include{`, `Overleaf` and arXiv identifiers. They are warnings
+because a published paper may be cited legitimately.
+
+For a package incubated beside a paper, make the paper's own identifiers
+blocking. Keep `.lean-pkg-private-patterns` untracked (list it in
+`.gitignore`) and give it:
+
+```text
+# the manuscript repository and its working title
+block: Article-Example
+block: (?i)example working title
+# the manuscript's label prefixes, and any paper-specific identifiers
+block: \b(lem|thm|prop|cor|eq|sec):
+block: \bmain\.tex\b
+block: SpecialConstantName
+# what the public tree may say
+allow: arXiv:2401\.01234
+```
+
+A bare line is blocking, as before; `block:` says so explicitly, and
+`warn: REGEX` adds a warn-only pattern. Theorem numbers quoted from an
+unposted manuscript ("Lemma 4.1 of the paper") are a leak even without a
+label or a path; add a `block:` line for the phrasing you use, or rewrite
+those doc-comments to state the result itself.
+
+Then run `lean-pkg public-safety NAME --strict` before
+`lean-pkg release NAME --fresh-repo DIR`: under `--strict` every warning is
+blocking, so the run exits 0 only when nothing manuscript-shaped is left.
+`release --fresh-repo` itself refuses only on blocking hits and lists the
+warnings in its plan.
 
 Next: [The comparator tier](comparator.md).
