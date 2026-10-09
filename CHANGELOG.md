@@ -7,6 +7,21 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg public-safety NAME [--history|--no-history] [--json]`: read-only scan of the package's
+  tree (what git would ship) and, by default, every blob and commit message reachable from any ref
+  under the package directory, for private patterns: the package's `.lean-pkg-private-patterns`
+  (regexes, `#` comments, `allow: REGEX` exemptions; the file itself is a hit when tracked), built-in
+  defaults (absolute home paths, `~/Dropbox/`, `approvals/`, `notes/`, `*.private`, `TODO-private`,
+  undeclared email addresses), user and host names derived at scan time from the record's
+  `local_path`/`agent`/`workspace`, and internal files by path (`approvals/`, `notes/`, `drafts/`,
+  `scratch/`, `*.priv`). Each hit names its location (path and line; history adds the commit), a
+  pattern label and a redacted excerpt (every match replaced by `[…]`; raw private strings are never
+  printed). Exit 1 on hits; `--json` `{ok, hits, tree_hits, history_hits, patterns_source, ...}`.
+  `promote` runs it and refuses while hits remain (`--skip-public-safety` turns it into a `WARN`);
+  `publish NAME --public-safety` adds it to the publish checklist. (#35)
+
 ## [0.7.8] - 2026-10-09
 
 ### Added

@@ -3040,7 +3040,7 @@ ONEWAY_WARNING = ("WARNING: a GitHub private→public flip is effectively ONE-WA
 _MARK_TO_STATUS = {"✓": "pass", "✗": "fail", "WARN": "warn"}
 
 
-def do_promote(reg_path, reg, events_p, name, yes) -> tuple[list[str], int, dict]:
+def do_promote(reg_path, reg, events_p, name, yes, skip_public_safety: bool = False) -> tuple[list[str], int, dict]:
     pkg = get_pkg(reg, name)
     if pkg.get("status") != "verified-private":
         raise Fail(f"{name}: promote requires status verified-private, "
@@ -3050,11 +3050,21 @@ def do_promote(reg_path, reg, events_p, name, yes) -> tuple[list[str], int, dict
         raise Fail(f"{name}: local_path does not exist: {repo}")
     lines = [f"promotion checklist for {name} ({repo}):"]
     checks = promote_checklist(pkg, repo, yes=yes)
+    # #35: private strings in the tree or the history; the flip publishes both.
+    if skip_public_safety:
+        checks.append(("WARN", f"public-safety skipped (--skip-public-safety); run "
+                               f"`lean-pkg public-safety {name}` yourself"))
+        safety = {"skipped": True}
+    else:
+        from . import public_safety as ps_mod
+        item, safety = ps_mod.checklist_item(pkg, repo)
+        checks.append(item)
     lines += [f"  {c[0]}  {c[1]}" for c in checks]
     payload = {"name": name, "dry_run": not yes,
                "checklist": [dict({"status": _MARK_TO_STATUS[c[0]], "label": c[1]},
                                   **({"reason": c[2]} if len(c) > 2 else {}))
                              for c in checks],
+               "public_safety": safety,
                "one_way_warning": ONEWAY_WARNING}
     if any(c[0] == "✗" for c in checks):
         lines.append("refusing: checklist has failures")
@@ -4374,8 +4384,8 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
   ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped; --challenge-from-type pre-fills Challenge (elaborated type) + Solution (`exact @_root_.<decl>`) via `lake env lean` [--lake-env DIR --jobs N --timeout S], or split it: --emit-script F (bash F OUT.json on a Slurm node, JSON comparator-types/1; ENFILE/EMFILE: halves jobs, retries) then --from-output OUT.json (commit must be HEAD; driver exits 1 on extraction errors, 2 if none filled; ingest refuses those unless --allow-partial: failures kept TODO, extraction_failed; --checkout DIR instead of local_path; --no-registry --out FILE: scratch config, no lease check); per entry: type_error keeps the TODO, needs_restatement flags project vocabulary; each printed type re-elaborated vs the decl (example : (T) := @decl), failure keeps TODO, round_trip_failed   |   comparator config --coverage NAME: read-only; claims covered/not/TODO by the config tracked at the gate-bound commit (never a candidate); a changed or uncommitted config cannot certify that tree, a new gate at a commit tracking it is required; prints the exact next commands (JSON next_commands[])   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot); warn git-env (JSON env_warnings[]) when GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES/GIT_COMMON_DIR/GIT_NAMESPACE is set (comparator-receipt and package-checkout git drop them; stages.json git_env_scrubbed[])
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
-  valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), and (paper field) a paper unpublished with no arXiv id.
-  ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, lakefile package name, tag at HEAD; prints the next promote/tag/record commands (the tag push names the GitHub remote, found by URL); exit 0 ready / 1 not   |   reservoir check NAME [--offline] (read-only): public, not a fork, >=2 stars (gh), lake-manifest.json + lean-toolchain tracked, LICENSE vs license_spdx, lakefile package + no `reservoir := false` (+ WARN without description/keywords/versionTags), lean-toolchain a release (rc/nightly: WARN), tag at HEAD; not yet public: GitHub items `pending promote: ...` (still ✗) + a `pre-promote:` line; then the Reservoir API (200: prints the `record ... reservoir-listed` command; never records itself); exit 0 eligible / 1 not
+  valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), (paper field) a paper unpublished with no arXiv id, and public-safety hits (skip: --skip-public-safety, a WARN).
+  ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, lakefile package name, tag at HEAD (--public-safety: + the scan below, implies --dry-run); prints the next promote/tag/record commands (the tag push names the GitHub remote, found by URL); exit 0 ready / 1 not   |   public-safety NAME [--history|--no-history] (read-only): tree git would ship + (default) every blob/commit message on any ref under the package dir, for .lean-pkg-private-patterns regexes (# comments; `allow: RE` exempts; tracked = a hit), built-ins (/home/<u>/, /Users/<u>/, ~/Dropbox/, approvals/, notes/, *.private, TODO-private, emails not declared), names from the record's local_path/agent/workspace, internal paths (approvals/ notes/ drafts/ scratch/ *.priv); hit = location (path:line, history: commit + path) + pattern label + excerpt with each match as […] (raw strings never printed); --json {ok, hits[], tree_hits, history_hits, patterns_source, warnings[]}; exit 1 on hits   |   reservoir check NAME [--offline] (read-only): public, not a fork, >=2 stars (gh), lake-manifest.json + lean-toolchain tracked, LICENSE vs license_spdx, lakefile package + no `reservoir := false` (+ WARN without description/keywords/versionTags), lean-toolchain a release (rc/nightly: WARN), tag at HEAD; not yet public: GitHub items `pending promote: ...` (still ✗) + a `pre-promote:` line; then the Reservoir API (200: prints the `record ... reservoir-listed` command; never records itself); exit 0 eligible / 1 not
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
@@ -4782,7 +4792,7 @@ def cmd_comparator(args) -> int:
 def cmd_promote(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, rc, payload = do_promote(reg_path, load_registry(reg_path), events_p,
-                                  args.name, args.yes)
+                                  args.name, args.yes, args.skip_public_safety)
     if args.json_out:
         print_json(payload)
     else:
@@ -5695,6 +5705,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("name")
     s.add_argument("--yes", action="store_true",
                    help="execute: gh repo edit --visibility public (ONE-WAY)")
+    s.add_argument("--skip-public-safety", action="store_true",
+                   help="do not run the public-safety scan of the tree and history (a WARN line instead)")
     add_json(s)
     s.set_defaults(fn=cmd_promote)
 
@@ -5749,6 +5761,8 @@ def main(argv: list[str] | None = None) -> int:
     publish_mod.add_parsers(sub, add_json)
     from . import reservoir as reservoir_mod
     reservoir_mod.add_parsers(sub, add_json)
+    from . import public_safety as public_safety_mod
+    public_safety_mod.add_parsers(sub, add_json)
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)

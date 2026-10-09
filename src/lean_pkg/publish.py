@@ -158,7 +158,7 @@ def next_commands(pkg: dict, repo, ready: bool, tags: list[str]) -> list[str]:
     return cmds
 
 
-def do_publish_check(reg: dict, name: str) -> tuple[list[str], int, dict]:
+def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple[list[str], int, dict]:
     pkg = core.get_pkg(reg, name)
     repo = core.repo_path(pkg)
     if not repo.is_dir():
@@ -177,6 +177,11 @@ def do_publish_check(reg: dict, name: str) -> tuple[list[str], int, dict]:
     else:
         items.append(("✗", f"status {status}: publishing starts from verified-private "
                            f"(`lean-pkg gate {name} --receipt R` first)"))
+    safety = None
+    if public_safety:   # #35: private strings in the tree or the history
+        from . import public_safety as ps_mod
+        item, safety = ps_mod.checklist_item(pkg, repo)
+        items.append(item)
     items.append(consent_item(pkg))
     items += license_items(pkg, repo)
     items += formalization_items(pkg, repo)
@@ -198,15 +203,17 @@ def do_publish_check(reg: dict, name: str) -> tuple[list[str], int, dict]:
                "checklist": [dict({"status": core._MARK_TO_STATUS[i[0]], "label": i[1]},
                                   **({"reason": i[2]} if len(i) > 2 else {})) for i in items],
                "next": cmds}
+    if safety is not None:
+        payload["public_safety"] = safety
     return lines, 0 if ready else 1, payload
 
 
 def cmd_publish(args) -> int:
-    if not args.dry_run:
+    if not (args.dry_run or args.public_safety):
         raise core.UsageError("publish is dry-run only in this version: pass --dry-run "
                               "(then run the printed promote/tag/record commands yourself)")
     reg_path = core.registry_path(args)
-    lines, rc, payload = do_publish_check(core.load_registry(reg_path), args.name)
+    lines, rc, payload = do_publish_check(core.load_registry(reg_path), args.name, args.public_safety)
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:
@@ -220,6 +227,9 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("name")
     s.add_argument("--dry-run", action="store_true",
                    help="required: print the checklist and next commands; nothing is written")
+    s.add_argument("--public-safety", action="store_true",
+                   help="also scan the tree and git history for private patterns (`lean-pkg public-safety`); "
+                        "implies --dry-run")
     add_json(s)
     s.set_defaults(fn=cmd_publish)
 
