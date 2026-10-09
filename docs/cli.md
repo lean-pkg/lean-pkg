@@ -46,7 +46,7 @@ The authoritative, machine-oriented version of this page is
 |---|---|---|
 | `board` | curses TUI on a terminal; static table otherwise | |
 | `list` | static table, script-friendly | `--json` |
-| `status NAME` | full record plus the last five history entries | |
+| `status NAME` | full record plus the last five history entries; `lean-pkg status --help` lists the record's top-level keys (see [Package record](#package-record)) | |
 | `init` | bootstrap an empty registry file and its event log; refuses an existing registry unless `--force` and it holds no packages; the `registry-created` event records the registry file name and schema version (no host path), and `"forced": true` after `--force` | `[--force]` |
 | `migrate` | upgrade the registry schema in place to version 3; v1 to v2 adds `license_spdx`, `formalization_yaml`, `palomar[]`, `doi`, `reservoir`, `consent[]`, v2 to v3 adds `claims_file`, `claims[]`, `claims_synced_commit`, all with empty defaults; additive and idempotent; the `registry-migrated` event records it | `[--dry-run]` |
 | `record NAME EVENT` | record a publication evidence event with its required fields: `consent-recorded`, `palomar-preflight-pass`, `palomar-submitted`, `palomar-review`, `palomar-registered`, `palomar-withdrawn`, `doi-minted`, `reservoir-listed` (verified against Reservoir's package API: a 404 refuses, an unreachable network records `verified: false`), `mathlib-pr-opened`, `mathlib-pr-merged`; each updates the matching v2 field (the `mathlib-pr-*` events only append to history) and appends to history. The would-be registry is validated first: an event that introduces a schema error is refused with the rule named and nothing is written (rule doi-in-palomar: a `doi-minted` commit must already be recorded by a `palomar-*` event). Fields are checked first, each refusal naming its rule: `doi` (and `concept`) must look like a DOI, `10.<4-9 digits>/<suffix>` (doi-format); a `mathlib-pr-*` `url` must be an `https://github.com/<owner>/<repo>/...` URL (mathlib-pr-url); `palomar-registered` needs status `public` or `upstreamed` (palomar-registered-public) and a `comparator_config` tracked at the package's HEAD (palomar-config-tracked); a `version` must be an integer, compared as one (`01` is `1`) by `palomar-withdrawn` (palomar-version). A `reservoir-listed` url that names neither the package nor its repository is recorded with a warning (stderr and `notes`); the same `palomar-preflight-pass` commit and run again is a no-op, exit 0 (`"already_recorded": true`), and so is a `consent-recorded` with the same `who`, `role` and `pointer` as a recorded one (a changed pointer is a new record; consent is displayed once per who and role); a field holding a local absolute path (`/home/`, `/Users/`, `~`) is recorded with a stderr WARN and listed in `private_strings`. `record NAME retract --field event=E --field ts=T --reason TEXT` marks an earlier evidence entry retracted, append-only (event `evidence-retracted`); `validate` and the upstreamed check ignore it | `--field KEY=VALUE` (repeatable) `[--reason]` |
@@ -83,6 +83,47 @@ The authoritative, machine-oriented version of this page is
 `comparator-receipt [--project DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
 script that produces comparator receipts; see
 [The comparator tier](comparator.md).
+
+## Package record
+
+Each package in the registry, and the `package` object of `status NAME --json`, is a mapping
+with these top-level keys (also listed by `lean-pkg status --help`; both come from one table
+in the code). Tier `v1` keys are required at every schema version; `v2` and `v3` keys are
+added by `lean-pkg migrate` to that schema version; `optional` keys are absent unless set.
+`board --json` and `list --json` hold the same records under `packages`, with a live lease
+also carrying `expires_at`.
+
+| Key | Tier | Meaning |
+|---|---|---|
+| `name` | v1 | package name; equals its key under packages |
+| `repo` | v1 | git URL (or local bare path) of the repository |
+| `local_path` | v1 | checkout path, $HOME-relative |
+| `visibility` | v1 | private \| public; GitHub is the mirror |
+| `status` | v1 | lifecycle status: scratch \| active \| gate-pending \| verified-private \| public \| upstreamed \| archived |
+| `owner_project` | v1 | project that owns the package |
+| `workspace` | v1 | workspace that registered it |
+| `agent` | v1 | agent that registered it |
+| `lease` | v1 | live claim {workspace, agent, claimed_at, ttl_hours, reason} or null |
+| `lean_toolchain` | v1 | lean-toolchain detected in the checkout |
+| `mathlib_pin` | v1 | Mathlib revision from lake-manifest.json |
+| `upstream_target` | v1 | upstream goal: none \| mathlib \| palomar |
+| `automation` | v1 | automation disclosure (required when upstream_target is mathlib) |
+| `gate` | v1 | trust gate {receipt, comparator, axioms_allowed}: receipt paths in the repo |
+| `promoted_at` | v1 | when promote --yes made it public, or null |
+| `promoted_commit` | v1 | the commit promoted, or null |
+| `reaudit_after` | v1 | ISO date after which to re-audit, or null |
+| `notes` | v1 | free text |
+| `history` | v1 | append-only event list (status prints the last 5; --json all) |
+| `license_spdx` | v2 | SPDX license id or expression, or null |
+| `formalization_yaml` | v2 | repo-relative path of formalization.yaml, or null |
+| `palomar` | v2 | Palomar evidence entries [{id, version, commit, comparator_config, ...}] |
+| `doi` | v2 | {concept, versions[{doi, tag, commit, minted_at}]} or null |
+| `reservoir` | v2 | {listed_at, url} once Reservoir lists it, or null |
+| `consent` | v2 | consent records [{who, role, recorded_at, pointer}] |
+| `claims_file` | v3 | repo-relative path of the claims/1 file |
+| `claims` | v3 | cached claims from the last `claims sync` |
+| `claims_synced_commit` | v3 | 40-hex commit the cached claims were read at, or null |
+| `paper` | optional | {arxiv, status} of the paper behind a paper-coupled package |
 
 ## Promotion checklist lines
 

@@ -174,11 +174,42 @@ UPSTREAM_TARGETS = ["none", "mathlib", "palomar"]
 DEFAULT_AXIOMS = ["propext", "Quot.sound", "Classical.choice"]
 DEFAULT_TTL_HOURS = 24
 
-REQUIRED_FIELDS = ["name", "repo", "local_path", "visibility", "status",
-                   "owner_project", "workspace", "agent", "lease",
-                   "lean_toolchain", "mathlib_pin", "upstream_target",
-                   "automation", "gate", "promoted_at", "promoted_commit",
-                   "reaudit_after", "notes", "history"]
+# The package record, one row per top-level key: (key, tier, meaning). The single source of truth for
+# `status --help`, `status --fields` validation, docs/cli.md "Package record" (tests keep them equal) and
+# validate's REQUIRED_FIELDS. Tiers: v1 (validate requires it at every schema version), v2/v3 (the
+# V2/V3_PACKAGE_DEFAULTS keys `migrate` adds), optional (absent unless set).
+PACKAGE_FIELDS = (
+    ("name", "v1", "package name; equals its key under packages"),
+    ("repo", "v1", "git URL (or local bare path) of the repository"),
+    ("local_path", "v1", "checkout path, $HOME-relative"),
+    ("visibility", "v1", "private | public; GitHub is the mirror"),
+    ("status", "v1", "lifecycle status: " + " | ".join(STATUSES)),
+    ("owner_project", "v1", "project that owns the package"),
+    ("workspace", "v1", "workspace that registered it"),
+    ("agent", "v1", "agent that registered it"),
+    ("lease", "v1", "live claim {workspace, agent, claimed_at, ttl_hours, reason} or null"),
+    ("lean_toolchain", "v1", "lean-toolchain detected in the checkout"),
+    ("mathlib_pin", "v1", "Mathlib revision from lake-manifest.json"),
+    ("upstream_target", "v1", "upstream goal: " + " | ".join(UPSTREAM_TARGETS)),
+    ("automation", "v1", "automation disclosure (required when upstream_target is mathlib)"),
+    ("gate", "v1", "trust gate {receipt, comparator, axioms_allowed}: receipt paths in the repo"),
+    ("promoted_at", "v1", "when promote --yes made it public, or null"),
+    ("promoted_commit", "v1", "the commit promoted, or null"),
+    ("reaudit_after", "v1", "ISO date after which to re-audit, or null"),
+    ("notes", "v1", "free text"),
+    ("history", "v1", "append-only event list (status prints the last 5; --json all)"),
+    ("license_spdx", "v2", "SPDX license id or expression, or null"),
+    ("formalization_yaml", "v2", "repo-relative path of formalization.yaml, or null"),
+    ("palomar", "v2", "Palomar evidence entries [{id, version, commit, comparator_config, ...}]"),
+    ("doi", "v2", "{concept, versions[{doi, tag, commit, minted_at}]} or null"),
+    ("reservoir", "v2", "{listed_at, url} once Reservoir lists it, or null"),
+    ("consent", "v2", "consent records [{who, role, recorded_at, pointer}]"),
+    ("claims_file", "v3", "repo-relative path of the claims/1 file"),
+    ("claims", "v3", "cached claims from the last `claims sync`"),
+    ("claims_synced_commit", "v3", "40-hex commit the cached claims were read at, or null"),
+    ("paper", "optional", "{arxiv, status} of the paper behind a paper-coupled package"),
+)
+REQUIRED_FIELDS = [k for k, tier, _ in PACKAGE_FIELDS if tier == "v1"]
 LEASE_FIELDS = ["workspace", "agent", "claimed_at", "ttl_hours", "reason"]
 RECEIPT_FIELDS = ["commit", "lean_toolchain", "mathlib_rev", "sorry_count",
                   "axioms", "report_sha256", "job_id", "checker",
@@ -3358,6 +3389,15 @@ def cmd_list(args) -> int:
     return 0
 
 
+def package_fields_help() -> str:
+    """The `status --help` epilog: every top-level key of the package record, from PACKAGE_FIELDS."""
+    width = max(len(k) for k, _, _ in PACKAGE_FIELDS)
+    rows = [f"  {k.ljust(width)}  {meaning}" + ("" if tier == "v1" else f" [{tier}]")
+            for k, tier, meaning in PACKAGE_FIELDS]
+    return ("package record (the \"package\" object of --json; [v2]/[v3]: added by that schema "
+            "version, [optional]: absent unless set):\n" + "\n".join(rows))
+
+
 def cmd_status(args) -> int:
     reg = load_registry(registry_path(args))
     pkg = get_pkg(reg, args.name)
@@ -3831,7 +3871,7 @@ any -> archived                    `update --status archived --reason` or `audit
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
-status    full record + last 5 history entries.        ex: lean-pkg status my-lean
+status    full record + last 5 history entries; record keys: status --help, docs/cli.md#package-record. ex: lean-pkg status my-lean
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
@@ -4881,7 +4921,9 @@ def main(argv: list[str] | None = None) -> int:
     add_json(s)
     s.set_defaults(fn=cmd_list)
 
-    s = sub.add_parser("status", help="full record + last 5 history entries")
+    s = sub.add_parser("status", help="full record + last 5 history entries",
+                       formatter_class=argparse.RawDescriptionHelpFormatter,
+                       epilog=package_fields_help())
     s.add_argument("name")
     add_json(s)
     s.set_defaults(fn=cmd_status)

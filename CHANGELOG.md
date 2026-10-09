@@ -7,6 +7,12 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg status --help` lists every top-level key of the package record with a one-line
+  meaning, and docs/cli.md gains a "Package record" section. Both come from one table in the
+  code (`PACKAGE_FIELDS`), which also defines the keys `validate` requires. (#28)
+
 ### Changed
 
 - `doctor`: an optional tool's `n/a ... not on PATH` line says what the tool is for and when it
