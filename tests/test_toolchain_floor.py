@@ -96,3 +96,45 @@ def test_audit_refuses_an_empty_floor_flag(lp, env, fake_gh, capsys, monkeypatch
     monkeypatch.delenv("LEAN_PKG_TOOLCHAIN_FLOOR", raising=False)
     assert lp.main(["--registry", str(env.registry), "audit", "--toolchain-floor", ""]) == 2
     assert "toolchain floor" in capsys.readouterr().err
+
+
+# --- the floor is a promotion requirement: warn only where it matters (#32) ---------------------
+
+def _floor(findings, name):
+    return [f for f in findings if f["check"] == "below-toolchain-floor" and f["name"] == name]
+
+
+def test_private_package_below_the_floor_is_info(lp, env, fake_gh, capsys, monkeypatch):
+    monkeypatch.delenv("LEAN_PKG_TOOLCHAIN_FLOOR", raising=False)
+    _set(env, "alpha", status="active", visibility="private")
+    (f,) = _floor(_audit(lp, env, capsys), "alpha")              # exit 0 asserted by _audit
+    assert f["level"] == "info"
+    assert f["detail"].startswith("toolchain below the comparator floor leanprover/lean4:v4.35.0-rc2 "
+                                  "(matters only for promote/comparator)")
+    assert lp.main(["--registry", str(env.registry), "audit"]) == 0
+    line = next(x for x in capsys.readouterr().out.splitlines() if x.startswith("below-toolchain-floor"))
+    assert line.endswith("[info]")
+
+
+def test_public_package_below_the_floor_warns_as_before(lp, env, fake_gh, capsys, monkeypatch):
+    monkeypatch.delenv("LEAN_PKG_TOOLCHAIN_FLOOR", raising=False)
+    _set(env, "alpha", status="public", visibility="public")
+    (f,) = _floor(_audit(lp, env, capsys), "alpha")
+    assert f["level"] == "warn"
+    assert f["detail"] == "leanprover/lean4:v4.32.0 is older than the floor leanprover/lean4:v4.35.0-rc2"
+
+
+def test_comparator_evidence_or_promotion_flag_makes_the_floor_a_warning(lp, env, fake_gh, capsys, monkeypatch):
+    monkeypatch.delenv("LEAN_PKG_TOOLCHAIN_FLOOR", raising=False)
+    _set(env, "alpha", status="active", gate={"receipt": None, "comparator": ".lean-receipts/c.json"})
+    _set(env, "beta", status="active", gate={})
+    findings = _audit(lp, env, capsys)
+    assert _floor(findings, "alpha")[0]["level"] == "warn"
+    assert _floor(findings, "beta")[0]["level"] == "info"
+    findings = _audit(lp, env, capsys, "--promotion")
+    assert _floor(findings, "beta")[0]["level"] == "warn"
+
+
+def test_every_audit_finding_carries_a_level(lp, env, fake_gh, capsys):
+    findings = _audit(lp, env, capsys)
+    assert findings and all(f["level"] in ("warn", "info") for f in findings)

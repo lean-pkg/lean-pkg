@@ -20,6 +20,11 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `audit`: the toolchain floor is the comparator/promotion requirement, so `below-toolchain-floor` is a
+  `warn` only for `public`/`upstreamed` packages, packages with comparator evidence, or under the new
+  `audit --promotion`; elsewhere it is `info` ("toolchain below the comparator floor FLOOR (matters only
+  for promote/comparator)"). Every `audit --json` finding gains `level` (`warn` | `info`); human output
+  marks info lines `[info]`. (#32)
 - `comparator config --challenge-from-type` / `--emit-script` driver: a `lake env lean` process that
   exits non-zero (or times out) is an extraction failure, not a per-declaration type error. Each
   result records `rc`, `failure` (`declaration` or `extraction`) and `output_tail`; the output gains

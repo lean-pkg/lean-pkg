@@ -2955,6 +2955,11 @@ def do_promote(reg_path, reg, events_p, name, yes) -> tuple[list[str], int, dict
 TOOLCHAIN_FLOOR_ENV = "LEAN_PKG_TOOLCHAIN_FLOOR"
 DEFAULT_TOOLCHAIN_FLOOR = "leanprover/lean4:v4.35.0-rc2"   # Palomar's floor (lake comparator)
 FLOOR_EXEMPT_STATUSES = ("scratch", "archived")
+# The floor is the comparator/promotion requirement: it is a warning only for packages that are
+# public (or past it) or already carry comparator evidence, or under `audit --promotion`; elsewhere info.
+FLOOR_WARN_STATUSES = ("public", "upstreamed")
+# Finding levels (JSON `level`): warn unless the check is informational, or note() says otherwise.
+AUDIT_INFO_CHECKS = ("receipt-untracked", "consent-duplicate", "no-github-mirror")
 _TOOLCHAIN_RE = re.compile(r"^(?:leanprover/lean4:)?v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$")
 
 
@@ -2979,7 +2984,8 @@ def resolve_toolchain_floor(flag: str | None) -> str:
 
 
 def render_finding(f: dict, width: int = 20) -> str:
-    return f"{(f['check'] + ' ').ljust(width)}{f['name']}: {f['detail']}"
+    tail = " [info]" if f.get("level") == "info" else ""
+    return f"{(f['check'] + ' ').ljust(width)}{f['name']}: {f['detail']}{tail}"
 
 
 NO_GITHUB_MIRROR_DETAIL = "repo is not on GitHub; visibility not mirrored"
@@ -3009,12 +3015,26 @@ def status_visibility_mismatch(pkg: dict) -> str | None:
     return None
 
 
+def floor_applies(pkg: dict, promotion: bool = False) -> bool:
+    """Whether the comparator toolchain floor is a warning for this package: under --promotion, for a
+    public/upstreamed package, or for one with comparator evidence recorded (gate.comparator, a palomar
+    entry, or a cached claim at comparator/palomar trust). Otherwise being below the floor is info: it
+    matters only for promote and comparator receipts."""
+    if promotion or pkg.get("status") in FLOOR_WARN_STATUSES:
+        return True
+    if (pkg.get("gate") or {}).get("comparator") or pkg.get("palomar"):
+        return True
+    return any(isinstance(c, dict) and c.get("trust") in ("comparator", "palomar")
+               for c in pkg.get("claims") or [])
+
+
 def audit_registry(reg_path, reg, events_p, fix: bool = False,
-                   toolchain_floor: str | None = None) -> list[dict]:
-    """Structured findings: {"check", "name", "detail", "fixed"}. Read-only unless fix:
-    lease sweeps and visibility/archive reconciliation both need it (an expired lease is
-    reported with fixed=False otherwise).
-    toolchain_floor None: the environment's floor, else the default (the TUI path)."""
+                   toolchain_floor: str | None = None, promotion: bool = False) -> list[dict]:
+    """Structured findings: {"check", "name", "detail", "fixed", "level"}; level is warn or info.
+    Read-only unless fix: lease sweeps and visibility/archive reconciliation both need it (an
+    expired lease is reported with fixed=False otherwise).
+    toolchain_floor None: the environment's floor, else the default (the TUI path).
+    promotion: the floor is a warning for every package (else see floor_applies)."""
     findings: list[dict] = []
     if toolchain_floor is None:
         try:
@@ -3025,9 +3045,11 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
     now = dt.datetime.now(dt.timezone.utc)
     mutated = False
 
-    def note(check, name, detail, fixed=False):
+    def note(check, name, detail, fixed=False, level=None):
+        if level is None:
+            level = "info" if check in AUDIT_INFO_CHECKS else "warn"
         findings.append({"check": check, "name": name,
-                         "detail": detail, "fixed": fixed})
+                         "detail": detail, "fixed": fixed, "level": level})
 
     # Parse every lease before mutating anything: a lease that cannot be read is a finding, not a
     # traceback halfway through a --fix.
@@ -3108,11 +3130,16 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
         tc_reg = str(pkg.get("lean_toolchain") or "").strip()
         if tc_reg and floor_key and pkg.get("status") not in FLOOR_EXEMPT_STATUSES:
             key = parse_lean_toolchain(tc_reg)
+            warn_floor = floor_applies(pkg, promotion)
             if key is None:
                 note("toolchain-unparsed", name,
-                     f"{tc_reg} is not a release or rc toolchain; not compared with the floor {toolchain_floor}")
-            elif key < floor_key:
+                     f"{tc_reg} is not a release or rc toolchain; not compared with the floor {toolchain_floor}",
+                     level="warn" if warn_floor else "info")
+            elif key < floor_key and warn_floor:
                 note("below-toolchain-floor", name, f"{tc_reg} is older than the floor {toolchain_floor}")
+            elif key < floor_key:
+                note("below-toolchain-floor", name, f"toolchain below the comparator floor {toolchain_floor} "
+                     f"(matters only for promote/comparator); registry has {tc_reg}", level="info")
         repo = repo_path(pkg) if pkg.get("local_path") else None
         if repo is None or not repo.is_dir():
             note("missing-path", name, str(repo))
@@ -4049,7 +4076,7 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
-  nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once). ex: lean-pkg audit --json
+  nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
@@ -4453,7 +4480,7 @@ def cmd_audit(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     floor = resolve_toolchain_floor(args.toolchain_floor)
     findings = audit_registry(reg_path, load_registry(reg_path), events_p,
-                              fix=args.fix, toolchain_floor=floor)
+                              fix=args.fix, toolchain_floor=floor, promotion=args.promotion)
     fixed = [f for f in findings if f.get("fixed")]
     if args.json_out:
         print_json({"ok": True, "fix": args.fix, "findings": findings, "fixed": len(fixed)})
@@ -5341,6 +5368,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--toolchain-floor", default=None, metavar="VERSION",
                    help=f"oldest acceptable lean_toolchain (default: ${TOOLCHAIN_FLOOR_ENV}, "
                         f"else {DEFAULT_TOOLCHAIN_FLOOR})")
+    s.add_argument("--promotion", action="store_true",
+                   help="judge every package against the toolchain floor as for promote (warn, not info)")
     add_json(s)
     s.set_defaults(fn=cmd_audit)
 
