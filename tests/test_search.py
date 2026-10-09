@@ -69,7 +69,8 @@ def test_json_hit_shape(lp, srch, searchable, capsys):
     assert p["ok"] and p["term"] == "demo" and p["total_hits"] >= 1
     assert [b["source"] for b in p["sources"]][:2] == ["registry", "index"]
     for b in p["sources"]:
-        assert set(b) == {"source", "state", "reason", "revision", "hits"}
+        assert set(b) == {"source", "state", "reason", "revision", "hits", "route"}
+        assert b["route"] == p["route"] == "natural-language"
         for h in b["hits"]:
             if b["source"] in ("registry", "index"):
                 assert set(h) == set(srch.HIT_KEYS)

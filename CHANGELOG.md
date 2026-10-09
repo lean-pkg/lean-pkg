@@ -30,6 +30,13 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `lean-pkg search` no longer sends natural-language terms to Loogle, which
+  parses only declaration and type patterns. The term is routed by shape: a
+  Lean pattern (arrows, binders, `:`, `(`, `?`, `_`, `⊢`, math operators, a
+  `Nat.`-style dotted name) goes to Loogle; prose skips Loogle with a one-line
+  reason and an example pattern, and every other source still runs.
+  `--loogle` forces Loogle. `--json` gains `route` (`signature` or
+  `natural-language`) at the top and on every source. (#24.3)
 - `claims check NAME` no longer passes a package with no claims coverage. No
   cached claims and no `claims.yaml` at HEAD (`coverage: none`), or a
   committed but unsynced `claims.yaml` (`coverage: unsynced`), now exits 1

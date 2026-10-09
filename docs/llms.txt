@@ -101,7 +101,7 @@ formalization NAME [--write] [--no-registry] [--out PATH] [--force [--reason TEX
   key is KEPT from the file; first render seeds authors from consent[] owner/author, else "[PLACEHOLDER] ..." + stderr warning (never
   invented: no paper titles). --write: idempotent; lease + update checked BEFORE writing (foreign lease: --force --reason); a differing file needs --force;
   --write also sets the registry pointer (a registry write); --write --no-registry: the file only, registry untouched (no lock/--commit). Validated against the vendored v0.4 schema (jsonschema, else structural). audit: formalization-missing/-drift. docs/formalization.md
-search    TERM [--package NAME] [--offline] [--sources a,b,c] [--record [--repo-dir P]] [--json]   prior-art search.
+search    TERM [--package NAME] [--offline] [--sources a,b,c] [--loogle] [--record [--repo-dir P]] [--json]   prior-art search. Routed by shape: a Lean pattern (→ -> ∀ fun : ( ? _ ⊢ " math operators, Nat.x dotted names) is `signature` and goes to Loogle; prose is `natural-language` and Loogle is skipped ("natural-language query; Loogle takes declaration patterns ..."); --loogle forces it; --json: top-level and per-source route.
   order: registry, index, loogle, leansearch, reservoir, palomar, github; each "ok" or "skipped: <reason>" (never zero hits).
   local score: exact alias or package name 3, keyword 2, every term word 1; registry hits: packages (name, notes, owner_project, repo; hit_kind package) and claims. exit 0 even with zero hits; 2 on usage errors.
   --record: docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-dir; never the registry dir; never

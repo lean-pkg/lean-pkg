@@ -98,6 +98,23 @@ Sources, always in this order:
 | `palomar` | titles, abstracts, theorem names and repositories in Palomar's results API, cached by revision | the registry revision |
 | `github` | `gh search repos` and `gh search code`, Lean only | `live` |
 
+Loogle takes declaration and type patterns, not prose, so the term is routed
+by its shape first. A term containing `→`, `->`, `∀`, `fun `, `:`, `(`, `?`,
+`_`, `⊢`, a quoted name fragment, a math operator (`=`, `+`, `≤`, `∈`, ...) or
+a dotted name such as `Nat.succ` or `Mathlib.Order` is a `signature` query
+and goes to Loogle. Anything else is a `natural-language` query: Loogle is
+skipped with the reason "natural-language query; Loogle takes declaration
+patterns — try e.g. `?a + ?b = ?b + ?a`", and the sources that take prose
+(registry, index, LeanSearch, Reservoir, Palomar, GitHub) still run.
+`--loogle` sends the term to Loogle anyway. `--json` carries `route`
+(`signature` or `natural-language`) at the top and on every source block.
+
+```bash
+lean-pkg search '?a + ?b = ?b + ?a'              # signature: Loogle runs
+lean-pkg search 'law of large numbers'           # natural-language: Loogle skipped
+lean-pkg search 'law of large numbers' --loogle  # forced
+```
+
 Palomar caches are complete, revision-consistent snapshots: every page must
 carry the same registry revision, and paging errors or repeated cursors are
 reported as skipped sources rather than zero hits. Cached rows carry a schema,

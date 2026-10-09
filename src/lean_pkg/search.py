@@ -32,6 +32,12 @@ HIT_KEYS = ("source", "id", "package", "decl", "kind", "summary", "trust", "stat
 PACKAGE_FIELDS = ("name", "notes", "owner_project", "repo")
 _TOKEN_SPLIT = re.compile(r"[\W_]+", re.UNICODE)
 _PATHLIKE = re.compile(r"(?:~|/home/|/Users/|[A-Za-z]:\\)\S*")
+ROUTES = ("signature", "natural-language")
+SIGNATURE_SOURCES = ("loogle",)       # sources that only take declaration/type patterns
+LOOGLE_NL_REASON = ("natural-language query; Loogle takes declaration patterns — try e.g. "
+                    "`?a + ?b = ?b + ?a` (--loogle forces it)")
+_SIG_MARKERS = ("→", "->", "∀", "∃", "fun ", "λ", ":", "(", "?", "_", "⊢", '"', "↔", "<->")
+_DOTTED = re.compile(r"\b[A-Z][A-Za-z0-9']*\.[A-Za-z_]")
 
 
 def fold(text) -> str:
@@ -88,6 +94,19 @@ def score_package(term: str, name: str, pkg: dict) -> tuple[int, str | None]:
     return (1, "token") if qt <= words else (0, None)
 
 
+def route_of(term: str) -> str:
+    """`signature` when the term looks like a Lean declaration or type pattern (an arrow, binder,
+    colon, parenthesis, `?` metavariable, `_`, `⊢`, a quoted name fragment, a math operator, or a
+    dotted name such as `Nat.succ` / `Mathlib.Order`); otherwise `natural-language`."""
+    import unicodedata
+    t = str(term or "")
+    if any(m in t for m in _SIG_MARKERS) or _DOTTED.search(t):
+        return "signature"
+    if any(unicodedata.category(ch) == "Sm" for ch in t):    # = + < > ≤ ∑ ∫ ∈ ⊆ ...
+        return "signature"
+    return "natural-language"
+
+
 def rank(hits: list[dict]) -> list[dict]:
     """Reusable before experimental and superseded; then by score, then by id."""
     return sorted(hits, key=lambda h: (h["status"] in LATE_STATUSES, -h["score"], str(h["id"])))
@@ -108,9 +127,9 @@ def _package_hit(name: str, pkg: dict, score: int, where: str) -> dict:
 
 
 def block(source: str, state: str, reason: str | None = None, revision: str | None = None,
-          hits: list | None = None) -> dict:
+          hits: list | None = None, route: str | None = None) -> dict:
     return {"source": source, "state": state, "reason": scrub_paths(reason) if reason else reason,
-            "revision": revision, "hits": hits or []}
+            "revision": revision, "hits": hits or [], "route": route}
 
 
 # --------------------------------------------------------------------------
@@ -216,12 +235,12 @@ def parse_sources(text: str | None) -> tuple[str, ...]:
 
 def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
               package: str | None = None, sources: tuple[str, ...] = SOURCES,
-              offline: bool = False) -> tuple[list[str], dict]:
+              offline: bool = False, force_loogle: bool = False) -> tuple[list[str], dict]:
     if not tokens(term):
         raise core.UsageError("TERM needs at least one letter or digit")
     if package and reg_path.is_file() and package not in (core.load_registry(reg_path)["packages"]):
         raise core.UsageError(f"--package {package!r} is not in the registry")
-    blocks = []
+    blocks, route = [], route_of(term)
     for src in SOURCES:
         if src not in sources:
             blocks.append(block(src, "skipped", "not selected"))
@@ -231,11 +250,14 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
             blocks.append(index_block(term, index_dir))
         elif offline:
             blocks.append(block(src, "skipped", "offline"))
+        elif src in SIGNATURE_SOURCES and route == "natural-language" and not force_loogle:
+            blocks.append(block(src, "skipped", LOOGLE_NL_REASON))
         else:
             blocks.append(adapter_block(src, term))
+        blocks[-1]["route"] = route
     date = core.now_iso()[:10]
     payload = {"ok": True, "term": term, "date": date, "package": package, "offline": offline,
-               "sources": blocks, "total_hits": sum(len(b["hits"]) for b in blocks)}
+               "route": route, "sources": blocks, "total_hits": sum(len(b["hits"]) for b in blocks)}
     return render_text(payload), payload
 
 
@@ -287,7 +309,8 @@ def cmd_search(args) -> int:
     reg_path = core.registry_path(args)
     out, payload = do_search(args.term, reg_path=reg_path,
                              index_dir=idx.index_root(args), package=args.package,
-                             sources=parse_sources(args.sources), offline=args.offline)
+                             sources=parse_sources(args.sources), offline=args.offline,
+                             force_loogle=args.loogle)
     if args.record:
         from . import prior_art
         events_p = core.events_path(args) if (args.events or reg_path.is_file()) else None
@@ -310,6 +333,9 @@ def add_parsers(sub, add_json) -> None:
                    help="the registered package this search is for (it labels the output; every "
                         "package's claims are still searched)")
     s.add_argument("--offline", action="store_true", help="skip every network source")
+    s.add_argument("--loogle", action="store_true",
+                   help="send the term to Loogle even when it reads as natural language (by default "
+                        "only declaration/type patterns go to Loogle)")
     s.add_argument("--sources", default=None, metavar="a,b,c",
                    help="subset of: " + ",".join(SOURCES) + " (order is fixed)")
     s.add_argument("--index", default=None,
