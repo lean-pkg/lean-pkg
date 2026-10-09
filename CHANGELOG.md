@@ -30,6 +30,11 @@ change the registry schema or receipt format, always with a migration).
   `doctor` gains a `host` line. `comparator NAME` without `--receipt` is now
   a usage error raised by lean-pkg rather than by argparse (exit 2 either
   way). (#22.5)
+- Paper-coupled packages: an optional registry field `paper: {arxiv, status}`
+  (status `unpublished`, `preprint` or `published`; additive, no migration),
+  set with `update NAME --paper-arxiv ID` (status becomes `preprint`) and
+  `--paper-status S`. `promote` gains a `✗` line while the paper is
+  unpublished and no arXiv id is recorded; `validate` checks the field. (#22.10)
 
 ## [0.6.0] - 2026-10-09
 

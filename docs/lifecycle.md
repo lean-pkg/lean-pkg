@@ -18,7 +18,10 @@ evidence pointers (`receipt`, `comparator`, `axioms_allowed`), the v2
 publication fields (`license_spdx`, `formalization_yaml`, `palomar[]`, `doi`,
 `reservoir`, `consent[]`; empty until recorded), the v3 claims cache
 (`claims_file`, `claims[]`, `claims_synced_commit`; written by
-`lean-pkg claims sync`, see [Prior-art search](prior-art.md)), promotion
+`lean-pkg claims sync`, see [Prior-art search](prior-art.md)), the optional
+`paper` (`{arxiv, status}` for a package that verifies a paper, status
+`unpublished | preprint | published`; `promote` refuses while it is
+unpublished with no arXiv id), promotion
 stamps, a `reaudit_after` date, notes, and `history[]`.
 
 Every transition appends one entry to `history[]` and one JSON line to the

@@ -1149,7 +1149,34 @@ def prior_art_note(pkg: dict, events_p: pathlib.Path, now: dt.datetime | None = 
 # gate: `gate`/`promoted_at`/`promoted_commit`/`visibility` belong to `gate`
 # and `promote`, and `lease`/`workspace`/`agent` to `claim`/`release`.
 UPDATABLE = {"automation", "notes", "upstream_target", "reaudit_after",
-             "owner_project", "repo", "license_spdx", "formalization_yaml"}
+             "owner_project", "repo", "license_spdx", "formalization_yaml", "paper"}
+# Paper-coupled packages (#22.10): optional `paper: {arxiv, status}`; promote refuses while the paper is
+# unpublished and no arXiv id is recorded (so a public flip cannot disclose results before the preprint).
+PAPER_STATUSES = ("unpublished", "preprint", "published")
+PAPER_KEYS = ("arxiv", "status")
+ARXIV_ID_RE = re.compile(r"^(?:\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?$")
+
+
+def paper_errors(paper, pfx: str) -> list[str]:
+    if paper is None:
+        return []
+    if not isinstance(paper, dict):
+        return [f"{pfx}.paper: must be a mapping {{arxiv, status}} or null"]
+    errors = [f"{pfx}.paper: unknown key {k!r} (allowed: {', '.join(PAPER_KEYS)})"
+              for k in paper if k not in PAPER_KEYS]
+    if paper.get("status") not in PAPER_STATUSES:
+        errors.append(f"{pfx}.paper.status: must be one of {', '.join(PAPER_STATUSES)}, "
+                      f"got {paper.get('status')!r}")
+    ax = paper.get("arxiv")
+    if ax is not None and not (isinstance(ax, str) and ARXIV_ID_RE.match(ax)):
+        errors.append(f"{pfx}.paper.arxiv: must be an arXiv id such as 2410.01234 or math/0601001, "
+                      f"got {ax!r}")
+    return errors
+
+
+def paper_blocks_promote(pkg: dict) -> bool:
+    paper = pkg.get("paper")
+    return isinstance(paper, dict) and paper.get("status") == "unpublished" and not paper.get("arxiv")
 SPDX_ID_RE = re.compile(r"^[A-Za-z0-9.+-]+$")
 SPDX_OPERATORS = ("AND", "OR", "WITH")
 
@@ -1277,6 +1304,17 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
         if field == "license_spdx" and not spdx_expression_ok(value):
             raise Fail(f"license_spdx must be an SPDX identifier such as Apache-2.0 or MIT, or an SPDX "
                        f"expression such as 'MIT OR Apache-2.0', got {value!r}")
+        if field == "paper":   # a partial {arxiv?, status?}, merged into the recorded one
+            merged = dict(pkg.get("paper") or {})
+            merged.update(value)
+            if "status" not in merged or ("arxiv" in value and "status" not in value
+                                          and merged["status"] == "unpublished"):
+                merged["status"] = "preprint" if merged.get("arxiv") else "unpublished"
+            merged.setdefault("arxiv", None)
+            errs = paper_errors(merged, name)
+            if errs:
+                raise Fail("; ".join(errs))
+            sets[field] = {k: merged[k] for k in PAPER_KEYS}
         if field == "formalization_yaml":
             pp = pathlib.PurePosixPath(str(value))
             if pp.is_absolute() or ".." in pp.parts or str(value).startswith("~"):
@@ -2531,6 +2569,14 @@ def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False) -> list[
                     if isinstance(c, dict) and isinstance(c.get("log"), str) and c["log"]]
             checks.append(evidence_tracked_item(repo, f"comparator receipt {comp_rel} and its "
                                                       f"{len(logs)} log(s)", [comp_rel, *logs]))
+    paper = pkg.get("paper")
+    if paper_blocks_promote(pkg):
+        checks.append(("✗", "paper is unpublished and no arXiv id is recorded: going public would disclose "
+                            "its results before the preprint (`lean-pkg update "
+                            f"{pkg.get('name')} --paper-arxiv ID` once it is on arXiv)"))
+    elif isinstance(paper, dict):
+        checks.append(("✓", f"paper {paper.get('status')}"
+                            + (f", arXiv {paper['arxiv']}" if paper.get("arxiv") else "")))
     checks.append(head_pushed_item(repo))
     nwo = gh_nwo(pkg.get("repo") or "") or str(pkg.get("repo"))
     p = gh("repo", "view", nwo, "--json", "visibility", "-q", ".visibility")
@@ -2933,6 +2979,7 @@ def validate_registry(data) -> list[str]:
                         known = ", ".join(str(x)[:12] for x in pal_commits) or "none"
                         errors.append(f"{pfx}: doi {v.get('doi')} commit {c[:12]} matches no "
                                       f"palomar entry (palomar commits: {known})")
+        errors += paper_errors(pkg.get("paper"), pfx)
         if pkg.get("status") not in STATUSES:
             errors.append(f"{pfx}: bad status {pkg.get('status')!r} "
                           f"(allowed: {', '.join(STATUSES)})")
@@ -3538,7 +3585,7 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields; manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
+update    set fields; manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
@@ -3559,7 +3606,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
   ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake ok|warn|fail + verdict line (exit 0 can / 1 cannot)
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
-  valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs).
+  valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), and (paper field) a paper unpublished with no arXiv id.
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
@@ -3795,6 +3842,12 @@ def cmd_update(args) -> int:
         value = getattr(args, field.replace("-", "_"), None)
         if value is not None:
             sets[field] = value
+    paper = {k: v for k, v in (("arxiv", args.paper_arxiv), ("status", args.paper_status)) if v is not None}
+    if paper:
+        if "arxiv" in paper:
+            require_nonempty("--paper-arxiv", paper["arxiv"])
+            paper["arxiv"] = paper["arxiv"].strip().removeprefix("arXiv:").removeprefix("arxiv:")
+        sets["paper"] = paper
     if args.path is not None:
         if sets or args.status is not None:
             raise UsageError("--path is a relocation on its own; set other fields in a separate update")
@@ -4570,6 +4623,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="the package's license as an SPDX id or expression, e.g. 'MIT OR Apache-2.0' (what the index and Reservoir expect)")
     s.add_argument("--formalization-yaml", dest="formalization_yaml", metavar="REL",
                    help="repository-relative path of the package's formalization.yaml")
+    s.add_argument("--paper-arxiv", dest="paper_arxiv", metavar="ID",
+                   help="arXiv id of the paper this package verifies (sets paper.arxiv; status defaults to "
+                        "preprint)")
+    s.add_argument("--paper-status", dest="paper_status", choices=PAPER_STATUSES,
+                   help="the verified paper's status; promote refuses while unpublished without an arXiv id")
     s.add_argument("--status", choices=STATUSES,
                    help="manual transitions only; verified-private is gate's "
                         "and public is promote's")
