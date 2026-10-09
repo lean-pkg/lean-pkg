@@ -9,6 +9,13 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `lean-pkg doctor` reports `registry-repo`: the git work tree holding the
+  registry, its branch, behind/ahead counts against `origin/<branch>` and
+  uncommitted tracked files, naming `lean-packages.yaml` and
+  `lean-package-events.jsonl` when they are among them; `warn` means do not
+  write from this clone yet (pull, push, or commit first). `doctor --fetch`
+  fetches `origin` in both the tool checkout and the registry repo before
+  comparing. (#11)
 - `board`/`list` have an `EXPIRES` column (`in 2h13m` while a lease is live,
   `3h ago` once it lapsed and `audit --fix` has not swept it yet); their
   `--json` output adds `expires_at` to every lease. (#8)

@@ -205,3 +205,106 @@ def test_doctor_reports_go_cargo_jq_for_comparator_receipt(lp, env, fake_path, i
     for t in ("go", "cargo"):
         line = _line(cap, t)
         assert line.startswith(f"n/a tool {t}: not on PATH") and "comparator-receipt" in line, line
+
+
+def _registry_repo(tmp_path, env):
+    """Move the registry into a fresh git work tree with an origin/main ref at its initial commit."""
+    repo = tmp_path / "registry-repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "branch", "-M", "main")
+    reg = repo / "lean-packages.yaml"
+    ev = repo / "lean-package-events.jsonl"
+    reg.write_text(env.registry.read_text())
+    ev.write_text(env.events.read_text() if env.events.exists() else "")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "registry")
+    base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    _git(repo, "update-ref", "refs/remotes/origin/main", base)
+    return repo, reg, ev
+
+
+def _line(cap, item):
+    return next(x for x in cap.out.splitlines() if x.startswith(("ok ", "warn ", "n/a ")) and f" {item}:" in x)
+
+
+def test_doctor_registry_repo_is_na_outside_a_work_tree(lp, env, fake_path, installed, capsys):
+    rc, cap = _doctor(lp, env, capsys)
+    assert rc == 0
+    assert _line(cap, "registry-repo").startswith("n/a registry-repo:")
+    assert "not inside a git work tree" in _line(cap, "registry-repo")
+
+
+def test_doctor_registry_repo_level_and_clean_is_ok(lp, env, fake_path, installed, tmp_path, capsys):
+    repo, reg, ev = _registry_repo(tmp_path, env)
+    rc = lp.main(["--registry", str(reg), "doctor"])
+    cap = capsys.readouterr()
+    assert rc == 0
+    line = _line(cap, "registry-repo")
+    assert line.startswith("ok registry-repo:")
+    assert "on main; 0 behind, 0 ahead of origin/main (local refs; --fetch to be sure); clean tree" in line
+
+
+def test_doctor_registry_repo_warns_when_behind_or_ahead(lp, env, fake_path, installed, tmp_path, capsys):
+    repo, reg, ev = _registry_repo(tmp_path, env)
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "local write")       # ahead 1
+    lp.main(["--registry", str(reg), "doctor"])
+    line = _line(capsys.readouterr(), "registry-repo")
+    assert line.startswith("warn registry-repo:") and "0 behind, 1 ahead" in line
+    assert "push so other machines see it" in line
+    # now origin moves on without us: behind 1, ahead 0
+    head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    _git(repo, "update-ref", "refs/remotes/origin/main", head)
+    _git(repo, "reset", "-q", "--hard", "HEAD~1")
+    lp.main(["--registry", str(reg), "doctor"])
+    line = _line(capsys.readouterr(), "registry-repo")
+    assert "1 behind, 0 ahead" in line and "pull before writing" in line
+
+
+def test_doctor_registry_repo_names_uncommitted_registry_files(lp, env, fake_path, installed, tmp_path, capsys):
+    repo, reg, ev = _registry_repo(tmp_path, env)
+    assert lp.main(["--registry", str(reg), "claim", "alpha", "--workspace", "w", "--agent", "a"]) == 0
+    capsys.readouterr()
+    lp.main(["--registry", str(reg), "doctor"])
+    line = _line(capsys.readouterr(), "registry-repo")
+    assert line.startswith("warn registry-repo:")
+    assert "2 uncommitted tracked file(s) including" in line
+    assert "lean-packages.yaml" in line and "lean-package-events.jsonl" in line
+    assert "together" in line
+
+
+def test_doctor_fetch_fetches_both_repos_and_says_so(lp, env, fake_path, installed, tmp_path, monkeypatch, capsys):
+    repo, reg, ev = _registry_repo(tmp_path, env)
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "clone", "-q", "--bare", str(repo), str(origin))
+    _git(repo, "remote", "add", "origin", str(origin))
+    calls = []
+    real_git = lp.git
+    monkeypatch.setattr(lp, "git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
+    rc = lp.main(["--registry", str(reg), "doctor", "--fetch"])
+    cap = capsys.readouterr()
+    assert rc == 0
+    assert any(a[0] == "fetch" for a in calls)
+    assert "(fetched)" in _line(cap, "registry-repo")
+    calls.clear()
+    lp.main(["--registry", str(reg), "doctor"])
+    capsys.readouterr()
+    assert not any(a[0] == "fetch" for a in calls)
+
+
+def test_doctor_fetch_failure_is_reported_not_fatal(lp, env, fake_path, installed, tmp_path, capsys):
+    repo, reg, ev = _registry_repo(tmp_path, env)
+    _git(repo, "remote", "add", "origin", str(tmp_path / "missing.git"))
+    rc = lp.main(["--registry", str(reg), "doctor", "--fetch"])
+    cap = capsys.readouterr()
+    assert rc == 0
+    assert "fetch failed" in _line(cap, "registry-repo")
+
+
+def test_doctor_json_has_registry_repo_check(lp, env, fake_path, installed, tmp_path, capsys):
+    repo, reg, ev = _registry_repo(tmp_path, env)
+    rc = lp.main(["--registry", str(reg), "--json", "doctor"])
+    data = json.loads(capsys.readouterr().out)
+    assert rc == 0 and data["ok"]
+    chk = next(c for c in data["checks"] if c["item"] == "registry-repo")
+    assert chk["level"] == "ok"

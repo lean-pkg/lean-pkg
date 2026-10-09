@@ -2396,7 +2396,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry, events, index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported.
+doctor    ok/warn/n/a: version, install, registry, events, registry-repo (behind/ahead of origin, dirty registry files: warn = do not write yet; --fetch first), index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported.
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
@@ -2689,9 +2689,23 @@ def package_dir() -> pathlib.Path:
     return pathlib.Path(pkg_file).resolve().parent
 
 
-def install_check(d: pathlib.Path) -> tuple[str, str]:
+def fetch_origin(root: pathlib.Path) -> str | None:
+    """`git fetch --quiet --prune origin`; None on success, else the failure (first stderr line)."""
+    p = git(root, "fetch", "--quiet", "--prune", "origin")
+    if p.returncode == 0:
+        return None
+    return (p.stderr or p.stdout or "fetch failed").strip().splitlines()[0]
+
+
+def ref_note(fetched: bool, fetch_error: str | None) -> str:
+    if fetch_error:
+        return f"local refs; fetch failed: {fetch_error}"
+    return "fetched" if fetched else "local refs; --fetch to be sure"
+
+
+def install_check(d: pathlib.Path, fetch: bool = False) -> tuple[str, str]:
     """(level, detail) for the install: editable when the package's __init__.py is tracked by a git checkout,
-    with HEAD, branch and behind/ahead against origin/<branch> from local refs only (never fetched)."""
+    with HEAD, branch and behind/ahead against origin/<branch> (local refs unless fetch)."""
     if shutil.which("git") is None:
         return "warn", f"{d} (git not on PATH; install kind unknown)"
     top = git(d, "rev-parse", "--show-toplevel")
@@ -2705,13 +2719,70 @@ def install_check(d: pathlib.Path) -> tuple[str, str]:
     head = f"editable {root} @ {short}"
     if not branch:
         return "warn", head + " (detached HEAD)"
+    fetch_error = fetch_origin(root) if fetch else None
+    note = ref_note(fetch, fetch_error)
     counts = git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
     if counts.returncode != 0:
-        return "warn", f"{head} on {branch}; no local origin/{branch} ref to compare (fetch to be sure)"
+        return "warn", f"{head} on {branch}; no local origin/{branch} ref to compare ({note})"
     behind, ahead = (int(x) for x in counts.stdout.split())
     level = "warn" if behind else "ok"
-    return level, (f"{head} on {branch}; {behind} behind, {ahead} ahead of origin/{branch} "
-                   f"(local refs; fetch to be sure)")
+    return level, f"{head} on {branch}; {behind} behind, {ahead} ahead of origin/{branch} ({note})"
+
+
+def registry_repo_check(reg_p: pathlib.Path, ev: pathlib.Path, fetch: bool = False) -> tuple[str, str]:
+    """(level, detail) for the git work tree holding the registry: HEAD, branch, behind/ahead of
+    origin/<branch>, uncommitted tracked files (naming the registry files among them). warn when
+    a write from here would conflict (behind), is invisible elsewhere (ahead, or the registry files
+    are uncommitted) or sits on a detached HEAD; n/a outside a work tree or without git."""
+    if shutil.which("git") is None:
+        return "n/a", "git not on PATH"
+    if not reg_p.parent.is_dir():
+        return "n/a", f"{reg_p.parent} is not a directory"
+    top = git(reg_p.parent, "rev-parse", "--show-toplevel")
+    if top.returncode != 0 or not top.stdout.strip():
+        return "n/a", f"{reg_p.parent} is not inside a git work tree"
+    root = pathlib.Path(top.stdout.strip())
+    short = git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?"
+    br = git(root, "symbolic-ref", "-q", "--short", "HEAD")
+    branch = br.stdout.strip() if br.returncode == 0 else ""
+    head = f"{root} @ {short}"
+    if not branch:
+        return "warn", head + " (detached HEAD; check out a branch before writing)"
+    fetch_error = fetch_origin(root) if fetch else None
+    note = ref_note(fetch, fetch_error)
+    porcelain = git(root, "status", "--porcelain", "--untracked-files=no").stdout.splitlines()
+    dirty = [line[3:] for line in porcelain if line.strip()]
+    reg_rel = []
+    for f in (reg_p, ev):
+        try:
+            reg_rel.append(str(f.resolve().relative_to(root.resolve())))
+        except ValueError:
+            pass
+    dirty_reg = [f for f in dirty if f in reg_rel]
+    advice = []
+    level = "ok"
+    counts = git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
+    if counts.returncode != 0:
+        sync = f"no local origin/{branch} ref to compare ({note})"
+        level = "warn"
+    else:
+        behind, ahead = (int(x) for x in counts.stdout.split())
+        sync = f"{behind} behind, {ahead} ahead of origin/{branch} ({note})"
+        if behind:
+            level = "warn"
+            advice.append("pull before writing")
+        if ahead:
+            level = "warn"
+            advice.append("push so other machines see it")
+    if dirty_reg:
+        level = "warn"
+        advice.append("commit " + " and ".join(dirty_reg) + " together")
+    tree = (f"{len(dirty)} uncommitted tracked file(s)" + (f" including {', '.join(dirty_reg)}" if dirty_reg else "")
+            if dirty else "clean tree")
+    detail = f"{head} on {branch}; {sync}; {tree}"
+    if advice:
+        detail += "; " + "; ".join(advice)
+    return level, detail
 
 
 def doctor_checks(args) -> tuple[list[dict], bool]:
@@ -2725,7 +2796,8 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
         checks.append({"level": level, "item": item, "detail": detail})
 
     add("ok", "version", f"lean-pkg {__version__}")
-    level, detail = install_check(package_dir())
+    fetch = bool(getattr(args, "fetch", False))
+    level, detail = install_check(package_dir(), fetch=fetch)
     add(level, "install", detail)
     reg_ok = True
     reg_p = registry_path(args)
@@ -2741,6 +2813,8 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
         add("warn", "registry", f"{reg_p} unreadable: {e}")
     ev = events_path(args)
     add("ok" if ev.is_file() else "n/a", "events", f"{ev}" + ("" if ev.is_file() else " (not created yet)"))
+    level, detail = registry_repo_check(reg_p, ev, fetch=fetch)
+    add(level, "registry-repo", detail)
     root = index_mod.index_root(args)
     if root.is_dir():
         add("ok", "index", f"{root} ({len(index_mod.entry_names(root))} entries)")
@@ -2962,6 +3036,9 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("doctor", help="installation, registry, index and tool diagnostics; "
                                       "exit 1 when the registry is unreadable or its schema "
                                       "version is unsupported")
+    s.add_argument("--fetch", action="store_true",
+                   help="git fetch origin in the tool checkout and the registry repo before comparing "
+                        "(default: local refs)")
     add_json(s)
     s.set_defaults(fn=cmd_doctor)
 
