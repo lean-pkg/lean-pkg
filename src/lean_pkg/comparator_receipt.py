@@ -100,6 +100,96 @@ def bwrap_preflight() -> None:
             f"`sysctl kernel.apparmor_restrict_unprivileged_userns=0` (broad). Nothing written.")
 
 
+# ---------------------------------------------------------------------------
+# Host check (#22.5): can this host produce comparator receipts at all? Read-only; no project needed.
+# toolchain mechanism: `lake comparator` sandboxes its judges with bwrap (an unprivileged user
+# namespace) and needs lean + lake (the project's toolchain must also be v4.35.0-rc2+).
+# legacy mechanism: comparator-check.sh builds comparator/lean4export (go), nanoda (cargo) and
+# landrun (go; Landlock LSM), needs git, jq, lean, lake.
+
+LANDLOCK_SYSCALL = 444            # landlock_create_ruleset: the same number on every Linux architecture
+LANDLOCK_CREATE_RULESET_VERSION = 1
+LANDLOCK_FULL_ABI = 4             # TCP bind/connect rules (kernel 6.7+); ABI 1-3 sandbox files only
+LSM_FILE = pathlib.Path("/sys/kernel/security/lsm")
+LEGACY_TOOLS = ("go", "cargo", "git", "jq", "lean", "lake")
+TOOLCHAIN_TOOLS_ON_PATH = ("lean", "lake")
+
+
+def landlock_abi() -> int | None:
+    """The kernel's Landlock ABI version (>= 1), 0 when Landlock is absent or disabled, None when the
+    probe itself cannot run (not Linux, no libc)."""
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        r = libc.syscall(LANDLOCK_SYSCALL, None, ctypes.c_size_t(0),
+                         ctypes.c_uint32(LANDLOCK_CREATE_RULESET_VERSION))
+    except (OSError, AttributeError):
+        return None
+    return int(r) if r > 0 else 0
+
+
+def lsm_list() -> list[str] | None:
+    try:
+        return [x for x in LSM_FILE.read_text().strip().split(",") if x]
+    except OSError:
+        return None
+
+
+def bwrap_probe() -> tuple[str, str]:
+    """(level, detail) for bwrap: ok when it can create a user namespace (what bwrap_preflight demands)."""
+    if shutil.which("bwrap") is None:
+        return "fail", "not on PATH (package bubblewrap); the toolchain mechanism needs it"
+    try:
+        bwrap_preflight()
+    except RunnerError as e:
+        return "fail", str(e).replace(" Nothing written.", "")
+    return "ok", "creates a user namespace"
+
+
+def host_checks() -> dict:
+    """{"checks": [{"item", "level" ok|warn|fail, "detail"}], "mechanisms": {"toolchain": bool,
+    "legacy": bool}, "can": bool, "verdict": str}. Read-only."""
+    import platform
+    checks: list[dict] = []
+
+    def add(item, level, detail):
+        checks.append({"item": item, "level": level, "detail": detail})
+
+    linux = sys.platform.startswith("linux")
+    add("kernel", "ok" if linux else "fail",
+        f"{platform.system()} {platform.release()}" + ("" if linux else " (comparator receipts need Linux)"))
+    abi, lsms = landlock_abi(), lsm_list()
+    lsm_note = "" if lsms is None else f"; LSMs: {','.join(lsms)}"
+    if abi is None:
+        add("landlock", "fail", "cannot probe (not Linux)" + lsm_note)
+    elif abi == 0:
+        add("landlock", "fail", "absent or disabled (needs kernel 5.13+ with landlock in the LSM list); "
+            "the legacy mechanism's landrun sandbox needs it" + lsm_note)
+    elif abi < LANDLOCK_FULL_ABI:
+        add("landlock", "warn", f"ABI {abi} (files only; network rules need ABI {LANDLOCK_FULL_ABI}, "
+            f"kernel 6.7+)" + lsm_note)
+    else:
+        add("landlock", "ok", f"ABI {abi}" + lsm_note)
+    level, detail = bwrap_probe() if linux else ("fail", "Linux only")
+    add("bwrap", level, detail)
+    for tool in ("go", "cargo", "jq", "git", "lean", "lake"):
+        where = shutil.which(tool)
+        add(tool, "ok" if where else "fail", where or "not on PATH")
+    have = {c["item"]: c["level"] != "fail" for c in checks}
+    mech = {"toolchain": linux and have["bwrap"] and all(have[t] for t in TOOLCHAIN_TOOLS_ON_PATH),
+            "legacy": linux and have["landlock"] and all(have[t] for t in LEGACY_TOOLS)}
+    can = mech["toolchain"] or mech["legacy"]
+    usable = [m for m in ("toolchain", "legacy") if mech[m]]
+    verdict = (f"this host can produce comparator receipts (mechanism: {', '.join(usable)}"
+               + ("; toolchain also needs the project's Lean v4.35.0-rc2+" if mech["toolchain"] else "")
+               + ")") if can else \
+        ("this host cannot produce comparator receipts: "
+         + "; ".join(f"{c['item']}: {c['detail']}" for c in checks if c["level"] == "fail"))
+    return {"checks": checks, "mechanisms": mech, "can": can, "verdict": verdict}
+
+
 def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str) -> dict:
     """Digests of the judging binaries bundled with the project's toolchain.
     Under the test-only FAKE_LAKE_ENV override, every digest is that of the verify script itself."""
@@ -380,6 +470,9 @@ def main(argv: list[str] | None = None) -> int:
     if not ok:
         print(f"comparator-receipt: refusing: {why}", file=sys.stderr)
         return 1
+    if os.environ.get(FAKE_LAKE_ENV) is None:   # the host check, reported up front (#22.5); never a refusal
+        hc = host_checks()
+        print(f"comparator-receipt: host-check: {hc['verdict']}", file=sys.stderr)
     label = os.environ.get("COMPARATOR_RECEIPT_HOST_LABEL", "").strip()
     if label:
         # the label replaces the host name everywhere a receipt or its output names the host

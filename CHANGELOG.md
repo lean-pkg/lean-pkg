@@ -23,6 +23,13 @@ change the registry schema or receipt format, always with a migration).
   the lakefile, else the top-level `*.lean` files); a warning, never a
   refusal. `audit` gains the informational finding `duplicate-namespace`.
   (#22.7)
+- `lean-pkg comparator host-check`: a read-only check (no registry needed)
+  of kernel, Landlock ABI, bwrap user namespaces and go/cargo/jq/git/lean/lake,
+  with a verdict naming the usable mechanisms (exit 0 can, 1 cannot).
+  `comparator-receipt` prints the verdict on stderr when it starts, and
+  `doctor` gains a `host` line. `comparator NAME` without `--receipt` is now
+  a usage error raised by lean-pkg rather than by argparse (exit 2 either
+  way). (#22.5)
 
 ## [0.6.0] - 2026-10-09
 

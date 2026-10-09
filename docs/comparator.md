@@ -251,6 +251,23 @@ the fix in its message: as root, either an AppArmor profile for
 `sysctl kernel.apparmor_restrict_unprivileged_userns=0` (broad). The legacy
 mechanism uses landrun (Landlock) and is not affected.
 
+## Checking a host first
+
+`lean-pkg comparator host-check` answers "can this host produce comparator
+receipts?" before any build. It is read-only, needs no registry and no
+project, and prints one `ok`/`warn`/`fail` line each for: `kernel` (Linux
+and its release), `landlock` (the Landlock ABI from
+`landlock_create_ruleset`, plus the LSM list from `/sys/kernel/security/lsm`;
+`fail` when absent, `warn` below ABI 4, which lacks network rules), `bwrap`
+(the same user-namespace probe the runner makes), and `go`, `cargo`, `jq`,
+`git`, `lean`, `lake` on `PATH`. The last line is the verdict: the toolchain
+mechanism is usable with a working `bwrap` plus `lean` and `lake` (and, per
+project, Lean v4.35.0-rc2 or later); the legacy mechanism with Landlock plus
+`go`, `cargo`, `git`, `jq`, `lean` and `lake`. Exit 0 when either is
+usable, 1 when neither (`--json`: `checks`, `mechanisms`, `can`, `verdict`).
+`comparator-receipt` prints the same verdict on stderr when it starts (a
+report, never a refusal), and `lean-pkg doctor` shows it as its `host` line.
+
 ## Host policy
 
 The receipt records the host name. Set `COMPARATOR_RECEIPT_HOST_LABEL` to a

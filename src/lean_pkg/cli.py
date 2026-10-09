@@ -3556,7 +3556,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1).
   flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private, --refuse-dirty
-  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json
+  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake ok|warn|fail + verdict line (exit 0 can / 1 cannot)
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs).
@@ -3566,7 +3566,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
+doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts), tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, index/ beside the registry if present, ./index; check/render/migrate exit 1 when it is missing).
@@ -3833,7 +3833,31 @@ def cmd_gate(args) -> int:
     return 0
 
 
+HOST_CHECK = "host-check"
+
+
+def is_host_check(args) -> bool:
+    """`lean-pkg comparator host-check` (no --receipt): the read-only host check (#22.5)."""
+    return getattr(args, "name", None) == HOST_CHECK and getattr(args, "receipt", None) is None
+
+
+def cmd_comparator_host_check(args) -> int:
+    from .comparator_receipt import host_checks
+    res = host_checks()
+    if args.json_out:
+        print_json({"ok": True, **res})
+    else:
+        for c in res["checks"]:
+            print(f"{c['level']} {c['item']}: {c['detail']}")
+        print(f"verdict: {res['verdict']}")
+    return 0 if res["can"] else 1
+
+
 def cmd_comparator(args) -> int:
+    if is_host_check(args):
+        return cmd_comparator_host_check(args)
+    if args.receipt is None:
+        raise UsageError("comparator NAME needs --receipt PATH (or: lean-pkg comparator host-check)")
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_comparator(reg_path, load_registry(reg_path), events_p,
                                  args.name, args.receipt, args.check,
@@ -4332,6 +4356,15 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
         checks[-1]["source"] = isource
 
     guarded("index", index_check)
+    def host_check():
+        from .comparator_receipt import host_checks
+        res = host_checks()
+        failing = [c["item"] for c in res["checks"] if c["level"] == "fail"]
+        add("ok" if res["can"] else "warn", "host", res["verdict"] if res["can"] else
+            f"this host cannot produce comparator receipts (failing: {', '.join(failing)}); "
+            f"details: lean-pkg comparator host-check")
+
+    guarded("host", host_check)
     for t in DOCTOR_TOOLS:
         guarded(f"tool {t}", lambda t=t: _doctor_tool(add, t))
         if t == "gh":
@@ -4574,7 +4607,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("comparator", help="attach a comparator receipt to a gated "
                                           "package; no status change")
     s.add_argument("name")
-    s.add_argument("--receipt", required=True, help="path to comparator receipt JSON")
+    s.add_argument("--receipt", default=None, help="path to comparator receipt JSON (required, except for "
+                                                   "`comparator host-check`)")
     s.add_argument("--check", action="store_true",
                    help="validate only; record nothing (works at any status)")
     s.add_argument("--refuse-private", action="store_true",
@@ -4675,7 +4709,7 @@ def is_write_invocation(args) -> bool:
     if cmd in ("init", "record", "register", "claim", "release", "renew", "update", "gate", "migrate"):
         return not getattr(args, "dry_run", False)
     if cmd == "comparator":
-        return not getattr(args, "check", False)
+        return not getattr(args, "check", False) and not is_host_check(args)
     if cmd == "promote":
         return bool(getattr(args, "yes", False))
     if cmd == "audit":
