@@ -15,7 +15,7 @@ Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ./lean-pa
 STANDING RULES
 - NEVER hand-edit the registry yaml. Use `lean-pkg register` / `lean-pkg update`.
 - Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`).
-- Claim before working: one package = one workspace. Default TTL 24h; `audit` sweeps expired leases.
+- Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
 
@@ -68,7 +68,7 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
   promote refuses without a byte-valid comparator receipt bound to HEAD.
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
-audit     sweep leases; gh visibility (--fix: gh -> registry); toolchain/formalization.yaml drift; receipt/comparator drift judged
+audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json

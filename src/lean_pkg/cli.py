@@ -35,8 +35,8 @@ touch the outside world are dry-run by default.
               [--check]                     package; required before promote
     promote   <name> [--yes]                dry-run default; --yes flips GitHub
                                             visibility to public (ONE-WAY)
-    audit     [--fix]                       sweep expired leases, reconcile gh
-                                            visibility, paths, drift
+    audit     [--fix]                       report expired leases, gh visibility,
+                                            paths, drift; --fix clears/reconciles
     validate                                schema + enum + history sanity
     llms                                    agent-oriented usage contract
     wiki      [--out PATH]                  render a Markdown status page
@@ -47,7 +47,7 @@ prompt paths refuse with exit 2.
 
 Constraints enforced here:
   - agents never hand-edit the yaml: register is validated and deduping
-  - one package = one workspace: CAS lease, 24h default TTL, audit sweeps
+  - one package = one workspace: CAS lease, 24h default TTL, audit --fix sweeps
   - the gate binds the receipt to HEAD; axioms must be a subset of
     {propext, Quot.sound, Classical.choice}; sorry_count must be 0
   - promotion requires the Reservoir-criteria checklist plus the trust gate
@@ -1573,8 +1573,9 @@ def render_findings(findings: list[dict]) -> list[str]:
 
 def audit_registry(reg_path, reg, events_p, fix: bool = False,
                    toolchain_floor: str | None = None) -> list[dict]:
-    """Structured findings: {"check", "name", "detail", "fixed"}. May mutate
-    (lease sweeps always; visibility/archive reconciliation only with fix).
+    """Structured findings: {"check", "name", "detail", "fixed"}. Read-only unless fix:
+    lease sweeps and visibility/archive reconciliation both need it (an expired lease is
+    reported with fixed=False otherwise).
     toolchain_floor None: the environment's floor, else the default (the TUI path)."""
     findings: list[dict] = []
     if toolchain_floor is None:
@@ -1594,18 +1595,19 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
         pkg = reg["packages"][name]
         lease = pkg.get("lease")
         if lease and not lease_live(lease, now):
-            note("lease-expired", name,
-                 f"was {lease.get('agent')}@{lease.get('workspace')} "
-                 f"until {lease_expiry(lease).isoformat()} — cleared",
-                 fixed=True)
-            record(reg, events_p, pkg, "lease-expired", agent=lease.get("agent"),
-                   workspace=lease.get("workspace"),
-                   claimed_at=lease.get("claimed_at"),
-                   ttl_hours=lease.get("ttl_hours"))
-            pkg["lease"] = None
-            pkg["workspace"] = None
-            pkg["agent"] = None
-            mutated = True
+            who = f"{lease.get('agent')}@{lease.get('workspace')} until {lease_expiry(lease).isoformat()}"
+            if fix:
+                note("lease-expired", name, f"was {who} — cleared", fixed=True)
+                record(reg, events_p, pkg, "lease-expired", agent=lease.get("agent"),
+                       workspace=lease.get("workspace"),
+                       claimed_at=lease.get("claimed_at"),
+                       ttl_hours=lease.get("ttl_hours"))
+                pkg["lease"] = None
+                pkg["workspace"] = None
+                pkg["agent"] = None
+                mutated = True
+            else:
+                note("lease-expired", name, f"held by {who} — expired; `audit --fix` clears it")
         if pkg.get("upstream_target") == "palomar" and pkg.get("status") in ("verified-private", "public") \
                 and not any(e.get("preflight_run") for e in (pkg.get("palomar") or []) if isinstance(e, dict)):
             note("palomar-preflight-missing", name,
@@ -1917,7 +1919,7 @@ lean-pkg board — keys
   r          release lease (holder agent; blank agent = --force)
   g          gate: validate a lower-tier receipt (gate-pending -> verified-private)
   p          promote checklist (DRY-RUN ONLY here; execute via CLI --yes)
-  a          audit (sweeps expired leases, reconciles gh visibility)
+  a          audit (read-only: reports expired leases, gh visibility, drift)
   e          show the last event-log entry for the selected package
   ?          this help
   q / ESC    quit
@@ -2137,7 +2139,7 @@ class _Tui:
         self.reload()
 
     def key_audit(self):
-        if not self.confirm("run audit? (sweeps expired leases; read-only otherwise)"):
+        if not self.confirm("run audit? (read-only here: expired leases are reported, not cleared)"):
             self.msg = "audit cancelled"
             return
         try:
@@ -2300,7 +2302,7 @@ Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ./lean-pa
 STANDING RULES
 - NEVER hand-edit the registry yaml. Use `lean-pkg register` / `lean-pkg update`.
 - Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`).
-- Claim before working: one package = one workspace. Default TTL 24h; `audit` sweeps expired leases.
+- Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
 
@@ -2353,7 +2355,7 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
   promote refuses without a byte-valid comparator receipt bound to HEAD.
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
-audit     sweep leases; gh visibility (--fix: gh -> registry); toolchain/formalization.yaml drift; receipt/comparator drift judged
+audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
@@ -2608,10 +2610,14 @@ def cmd_audit(args) -> int:
     floor = resolve_toolchain_floor(args.toolchain_floor)
     findings = audit_registry(reg_path, load_registry(reg_path), events_p,
                               fix=args.fix, toolchain_floor=floor)
+    fixed = [f for f in findings if f.get("fixed")]
     if args.json_out:
-        print_json({"ok": True, "fix": args.fix, "findings": findings})
+        print_json({"ok": True, "fix": args.fix, "findings": findings, "fixed": len(fixed)})
     else:
         print("\n".join(render_findings(findings)) if findings else "no findings")
+    if fixed:
+        print(f"audit --fix wrote {len(fixed)} change(s): commit {reg_path.name} and {events_p.name} together",
+              file=sys.stderr)
     return 0
 
 
@@ -2904,9 +2910,9 @@ def main(argv: list[str] | None = None) -> int:
     add_json(s)
     s.set_defaults(fn=cmd_promote)
 
-    s = sub.add_parser("audit", help="sweep expired leases; reconcile gh; drift checks")
+    s = sub.add_parser("audit", help="report expired leases, gh visibility, drift; read-only without --fix")
     s.add_argument("--fix", action="store_true",
-                   help="update registry visibility/archive state from gh")
+                   help="clear expired leases and update visibility/archive state from gh")
     s.add_argument("--toolchain-floor", default=None, metavar="VERSION",
                    help=f"oldest acceptable lean_toolchain (default: ${TOOLCHAIN_FLOOR_ENV}, "
                         f"else {DEFAULT_TOOLCHAIN_FLOOR})")

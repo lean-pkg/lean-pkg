@@ -53,8 +53,20 @@ def test_audit_json_returns_findings_array(lp, env, fake_gh, capsys):
     data = json.loads(capsys.readouterr().out)
     assert data["ok"] is True
     assert isinstance(data["findings"], list)
-    assert any(f["check"] == "lease-expired" and f["name"] == "alpha"
+    assert data["fix"] is False and data["fixed"] == 0
+    assert any(f["check"] == "lease-expired" and f["name"] == "alpha" and f["fixed"] is False
                for f in data["findings"])
+    # the lease is still on disk: without --fix, audit is read-only
+    assert read_reg(env)["packages"]["alpha"]["lease"]["agent"] == "vera"
+
+
+def test_audit_fix_json_counts_what_it_wrote(lp, env, fake_gh, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=25, ttl=24)
+    rc = lp.main(["--registry", str(env.registry), "--json", "audit", "--fix"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["fix"] is True and data["fixed"] == 1
+    assert read_reg(env)["packages"]["alpha"]["lease"] is None
 
 
 def test_promote_dry_run_json_checklist(lp, env, fake_gh, capsys):

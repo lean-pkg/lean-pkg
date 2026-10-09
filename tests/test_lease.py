@@ -94,13 +94,32 @@ def test_release_without_lease_refused(lp, env, capsys):
     assert "no lease held" in capsys.readouterr().err
 
 
-def test_audit_sweeps_expired_lease(lp, env, fake_gh, capsys):
+def test_audit_without_fix_reports_an_expired_lease_but_writes_nothing(lp, env, fake_gh, capsys):
     set_lease(env, "alpha", agent="vera", hours_ago=25, ttl=24)
-    set_lease(env, "beta", agent="max", hours_ago=1, ttl=24)
+    snapshot = lambda: (env.registry.read_bytes(), env.events.read_bytes() if env.events.exists() else None)
+    before = snapshot()
     rc = lp.main(["--registry", str(env.registry), "audit"])
     assert rc == 0
-    out = capsys.readouterr().out
-    assert "lease-expired" in out and "alpha" in out
+    captured = capsys.readouterr()
+    assert "lease-expired" in captured.out and "alpha" in captured.out
+    assert "audit --fix" in captured.out                 # tells the operator how to clear it
+    assert "wrote" not in captured.err                   # nothing to commit
+    # read-only: the lease stands, no event, both files byte-identical
+    assert read_reg(env)["packages"]["alpha"]["lease"]["agent"] == "vera"
+    assert not any(e["event"] == "lease-expired" for e in read_events(env))
+    assert snapshot() == before
+
+
+def test_audit_fix_sweeps_expired_lease(lp, env, fake_gh, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=25, ttl=24)
+    set_lease(env, "beta", agent="max", hours_ago=1, ttl=24)
+    rc = lp.main(["--registry", str(env.registry), "audit", "--fix"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = captured.out
+    assert "lease-expired" in out and "alpha" in out and "cleared" in out
+    assert "audit --fix wrote 1 change(s)" in captured.err
+    assert "lean-packages.yaml" in captured.err and "lean-package-events.jsonl" in captured.err
     reg = read_reg(env)
     assert reg["packages"]["alpha"]["lease"] is None
     # a live lease survives the sweep

@@ -118,8 +118,8 @@ that reads the message from stdin.
 ## Find drift, expired leases, and GitHub mismatches
 
 ```bash
-lean-pkg audit            # report only: lease sweep, receipt-drift, comparator-drift, visibility mismatch
-lean-pkg audit --fix      # also copy GitHub's visibility and archived flag into the registry
+lean-pkg audit            # report only: expired leases, receipt-drift, comparator-drift, visibility mismatch
+lean-pkg audit --fix      # clear expired leases; copy GitHub's visibility and archived flag into the registry
 ```
 
 ## Share one registry across machines

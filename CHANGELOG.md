@@ -9,6 +9,12 @@ change the registry schema or receipt format, always with a migration).
 
 ### Changed
 
+- `lean-pkg audit` is read-only without `--fix`: an expired lease is reported
+  (`lease-expired ... expired; \`audit --fix\` clears it`, `fixed: false`)
+  instead of being cleared and logged. `audit --fix` sweeps as before and now
+  says on stderr how many changes it wrote so the two registry files get
+  committed together; `--json` carries a `fixed` count. The TUI's `a` is
+  read-only. (#9)
 - Index: `gromov-filling-lean` re-pinned at `ba787a3eb26e` with a comparator
   receipt for Theorem 1.1 (legacy mechanism), whose Challenge copies the
   project's surface-area definitions into a Mathlib-only `Defs.lean`; trust is
