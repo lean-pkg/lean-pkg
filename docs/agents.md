@@ -22,7 +22,9 @@ every subcommand has `--json`, and the contract an agent needs is one file.
 1. Never hand-edit the registry YAML. Use `register` and `update`.
 2. Claim a package before working on it with `claim --workspace --agent --reason`,
    and release it when done. A refusal names the holder; do not
-   `--force` without a human reason.
+   `--force` without a human reason. Work longer than the TTL (24 h by
+   default): `renew --agent` before the lease lapses;
+   `leases --agent A --expiring 2` shows what is about to lapse.
 3. Pass flags and `--json`. Nothing prompts; a prompt path exits 2.
 4. `promote` is a dry run unless `--yes`. Never pass `--yes` unless a human
    has read the checklist: the flip to public cannot be undone.
@@ -43,6 +45,8 @@ lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.j
 git add .lean-receipts && git commit -m "evidence: comparator receipt for <c12>"
 lean-pkg comparator my-proof --receipt .lean-receipts/<c12>-comparator.json --json
 lean-pkg promote my-proof --json                        # dry run; hand the checklist to a human
+lean-pkg leases --agent vera --expiring 2 --json        # long session: renew before the lease lapses
+lean-pkg renew my-proof --agent vera --json
 lean-pkg release my-proof --agent vera
 ```
 

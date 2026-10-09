@@ -35,12 +35,15 @@ pin from the checkout when it exists on this host.
 ```bash
 lean-pkg claim my-proof --workspace laptop --agent alice --reason "chapter 2"   # CAS lease, 24 h default
 lean-pkg claim my-proof --workspace laptop --agent alice --ttl 72                 # same agent: refresh
+lean-pkg renew my-proof --agent alice                                            # restart a live lease from now
+lean-pkg leases --agent alice --expiring 2                                        # what lapses within 2 h
 lean-pkg release my-proof --agent alice
 lean-pkg claim my-proof --workspace w9 --agent bob --force --reason "alice is away"   # logged as claim-forced
 ```
 
-A refusal names the current holder and the expiry. `audit` clears expired
-leases.
+A refusal names the current holder and the expiry. Work that outlasts the
+TTL renews before the lease lapses; a lapsed lease is refused by `renew`
+(claim again). `audit` reports expired leases; `audit --fix` clears them.
 
 ## Move a package through the lifecycle by hand
 

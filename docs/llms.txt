@@ -15,14 +15,14 @@ Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ~/.lean-p
 STANDING RULES
 - NEVER hand-edit the registry yaml. Use `lean-pkg register` / `lean-pkg update`.
 - Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`).
-- Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases.
+- Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`).
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
 - Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes; --no-commit overrides. Reports on stderr.
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
-active -> gate-pending             lower-tier check submitted (terminal executor job identity in notes)
+active -> gate-pending             lower-tier check submitted (terminal executor job identity in notes); also verified-private -> gate-pending to re-gate a new commit
 gate-pending -> verified-private   `gate` accepts a receipt (schema below)
 public -> public                   `gate` on an already-public package records evidence; status unchanged
 verified-private -> public         `promote --yes` after a clean dry-run checklist; ONE-WAY flip
@@ -36,10 +36,10 @@ status    full record + last 5 history entries.        ex: lean-pkg status my-le
 init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
-record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys:
+record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys (all required, others refused; commit 40-hex, version integer):
           consent-recorded: who role pointer | palomar-preflight-pass: commit run
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
-          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version | mathlib-pr-opened, mathlib-pr-merged: url
+          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version (of a recorded entry) | mathlib-pr-opened, mathlib-pr-merged: url
           doi-minted: doi tag commit [concept] (rule doi-in-palomar: commit already recorded by a palomar-* event) | reservoir-listed: url (the
           package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false)
           retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
@@ -167,8 +167,8 @@ terminal scheduler accounting; hosted reports bind run/attempt/job identity, ter
 conclusion, immutable workflow/control revision, runner identity, and resources. A pilot,
 partial manifest, pre-terminal marker, or prior-candidate receipt is not gate evidence.
 
-EVENT LINE SCHEMA (one JSON object per line; the same entry is appended to history[])
-ts      ISO-8601 timestamp
+EVENT LINE SCHEMA (one JSON object per line; package events also go to history[]; index-added, prior-art-searched, registry-* are log-only)
+ts      UTC ISO-8601 with offset, second precision (all written times; dates are UTC; same-second order = file order; naive = legacy UTC, doctor warns)
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
         released, release-forced, lease-expired, gate-passed, promoted, audit-fix, relocated, status-changed,
         comparator-attached, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`

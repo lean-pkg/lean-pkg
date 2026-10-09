@@ -71,8 +71,37 @@ change the registry schema or receipt format, always with a migration).
   credits Scott Armstrong for the lemma adapted from MarkovProcess and cites
   MarkovProcess; fresh lower-tier and comparator receipts (toolchain
   mechanism).
+- One time policy, documented in `lean-pkg llms` and DESIGN.md: every
+  timestamp written is UTC ISO-8601 with an offset at second precision,
+  every date written is the UTC date (the wiki's `updated:` used the local
+  date), and same-second events keep file order. `leases --json` `now` is at
+  second precision. `doctor` adds a `time` line that warns about naive
+  (legacy) timestamps, which are still read as UTC and accepted by
+  `validate`. (#19)
+- Refusals name the fix: a missing registry says where the path came from
+  (`resolved from flag|env|user-default|cwd`) and how to create one
+  (`lean-pkg init`, `LEAN_PKG_REGISTRY`, `~/.lean-pkg/registry`); `gate` at
+  `verified-private` points to `update NAME --status gate-pending --reason
+  ...` then `gate`; a different comparator or lower-tier receipt already at
+  the canonical `.lean-receipts/` path is named by its full path with the
+  file to pass instead. (#19)
+- Docs: `audit --fix` (not `audit`) clears expired leases; `renew` and
+  `leases` are described in README, how-to, lifecycle, DESIGN, the agents
+  page and the `lean-pkg-agent` skill (renew before the TTL lapses); the
+  `cli.py` usage block lists every subcommand; `llms` states which events
+  are log-only and the remaining `record` field rules. `register --ttl`
+  help says it is accepted and ignored. (#19)
 
 ### Fixed
+
+- `claims sync` without a `claims.yaml` says the file is missing in the
+  checkout instead of "not committed at HEAD ... untracked files do not
+  count", which stays for a file that exists but is not committed. (#19)
+- `leases --expiring` refuses a negative window (exit 2). (#19)
+- `audit` aligns check names to the longest one shown instead of a fixed 20
+  columns; `board`/`list` rows carry no trailing spaces; the `promote` gh
+  visibility WARN keeps the whole first line of gh's message instead of
+  cutting it at 120 characters. (#19)
 
 - `record` validates the would-be registry before writing: an evidence event
   that introduces a schema error is refused with the rule named (for example

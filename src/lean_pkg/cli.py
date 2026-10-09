@@ -22,6 +22,10 @@ touch the outside world are dry-run by default.
     board     (default) curses TUI on a tty; static aligned table otherwise
     list      static table, pipe-friendly
     status    <name>                        full record + last 5 history entries
+    init      [--force]                     bootstrap an empty registry + event log
+    migrate   [--dry-run]                   upgrade the registry schema in place
+    record    <name> EVENT --field K=V ...  publication evidence event, validated
+                                            before writing (rules: `lean-pkg llms`)
     register  <name> --repo URL --path P    the ONLY write path for new packages;
               [--dry-run]                   validated, deduping, auto-detects
                                             toolchain + mathlib pin
@@ -42,10 +46,18 @@ touch the outside world are dry-run by default.
     audit     [--fix]                       report expired leases, gh visibility,
                                             paths, drift; --fix clears/reconciles
     validate                                schema + enum + history sanity
+    doctor    [--fetch]                     install, registry source, leases, time,
+                                            index and tool diagnostics
+    index     add|check|render|migrate      public catalog <index>/<name>/entry.yaml
+    claims    sync|list|check [NAME]        claims.yaml at the package repo root
+    search    TERM [--record]               prior-art search (registry, index, web)
+    formalization <name> [--write]          render formalization.yaml from the registry
     llms                                    agent-oriented usage contract
     wiki      [--out PATH]                  render a Markdown status page
 
 --json emits machine-readable JSON on stdout (exit codes unchanged).
+Time: every timestamp written is UTC ISO-8601 with offset, second precision; dates
+are UTC dates; same-second events keep file order.
 --commit (env LEAN_PKG_COMMIT=1) makes a write command pull --ff-only from origin
 first, then commit the registry and the event log together; --push (env
 LEAN_PKG_PUSH=1) also pushes; --no-commit overrides both. Read-only commands
@@ -204,11 +216,48 @@ class UsageError(Exception):
 # --------------------------------------------------------------------------
 # small utilities
 
+# Time policy (one for every timestamp the tool writes): UTC, ISO-8601 with an explicit offset
+# (+00:00), second precision. Dates the tool writes (wiki `updated:`, search headers, record file
+# names) are the UTC date. Events written in the same second keep their order by position in
+# history[] and the event log (file order is the tiebreak; there is no sequence field).
+# A naive timestamp (legacy, hand-written) is read as UTC; validate accepts it, doctor counts it.
+
 def now_iso() -> str:
+    """Now, under the time policy: UTC, ISO-8601 with offset, second precision."""
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
+def utc_today() -> str:
+    """Today's UTC date as YYYY-MM-DD (the time policy's date)."""
+    return dt.datetime.now(dt.timezone.utc).date().isoformat()
+
+
+def is_naive_ts(s) -> bool:
+    """True for a parseable ISO-8601 timestamp without an offset (read as UTC by parse_ts)."""
+    try:
+        v = dt.datetime.fromisoformat(str(s).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return v.tzinfo is None
+
+
+def naive_timestamps(reg: dict) -> int:
+    """How many lease claimed_at / history ts values in the registry are naive (legacy)."""
+    n = 0
+    for pkg in (reg.get("packages") or {}).values():
+        if not isinstance(pkg, dict):
+            continue
+        lease = pkg.get("lease")
+        if isinstance(lease, dict) and lease.get("claimed_at") and is_naive_ts(lease["claimed_at"]):
+            n += 1
+        for h in pkg.get("history") or []:
+            if isinstance(h, dict) and h.get("ts") and is_naive_ts(h["ts"]):
+                n += 1
+    return n
+
+
 def parse_ts(s: str) -> dt.datetime:
+    """Parse an ISO-8601 timestamp; a naive one is legacy and read as UTC (see the time policy)."""
     s = str(s).strip()
     if s.endswith("Z"):
         s = s[:-1] + "+00:00"
@@ -219,7 +268,8 @@ def parse_ts(s: str) -> dt.datetime:
 
 
 def run(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
-    """The one subprocess helper. Never raises on nonzero exit."""
+    """The one subprocess helper. A nonzero exit is returned, not raised; a missing
+    binary still raises FileNotFoundError (callers that may lack the tool check first)."""
     return subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=cwd)
 
 
@@ -389,9 +439,16 @@ def detect_mathlib_pin(repo: pathlib.Path) -> tuple[str | None, str | None]:
 # --------------------------------------------------------------------------
 # registry IO, events
 
+def registry_not_found(path: pathlib.Path) -> str:
+    """The refusal for a missing registry: where the path came from and how to make one."""
+    src = _RESOLVED_SOURCE.get(str(path))
+    return (f"registry not found: {path} (" + (f"resolved from {src}; " if src else "")
+            + f"create one with `lean-pkg init`, or set {REGISTRY_ENV} / ~/.lean-pkg/registry)")
+
+
 def load_registry(path: pathlib.Path, *, check_version: bool = True) -> dict:
     if not path.is_file():
-        raise Fail(f"registry not found: {path}")
+        raise Fail(registry_not_found(path))
     try:
         data = yaml.safe_load(path.read_text())
     except yaml.YAMLError as e:
@@ -510,18 +567,22 @@ def user_default_registry() -> tuple[pathlib.Path | None, str]:
                   f"base dir: env {LEAN_PKG_HOME_ENV})")
 
 
+_RESOLVED_SOURCE: dict[str, str] = {}   # registry path -> how registry_source found it (for the not-found hint)
+
+
 def registry_source(args) -> tuple[pathlib.Path, str]:
     """(registry path, source): --registry "flag", else $LEAN_PKG_REGISTRY "env", else the user-level default
     <lean_pkg_home>/registry "user-default", else ./lean-packages.yaml "cwd"."""
     if getattr(args, "registry", None):
-        return pathlib.Path(args.registry).expanduser(), "flag"
-    env = os.environ.get(REGISTRY_ENV, "").strip()
-    if env:
-        return pathlib.Path(env).expanduser(), "env"
-    user, _ = user_default_registry()
-    if user is not None:
-        return user, "user-default"
-    return pathlib.Path.cwd() / DEFAULT_REGISTRY_NAME, "cwd"
+        path, src = pathlib.Path(args.registry).expanduser(), "flag"
+    elif os.environ.get(REGISTRY_ENV, "").strip():
+        path, src = pathlib.Path(os.environ[REGISTRY_ENV].strip()).expanduser(), "env"
+    else:
+        user, _ = user_default_registry()
+        path, src = (user, "user-default") if user is not None \
+            else (pathlib.Path.cwd() / DEFAULT_REGISTRY_NAME, "cwd")
+    _RESOLVED_SOURCE[str(path)] = src
+    return path, src
 
 
 def registry_path(args) -> pathlib.Path:
@@ -685,6 +746,17 @@ def lease_expires_label(lease: dict | None, now: dt.datetime) -> str:
 
 
 LEASE_WARN_HOURS = 2    # doctor warns about leases that lapse within this window
+
+
+def nonneg_hours(v: str) -> float:
+    """argparse type for an hours window: a number >= 0 (a negative window is a usage error, exit 2)."""
+    try:
+        h = float(v)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of hours: {v!r}")
+    if h < 0 or h != h:
+        raise argparse.ArgumentTypeError(f"hours must be >= 0, got {v}")
+    return h
 
 
 def lease_rows(reg: dict, now: dt.datetime, agent: str | None = None,
@@ -1498,8 +1570,10 @@ def copy_comparator(repo: pathlib.Path, commit: str,
     dest = repo / dest_rel
     if dest.exists():
         if recorded_json(repo, dest_rel) != json.loads(src.read_text()):
-            raise Fail(f"{dest_rel} already holds a different comparator receipt; "
-                       f"remove it or pass that file instead")
+            raise Fail(f"{dest} already holds a different comparator receipt for commit {commit[:12]}; "
+                       f"to keep it, pass that file (--receipt {dest}); to record the newer one, move that "
+                       f"file out of .lean-receipts/ yourself and re-run (a --replace that records "
+                       f"comparator-replaced is planned)")
         return dest_rel, f"comparator receipt already present at {dest_rel} (not re-copied)"
     dest.parent.mkdir(exist_ok=True)
     shutil.copy2(src, dest)
@@ -1608,7 +1682,10 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     # manual move back to gate-pending.
     if pkg.get("status") not in ("gate-pending", "public"):
         raise Fail(f"{name}: gate requires status gate-pending (or public, for "
-                   f"evidence on an already-public package), got {pkg.get('status')!r}")
+                   f"evidence on an already-public package), got {pkg.get('status')!r}"
+                   + (f"; to re-gate a new commit: `lean-pkg update {name} --status gate-pending "
+                      f"--reason TEXT`, then `lean-pkg gate {name} --receipt R`"
+                      if pkg.get("status") == "verified-private" else ""))
     was_public = pkg.get("status") == "public"
     validate_receipt(pkg, repo, receipt)
     commit = receipt["commit"]
@@ -1621,8 +1698,9 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     out: list[str] = []
     if dest.exists():
         if recorded_json(repo, dest_rel) != receipt:
-            raise Fail(f"{dest_rel} already holds a different receipt; "
-                       f"remove it or pass that file instead")
+            raise Fail(f"{dest} already holds a different receipt for commit {commit[:12]} and job "
+                       f"{receipt['job_id']}; pass that file (--receipt {dest}), or give the new run its own "
+                       f"job_id")
         out.append(f"receipt already present at {dest_rel} (not re-copied)")
     else:
         dest.parent.mkdir(exist_ok=True)
@@ -2142,8 +2220,8 @@ def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False) -> list[
     nwo = gh_nwo(pkg.get("repo") or "") or str(pkg.get("repo"))
     p = gh("repo", "view", nwo, "--json", "visibility", "-q", ".visibility")
     if p.returncode != 0:
-        checks.append(("✗" if yes else "WARN", f"gh visibility query failed: "
-                       f"{(p.stderr or p.stdout).strip()[:120]}"
+        checks.append(("✗" if yes else "WARN", "gh visibility query failed: "
+                       + ((p.stderr or p.stdout).strip().splitlines() or [""])[0]
                        + (" (--yes needs a working gh)" if yes else "")))
     else:
         gvis = p.stdout.strip().lower()
@@ -2254,8 +2332,8 @@ def resolve_toolchain_floor(flag: str | None) -> str:
     return floor
 
 
-def render_finding(f: dict) -> str:
-    return f"{(f['check'] + ' ').ljust(20)}{f['name']}: {f['detail']}"
+def render_finding(f: dict, width: int = 20) -> str:
+    return f"{(f['check'] + ' ').ljust(width)}{f['name']}: {f['detail']}"
 
 
 NO_GITHUB_MIRROR_DETAIL = "repo is not on GitHub; visibility not mirrored"
@@ -2264,7 +2342,9 @@ NO_GITHUB_MIRROR_DETAIL = "repo is not on GitHub; visibility not mirrored"
 def render_findings(findings: list[dict]) -> list[str]:
     """Human audit output: no-github-mirror findings collapse into one summary line."""
     mirror = [f["name"] for f in findings if f["check"] == "no-github-mirror"]
-    lines = [render_finding(f) for f in findings if f["check"] != "no-github-mirror"]
+    shown = [f for f in findings if f["check"] != "no-github-mirror"]
+    width = max([20] + [len(f["check"]) + 2 for f in shown])
+    lines = [render_finding(f, width) for f in shown]
     if mirror:
         lines.append(f"{len(mirror)} package(s) without a GitHub mirror (visibility not checked): "
                      + ", ".join(mirror))
@@ -2592,7 +2672,7 @@ def table_lines(reg: dict, now: dt.datetime | None = None) -> list[str]:
     rows = [row_fields(reg["packages"][k], now) for k in sorted(reg["packages"])]
     widths = [max([len(BOARD_HEADER[i])] + [len(r[i]) for r in rows])
               for i in range(len(BOARD_HEADER))]
-    fmt = lambda r: "  ".join(str(r[i]).ljust(widths[i]) for i in range(len(BOARD_HEADER)))
+    fmt = lambda r: "  ".join(str(r[i]).ljust(widths[i]) for i in range(len(BOARD_HEADER))).rstrip()
     return [fmt(BOARD_HEADER)] + [fmt(r) for r in rows]
 
 
@@ -2953,7 +3033,7 @@ def load_candidates(path: pathlib.Path) -> dict | None:
 
 def render_wiki(reg: dict, candidates: dict | None,
                 today: str | None = None, now: dt.datetime | None = None) -> str:
-    today = today or dt.date.today().isoformat()
+    today = today or utc_today()
     now = now or dt.datetime.now(dt.timezone.utc)
 
     def sort_key(item):
@@ -3061,14 +3141,14 @@ Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ~/.lean-p
 STANDING RULES
 - NEVER hand-edit the registry yaml. Use `lean-pkg register` / `lean-pkg update`.
 - Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`).
-- Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases.
+- Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`).
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
 - Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes; --no-commit overrides. Reports on stderr.
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
-active -> gate-pending             lower-tier check submitted (terminal executor job identity in notes)
+active -> gate-pending             lower-tier check submitted (terminal executor job identity in notes); also verified-private -> gate-pending to re-gate a new commit
 gate-pending -> verified-private   `gate` accepts a receipt (schema below)
 public -> public                   `gate` on an already-public package records evidence; status unchanged
 verified-private -> public         `promote --yes` after a clean dry-run checklist; ONE-WAY flip
@@ -3082,10 +3162,10 @@ status    full record + last 5 history entries.        ex: lean-pkg status my-le
 init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
-record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys:
+record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys (all required, others refused; commit 40-hex, version integer):
           consent-recorded: who role pointer | palomar-preflight-pass: commit run
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
-          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version | mathlib-pr-opened, mathlib-pr-merged: url
+          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version (of a recorded entry) | mathlib-pr-opened, mathlib-pr-merged: url
           doi-minted: doi tag commit [concept] (rule doi-in-palomar: commit already recorded by a palomar-* event) | reservoir-listed: url (the
           package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false)
           retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
@@ -3213,8 +3293,8 @@ terminal scheduler accounting; hosted reports bind run/attempt/job identity, ter
 conclusion, immutable workflow/control revision, runner identity, and resources. A pilot,
 partial manifest, pre-terminal marker, or prior-candidate receipt is not gate evidence.
 
-EVENT LINE SCHEMA (one JSON object per line; the same entry is appended to history[])
-ts      ISO-8601 timestamp
+EVENT LINE SCHEMA (one JSON object per line; package events also go to history[]; index-added, prior-art-searched, registry-* are log-only)
+ts      UTC ISO-8601 with offset, second precision (all written times; dates are UTC; same-second order = file order; naive = legacy UTC, doctor warns)
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
         released, release-forced, lease-expired, gate-passed, promoted, audit-fix, relocated, status-changed,
         comparator-attached, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`
@@ -3331,7 +3411,7 @@ def cmd_leases(args) -> int:
     now = dt.datetime.now(dt.timezone.utc)
     rows = lease_rows(reg, now, agent=args.agent, expiring_hours=args.expiring)
     if args.json_out:
-        print_json({"ok": True, "now": now.isoformat(), "leases": rows})
+        print_json({"ok": True, "now": now.isoformat(timespec="seconds"), "leases": rows})
     elif rows:
         print("\n".join(leases_lines(rows, now)))
     else:
@@ -3737,6 +3817,10 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
     if reg_ok:
         level, detail = leases_summary(data, dt.datetime.now(dt.timezone.utc))
         add(level, "leases", detail)
+        naive = naive_timestamps(data)
+        add("warn" if naive else "ok", "time",
+            f"{naive} naive timestamp(s) in leases/history (legacy; treated as UTC)" if naive
+            else "every lease/history timestamp carries an offset")
     root = index_mod.index_root(args)
     if root.is_dir():
         add("ok", "index", f"{root} ({len(index_mod.entry_names(root))} entries)")
@@ -3772,7 +3856,7 @@ def cmd_validate(args) -> int:
     try:
         data = yaml.safe_load(reg_path.read_text())
     except FileNotFoundError:
-        raise Fail(f"registry not found: {reg_path}")
+        raise Fail(registry_not_found(reg_path))
     except yaml.YAMLError as e:
         raise Fail(f"registry is not valid YAML: {e}")
     errors = validate_registry(data)
@@ -3873,7 +3957,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="metadata only; does NOT claim")
     s.add_argument("--agent", default=None, help="metadata only; does NOT claim")
     s.add_argument("--ttl", type=int, default=None,
-                   help="accepted for forward compatibility; unused")
+                   help="accepted and ignored (register never claims; claim separately with "
+                        "`lean-pkg claim NAME --ttl H`)")
     s.add_argument("--dry-run", action="store_true",
                    help="print the would-be entry as YAML without writing")
     add_json(s)
@@ -3910,7 +3995,7 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("leases", help="held leases, soonest expiry first; read-only")
     s.add_argument("--agent", default=None, help="only leases held by this agent")
-    s.add_argument("--expiring", type=float, default=None, metavar="HOURS",
+    s.add_argument("--expiring", type=nonneg_hours, default=None, metavar="HOURS",
                    help="only leases that lapse within HOURS (or have already lapsed)")
     add_json(s)
     s.set_defaults(fn=cmd_leases)

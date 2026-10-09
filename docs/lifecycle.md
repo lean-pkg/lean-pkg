@@ -62,8 +62,11 @@ One package has one workspace at a time. `claim` is compare-and-swap: it
 refuses when a different agent holds an unexpired lease and names the holder
 and the expiry. A same-agent re-claim refreshes the lease. `--force`
 requires `--reason` and is logged as `claim-forced`. `release` is holder-only
-unless forced. Leases expire after a TTL (24 hours by default); `audit`
-clears expired ones with a `lease-expired` event.
+unless forced. Leases expire after a TTL (24 hours by default). `renew`
+restarts the holder's live lease from now (`claim-refreshed`) and refuses
+once it has lapsed, so work longer than the TTL renews before then;
+`leases --agent A --expiring 2` lists what is about to lapse. `audit` reports
+expired leases; `audit --fix` clears them with a `lease-expired` event.
 
 ## Events
 
@@ -75,8 +78,11 @@ event-specific fields. Event names: `registry-created`, `registered`,
 not `history[]`), `evidence-retracted`, and the evidence events written
 by `record`: `consent-recorded`, `palomar-preflight-pass`, `palomar-submitted`,
 `palomar-review`, `palomar-registered`, `palomar-withdrawn`, `doi-minted`,
-`reservoir-listed`, `mathlib-pr-opened`, `mathlib-pr-merged`. The same entry is appended to the
-package's `history[]`.
+`reservoir-listed`, `mathlib-pr-opened`, `mathlib-pr-merged`. Package events
+are also appended to the package's `history[]`; `index-added`,
+`prior-art-searched`, `registry-created` and `registry-migrated` are in the
+event log only. Timestamps are UTC ISO-8601 with an offset, second
+precision; same-second events keep file order.
 
 ## Non-interactive by default
 

@@ -28,6 +28,10 @@ drifts from the installed tool's behavior.
   `update`.
 - Claim before working; release when done. A refusal names the holder: report
   it, do not `--force` without a human's reason.
+- Work longer than the lease TTL (24 h by default): renew before the TTL
+  lapses (`lean-pkg renew my-proof --agent my-agent`); check with
+  `lean-pkg leases --agent my-agent --expiring 2`. A lapsed lease cannot be
+  renewed: claim again.
 - Pass flags and `--json`; nothing prompts. Exit 1 is a refusal with a named
   reason, exit 2 is a usage error.
 - `promote` without `--yes` is a dry run. Never pass `--yes`: hand the
@@ -55,6 +59,10 @@ comparator-receipt --project .
 lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.json --json
 git add .lean-receipts && git commit -m "evidence: comparator receipt"
 lean-pkg comparator my-proof --receipt .lean-receipts/<c12>-comparator.json --json
+
+# long session: renew before the TTL lapses
+lean-pkg leases --agent my-agent --expiring 2 --json
+lean-pkg renew my-proof --agent my-agent --json
 
 git push                                        # promote needs the evidence committed and HEAD in origin/<branch>
 lean-pkg promote my-proof --json                # dry run: give the checklist to a human

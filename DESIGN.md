@@ -52,8 +52,23 @@ One package has one workspace at a time. `claim` is compare-and-swap. It
 refuses when a different agent holds an unexpired lease, and the refusal
 names the holder and the expiry. A same-agent re-claim refreshes the lease.
 `--force` requires `--reason` and is logged as `claim-forced`. `release` is
-holder-only unless forced. Leases expire after a TTL (24 hours by default),
-and `audit` clears expired ones with a `lease-expired` event.
+holder-only unless forced. Leases expire after a TTL (24 hours by default).
+`renew` restarts the holder's live lease from now (event `claim-refreshed`)
+and refuses once it has lapsed; work longer than the TTL renews before then.
+`leases` lists held leases, soonest expiry first (`--agent`,
+`--expiring HOURS`), and `doctor` warns about leases lapsing within two hours. `audit`
+reports expired leases; `audit --fix` clears them with a `lease-expired`
+event.
+
+## Time
+
+Every timestamp the tool writes (`ts`, `claimed_at`, `generated_at` of the
+runner, index `added.at`) is UTC, ISO-8601 with an explicit offset, at
+second precision. Every date it writes (the wiki's `updated:`, prior-art
+headers and file names) is the UTC date. Events written in the same second
+keep their order by position in `history[]` and the event log; there is no
+sequence field. A naive timestamp (legacy or hand-written) is read as UTC:
+`validate` accepts it and `doctor` counts it in a `time` warning.
 
 ## Two receipt tiers
 

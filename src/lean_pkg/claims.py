@@ -224,6 +224,9 @@ def do_claims_sync(reg_path, reg, events_p, name: str) -> tuple[list[str], dict]
         raise core.Fail(f"{name}: claims_file must be repo-relative, got {rel!r}")
     blob = core.git_show_bytes(repo, rel, "HEAD")
     if blob is None:
+        if not (repo / rel).exists():
+            raise core.Fail(f"{name}: {rel} is missing in {repo} (write it at the repo root, schema "
+                            f"claims/1, and commit it)")
         raise core.Fail(f"{name}: {rel} is not committed at HEAD {head[:12]} "
                         f"(untracked files do not count; commit it first)")
     doc = load_claims_text(blob.decode("utf-8", errors="replace"), rel)
