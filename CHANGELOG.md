@@ -171,6 +171,45 @@ change the registry schema or receipt format, always with a migration).
   acting and refuses a TTL that is not a positive whole number instead of
   defaulting it to 24. Add `lean-packages.yaml.lock` to the registry
   repository's `.gitignore`. (#14)
+- A hand-broken lease (`claimed_at: zzz`, `ttl_hours: 'x'`) no longer crashes
+  `list`, `board`, `leases`, `claim`, `release`, `renew`, `update` or
+  `doctor`: tables show `?` / `INVALID` in the lease cells, `leases` lists it
+  as invalid (`--json`: `"invalid": true`, `expires_at` and
+  `remaining_seconds` null), `doctor`'s `leases` line warns, and the writers
+  refuse with `lease fields unparseable (claimed_at=..., ttl_hours=...)`;
+  `release NAME --force --reason TEXT` clears it. (#18)
+- `doctor` runs each check on its own: one that raises prints
+  `warn <item>: internal error ...` and the rest still print. A missing
+  binary is exit 127 from the subprocess helper (`promote` without `gh`
+  reports `gh not on PATH`), `wiki --out` to an unwritable path fails with
+  `cannot write <path>: <reason>`, and any other `OSError` is a one-line
+  refusal (exit 1) rather than an internal error. (#18)
+- Committed mode covers every write: `index add`, `formalization --write`,
+  `claims sync`, `search --record` and the TUI's claim/release/gate keys
+  (each committed after the write, inside the lock). One predicate,
+  `is_write_invocation`, decides from the parsed arguments both the registry
+  lock and committed mode, so dry runs (`register`/`update`/`migrate
+  --dry-run`, `promote` without `--yes`, `audit` without `--fix`,
+  `comparator --check`) never fetch or pull. `--commit`/`--push` on a
+  read-only command print `ignored: read-only command` on stderr;
+  `--no-commit` is accepted after the subcommand; a `--json` payload gains
+  `"commit": {"sha", "pushed", "error"}` and says `"ok": false` when the
+  commit or push failed; the fallback identity is reported on stderr. (#18)
+- An explicit `--registry` uses its sibling event log even when
+  `LEAN_PKG_EVENTS` is set (precedence: `--events`, the sibling of
+  `--registry`, `LEAN_PKG_EVENTS`, the sibling of the resolved registry), so a
+  scratch registry never writes into a shared log; `doctor`'s `events` line
+  ends `[source: flag|registry-sibling|env|sibling]`. (#18)
+- `formalization NAME --write` checks the lease and dry-runs the registry
+  update before it writes `formalization.yaml`, so a refusal leaves the file
+  untouched; `--force --reason TEXT` overrides another agent's live lease
+  (`--force` alone still only overwrites a differing file). (#18)
+- The index root is `--index`, else `LEAN_PKG_INDEX`, else `index/` beside
+  the registry when it exists, else `./index`, so `doctor`'s `index` line
+  (now ending `[source: ...]`) no longer changes with the working directory.
+  `index check`, `render` and `migrate` exit 1 with `no index at <path>`
+  when the root is missing (`render` creates it only for an explicit
+  `--index` or `--out`), and `index migrate` on an empty index says so. (#18)
 
 - `gate` and `comparator` compared a receipt's `lean_toolchain` with the
   working-tree `lean-toolchain`, so an uncommitted edit could make a receipt

@@ -6,21 +6,30 @@ title: CLI reference
 
 Global flags: `--registry PATH`, `--events PATH`, `--json`, `--commit`,
 `--push`, `--no-commit`, `--version` (prints `lean-pkg <version>`, exit 0).
-Every subcommand also accepts `--json`, `--commit` and `--push` after its name.
-Committed mode (`--commit`, or env `LEAN_PKG_COMMIT=1`) applies to the write
-commands only: before writing it requires the registry inside a git work tree
+Every subcommand also accepts `--json`, `--commit`, `--push` and `--no-commit`
+after its name.
+Committed mode (`--commit`, or env `LEAN_PKG_COMMIT=1`) applies to invocations
+that write, decided from the parsed arguments: every write command, `index add`,
+`formalization --write`, `claims sync`, `search --record` and the TUI's keys
+(committed after each write); dry runs and read-only commands never fetch, and
+an explicit `--commit`/`--push` there prints `ignored: read-only command` on
+stderr. Before writing it requires the registry inside a git work tree
 on a branch with the registry file and event log unmodified, fetches `origin`
 and fast-forwards (`pull --ff-only`; a diverged clone is refused); after a
 successful write it commits exactly those two files together with the message
 `lean-pkg: <event> <name>`. `--push` (env `LEAN_PKG_PUSH=1`) also pushes to
 `origin`; a failed push exits 1 and keeps the commit. `--no-commit` overrides
-both variables. Its reports go to stderr; stdout and `--json` are unchanged.
+both variables. Its reports go to stderr; a `--json` payload gains
+`"commit": {"sha", "pushed", "error"}` (`"ok": false` when the commit or push
+failed); a commit made with the fallback identity `lean-pkg <lean-pkg@localhost>`
+says so on stderr.
 The registry is `--registry PATH`, else env
 `LEAN_PKG_REGISTRY`, else the user-level default `~/.lean-pkg/registry` (base
 directory env `LEAN_PKG_HOME`; a directory or symlink to one holding
 `lean-packages.yaml`, or the registry file itself), else `./lean-packages.yaml`;
-the event log defaults to `lean-package-events.jsonl` beside whichever registry
-is in use. Exit codes: 0 success or dry run,
+the event log is `--events PATH`, else `lean-package-events.jsonl` beside an
+explicit `--registry`, else env `LEAN_PKG_EVENTS`, else the sibling of whichever
+registry is in use. Exit codes: 0 success or dry run,
 1 refusal or validation failure (reason on stderr; with `--json` also
 `{"ok": false, "error": ...}` on stdout), 2 usage error or a prompt attempted
 off a terminal (with `--json` a usage refusal also prints
@@ -48,17 +57,17 @@ The authoritative, machine-oriented version of this page is
 | `promote NAME` | promotion checklist; dry run unless `--yes`; the flip is one-way. The checklist requires both receipts and every comparator log committed at HEAD unmodified, and HEAD contained in `origin/<branch>` (local refs, never fetched); under `--yes` a failed `gh` query is a failure | `[--yes]` |
 | `audit` | read-only without `--fix`: report expired leases, GitHub visibility and archived-flag drift, receipt, comparator, toolchain, formalization.yaml drift, toolchain floor; informational findings (never fixed): `receipt-untracked` (a recorded gate or comparator receipt exists in the working tree but is not tracked at the reference branch tip) and `duplicate-path` (two packages whose `local_path` resolve to the same checkout); `--fix` clears expired leases and reconciles visibility/archived from GitHub | `[--fix]` `[--toolchain-floor VERSION]` |
 | `validate` | schema, enum, and history sanity; exit 0 or 1 | |
-| `doctor` | one `ok`/`warn`/`n/a` line each: version; install kind and path (an editable install inside a git checkout adds its short HEAD, branch, and behind/ahead counts against `origin/<branch>`, from local refs unless `--fetch`); registry path and schema version, ending `[source: flag|env|user-default|cwd]` (`doctor --json` adds `"source"` to that check); `user-default`: what `~/.lean-pkg/registry` points at (`ok`) or `n/a` when it is not set up; events path; `registry-repo`: the git work tree holding the registry with its HEAD, branch, behind/ahead of `origin/<branch>` (or "no origin remote" when there is none) and uncommitted tracked files, naming the registry files among them (`warn` when behind, ahead, detached, or the registry files are uncommitted: do not write from there yet; `n/a` outside a work tree); `leases`: live count, leases lapsing within 2 h and expired-but-unswept ones by name (`warn` when either is non-empty); `time`: naive (offset-less, legacy) lease `claimed_at` / history `ts` values, read as UTC (`warn` when any); index path and entry count; `lake`, `lean`, `elan`, `git`, `gh`, `reuse`, `bwrap`, `comparator`, `nanoda`, `go`, `cargo`, `jq` on PATH (`go`, `cargo` and `jq` are what `comparator-receipt` needs to build the legacy comparator tools; a `lake` or `lean` that is not elan's proxy in `$ELAN_HOME/bin`, default `~/.elan/bin`, is a `warn`, since it ignores each project's `lean-toolchain`); `gh auth`: the github.com account from `gh auth status` (`warn` when gh is present but not logged in, since `promote` and `audit` need it; `n/a` without gh); Python version. Exit 1 when the registry is unreadable or its schema version is unsupported (a missing registry counts as unreadable), else 0 | `[--fetch]` |
+| `doctor` | one `ok`/`warn`/`n/a` line each: version; install kind and path (an editable install inside a git checkout adds its short HEAD, branch, and behind/ahead counts against `origin/<branch>`, from local refs unless `--fetch`); registry path and schema version, ending `[source: flag|env|user-default|cwd]` (`doctor --json` adds `"source"` to that check); `user-default`: what `~/.lean-pkg/registry` points at (`ok`) or `n/a` when it is not set up; events path, ending `[source: flag|registry-sibling|env|sibling]`; `registry-repo`: the git work tree holding the registry with its HEAD, branch, behind/ahead of `origin/<branch>` (or "no origin remote" when there is none) and uncommitted tracked files, naming the registry files among them (`warn` when behind, ahead, detached, or the registry files are uncommitted: do not write from there yet; `n/a` outside a work tree); `leases`: live count, leases lapsing within 2 h and expired-but-unswept ones by name, and leases whose fields cannot be parsed (`warn` when any is non-empty); `time`: naive (offset-less, legacy) lease `claimed_at` / history `ts` values, read as UTC (`warn` when any); index path and entry count, ending `[source: flag|env|registry-sibling|cwd]`; `lake`, `lean`, `elan`, `git`, `gh`, `reuse`, `bwrap`, `comparator`, `nanoda`, `go`, `cargo`, `jq` on PATH (`go`, `cargo` and `jq` are what `comparator-receipt` needs to build the legacy comparator tools; a `lake` or `lean` that is not elan's proxy in `$ELAN_HOME/bin`, default `~/.elan/bin`, is a `warn`, since it ignores each project's `lean-toolchain`); `gh auth`: the github.com account from `gh auth status` (`warn` when gh is present but not logged in, since `promote` and `audit` need it; `n/a` without gh); Python version. A check that raises prints `warn <item>: internal error ...` and the others still run. Exit 1 when the registry is unreadable or its schema version is unsupported (a missing registry counts as unreadable), else 0 | `[--fetch]` |
 | `llms` | print the agent contract (`--json`: `{"ok": true, "text": ...}`) | |
 | `wiki` | render a Markdown status page | `[--out PATH]` `[--candidates PATH]` |
 | `index add NAME` | write `index/<name>/entry.yaml` from a clone at the pin: receipts validated with the `gate` and `comparator` validators and copied verbatim, trust computed, duplicates refused, event `index-added` | `--by HANDLE` `--headline 'NAME :: FILE :: SUMMARY'` `[--from-registry]` `[--repo URL]` `[--repo-dir PATH]` `[--lower REL]` `[--comparator REL]` `[--license SPDX]` `[--tag T]` `[--field-tag T]` `[--formalization-yaml REL]` `[--consent-recorded]` `[--notes]` `[--index PATH]` |
-| `index check [NAME ...]` | static checks, or re-derive each entry from bytes at the pin and recompute trust; Palomar and Reservoir verified when reachable, else skipped; exit 0, 1 or 2 | `[--clone]` `[--repo-dir PATH]` `[--index PATH]` |
+| `index check [NAME ...]` | index root: `--index`, else env `LEAN_PKG_INDEX`, else `index/` beside the registry when present, else `./index`; `check`, `render` and `migrate` exit 1 with `no index at <path>` when it is missing (`render` creates it only for an explicit `--index` or `--out`). Static checks, or re-derive each entry from bytes at the pin and recompute trust; Palomar and Reservoir verified when reachable, else skipped; exit 0, 1 or 2 | `[--clone]` `[--repo-dir PATH]` `[--index PATH]` |
 | `index render` | write the Markdown table (default `index/README.md`), plus a claims list when `index-entry/2` entries exist | `[--out PATH]` `[--check]` `[--index PATH]` |
 | `index migrate` | rewrite every `index-entry/1` entry as `index-entry/2`, deriving `claims` from its headline; nothing else changes; `--check` exits 1 when an entry is not current and writes nothing | `[--check]` `[--index PATH]` |
 | `claims sync NAME` | read `claims.yaml` (schema `claims/1`) at `HEAD` of the checkout, check every `decl` occurs in its `file`, cache the claims and the commit in the registry; event `claims-synced`; identical re-sync is a no-op | |
 | `claims list [NAME]` | table of cached claims: id, kind, status, trust (derived from the receipts), pin, declaration | |
 | `claims check [NAME]` | re-validate cached claims (schema, unique ids, acyclic supersession, declarations at the synced commit); exit 0 or 1 | |
-| `formalization NAME` | render `formalization.yaml` (mathlib-initiative v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout by default; `--write` writes `<repo>/<formalization_yaml or formalization.yaml>`, is a no-op when equal, refuses a differing file without `--force`, then sets the registry pointer (event `updated`); validated against the vendored schema; see [formalization.yaml](formalization.md) | `[--write]` `[--out PATH]` `[--force]` `[--author NAME]…` `[--agent A]` |
+| `formalization NAME` | render `formalization.yaml` (mathlib-initiative v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout by default; `--write` writes `<repo>/<formalization_yaml or formalization.yaml>`, is a no-op when equal, refuses a differing file without `--force`, then sets the registry pointer (event `updated`); the lease (another agent's live lease refuses unless `--force --reason`) and a dry run of the registry update are checked before the file is written; validated against the vendored schema; see [formalization.yaml](formalization.md) | `[--write]` `[--out PATH]` `[--force [--reason TEXT]]` `[--author NAME]…` `[--agent A]` |
 | `search TERM` | prior-art search in the fixed order registry, index, loogle, leansearch, reservoir, palomar, github; each source `ok` or `skipped: <reason>`; the registry source scores each package's name (exact name 3), notes, owner_project and repo as well as its cached claims, and every local hit carries `hit_kind` (`package` or `claim`) and `repo`; exit 0 even with zero hits; see [Prior-art search](prior-art.md) | `[--package NAME]` `[--offline]` `[--sources a,b,c]` `[--record]` `[--repo-dir PATH]` `[--index PATH]` |
 
 `comparator-receipt [--project DIR] [--check SCRIPT]` is the separate console

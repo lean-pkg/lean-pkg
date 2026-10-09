@@ -25,8 +25,10 @@ index/
 
 Logs stay in the package repository (under `.lean-receipts/`); `index check`
 fetches them at the pin. The index root is `--index PATH`, else the
-environment variable `LEAN_PKG_INDEX`, else `./index`, so the index can move
-to its own repository later without code changes.
+environment variable `LEAN_PKG_INDEX`, else `index/` beside the registry when
+it exists, else `./index`, so the index can move to its own repository later
+without code changes. `index check`, `render` and `migrate` refuse (exit 1) a
+root that does not exist.
 
 ## Trust levels
 

@@ -37,7 +37,7 @@ def _scrub_git_local_env() -> None:
         os.environ.pop(name, None)
     # Registry/notification/host-policy settings from the caller's shell must
     # not leak into the tests either.
-    for name in ("LEAN_PKG_REGISTRY", "LEAN_PKG_HOME", "LEAN_PKG_NOTIFY_CMD", "LEAN_PKG_COMMIT", "LEAN_PKG_PUSH",
+    for name in ("LEAN_PKG_REGISTRY", "LEAN_PKG_HOME", "LEAN_PKG_EVENTS", "LEAN_PKG_INDEX", "LEAN_PKG_NOTIFY_CMD", "LEAN_PKG_COMMIT", "LEAN_PKG_PUSH",
                  "COMPARATOR_CHECK",
                  "COMPARATOR_RECEIPT_ALLOW_HOST", "COMPARATOR_RECEIPT_ALLOWED_HOSTS",
                  "SLURM_JOB_ID"):

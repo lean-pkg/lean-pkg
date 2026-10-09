@@ -84,6 +84,7 @@ import copy
 import datetime as dt
 import fcntl
 import hashlib
+import io
 import json
 import os
 import pathlib
@@ -272,9 +273,14 @@ def parse_ts(s: str) -> dt.datetime:
 
 
 def run(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
-    """The one subprocess helper. A nonzero exit is returned, not raised; a missing
-    binary still raises FileNotFoundError (callers that may lack the tool check first)."""
-    return subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=cwd)
+    """The one subprocess helper. Never raises on nonzero exit; a binary that cannot be run (not on
+    PATH, not executable, a missing cwd) is returncode 127 with the OSError in stderr."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=cwd)
+    except OSError as e:
+        missing = isinstance(e, FileNotFoundError) and e.filename in (cmd[0], None) and shutil.which(cmd[0]) is None
+        why = f"{cmd[0]} not on PATH" if missing else f"{cmd[0]}: {e.strerror or e}"
+        return subprocess.CompletedProcess(cmd, 127, "", why)
 
 
 def git(repo: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
@@ -624,14 +630,24 @@ def registry_path(args) -> pathlib.Path:
 EVENTS_ENV = "LEAN_PKG_EVENTS"
 
 
-def events_path(args) -> pathlib.Path:
-    """--events, else env LEAN_PKG_EVENTS, else a sibling lean-package-events.jsonl of the registry."""
+def events_source(args) -> tuple[pathlib.Path, str]:
+    """(event log path, source): --events "flag"; else, when --registry is given, its sibling
+    lean-package-events.jsonl "registry-sibling" (an explicit registry never writes into the log env
+    LEAN_PKG_EVENTS names); else env LEAN_PKG_EVENTS "env"; else the resolved registry's sibling "sibling"."""
     if getattr(args, "events", None):
-        return pathlib.Path(args.events).expanduser()
+        return pathlib.Path(args.events).expanduser(), "flag"
+    if getattr(args, "registry", None):
+        return registry_path(args).parent / EVENTS_NAME, "registry-sibling"
     env = os.environ.get(EVENTS_ENV, "").strip()
     if env:
-        return pathlib.Path(env).expanduser()
-    return registry_path(args).parent / EVENTS_NAME
+        return pathlib.Path(env).expanduser(), "env"
+    return registry_path(args).parent / EVENTS_NAME, "sibling"
+
+
+def events_path(args) -> pathlib.Path:
+    """--events, else the sibling of an explicit --registry, else env LEAN_PKG_EVENTS, else the sibling
+    lean-package-events.jsonl of the resolved registry."""
+    return events_source(args)[0]
 
 
 def _event_line(ts: str, name, event: str, **fields) -> str:
@@ -748,8 +764,43 @@ def lease_expiry(lease: dict) -> dt.datetime:
     return parse_ts(lease["claimed_at"]) + dt.timedelta(hours=ttl)
 
 
+LEASE_PARSE_ERRORS = (TypeError, ValueError, KeyError, AttributeError, OverflowError)
+
+
+def lease_expiry_or_none(lease) -> dt.datetime | None:
+    """lease_expiry, or None when the lease's fields cannot be parsed (a hand-edited claimed_at: zzz or
+    ttl_hours: 'x'): readers render such a lease as INVALID instead of raising."""
+    try:
+        return lease_expiry(lease)
+    except LEASE_PARSE_ERRORS:
+        return None
+
+
+def lease_invalid(lease) -> bool:
+    return bool(lease) and lease_expiry_or_none(lease) is None
+
+
+def refuse_invalid_lease(name: str, lease) -> None:
+    """Writers refuse a package whose lease cannot be parsed; `release --force` is the way out."""
+    if lease_invalid(lease):
+        get = lease.get if isinstance(lease, dict) else (lambda _k: None)
+        raise Fail(f"{name}: lease fields unparseable (claimed_at={get('claimed_at')!r}, "
+                   f"ttl_hours={get('ttl_hours')!r}); clear it with "
+                   f"`lean-pkg release {name} --force --reason TEXT`")
+
+
 def lease_live(lease: dict | None, now: dt.datetime) -> bool:
+    """True while a lease runs. Raises on unparseable fields: writers call refuse_invalid_lease first,
+    readers use lease_expiry_or_none."""
     return bool(lease) and now < lease_expiry(lease)
+
+
+def lease_live_or_none(lease, now: dt.datetime) -> bool | None:
+    """lease_live for readers: None when the lease cannot be parsed."""
+    exp = lease_expiry_or_none(lease) if lease else None
+    if lease and exp is None:
+        return None
+    return bool(lease) and now < exp
 
 
 def human_delta(seconds: float) -> str:
@@ -772,7 +823,10 @@ def lease_expires_label(lease: dict | None, now: dt.datetime) -> str:
     (until `audit --fix` sweeps it), `-` without a lease."""
     if not lease:
         return "-"
-    delta = (lease_expiry(lease) - now).total_seconds()
+    exp = lease_expiry_or_none(lease)
+    if exp is None:
+        return "?"
+    delta = (exp - now).total_seconds()
     return f"in {human_delta(delta)}" if delta > 0 else f"{human_delta(delta)} ago"
 
 
@@ -793,24 +847,28 @@ def nonneg_hours(v: str) -> float:
 def lease_rows(reg: dict, now: dt.datetime, agent: str | None = None,
                expiring_hours: float | None = None) -> list[dict]:
     """Every held lease as a dict (name, agent, workspace, claimed_at, ttl_hours, expires_at, live,
-    remaining_seconds), soonest expiry first; filtered by holder and by `expires within N hours
-    or already lapsed`."""
+    remaining_seconds, invalid), soonest expiry first; filtered by holder and by `expires within N hours
+    or already lapsed`. A lease whose fields cannot be parsed is listed first with invalid: true,
+    expires_at and remaining_seconds null, live false (it always passes the --expiring filter)."""
     rows = []
     for name in sorted(reg.get("packages", {})):
         lease = reg["packages"][name].get("lease")
         if not lease:
             continue
-        if agent is not None and lease.get("agent") != agent:
+        get = lease.get if isinstance(lease, dict) else (lambda _k: None)
+        if agent is not None and get("agent") != agent:
             continue
-        exp = lease_expiry(lease)
-        remaining = (exp - now).total_seconds()
-        if expiring_hours is not None and remaining > expiring_hours * 3600:
+        exp = lease_expiry_or_none(lease)
+        remaining = (exp - now).total_seconds() if exp is not None else None
+        if remaining is not None and expiring_hours is not None and remaining > expiring_hours * 3600:
             continue
-        rows.append({"name": name, "agent": lease.get("agent"), "workspace": lease.get("workspace"),
-                     "claimed_at": lease.get("claimed_at"), "ttl_hours": lease.get("ttl_hours"),
-                     "expires_at": exp.isoformat(), "live": remaining > 0,
-                     "remaining_seconds": int(remaining)})
-    rows.sort(key=lambda r: r["remaining_seconds"])
+        rows.append({"name": name, "agent": get("agent"), "workspace": get("workspace"),
+                     "claimed_at": get("claimed_at"), "ttl_hours": get("ttl_hours"),
+                     "expires_at": exp.isoformat() if exp is not None else None,
+                     "live": remaining is not None and remaining > 0,
+                     "remaining_seconds": int(remaining) if remaining is not None else None,
+                     "invalid": exp is None})
+    rows.sort(key=lambda r: (not r["invalid"], r["remaining_seconds"] or 0))
     return rows
 
 
@@ -818,10 +876,19 @@ LEASES_HEADER = ("NAME", "AGENT", "WORKSPACE", "CLAIMED", "EXPIRES", "STATE")
 
 
 def leases_lines(rows: list[dict], now: dt.datetime) -> list[str]:
+    def expires(r):
+        if r.get("invalid"):
+            return "?"
+        return (f"in {human_delta(r['remaining_seconds'])}" if r["live"]
+                else f"{human_delta(r['remaining_seconds'])} ago")
+
+    def state(r):
+        if r.get("invalid"):
+            return "INVALID (release --force --reason clears)"
+        return "live" if r["live"] else "EXPIRED (audit --fix sweeps)"
+
     table = [(r["name"], str(r["agent"]), str(r["workspace"] or "-"), str(r["claimed_at"])[:16],
-              f"in {human_delta(r['remaining_seconds'])}" if r["live"]
-              else f"{human_delta(r['remaining_seconds'])} ago",
-              "live" if r["live"] else "EXPIRED (audit --fix sweeps)") for r in rows]
+              expires(r), state(r)) for r in rows]
     widths = [max([len(LEASES_HEADER[i])] + [len(t[i]) for t in table]) for i in range(len(LEASES_HEADER))]
     fmt = lambda t: "  ".join(t[i].ljust(widths[i]) for i in range(len(LEASES_HEADER))).rstrip()
     return [fmt(LEASES_HEADER)] + [fmt(t) for t in table]
@@ -830,9 +897,10 @@ def leases_lines(rows: list[dict], now: dt.datetime) -> list[str]:
 def leases_summary(reg: dict, now: dt.datetime) -> tuple[str, str]:
     """(level, detail) for doctor: live / expiring within LEASE_WARN_HOURS / expired-unswept counts with names."""
     rows = lease_rows(reg, now)
+    bad = [r for r in rows if r["invalid"]]
     live = [r for r in rows if r["live"]]
     soon = [r for r in live if r["remaining_seconds"] <= LEASE_WARN_HOURS * 3600]
-    gone = [r for r in rows if not r["live"]]
+    gone = [r for r in rows if not r["live"] and not r["invalid"]]
     parts = [f"{len(live)} live"]
     if soon:
         parts.append(f"{len(soon)} expiring within {LEASE_WARN_HOURS}h: "
@@ -841,7 +909,10 @@ def leases_summary(reg: dict, now: dt.datetime) -> tuple[str, str]:
         parts.append(f"{len(gone)} expired, not swept: "
                      + ", ".join(f"{r['name']} ({r['agent']}, {human_delta(r['remaining_seconds'])} ago)" for r in gone)
                      + " (audit --fix clears)")
-    return ("warn" if soon or gone else "ok"), "; ".join(parts)
+    if bad:
+        parts.append(f"{len(bad)} invalid (fields unparseable): " + ", ".join(r["name"] for r in bad)
+                     + " (release NAME --force --reason TEXT clears)")
+    return ("warn" if soon or gone or bad else "ok"), "; ".join(parts)
 
 
 def with_expiry(reg: dict) -> dict:
@@ -851,8 +922,9 @@ def with_expiry(reg: dict) -> dict:
     out = copy.deepcopy(reg)
     for pkg in out.get("packages", {}).values():
         lease = pkg.get("lease")
-        if lease:
-            lease["expires_at"] = lease_expiry(lease).isoformat()
+        if isinstance(lease, dict) and lease:
+            exp = lease_expiry_or_none(lease)
+            lease["expires_at"] = exp.isoformat() if exp is not None else None
     return out
 
 
@@ -887,6 +959,7 @@ def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason):
     lease = pkg.get("lease")
     if not lease:
         raise Fail(f"{name}: no lease held — claim it: lean-pkg claim {name} --workspace W --agent {agent}")
+    refuse_invalid_lease(name, lease)
     if lease.get("agent") != agent:
         raise Fail(f"{name}: lease held by {lease.get('agent')}, not {agent} — renew is holder-only "
                    f"(take it over with claim --force --reason)")
@@ -908,6 +981,7 @@ def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force
     pkg = get_pkg(reg, name)
     now = dt.datetime.now(dt.timezone.utc)
     lease = pkg.get("lease")
+    refuse_invalid_lease(name, lease)
     if lease and lease_live(lease, now):
         if lease.get("agent") == agent and not force:
             ttl = ttl or int(lease.get("ttl_hours") or DEFAULT_TTL_HOURS)
@@ -945,6 +1019,10 @@ def do_release(reg_path, reg, events_p, name, agent, force, reason=""):
         raise Fail(f"{name}: no lease held")
     if force and not reason:
         raise Fail(f"{name}: --force requires --reason")
+    if not force:
+        refuse_invalid_lease(name, lease)
+    if not isinstance(lease, dict):
+        lease = {}   # an unparseable non-mapping lease: release --force clears it (never calls lease_live)
     if force:
         event = "release-forced"
     elif agent is None:
@@ -1122,7 +1200,11 @@ def upstream_evidence(pkg: dict) -> list[str]:
 
 
 def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
-              redetect, agent, force):
+              redetect, agent, force, dry_run=False):
+    """Set fields of a registered package. dry_run runs every check (lease, transitions, schema) on a copy
+    and writes nothing: callers that touch other files first (formalization --write) refuse before them."""
+    if dry_run:
+        reg = copy.deepcopy(reg)
     pkg = get_pkg(reg, name)
 
     for field in sets:
@@ -1146,6 +1228,7 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
     # Lease discipline, the same rule `release` applies: a live lease held by
     # someone else blocks a write unless it is forced with a reason.
     lease = pkg.get("lease")
+    refuse_invalid_lease(name, lease)
     if lease_live(lease, dt.datetime.now(dt.timezone.utc)):
         holder = lease.get("agent")
         if not force and agent != holder:
@@ -1206,6 +1289,10 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
         # registry (another package's, say) are reported and do not block.
         raise Fail(f"{name}: update would break the registry schema:\n  "
                    + "\n  ".join(errors))
+    if dry_run:
+        return ([f"{name}: would update {len(changes)} field(s); nothing written"],
+                {"ok": True, "name": name, "event": "update-dry-run",
+                 "changes": {f: {"from": o, "to": n} for f, (o, n) in changes.items()}})
     report_preexisting(preexisting)
 
     record(reg, events_p, pkg, "updated",
@@ -1256,6 +1343,7 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
                        f"one registry row per checkout; refusing")
     now = dt.datetime.now(dt.timezone.utc)
     lease = pkg.get("lease")
+    refuse_invalid_lease(name, lease)
     if lease_live(lease, now) and agent != lease.get("agent"):
         holder = lease.get("agent")
         raise Fail(f"{name}: lease held by {holder} until "
@@ -2842,7 +2930,9 @@ def validate_registry(data) -> list[str]:
 
 def row_fields(pkg: dict, now: dt.datetime) -> tuple[str, str, str, str, str, str, str]:
     lease = pkg.get("lease")
-    if lease:
+    if lease and lease_invalid(lease):
+        label = "? INVALID"   # fields unparseable: `release NAME --force --reason` clears it
+    elif lease:
         label = f"{lease.get('agent')}@{lease.get('workspace') or '-'}"
         if not lease_live(lease, now):
             label += " EXPIRED"
@@ -2868,15 +2958,13 @@ def cmd_board(args) -> int:
     if args.json_out:
         print_json(with_expiry(load_registry(reg_path)))
         return 0
-    interactive = (sys.stdin.isatty() and sys.stdout.isatty()
-                   and os.environ.get("TERM", "") != "dumb")
-    if interactive:
+    if board_interactive():
         try:
             import curses
         except ImportError:
             pass
         else:
-            _Tui(curses, reg_path, events_path(args)).start()
+            _Tui(curses, reg_path, events_path(args), commit_ctx=getattr(args, "commit_ctx", None)).start()
             return 0
     print("\n".join(table_lines(load_registry(reg_path))))
     return 0
@@ -2950,10 +3038,11 @@ class _Tui:
     STATUS_PAIRS = {"public": 1, "upstreamed": 1, "active": 2, "gate-pending": 2,
                     "scratch": 4, "verified-private": 5}
 
-    def __init__(self, curses, reg_path, events_p):
+    def __init__(self, curses, reg_path, events_p, commit_ctx=None):
         self.curses = curses
         self.reg_path = reg_path
         self.events_p = events_p
+        self.commit_ctx = commit_ctx   # committed mode: commit after each successful write
         self.sel = 0
         self.msg = ""
         self.has_color = False
@@ -3011,7 +3100,7 @@ class _Tui:
     def attr_for(self, pkg, now):
         c = self.curses
         lease = pkg.get("lease")
-        if lease and not lease_live(lease, now):
+        if lease and not lease_live_or_none(lease, now):
             return c.color_pair(3) if self.has_color else c.A_BOLD
         if pkg.get("status") == "archived":
             return c.A_DIM
@@ -3078,6 +3167,13 @@ class _Tui:
             elif k in (ord("k"), c.KEY_UP):
                 off = max(0, off - 1)
 
+    def committed(self, msg: str) -> str:
+        """In committed mode, commit the write just made (the caller holds the registry lock)."""
+        if self.commit_ctx is None:
+            return msg
+        note = commit_now(self.commit_ctx)
+        return f"{msg} · {note}" if note else msg
+
     def selected(self) -> str | None:
         return self.names[self.sel] if self.names else None
 
@@ -3107,7 +3203,7 @@ class _Tui:
                 self.reload()
                 out, _ = do_claim(self.reg_path, self.reg, self.events_p,
                                   name, ws, agent, ttl, reason, False)
-            self.msg = out[-1]
+                self.msg = self.committed(out[-1])
         except Fail as e:
             self.msg = f"refused: {e}"
         self.reload()
@@ -3132,7 +3228,7 @@ class _Tui:
                 self.reload()
                 out, _ = do_release(self.reg_path, self.reg, self.events_p,
                                     name, agent or None, force, reason)
-            self.msg = out[-1]
+                self.msg = self.committed(out[-1])
         except Fail as e:
             self.msg = f"refused: {e}"
         self.reload()
@@ -3152,8 +3248,8 @@ class _Tui:
             with registry_lock(self.reg_path):
                 self.reload()
                 out, _ = do_gate(self.reg_path, self.reg, self.events_p, name, path)
+                self.msg = self.committed(out[-1])
             self.show_text(f"gate {name}", "\n".join(out))
-            self.msg = out[-1]
         except Fail as e:
             self.msg = f"gate refused: {e}"
         self.reload()
@@ -3245,14 +3341,14 @@ def render_wiki(reg: dict, candidates: dict | None,
          "|---|---|---|---|---|---|"]
     for name, pkg in sorted(reg["packages"].items(), key=sort_key):
         lease = pkg.get("lease")
-        label = (f"{lease.get('agent')}@{lease.get('workspace') or '-'}"
-                 if lease else "-")
+        label = ("? (invalid lease)" if lease_invalid(lease) else
+                 f"{lease.get('agent')}@{lease.get('workspace') or '-'}" if lease else "-")
         L.append(f"| {name} | {pkg.get('status')} | {pkg.get('visibility')} "
                  f"| {label} | {pkg.get('mathlib_pin') or '-'} "
                  f"| {pkg.get('reaudit_after') or '-'} |")
     L += ["", "## Active leases", ""]
     live = [(n, p["lease"]) for n, p in sorted(reg["packages"].items())
-            if p.get("lease") and lease_live(p["lease"], now)]
+            if p.get("lease") and lease_live_or_none(p["lease"], now)]
     if live:
         for n, lease in live:
             L.append(f"- **{n}** — {lease.get('agent')}@{lease.get('workspace')} "
@@ -3299,8 +3395,11 @@ def cmd_wiki(args) -> int:
     text = render_wiki(reg, candidates)
     if args.out:
         out_p = pathlib.Path(args.out).expanduser()
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_text(text)
+        try:
+            out_p.parent.mkdir(parents=True, exist_ok=True)
+            out_p.write_text(text)
+        except OSError as e:
+            raise Fail(f"cannot write {out_p}: {e.strerror or e}")
         if args.json_out:
             adopted = sum(1 for c in (candidates or {}).get("candidates", {}).values()
                           if c.get("status") == "adopted")
@@ -3337,7 +3436,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`).
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
-- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes; --no-commit overrides. Reports on stderr.
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes; --no-commit overrides. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error}.
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -3348,7 +3447,7 @@ verified-private -> public         `promote --yes` after a clean dry-run checkli
 public -> upstreamed               `update --status`: a recorded mathlib-pr-merged / palomar-registered event, or a --reason with the URL
 any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public never returns to a private status
 
-SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS; --version prints the version)
+SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
@@ -3377,7 +3476,7 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   flags: --workspace W --agent A (required) [--ttl HOURS: 24 new; a holder's re-claim keeps its TTL] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera
-renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept.
+renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[])
@@ -3397,10 +3496,10 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events, registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
+doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
-index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
+index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, index/ beside the registry if present, ./index; check/render/migrate exit 1 when it is missing).
   add NAME --by HANDLE --headline 'Name :: File.lean :: One sentence.[ :: ChallengeTheorem]' [--from-registry] [--repo URL]
       [--repo-dir P] [--lower REL] [--comparator REL] [--license SPDX] [--tag T] [--field-tag T] [--consent-recorded]
       [--allow-unpushed]  (default: the pin and evidence must be on a branch of the public repo; consent must be recorded)
@@ -3413,12 +3512,12 @@ index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, e
 claims    claims.yaml (schema claims/1) at the package repo root: named reusable results, cached in the registry.
   sync NAME   read claims.yaml at HEAD (committed bytes only); every decl must occur in its file; event claims-synced.
   list [NAME] | check [NAME]   cached claims with status and derived trust | re-validate; exit 0/1.
-formalization NAME [--write] [--out PATH] [--force] [--author A ...] [--agent A]   render formalization.yaml (mathlib-initiative
+formalization NAME [--write] [--out PATH] [--force [--reason TEXT]] [--author A ...] [--agent A]   render formalization.yaml (mathlib-initiative
   v0.4, what Palomar reads) from the registry + the repo at HEAD. Derived every run: project.name/license (license_spdx),
   automation.notes, status.sorry_count/axioms/evidence (gate receipt), status.main_results (every tracked comparator config:
   comparator_config, declaration, file; definition holes carry judged_as, null when unsigned), alignment (claims.yaml). Every other
   key is KEPT from the file; first render seeds authors from consent[] owner/author, else "[PLACEHOLDER] ..." + stderr warning (never
-  invented: no paper titles). --write: idempotent, refuses a differing file without --force, sets formalization_yaml via update.
+  invented: no paper titles). --write: idempotent; lease + update checked BEFORE writing (foreign lease: --force --reason); a differing file needs --force.
   Validated against the vendored v0.4 schema (jsonschema, else structural). audit: formalization-missing/-drift. docs/formalization.md
 search    TERM [--package NAME] [--offline] [--sources a,b,c] [--record [--repo-dir P]] [--json]   prior-art search.
   order: registry, index, loogle, leansearch, reservoir, palomar, github; each "ok" or "skipped: <reason>" (never zero hits).
@@ -3752,8 +3851,6 @@ def ref_note(fetched: bool, fetch_error: str | None) -> str:
 
 COMMIT_ENV = "LEAN_PKG_COMMIT"
 PUSH_ENV = "LEAN_PKG_PUSH"
-WRITE_CMDS = {"init", "migrate", "record", "register", "claim", "release", "renew", "update", "gate",
-              "comparator", "promote", "audit", "claims", "search"}
 _IDENTITY_ERRORS = ("Author identity unknown", "Please tell me who you are")
 
 
@@ -3762,15 +3859,22 @@ def _env_on(name: str) -> bool:
 
 
 def commit_mode(args) -> str | None:
-    """None, "commit" or "push" for this invocation: flags, else env; --no-commit wins; read-only
-    commands are always None."""
-    if getattr(args, "cmd", None) not in WRITE_CMDS or getattr(args, "no_commit", False):
+    """None, "commit" or "push" for this invocation: flags, else env; --no-commit wins; an invocation that
+    writes nothing (is_write_invocation: read-only commands and dry runs) is always None."""
+    if getattr(args, "no_commit", False) or not is_write_invocation(args):
         return None
     if getattr(args, "push", False) or _env_on(PUSH_ENV):
         return "push"
     if getattr(args, "commit", False) or _env_on(COMMIT_ENV):
         return "commit"
     return None
+
+
+def note_ignored_commit_flags(args) -> None:
+    """--commit/--push given on an invocation that writes nothing: a stderr note, not an error."""
+    flags = [f for f in ("commit", "push") if getattr(args, f, False)]
+    if flags and not getattr(args, "no_commit", False) and not is_write_invocation(args):
+        print(f"lean-pkg: {' and '.join('--' + f for f in flags)} ignored: read-only command", file=sys.stderr)
 
 
 def _first_line(p: subprocess.CompletedProcess, default: str) -> str:
@@ -3853,13 +3957,19 @@ def commit_message(ctx: dict) -> str:
     return msg
 
 
+FALLBACK_IDENTITY = ("lean-pkg", "lean-pkg@localhost")
+
+
 def commit_finish(ctx: dict, rc: int) -> int:
     """After the subcommand in committed mode: commit the changed registry files (only those paths),
-    then push when asked. Writes only to stderr; stdout stays the subcommand's."""
+    then push when asked. Writes only to stderr; stdout stays the subcommand's. The outcome is left in
+    ctx["result"] = {"sha", "pushed", "error"} (the `commit` key of a --json payload)."""
     root, branch = ctx["root"], ctx["branch"]
+    res = ctx["result"] = {"sha": None, "pushed": False, "error": None}
     dirty = _dirty(ctx)
     if rc != 0:
         if dirty:
+            res["error"] = f"not committed: the command failed and left {', '.join(dirty)} modified"
             print(f"lean-pkg: not committing: the command failed and left {', '.join(dirty)} modified",
                   file=sys.stderr)
         return rc
@@ -3868,28 +3978,38 @@ def commit_finish(ctx: dict, rc: int) -> int:
     msg = commit_message(ctx)
     add = git(root, "add", "--", *dirty)
     if add.returncode != 0:
+        res["error"] = f"commit failed: {_first_line(add, 'git add failed')}"
         print(f"lean-pkg: commit failed: {_first_line(add, 'git add failed')}; the registry files are "
               f"modified and uncommitted", file=sys.stderr)
         return 1
     argv = ("commit", "-q", "-m", msg, "--", *dirty)
     p = git(root, *argv)
     if p.returncode != 0 and any(s in (p.stderr + p.stdout) for s in _IDENTITY_ERRORS):
-        p = git(root, "-c", "user.name=lean-pkg", "-c", "user.email=lean-pkg@localhost", *argv)
+        name, email = FALLBACK_IDENTITY
+        p = git(root, "-c", f"user.name={name}", "-c", f"user.email={email}", *argv)
+        if p.returncode == 0:
+            print(f"lean-pkg: committed as {name} <{email}>; set git user.name/email in {root}",
+                  file=sys.stderr)
     if p.returncode != 0:
+        res["error"] = f"commit failed: {_first_line(p, 'git commit failed')}"
         print(f"lean-pkg: commit failed: {_first_line(p, 'git commit failed')}; the registry files are "
               f"modified and uncommitted", file=sys.stderr)
         return 1
+    res["sha"] = git(root, "rev-parse", "HEAD").stdout.strip() or None
     short = git(root, "rev-parse", "--short", "HEAD").stdout.strip()
     print(f"lean-pkg: committed {short} on {branch}: {msg}", file=sys.stderr)
     if ctx["push"]:
         if not ctx["origin"]:
+            res["error"] = "push failed: no origin remote"
             print(f"lean-pkg: push failed: no origin remote; run: git push origin {branch}", file=sys.stderr)
             return 1
         p = git(root, "push", "--quiet", "origin", branch)
         if p.returncode != 0:
+            res["error"] = f"push failed: {_first_line(p, 'git push failed')}"
             print(f"lean-pkg: push failed: {_first_line(p, 'git push failed')}; run: git push origin {branch}",
                   file=sys.stderr)
             return 1
+        res["pushed"] = True
         print(f"lean-pkg: pushed origin/{branch}", file=sys.stderr)
     return rc
 
@@ -3914,6 +4034,17 @@ def gh_auth_check() -> tuple[str, str]:
     if m:
         return "ok", m.group(1)
     return "warn", "not logged in to github.com (promote and audit need it): run gh auth login"
+
+
+def commit_now(ctx: dict) -> str:
+    """The TUI's commit after each successful write (called inside its registry lock): commit_finish with
+    stderr captured (curses owns the screen); returns its last line for the status bar."""
+    buf = io.StringIO()
+    with contextlib.redirect_stderr(buf):
+        commit_finish(ctx, 0)
+    ctx["lines_before"] = _count_lines(ctx["events"])
+    lines = [line for line in buf.getvalue().splitlines() if line.strip()]
+    return lines[-1].removeprefix("lean-pkg: ") if lines else ""
 
 
 def install_check(d: pathlib.Path, fetch: bool = False) -> tuple[str, str]:
@@ -4000,7 +4131,8 @@ def registry_repo_check(reg_p: pathlib.Path, ev: pathlib.Path, fetch: bool = Fal
 
 def doctor_checks(args) -> tuple[list[dict], bool]:
     """Every doctor line as {"level", "item", "detail"}; ok is False when the registry is unreadable or its schema
-    version is unsupported."""
+    version is unsupported. Each check runs on its own: one that raises becomes a `warn <item>: internal
+    error ...` line and the others still print."""
     from . import __version__
     from . import index as index_mod
     checks: list[dict] = []
@@ -4008,58 +4140,98 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
     def add(level, item, detail):
         checks.append({"level": level, "item": item, "detail": detail})
 
+    def guarded(item, fn):
+        try:
+            fn()
+        except Exception as e:   # noqa: BLE001 -- doctor diagnoses; it never stops at one broken check
+            add("warn", item, f"internal error {type(e).__name__}: {e} (LEAN_PKG_DEBUG=1 lean-pkg doctor "
+                              f"for the traceback)")
+            if _env_on(DEBUG_ENV):
+                traceback.print_exception(type(e), e, e.__traceback__)
+
     add("ok", "version", f"lean-pkg {__version__}")
     fetch = bool(getattr(args, "fetch", False))
-    level, detail = install_check(package_dir(), fetch=fetch)
-    add(level, "install", detail)
-    reg_ok = True
+    guarded("install", lambda: _doctor_pair(add, "install", install_check(package_dir(), fetch=fetch)))
+    state = {"reg_ok": True, "data": None}
     reg_p, source = registry_source(args)
-    try:
-        data = load_registry(reg_p, check_version=False)   # doctor reports an unsupported version itself
-        ver = data.get("version")
-        level = "ok" if ver in SUPPORTED_REGISTRY_VERSIONS else "warn"
-        reg_ok = level == "ok"
-        add(level, "registry", f"{reg_p} (schema version {ver}, {len(data['packages'])} package(s))"
-            + ("" if reg_ok else f"; unsupported, supported: {', '.join(map(str, SUPPORTED_REGISTRY_VERSIONS))}")
-            + f" [source: {source}]")
-    except (Fail, OSError, ValueError) as e:
-        reg_ok = False
-        add("warn", "registry", f"{reg_p} unreadable: {e} [source: {source}]")
-    checks[-1]["source"] = source
-    user, detail = user_default_registry()
-    add("ok" if user is not None else "n/a", "user-default", detail)
-    ev = events_path(args)
-    add("ok" if ev.is_file() else "n/a", "events", f"{ev}" + ("" if ev.is_file() else " (not created yet)"))
-    level, detail = registry_repo_check(reg_p, ev, fetch=fetch)
-    add(level, "registry-repo", detail)
-    if reg_ok:
-        level, detail = leases_summary(data, dt.datetime.now(dt.timezone.utc))
-        add(level, "leases", detail)
-        naive = naive_timestamps(data)
+
+    def registry_check():
+        try:
+            data = load_registry(reg_p, check_version=False)   # doctor reports an unsupported version itself
+            ver = data.get("version")
+            level = "ok" if ver in SUPPORTED_REGISTRY_VERSIONS else "warn"
+            state["reg_ok"] = level == "ok"
+            state["data"] = data
+            add(level, "registry", f"{reg_p} (schema version {ver}, {len(data['packages'])} package(s))"
+                + ("" if state["reg_ok"] else
+                   f"; unsupported, supported: {', '.join(map(str, SUPPORTED_REGISTRY_VERSIONS))}")
+                + f" [source: {source}]")
+        except (Fail, OSError, ValueError) as e:
+            state["reg_ok"] = False
+            add("warn", "registry", f"{reg_p} unreadable: {e} [source: {source}]")
+        checks[-1]["source"] = source
+
+    guarded("registry", registry_check)
+
+    def user_default_check():
+        user, detail = user_default_registry()
+        add("ok" if user is not None else "n/a", "user-default", detail)
+
+    guarded("user-default", user_default_check)
+    ev, ev_source = events_source(args)
+
+    def events_check():
+        add("ok" if ev.is_file() else "n/a", "events",
+            f"{ev}" + ("" if ev.is_file() else " (not created yet)") + f" [source: {ev_source}]")
+        checks[-1]["source"] = ev_source
+
+    guarded("events", events_check)
+    guarded("registry-repo", lambda: _doctor_pair(add, "registry-repo", registry_repo_check(reg_p, ev, fetch=fetch)))
+    if state["reg_ok"] and state["data"] is not None:
+        guarded("leases", lambda: _doctor_pair(add, "leases",
+                                               leases_summary(state["data"], dt.datetime.now(dt.timezone.utc))))
+
+    def time_check():
+        naive = naive_timestamps(state["data"])
         add("warn" if naive else "ok", "time",
             f"{naive} naive timestamp(s) in leases/history (legacy; treated as UTC)" if naive
             else "every lease/history timestamp carries an offset")
-    root = index_mod.index_root(args)
-    if root.is_dir():
-        add("ok", "index", f"{root} ({len(index_mod.entry_names(root))} entries)")
-    else:
-        add("n/a", "index", f"{root} (not present)")
-    for t in DOCTOR_TOOLS:
-        where = shutil.which(t)
-        if where and t in DOCTOR_ELAN_TOOLS and not is_elan_proxy(where, t):
-            add("warn", f"tool {t}", f"{where} is not elan's ({elan_bin() / t}); a {t} outside elan ignores "
-                f"each project's lean-toolchain: put {elan_bin()} first on PATH")
-        elif where:
-            add("ok", f"tool {t}", where)
-        elif t in DOCTOR_COMPARATOR_TOOLS:
-            add("n/a", f"tool {t}", "not on PATH (needed by comparator-receipt to build the legacy comparator tools)")
+
+    if state["reg_ok"] and state["data"] is not None:
+        guarded("time", time_check)
+
+    def index_check():
+        root, isource = index_mod.index_source(args)
+        if root.is_dir():
+            add("ok", "index", f"{root} ({len(index_mod.entry_names(root))} entries) [source: {isource}]")
         else:
-            add("warn" if t in DOCTOR_REQUIRED_TOOLS else "n/a", f"tool {t}", "not on PATH")
+            add("n/a", "index", f"{root} (not present) [source: {isource}]")
+        checks[-1]["source"] = isource
+
+    guarded("index", index_check)
+    for t in DOCTOR_TOOLS:
+        guarded(f"tool {t}", lambda t=t: _doctor_tool(add, t))
         if t == "gh":
-            level, detail = gh_auth_check()
-            add(level, "gh auth", detail)
+            guarded("gh auth", lambda: _doctor_pair(add, "gh auth", gh_auth_check()))
     add("ok", "python", f"{sys.version.split()[0]} ({sys.executable})")
-    return checks, reg_ok
+    return checks, state["reg_ok"]
+
+
+def _doctor_pair(add, item: str, pair: tuple[str, str]) -> None:
+    add(pair[0], item, pair[1])
+
+
+def _doctor_tool(add, t: str) -> None:
+    where = shutil.which(t)
+    if where and t in DOCTOR_ELAN_TOOLS and not is_elan_proxy(where, t):
+        add("warn", f"tool {t}", f"{where} is not elan's ({elan_bin() / t}); a {t} outside elan ignores "
+            f"each project's lean-toolchain: put {elan_bin()} first on PATH")
+    elif where:
+        add("ok", f"tool {t}", where)
+    elif t in DOCTOR_COMPARATOR_TOOLS:
+        add("n/a", f"tool {t}", "not on PATH (needed by comparator-receipt to build the legacy comparator tools)")
+    else:
+        add("warn" if t in DOCTOR_REQUIRED_TOOLS else "n/a", f"tool {t}", "not on PATH")
 
 
 def cmd_doctor(args) -> int:
@@ -4126,6 +4298,8 @@ def main(argv: list[str] | None = None) -> int:
                        help="write commands: pull --ff-only, then commit the registry files")
         s.add_argument("--push", action="store_true", default=argparse.SUPPRESS,
                        help="--commit, then push to origin")
+        s.add_argument("--no-commit", dest="no_commit", action="store_true", default=argparse.SUPPRESS,
+                       help="never commit or push (overrides the env)")
 
     s = sub.add_parser("board", help="curses TUI on a tty; static table otherwise")
     add_json(s)
@@ -4358,14 +4532,27 @@ def _report_fail(args, e: Fail) -> None:
     print(f"lean-pkg: {e}", file=sys.stderr)
 
 
-def locks_registry(args) -> bool:
-    """Does this invocation write the registry (load -> check -> mutate -> save -> append)? Those run
-    under registry_lock for the whole command, commit preflight and commit included. `search --record`
-    and `index add` append an event only and lock just around that write (they may use the network)."""
+def board_interactive() -> bool:
+    """`board` opens the curses TUI (which can write) only on a tty; otherwise it prints the table."""
+    return sys.stdin.isatty() and sys.stdout.isatty() and os.environ.get("TERM", "") != "dumb"
+
+
+# Writes that append an event (or run the TUI) without holding the registry lock for the whole command:
+# they lock just around each write (they may use the network, or wait on the keyboard).
+UNLOCKED_WRITES = ("index", "search", "board", None)
+
+
+def is_write_invocation(args) -> bool:
+    """Does this invocation, as parsed, write the registry or its event log? The one predicate behind the
+    registry lock (locks_registry) and committed mode (commit_mode). Dry runs and read-only forms are not
+    writes: register/update/migrate --dry-run, promote without --yes, audit without --fix, comparator
+    --check, formalization without --write, claims list/check, index check/render/migrate, search without
+    --record, board off a tty or with --json."""
     cmd = getattr(args, "cmd", None)
-    if cmd in ("init", "record", "register", "claim", "release", "renew", "update", "gate",
-               "comparator", "migrate"):
+    if cmd in ("init", "record", "register", "claim", "release", "renew", "update", "gate", "migrate"):
         return not getattr(args, "dry_run", False)
+    if cmd == "comparator":
+        return not getattr(args, "check", False)
     if cmd == "promote":
         return bool(getattr(args, "yes", False))
     if cmd == "audit":
@@ -4374,7 +4561,21 @@ def locks_registry(args) -> bool:
         return bool(getattr(args, "write", False))
     if cmd == "claims":
         return getattr(getattr(args, "claims_fn", None), "__name__", "") == "run_sync"
+    if cmd == "index":
+        return getattr(getattr(args, "index_fn", None), "__name__", "") == "run_add"
+    if cmd == "search":
+        return bool(getattr(args, "record", False))
+    if cmd in ("board", None):
+        return (getattr(args, "fn", None) is cmd_board and not getattr(args, "json_out", False)
+                and board_interactive())
     return False
+
+
+def locks_registry(args) -> bool:
+    """Does this invocation hold the registry lock for the whole command (load -> check -> mutate -> save
+    -> append), commit preflight and commit included? Every write except UNLOCKED_WRITES (`index add` and
+    `search --record` lock just around their append; the TUI around each key's write)."""
+    return is_write_invocation(args) and getattr(args, "cmd", None) not in UNLOCKED_WRITES
 
 
 def write_lock(args):
@@ -4393,29 +4594,71 @@ def write_lock(args):
 DEBUG_ENV = "LEAN_PKG_DEBUG"
 
 
+def _registry_lock_if_present(args):
+    reg_p = registry_path(args)
+    return registry_lock(reg_p) if reg_p.is_file() else contextlib.nullcontext()
+
+
+def _oserror_fail(e: OSError) -> Fail:
+    where = f" {e.filename}" if getattr(e, "filename", None) else ""
+    return Fail(f"cannot access{where}: {e.strerror or e}")
+
+
+def _emit_with_commit(text: str, ctx: dict | None, rc_before: int, rc: int) -> None:
+    """Re-emit a --json command's captured stdout; in committed mode a single JSON object gains
+    "commit": {"sha", "pushed", "error"} (and ok: false when the commit or push failed)."""
+    if ctx is not None and "result" in ctx:
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            payload["commit"] = dict(ctx["result"])
+            if rc_before == 0 and rc != 0:
+                payload["ok"] = False
+            print_json(payload)
+            return
+    sys.stdout.write(text)
+
+
 def run_command(args) -> int:
-    """Run the subcommand; refusals map to exit 2/1; an unexpected exception still lets commit_finish
-    report (and not commit), then exits 1 with a one-line internal error (traceback: LEAN_PKG_DEBUG=1)."""
+    """Run the subcommand; refusals map to exit 2/1; an OSError is a clean refusal (exit 1); an unexpected
+    exception still lets commit_finish report (and not commit), then exits 1 with a one-line internal
+    error (traceback: LEAN_PKG_DEBUG=1). Committed mode: the preflight (fetch, pull --ff-only) runs only
+    for an invocation that writes, after argparse has validated it; with --json the command's stdout is
+    captured so the payload can carry the commit outcome."""
+    note_ignored_commit_flags(args)
     mode = commit_mode(args)
     ctx = None
     crash = None
-    try:
-        if mode:
-            ctx = commit_preflight(args, mode)
-        rc = args.fn(args)
-    except UsageError as e:
-        if getattr(args, "json_out", False):
-            print_json({"ok": False, "error": str(e), "usage": True})
-        print(f"lean-pkg: {e}", file=sys.stderr)
-        rc = 2
-    except Fail as e:
-        _report_fail(args, e)
-        rc = 1
-    except Exception as e:   # noqa: BLE001 -- the top-level handler: report, never a bare traceback
-        crash = e
-        rc = 1
+    buf = io.StringIO() if (mode and getattr(args, "json_out", False)) else None
+    with contextlib.redirect_stdout(buf) if buf is not None else contextlib.nullcontext():
+        try:
+            if mode:
+                with _registry_lock_if_present(args):
+                    ctx = commit_preflight(args, mode)
+                args.commit_ctx = ctx   # the TUI commits after each of its writes
+            rc = args.fn(args)
+        except UsageError as e:
+            if getattr(args, "json_out", False):
+                print_json({"ok": False, "error": str(e), "usage": True})
+            print(f"lean-pkg: {e}", file=sys.stderr)
+            rc = 2
+        except Fail as e:
+            _report_fail(args, e)
+            rc = 1
+        except OSError as e:   # an unwritable path, a missing file: a refusal, not an internal error
+            _report_fail(args, _oserror_fail(e))
+            rc = 1
+        except Exception as e:   # noqa: BLE001 -- the top-level handler: report, never a bare traceback
+            crash = e
+            rc = 1
+    rc_before = rc
     if ctx is not None:
-        rc = commit_finish(ctx, rc)
+        with _registry_lock_if_present(args):
+            rc = commit_finish(ctx, rc)
+    if buf is not None:
+        _emit_with_commit(buf.getvalue(), ctx, rc_before, rc)
     if crash is not None:
         if _env_on(DEBUG_ENV):
             traceback.print_exception(type(crash), crash, crash.__traceback__)

@@ -54,7 +54,8 @@ def test_events_path_env_var_is_honoured(lp, tmp_path, monkeypatch):
     reg = tmp_path / "r" / "lean-packages.yaml"
     ev = tmp_path / "elsewhere" / "events.jsonl"
     monkeypatch.setenv("LEAN_PKG_EVENTS", str(ev))
-    assert lp.main(["--registry", str(reg), "init"]) == 0
+    monkeypatch.setenv("LEAN_PKG_REGISTRY", str(reg))   # an explicit --registry would use its sibling (#18)
+    assert lp.main(["init"]) == 0
     assert ev.is_file() and not (reg.parent / "lean-package-events.jsonl").exists()
     # an explicit --events still wins
     ev2 = tmp_path / "explicit.jsonl"

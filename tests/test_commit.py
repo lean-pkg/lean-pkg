@@ -91,9 +91,11 @@ def test_subcommand_position_and_read_only_commands(lp, env, shared, capsys):
     a = shared.a
     before = _count(a.root)
     rc, cap = run(lp, a, capsys, "list", "--commit")
-    assert rc == 0 and _count(a.root) == before and cap.err == ""
+    assert rc == 0 and _count(a.root) == before
+    assert cap.err == "lean-pkg: --commit ignored: read-only command\n"   # a note, not an error (#18)
     rc, cap = run(lp, a, capsys, "--push", "status", "alpha")
-    assert rc == 0 and _count(a.root) == before and cap.err == ""
+    assert rc == 0 and _count(a.root) == before
+    assert cap.err == "lean-pkg: --push ignored: read-only command\n"
     rc, cap = run(lp, a, capsys, *CLAIM, "--commit")
     assert rc == 0 and _count(a.root) == before + 1
 

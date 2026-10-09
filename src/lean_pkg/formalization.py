@@ -455,9 +455,13 @@ def render_for(pkg: dict, repo: pathlib.Path, authors: list[str] | None = None
 
 
 def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: str | None,
-                     force: bool, authors: list[str] | None, agent: str | None
-                     ) -> tuple[list[str], dict, list[str]]:
-    """(stdout lines, payload, stderr warnings). The YAML text is in payload['yaml']."""
+                     force: bool, authors: list[str] | None, agent: str | None,
+                     reason: str = "") -> tuple[list[str], dict, list[str]]:
+    """(stdout lines, payload, stderr warnings). The YAML text is in payload['yaml'].
+
+    --write checks before it writes: the lease (a live lease held by another agent refuses unless
+    --force --reason) and a dry run of the registry update, so a refusal leaves formalization.yaml
+    untouched. --force alone overwrites a differing file; with --reason it also overrides the lease."""
     pkg = core.get_pkg(reg, name)
     repo = core.repo_path(pkg)
     if not repo.is_dir():
@@ -495,6 +499,21 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
         return [text.rstrip("\n")], payload, warnings
 
     target = repo / rel
+    lease_force = bool(force and reason)
+    needs_update = pkg.get("formalization_yaml") != rel
+    if needs_update or existing_text != text:   # something will be written: the lease decides first
+        core.refuse_invalid_lease(name, pkg.get("lease"))
+        lease = pkg.get("lease")
+        if core.lease_live(lease, core.dt.datetime.now(core.dt.timezone.utc)) \
+                and agent != lease.get("agent") and not lease_force:
+            holder = lease.get("agent")
+            raise core.Fail(f"{name}: lease held by {holder} — pass --agent {holder}, or --force --reason "
+                            f"TEXT to override it; nothing written")
+    update_kw = dict(sets={"formalization_yaml": rel}, status=None,
+                     reason=reason or "lean-pkg formalization --write", redetect=False,
+                     agent=agent, force=lease_force)
+    if needs_update:   # every registry check first, on a copy: a refusal writes nothing
+        core.do_update(reg_path, reg, events_p, name, dry_run=True, **update_kw)
     if existing_text is not None and existing_text == text:
         payload["unchanged"] = True
         lines = [f"{name}: {rel} is already what the generator emits; nothing written ({summary})"]
@@ -506,11 +525,8 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
         _atomic_write(target, text)
         payload["written"] = True
         lines = [f"{name}: wrote {target} ({summary}) — not committed; commit it yourself"]
-    if pkg.get("formalization_yaml") != rel:
-        up_lines, _ = core.do_update(reg_path, reg, events_p, name,
-                                     sets={"formalization_yaml": rel}, status=None,
-                                     reason="lean-pkg formalization --write", redetect=False,
-                                     agent=agent, force=False)
+    if needs_update:
+        up_lines, _ = core.do_update(reg_path, reg, events_p, name, **update_kw)
         lines += up_lines
         payload["registry_updated"] = True
     return lines, payload, warnings
@@ -539,7 +555,8 @@ def cmd_formalization(args) -> int:
     reg_path, events_p = core.registry_path(args), core.events_path(args)
     lines, payload, warnings = do_formalization(
         reg_path, core.load_registry(reg_path), events_p, args.name, write=args.write,
-        out=args.out, force=args.force, authors=args.author, agent=args.agent)
+        out=args.out, force=args.force, authors=args.author, agent=args.agent,
+        reason=getattr(args, "reason", "") or "")
     for w in warnings:
         print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
     if getattr(args, "json_out", False):
@@ -560,7 +577,11 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--out", default=None, metavar="PATH",
                    help="write the render here instead; the registry is untouched")
     s.add_argument("--force", action="store_true",
-                   help="with --write: overwrite a file that differs from the render")
+                   help="with --write: overwrite a file that differs from the render; with --reason "
+                        "also override a live lease held by another agent")
+    s.add_argument("--reason", default="",
+                   help="with --write --force: why another agent's lease is overridden (recorded in "
+                        "the updated event)")
     s.add_argument("--author", action="append", default=None, metavar="NAME",
                    help="project.authors entry (repeatable); otherwise kept from the file, else "
                         "consent[] owners/authors, else a placeholder")

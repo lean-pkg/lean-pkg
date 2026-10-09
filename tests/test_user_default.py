@@ -194,4 +194,4 @@ def test_doctor_json_missing_registry_still_has_source(lp, home, capsys, no_inst
     assert rc == 1
     assert checks["registry"]["level"] == "warn" and checks["registry"]["source"] == "cwd"
     assert checks["user-default"]["level"] == "n/a"
-    assert "source" not in checks["events"]
+    assert checks["events"]["source"] == "sibling"   # #18: the events line names its source too

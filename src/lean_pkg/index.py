@@ -49,14 +49,32 @@ PRIVATE_PATH_RE = re.compile(r"(^[/~])|(/home/)|(/Users/)|([A-Za-z]:\\)")
 # --------------------------------------------------------------------------
 # paths
 
-def index_root(args) -> pathlib.Path:
-    """--index, else $LEAN_PKG_INDEX, else ./index."""
+def index_source(args) -> tuple[pathlib.Path, str]:
+    """(index root, source): --index "flag", else $LEAN_PKG_INDEX "env", else <registry dir>/index when that
+    directory exists "registry-sibling", else ./index "cwd"."""
     if getattr(args, "index", None):
-        return pathlib.Path(args.index).expanduser()
+        return pathlib.Path(args.index).expanduser(), "flag"
     env = os.environ.get(INDEX_ENV, "").strip()
     if env:
-        return pathlib.Path(env).expanduser()
-    return pathlib.Path.cwd() / DEFAULT_INDEX_DIR
+        return pathlib.Path(env).expanduser(), "env"
+    beside = core.registry_path(args).parent / DEFAULT_INDEX_DIR
+    if beside.is_dir():
+        return beside, "registry-sibling"
+    return pathlib.Path.cwd() / DEFAULT_INDEX_DIR, "cwd"
+
+
+def index_root(args) -> pathlib.Path:
+    """--index, else $LEAN_PKG_INDEX, else <registry dir>/index if it exists, else ./index."""
+    return index_source(args)[0]
+
+
+def existing_index_root(args, *, create: bool = False) -> pathlib.Path:
+    """The index root for check / render / migrate: a missing root is a refusal (exit 1), not an empty
+    pass; create=True (render with an explicit --index or --out) makes it instead."""
+    root = index_root(args)
+    if not root.is_dir() and not create:
+        raise core.Fail(f"no index at {root} (pass --index or set {INDEX_ENV})")
+    return root
 
 
 def entry_names(root: pathlib.Path) -> list[str]:
@@ -806,7 +824,8 @@ def add_parsers(sub, add_json) -> None:
 
     def common(p, fn) -> None:
         p.add_argument("--index", default=None,
-                       help=f"index root (default: ${INDEX_ENV}, else ./{DEFAULT_INDEX_DIR})")
+                       help=f"index root (default: ${INDEX_ENV}, else {DEFAULT_INDEX_DIR}/ beside the "
+                            f"registry when present, else ./{DEFAULT_INDEX_DIR})")
         add_json(p)
         p.set_defaults(fn=cmd_index, index_fn=fn)
 
@@ -1013,7 +1032,7 @@ def do_index_check(root: pathlib.Path, names: list[str], repo_dir: str | None,
 
 
 def run_check(args) -> int:
-    out, payload, rc = do_index_check(index_root(args), args.names, args.repo_dir, args.clone)
+    out, payload, rc = do_index_check(existing_index_root(args), args.names, args.repo_dir, args.clone)
     return _emit(args, out, payload, rc)
 
 
@@ -1091,7 +1110,7 @@ def render_index(root: pathlib.Path) -> str:
 
 
 def run_render(args) -> int:
-    root = index_root(args)
+    root = existing_index_root(args, create=bool(getattr(args, "index", None) or args.out))
     text = render_index(root)
     dest = pathlib.Path(args.out).expanduser() if args.out else root / "README.md"
     n = len(entry_names(root))
@@ -1130,7 +1149,7 @@ def migrate_entry(name: str, entry: dict) -> dict | None:
 
 
 def run_migrate(args) -> int:
-    root = index_root(args)
+    root = existing_index_root(args)
     out, stale, done = [], [], []
     for name in entry_names(root):
         path = root / name / ENTRY_FILE
@@ -1148,6 +1167,8 @@ def run_migrate(args) -> int:
         done.append(name)
     if done:
         out.append("render the table again: `lean-pkg index render`")
+    if not out:
+        out.append(f"no entries under {root}")
     rc = 1 if stale else 0
     return _emit(args, out, {"ok": not stale, "migrated": done, "stale": stale}, rc)
 
