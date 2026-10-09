@@ -4,12 +4,12 @@
 |---|---|
 | Tool, catalog, releases (maintainer of record) | Le Chen ([@chenle02](https://github.com/chenle02)) |
 
-Deputy (operations, releases): to be named by the maintainer of record.
+Deputy (operations, releases): Yimin Zhong ([@lowrank](https://github.com/lowrank)), Auburn University — accepted 2026-10-09.
 
 Succession: the deputy may cut a release if the maintainer is unavailable
 for 30 days (decision [0002](docs/decisions/0002-benevolent-maintainer-with-deputies.md)).
-Until a deputy is named, the maintainer's GitHub account successor covers
-succession (decision [0005](docs/decisions/0005-github-account-successor-until-a-deputy-is-named.md)).
+The maintainer's GitHub account successor remains a second line of succession
+(decision [0005](docs/decisions/0005-github-account-successor-until-a-deputy-is-named.md)).
 
 Contact: open an issue in this repository.
 
