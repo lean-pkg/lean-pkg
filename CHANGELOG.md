@@ -18,6 +18,11 @@ change the registry schema or receipt format, always with a migration).
   same refusals) without touching the registry: no pointer update, no event,
   no lock, `--commit` ignored; `--json` gains `"registry_skipped": true`. The
   docs now say plainly that `--write` alone is a registry write. (#22.8)
+- `register` notes (stderr, and `notes` in `--json`) when another registered
+  package's checkout uses the same Lean root namespace (each `lean_lib` in
+  the lakefile, else the top-level `*.lean` files); a warning, never a
+  refusal. `audit` gains the informational finding `duplicate-namespace`.
+  (#22.7)
 
 ## [0.6.0] - 2026-10-09
 

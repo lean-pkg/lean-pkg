@@ -100,3 +100,51 @@ def test_register_initialises_comparator_null(lp, env, tmp_path, capsys):
     rc = register(lp, env, "gamma", repo, "--dry-run")
     assert rc == 0
     assert "comparator: null" in capsys.readouterr().out
+
+
+# --- #22.7: duplicate Lean root namespace (warn only) ---
+
+def test_register_warns_on_a_shared_root_namespace(lp, env, tmp_path, capsys):
+    import json
+    (env.repo_a / "lakefile.lean").write_text('import Lake\nopen Lake DSL\npackage alpha\n\nlean_lib «Spectral» where\n')
+    repo = make_repo(tmp_path / "gamma-repo", extra_files={
+        "lakefile.toml": 'name = "gamma"\n\n[[lean_lib]]\nname = "Spectral.Core"\n'})
+    assert register(lp, env, "gamma", repo, "--dry-run", "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert len(data["notes"]) == 1 and "Spectral" in data["notes"][0] and "alpha" in data["notes"][0]
+    assert register(lp, env, "gamma", repo) == 0          # a warning, never a refusal
+    cap = capsys.readouterr()
+    assert "lean-pkg: note: Lean root namespace Spectral is also used by alpha" in cap.err
+    assert cap.out.strip().splitlines()[-1].startswith("gamma: registered")
+    assert "gamma" in read_reg(env)["packages"]
+
+
+def test_register_without_a_clash_has_empty_notes(lp, env, tmp_path, capsys):
+    import json
+    (env.repo_a / "Alpha.lean").write_text("theorem t : True := trivial\n")
+    repo = make_repo(tmp_path / "gamma-repo", extra_files={"Gamma.lean": "theorem g : True := trivial\n"})
+    assert register(lp, env, "gamma", repo, "--json") == 0
+    assert json.loads(capsys.readouterr().out)["notes"] == []
+
+
+def test_lean_root_namespaces_sources(lp, tmp_path):
+    d = tmp_path / "r"
+    d.mkdir()
+    assert lp.lean_root_namespaces(d) == set()
+    (d / "Top.lean").write_text("")
+    (d / "lakefile.lean").write_text("lean_lib Foo.Bar\nlean_lib «Baz» where\n  roots := #[`Baz]\n")
+    assert lp.lean_root_namespaces(d) == {"Foo", "Baz"}       # the lakefile wins over top-level files
+    (d / "lakefile.lean").write_text("package p\n")
+    assert lp.lean_root_namespaces(d) == {"Top"}
+
+
+def test_audit_reports_duplicate_namespace_informationally(lp, env, fake_gh, capsys):
+    import json
+    (env.repo_a / "Shared.lean").write_text("")
+    (env.repo_b / "Shared.lean").write_text("")
+    before = env.registry.read_text()
+    assert lp.main(["--registry", str(env.registry), "audit", "--fix", "--json"]) == 0
+    found = [f for f in json.loads(capsys.readouterr().out)["findings"] if f["check"] == "duplicate-namespace"]
+    assert sorted(f["name"] for f in found) == ["alpha", "beta"]
+    assert all(f["fixed"] is False and "Shared" in f["detail"] for f in found)
+    assert env.registry.read_text() == before

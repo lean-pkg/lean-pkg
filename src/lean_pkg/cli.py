@@ -454,6 +454,63 @@ def detect_toolchain(repo: pathlib.Path) -> tuple[str | None, str | None]:
     return lines[0].strip(), None
 
 
+LEAN_LIB_RE = re.compile(r"^\s*lean_lib\s+(«[^»\n]+»|[A-Za-z_][A-Za-z0-9_'!?.]*)", re.MULTILINE)
+
+
+def lean_root_namespaces(repo: pathlib.Path) -> set[str]:
+    """Root namespaces (top-level module names) a checkout's Lean libraries claim, from the working
+    tree: every `lean_lib` in lakefile.lean, else every [[lean_lib]] name in lakefile.toml, else the
+    top-level *.lean files (lakefile.lean excluded). Empty when nothing is found or readable (#22.7)."""
+    names: list[str] = []
+    try:
+        text = (repo / "lakefile.lean").read_text(encoding="utf-8", errors="replace")
+        names = [m.group(1) for m in LEAN_LIB_RE.finditer(text)]
+    except OSError:
+        pass
+    if not names:
+        try:
+            import tomllib
+            data = tomllib.loads((repo / "lakefile.toml").read_text(encoding="utf-8"))
+            libs = data.get("lean_lib") or []
+            names = [str(lib["name"]) for lib in libs if isinstance(lib, dict) and lib.get("name")]
+        except (OSError, ValueError, TypeError):
+            pass
+    if not names:
+        try:
+            names = [p.stem for p in repo.glob("*.lean") if p.name != "lakefile.lean"]
+        except OSError:
+            names = []
+    return {n.strip("«»").split(".")[0] for n in names if n.strip("«»")}
+
+
+def namespace_clashes(reg: dict, repo: pathlib.Path, skip: str | None = None) -> dict[str, list[str]]:
+    """{root namespace: [other package names]} for the namespaces of `repo` that another registered
+    package's checkout (on this host) also claims."""
+    mine = lean_root_namespaces(repo) if repo.is_dir() else set()
+    out: dict[str, list[str]] = {}
+    if not mine:
+        return out
+    for other in sorted(reg.get("packages") or {}):
+        pkg = reg["packages"][other] or {}
+        if other == skip or not pkg.get("local_path"):
+            continue
+        try:
+            theirs = repo_path(pkg)
+            if theirs.resolve() == repo.resolve() or not theirs.is_dir():
+                continue
+        except (OSError, ValueError, TypeError):
+            continue
+        for ns in sorted(mine & lean_root_namespaces(theirs)):
+            out.setdefault(ns, []).append(other)
+    return out
+
+
+def namespace_notes(clashes: dict[str, list[str]]) -> list[str]:
+    return [f"note: Lean root namespace {ns} is also used by {', '.join(others)}; two packages with one "
+            f"root namespace cannot be built or imported together (rename one lean_lib)"
+            for ns, others in clashes.items()]
+
+
 def detect_mathlib_pin(repo: pathlib.Path) -> tuple[str | None, str | None]:
     """(short pin, warning): rev of the mathlib package in lake-manifest.json."""
     mf = repo / "lake-manifest.json"
@@ -2031,6 +2088,7 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
         mathlib_pin, w = detect_mathlib_pin(repo_abs)
         if w:
             warnings.append(w)
+    notes_out = namespace_notes(namespace_clashes(reg, repo_abs)) if repo_abs.is_dir() else []
     entry = {
         "name": name, "repo": repo, "local_path": local_path,
         "visibility": visibility, "status": status,
@@ -2045,7 +2103,7 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
         **copy.deepcopy(V3_PACKAGE_DEFAULTS),
     }
     payload = {"name": name, "dry_run": dry_run, "package": entry,
-               "warnings": warnings}
+               "warnings": warnings, "notes": notes_out}
     if dry_run:
         lines = [f"warn: {w}" for w in warnings]
         lines.append(yaml.safe_dump({name: entry}, sort_keys=False,
@@ -2663,6 +2721,18 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
             # no path echo: local paths are private, and findings are printed
             note("duplicate-path", name, "local_path resolves to the same checkout as "
                  + ", ".join(n for n in names if n != name) + "; one checkout per package")
+
+    for name in sorted(reg["packages"]):   # informational (#22.7): never fixed
+        pkg = reg["packages"][name] or {}
+        try:
+            repo = repo_path(pkg) if pkg.get("local_path") else None
+        except (OSError, ValueError, TypeError):
+            repo = None
+        if repo is None or not repo.is_dir():
+            continue
+        for ns, others in namespace_clashes(reg, repo, skip=name).items():
+            note("duplicate-namespace", name, f"Lean root namespace {ns} is also used by "
+                 + ", ".join(others) + "; the two cannot be built or imported together")
 
     def untracked(name, repo, tip, rel, label) -> None:
         if tip and git(repo, "cat-file", "-e", f"{tip}:./{rel}").returncode != 0:
@@ -3462,7 +3532,7 @@ record    record a D5 evidence event; validated before writing (a schema error i
           package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false; a url naming neither package nor repo warns)
           retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
-register  add a package; dedupes by name AND resolved local_path (~/ expanded, stored $HOME-relative; empty --path/--repo refused); auto-detects toolchain + mathlib pin.
+register  add a package; dedupes by name AND resolved local_path (~/ expanded, stored $HOME-relative; empty --path/--repo refused); auto-detects toolchain + mathlib pin; a Lean root namespace (lakefile lean_lib, else top-level *.lean) another package's checkout also uses: stderr note + `notes`, never a refusal.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
          [--visibility private|public] [--status scratch|active|gate-pending|public (public: --visibility public --reason R)]
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
@@ -3494,7 +3564,7 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
-  nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout). ex: lean-pkg audit --json
+  nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
@@ -3659,6 +3729,8 @@ def cmd_register(args) -> int:
         print_json(payload)
     else:
         print("\n".join(out))
+        for note in payload.get("notes") or []:
+            print(f"lean-pkg: {note}", file=sys.stderr)   # advisory (#22.7): stdout's last line is the result
     return 0
 
 
