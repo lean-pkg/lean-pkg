@@ -285,6 +285,35 @@ The [lean-claim-ledger](../skills/lean-claim-ledger/SKILL.md),
 and [lean-weakened-hypothesis-vacuity](../skills/lean-weakened-hypothesis-vacuity/SKILL.md)
 skills describe this audit in detail.
 
+### Coverage at the gate-bound commit
+
+`lean-pkg comparator config --coverage NAME` is read-only. It writes nothing
+and takes no lock. It answers one question: which claims does the comparator
+configuration tracked at the gate-bound commit (the commit of the recorded gate
+receipt) cover? It reads the claims from `claims.yaml` at that commit, or from
+the registry cache when the file is not tracked there. It counts theorem and
+lemma claims as covered, not covered, or listed only as a scaffold TODO; it
+counts definitions and superseded claims as not compared; and it names the
+uncovered ones. It then compares the configurations in the working tree and at
+HEAD with those at the bound commit. When one changed (modified, uncommitted,
+untracked, committed after the gate, or removed), it names the change and
+prints the candidate's counts separately, marked as certifying nothing. The
+headline counts always come from the bound commit, and a candidate config is
+never substituted for it.
+
+The reason: a comparator receipt binds the configurations tracked at its
+commit (the validator requires exactly those, compared byte for byte). So a
+changed or uncommitted configuration cannot certify the bound tree. A new
+gate at a commit that tracks the configuration is required. The command
+prints the exact next steps: commit the configuration, re-gate
+(`update --status gate-pending` first when the package is
+verified-private), then `comparator-receipt --prepare && comparator-receipt`
+and `lean-pkg comparator NAME --receipt ...`. When nothing is uncovered or
+changed, it prints `next: nothing to do`. `--json`: `bound_commit`, `head`, `claims_source`,
+`configs`, `theorem_claims`, `covered`, `not_covered`, `todo`,
+`not_applicable`, `uncovered[]`, `config_changed`, `changed_configs[]`,
+`candidate` (`certifies: false`), `statement`, `next_commands[]`.
+
 ## What `comparator-check.sh` does
 
 The script is vendored unchanged from the Palomar verifier workflow. For

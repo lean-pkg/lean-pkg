@@ -3839,7 +3839,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1). Stages checkout, cache-get, build, comparator, receipt log to <evidence-dir>/comparator-stages/NN-<stage>.log + stages.json (kept on failure; the error names the stage and log; --evidence-dir DIR, default .lake/comparator-receipt); --prepare runs only the setup stages (idempotent); a later run at the same commit/toolchain/config hash skips them (--from-prepared DIR: reuse DIR's, refuse a mismatch); receipt gains an additive stages[] summary.
   flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private, --refuse-dirty
-  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped; --challenge-from-type pre-fills Challenge (elaborated type) + Solution (`exact @_root_.<decl>`) via `lake env lean` [--lake-env DIR --jobs N --timeout S], or split it: --emit-script F (bash F OUT.json on a Slurm node, JSON comparator-types/1) then --from-output OUT.json (commit must be HEAD); per entry: type_error keeps the TODO, needs_restatement flags project vocabulary   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot)
+  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped; --challenge-from-type pre-fills Challenge (elaborated type) + Solution (`exact @_root_.<decl>`) via `lake env lean` [--lake-env DIR --jobs N --timeout S], or split it: --emit-script F (bash F OUT.json on a Slurm node, JSON comparator-types/1) then --from-output OUT.json (commit must be HEAD); per entry: type_error keeps the TODO, needs_restatement flags project vocabulary   |   comparator config --coverage NAME: read-only; claims covered/not/TODO by the config tracked at the gate-bound commit (never a candidate); a changed or uncommitted config cannot certify that tree, a new gate at a commit tracking it is required; prints the exact next commands (JSON next_commands[])   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot)
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), and (paper field) a paper unpublished with no arXiv id.
@@ -4217,11 +4217,12 @@ def cmd_comparator(args) -> int:
     if is_comparator_config(args):
         from .comparator_config import cmd_comparator_config
         return cmd_comparator_config(args)
-    if args.from_claims or args.out or args.dry_run or args.challenge_namespace or args.challenge_from_type \
+    if args.from_claims or args.coverage or args.out or args.dry_run or args.challenge_namespace \
+            or args.challenge_from_type \
             or args.emit_script or args.from_output or args.lake_env or args.jobs is not None \
             or args.timeout is not None:
-        raise UsageError("--from-claims, --out, --dry-run, --challenge-namespace and the type flags belong to "
-                         "`lean-pkg comparator config --from-claims NAME`")
+        raise UsageError("--from-claims, --coverage, --out, --dry-run, --challenge-namespace and the type flags belong to "
+                         "`lean-pkg comparator config --from-claims NAME` (or `comparator config --coverage NAME`)")
     if args.receipt is None:
         raise UsageError("comparator NAME needs --receipt PATH (or: lean-pkg comparator host-check)")
     reg_path, events_p = registry_path(args), events_path(args)
@@ -4999,6 +5000,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--from-claims", default=None, metavar="NAME",
                    help="`comparator config --from-claims NAME`: add a TODO theorem_names entry per synced "
                         "claim (theorem/lemma) no comparator configuration covers yet; never overwrites")
+    s.add_argument("--coverage", default=None, metavar="NAME",
+                   help="`comparator config --coverage NAME`: read-only; claims covered by the comparator config "
+                        "tracked at the gate-bound commit, and why a changed config needs a new gate")
     s.add_argument("--out", default=None, help="with config: the configuration to extend or create "
                                                "(default comparator.json)")
     s.add_argument("--dry-run", action="store_true", help="with config: print the would-be JSON; write nothing")

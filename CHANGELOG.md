@@ -31,6 +31,12 @@ change the registry schema or receipt format, always with a migration).
   `update NAME --formalization-yaml REL` when a missing pointer is the only reason a
   derived-only regeneration is cleared, `comparator-receipt` + `comparator`, `claims sync`, or
   "nothing to re-gate". JSON gains `binding` and `next_commands[]`. (#26.3)
+- `lean-pkg comparator config --coverage NAME`: a read-only explainer. At the gate-bound commit
+  it reports how many theorem/lemma claims the comparator configuration tracked there covers,
+  does not cover, or lists only as TODO. It names configurations changed since then and keeps
+  the candidate's counts apart, never substituted. It says plainly that a changed or
+  uncommitted config cannot certify the bound tree, so a new gate at a commit that tracks the
+  config is required, and it prints the exact next commands. (#26.5)
 
 ### Fixed
 

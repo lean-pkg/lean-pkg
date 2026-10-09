@@ -219,9 +219,159 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
                      f"{SCAFFOLD_KEY}.todo (write each Challenge and Solution, then commit)"], payload, None
 
 
+# --------------------------------------------------------------------------
+# --coverage (#26.5): read-only. What the configuration tracked at the gate-bound commit covers, and why a
+# changed or uncommitted configuration cannot certify that tree. Never substitutes a candidate config.
+
+def _configs_at(repo: pathlib.Path, rev: str) -> dict[str, bytes]:
+    return {c: core.git_show_bytes(repo, f"./{c}", rev) or b"" for c in core.head_comparator_configs(repo, rev)}
+
+
+def _worktree_configs(repo: pathlib.Path) -> dict[str, bytes]:
+    found = sorted(p for p in repo.glob("comparator*.json") if p.is_file()) + \
+        sorted(p for p in (repo / "comparator").glob("config*.json") if p.is_file())
+    return {p.relative_to(repo).as_posix(): p.read_bytes() for p in found}
+
+
+def _names(configs: dict[str, bytes]) -> tuple[set[str], set[str]]:
+    """(theorem names, of which scaffold TODO names) over a set of configuration blobs."""
+    names: set[str] = set()
+    todo: set[str] = set()
+    for blob in configs.values():
+        try:
+            cfg = json.loads(blob or b"{}")
+        except ValueError:
+            continue
+        if isinstance(cfg, dict) and isinstance(cfg.get("theorem_names"), list):
+            names |= {n for n in cfg["theorem_names"] if isinstance(n, str)}
+            todo |= scaffold_todo_names(cfg)
+    return names, todo
+
+
+def _classify(claims: list[dict], configs: dict[str, bytes]) -> dict:
+    names, todo = _names(configs)
+    real = names - todo
+    out = {"covered": [], "todo": [], "not_covered": [], "not_applicable": 0}
+    for c in claims:
+        decl = str(c.get("decl") or "")
+        if c.get("kind") not in CLAIM_KINDS or c.get("status") == "superseded" or not decl:
+            out["not_applicable"] += 1
+        elif covers(real, decl):
+            out["covered"].append(c)
+        elif covers(todo, decl):
+            out["todo"].append(c)
+        else:
+            out["not_covered"].append(c)
+    return out
+
+
+def _claims_at(pkg: dict, repo: pathlib.Path, rev: str) -> tuple[list[dict], str]:
+    from .claims import load_claims_text
+    rel = pkg.get("claims_file") or "claims.yaml"
+    raw = core.git_show_bytes(repo, f"./{rel}", rev)
+    if raw is not None:
+        doc = load_claims_text(raw.decode("utf-8", errors="replace"), f"{rel} at {rev[:12]}")
+        return [c for c in doc.get("claims") or [] if isinstance(c, dict)], f"{rel} at {rev[:12]}"
+    synced = pkg.get("claims_synced_commit")
+    if synced and pkg.get("claims"):
+        return ([c for c in pkg["claims"] if isinstance(c, dict)],
+                f"the registry cache (synced at {str(synced)[:12]}; {rel} is not tracked at {rev[:12]})")
+    raise core.Fail(f"{pkg['name']}: no claims to measure: {rel} is not tracked at the gate-bound commit "
+                    f"{rev[:12]} and no claims are cached (`lean-pkg claims sync {pkg['name']}`)")
+
+
+def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
+    pkg = core.get_pkg(reg, name)
+    repo = core.repo_path(pkg)
+    if not repo.is_dir():
+        raise core.Fail(f"{name}: local_path does not exist: {repo}")
+    gate = pkg.get("gate") or {}
+    rec = core.recorded_json(repo, gate.get("receipt"))
+    bound = str((rec or {}).get("commit") or "")
+    if not core._HEX40.fullmatch(bound):
+        raise core.Fail(f"{name}: no gate-bound commit (no readable gate receipt recorded); gate first: "
+                        f"lean-pkg gate {name} --receipt R")
+    if core.git(repo, "cat-file", "-e", f"{bound}^{{commit}}").returncode != 0:
+        raise core.Fail(f"{name}: the gate-bound commit {bound[:12]} is not in {repo} (fetch it first)")
+    head = core.git_head(repo) or ""
+    claims, source = _claims_at(pkg, repo, bound)
+    at_bound = _configs_at(repo, bound)
+    cls = _classify(claims, at_bound)
+    work = _worktree_configs(repo)
+    at_head = _configs_at(repo, head) if head else {}
+    changed: list[dict] = []
+    for path in sorted(set(at_bound) | set(work) | set(at_head)):
+        b, w, h = at_bound.get(path), work.get(path), at_head.get(path)
+        if b == w and b == h:
+            continue
+        if w is None and b is not None:
+            why = "removed from the working tree"
+        elif b is None:
+            why = "untracked (never committed)" if h is None else f"added after {bound[:12]}"
+        elif h != b:
+            why = f"changed at HEAD {head[:12]} since {bound[:12]}"
+        else:
+            why = "modified in the working tree (uncommitted)"
+        changed.append({"path": path, "change": why})
+    candidate = None
+    if changed:
+        cc_ = _classify(claims, work)
+        candidate = {"configs": sorted(work), "covered": len(cc_["covered"]), "todo": len(cc_["todo"]),
+                     "not_covered": len(cc_["not_covered"]), "certifies": False}
+    props = len(cls["covered"]) + len(cls["todo"]) + len(cls["not_covered"])
+    statement = (f"Only the comparator configuration tracked at the gate-bound commit {bound[:12]} can certify "
+                 f"that tree: a comparator receipt binds the configs tracked at its commit. A changed or "
+                 f"uncommitted config cannot certify {bound[:12]}; a new gate at a commit that tracks the "
+                 f"config is required.")
+    nxt: list[str] = []
+    fz = core.formalization_rel(pkg) or "formalization.yaml"
+    regate = [("lean-pkg update " + name + " --status gate-pending --reason 'comparator config changed: re-gate'")
+              ] if pkg.get("status") == "verified-private" else []
+    tail = regate + [
+        f"lean-pkg gate {name} --receipt R" + (" --refresh-formalization" if head and core.tracked_at(repo, fz, head)
+                                               else "") + "   # R: a lower-tier receipt bound to the new HEAD",
+        f"cd {repo} && comparator-receipt --prepare && comparator-receipt",
+        f"lean-pkg comparator {name} --receipt .lean-receipts/<new-HEAD-12>-comparator.json"]
+    if changed:
+        paths = " ".join(c["path"] for c in changed if "removed" not in c["change"])
+        if any("working tree" in c["change"] or "untracked" in c["change"] for c in changed):
+            nxt.append(f"git -C {repo} add {paths} && git -C {repo} commit -m 'comparator config'")
+        nxt += tail
+    elif cls["not_covered"]:
+        nxt += [f"lean-pkg comparator config --from-claims {name}   # scaffold TODO entries, then write each "
+                f"Challenge/Solution and commit"] + tail
+    elif cls["todo"]:
+        nxt += [f"write the Challenge/Solution of each lean_pkg_scaffold.todo entry, commit, then:"] + tail
+    lines = [f"{name}: coverage at the gate-bound commit {bound[:12]} (HEAD {head[:12]}); claims from {source}",
+             f"  configs tracked at {bound[:12]}: {', '.join(at_bound) or 'none'}",
+             f"  {props} theorem/lemma claim(s): {len(cls['covered'])} covered, {len(cls['not_covered'])} not "
+             f"covered, {len(cls['todo'])} listed only as scaffold TODO; {cls['not_applicable']} other claim(s) not "
+             f"compared (definitions, superseded)"]
+    if cls["not_covered"]:
+        lines.append("  not covered: " + ", ".join(f"{c.get('id')} ({c.get('decl')})" for c in cls["not_covered"][:10])
+                     + (" ..." if len(cls["not_covered"]) > 10 else ""))
+    if changed:
+        lines += [f"  config changed since {bound[:12]}: " + "; ".join(f"{c['path']} {c['change']}" for c in changed),
+                  f"  candidate (working tree; NOT counted above, certifies nothing): {candidate['covered']} covered, "
+                  f"{candidate['todo']} TODO, {candidate['not_covered']} not covered"]
+    else:
+        lines.append(f"  config unchanged since {bound[:12]} (HEAD and working tree)")
+    lines.append(statement)
+    lines += ["next:"] + [f"  {c}" for c in nxt] if nxt else ["next: nothing to do (every theorem/lemma claim "
+                                                             "is covered at the gate-bound commit)"]
+    payload = {"ok": True, "name": name, "bound_commit": bound, "head": head, "claims_source": source,
+               "configs": sorted(at_bound), "theorem_claims": props, "covered": len(cls["covered"]),
+               "not_covered": len(cls["not_covered"]), "todo": len(cls["todo"]),
+               "not_applicable": cls["not_applicable"],
+               "uncovered": [{"id": c.get("id"), "decl": c.get("decl")} for c in cls["not_covered"]],
+               "config_changed": bool(changed), "changed_configs": changed, "candidate": candidate,
+               "statement": statement, "next_commands": nxt}
+    return lines, payload
+
+
 USAGE = ("usage: lean-pkg comparator config --from-claims NAME [--out comparator.json] [--dry-run] "
          "[--challenge-namespace NS] [--agent A] [--challenge-from-type | --emit-script F | --from-output F] "
-         "[--lake-env DIR] [--jobs N] [--timeout S]")
+         "[--lake-env DIR] [--jobs N] [--timeout S]  |  lean-pkg comparator config --coverage NAME")
 
 
 def types_mode(args) -> dict | None:
@@ -244,6 +394,15 @@ def types_mode(args) -> dict | None:
 
 
 def cmd_comparator_config(args) -> int:
+    if getattr(args, "coverage", None):
+        if args.from_claims or args.out or args.dry_run or types_mode(args) is not None or args.agent:
+            raise core.UsageError("--coverage NAME is read-only and takes no other config flag")
+        lines, payload = do_coverage(core.load_registry(core.registry_path(args)), args.coverage)
+        if getattr(args, "json_out", False):
+            core.print_json(payload)
+        else:
+            print("\n".join(lines))
+        return 0
     if not args.from_claims:
         raise core.UsageError(USAGE)
     types = types_mode(args)
