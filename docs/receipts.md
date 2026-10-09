@@ -128,4 +128,35 @@ package's `formalization.yaml` (commit, gate receipt, comparator receipt) and
 lists every tracked comparator configuration under `status.main_results`; see
 [formalization.yaml](formalization.md).
 
+## Publishing a package incubated beside private work
+
+`promote` makes the whole repository public, history included. A package
+that grew next to private material (unpublished drafts, approval notes,
+absolute paths of a work machine) can carry it in old commits even when the
+current tree is clean. The sequence:
+
+1. `lean-pkg public-safety NAME` scans the tree and every blob and commit
+   message reachable from any ref. Private strings specific to the package
+   go in an untracked `.lean-pkg-private-patterns` (one regular expression
+   per line; `allow: REGEX` exempts a public string). Hits are printed
+   redacted. `promote` runs the same scan and refuses while hits remain.
+2. Fix the hits. A hit only in the tree is fixed with a commit, followed by
+   a new gate, since the gate-bound commit changes. A hit in the history
+   needs a history rewrite, or, simpler, a fresh-history export:
+   `lean-pkg release NAME --fresh-repo DIR [--remote URL] --dry-run`, then
+   the same without `--dry-run`. It exports the gate-bound tree (internal
+   files and the patterns file dropped) into a new repository with one
+   commit, scans it, and moves the registry entry there. Gate and comparator
+   evidence is cleared, with a dated note keeping the old receipt paths and
+   the source commit.
+3. Run a new gate on the new commit: the lower-tier check, then
+   `lean-pkg gate NAME --receipt R`. Receipts copied with `--keep-receipts`
+   are provenance only, because a receipt binds one exact commit and the
+   export commit is not a descendant of the old one.
+4. Run the comparator on the new commit:
+   `comparator-receipt --project DIR --prepare`, then the run, then
+   `lean-pkg comparator NAME --receipt ...`.
+5. `lean-pkg publish NAME --dry-run --public-safety`, push the new
+   repository, and `lean-pkg promote NAME` (dry run first, then `--yes`).
+
 Next: [The comparator tier](comparator.md).

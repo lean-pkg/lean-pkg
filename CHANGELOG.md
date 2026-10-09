@@ -21,6 +21,15 @@ change the registry schema or receipt format, always with a migration).
   printed). Exit 1 on hits; `--json` `{ok, hits, tree_hits, history_hits, patterns_source, ...}`.
   `promote` runs it and refuses while hits remain (`--skip-public-safety` turns it into a `WARN`);
   `publish NAME --public-safety` adds it to the publish checklist. (#35)
+- `lean-pkg release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA]
+  [--dry-run]`: export the gate-bound commit's tree (package directory only; the patterns file,
+  internal paths and `.lean-receipts/` dropped and listed) into a new single-commit repository at
+  DIR, after a public-safety scan of the exported tree (any hit refuses, nothing written). The commit
+  message records the source commit and the export date. The registry entry is then relocated with
+  the `update --path` machinery: gate and comparator evidence cleared, `verified-private` becomes
+  `gate-pending`, and a dated note keeps the old receipt paths and the source commit. `--dry-run`
+  prints the plan and the next commands (gate, `comparator-receipt --prepare`, publish) and writes
+  nothing. docs/receipts.md gains "Publishing a package incubated beside private work". (#35)
 
 ## [0.7.8] - 2026-10-09
 
