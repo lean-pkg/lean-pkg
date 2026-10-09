@@ -294,3 +294,167 @@ def test_check_skips_decl_check_without_a_checkout(lp, env, capsys):
     write_reg(env, reg)
     assert lp.main(["--registry", str(env.registry), "claims", "check", "beta"]) == 0
     assert "decl check skipped" in capsys.readouterr().out
+
+
+# --- coverage: no claims synced is not "ok" (#24.1) ---------------------------
+
+LEGACY_ROWS = [
+    {"claim_id": "thm:main", "lean_decl": "Demo.foo_le_bar", "type": "theorem",
+     "statement": "A trivial demonstration bound.", "lean_file": "Demo/Main.lean",
+     "paper_ref": "Theorem 1.1", "tags": ["Demo", "bound"], "verified": True},
+    {"claim_id": "lem:aux", "statement": "An auxiliary estimate\nover two lines.",
+     "depends_on": ["thm:main", "missing"]},
+    "not a row",
+]
+
+
+def write_legacy(repo, rows=None, rel="data/claims.json"):
+    f = repo / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(rows if rows is not None else {"claims": LEGACY_ROWS}))
+    return rel
+
+
+def test_check_named_package_without_claims_fails_with_coverage_none(lp, env, capsys):
+    write_legacy(env.repo_a)
+    assert lp.main(["--registry", str(env.registry), "claims", "check", "alpha"]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL alpha (0 claim(s))" in out
+    assert "alpha: coverage: none (cached_claims: 0, claims.yaml: absent)" in out
+    assert "legacy: data/claims.json" in out
+    assert "lean-pkg claims migrate alpha --from data/claims.json --dry-run" in out
+    assert lp.main(["--registry", str(env.registry), "claims", "check", "alpha", "--json"]) == 1
+    p = json.loads(capsys.readouterr().out)
+    r = p["packages"][0]
+    assert not p["ok"] and r["coverage"] == "none" and r["cached_claims"] == 0
+    assert r["claims_yaml"] == "absent" and r["legacy_claims"] == ["data/claims.json"]
+    assert "claims migrate alpha" in r["hint"]
+
+
+def test_check_without_legacy_hints_writing_claims_yaml(lp, env, capsys):
+    assert lp.main(["--registry", str(env.registry), "claims", "check", "alpha"]) == 1
+    out = capsys.readouterr().out
+    assert "coverage: none" in out and "write claims.yaml (schema claims/1)" in out
+    assert "legacy:" not in out
+
+
+def test_check_committed_but_unsynced_claims_yaml_fails(lp, env, capsys):
+    commit_claims(env.repo_b)
+    assert lp.main(["--registry", str(env.registry), "claims", "check", "beta", "--json"]) == 1
+    r = json.loads(capsys.readouterr().out)["packages"][0]
+    assert r["coverage"] == "unsynced" and r["claims_yaml"] == "present"
+    assert r["hint"].endswith("lean-pkg claims sync beta")
+
+
+def test_check_all_packages_still_skips_packages_without_claims(lp, env, capsys):
+    commit_claims(env.repo_b)
+    sync(lp, env)
+    capsys.readouterr()
+    assert lp.main(["--registry", str(env.registry), "claims", "check"]) == 0
+    assert "alpha" not in capsys.readouterr().out
+
+
+def test_check_synced_package_reports_coverage_synced(lp, env, capsys):
+    commit_claims(env.repo_b)
+    sync(lp, env)
+    capsys.readouterr()
+    assert lp.main(["--registry", str(env.registry), "claims", "check", "beta", "--json"]) == 0
+    r = json.loads(capsys.readouterr().out)["packages"][0]
+    assert r["coverage"] == "synced" and r["cached_claims"] == 1 and r["claims_yaml"] == "present"
+
+
+def test_list_named_package_without_claims_states_coverage(lp, env, capsys):
+    write_legacy(env.repo_a)
+    assert lp.main(["--registry", str(env.registry), "claims", "list", "alpha"]) == 0
+    out = capsys.readouterr().out
+    assert "alpha: coverage: none (cached_claims: 0, claims.yaml: absent)" in out
+    assert "legacy: data/claims.json" in out
+    assert lp.main(["--registry", str(env.registry), "claims", "list", "alpha", "--json"]) == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["claims"] == [] and p["coverage"] == "none" and p["cached_claims"] == 0
+
+
+def test_find_legacy_claims_prunes_build_and_vcs_dirs(cl, tmp_path):
+    for rel in ("data/claims.json", "paper-claims.json", ".lake/x/claims.json", "build/claims.json"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("[]")
+    assert cl.find_legacy_claims(tmp_path) == ["data/claims.json", "paper-claims.json"]
+
+
+# --- claims migrate (#24.1) -----------------------------------------------------
+
+def migrate(lp, env, *extra, name="alpha"):
+    return lp.main(["--registry", str(env.registry), "claims", "migrate", name, *extra])
+
+
+def test_migrate_dry_run_prints_a_skeleton_and_writes_nothing(lp, env, capsys):
+    write_legacy(env.repo_a)
+    before = env.registry.read_bytes()
+    assert migrate(lp, env, "--from", "data/claims.json", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "alpha: 2 claim(s) from data/claims.json, 2 with TODO markers, 1 non-mapping row(s) skipped" in out
+    assert "schema: claims/1" in out and "- id: alpha/thm-main" in out
+    assert "# TODO alpha/lem-aux: kind (defaulted to theorem), decl, file, status (defaulted to experimental)" in out
+    assert "# TODO alpha/thm-main: status (defaulted to experimental)" in out
+    assert "# legacy keys not mapped: verified" in out
+    assert not (env.repo_a / "claims.yaml").exists()
+    assert env.registry.read_bytes() == before
+
+
+def test_migrate_writes_claims_yaml_but_never_the_registry(lp, env, cl, capsys):
+    write_legacy(env.repo_a)
+    before = env.registry.read_bytes()
+    assert migrate(lp, env, "--from", "data/claims.json", "--json") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["written"] and p["claims"] == 2 and p["todo"] == 2 and p["out"] == "claims.yaml"
+    assert env.registry.read_bytes() == before
+    assert not env.events.exists()
+    doc = yaml.safe_load((env.repo_a / "claims.yaml").read_text())
+    main, aux = doc["claims"]
+    assert main["decl"] == "Demo.foo_le_bar" and main["file"] == "Demo/Main.lean"
+    assert main["citation"] == "Theorem 1.1" and main["keywords"] == ["bound", "demo"]
+    assert main["status"] == "experimental"
+    assert aux["decl"] == "TODO" and aux["file"] == "TODO.lean"
+    assert aux["summary"] == "An auxiliary estimate over two lines."
+    assert aux["depends_on"] == ["alpha/thm-main"]
+    assert cl.validate_claims(doc, "alpha") == []        # schema-valid skeleton; sync refuses TODO.lean
+
+
+def test_migrate_skeleton_is_refused_by_sync_until_todos_are_fixed(lp, env, capsys):
+    write_legacy(env.repo_a)
+    assert migrate(lp, env, "--from", "data/claims.json") == 0
+    _git(env.repo_a, "add", "-A")
+    _git(env.repo_a, "commit", "-m", "skeleton")
+    capsys.readouterr()
+    assert sync(lp, env, "alpha") == 1
+    assert "TODO.lean is not tracked" in capsys.readouterr().err
+
+
+def test_migrate_never_overwrites(lp, env, capsys):
+    write_legacy(env.repo_a)
+    (env.repo_a / "claims.yaml").write_text("keep\n")
+    assert migrate(lp, env, "--from", "data/claims.json") == 1
+    assert "already exists" in capsys.readouterr().err
+    assert (env.repo_a / "claims.yaml").read_text() == "keep\n"
+    assert migrate(lp, env, "--from", "data/claims.json", "--out", "claims.new.yaml") == 0
+    assert (env.repo_a / "claims.new.yaml").is_file()
+
+
+@pytest.mark.parametrize("payload, needle", [("[1, 2", "is not JSON"), ('{"x": 1}', "expected a list")])
+def test_migrate_refuses_unreadable_legacy(lp, env, capsys, payload, needle):
+    (env.repo_a / "bad.json").write_text(payload)
+    assert migrate(lp, env, "--from", "bad.json") == 1
+    assert needle in capsys.readouterr().err
+
+
+def test_migrate_refuses_missing_source_and_absolute_out(lp, env, capsys):
+    assert migrate(lp, env, "--from", "nope.json") == 1
+    assert "is not a file" in capsys.readouterr().err
+    write_legacy(env.repo_a)
+    assert migrate(lp, env, "--from", "data/claims.json", "--out", "/tmp/x.yaml") == 2
+
+
+def test_migrate_drops_local_paths(cl):
+    doc, todos, _, _ = cl.migrate_rows("alpha", [{"id": "a", "statement": "see /home/someone/notes.txt"}])
+    assert doc["claims"][0]["summary"] == "TODO: one sentence."
+    assert cl.validate_claims(doc, "alpha") == []

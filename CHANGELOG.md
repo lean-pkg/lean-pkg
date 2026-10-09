@@ -16,12 +16,26 @@ change the registry schema or receipt format, always with a migration).
   and a declaration that fails keeps its `TODO:` lines with `type_error`. `--emit-script F`
   and `--from-output F` split it across hosts (driver on a Slurm node, JSON
   `comparator-types/1` checked against HEAD). (#25)
+- `lean-pkg claims migrate NAME --from PATH [--out claims.yaml] [--dry-run]`:
+  turns a legacy claims JSON into a `claims/1` skeleton in the checkout,
+  copying the fields it can map and marking the rest `TODO`
+  (`file: TODO.lean`, which `claims sync` refuses). It never overwrites, never writes
+  the registry, and grants nothing: commit the file, then `claims sync`. (#24.1)
 
 ### Changed
 
 - `reservoir check` before promote: when every ✗ is pending promote, the closing line reads
   "not eligible yet (pre-promote): promote --yes will satisfy the ✗ items above" instead of
   "not eligible: fix every ✗ above"; exit codes and JSON are unchanged.
+
+### Fixed
+
+- `claims check NAME` no longer passes a package with no claims coverage. No
+  cached claims and no `claims.yaml` at HEAD (`coverage: none`), or a
+  committed but unsynced `claims.yaml` (`coverage: unsynced`), now exits 1
+  with a next-step hint naming any legacy `*claims.json` in the checkout;
+  `claims list NAME` states the same coverage. `--json` gains `coverage`,
+  `cached_claims`, `claims_yaml`, `legacy_claims` and `hint`. (#24.1)
 
 ## [0.7.1] - 2026-10-09
 

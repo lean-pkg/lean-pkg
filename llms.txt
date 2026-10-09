@@ -93,7 +93,7 @@ index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, e
   migrate [--check]   rewrite index-entry/1 entries as index-entry/2 (claims derived from the headline).
 claims    claims.yaml (schema claims/1) at the package repo root: named reusable results, cached in the registry.
   sync NAME   read claims.yaml at HEAD (committed bytes only); every decl must occur in its file; event claims-synced.
-  list [NAME] | check [NAME]   cached claims with status and derived trust | re-validate; exit 0/1.
+  list [NAME] | check [NAME]   cached claims with status and derived trust | re-validate; exit 0/1. With NAME both report coverage synced|empty|unsynced|none (--json: coverage, cached_claims, claims_yaml present|absent|unknown, legacy_claims[], hint); check NAME exits 1 on none/unsynced (no coverage is not ok) and names any legacy *claims.json in the checkout   |   migrate NAME --from PATH [--out claims.yaml] [--dry-run] [--agent A]: legacy JSON rows -> a claims/1 skeleton in the checkout (mapped fields; TODO markers, TODO.lean for the rest, which sync refuses); never overwrites, never writes the registry, grants nothing: commit it, then claims sync.
 formalization NAME [--write] [--no-registry] [--out PATH] [--force [--reason TEXT]] [--author A ...] [--agent A]   render formalization.yaml (mathlib-initiative
   v0.4, what Palomar reads) from the registry + the repo at HEAD. Derived every run: project.name/license (license_spdx),
   automation.notes, status.sorry_count/axioms/evidence (gate receipt), status.main_results (every tracked comparator config:

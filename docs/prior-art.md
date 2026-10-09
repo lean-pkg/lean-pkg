@@ -57,6 +57,21 @@ lean-pkg claims list             # ID, KIND, STATUS, TRUST, PIN, DECL
 lean-pkg claims check            # re-validate the cached copies; exit 0 or 1
 ```
 
+`claims check NAME` fails (exit 1) when the package has no coverage: no cached
+claims and no `claims.yaml` at `HEAD` (`coverage: none`), or a committed
+`claims.yaml` that was never synced (`coverage: unsynced`). A package whose
+checkout still carries a legacy `claims.json` gets its path and the migration
+command:
+
+```bash
+lean-pkg claims migrate my-lean --from data/claims.json --dry-run   # print the claims/1 skeleton
+lean-pkg claims migrate my-lean --from data/claims.json             # write claims.yaml (never the registry)
+```
+
+The skeleton copies what it can map and marks the rest `TODO`
+(`file: TODO.lean` makes `claims sync` refuse it until fixed). Finish it, commit it, and
+run `claims sync`: only `sync` changes the cached claims.
+
 `claims sync` reads the committed file at `HEAD` (an uncommitted edit does not
 count) and refuses a file whose `package` is another name. The registry keeps
 the copy and the commit it was read at (registry version 3, keys
