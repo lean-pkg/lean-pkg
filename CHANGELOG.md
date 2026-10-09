@@ -39,6 +39,13 @@ change the registry schema or receipt format, always with a migration).
   strict default, not a requirement), and below ABI 4 the sandbox has no
   network rules. `--json` gains `mechanism_detail` and `palomar`;
   docs/comparator.md has a per-mechanism requirements table. (#23.4)
+- Evidence circularity: the evidence-only descendant rule now also admits
+  the package's recorded `formalization.yaml` when it was tracked at the
+  bound commit and only the keys the renderer derives changed (compared as
+  YAML data). Committing a receipt together with the regenerated file that
+  cites it no longer breaks gate, comparator, promote, relocate, audit and
+  the publish claims check. A changed kept key or any other path still
+  refuses, naming it; `claims.yaml` is never exempt. (#23.5)
 
 ## [0.7.0] - 2026-10-09
 

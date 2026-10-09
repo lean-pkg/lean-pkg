@@ -92,7 +92,7 @@ def claims_item(pkg: dict, repo, head: str | None) -> tuple[str, str]:
         return ("✓", f"no {rel} tracked at HEAD (nothing to sync)")
     synced = pkg.get("claims_synced_commit")
     if synced:
-        ok, _note = core.evidence_only_descendant(repo, synced, head)
+        ok, _note = core.evidence_only_descendant(repo, synced, head, core.formalization_rel(pkg))
         if ok:
             return ("✓", f"claims synced at {str(synced)[:12]}")
     return ("✗", f"{rel} not synced at HEAD {head[:12]} (`lean-pkg claims sync {pkg['name']}`)")

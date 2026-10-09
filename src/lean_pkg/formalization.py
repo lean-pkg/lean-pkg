@@ -63,6 +63,41 @@ DERIVED_KEYS = ("version", "project.name", "project.license", "automation.notes"
                 "status.sorry_count", "status.axioms", "status.evidence",
                 "status.main_results", "alignment (when claims.yaml is tracked at HEAD)")
 
+# The same split as data (#23.5): the key paths the renderer owns. A diff confined to these is what
+# regenerating the file after a new receipt produces; the evidence-only descendant rule admits it.
+DERIVED_PATHS = (("version",), ("project", "name"), ("project", "license"), ("automation", "notes"),
+                 ("status", "sorry_count"), ("status", "axioms"), ("status", "evidence"),
+                 ("status", "main_results"), ("alignment",))
+
+
+def kept_view(doc) -> dict:
+    """The document with every derived key removed: what a hand edit can change."""
+    import copy
+    out = copy.deepcopy(doc) if isinstance(doc, dict) else {}
+    for path in DERIVED_PATHS:
+        node = out
+        for k in path[:-1]:
+            node = node.get(k) if isinstance(node, dict) else None
+        if isinstance(node, dict):
+            node.pop(path[-1], None)
+    return out
+
+
+def changed_kept_keys(old, new) -> list[str]:
+    """Dotted paths (top level, and one level down inside a mapping) of kept keys that differ."""
+    a, b = kept_view(old), kept_view(new)
+    out: list[str] = []
+    for k in list(a) + [k for k in b if k not in a]:
+        va, vb = a.get(k), b.get(k)
+        if va == vb:
+            continue
+        if isinstance(va, dict) and isinstance(vb, dict):
+            out += [f"{k}.{j}" for j in list(va) + [j for j in vb if j not in va] if va.get(j) != vb.get(j)]
+        else:
+            out.append(str(k))
+    return out
+
+
 TOP_ORDER = ("version", "project", "repository", "sources", "related_formalizations",
              "classification", "status", "automation", "fidelity", "review", "alignment",
              "acknowledgements")

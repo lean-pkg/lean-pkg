@@ -74,6 +74,19 @@ can never be tracked at the commit it names. The rule:
 > descends from X and `git diff --name-only X H` is non-empty and contains
 > only paths under `.lean-receipts/`. Any other difference is drift.
 
+One more path may differ (#23.5): the package's recorded `formalization_yaml`
+(usually `formalization.yaml`). Its `status.evidence` cites the receipt, so,
+like the receipt, it cannot be inside X. It is accepted when it was already
+tracked at X and, compared as YAML data, only the keys the
+formalization renderer derives changed (`version`, `project.name`,
+`project.license`, `automation.notes`, `status.sorry_count`,
+`status.axioms`, `status.evidence`, `status.main_results`, `alignment`). A
+changed kept key (a hand-authored one such as `project.description` or
+`project.authors`) is drift, and the refusal names it. `claims.yaml` is
+hand-authored and never exempt. A `formalization.yaml` first added after X
+is drift too: render it (`lean-pkg formalization NAME --write`) and commit
+it with the source before gating, then regenerate it after the gate.
+
 The source closure stays byte-identical to the certified commit while the
 evidence travels with the code. The rule applies to both tiers, to the
 `promote` checklist, and to the `receipt-drift` / `comparator-drift`

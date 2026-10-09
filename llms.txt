@@ -124,7 +124,7 @@ schema          "comparator-receipt/2" (or "/1": legacy mechanism implied)
 mechanism       "toolchain" (lake comparator + the toolchain's bundled NanoDa/con-ron; Lean v4.35.0-rc2+; what Palomar runs)
                 or "legacy" (pinned comparator/lean4export/nanoda/landrun stack); comparator-receipt --mechanism auto|toolchain|legacy
 commit          40 lowercase hex; MUST equal the lower-tier receipt commit, and equal HEAD or have HEAD as
-                an evidence-only descendant (only .lean-receipts/ paths differ)
+                an evidence-only descendant (only .lean-receipts/ differs, plus the recorded formalization.yaml when only its derived keys changed)
 lean_toolchain  MUST equal the lean-toolchain file committed at `commit`, stripped
 tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
                 toolchain: {lean_toolchain, lake_sha256, leanexport_sha256, leanchecker_sha256, nanoda_bin_sha256, con-ron_sha256}:

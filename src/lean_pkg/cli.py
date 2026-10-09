@@ -373,14 +373,49 @@ def current_branch(repo: pathlib.Path) -> str:
     return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else "detached HEAD"
 
 
+def formalization_rel(pkg: dict | None) -> str | None:
+    """The package's recorded formalization.yaml path (package-relative), for the evidence rule."""
+    rel = str((pkg or {}).get("formalization_yaml") or "").strip()
+    while rel.startswith("./"):
+        rel = rel[2:]
+    return rel or None
+
+
+def formalization_derived_only(repo: pathlib.Path, bound: str, head: str, rel: str) -> str | None:
+    """None when <rel> differs between bound and head only in keys the formalization renderer derives
+    (status.evidence and the rest of formalization.DERIVED_PATHS), compared as YAML data; else the
+    reason, naming the changed kept key(s) (#23.5)."""
+    from .formalization import changed_kept_keys
+    docs = []
+    for rev in (bound, head):
+        raw = git_show_bytes(repo, f"./{rel}", rev)
+        if raw is None:
+            return (f"{rel} is not tracked at {rev[:12]}; only a regeneration of a file already "
+                    f"committed at the bound commit is evidence")
+        try:
+            doc = yaml.safe_load(raw.decode("utf-8", errors="replace"))
+        except yaml.YAMLError:
+            return f"{rel} at {rev[:12]} is not valid YAML"
+        docs.append(doc if isinstance(doc, dict) else {})
+    changed = changed_kept_keys(*docs)
+    if changed:
+        return (f"{rel} changed in kept (hand-authored) key(s) {', '.join(changed[:5])}; only its "
+                f"derived keys (status.evidence and the rest `lean-pkg formalization` regenerates) may "
+                f"change after the bound commit")
+    return None
+
+
 def evidence_only_descendant(repo: pathlib.Path, bound: str,
-                             head: str) -> tuple[bool, str]:
+                             head: str, formalization: str | None = None) -> tuple[bool, str]:
     """Evidence-only descendant rule (see DESIGN.md): a receipt bound to commit `bound` is
     accepted at `head` when head == bound, or when head descends from bound and
     the only paths that differ live under .lean-receipts/ (the evidence itself).
     Paths are taken relative to the package directory `repo`: when the package is a
     subdirectory of its git repository (lean/, lean/contrib/), only changes under that
     directory count, and within it only <dir>/.lean-receipts/ is evidence.
+    `formalization` (the package's recorded formalization.yaml path, see formalization_rel):
+    that file may also differ when only its derived keys changed, since it must cite the
+    receipt and so cannot be inside the bound commit (#23.5). claims.yaml never may.
     Returns (ok, note)."""
     if bound == head:
         return True, ""
@@ -395,6 +430,11 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     foreign = [x for x in paths if not x.startswith(".lean-receipts/")]
     if prefix and not paths:
         return True, f"descendant of {bound[:12]} with no change under {prefix}"
+    if formalization and formalization in foreign:
+        problem = formalization_derived_only(repo, bound, head, formalization)
+        if problem:
+            return False, f"HEAD {head[:12]} differs from {bound[:12]}: {problem}"
+        foreign.remove(formalization)
     if foreign or not paths:
         return False, (f"HEAD {head[:12]} differs from {bound[:12]} outside "
                        f".lean-receipts/: {foreign[:5]}")
@@ -1408,14 +1448,15 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
     return (out, payload)
 
 
-def _bound_at(repo: pathlib.Path, head: str | None, rel) -> tuple[bool, str | None]:
+def _bound_at(repo: pathlib.Path, head: str | None, rel,
+              formalization: str | None = None) -> tuple[bool, str | None]:
     """(kept, bound commit) for a recorded receipt path at the new checkout: the file must be
     readable there and its commit must equal HEAD (or HEAD an evidence-only descendant of it)."""
     rec = recorded_json(repo, rel)
     commit = str((rec or {}).get("commit") or "") or None
     if not (head and commit and _HEX40.fullmatch(commit)):
         return False, commit
-    return evidence_only_descendant(repo, commit, head)[0], commit
+    return evidence_only_descendant(repo, commit, head, formalization)[0], commit
 
 
 def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
@@ -1462,14 +1503,14 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
     cleared: list[str] = []
     gate = copy.deepcopy(pkg.get("gate") or {})
     if gate.get("receipt"):
-        kept, commit = _bound_at(new_abs, head, gate["receipt"])
+        kept, commit = _bound_at(new_abs, head, gate["receipt"], formalization_rel(pkg))
         if not kept:
             cleared.append("gate.receipt")
             notes.append(f"gate.receipt cleared: {gate['receipt']} (commit {str(commit)[:12]}) "
                          f"is not bound to HEAD {str(head)[:12]} at the new path")
             gate["receipt"] = None
     if gate.get("comparator"):
-        kept = bool(gate.get("receipt")) and _bound_at(new_abs, head, gate["comparator"])[0]
+        kept = bool(gate.get("receipt")) and _bound_at(new_abs, head, gate["comparator"], formalization_rel(pkg))[0]
         if not kept:
             cleared.append("gate.comparator")
             notes.append(f"gate.comparator cleared: {gate['comparator']} is not bound to "
@@ -1560,7 +1601,7 @@ def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
     head = git_head(repo)
     if head is None:
         raise Fail(f"cannot resolve HEAD in {repo}")
-    ok, note = evidence_only_descendant(repo, commit, head)
+    ok, note = evidence_only_descendant(repo, commit, head, formalization_rel(pkg))
     if not ok:
         raise Fail(f"receipt commit {commit[:12]}… != repo HEAD {head[:12]}… — "
                    f"the receipt must bind to HEAD or an evidence-only descendant "
@@ -1714,7 +1755,7 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
     head = git_head(repo)
     if head is None:
         raise Fail(f"cannot resolve HEAD in {repo}")
-    ok, note = evidence_only_descendant(repo, commit, head)
+    ok, note = evidence_only_descendant(repo, commit, head, formalization_rel(pkg))
     if not ok:
         raise Fail(f"comparator commit {commit[:12]}… != repo HEAD {head[:12]}… — "
                    f"the comparator receipt must bind to HEAD or an evidence-only "
@@ -2566,7 +2607,7 @@ def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False) -> list[
             rcommit = json.loads((repo / receipt_rel).read_text()).get("commit")
         except Exception:
             rcommit = None
-        ok, note = (evidence_only_descendant(repo, rcommit, head)
+        ok, note = (evidence_only_descendant(repo, rcommit, head, formalization_rel(pkg))
                     if rcommit and head else (False, "no receipt commit"))
         if ok:
             checks.append(("✓", f"gate receipt bound to HEAD {head[:12]}"
@@ -2892,7 +2933,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
                     rcommit = json.loads(rp.read_text()).get("commit")
                 except Exception:
                     rcommit = None
-                if rcommit and ref_tip and not evidence_only_descendant(repo, rcommit, ref_tip)[0]:
+                if rcommit and ref_tip and not evidence_only_descendant(repo, rcommit, ref_tip, formalization_rel(pkg))[0]:
                     note("receipt-drift", name,
                          f"receipt={str(rcommit)[:12]} {ref_label}={ref_tip[:12]}{suffix}")
         comp_rel = gate_rec.get("comparator")
@@ -2903,7 +2944,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
             else:
                 untracked(name, repo, ref_tip, comp_rel, ref_label)
                 ccommit = (recorded_json(repo, comp_rel) or {}).get("commit")
-                if ccommit and ref_tip and not evidence_only_descendant(repo, ccommit, ref_tip)[0]:
+                if ccommit and ref_tip and not evidence_only_descendant(repo, ccommit, ref_tip, formalization_rel(pkg))[0]:
                     note("comparator-drift", name,
                          f"comparator={str(ccommit)[:12]} {ref_label}={ref_tip[:12]}{suffix}")
         if pkg.get("formalization_yaml"):
@@ -3697,7 +3738,7 @@ schema          "comparator-receipt/2" (or "/1": legacy mechanism implied)
 mechanism       "toolchain" (lake comparator + the toolchain's bundled NanoDa/con-ron; Lean v4.35.0-rc2+; what Palomar runs)
                 or "legacy" (pinned comparator/lean4export/nanoda/landrun stack); comparator-receipt --mechanism auto|toolchain|legacy
 commit          40 lowercase hex; MUST equal the lower-tier receipt commit, and equal HEAD or have HEAD as
-                an evidence-only descendant (only .lean-receipts/ paths differ)
+                an evidence-only descendant (only .lean-receipts/ differs, plus the recorded formalization.yaml when only its derived keys changed)
 lean_toolchain  MUST equal the lean-toolchain file committed at `commit`, stripped
 tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
                 toolchain: {lean_toolchain, lake_sha256, leanexport_sha256, leanchecker_sha256, nanoda_bin_sha256, con-ron_sha256}:
