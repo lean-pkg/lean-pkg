@@ -1449,14 +1449,79 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
 
 
 def _bound_at(repo: pathlib.Path, head: str | None, rel,
-              formalization: str | None = None) -> tuple[bool, str | None]:
-    """(kept, bound commit) for a recorded receipt path at the new checkout: the file must be
+              formalization: str | None = None) -> tuple[bool, str | None, str]:
+    """(kept, bound commit, verdict) for a recorded receipt path at the new checkout: the file must be
     readable there and its commit must equal HEAD (or HEAD an evidence-only descendant of it)."""
     rec = recorded_json(repo, rel)
     commit = str((rec or {}).get("commit") or "") or None
-    if not (head and commit and _HEX40.fullmatch(commit)):
-        return False, commit
-    return evidence_only_descendant(repo, commit, head, formalization)[0], commit
+    if not head:
+        return False, commit, "no git HEAD at the new path (or the path is not here); cannot confirm"
+    if rec is None:
+        return False, commit, f"{rel} is not readable at the new path"
+    if not (commit and _HEX40.fullmatch(commit)):
+        return False, commit, "the receipt names no 40-hex commit"
+    ok, note = evidence_only_descendant(repo, commit, head, formalization)
+    return ok, commit, (note or f"commit {commit[:12]} is HEAD")
+
+
+def relocate_binding(name: str, pkg: dict, repo: pathlib.Path, head: str | None, new: str,
+                     receipt: dict | None, comparator: dict | None, claims_cleared: bool,
+                     reason: str) -> tuple[dict, list[str], list[str]]:
+    """The binding diagnostics of a relocation grouped with what to run next (#26.3): (binding JSON,
+    next_commands, text block). receipt/comparator: {"path", "commit", "kept", "verdict"} or None."""
+    rel = formalization_rel(pkg)
+    cand = rel or "formalization.yaml"
+    fz = {"pointer": rel, "path": cand, "changed": None, "derived_only": None, "verdict": "not applicable"}
+    other: list[str] = []
+    commit = (receipt or {}).get("commit")
+    if head and commit and _HEX40.fullmatch(str(commit)) and commit != head \
+            and _is_ancestor(repo, commit, head):
+        diff = git(repo, "diff", "--no-renames", "--name-only", "--relative", commit, head).stdout.split()
+        other = [x for x in diff if not x.startswith(".lean-receipts/") and x != cand]
+        fz["changed"] = cand in diff
+        if not fz["changed"]:
+            fz["verdict"] = f"{cand} unchanged since {commit[:12]}"
+        else:
+            problem = formalization_derived_only(repo, commit, head, cand)
+            fz["derived_only"] = problem is None
+            if problem:
+                fz["verdict"] = f"not admitted: {problem}"
+            elif rel:
+                fz["verdict"] = f"only derived keys changed since {commit[:12]}: admitted (evidence-only rule)"
+            else:
+                fz["verdict"] = (f"only derived keys changed since {commit[:12]}, but no formalization_yaml "
+                                 f"pointer is recorded, so the exception does not apply")
+    elif head and commit == head:
+        fz["verdict"] = f"HEAD is the receipt commit {commit[:12]}; nothing to admit"
+    binding = {"head": head, "receipt": receipt, "comparator": comparator, "formalization": fz,
+               "other_changes": other[:10]}
+    nxt: list[str] = []
+    h12 = (head or "HEAD")[:12]
+    fz_tracked = bool(head) and tracked_at(repo, cand, head)
+    if receipt and not receipt["kept"]:
+        if fz["changed"] and fz["derived_only"] and not rel and not other:
+            nxt += [f"lean-pkg update {name} --formalization-yaml {cand}",
+                    f"lean-pkg update {name} --path {new} --reason {shlex.quote(reason or 'TEXT')}"]
+        else:
+            nxt.append(f"lean-pkg gate {name} --receipt R" + (" --refresh-formalization" if fz_tracked else "")
+                       + f"   # R: a lower-tier receipt bound to HEAD {h12}")
+    if comparator and not comparator["kept"] and not (nxt and nxt[0].startswith(f"lean-pkg update {name} --formalization")):
+        nxt += [f"comparator-receipt --project {repo}   # at HEAD {h12}",
+                f"lean-pkg comparator {name} --receipt .lean-receipts/{h12}-comparator.json"]
+    if claims_cleared:
+        nxt.append(f"lean-pkg claims sync {name}")
+    block = [f"binding at the new path (HEAD {h12}):"]
+    for label, b in (("gate.receipt", receipt), ("gate.comparator", comparator)):
+        if b:
+            block.append(f"  {label} {b['path']} (commit {str(b['commit'])[:12]}): "
+                         f"{'kept' if b['kept'] else 'cleared'}: {b['verdict']}")
+    if not (receipt or comparator):
+        block.append("  no gate receipt recorded")
+    block.append(f"  {cand} (pointer {rel or 'not recorded'}): {fz['verdict']}")
+    if other:
+        block.append(f"  other changes since the receipt commit: {', '.join(other[:5])}")
+    block += ["next:"] + [f"  {c}" for c in nxt] if nxt else ["next: nothing to re-gate"]
+    return binding, nxt, block
 
 
 def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
@@ -1502,15 +1567,20 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
 
     cleared: list[str] = []
     gate = copy.deepcopy(pkg.get("gate") or {})
+    b_receipt = b_comp = None
     if gate.get("receipt"):
-        kept, commit = _bound_at(new_abs, head, gate["receipt"], formalization_rel(pkg))
+        kept, commit, verdict = _bound_at(new_abs, head, gate["receipt"], formalization_rel(pkg))
+        b_receipt = {"path": gate["receipt"], "commit": commit, "kept": kept, "verdict": verdict}
         if not kept:
             cleared.append("gate.receipt")
             notes.append(f"gate.receipt cleared: {gate['receipt']} (commit {str(commit)[:12]}) "
                          f"is not bound to HEAD {str(head)[:12]} at the new path")
             gate["receipt"] = None
     if gate.get("comparator"):
-        kept = bool(gate.get("receipt")) and _bound_at(new_abs, head, gate["comparator"], formalization_rel(pkg))[0]
+        ckept, ccommit, cverdict = _bound_at(new_abs, head, gate["comparator"], formalization_rel(pkg))
+        kept = bool(gate.get("receipt")) and ckept
+        b_comp = {"path": gate["comparator"], "commit": ccommit, "kept": kept,
+                  "verdict": cverdict if gate.get("receipt") else "the lower-tier receipt is cleared"}
         if not kept:
             cleared.append("gate.comparator")
             notes.append(f"gate.comparator cleared: {gate['comparator']} is not bound to "
@@ -1544,18 +1614,20 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
         notes.append(f"lean_toolchain/mathlib_pin left as recorded; run "
                      f"`lean-pkg update {name} --redetect` to re-read toolchain/pin")
 
+    binding, next_commands, block = relocate_binding(name, pkg, new_abs, head, new, b_receipt, b_comp,
+                                                     "claims" in cleared, reason)
     payload = {"ok": True, "name": name, "event": "relocated", "old_path": old,
                "new_path": new, "cleared": cleared, "notes": notes, "dry_run": bool(dry_run),
                "status": ({"from": old_status, "to": new_status}
                           if new_status != old_status else None),
-               "redetected": redetected}
+               "redetected": redetected, "binding": binding, "next_commands": next_commands}
     out = [f"{name}: relocated {old} -> {new}"]
     out += [f"  cleared: {c}" for c in cleared]
     out += [f"  {f}: {v['from']!r} -> {v['to']!r}" for f, v in redetected.items()]
     out += [f"  note: {n}" for n in notes]
     if dry_run:
         out.append("DRY RUN — nothing written. Re-run without --dry-run to relocate.")
-        return out, payload
+        return out + block, payload
 
     trial = copy.deepcopy(reg)
     tp = trial["packages"][name]
@@ -1583,7 +1655,7 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
         record(reg, events_p, pkg, "status-changed", status_from=old_status,
                status_to=new_status, reason=f"relocated: {', '.join(cleared)} cleared")
     save_registry(reg_path, reg)
-    return out, payload
+    return out + block, payload
 
 
 # --------------------------------------------------------------------------
@@ -3746,7 +3818,7 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
 update    set fields; manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
-  exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
+  exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
 claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
   flags: --workspace W --agent A (required) [--ttl HOURS: 24 new; a holder's re-claim keeps its TTL] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"

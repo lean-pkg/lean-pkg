@@ -23,6 +23,14 @@ change the registry schema or receipt format, always with a migration).
   would print, writes nothing, records no event and works at any status (exit 0/1).
   `comparator --check` now prints the same binding `✓` lines and adds `checks[]` and `head` to
   its JSON. (#26.2)
+- `update NAME --path NEW [--dry-run]` (relocate) ends with a `binding at the new path` block
+  that groups the binding diagnostics with the next command(s). The block covers each
+  recorded receipt's commit against the new HEAD with the evidence-only verdict, the
+  `formalization.yaml` exception (pointer, changed, derived-only) and any other changes since
+  the receipt commit. The next commands are `gate NAME --receipt R [--refresh-formalization]`,
+  `update NAME --formalization-yaml REL` when a missing pointer is the only reason a
+  derived-only regeneration is cleared, `comparator-receipt` + `comparator`, `claims sync`, or
+  "nothing to re-gate". JSON gains `binding` and `next_commands[]`. (#26.3)
 
 ## [0.7.2] - 2026-10-09
 

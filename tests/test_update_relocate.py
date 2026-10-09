@@ -187,3 +187,86 @@ def test_update_dry_run_without_path_is_usage_error(lp, env, capsys):
     before = env.registry.read_text()
     assert run(lp, env, "alpha", "--notes", "n", "--dry-run") == 2
     assert env.registry.read_text() == before
+
+
+# --- #26.3: the dry run groups binding diagnostics with the next command(s) -------------------
+
+def test_relocate_dry_run_block_names_verdict_and_next_gate(lp, env, tmp_path, capsys):
+    new = tmp_path / "beta-dedicated"
+    shutil.copytree(env.repo_b, new)
+    (new / "Extra.lean").write_text("-- new source\n")
+    _git(new, "add", "Extra.lean")
+    _git(new, "commit", "-m", "source change")
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "split", "--dry-run") == 0
+    out = capsys.readouterr().out.splitlines()
+    i = out.index(next(l for l in out if l.startswith("DRY RUN")))
+    block = out[i + 1:]
+    assert block[0].startswith("binding at the new path (HEAD ")
+    assert any("gate.receipt" in l and "cleared:" in l and "outside .lean-receipts/" in l for l in block)
+    assert any("other changes since the receipt commit: Extra.lean" in l for l in block)
+    assert "next:" in block and any(l.strip().startswith("lean-pkg gate beta --receipt R") for l in block)
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "split", "--dry-run", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["binding"]["receipt"]["kept"] is False
+    assert payload["binding"]["other_changes"] == ["Extra.lean"]
+    assert payload["next_commands"][0].startswith("lean-pkg gate beta --receipt R")
+    assert any(c.startswith("lean-pkg comparator beta --receipt .lean-receipts/") for c in payload["next_commands"])
+
+
+def test_relocate_dry_run_same_head_has_nothing_to_regate(lp, env, tmp_path, capsys):
+    new = tmp_path / "beta-same"
+    shutil.copytree(env.repo_b, new)
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "r", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "next: nothing to re-gate" in out and "kept: commit" in out
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "r", "--dry-run", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["next_commands"] == [] and payload["binding"]["receipt"]["kept"] is True
+
+
+def _formalization_descendant(lp, env, capsys, pointer: bool, edit=None):
+    from .test_evidence_formalization import gated_with_formalization, regenerate_and_commit
+    gated_with_formalization(lp, env, capsys)
+    regenerate_and_commit(lp, env, capsys, edit)
+    reg = read_reg(env)
+    reg["packages"]["beta"]["formalization_yaml"] = "formalization.yaml" if pointer else None
+    write_reg(env, reg)
+
+
+def test_relocate_dry_run_explains_the_missing_pointer(lp, env, tmp_path, capsys):
+    _formalization_descendant(lp, env, capsys, pointer=False)
+    new = tmp_path / "beta-moved"
+    shutil.copytree(env.repo_b, new)
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "move", "--dry-run", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    fz = payload["binding"]["formalization"]
+    assert fz["changed"] is True and fz["derived_only"] is True and fz["pointer"] is None
+    assert "no formalization_yaml pointer" in fz["verdict"]
+    assert payload["next_commands"][0] == "lean-pkg update beta --formalization-yaml formalization.yaml"
+    assert payload["next_commands"][1].startswith(f"lean-pkg update beta --path {new} --reason move")
+
+
+def test_relocate_dry_run_admits_derived_only_with_pointer(lp, env, tmp_path, capsys):
+    _formalization_descendant(lp, env, capsys, pointer=True)
+    new = tmp_path / "beta-moved"
+    shutil.copytree(env.repo_b, new)
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "move", "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert "admitted (evidence-only rule)" in out and "next: nothing to re-gate" in out
+
+
+def test_relocate_dry_run_kept_key_change_proposes_a_regate_with_refresh(lp, env, tmp_path, capsys):
+    import yaml
+
+    def edit(repo):
+        p = repo / "formalization.yaml"
+        doc = yaml.safe_load(p.read_text())
+        doc["project"]["description"] = "a hand edit after the gate"
+        p.write_text(yaml.safe_dump(doc, sort_keys=False))
+    _formalization_descendant(lp, env, capsys, pointer=True, edit=edit)
+    new = tmp_path / "beta-moved"
+    shutil.copytree(env.repo_b, new)
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "move", "--dry-run", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "project.description" in payload["binding"]["formalization"]["verdict"]
+    assert payload["next_commands"][0].startswith("lean-pkg gate beta --receipt R --refresh-formalization")
