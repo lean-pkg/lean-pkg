@@ -85,9 +85,12 @@ def test_release_by_holder(lp, env):
 
 def test_release_force(lp, env):
     set_lease(env, "alpha", agent="vera")
-    rc = lp.main(["--registry", str(env.registry), "release", "alpha", "--force"])
+    rc = lp.main(["--registry", str(env.registry), "release", "alpha", "--force",
+                  "--reason", "vera went offline"])
     assert rc == 0
-    assert read_events(env)[-1]["event"] == "release-forced"
+    ev = read_events(env)[-1]
+    assert ev["event"] == "release-forced"
+    assert ev["released_by"] == "force" and ev["reason"] == "vera went offline"   # #17: no --agent
 
 
 def test_release_without_lease_refused(lp, env, capsys):

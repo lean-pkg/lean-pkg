@@ -405,9 +405,36 @@ def print_json(payload) -> None:
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
 
 
-def normalize_local_path(p) -> str:
-    """Comparison form for dedupe: collapse `//`, `.`, trailing slashes."""
-    return os.path.normpath(str(p).strip())
+def require_nonempty(flag: str, value) -> None:
+    """Refuse an empty or whitespace-only value for a flag that names something (a path, a repo)."""
+    if value is not None and not str(value).strip():
+        raise Fail(f"{flag} must not be empty")
+
+
+def local_path_key(stored) -> str:
+    """Comparison form of a RECORDED local_path as this host resolves it: $HOME-joined (an absolute
+    path passes through, as in repo_path), normalised, symlinks resolved."""
+    return os.path.realpath(os.path.normpath(str(HOME / pathlib.Path(str(stored).strip()))))
+
+
+def normalize_local_path(p, flag: str = "--path") -> tuple[str, str]:
+    """The one normaliser for a --path given to register / update --path: (stored form, comparison
+    key). A leading `~/` is expanded against $HOME (`~user` is refused); a relative path is taken
+    relative to $HOME; the stored form is $HOME-relative when the path lies under $HOME, absolute
+    otherwise, with `.`/`..`/`//`/trailing slashes collapsed. Empty or $HOME itself is refused."""
+    require_nonempty(flag, p)
+    s = str(p).strip()
+    if s == "~" or s.startswith("~/"):
+        s = str(HOME) + s[1:]
+    elif s.startswith("~"):
+        raise Fail(f"{flag} {p!r}: only a leading ~/ is expanded (to $HOME); give the path explicitly")
+    home = os.path.normpath(str(HOME))
+    absolute = os.path.normpath(os.path.join(home, s))
+    if absolute == home:
+        raise Fail(f"{flag} {p!r} resolves to $HOME itself; name the package checkout")
+    rel = os.path.relpath(absolute, home)
+    stored = absolute if rel == ".." or rel.startswith("../") else rel
+    return stored, os.path.realpath(absolute)
 
 
 def detect_toolchain(repo: pathlib.Path) -> tuple[str | None, str | None]:
@@ -830,7 +857,8 @@ def with_expiry(reg: dict) -> dict:
 
 
 def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason):
-    """Restart a live lease held by `agent` from now with `ttl` hours; event claim-refreshed."""
+    """Restart a live lease held by `agent` from now with `ttl` hours; event claim-refreshed (with the
+    reason when one is given). Callers pass the lease's own ttl_hours when no --ttl was given."""
     name = pkg["name"]
     lease["claimed_at"] = now_iso()
     lease["ttl_hours"] = ttl
@@ -840,7 +868,7 @@ def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, re
         lease["reason"] = reason
     pkg["workspace"] = lease.get("workspace")
     record(reg, events_p, pkg, "claim-refreshed", agent=agent,
-           workspace=lease.get("workspace"), ttl_hours=ttl)
+           workspace=lease.get("workspace"), ttl_hours=ttl, **({"reason": reason} if reason else {}))
     save_registry(reg_path, reg)
     payload = {"ok": True, "name": name, "event": "claim-refreshed",
                "lease": dict(lease),
@@ -871,7 +899,9 @@ def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason):
 
 
 def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force):
-    if ttl <= 0:
+    """`ttl` None: a fresh claim gets DEFAULT_TTL_HOURS and the holder's re-claim (a refresh) keeps the
+    lease's current ttl_hours, as renew does."""
+    if ttl is not None and ttl <= 0:
         raise Fail("--ttl must be a positive number of hours")
     if force and not reason:
         raise Fail("--force requires --reason")
@@ -880,6 +910,7 @@ def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force
     lease = pkg.get("lease")
     if lease and lease_live(lease, now):
         if lease.get("agent") == agent and not force:
+            ttl = ttl or int(lease.get("ttl_hours") or DEFAULT_TTL_HOURS)
             return refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason)
         if not force:
             raise Fail(f"{name}: lease held by {lease.get('agent')} "
@@ -889,6 +920,7 @@ def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force
         event = "claim-forced"
     else:
         event = "claim-forced" if force else "claimed"
+    ttl = ttl or DEFAULT_TTL_HOURS
     pkg["lease"] = {"workspace": workspace, "agent": agent,
                     "claimed_at": now_iso(), "ttl_hours": ttl,
                     "reason": reason or ""}
@@ -904,11 +936,15 @@ def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force
              f"until {lease_expiry(pkg['lease']).isoformat()}"], payload)
 
 
-def do_release(reg_path, reg, events_p, name, agent, force):
+def do_release(reg_path, reg, events_p, name, agent, force, reason=""):
+    """Holder-only unless forced; --force needs a reason. released_by is the acting --agent, else
+    "force" (the event carries the reason either way)."""
     pkg = get_pkg(reg, name)
     lease = pkg.get("lease")
     if not lease:
         raise Fail(f"{name}: no lease held")
+    if force and not reason:
+        raise Fail(f"{name}: --force requires --reason")
     if force:
         event = "release-forced"
     elif agent is None:
@@ -920,7 +956,7 @@ def do_release(reg_path, reg, events_p, name, agent, force):
     else:
         event = "released"
     record(reg, events_p, pkg, event, agent=lease.get("agent"),
-           workspace=lease.get("workspace"), released_by=agent or "force")
+           workspace=lease.get("workspace"), released_by=agent or "force", reason=reason or "")
     pkg["lease"] = None
     pkg["workspace"] = None
     pkg["agent"] = None
@@ -980,6 +1016,54 @@ def prior_art_note(pkg: dict, events_p: pathlib.Path, now: dt.datetime | None = 
 UPDATABLE = {"automation", "notes", "upstream_target", "reaudit_after",
              "owner_project", "repo", "license_spdx", "formalization_yaml"}
 SPDX_ID_RE = re.compile(r"^[A-Za-z0-9.+-]+$")
+SPDX_OPERATORS = ("AND", "OR", "WITH")
+
+
+def spdx_expression_ok(value) -> bool:
+    """A small SPDX license-expression grammar: identifiers (each matching SPDX_ID_RE) joined by
+    AND / OR, an identifier optionally followed by WITH <exception id>, and parentheses.
+      expr := term (("AND" | "OR") term)* ; term := atom ["WITH" id] ; atom := id | "(" expr ")" """
+    tokens = re.findall(r"\(|\)|[^\s()]+", str(value))
+    pos = 0
+
+    def ident() -> bool:
+        nonlocal pos
+        if pos < len(tokens) and tokens[pos] not in SPDX_OPERATORS + ("(", ")") \
+                and SPDX_ID_RE.match(tokens[pos]):
+            pos += 1
+            return True
+        return False
+
+    def atom() -> bool:
+        nonlocal pos
+        if pos < len(tokens) and tokens[pos] == "(":
+            pos += 1
+            if not expr() or pos >= len(tokens) or tokens[pos] != ")":
+                return False
+            pos += 1
+            return True
+        return ident()
+
+    def term() -> bool:
+        nonlocal pos
+        if not atom():
+            return False
+        if pos < len(tokens) and tokens[pos] == "WITH":
+            pos += 1
+            return ident()
+        return True
+
+    def expr() -> bool:
+        nonlocal pos
+        if not term():
+            return False
+        while pos < len(tokens) and tokens[pos] in ("AND", "OR"):
+            pos += 1
+            if not term():
+                return False
+        return True
+
+    return bool(tokens) and expr() and pos == len(tokens)
 OWNED_ELSEWHERE = {
     "gate": "lean-pkg gate", "promoted_at": "lean-pkg promote",
     "promoted_commit": "lean-pkg promote", "visibility": "lean-pkg promote",
@@ -1049,8 +1133,11 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
             raise Fail(f"{name}: unknown field {field!r} "
                        f"(settable: {', '.join(sorted(UPDATABLE))})")
         value = sets[field]
-        if field == "license_spdx" and not SPDX_ID_RE.match(str(value)):
-            raise Fail(f"license_spdx must be an SPDX identifier such as Apache-2.0 or MIT, got {value!r}")
+        if field in ("repo", "owner_project"):
+            require_nonempty("--" + field.replace("_", "-"), value)
+        if field == "license_spdx" and not spdx_expression_ok(value):
+            raise Fail(f"license_spdx must be an SPDX identifier such as Apache-2.0 or MIT, or an SPDX "
+                       f"expression such as 'MIT OR Apache-2.0', got {value!r}")
         if field == "formalization_yaml":
             pp = pathlib.PurePosixPath(str(value))
             if pp.is_absolute() or ".." in pp.parts or str(value).startswith("~"):
@@ -1065,7 +1152,7 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
             raise Fail(f"{name}: lease held by {holder} — pass --agent {holder}, "
                        f"or --force with --reason")
     if force and not reason:
-        raise UsageError("--force requires --reason")
+        raise Fail(f"{name}: --force requires --reason")
 
     changes: dict[str, tuple] = {}
 
@@ -1089,7 +1176,7 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
             raise Fail(f"bad status {status!r} (allowed: {', '.join(STATUSES)})")
         if status != old:
             if not reason:
-                raise UsageError("--status requires --reason")
+                raise Fail(f"{name}: --status requires --reason")
             if (old, status) not in MANUAL_TRANSITIONS:
                 hint = {"verified-private": "lean-pkg gate --receipt R",
                         "public": "lean-pkg promote --yes"}.get(status)
@@ -1137,11 +1224,6 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
     return (out, payload)
 
 
-def _abs_local_path(p) -> str:
-    """Comparison form of a local_path as this host resolves it ($HOME-joined, normalised)."""
-    return os.path.normpath(str(HOME / pathlib.Path(normalize_local_path(p))))
-
-
 def _bound_at(repo: pathlib.Path, head: str | None, rel) -> tuple[bool, str | None]:
     """(kept, bound commit) for a recorded receipt path at the new checkout: the file must be
     readable there and its commit must equal HEAD (or HEAD an evidence-only descendant of it)."""
@@ -1160,15 +1242,16 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
     pkg = get_pkg(reg, name)
     if not reason:
         raise Fail(f"{name}: --path requires --reason (why the package moved)")
-    new = normalize_local_path(new_path)
-    if not new or new == ".":
-        raise Fail(f"{name}: --path must name a $HOME-relative checkout, got {new_path!r}")
+    new, new_key = normalize_local_path(new_path)
     old = pkg.get("local_path")
-    if _abs_local_path(new) == _abs_local_path(old or ""):
-        raise Fail(f"{name}: already at {old}; nothing written")
+    if old and local_path_key(old) == new_key:
+        # Idempotent, like update's other no-ops: no history entry, no event, no write.
+        payload = {"ok": True, "name": name, "event": "update-noop", "changes": {},
+                   "local_path": old, "dry_run": bool(dry_run)}
+        return [f"{name}: already at {old}; nothing written"], payload
     for other, opkg in (reg.get("packages") or {}).items():
         if other != name and opkg.get("local_path") \
-                and _abs_local_path(opkg["local_path"]) == _abs_local_path(new):
+                and local_path_key(opkg["local_path"]) == new_key:
             raise Fail(f"{name}: local_path {new} is already registered by {other!r} — "
                        f"one registry row per checkout; refusing")
     now = dt.datetime.now(dt.timezone.utc)
@@ -1839,9 +1922,11 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
     if name in pkgs:
         raise Fail(f"name already registered: {name!r} — refusing to "
                    f"overwrite; inspect with `lean-pkg status {name}`")
-    norm_new = normalize_local_path(local_path)
+    require_nonempty("--repo", repo)
+    require_nonempty("--owner-project", owner_project)
+    local_path, new_key = normalize_local_path(local_path)
     for existing, pkg in pkgs.items():
-        if normalize_local_path(pkg.get("local_path") or "") == norm_new:
+        if pkg.get("local_path") and local_path_key(pkg["local_path"]) == new_key:
             raise Fail(f"local_path already registered by {existing!r}: "
                        f"{pkg.get('local_path')} — one registry row per "
                        f"checkout; refusing (hand-editing missed exactly this)")
@@ -1912,7 +1997,8 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
 
 def do_init(reg_path: pathlib.Path, events_p: pathlib.Path, force: bool) -> tuple[list[str], dict]:
     """Bootstrap an empty registry and its event log. Refuses to touch a registry that holds packages."""
-    if reg_path.exists():
+    existed = reg_path.exists()
+    if existed:
         try:
             existing = yaml.safe_load(reg_path.read_text()) or {}
         except yaml.YAMLError:
@@ -1925,11 +2011,13 @@ def do_init(reg_path: pathlib.Path, events_p: pathlib.Path, force: bool) -> tupl
     reg_path.parent.mkdir(parents=True, exist_ok=True)
     data = {"version": REGISTRY_VERSION, "packages": {}}
     save_registry(reg_path, data)
-    append_event(events_p, now_iso(), None, "registry-created", registry=str(reg_path))
+    # The shared event log records the registry file NAME only: an absolute path is one machine's.
+    append_event(events_p, now_iso(), None, "registry-created", registry=reg_path.name,
+                 version=REGISTRY_VERSION, **({"forced": True} if force and existed else {}))
     out = [f"registry created: {reg_path} (version {REGISTRY_VERSION}); "
            f"events: {events_p}"]
     return out, {"ok": True, "event": "registry-created", "registry": str(reg_path),
-                 "events": str(events_p), "version": REGISTRY_VERSION}
+                 "events": str(events_p), "version": REGISTRY_VERSION, "forced": bool(force and existed)}
 
 
 def migrate_registry(data: dict) -> tuple[dict, list[str]]:
@@ -2481,7 +2569,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
     for name in sorted(reg["packages"]):
         lpath = (reg["packages"][name] or {}).get("local_path")
         if lpath:
-            by_path[_abs_local_path(lpath)].append(name)
+            by_path[local_path_key(lpath)].append(name)
     for names in by_path.values():
         for name in names if len(names) > 1 else ():
             # no path echo: local paths are private, and findings are printed
@@ -3030,6 +3118,12 @@ class _Tui:
             return
         agent = self.prompt(f"release {name} — holder agent (blank = FORCE): ")
         force = agent == ""
+        reason = ""
+        if force:
+            reason = self.prompt("reason (required for FORCE): ")
+            if not reason:
+                self.msg = "release cancelled: FORCE needs a reason"
+                return
         if not self.confirm(f"release {name}{' (FORCE)' if force else ''}?"):
             self.msg = "release cancelled"
             return
@@ -3037,7 +3131,7 @@ class _Tui:
             with registry_lock(self.reg_path):
                 self.reload()
                 out, _ = do_release(self.reg_path, self.reg, self.events_p,
-                                    name, agent or None, force)
+                                    name, agent or None, force, reason)
             self.msg = out[-1]
         except Fail as e:
             self.msg = f"refused: {e}"
@@ -3258,7 +3352,7 @@ SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push 
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
-init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./lean-packages.yaml init
+init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
 record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys (all required, others refused; commit 40-hex, version integer):
@@ -3269,20 +3363,20 @@ record    record a D5 evidence event; validated before writing (a schema error i
           package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false; a url naming neither package nor repo warns)
           retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
-register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
+register  add a package; dedupes by name AND resolved local_path (~/ expanded, stored $HOME-relative; empty --path/--repo refused); auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
          [--visibility private|public] [--status scratch|active|gate-pending|public (public: --visibility public --reason R)]
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields; manual status moves need --reason (a refusal lists the allowed moves). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
+update    set fields; manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
-  --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Refuses same
-  path, another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
+  --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
+  exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
 claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
-  flags: --workspace W --agent A (required) [--ttl HOURS=24] [--reason TEXT] [--force (needs --reason)]
+  flags: --workspace W --agent A (required) [--ttl HOURS: 24 new; a holder's re-claim keeps its TTL] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
-release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera
+release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
@@ -3304,7 +3398,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events, registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
-llms      this contract.                               ex: lean-pkg llms
+llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
   add NAME --by HANDLE --headline 'Name :: File.lean :: One sentence.[ :: ChallengeTheorem]' [--from-registry] [--repo URL]
@@ -3403,7 +3497,7 @@ plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt
 EXIT CODES
 0  success, including dry-runs and the "already gated" no-op
 1  refused or validation failed (stderr has the reason; with --json stdout also gets {"ok": false, "error": ...})
-2  usage error (argparse, or an interactive prompt attempted off-tty)
+2  usage error (argparse, or an interactive prompt attempted off-tty; with --json a usage refusal also prints {"ok": false, "error": ..., "usage": true})
 """
 
 
@@ -3411,6 +3505,9 @@ EXIT CODES
 # CLI
 
 def cmd_llms(args) -> int:
+    if getattr(args, "json_out", False):
+        print_json({"ok": True, "text": LLMS_TEXT})
+        return 0
     print(LLMS_TEXT, end="")
     return 0
 
@@ -3486,7 +3583,7 @@ def cmd_claim(args) -> int:
 def cmd_release(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_release(reg_path, load_registry(reg_path), events_p,
-                              args.name, args.agent, args.force)
+                              args.name, args.agent, args.force, args.reason)
     if args.json_out:
         print_json(payload)
     else:
@@ -4092,7 +4189,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("name")
     s.add_argument("--workspace", required=True)
     s.add_argument("--agent", required=True)
-    s.add_argument("--ttl", type=int, default=DEFAULT_TTL_HOURS, metavar="HOURS")
+    s.add_argument("--ttl", type=int, default=None, metavar="HOURS",
+                   help=f"lease TTL (default: {DEFAULT_TTL_HOURS} for a new claim; a holder's re-claim keeps "
+                        f"the lease's current ttl_hours)")
     s.add_argument("--reason", default="")
     s.add_argument("--force", action="store_true",
                    help="override a live lease; requires --reason")
@@ -4101,8 +4200,10 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("release", help="release a lease (holder-only unless --force)")
     s.add_argument("name")
-    s.add_argument("--agent", default=None)
-    s.add_argument("--force", action="store_true")
+    s.add_argument("--agent", default=None,
+                   help="the holder; with --force, the acting agent recorded as released_by")
+    s.add_argument("--force", action="store_true", help="release another agent's lease; requires --reason")
+    s.add_argument("--reason", default="", help="free-text reason stored with the event")
     add_json(s)
     s.set_defaults(fn=cmd_release)
 
@@ -4136,7 +4237,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--owner-project", dest="owner_project")
     s.add_argument("--repo", help="remote URL (e.g. after publishing a private dep)")
     s.add_argument("--license-spdx", dest="license_spdx", metavar="SPDX",
-                   help="the package's license as an SPDX id (what the index and Reservoir expect)")
+                   help="the package's license as an SPDX id or expression, e.g. 'MIT OR Apache-2.0' (what the index and Reservoir expect)")
     s.add_argument("--formalization-yaml", dest="formalization_yaml", metavar="REL",
                    help="repository-relative path of the package's formalization.yaml")
     s.add_argument("--status", choices=STATUSES,
@@ -4303,6 +4404,8 @@ def run_command(args) -> int:
             ctx = commit_preflight(args, mode)
         rc = args.fn(args)
     except UsageError as e:
+        if getattr(args, "json_out", False):
+            print_json({"ok": False, "error": str(e), "usage": True})
         print(f"lean-pkg: {e}", file=sys.stderr)
         rc = 2
     except Fail as e:

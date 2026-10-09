@@ -198,6 +198,36 @@ change the registry schema or receipt format, always with a migration).
   mismatch (`verified-private` but not private, `public`/`upstreamed` but not
   public) is reported by `audit` as `status-visibility-mismatch` rather than
   refused by `validate`, because existing registries hold such rows. (#15)
+- One `local_path` normaliser for `register`, `update --path` and
+  relocation: a leading `~/` is expanded against `$HOME` (`~user` is
+  refused), a relative path is taken relative to `$HOME`, and duplicates
+  and collisions are found by comparing the resolved absolute paths, so
+  `register --path $HOME/pkgs/alpha` no longer adds a second row on a
+  checkout stored as `pkgs/alpha`. The stored form is `$HOME`-relative
+  (absolute only outside `$HOME`), without a trailing slash. An empty or
+  whitespace `--path`, or one resolving to `$HOME` itself, is refused
+  instead of auto-detecting `$HOME/lean-toolchain`. (#17)
+- Empty or whitespace values for `--repo` and `--owner-project` are refused
+  by `register` and `update` (exit 1); `update --notes ''` still clears the
+  notes. `update --license-spdx` accepts SPDX expressions (identifiers
+  joined by `AND`/`OR`, `WITH` an exception, parentheses), such as
+  `MIT OR Apache-2.0`. (#17)
+- A missing `--reason` is always a refusal: `update --force` and
+  `update --status` without one now exit 1 with `{"ok": false, "error": ...}`
+  under `--json` (were usage errors, exit 2, no JSON). Usage errors print
+  `{"ok": false, "error": ..., "usage": true}` under `--json` (exit stays 2).
+  `release --force` requires `--reason` (the TUI asks for one) and records
+  `released_by` as the acting `--agent` when given, else `force`, with the
+  reason. `update --path` to the current checkout is a no-op ("already at
+  <path>; nothing written", exit 0; was exit 1). `llms --json` prints
+  `{"ok": true, "text": ...}`. (#17)
+- A holder's re-`claim` without `--ttl` keeps the lease's TTL (it reset a
+  72 h lease to 24 h), as `renew` does; a new claim still defaults to 24 h.
+  `claim-refreshed` records the `reason` when one is given. (#17)
+- `init` records only the registry file name and the schema version in the
+  shared event log (it wrote this machine's absolute path), and
+  `init --force` marks its `registry-created` event `"forced": true`
+  (`--json` adds `forced`). (#17)
 
 ## [0.5.0] - 2026-10-08
 

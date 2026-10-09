@@ -541,6 +541,14 @@ def _no_user_default_registry(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def _home_outside_tmp_path(monkeypatch, tmp_path):
+    """local_path is stored $HOME-relative when it lies under $HOME (#17). Tests pass absolute paths
+    under tmp_path and expect them back verbatim, which holds only when tmp_path is outside $HOME; on a
+    host whose TMPDIR is under the real home it would not. cli.HOME is an empty per-test directory."""
+    monkeypatch.setattr(load_module(), "HOME", tmp_path / "home")
+
+
+@pytest.fixture(autouse=True)
 def _no_real_io_in_search_adapters(monkeypatch, tmp_path):
     """No test reaches the network or runs `gh` through lean_pkg.adapters, and no test
     reads the user's cache: every adapter test patches its module's fetch or runner."""

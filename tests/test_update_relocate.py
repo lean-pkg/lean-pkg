@@ -38,10 +38,11 @@ def test_relocate_requires_reason(lp, env, tmp_path, capsys):
     assert env.registry.read_text() == before and read_events(env) == []
 
 
-def test_relocate_same_path_refused(lp, env, capsys):
+def test_relocate_same_path_is_a_noop(lp, env, capsys):
+    # #17: a no-op exit 0 like update's other no-ops (was a refusal, exit 1, under #13)
     before = env.registry.read_text()
-    assert run(lp, env, "alpha", "--path", str(env.repo_a) + "/", "--reason", "r") == 1
-    assert "already at" in capsys.readouterr().err
+    assert run(lp, env, "alpha", "--path", str(env.repo_a) + "/", "--reason", "r") == 0
+    assert "already at" in capsys.readouterr().out
     assert env.registry.read_text() == before and read_events(env) == []
 
 
