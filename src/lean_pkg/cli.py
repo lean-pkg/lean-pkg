@@ -3031,6 +3031,55 @@ def floor_applies(pkg: dict, promotion: bool = False) -> bool:
                for c in pkg.get("claims") or [])
 
 
+def _same_remote(a: str, b: str) -> bool:
+    na, nb = gh_nwo(a), gh_nwo(b)
+    if na and nb:
+        return na.lower() == nb.lower()
+    norm = lambda u: re.sub(r"(\.git)?/*$", "", str(u).strip())
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
+def find_moved_checkout(recorded: pathlib.Path, repo_url: str, limit: int = 500) -> pathlib.Path | None:
+    """A cheap search for a moved checkout: the directories one level under the recorded path's parent
+    that hold a lakefile (lean or toml) and a git remote whose URL is the package's repo. First match
+    by name; None when the parent is gone, nothing matches, or repo_url is empty."""
+    parent = recorded.parent
+    if not repo_url or not parent.is_dir():
+        return None
+    try:
+        kids = sorted(d for d in parent.iterdir() if d.is_dir() and d != recorded)[:limit]
+    except OSError:
+        return None
+    for d in kids:
+        if not ((d / "lakefile.lean").is_file() or (d / "lakefile.toml").is_file()):
+            continue
+        p = git(d, "config", "--get-regexp", r"^remote\..*\.url$")
+        urls = [line.split(None, 1)[1] for line in p.stdout.splitlines() if len(line.split(None, 1)) == 2]
+        if any(_same_remote(u, repo_url) for u in urls):
+            return d
+    return None
+
+
+def missing_path_detail(name: str, pkg: dict, repo: pathlib.Path | None) -> str:
+    """missing-path: the recorded path, the fix command, and a sibling checkout found by find_moved_checkout."""
+    recorded = pkg.get("local_path")
+    if repo is None:
+        return f"no local_path recorded; set one with `lean-pkg update {name} --path DIR --reason TEXT --dry-run`"
+    found = find_moved_checkout(repo, str(pkg.get("repo") or ""))
+    target = "DIR"
+    if found is not None:
+        try:
+            target = "~/" + str(found.relative_to(HOME))
+        except ValueError:
+            target = str(found)
+    cmd = f"lean-pkg update {name} --path {shlex.quote(target) if target != 'DIR' else target} " \
+          f"--reason \"checkout moved\" --dry-run"
+    head = f"recorded path {recorded} is not a directory"
+    if found is not None:
+        head += f"; found at {found} (same lakefile and git remote)"
+    return f"{head}; fix: `{cmd}`, then again without --dry-run"
+
+
 _GH_NO_ACCESS_RE = re.compile(r"Resource not accessible|HTTP 403|SAML|must have (?:push|admin|read)", re.I)
 _GH_NOT_FOUND_RE = re.compile(r"Could not resolve to a Repository|HTTP 404|Not Found", re.I)
 _GH_UNAUTH_RE = re.compile(r"HTTP 401|Bad credentials|gh auth login|not logged in|authentication required", re.I)
@@ -3208,7 +3257,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
                      f"(matters only for promote/comparator); registry has {tc_reg}", level="info")
         repo = repo_path(pkg) if pkg.get("local_path") else None
         if repo is None or not repo.is_dir():
-            note("missing-path", name, str(repo))
+            note("missing-path", name, missing_path_detail(name, pkg, repo))
             continue
         tc = repo / "lean-toolchain"
         if tc.is_file():
@@ -4150,7 +4199,7 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
-  nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once); a failed gh query: check warn, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); --no-gh: gh-skipped (info). ex: lean-pkg audit --json
+  nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once); a failed gh query: check warn, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); --no-gh: gh-skipped (info); missing-path: recorded path + `update NAME --path DIR --reason .. --dry-run` (+ "found at DIR": a sibling with lakefile + same remote). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms

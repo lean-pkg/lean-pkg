@@ -20,6 +20,9 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `audit` `missing-path`: the detail gives the recorded path and the fix (`lean-pkg update NAME --path
+  DIR --reason "checkout moved" --dry-run`, then without `--dry-run`), and says "found at DIR" when a
+  directory next to the recorded one has a lakefile and the package's git remote. (#32)
 - `audit`: a failed gh query says why. The `warn` finding gains `gh` (`gh-missing`,
   `not-authenticated`, `no-access`, `not-found`, `error`) and a detail naming the remedy ("token lacks
   access to OWNER/REPO: re-run `gh auth login` with a token that can read it" vs "repository not

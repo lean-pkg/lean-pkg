@@ -149,7 +149,10 @@ Any `✗` refuses; `WARN` does not.
 
 ## Audit findings
 
-`lease-expired` (cleared, event appended), `missing-path`, `toolchain-drift`,
+`lease-expired` (cleared, event appended), `missing-path` (the recorded path, then the fix
+`lean-pkg update NAME --path DIR --reason "checkout moved" --dry-run`, to run again without
+`--dry-run`; when a directory one level under the recorded path's parent has a lakefile and a git
+remote with the package's repo URL, the detail says "found at DIR" and the command names it), `toolchain-drift`,
 `toolchain-missing`, `receipt-missing`, `receipt-drift`, `comparator-missing`,
 `comparator-drift` (both judged against the reference branch: the remote default
 branch from `refs/remotes/origin/HEAD`, else `main`, else `master`, else HEAD; local refs
