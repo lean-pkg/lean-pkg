@@ -7,6 +7,17 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `comparator-receipt` runs in stages (`checkout`, `cache-get`, `build`, `comparator`,
+  `receipt`), each logged to `<evidence-dir>/comparator-stages/<NN>-<stage>.log` with a
+  `stages.json` (status, exit, wall time). Both are kept on failure, and the error names the
+  failed stage and its log. `--evidence-dir DIR` defaults to `.lake/comparator-receipt`.
+  `--prepare` runs only the setup stages and is idempotent. A later run whose commit,
+  toolchain and config hash match a completed setup skips straight to the comparison.
+  `--from-prepared DIR` reuses another directory's setup and refuses a mismatch. The receipt
+  gains an additive `stages` summary. (#26.1)
+
 ## [0.7.2] - 2026-10-09
 
 ### Added

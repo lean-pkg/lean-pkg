@@ -364,7 +364,8 @@ The runner wraps the script so that evidence is either complete or absent:
 
 - refuses to run on a dirty tree, naming the files, and refuses when there
   is no configuration;
-- runs the script with logs in a temporary directory;
+- runs in stages, each with a durable log (see "Stages and `--prepare`" below);
+- runs the script with its per-configuration logs in a temporary directory;
 - parses the tool pins from the script's own output;
 - requires every configuration's log to contain the PASS line;
 - only then copies the logs and writes
@@ -372,6 +373,38 @@ The runner wraps the script so that evidence is either complete or absent:
   nothing (a late write failure removes what was staged);
 - records `host`, `job_id` (the Slurm job id, or `local-<host>-<pid>-<stamp>`),
   `host_policy`, and `generated_at`.
+
+## Stages and `--prepare`
+
+A run has five stages: `checkout` (`lake env true`, which clones the
+dependencies `lake-manifest.json` pins), `cache-get` (`lake exe cache get`,
+only when the manifest has a `mathlib` package), `build` (`lake build` of
+every configured challenge and solution module), `comparator` (the mechanism's
+judge) and `receipt` (the all-or-nothing write). Without a lakefile the three
+setup stages are `skipped`. `COMPARATOR_LAKE` names the `lake` they run
+(default: `lake` on `PATH`). Each stage writes
+`<evidence-dir>/comparator-stages/<NN>-<stage>.log` (output streamed, so a long
+step can be watched with `tail -f`), and `stages.json` beside the logs records
+the binding (`commit`, `lean_toolchain`, `config_hash`) and, per stage,
+`status` (`ok`, `skipped`, `failed`, `prepared`), `exit`, `wall_s`, `note` and
+`log`. Both are kept on failure. The error names the failed stage, its log and
+`stages.json`. `--evidence-dir DIR` moves them. The default is
+`<project>/.lake/comparator-receipt`, which the runner leaves out of its
+dirty-tree check.
+
+`comparator-receipt --prepare` runs only the setup stages and writes no
+receipt. It is idempotent: a second `--prepare` with a matching completed
+setup does nothing. A later `comparator-receipt` whose commit, toolchain and
+config hash (sha256 over each configuration's path and bytes) match a
+completed setup in the evidence directory skips straight to the comparison,
+and the reused stages read `prepared`. Any mismatch reruns the setup.
+`--from-prepared DIR` reuses the setup recorded in another evidence directory
+and refuses, writing nothing, when it was prepared for anything else. So a
+one-run budget is spent on the comparison: retry `--prepare` until it passes,
+then run once. A comparison that fails after setup can also be retried
+without repeating setup. The receipt gains an additive `stages` list
+(`stage`, `status`, `exit`, `wall_s`; no paths) for the stages before
+`receipt`. Validators ignore it.
 
 ## Mechanisms
 

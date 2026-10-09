@@ -4,7 +4,13 @@
 # passed, so a failed run can never be mistaken for evidence.
 """Usage (from a Lake project directory):
 
-    comparator-receipt [--project DIR] [--check SCRIPT]
+    comparator-receipt [--project DIR] [--check SCRIPT] [--mechanism M]
+                       [--evidence-dir DIR] [--prepare | --from-prepared DIR]
+
+Stages (#26.1): checkout, cache-get, build (the setup stages), comparator, receipt; each logs to
+<evidence-dir>/comparator-stages/<NN>-<stage>.log with stages.json beside it, kept on failure.
+--prepare runs only the setup stages; a later run with the same commit, toolchain and config hash
+skips them.
 
 Host policy: the run is allowed iff SLURM_JOB_ID is set (inside a Slurm job),
 OR this host's name is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
@@ -12,7 +18,7 @@ OR this host's name is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
 in the receipt's host_policy field.
 
 Env: COMPARATOR_CHECK (script path; default: the comparator-check.sh shipped
-inside the lean_pkg package), SLURM_JOB_ID (job identity when under Slurm).
+inside the lean_pkg package), COMPARATOR_LAKE (the lake the setup stages run), SLURM_JOB_ID (job identity when under Slurm).
 """
 from __future__ import annotations
 
@@ -30,6 +36,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 
 SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
@@ -340,18 +347,219 @@ def git(project: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True)
 
 
-def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
-        mechanism: str = "auto", verify: pathlib.Path | None = None) -> dict:
-    if not (project / "lean-toolchain").is_file():
-        raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
-    if not check.is_file():
-        raise RunnerError(f"comparator-check script not found: {check}")
-    st = git(project, "status", "--porcelain")
+# ---------------------------------------------------------------------------
+# Stages (#26.1). Every stage writes <evidence-dir>/comparator-stages/<NN>-<stage>.log and updates
+# stages.json (status, exit, wall time per stage), both kept on failure. The setup stages (dependency
+# checkout, Mathlib cache, build of the configured modules) can run alone with --prepare; a later run
+# whose binding (commit, lean-toolchain, config hash) matches a completed setup skips straight to the
+# comparison. Nothing here ever writes into the repository except the final receipt stage.
+
+STAGES = ("checkout", "cache-get", "build", "comparator", "receipt")
+SETUP_STAGES = STAGES[:3]
+STAGES_DIR = "comparator-stages"
+STAGES_FILE = "stages.json"
+STAGES_SCHEMA = "comparator-stages/1"
+DEFAULT_EVIDENCE = pathlib.Path(".lake") / "comparator-receipt"   # under the project; .lake is gitignored
+LAKE_CMD_ENV = "COMPARATOR_LAKE"   # the lake the setup stages run (default: `lake` on PATH)
+DONE = ("ok", "skipped", "prepared")
+
+
+class StageError(RunnerError):
+    def __init__(self, msg: str, code: int | None = None):
+        super().__init__(msg)
+        self.code = code
+
+
+def config_hash(project: pathlib.Path, configs: list[str]) -> str:
+    """One digest over every configuration path and its bytes (the prepared state's config binding)."""
+    rows = [[c, sha256_file(project / c)] for c in sorted(configs)]
+    return hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
+
+
+def has_lakefile(project: pathlib.Path) -> bool:
+    return (project / "lakefile.lean").is_file() or (project / "lakefile.toml").is_file()
+
+
+def manifest_has_mathlib(project: pathlib.Path) -> bool:
+    try:
+        man = json.loads((project / "lake-manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    pkgs = man.get("packages") if isinstance(man, dict) else None
+    return any(isinstance(p, dict) and p.get("name") == "mathlib" for p in pkgs or [])
+
+
+def config_modules(project: pathlib.Path, configs: list[str]) -> list[str]:
+    mods: list[str] = []
+    for c in configs:
+        cfg = json.loads((project / c).read_bytes())
+        for k in ("challenge_module", "solution_module"):
+            m = cfg.get(k)
+            if isinstance(m, str) and m.strip() and m not in mods:
+                mods.append(m)
+    return mods
+
+
+def run_logged(cmd: list[str], cwd: pathlib.Path, log: pathlib.Path) -> int:
+    """Run cmd with stdout and stderr appended to log (streamed, so a hung step can be watched)."""
+    with open(log, "ab") as fh:
+        fh.write(("$ " + " ".join(cmd) + "\n").encode())
+        fh.flush()
+        try:
+            return subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT).returncode
+        except OSError as e:
+            fh.write(f"error: cannot run {cmd[0]}: {e}\n".encode())
+            return 127
+
+
+class Stages:
+    """The stage ledger of one run: logs and stages.json under <evidence>/comparator-stages/."""
+
+    def __init__(self, evidence: pathlib.Path, binding: dict, prepare: bool):
+        self.dir = evidence / STAGES_DIR
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.json = self.dir / STAGES_FILE
+        self.binding, self.prepare = binding, prepare
+        self.entries: dict[str, dict] = {}
+
+    def log(self, stage: str) -> pathlib.Path:
+        return self.dir / f"{STAGES.index(stage) + 1:02d}-{stage}.log"
+
+    def clear(self, stages) -> None:
+        for s in stages:
+            try:
+                self.log(s).unlink()
+            except OSError:
+                pass
+
+    def save(self) -> None:
+        entries = [self.entries[s] for s in STAGES if s in self.entries]
+        failed = next((e["stage"] for e in entries if e["status"] == "failed"), None)
+        setup_done = all(self.entries.get(s, {}).get("status") in DONE for s in SETUP_STAGES)
+        data = {"schema": STAGES_SCHEMA, **self.binding, "prepare": self.prepare,
+                "setup_complete": setup_done, "failed_stage": failed, "stages": entries,
+                "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
+        tmp = self.json.with_name(STAGES_FILE + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, self.json)
+
+    def record(self, stage: str, status: str, code, wall: float, note: str = "",
+               log: pathlib.Path | None = None) -> None:
+        self.entries[stage] = {"n": STAGES.index(stage) + 1, "stage": stage, "status": status,
+                               "exit": code, "wall_s": round(wall, 3), "note": note,
+                               "log": str(log or self.log(stage))}
+        self.save()
+
+    def run(self, stage: str, body) -> None:
+        """body(log) -> (status, exit, note). A RunnerError marks the stage failed, keeps its log and
+        stages.json, and is re-raised naming the stage and the log."""
+        log = self.log(stage)
+        log.write_text("", encoding="utf-8")
+        tag = f"{STAGES.index(stage) + 1:02d}-{stage}"
+        print(f"comparator-receipt: stage {tag}: running (log {log})", file=sys.stderr)
+        t0 = time.monotonic()
+        try:
+            status, code, note = body(log)
+        except RunnerError as e:
+            with open(log, "a", encoding="utf-8") as fh:
+                fh.write(f"comparator-receipt: {e}\n")
+            self.record(stage, "failed", getattr(e, "code", None), time.monotonic() - t0, str(e), log)
+            raise RunnerError(f"stage {tag} failed: {e} (log: {log}; stages: {self.json})") from None
+        self.record(stage, status, code, time.monotonic() - t0, note, log)
+        print(f"comparator-receipt: stage {tag}: {status}" + (f" ({note})" if note else ""),
+              file=sys.stderr)
+
+    def summary(self) -> list[dict]:
+        """The receipt's additive `stages` field: no paths, no host names."""
+        return [{k: self.entries[s][k] for k in ("stage", "status", "exit", "wall_s")}
+                for s in STAGES if s in self.entries]
+
+
+def read_stages(path: pathlib.Path) -> dict | None:
+    """A stages.json, given it, its comparator-stages/ directory or the evidence directory."""
+    for cand in (path, path / STAGES_FILE, path / STAGES_DIR / STAGES_FILE):
+        if cand.is_file():
+            try:
+                data = json.loads(cand.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return None
+            return data if isinstance(data, dict) and data.get("schema") == STAGES_SCHEMA else None
+    return None
+
+
+def prepared_mismatch(data: dict | None, binding: dict) -> str | None:
+    """None when data records a completed setup for exactly this binding; else why not."""
+    if data is None:
+        return "no comparator-stages/stages.json there"
+    for k in ("commit", "lean_toolchain", "config_hash"):
+        if data.get(k) != binding[k]:
+            return f"prepared for {k} {str(data.get(k))[:12]}, this run is {str(binding[k])[:12]}"
+    by = {e.get("stage"): e for e in data.get("stages") or [] if isinstance(e, dict)}
+    undone = [s for s in SETUP_STAGES if (by.get(s) or {}).get("status") not in DONE]
+    if undone:
+        return f"setup incomplete there (stage(s) {', '.join(undone)} not done)"
+    return None
+
+
+def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> None:
+    lake = os.environ.get(LAKE_CMD_ENV) or "lake"
+    lakefile = has_lakefile(project)
+    no_lake = ("skipped", None, "no lakefile.lean or lakefile.toml")
+
+    def step(cmd: list[str], what: str):
+        def body(log):
+            code = run_logged(cmd, project, log)
+            if code != 0:
+                raise StageError(f"`lake {' '.join(cmd[1:])}` ({what}) exited {code}; nothing written", code)
+            return "ok", 0, what
+        return body
+
+    stages.run("checkout", step([lake, "env", "true"], "dependency checkout per lake-manifest.json")
+               if lakefile else (lambda log: no_lake))
+    if not lakefile:
+        stages.run("cache-get", lambda log: no_lake)
+    elif manifest_has_mathlib(project):
+        stages.run("cache-get", step([lake, "exe", "cache", "get"], "Mathlib build cache"))
+    else:
+        stages.run("cache-get", lambda log: ("skipped", None, "no mathlib package in lake-manifest.json"))
+    mods = config_modules(project, configs)
+    if lakefile and mods:
+        stages.run("build", step([lake, "build", *mods], "build of " + ", ".join(mods)))
+    else:
+        stages.run("build", lambda log: no_lake if not lakefile else
+                   ("skipped", None, "no challenge/solution module configured"))
+
+
+def dirty_paths(project: pathlib.Path, evidence: pathlib.Path) -> list[str]:
+    """Modified or untracked paths, ignoring the stage evidence directory when it lies in the project."""
+    st = git(project, "status", "--porcelain", "--untracked-files=all")
     if st.returncode != 0:
         raise RunnerError(f"{project}: not a git repository ({st.stderr.strip()})")
-    if st.stdout.strip():
-        files = ", ".join(line[3:] for line in st.stdout.splitlines()[:10])
-        raise RunnerError(f"dirty tree — commit or remove before a receipt run: {files}")
+    try:
+        ev = evidence.resolve().relative_to(project.resolve()).as_posix()
+    except ValueError:
+        ev = None
+    out = []
+    for line in st.stdout.splitlines():
+        path = line[3:].strip('"')
+        if ev and (path == ev or path.startswith(ev + "/")):
+            continue
+        out.append(path)
+    return out
+
+
+def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
+        mechanism: str = "auto", verify: pathlib.Path | None = None,
+        evidence: pathlib.Path | None = None, prepare: bool = False,
+        from_prepared: pathlib.Path | None = None) -> dict:
+    if not (project / "lean-toolchain").is_file():
+        raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
+    if not prepare and not check.is_file():
+        raise RunnerError(f"comparator-check script not found: {check}")
+    evidence = evidence or project / DEFAULT_EVIDENCE
+    dirty = dirty_paths(project, evidence)
+    if dirty:
+        raise RunnerError(f"dirty tree — commit or remove before a receipt run: {', '.join(dirty[:10])}")
     commit = git(project, "rev-parse", "HEAD").stdout.strip()
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise RunnerError(f"cannot resolve HEAD in {project}")
@@ -363,115 +571,178 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
     toolchain = (project / "lean-toolchain").read_text().strip()
     if mechanism not in MECHANISMS:
         raise RunnerError(f"unknown mechanism {mechanism!r}; one of {MECHANISMS}")
-    available = toolchain_available(project)
-    if mechanism == "auto":
-        mechanism = "toolchain" if available else "legacy"
-    elif mechanism == "toolchain" and not available:
-        raise RunnerError(f"this toolchain ({toolchain}) has no `lake comparator`; the toolchain "
-                          f"mechanism needs Lean {TOOLCHAIN_FLOOR} or later (Palomar's floor); "
-                          f"use --mechanism legacy")
-    print(f"mechanism: {mechanism}")
-    with tempfile.TemporaryDirectory(prefix="comparator-receipt.") as tmp:
-        log_dir = pathlib.Path(tmp) / "logs"
-        if mechanism == "legacy":
-            env = os.environ.copy()
-            env["LOG_DIR"] = str(log_dir)
-            p = subprocess.run(["bash", str(check)], cwd=project, env=env,
-                               capture_output=True, text=True)
-            sys.stdout.write(p.stdout)
-            if p.returncode != 0:
-                sys.stderr.write(p.stderr)
-                raise RunnerError(f"comparator-check exited {p.returncode}; nothing written")
-            tools = parse_pins(p.stdout)
-        else:
+    binding = {"commit": commit, "lean_toolchain": toolchain,
+               "config_hash": config_hash(project, configs)}
+    if not prepare:   # refusals that need no build come before the setup stages
+        available = toolchain_available(project)
+        if mechanism == "auto":
+            mechanism = "toolchain" if available else "legacy"
+        elif mechanism == "toolchain" and not available:
+            raise RunnerError(f"this toolchain ({toolchain}) has no `lake comparator`; the toolchain "
+                              f"mechanism needs Lean {TOOLCHAIN_FLOOR} or later (Palomar's floor); "
+                              f"use --mechanism legacy")
+        if mechanism == "toolchain":
             if verify is None or not verify.is_file():
                 raise RunnerError(f"verify-comparator script not found: {verify}")
             if os.environ.get(FAKE_LAKE_ENV) is None:   # real host: check the sandbox first
                 bwrap_preflight()
-            log_dir.mkdir(parents=True)
-            for cfg_rel in configs:
-                p = subprocess.run(["bash", str(verify), cfg_rel], cwd=project,
+        print(f"mechanism: {mechanism}")
+    prior_src = from_prepared or evidence
+    prior = read_stages(prior_src)
+    mismatch = prepared_mismatch(prior, binding)
+    if from_prepared is not None and mismatch:
+        raise RunnerError(f"--from-prepared {from_prepared}: {mismatch}; run `comparator-receipt --prepare` "
+                          f"at this commit first; nothing written")
+    stages = Stages(evidence, binding, prepare)
+    if mismatch is None:
+        when = str(prior.get("updated_at") or "")
+        by = {e.get("stage"): e for e in prior.get("stages") or [] if isinstance(e, dict)}
+        for s in SETUP_STAGES:
+            e = by[s]
+            stages.entries[s] = {**e, "status": "prepared",
+                                 "note": f"setup done {when} ({e.get('status')}) in {prior_src}"}
+        stages.clear(STAGES[3:])
+        stages.save()
+        if prepare:
+            print(f"already prepared at {commit[:12]} ({when}); nothing to do; stages: {stages.json}")
+            return {"prepared": True, "commit": commit, "stages": str(stages.json), "reused": True}
+        print(f"comparator-receipt: setup reused from {prior_src} (prepared {when}); "
+              f"running the comparison only", file=sys.stderr)
+    else:
+        if prior is not None:
+            print(f"comparator-receipt: no reusable prepared state ({mismatch}); running setup",
+                  file=sys.stderr)
+        stages.clear(STAGES)
+        setup_stages(project, configs, stages)
+        dirty = dirty_paths(project, evidence)
+        if dirty:
+            raise RunnerError(f"the setup stages changed the tree ({', '.join(dirty[:10])}); commit the "
+                              f"change and rerun; nothing written (stages: {stages.json})")
+    if prepare:
+        print(f"prepared at {commit[:12]}: setup stages done; stages: {stages.json}")
+        print("next: comparator-receipt (same commit; the setup stages are skipped)")
+        return {"prepared": True, "commit": commit, "stages": str(stages.json), "reused": False}
+    with tempfile.TemporaryDirectory(prefix="comparator-receipt.") as tmp:
+        log_dir = pathlib.Path(tmp) / "logs"
+        result: dict = {}
+
+        def comparator_stage(stage_log: pathlib.Path):
+            if mechanism == "legacy":
+                env = os.environ.copy()
+                env["LOG_DIR"] = str(log_dir)
+                p = subprocess.run(["bash", str(check)], cwd=project, env=env,
                                    capture_output=True, text=True)
-                log_text = p.stdout + (("\n" + p.stderr) if p.stderr else "")
-                (log_dir / f"{cfg_name(cfg_rel)}.log").write_text(log_text, encoding="utf-8")
+                stage_log.write_text(p.stdout + (("\n" + p.stderr) if p.stderr else ""), encoding="utf-8")
                 sys.stdout.write(p.stdout)
-                if p.returncode != 0 or not comparator_pass(log_text, "toolchain"):
+                if p.returncode != 0:
                     sys.stderr.write(p.stderr)
-                    raise RunnerError(f"{cfg_rel}: lake comparator did not accept the solution "
-                                      f"(exit {p.returncode}); nothing written")
-            tools = toolchain_tools(project, verify, toolchain)
-        entries = []
-        staged: list[tuple[pathlib.Path, pathlib.Path]] = []
-        for cfg_rel in configs:
-            name = cfg_name(cfg_rel)
-            src_log = log_dir / f"{name}.log"
-            if not src_log.is_file():
-                raise RunnerError(f"no log for {cfg_rel} at {src_log}; nothing written")
-            log_text = src_log.read_text(encoding="utf-8", errors="replace")
-            accepted = comparator_pass(log_text, mechanism)
-            if not accepted:
-                raise RunnerError(f"{cfg_rel}: log lacks the PASS line; nothing written")
-            cfg = json.loads((project / cfg_rel).read_bytes())
-            log_rel = f".lean-receipts/{commit[:12]}-comparator-{name}.log"
-            staged.append((src_log, project / log_rel))
-            entries.append({
-                "path": cfg_rel,
-                "sha256": sha256_file(project / cfg_rel),
-                "challenge_module": cfg.get("challenge_module"),
-                "solution_module": cfg.get("solution_module"),
-                "theorem_names": list(cfg.get("theorem_names") or []),
-                "definition_names": list(cfg.get("definition_names") or []),
-                "permitted_axioms": list(cfg.get("permitted_axioms") or []),
-                **({"judged_as": cfg["judged_as"]} if isinstance(cfg.get("judged_as"), dict) else {}),
-                "log": log_rel,
-                "log_sha256": sha256_file(src_log),
-                "result": "pass",
-            })
-        host = os.environ.get("COMPARATOR_RECEIPT_HOST_LABEL", "").strip() or socket.gethostname()
-        now = dt.datetime.now(dt.timezone.utc)
-        job = (os.environ.get("SLURM_JOB_ID")
-               or f"local-{host}-{os.getpid()}-{now.strftime('%Y%m%dT%H%M%SZ')}")
-        receipt = {
-            "schema": SCHEMA, "mechanism": mechanism, "commit": commit,
-            "lean_toolchain": toolchain, "tools": tools, "host": host,
-            **({"test_only": True} if os.environ.get(FAKE_LAKE_ENV) is not None else {}), "host_policy": host_policy, "job_id": job,
-            "generated_at": now.isoformat(timespec="seconds"),
-            "result": "pass", "configs": entries,
-        }
-        rec_tmp = pathlib.Path(tmp) / "receipt.json"
-        rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-        rec_dir = project / ".lean-receipts"
-        rec_path = rec_dir / f"{commit[:12]}-comparator.json"
-        staged.append((rec_tmp, rec_path))
-        # Everything passed: now, and only now, write into the repo — all or nothing.
-        created_dir = not rec_dir.exists()
-        written: list[pathlib.Path] = []
-        try:
-            rec_dir.mkdir(exist_ok=True)
-            for src, dst in staged:
-                fd, part_s = tempfile.mkstemp(dir=rec_dir, prefix=dst.name + ".",
-                                              suffix=".tmp")
-                os.close(fd)
-                part = pathlib.Path(part_s)
-                written.append(part)
-                shutil.copy2(src, part)
-                os.replace(part, dst)
-                written[-1] = dst
-        except OSError as e:
-            for w in written:
-                try:
-                    w.unlink()
-                except OSError:
-                    pass
-            if created_dir:
-                try:
-                    rec_dir.rmdir()
-                except OSError:
-                    pass
-            raise RunnerError(f"could not write evidence into .lean-receipts/ ({e}); "
-                              f"nothing written")
-    return {"receipt": str(rec_path), "commit": commit, "configs": len(entries),
-            "mechanism": mechanism}
+                    raise StageError(f"comparator-check exited {p.returncode}; nothing written", p.returncode)
+                result["tools"] = parse_pins(p.stdout)
+            else:
+                log_dir.mkdir(parents=True)
+                for cfg_rel in configs:
+                    p = subprocess.run(["bash", str(verify), cfg_rel], cwd=project,
+                                       capture_output=True, text=True)
+                    log_text = p.stdout + (("\n" + p.stderr) if p.stderr else "")
+                    (log_dir / f"{cfg_name(cfg_rel)}.log").write_text(log_text, encoding="utf-8")
+                    with open(stage_log, "a", encoding="utf-8") as fh:
+                        fh.write(f"== {cfg_rel}\n{log_text}\n")
+                    sys.stdout.write(p.stdout)
+                    if p.returncode != 0 or not comparator_pass(log_text, "toolchain"):
+                        sys.stderr.write(p.stderr)
+                        raise StageError(f"{cfg_rel}: lake comparator did not accept the solution "
+                                         f"(exit {p.returncode}); nothing written", p.returncode)
+                result["tools"] = toolchain_tools(project, verify, toolchain)
+            return "ok", 0, f"{len(configs)} config(s) accepted ({mechanism})"
+
+        stages.run("comparator", comparator_stage)
+        tools = result["tools"]
+
+        def receipt_stage(stage_log: pathlib.Path):
+            result.update(write_receipt(project, configs, log_dir, commit, mechanism, toolchain, tools,
+                                        host_policy, pathlib.Path(tmp), stages.summary()))
+            stage_log.write_text(f"wrote {result['receipt']} and {len(configs)} log(s)\n", encoding="utf-8")
+            return "ok", 0, f".lean-receipts/{commit[:12]}-comparator.json"
+
+        stages.run("receipt", receipt_stage)
+    return {"receipt": result["receipt"], "commit": commit, "configs": len(configs),
+            "mechanism": mechanism, "stages": str(stages.json)}
+
+
+def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Path, commit: str,
+                  mechanism: str, toolchain: str, tools: dict, host_policy: str, tmp: pathlib.Path,
+                  stage_summary: list[dict]) -> dict:
+    entries = []
+    staged: list[tuple[pathlib.Path, pathlib.Path]] = []
+    for cfg_rel in configs:
+        name = cfg_name(cfg_rel)
+        src_log = log_dir / f"{name}.log"
+        if not src_log.is_file():
+            raise RunnerError(f"no log for {cfg_rel} at {src_log}; nothing written")
+        log_text = src_log.read_text(encoding="utf-8", errors="replace")
+        accepted = comparator_pass(log_text, mechanism)
+        if not accepted:
+            raise RunnerError(f"{cfg_rel}: log lacks the PASS line; nothing written")
+        cfg = json.loads((project / cfg_rel).read_bytes())
+        log_rel = f".lean-receipts/{commit[:12]}-comparator-{name}.log"
+        staged.append((src_log, project / log_rel))
+        entries.append({
+            "path": cfg_rel,
+            "sha256": sha256_file(project / cfg_rel),
+            "challenge_module": cfg.get("challenge_module"),
+            "solution_module": cfg.get("solution_module"),
+            "theorem_names": list(cfg.get("theorem_names") or []),
+            "definition_names": list(cfg.get("definition_names") or []),
+            "permitted_axioms": list(cfg.get("permitted_axioms") or []),
+            **({"judged_as": cfg["judged_as"]} if isinstance(cfg.get("judged_as"), dict) else {}),
+            "log": log_rel,
+            "log_sha256": sha256_file(src_log),
+            "result": "pass",
+        })
+    host = os.environ.get("COMPARATOR_RECEIPT_HOST_LABEL", "").strip() or socket.gethostname()
+    now = dt.datetime.now(dt.timezone.utc)
+    job = (os.environ.get("SLURM_JOB_ID")
+           or f"local-{host}-{os.getpid()}-{now.strftime('%Y%m%dT%H%M%SZ')}")
+    receipt = {
+        "schema": SCHEMA, "mechanism": mechanism, "commit": commit,
+        "lean_toolchain": toolchain, "tools": tools, "host": host,
+        **({"test_only": True} if os.environ.get(FAKE_LAKE_ENV) is not None else {}), "host_policy": host_policy, "job_id": job,
+        "generated_at": now.isoformat(timespec="seconds"),
+        "result": "pass", "configs": entries, "stages": stage_summary,
+    }
+    rec_tmp = tmp / "receipt.json"
+    rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    rec_dir = project / ".lean-receipts"
+    rec_path = rec_dir / f"{commit[:12]}-comparator.json"
+    staged.append((rec_tmp, rec_path))
+    # Everything passed: now, and only now, write into the repo — all or nothing.
+    created_dir = not rec_dir.exists()
+    written: list[pathlib.Path] = []
+    try:
+        rec_dir.mkdir(exist_ok=True)
+        for src, dst in staged:
+            fd, part_s = tempfile.mkstemp(dir=rec_dir, prefix=dst.name + ".",
+                                          suffix=".tmp")
+            os.close(fd)
+            part = pathlib.Path(part_s)
+            written.append(part)
+            shutil.copy2(src, part)
+            os.replace(part, dst)
+            written[-1] = dst
+    except OSError as e:
+        for w in written:
+            try:
+                w.unlink()
+            except OSError:
+                pass
+        if created_dir:
+            try:
+                rec_dir.rmdir()
+            except OSError:
+                pass
+        raise RunnerError(f"could not write evidence into .lean-receipts/ ({e}); "
+                          f"nothing written")
+    return {"receipt": str(rec_path)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -492,7 +763,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--verify", default=os.environ.get(VERIFY_ENV) or None,
                     help="verify-comparator.sh for the toolchain mechanism (env COMPARATOR_VERIFY; "
                          "default: the vendored PalomarTemplate copy)")
+    ap.add_argument("--evidence-dir", default=None, metavar="DIR",
+                    help="where the stage logs and stages.json go, kept on failure "
+                         f"(default: <project>/{DEFAULT_EVIDENCE.as_posix()}; its {STAGES_DIR}/ subdirectory)")
+    ap.add_argument("--prepare", action="store_true",
+                    help="run only the setup stages (dependency checkout, Mathlib cache, build of the "
+                         "configured modules); idempotent; a later run at the same commit, toolchain and "
+                         "config hash skips them and runs only the comparison")
+    ap.add_argument("--from-prepared", default=None, metavar="DIR",
+                    help="reuse the completed setup recorded in DIR (an evidence directory or its "
+                         "stages.json); refuses when it was prepared for another commit/toolchain/config")
     args = ap.parse_args(argv)
+    if args.prepare and args.from_prepared:
+        print("comparator-receipt: --prepare and --from-prepared are exclusive", file=sys.stderr)
+        return 2
     ok, why = host_policy_ok(os.environ.get("SLURM_JOB_ID"),
                              os.environ.get(ALLOW_HOST_ENV) == "1",
                              hostname=socket.gethostname(),
@@ -501,7 +785,7 @@ def main(argv: list[str] | None = None) -> int:
     if not ok:
         print(f"comparator-receipt: refusing: {why}", file=sys.stderr)
         return 1
-    if os.environ.get(FAKE_LAKE_ENV) is None:   # the host check, reported up front (#22.5); never a refusal
+    if os.environ.get(FAKE_LAKE_ENV) is None and not args.prepare:   # the host check (#22.5); never a refusal
         hc = host_checks()
         print(f"comparator-receipt: host-check: {hc['verdict']}", file=sys.stderr)
     label = os.environ.get("COMPARATOR_RECEIPT_HOST_LABEL", "").strip()
@@ -510,16 +794,22 @@ def main(argv: list[str] | None = None) -> int:
         why = why.replace(socket.gethostname(), label)
     try:
         project = pathlib.Path(args.project).resolve()
+        evidence = pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else None
+        prepared = pathlib.Path(args.from_prepared).expanduser().resolve() if args.from_prepared else None
         with importlib.resources.as_file(default_check_script()) as check_default, \
                 importlib.resources.as_file(default_verify_script()) as verify_default:
             check = pathlib.Path(args.check).resolve() if args.check else pathlib.Path(check_default).resolve()
             verify = pathlib.Path(args.verify).resolve() if args.verify else pathlib.Path(verify_default).resolve()
-            res = run(project, check, host_policy=why, mechanism=args.mechanism, verify=verify)
+            res = run(project, check, host_policy=why, mechanism=args.mechanism, verify=verify,
+                      evidence=evidence, prepare=args.prepare, from_prepared=prepared)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
         return 1
+    if res.get("prepared"):
+        return 0
     print(f"comparator receipt written: {res['receipt']} ({res['configs']} config(s), "
           f"commit {res['commit'][:12]}, host policy: {why})")
+    print(f"stage logs: {res['stages']}")
     print("commit .lean-receipts/ in this repo, then record it:")
     print(f"  lean-pkg comparator <name> --receipt {res['receipt']}")
     print(f"  (or at gate time: lean-pkg gate <name> --receipt R.json "

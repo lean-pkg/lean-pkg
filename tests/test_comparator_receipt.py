@@ -460,3 +460,152 @@ def test_runner_omits_judged_as_when_absent(project: Path):
     head = git(project, "rev-parse", "HEAD")
     rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
     assert "judged_as" not in rec["configs"][0]
+
+
+# --- stage logs and resumable setup (#26.1) ---------------------------------------
+
+LAKE_STUB = ROOT / "tests" / "fixtures" / "lake-stub.sh"
+
+
+def _lake_project(project: Path, mathlib: bool = True) -> Path:
+    (project / "lakefile.toml").write_text('name = "proj"\n')
+    pkgs = [{"name": "mathlib", "rev": "0" * 40}] if mathlib else []
+    (project / "lake-manifest.json").write_text(json.dumps({"version": 7, "packages": pkgs}) + "\n")
+    git(project, "add", "-A")
+    git(project, "commit", "-m", "lake project")
+    return project
+
+
+def run_staged(project: Path, *flags: str, fail: str = "", stub_mode: str = "pass"):
+    calls = project.parent / "lake-calls.txt"
+    env = subprocess_env({"COMPARATOR_CHECK": str(STUB), "COMPARATOR_VERIFY": str(STUB_TC),
+                          "STUB_MODE": stub_mode, "COMPARATOR_RECEIPT_ALLOW_HOST": "1",
+                          "COMPARATOR_FAKE_LAKE_OK": "1", "COMPARATOR_LAKE": str(LAKE_STUB),
+                          "LAKE_STUB_CALLS": str(calls), "LAKE_STUB_FAIL": fail})
+    env.pop("SLURM_JOB_ID", None)
+    env.pop("COMPARATOR_RECEIPT_ALLOWED_HOSTS", None)
+    r = subprocess.run([*RECEIPT_CLI, "--mechanism", "toolchain", *flags], cwd=project, env=env,
+                       capture_output=True, text=True)
+    lines = calls.read_text().splitlines() if calls.exists() else []
+    return r, lines
+
+
+def _stages(project: Path) -> dict:
+    return json.loads((project / ".lake" / "comparator-receipt" / "comparator-stages"
+                       / "stages.json").read_text())
+
+
+def test_stages_logged_for_every_stage_and_summarised_in_receipt(project: Path):
+    _lake_project(project)
+    r, calls = run_staged(project)
+    assert r.returncode == 0, r.stderr
+    assert calls == ["lake env true", "lake exe cache get", "lake build Challenge Solution"]
+    st = _stages(project)
+    assert [e["stage"] for e in st["stages"]] == ["checkout", "cache-get", "build", "comparator", "receipt"]
+    assert all(e["status"] == "ok" and e["exit"] == 0 for e in st["stages"])
+    assert st["failed_stage"] is None and st["setup_complete"] is True
+    d = project / ".lake" / "comparator-receipt" / "comparator-stages"
+    for n, s in enumerate(["checkout", "cache-get", "build", "comparator", "receipt"], 1):
+        assert (d / f"{n:02d}-{s}.log").is_file()
+    assert "Your solution is okay!" in (d / "04-comparator.log").read_text()
+    head = git(project, "rev-parse", "HEAD")
+    rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+    assert [s["stage"] for s in rec["stages"]] == ["checkout", "cache-get", "build", "comparator"]
+    assert all(set(s) == {"stage", "status", "exit", "wall_s"} for s in rec["stages"])   # no paths
+
+
+def test_failed_stage_keeps_its_log_and_is_named(project: Path):
+    _lake_project(project)
+    r, calls = run_staged(project, fail="env")
+    assert r.returncode == 1
+    assert calls == ["lake env true"]
+    log = project / ".lake" / "comparator-receipt" / "comparator-stages" / "01-checkout.log"
+    assert "stage 01-checkout failed" in r.stderr and str(log) in r.stderr
+    assert "could not clone mathlib" in log.read_text()
+    st = _stages(project)
+    assert st["failed_stage"] == "checkout" and st["stages"][0]["exit"] == 3
+    assert not (project / ".lean-receipts").exists()
+
+
+def test_prepare_runs_only_setup_then_the_run_skips_it(project: Path):
+    _lake_project(project)
+    r, calls = run_staged(project, "--prepare")
+    assert r.returncode == 0, r.stderr
+    assert len(calls) == 3 and "== lake comparator" not in r.stdout
+    assert not (project / ".lean-receipts").exists()
+    assert _stages(project)["prepare"] is True and _stages(project)["setup_complete"] is True
+    r, calls = run_staged(project, "--prepare")               # idempotent: nothing reruns
+    assert r.returncode == 0 and "already prepared" in r.stdout and len(calls) == 3
+    r, calls = run_staged(project)
+    assert r.returncode == 0, r.stderr
+    assert len(calls) == 3 and "setup reused" in r.stderr     # straight to the comparison
+    st = _stages(project)
+    assert [e["status"] for e in st["stages"]] == ["prepared"] * 3 + ["ok", "ok"]
+
+
+def test_comparison_failure_after_prepare_is_retryable_without_setup(project: Path):
+    _lake_project(project)
+    run_staged(project, "--prepare")
+    r, calls = run_staged(project, stub_mode="fail")
+    assert r.returncode == 1 and "stage 04-comparator failed" in r.stderr
+    assert _stages(project)["failed_stage"] == "comparator"
+    r, calls = run_staged(project)
+    assert r.returncode == 0, r.stderr
+    assert len(calls) == 3
+
+
+def test_prepared_state_is_bound_to_the_config_hash(project: Path):
+    _lake_project(project)
+    run_staged(project, "--prepare")
+    cfg = json.loads((project / "comparator.json").read_text())
+    cfg["theorem_names"] = ["foo", "bar"]
+    (project / "comparator.json").write_text(json.dumps(cfg, indent=2) + "\n")
+    git(project, "commit", "-am", "more names")
+    r, calls = run_staged(project)
+    assert r.returncode == 0, r.stderr
+    assert "no reusable prepared state" in r.stderr and len(calls) == 6
+
+
+def test_from_prepared_refuses_a_mismatched_state(project: Path, tmp_path: Path):
+    _lake_project(project)
+    other = tmp_path / "elsewhere"
+    r, _ = run_staged(project, "--prepare", "--evidence-dir", str(other))
+    assert r.returncode == 0, r.stderr
+    git(project, "commit", "--allow-empty", "-m", "new commit")
+    r, _ = run_staged(project, "--from-prepared", str(other))
+    assert r.returncode == 1 and "--from-prepared" in r.stderr and "commit" in r.stderr
+    assert not (project / ".lean-receipts").exists()
+
+
+def test_from_prepared_reuses_a_matching_state_elsewhere(project: Path, tmp_path: Path):
+    _lake_project(project)
+    other = tmp_path / "elsewhere"
+    run_staged(project, "--prepare", "--evidence-dir", str(other))
+    r, calls = run_staged(project, "--from-prepared", str(other))
+    assert r.returncode == 0, r.stderr
+    assert len(calls) == 3
+
+
+def test_cache_get_skipped_without_mathlib(project: Path):
+    _lake_project(project, mathlib=False)
+    r, calls = run_staged(project)
+    assert r.returncode == 0, r.stderr
+    assert calls == ["lake env true", "lake build Challenge Solution"]
+    assert _stages(project)["stages"][1]["status"] == "skipped"
+
+
+def test_prepare_and_from_prepared_are_exclusive(project: Path):
+    r, _ = run_staged(project, "--prepare", "--from-prepared", "x")
+    assert r.returncode == 2
+
+
+def test_prepared_mismatch_names_the_config_hash(cr):
+    ok = [{"stage": s, "status": "ok"} for s in cr.SETUP_STAGES]
+    state = {"schema": cr.STAGES_SCHEMA, "commit": "a" * 40, "lean_toolchain": "t",
+             "config_hash": "1" * 64, "stages": ok}
+    binding = {"commit": "a" * 40, "lean_toolchain": "t", "config_hash": "1" * 64}
+    assert cr.prepared_mismatch(state, binding) is None
+    assert "config_hash" in cr.prepared_mismatch(state, {**binding, "config_hash": "2" * 64})
+    assert "toolchain" in cr.prepared_mismatch(state, {**binding, "lean_toolchain": "u"})
+    state["stages"][2]["status"] = "failed"
+    assert "build" in cr.prepared_mismatch(state, binding)
