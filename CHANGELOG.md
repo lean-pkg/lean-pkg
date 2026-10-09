@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-10-09
+
 ### Added
 
 - `list` and `board` accept `--fields a,b,c` (JSON and text), the same validation and dotted
