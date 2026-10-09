@@ -435,6 +435,20 @@ without repeating setup. The receipt gains an additive `stages` list
 (`stage`, `status`, `exit`, `wall_s`; no paths) for the stages before
 `receipt`. Validators ignore it.
 
+The runner removes the repository-selecting Git variables (`GIT_DIR`,
+`GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`,
+`GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_COMMON_DIR`, `GIT_NAMESPACE`) from
+the environment of every `lake`, `git` and judge it runs. A launcher that
+leaks one, such as a `GIT_INDEX_FILE` exported by a Git hook, would otherwise
+point Lake's dependency checkout at another repository's index, and the run
+would fail in `checkout` before any comparison. `GIT_CONFIG_*`,
+`GIT_SSH_COMMAND` and `GIT_TERMINAL_PROMPT` are kept. `stages.json` lists the
+names it removed in `git_env_scrubbed` (empty when none were set). `lean-pkg`
+applies the same scrub to its own `git` calls in a package checkout, but not
+to those in the registry repository. `comparator host-check` warns
+(`git-env`, and `env_warnings[]` in `--json`) and the `doctor` `host` line
+warns when any of them is set in the calling environment.
+
 ## Mechanisms
 
 `comparator-receipt --mechanism auto|toolchain|legacy` chooses how the

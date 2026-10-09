@@ -274,11 +274,33 @@ def parse_ts(s: str) -> dt.datetime:
     return v
 
 
-def run(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
+# Repository-selecting Git variables (#27). A launcher that leaks one (GIT_INDEX_FILE from a hook, say)
+# points every git, and Lake's dependency checkout, at another repository's index or object store.
+# Subprocesses that work on a package checkout run without them; the registry repository's own git
+# calls (registry_git) keep the caller's environment. GIT_CONFIG_*, GIT_SSH_COMMAND and
+# GIT_TERMINAL_PROMPT are deliberately kept.
+GIT_REPO_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE")
+
+
+def git_env_set(env=None) -> list[str]:
+    """The repository-selecting Git variables set in env (default: os.environ), in GIT_REPO_ENV order."""
+    env = os.environ if env is None else env
+    return [n for n in GIT_REPO_ENV if n in env]
+
+
+def scrubbed_env(env=None) -> dict:
+    """A copy of env (default: os.environ) without the repository-selecting Git variables."""
+    return {k: v for k, v in (os.environ if env is None else env).items() if k not in GIT_REPO_ENV}
+
+
+def run(cmd: list[str], cwd: str | None = None, scrub: bool = False) -> subprocess.CompletedProcess:
     """The one subprocess helper. Never raises on nonzero exit; a binary that cannot be run (not on
-    PATH, not executable, a missing cwd) is returncode 127 with the OSError in stderr."""
+    PATH, not executable, a missing cwd) is returncode 127 with the OSError in stderr. scrub=True drops
+    GIT_REPO_ENV (for a package checkout)."""
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=cwd)
+        return subprocess.run(cmd, capture_output=True, text=True, check=False, cwd=cwd,
+                              env=scrubbed_env() if scrub else None)
     except OSError as e:
         missing = isinstance(e, FileNotFoundError) and e.filename in (cmd[0], None) and shutil.which(cmd[0]) is None
         why = f"{cmd[0]} not on PATH" if missing else f"{cmd[0]}: {e.strerror or e}"
@@ -286,7 +308,13 @@ def run(cmd: list[str], cwd: str | None = None) -> subprocess.CompletedProcess:
 
 
 def git(repo: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
-    return run(["git", "-C", str(repo), *args])
+    """git in a package checkout, without the repository-selecting Git variables (#27)."""
+    return run(["git", "-C", str(repo), *args], scrub=True)
+
+
+def registry_git(root: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
+    """git in the registry repository (or lean-pkg's own checkout): the caller's environment as is."""
+    return run(["git", "-C", str(root), *args])
 
 
 def gh(*args: str) -> subprocess.CompletedProcess:
@@ -1728,7 +1756,7 @@ def sha256_bytes(b: bytes) -> str:
 def git_show_bytes(repo: pathlib.Path, rel: str, rev: str = "HEAD") -> bytes | None:
     """Bytes of <rev>:<rel>, or None when the path is not tracked there."""
     p = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{rel}"],
-                       capture_output=True)
+                       capture_output=True, env=scrubbed_env())
     return p.stdout if p.returncode == 0 else None
 
 
@@ -2737,7 +2765,7 @@ def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False) -> list[
     if reuse is None:
         checks.append(("WARN", "reuse not on PATH — REUSE license lint skipped"))
     else:
-        p = run([reuse, "lint"], cwd=str(repo))
+        p = run([reuse, "lint"], cwd=str(repo), scrub=True)
         if p.returncode == 0:
             checks.append(("✓", "reuse lint passed"))
         else:
@@ -3839,7 +3867,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1). Stages checkout, cache-get, build, comparator, receipt log to <evidence-dir>/comparator-stages/NN-<stage>.log + stages.json (kept on failure; the error names the stage and log; --evidence-dir DIR, default .lake/comparator-receipt); --prepare runs only the setup stages (idempotent); a later run at the same commit/toolchain/config hash skips them (--from-prepared DIR: reuse DIR's, refuse a mismatch); receipt gains an additive stages[] summary.
   flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private, --refuse-dirty
-  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped; --challenge-from-type pre-fills Challenge (elaborated type) + Solution (`exact @_root_.<decl>`) via `lake env lean` [--lake-env DIR --jobs N --timeout S], or split it: --emit-script F (bash F OUT.json on a Slurm node, JSON comparator-types/1) then --from-output OUT.json (commit must be HEAD); per entry: type_error keeps the TODO, needs_restatement flags project vocabulary   |   comparator config --coverage NAME: read-only; claims covered/not/TODO by the config tracked at the gate-bound commit (never a candidate); a changed or uncommitted config cannot certify that tree, a new gate at a commit tracking it is required; prints the exact next commands (JSON next_commands[])   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot)
+  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped; --challenge-from-type pre-fills Challenge (elaborated type) + Solution (`exact @_root_.<decl>`) via `lake env lean` [--lake-env DIR --jobs N --timeout S], or split it: --emit-script F (bash F OUT.json on a Slurm node, JSON comparator-types/1) then --from-output OUT.json (commit must be HEAD); per entry: type_error keeps the TODO, needs_restatement flags project vocabulary   |   comparator config --coverage NAME: read-only; claims covered/not/TODO by the config tracked at the gate-bound commit (never a candidate); a changed or uncommitted config cannot certify that tree, a new gate at a commit tracking it is required; prints the exact next commands (JSON next_commands[])   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot); warn git-env (JSON env_warnings[]) when GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES/GIT_COMMON_DIR/GIT_NAMESPACE is set (comparator-receipt and package-checkout git drop them; stages.json git_env_scrubbed[])
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), and (paper field) a paper unpublished with no arXiv id.
@@ -3849,7 +3877,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts), tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
+doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, index/ beside the registry if present, ./index; check/render/migrate exit 1 when it is missing).
@@ -4297,7 +4325,7 @@ def package_dir() -> pathlib.Path:
 
 def fetch_origin(root: pathlib.Path) -> str | None:
     """`git fetch --quiet --prune origin`; None on success, else the failure (first stderr line)."""
-    p = git(root, "fetch", "--quiet", "--prune", "origin")
+    p = registry_git(root, "fetch", "--quiet", "--prune", "origin")
     if p.returncode == 0:
         return None
     return (p.stderr or p.stdout or "fetch failed").strip().splitlines()[0]
@@ -4353,7 +4381,7 @@ def _count_lines(p: pathlib.Path) -> int:
 
 
 def _dirty(ctx: dict) -> list[str]:
-    porcelain = git(ctx["root"], "status", "--porcelain", "--", *ctx["files"]).stdout.splitlines()
+    porcelain = registry_git(ctx["root"], "status", "--porcelain", "--", *ctx["files"]).stdout.splitlines()
     return [line[3:] for line in porcelain if line.strip()]
 
 
@@ -4364,7 +4392,7 @@ def commit_preflight(args, mode: str) -> dict:
     if shutil.which("git") is None:
         raise Fail("--commit needs git on PATH")
     reg_p, ev = registry_path(args), events_path(args)
-    top = git(reg_p.parent, "rev-parse", "--show-toplevel") if reg_p.parent.is_dir() else None
+    top = registry_git(reg_p.parent, "rev-parse", "--show-toplevel") if reg_p.parent.is_dir() else None
     if top is None or top.returncode != 0 or not top.stdout.strip():
         raise Fail(f"--commit needs the registry inside a git work tree ({reg_p.parent} is not)")
     root = pathlib.Path(top.stdout.strip())
@@ -4374,7 +4402,7 @@ def commit_preflight(args, mode: str) -> dict:
             files.append(str(f.resolve().relative_to(root.resolve())))
         except ValueError:
             raise Fail(f"--commit needs {f} inside the registry's git work tree {root}")
-    br = git(root, "symbolic-ref", "-q", "--short", "HEAD")
+    br = registry_git(root, "symbolic-ref", "-q", "--short", "HEAD")
     branch = br.stdout.strip() if br.returncode == 0 else ""
     if not branch:
         raise Fail(f"--commit needs a branch checked out in {root} (detached HEAD)")
@@ -4382,7 +4410,7 @@ def commit_preflight(args, mode: str) -> dict:
     dirty = _dirty(ctx)
     if dirty:
         raise Fail(f"uncommitted registry changes in {', '.join(dirty)}; commit them first")
-    if git(root, "remote", "get-url", "origin").returncode != 0:
+    if registry_git(root, "remote", "get-url", "origin").returncode != 0:
         print(f"lean-pkg: no origin remote in {root}; committing locally without a pull", file=sys.stderr)
         ctx["origin"] = False
     else:
@@ -4390,9 +4418,9 @@ def commit_preflight(args, mode: str) -> dict:
         err = fetch_origin(root)
         if err:
             print(f"lean-pkg: fetch origin failed: {err}; using local refs", file=sys.stderr)
-        counts = git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
+        counts = registry_git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
         if counts.returncode == 0 and int(counts.stdout.split()[0]) > 0:
-            p = git(root, "pull", "--ff-only", "--quiet", "origin", branch)
+            p = registry_git(root, "pull", "--ff-only", "--quiet", "origin", branch)
             if p.returncode != 0:
                 raise Fail(f"registry clone has diverged from origin/{branch}; reconcile by hand before "
                            f"writing ({_first_line(p, 'pull --ff-only failed')})")
@@ -4434,7 +4462,7 @@ def _push_rejected(p: subprocess.CompletedProcess) -> bool:
 
 def _rebase_in_progress(root: pathlib.Path) -> bool:
     for d in ("rebase-merge", "rebase-apply"):
-        q = git(root, "rev-parse", "--git-path", d)
+        q = registry_git(root, "rev-parse", "--git-path", d)
         if q.returncode == 0 and (root / q.stdout.strip()).exists():
             return True
     return False
@@ -4447,7 +4475,7 @@ def _rebase_and_repush(ctx: dict, rejected: subprocess.CompletedProcess) -> subp
     aborted, so the local commit stays as it was. Returns the push (or the original rejection)."""
     root, branch = ctx["root"], ctx["branch"]
     upstream = f"refs/remotes/origin/{branch}"
-    ahead = git(root, "rev-list", "--count", f"{upstream}..HEAD")
+    ahead = registry_git(root, "rev-list", "--count", f"{upstream}..HEAD")
     if ahead.returncode != 0 or ahead.stdout.strip() != "1":
         return rejected
     if fetch_origin(root) is not None:
@@ -4459,16 +4487,16 @@ def _rebase_and_repush(ctx: dict, rejected: subprocess.CompletedProcess) -> subp
         fh.write(f"/{ev_rel} merge=union\n")
         attrs = fh.name
     try:
-        rb = git(root, "-c", f"core.attributesFile={attrs}", "rebase", "--quiet", upstream)
+        rb = registry_git(root, "-c", f"core.attributesFile={attrs}", "rebase", "--quiet", upstream)
     finally:
         os.unlink(attrs)
     if rb.returncode != 0:
         if _rebase_in_progress(root):
-            git(root, "rebase", "--abort")
+            registry_git(root, "rebase", "--abort")
         print(f"lean-pkg: rebase onto origin/{branch} failed ({_first_line(rb, 'rebase failed')}); "
               f"kept the local commit", file=sys.stderr)
         return rejected
-    return git(root, "push", "--quiet", "origin", branch)
+    return registry_git(root, "push", "--quiet", "origin", branch)
 
 
 def commit_finish(ctx: dict, rc: int) -> int:
@@ -4487,17 +4515,17 @@ def commit_finish(ctx: dict, rc: int) -> int:
     if not dirty:
         return rc
     msg = commit_message(ctx)
-    add = git(root, "add", "--", *dirty)
+    add = registry_git(root, "add", "--", *dirty)
     if add.returncode != 0:
         res["error"] = f"commit failed: {_first_line(add, 'git add failed')}"
         print(f"lean-pkg: commit failed: {_first_line(add, 'git add failed')}; the registry files are "
               f"modified and uncommitted", file=sys.stderr)
         return 1
     argv = ("commit", "-q", "-m", msg, "--", *dirty)
-    p = git(root, *argv)
+    p = registry_git(root, *argv)
     if p.returncode != 0 and any(s in (p.stderr + p.stdout) for s in _IDENTITY_ERRORS):
         name, email = FALLBACK_IDENTITY
-        p = git(root, "-c", f"user.name={name}", "-c", f"user.email={email}", *argv)
+        p = registry_git(root, "-c", f"user.name={name}", "-c", f"user.email={email}", *argv)
         if p.returncode == 0:
             print(f"lean-pkg: committed as {name} <{email}>; set git user.name/email in {root}",
                   file=sys.stderr)
@@ -4506,18 +4534,18 @@ def commit_finish(ctx: dict, rc: int) -> int:
         print(f"lean-pkg: commit failed: {_first_line(p, 'git commit failed')}; the registry files are "
               f"modified and uncommitted", file=sys.stderr)
         return 1
-    res["sha"] = git(root, "rev-parse", "HEAD").stdout.strip() or None
-    short = git(root, "rev-parse", "--short", "HEAD").stdout.strip()
+    res["sha"] = registry_git(root, "rev-parse", "HEAD").stdout.strip() or None
+    short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip()
     print(f"lean-pkg: committed {short} on {branch}: {msg}", file=sys.stderr)
     if ctx["push"]:
         if not ctx["origin"]:
             res["error"] = "push failed: no origin remote"
             print(f"lean-pkg: push failed: no origin remote; run: git push origin {branch}", file=sys.stderr)
             return 1
-        p = git(root, "push", "--quiet", "origin", branch)
+        p = registry_git(root, "push", "--quiet", "origin", branch)
         if p.returncode != 0 and _push_rejected(p):
             p = _rebase_and_repush(ctx, p)
-            res["sha"] = git(root, "rev-parse", "HEAD").stdout.strip() or res["sha"]
+            res["sha"] = registry_git(root, "rev-parse", "HEAD").stdout.strip() or res["sha"]
         if p.returncode != 0:
             res["error"] = f"push failed: {_first_line(p, 'git push failed')}"
             print(f"lean-pkg: push failed: {_first_line(p, 'git push failed')}; run: git push origin {branch}",
@@ -4530,7 +4558,7 @@ def commit_finish(ctx: dict, rc: int) -> int:
 
 def no_origin_ref_detail(root: pathlib.Path, branch: str, note: str) -> str:
     """Why behind/ahead cannot be counted: no origin remote at all, or no local origin/<branch> ref."""
-    if git(root, "remote", "get-url", "origin").returncode != 0:
+    if registry_git(root, "remote", "get-url", "origin").returncode != 0:
         return "no origin remote"
     return f"no local origin/{branch} ref to compare ({note})"
 
@@ -4566,20 +4594,20 @@ def install_check(d: pathlib.Path, fetch: bool = False) -> tuple[str, str]:
     with HEAD, branch and behind/ahead against origin/<branch> (local refs unless fetch)."""
     if shutil.which("git") is None:
         return "warn", f"{d} (git not on PATH; install kind unknown)"
-    top = git(d, "rev-parse", "--show-toplevel")
-    tracked = git(d, "ls-files", "--error-unmatch", "__init__.py").returncode == 0
+    top = registry_git(d, "rev-parse", "--show-toplevel")
+    tracked = registry_git(d, "ls-files", "--error-unmatch", "__init__.py").returncode == 0
     if top.returncode != 0 or not top.stdout.strip() or not tracked:
         return "ok", f"installed {d}"   # not tracked: e.g. site-packages that sit inside a checkout
     root = pathlib.Path(top.stdout.strip())
-    short = git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?"
-    br = git(root, "symbolic-ref", "-q", "--short", "HEAD")
+    short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?"
+    br = registry_git(root, "symbolic-ref", "-q", "--short", "HEAD")
     branch = br.stdout.strip() if br.returncode == 0 else ""
     head = f"editable {root} @ {short}"
     if not branch:
         return "warn", head + " (detached HEAD)"
     fetch_error = fetch_origin(root) if fetch else None
     note = ref_note(fetch, fetch_error)
-    counts = git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
+    counts = registry_git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
     if counts.returncode != 0:
         return "warn", f"{head} on {branch}; {no_origin_ref_detail(root, branch, note)}"
     behind, ahead = (int(x) for x in counts.stdout.split())
@@ -4596,19 +4624,19 @@ def registry_repo_check(reg_p: pathlib.Path, ev: pathlib.Path, fetch: bool = Fal
         return "n/a", "git not on PATH"
     if not reg_p.parent.is_dir():
         return "n/a", f"{reg_p.parent} is not a directory"
-    top = git(reg_p.parent, "rev-parse", "--show-toplevel")
+    top = registry_git(reg_p.parent, "rev-parse", "--show-toplevel")
     if top.returncode != 0 or not top.stdout.strip():
         return "n/a", f"{reg_p.parent} is not inside a git work tree"
     root = pathlib.Path(top.stdout.strip())
-    short = git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?"
-    br = git(root, "symbolic-ref", "-q", "--short", "HEAD")
+    short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?"
+    br = registry_git(root, "symbolic-ref", "-q", "--short", "HEAD")
     branch = br.stdout.strip() if br.returncode == 0 else ""
     head = f"{root} @ {short}"
     if not branch:
         return "warn", head + " (detached HEAD; check out a branch before writing)"
     fetch_error = fetch_origin(root) if fetch else None
     note = ref_note(fetch, fetch_error)
-    porcelain = git(root, "status", "--porcelain", "--untracked-files=no").stdout.splitlines()
+    porcelain = registry_git(root, "status", "--porcelain", "--untracked-files=no").stdout.splitlines()
     dirty = [line[3:] for line in porcelain if line.strip()]
     reg_rel = []
     for f in (reg_p, ev):
@@ -4619,7 +4647,7 @@ def registry_repo_check(reg_p: pathlib.Path, ev: pathlib.Path, fetch: bool = Fal
     dirty_reg = [f for f in dirty if f in reg_rel]
     advice = []
     level = "ok"
-    counts = git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
+    counts = registry_git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
     if counts.returncode != 0:
         sync = no_origin_ref_detail(root, branch, note)
         level = "warn"
@@ -4727,9 +4755,13 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
         from .comparator_receipt import host_checks
         res = host_checks()
         failing = [c["item"] for c in res["checks"] if c["level"] == "fail"]
-        add("ok" if res["can"] else "warn", "host", res["verdict"] if res["can"] else
-            f"this host cannot produce comparator receipts (failing: {', '.join(failing)}); "
-            f"details: lean-pkg comparator host-check")
+        leaked = res.get("env_warnings") or []
+        detail = (res["verdict"] if res["can"] else
+                  f"this host cannot produce comparator receipts (failing: {', '.join(failing)}); "
+                  f"details: lean-pkg comparator host-check")
+        if leaked:   # #27
+            detail += f"; {', '.join(leaked)} set in the calling environment (unset them in the launcher)"
+        add("ok" if res["can"] and not leaked else "warn", "host", detail)
 
     guarded("host", host_check)
     for t in DOCTOR_TOOLS:

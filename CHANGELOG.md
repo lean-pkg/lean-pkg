@@ -42,6 +42,14 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- A launcher that leaked `GIT_INDEX_FILE` (or `GIT_DIR`, `GIT_WORK_TREE`,
+  `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_COMMON_DIR`,
+  `GIT_NAMESPACE`) made `comparator-receipt`'s dependency checkout use the wrong index. The
+  runner now removes these from every `lake`, `git` and judge it runs and lists them in
+  `stages.json` (`git_env_scrubbed`); `lean-pkg` does the same for its `git` calls in a
+  package checkout (not in the registry repository). `comparator host-check` warns
+  (`git-env`; additive `env_warnings[]` in `--json`), and so does the `doctor` `host` line,
+  when any is set. (#27)
 - `gate NAME --receipt R --refresh-formalization` refused at an evidence-only descendant
   whose `formalization.yaml` had only derived keys regenerated when no `formalization_yaml`
   pointer was recorded yet, because the derived-only exception follows the pointer. The

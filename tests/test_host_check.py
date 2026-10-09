@@ -154,3 +154,38 @@ def test_both_usable_names_toolchain_as_palomars(lp, cr, monkeypatch, capsys):
     v = json.loads(cap.out)["verdict"]
     assert "toolchain (what Palomar runs; the project needs Lean v4.35.0-rc2+); legacy (" in v
     assert "fails here" not in v
+
+
+# --- leaked repository-selecting Git variables (#27) -------------------------------
+
+def test_host_check_warns_on_a_leaked_git_index_file(lp, cr, monkeypatch, capsys, tmp_path):
+    host(cr, monkeypatch)
+    rc, cap = hc(lp, capsys, "--json")
+    assert json.loads(cap.out)["env_warnings"] == []
+    monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "bogus-index"))
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "bogus.git"))
+    rc, cap = hc(lp, capsys)
+    assert rc == 0                                       # a warning, not a refusal
+    assert "warn git-env: GIT_DIR, GIT_INDEX_FILE set in the calling environment" in cap.out
+    rc, cap = hc(lp, capsys, "--json")
+    data = json.loads(cap.out)
+    assert rc == 0 and data["env_warnings"] == ["GIT_DIR", "GIT_INDEX_FILE"]
+    assert next(c for c in data["checks"] if c["item"] == "git-env")["level"] == "warn"
+
+
+def test_doctor_host_line_warns_on_a_leaked_git_variable(lp, env, cr, monkeypatch, capsys):
+    host(cr, monkeypatch)
+    monkeypatch.setenv("GIT_INDEX_FILE", "/nonexistent/index")
+    lp.main(["--registry", str(env.registry), "doctor", "--json"])
+    line = next(c for c in json.loads(capsys.readouterr().out)["checks"] if c["item"] == "host")
+    assert line["level"] == "warn" and "GIT_INDEX_FILE set in the calling environment" in line["detail"]
+
+
+def test_package_git_is_scrubbed_registry_git_is_not(lp, monkeypatch, tmp_path):
+    from .conftest import make_repo
+    repo = make_repo(tmp_path / "pkg")
+    tracked = lp.git(repo, "ls-files").stdout.split()
+    assert tracked
+    monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "bogus-index"))
+    assert lp.git(repo, "ls-files").stdout.split() == tracked        # package checkout: own index
+    assert lp.registry_git(repo, "ls-files").stdout.split() == []    # registry: caller's env as is

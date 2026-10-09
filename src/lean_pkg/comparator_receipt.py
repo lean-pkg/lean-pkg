@@ -42,6 +42,8 @@ SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
 # Acceptance is decided by the same predicate the validator uses (one source of truth).
 from .cli import comparator_pass  # noqa: E402
+# Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
+from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
@@ -77,7 +79,7 @@ def toolchain_available(project: pathlib.Path) -> bool:
     # (`lake comparator --help` is not a reliable probe: older lakes exit 0 on unknown help.)
     try:
         p = subprocess.run(["lean", "--print-prefix"], cwd=project, capture_output=True,
-                           text=True, timeout=120)
+                           text=True, timeout=120, env=scrubbed_env())
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
     if p.returncode != 0 or not p.stdout.strip():
@@ -92,7 +94,7 @@ def bwrap_preflight() -> None:
     namespace. Ubuntu 24.04 forbids that by default (AppArmor); fail early with the fix."""
     try:
         p = subprocess.run(["bwrap", "--ro-bind", "/", "/", "true"], capture_output=True,
-                           text=True, timeout=60)
+                           text=True, timeout=60, env=scrubbed_env())
     except FileNotFoundError:
         raise RunnerError("bwrap is not installed; `lake comparator` needs it (package bubblewrap)")
     except subprocess.TimeoutExpired:
@@ -168,8 +170,9 @@ def bwrap_probe() -> tuple[str, str]:
 def host_checks() -> dict:
     """{"checks": [{"item", "level" ok|warn|fail, "detail"}], "mechanisms": {"toolchain": bool,
     "legacy": bool}, "mechanism_detail": {m: {"ok", "needs", "failing", "palomar"}}, "can": bool,
-    "palomar": bool, "verdict": str}. Read-only. A mechanism is usable only when every one of its own
-    requirements holds; the verdict names only those (#23.4)."""
+    "palomar": bool, "verdict": str, "env_warnings": [names]}. Read-only. A mechanism is usable only
+    when every one of its own requirements holds; the verdict names only those (#23.4). env_warnings
+    lists the repository-selecting Git variables set in the calling environment (#27; a warn check)."""
     import platform
     checks: list[dict] = []
 
@@ -200,6 +203,11 @@ def host_checks() -> dict:
     for tool in ("go", "cargo", "jq", "git", "lean", "lake", "python3"):
         where = shutil.which(tool)
         add(tool, "ok" if where else "fail", where or "not on PATH")
+    leaked = git_env_set()   # #27: a launcher's repository-selecting Git variables (scrubbed by the runner)
+    if leaked:
+        add("git-env", "warn", f"{', '.join(leaked)} set in the calling environment; comparator-receipt "
+            f"removes them from every lake/git it runs, but other tools you run here will not "
+            f"(unset them in the launcher)")
     by_item = {c["item"]: c for c in checks}
     needs = {"toolchain": ("kernel", "bwrap") + TOOLCHAIN_TOOLS_ON_PATH,
              "legacy": ("kernel", "landlock") + LEGACY_TOOLS}
@@ -225,7 +233,7 @@ def host_checks() -> dict:
         verdict = ("this host cannot produce comparator receipts: "
                    + " | ".join(f"{m}: " + "; ".join(detail_by[m]["failing"]) for m in ("toolchain", "legacy")))
     return {"checks": checks, "mechanisms": mech, "mechanism_detail": detail_by, "can": can,
-            "palomar": mech[PALOMAR_MECHANISM], "verdict": verdict}
+            "palomar": mech[PALOMAR_MECHANISM], "verdict": verdict, "env_warnings": leaked}
 
 
 def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str) -> dict:
@@ -237,7 +245,8 @@ def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str)
         for tool in TOOLCHAIN_TOOLS:
             tools[f"{tool}_sha256"] = d
         return tools
-    p = subprocess.run(["lean", "--print-prefix"], cwd=project, capture_output=True, text=True)
+    p = subprocess.run(["lean", "--print-prefix"], cwd=project, capture_output=True, text=True,
+                       env=scrubbed_env())
     if p.returncode != 0 or not p.stdout.strip():
         raise RunnerError("cannot resolve the toolchain prefix (`lean --print-prefix` failed)")
     prefix = pathlib.Path(p.stdout.strip())
@@ -344,7 +353,7 @@ def list_configs(project: pathlib.Path) -> list[str]:
 
 def git(project: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(project), *args],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, env=scrubbed_env())
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +415,8 @@ def run_logged(cmd: list[str], cwd: pathlib.Path, log: pathlib.Path) -> int:
         fh.write(("$ " + " ".join(cmd) + "\n").encode())
         fh.flush()
         try:
-            return subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT).returncode
+            return subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT,
+                                  env=scrubbed_env()).returncode
         except OSError as e:
             fh.write(f"error: cannot run {cmd[0]}: {e}\n".encode())
             return 127
@@ -438,6 +448,7 @@ class Stages:
         setup_done = all(self.entries.get(s, {}).get("status") in DONE for s in SETUP_STAGES)
         data = {"schema": STAGES_SCHEMA, **self.binding, "prepare": self.prepare,
                 "setup_complete": setup_done, "failed_stage": failed, "stages": entries,
+                "git_env_scrubbed": git_env_set(),   # #27: removed from every lake/git/bash it ran
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         tmp = self.json.with_name(STAGES_FILE + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -628,7 +639,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
 
         def comparator_stage(stage_log: pathlib.Path):
             if mechanism == "legacy":
-                env = os.environ.copy()
+                env = scrubbed_env()
                 env["LOG_DIR"] = str(log_dir)
                 p = subprocess.run(["bash", str(check)], cwd=project, env=env,
                                    capture_output=True, text=True)
@@ -642,7 +653,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                 log_dir.mkdir(parents=True)
                 for cfg_rel in configs:
                     p = subprocess.run(["bash", str(verify), cfg_rel], cwd=project,
-                                       capture_output=True, text=True)
+                                       capture_output=True, text=True, env=scrubbed_env())
                     log_text = p.stdout + (("\n" + p.stderr) if p.stderr else "")
                     (log_dir / f"{cfg_name(cfg_rel)}.log").write_text(log_text, encoding="utf-8")
                     with open(stage_log, "a", encoding="utf-8") as fh:

@@ -323,7 +323,7 @@ def run_local(repo: pathlib.Path, config: dict) -> dict:
         script, out = tmp / "driver.sh", tmp / "types.json"
         script.write_text(driver_script(config), encoding="utf-8")
         p = subprocess.run(["bash", str(script), str(out)], cwd=repo, stdin=subprocess.DEVNULL,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, env=core.scrubbed_env())   # #27
         if p.returncode != 0 or not out.is_file():
             tail = (p.stderr or p.stdout or "").strip().splitlines()
             raise core.Fail(f"type driver failed (exit {p.returncode}): {tail[-1] if tail else 'no output'}")

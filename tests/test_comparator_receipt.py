@@ -476,12 +476,13 @@ def _lake_project(project: Path, mathlib: bool = True) -> Path:
     return project
 
 
-def run_staged(project: Path, *flags: str, fail: str = "", stub_mode: str = "pass"):
+def run_staged(project: Path, *flags: str, fail: str = "", stub_mode: str = "pass",
+               extra_env: dict | None = None):
     calls = project.parent / "lake-calls.txt"
     env = subprocess_env({"COMPARATOR_CHECK": str(STUB), "COMPARATOR_VERIFY": str(STUB_TC),
                           "STUB_MODE": stub_mode, "COMPARATOR_RECEIPT_ALLOW_HOST": "1",
                           "COMPARATOR_FAKE_LAKE_OK": "1", "COMPARATOR_LAKE": str(LAKE_STUB),
-                          "LAKE_STUB_CALLS": str(calls), "LAKE_STUB_FAIL": fail})
+                          "LAKE_STUB_CALLS": str(calls), "LAKE_STUB_FAIL": fail, **(extra_env or {})})
     env.pop("SLURM_JOB_ID", None)
     env.pop("COMPARATOR_RECEIPT_ALLOWED_HOSTS", None)
     r = subprocess.run([*RECEIPT_CLI, "--mechanism", "toolchain", *flags], cwd=project, env=env,
@@ -504,6 +505,7 @@ def test_stages_logged_for_every_stage_and_summarised_in_receipt(project: Path):
     assert [e["stage"] for e in st["stages"]] == ["checkout", "cache-get", "build", "comparator", "receipt"]
     assert all(e["status"] == "ok" and e["exit"] == 0 for e in st["stages"])
     assert st["failed_stage"] is None and st["setup_complete"] is True
+    assert st["git_env_scrubbed"] == []                     # #27: nothing leaked, nothing scrubbed
     d = project / ".lake" / "comparator-receipt" / "comparator-stages"
     for n, s in enumerate(["checkout", "cache-get", "build", "comparator", "receipt"], 1):
         assert (d / f"{n:02d}-{s}.log").is_file()
@@ -512,6 +514,20 @@ def test_stages_logged_for_every_stage_and_summarised_in_receipt(project: Path):
     rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
     assert [s["stage"] for s in rec["stages"]] == ["checkout", "cache-get", "build", "comparator"]
     assert all(set(s) == {"stage", "status", "exit", "wall_s"} for s in rec["stages"])   # no paths
+
+
+def test_stage_run_scrubs_a_leaked_git_index_file(project: Path):
+    """#27: a launcher's GIT_INDEX_FILE must not reach lake's dependency checkout (or the runner's git)."""
+    _lake_project(project)
+    bogus = str(project.parent / "no-such-dir" / "index")
+    r, calls = run_staged(project, extra_env={"GIT_INDEX_FILE": bogus, "GIT_NAMESPACE": "elsewhere"})
+    assert r.returncode == 0, r.stderr
+    assert calls == ["lake env true", "lake exe cache get", "lake build Challenge Solution"]   # no `leaked`
+    st = _stages(project)
+    assert st["git_env_scrubbed"] == ["GIT_INDEX_FILE", "GIT_NAMESPACE"]
+    assert all(e["status"] == "ok" for e in st["stages"])
+    head = git(project, "rev-parse", "HEAD")
+    assert (project / ".lean-receipts" / f"{head[:12]}-comparator.json").is_file()
 
 
 def test_failed_stage_keeps_its_log_and_is_named(project: Path):

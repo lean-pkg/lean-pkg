@@ -90,8 +90,8 @@ def test_doctor_editable_install_reports_branch_and_counts_without_fetching(lp, 
     _git(repo, "commit", "-q", "-m", "local work")
     monkeypatch.setattr(lp, "package_dir", lambda: pkgdir)
     calls = []
-    real_git = lp.git
-    monkeypatch.setattr(lp, "git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
+    real_git = lp.registry_git                           # lean-pkg's own checkout: registry_git (#27)
+    monkeypatch.setattr(lp, "registry_git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
     rc, cap = _doctor(lp, env, capsys)
     assert rc == 0
     line = next(x for x in cap.out.splitlines() if "install:" in x)
@@ -279,8 +279,8 @@ def test_doctor_fetch_fetches_both_repos_and_says_so(lp, env, fake_path, install
     _git(tmp_path, "clone", "-q", "--bare", str(repo), str(origin))
     _git(repo, "remote", "add", "origin", str(origin))
     calls = []
-    real_git = lp.git
-    monkeypatch.setattr(lp, "git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
+    real_git = lp.registry_git                           # registry-repository git (#27)
+    monkeypatch.setattr(lp, "registry_git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
     rc = lp.main(["--registry", str(reg), "doctor", "--fetch"])
     cap = capsys.readouterr()
     assert rc == 0

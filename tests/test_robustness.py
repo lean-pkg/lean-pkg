@@ -266,8 +266,8 @@ def test_no_commit_after_the_subcommand(lp, env, shared, monkeypatch, capsys):
 def test_dry_runs_skip_the_preflight(lp, env, shared, fake_gh, monkeypatch, capsys, argv):
     a = shared.a
     calls = []
-    real_git = lp.git
-    monkeypatch.setattr(lp, "git", lambda r, *g: (calls.append(g), real_git(r, *g))[1])
+    real_git = lp.registry_git                           # registry-repository git (#27)
+    monkeypatch.setattr(lp, "registry_git", lambda r, *g: (calls.append(g), real_git(r, *g))[1])
     monkeypatch.setenv("LEAN_PKG_COMMIT", "1")
     lp.main(["--registry", str(a.registry), *argv])
     cap = capsys.readouterr()
