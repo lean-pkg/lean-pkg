@@ -297,6 +297,27 @@ remove those entries from `theorem_names` and `lean_pkg_scaffold.todo` first.
 Output written by an older driver has no `failure`: there a non-zero `rc`, or
 an error other than an unknown constant, counts as an extraction failure.
 
+**Another checkout, or a package someone else holds.** `--checkout DIR`
+uses that checkout instead of the registry's `local_path` (for instance a
+clone on the host that ran the driver), in every mode. It refuses unless DIR
+is a git checkout whose HEAD is the commit the claims were synced at, or an
+evidence-only descendant of it, naming both commits and the paths that
+differ, and (with a types flag) unless the Lake directory has a lakefile.
+The configuration is written into DIR. `--no-registry --out FILE` is a
+scratch mode for `--from-output` or `--challenge-from-type`: the checkout's
+`comparator.json` plus the new entries is written to FILE (outside the
+checkout, or under its `.lake/`; overwritten if present), the package lease
+is not consulted (so it works while another agent holds the package; `--agent`
+is refused), and the output lists what was not done: the lease check, the
+checkout's configuration, and any registry, evidence or receipt write. The
+registry is still read for the synced claims. Copy FILE into the checkout
+under the lease to use it.
+
+```bash
+lean-pkg comparator config --from-claims beta --from-output /scratch/beta-types.json \
+  --checkout ~/clones/beta --no-registry --out /scratch/beta-comparator.json --allow-partial
+```
+
 **Jobs and file handles.** Every `lake env lean` process opens the `.olean`
 files of its whole import closure, so a few parallel processes over Mathlib
 can exhaust the node's file table, especially on Lustre or NFS ("Too many

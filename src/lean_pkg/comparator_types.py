@@ -449,8 +449,9 @@ def refuse_non_elan() -> None:
                             f"outside elan ignores the package's lean-toolchain")
 
 
-def emit_path(repo: pathlib.Path, f: str) -> pathlib.Path:
-    """The driver path: outside the checkout, or under its .lake/ build dir."""
+def emit_path(repo: pathlib.Path, f: str, flag: str = "--emit-script") -> pathlib.Path:
+    """A file Lean-pkg writes beside the checkout (the driver, a --no-registry config): outside the
+    checkout, or under its .lake/ build dir."""
     p = pathlib.Path(f).expanduser()
     p = p if p.is_absolute() else pathlib.Path.cwd() / p
     p = pathlib.Path(os.path.abspath(p))
@@ -460,7 +461,7 @@ def emit_path(repo: pathlib.Path, f: str) -> pathlib.Path:
     except ValueError:
         return p
     if rel.parts[:1] != (".lake",) or len(rel.parts) < 2:
-        raise core.Fail(f"--emit-script {f}: inside the checkout; write it outside, or under "
+        raise core.Fail(f"{flag} {f}: inside the checkout; write it outside, or under "
                         f"{root / '.lake'}/ (the build dir), so the checkout stays clean")
     return p
 

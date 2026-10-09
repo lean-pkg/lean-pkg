@@ -7,6 +7,17 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `comparator config --from-claims NAME --checkout DIR`: use another checkout of the package
+  (for instance the clone that ran the type driver) instead of the registry's `local_path`;
+  refused, with both commits and the differing paths, unless its HEAD is the claims-synced commit
+  or an evidence-only descendant, and, with a types flag, unless it has the lakefile. (#31)
+- `comparator config --from-claims NAME --from-output F --no-registry --out FILE` (also with
+  `--challenge-from-type`): scratch mode for a package under another agent's lease; writes the
+  checkout's `comparator.json` merged with the new entries to FILE outside the checkout, never
+  consults the lease, and lists what it did not do (JSON `no_registry`, `not_done[]`). (#31)
+
 ### Fixed
 
 - `comparator config --challenge-from-type` / `--emit-script` driver: a `lake env lean` process that

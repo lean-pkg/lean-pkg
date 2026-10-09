@@ -12,7 +12,7 @@ import sys
 import pytest
 import yaml
 
-from .conftest import _git, commit_claims, repo_head
+from .conftest import _git, commit_claims, repo_head, set_lease
 
 LEAN = ("theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ntheorem zap : True := trivial\n"
         "theorem wow : True := trivial\n")
@@ -467,3 +467,78 @@ def test_output_without_round_trip_is_never_ready(lp, env, tmp_path, capsys):
     assert rc == 0, cap.err
     baz = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/baz"]
     assert baz["needs_restatement"] is True and "no round-trip check" in baz["restatement_reason"]
+
+
+def good_output(tmp_path, env):
+    return write_output(tmp_path, env, results=[
+        {"decl": d, "type": "True", "status": "ok", "error": None, "levels": [], "modules": ["Init.Prelude"],
+         "round_trip": "ok"} for d in ("Demo.baz", "Demo.zap", "Demo.wow")])
+
+
+def test_no_registry_writes_a_scratch_config_under_a_foreign_lease(lp, env, tmp_path, capsys):
+    """#31: ingestion for a package someone else holds, without touching their checkout."""
+    synced(lp, env, capsys)
+    set_lease(env, "beta", agent="vera")
+    before_cfg = (env.repo_b / "comparator.json").read_text()
+    before_reg = env.registry.read_text()
+    f = good_output(tmp_path, env)
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f))
+    assert rc == 1 and "lease held by vera" in cap.err                   # the normal path still refuses
+    scratch = tmp_path / "scratch" / "comparator.json"
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--out", str(scratch), "--no-registry")
+    assert rc == 0, cap.err
+    assert f"wrote {scratch}" in cap.out and "not done: the package lease was not consulted" in cap.out
+    cfg = json.loads(scratch.read_text())
+    base = json.loads(before_cfg)
+    assert cfg["theorem_names"][:len(base["theorem_names"])] == base["theorem_names"]   # merged, not replaced
+    assert set(todo_by_claim(cfg)) == {"beta/baz", "beta/zap", "beta/wow"}
+    assert (env.repo_b / "comparator.json").read_text() == before_cfg
+    assert env.registry.read_text() == before_reg
+    assert _git(env.repo_b, "status", "--porcelain").stdout.strip() == ""
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--out", str(scratch), "--no-registry", "--json",
+                 "--dry-run")
+    data = json.loads(cap.out)
+    assert rc == 0 and data["no_registry"] is True and data["written"] is False and data["out"] == str(scratch)
+    assert len(data["not_done"]) == 3
+
+
+def test_no_registry_usage_and_refusals(lp, env, tmp_path, capsys):
+    synced(lp, env, capsys)
+    f = good_output(tmp_path, env)
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--no-registry")
+    assert rc == 2 and "--no-registry: needs --out FILE" in cap.err
+    rc, cap = cc(lp, env, capsys, "--no-registry", "--out", str(tmp_path / "x.json"))
+    assert rc == 2 and "--no-registry: needs --from-output or --challenge-from-type" in cap.err
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--no-registry", "--out", str(tmp_path / "x.json"),
+                 "--agent", "vera")
+    assert rc == 2 and "takes no --agent" in cap.err
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--no-registry", "--out", str(env.repo_b / "c2.json"))
+    assert rc == 1 and "--out" in cap.err and "inside the checkout" in cap.err
+
+
+def test_checkout_overrides_the_registry_path(lp, env, tmp_path, capsys):
+    """#31: --checkout DIR, validated against the claims-synced commit and the lakefile."""
+    synced(lp, env, capsys)
+    clone = tmp_path / "elsewhere" / "beta"
+    subprocess.run(["git", "clone", "-q", str(env.repo_b), str(clone)], check=True, capture_output=True)
+    f = good_output(tmp_path, env)
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--checkout", str(clone), "--json")
+    assert rc == 0, cap.err
+    data = json.loads(cap.out)
+    assert data["checkout"] == str(clone) and data["written"] is True
+    assert set(todo_by_claim(json.loads((clone / "comparator.json").read_text()))) == {"beta/baz", "beta/zap",
+                                                                                      "beta/wow"}
+    assert "lean_pkg_scaffold" not in (env.repo_b / "comparator.json").read_text()   # registry path untouched
+    # a checkout whose HEAD moved past the synced commit with a source change: refused, with the paths
+    (clone / "Demo" / "Main.lean").write_text(LEAN + "theorem more : True := trivial\n")
+    _git(clone, "commit", "-qam", "more")
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--checkout", str(clone))
+    assert rc == 1 and f"--checkout {clone}: HEAD" in cap.err and "Demo/Main.lean" in cap.err
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--checkout", str(tmp_path / "nope"))
+    assert rc == 1 and "not a directory" in cap.err
+
+
+def test_checkout_without_a_lakefile_is_refused(lp, env, tmp_path, capsys):
+    synced(lp, env, capsys, lakefile=False)
+    rc, cap = cc(lp, env, capsys, "--from-output", str(good_output(tmp_path, env)), "--checkout", str(env.repo_b))
+    assert rc == 1 and "no lakefile.lean or lakefile.toml" in cap.err

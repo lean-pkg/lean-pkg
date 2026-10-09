@@ -21,12 +21,17 @@ descendant of the synced commit): `lean-pkg claims sync NAME` first.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 
 from . import cli as core
 
 SCAFFOLD_KEY = "lean_pkg_scaffold"
+NOT_DONE = ["the package lease was not consulted",
+            "the checkout's comparator.json was not written (copy the file there under the lease, or "
+            "re-run without --no-registry)",
+            "nothing was written to the registry, evidence or receipts"]
 CLAIM_KINDS = ("theorem", "lemma")          # propositions a comparator configuration can certify
 STANDARD_AXIOMS = ["propext", "Quot.sound", "Classical.choice"]
 NEW_CONFIG = {"challenge_module": "Challenge", "solution_module": "Solution", "theorem_names": [],
@@ -76,7 +81,7 @@ def _load_out(repo: pathlib.Path, rel: str) -> dict | None:
     return cfg
 
 
-def synced_claims(pkg: dict, repo: pathlib.Path) -> list[dict]:
+def synced_claims(pkg: dict, repo: pathlib.Path, checkout: bool = False) -> list[dict]:
     name = pkg["name"]
     rel = pkg.get("claims_file") or "claims.yaml"
     head = core.git_head(repo)
@@ -88,23 +93,41 @@ def synced_claims(pkg: dict, repo: pathlib.Path) -> list[dict]:
     synced = pkg.get("claims_synced_commit")
     if not synced or not pkg.get("claims"):
         raise core.Fail(f"{name}: claims are not synced (`lean-pkg claims sync {name}` first)")
-    ok, _note = core.evidence_only_descendant(repo, synced, head, core.formalization_rel(pkg))
+    ok, note = core.evidence_only_descendant(repo, synced, head, core.formalization_rel(pkg))
     if not ok:
+        if checkout:     # #31: say how this checkout differs from the commit the claims are bound to
+            raise core.Fail(f"{name}: --checkout {repo}: HEAD {head[:12]} is not the claims-synced commit "
+                            f"{str(synced)[:12]} or an evidence-only descendant of it ({note}); check out "
+                            f"{synced} there (or `lean-pkg claims sync {name}` at this HEAD)")
         raise core.Fail(f"{name}: claims synced at {str(synced)[:12]}, not at HEAD {head[:12]} "
                         f"(`lean-pkg claims sync {name}` first)")
     return [c for c in pkg["claims"] if isinstance(c, dict)]
 
 
 def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespace: str | None,
-                          agent: str | None, types: dict | None = None) -> tuple[list[str], dict, str | None]:
+                          agent: str | None, types: dict | None = None, checkout: str | None = None,
+                          no_registry: bool = False) -> tuple[list[str], dict, str | None]:
     """(lines, payload, would-be JSON text or None when nothing changes).
 
     `types` (#25), when given: {"mode": "local"|"emit"|"ingest", "emit": F, "from_output": F,
-    "lake_env": DIR, "jobs": N, "timeout": S}; see comparator_types."""
+    "lake_env": DIR, "jobs": N, "timeout": S}; see comparator_types.
+    `checkout` (#31): the package checkout to use instead of the registry's local_path.
+    `no_registry` (#31): scratch mode; `out` is a file outside the checkout, merged from the
+    checkout's comparator.json, and the lease is not consulted."""
     pkg = core.get_pkg(reg, name)
-    repo = core.repo_path(pkg)
+    if checkout:
+        repo = pathlib.Path(os.path.abspath(pathlib.Path(checkout).expanduser()))
+        if not repo.is_dir():
+            raise core.Fail(f"{name}: --checkout {checkout}: not a directory")
+    else:
+        repo = core.repo_path(pkg)
     if not repo.is_dir():
         raise core.Fail(f"{name}: local_path does not exist: {repo}")
+    scratch = None
+    if no_registry:
+        from . import comparator_types as ct
+        scratch = ct.emit_path(repo, out, "--out")
+        out = "comparator.json"
     rel = core._safe_rel(out, "--out")
     if not core.COMPARATOR_CONFIG_RE.match(rel):
         raise core.Fail(f"--out {rel}: not a comparator configuration path (comparator*.json at the "
@@ -112,7 +135,10 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     ns = namespace or default_namespace(name)
     if not NAMESPACE_RE.match(ns):
         raise core.Fail(f"--challenge-namespace {ns!r} is not a Lean name")
-    claims = synced_claims(pkg, repo)
+    claims = synced_claims(pkg, repo, checkout=bool(checkout))
+    if checkout and types is not None:
+        from . import comparator_types as ct
+        ct.lake_dir_rel(repo, types.get("lake_env"))      # the Lake package must be there
     existing_cfg = _load_out(repo, rel)
     cfg = dict(existing_cfg) if existing_cfg is not None else json.loads(json.dumps(NEW_CONFIG))
     configured: set[str] = set(cfg.get("theorem_names") or [])
@@ -150,8 +176,13 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     counts = {"existing": existing, "added": len(added), "skipped": skipped}
     summary = (f"{name}: {len(claims)} claim(s): {existing} already configured, {len(added)} added, "
                f"{skipped} skipped (not a theorem/lemma, or superseded)")
-    payload = {"ok": True, "name": name, "out": rel, "dry_run": dry_run, **counts,
+    payload = {"ok": True, "name": name, "out": str(scratch) if scratch else rel, "dry_run": dry_run, **counts,
                "added_names": [a["theorem_name"] for a in added], "written": False}
+    if checkout:
+        payload["checkout"] = str(repo)
+    if scratch:
+        payload["no_registry"] = True
+        payload["not_done"] = NOT_DONE
     if not added:
         return [summary, f"{rel}: nothing to add; nothing written"], payload, None
     lines = [summary]
@@ -212,6 +243,16 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     block["todo"] = todo + added
     cfg[SCAFFOLD_KEY] = block
     text = json.dumps(cfg, indent=2, ensure_ascii=False) + "\n"
+    if scratch is not None:
+        if dry_run:
+            return lines + [f"{scratch} (dry run, nothing written):"], payload, text
+        scratch.parent.mkdir(parents=True, exist_ok=True)
+        tmp = scratch.with_name(scratch.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(scratch)
+        payload["written"] = True
+        return lines + [f"wrote {scratch} (scratch: {len(added)} entr{'y' if len(added) == 1 else 'ies'} merged "
+                        f"into a copy of {rel})"] + [f"not done: {n}" for n in NOT_DONE], payload, None
     if dry_run:
         return lines + [f"{rel} (dry run, nothing written):"], payload, text
     lease = pkg.get("lease")
@@ -381,7 +422,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
 
 USAGE = ("usage: lean-pkg comparator config --from-claims NAME [--out comparator.json] [--dry-run] "
          "[--challenge-namespace NS] [--agent A] [--challenge-from-type | --emit-script F | --from-output F] "
-         "[--allow-partial] "
+         "[--allow-partial] [--checkout DIR] [--no-registry --out FILE] "
          "[--lake-env DIR] [--jobs N] [--timeout S]  |  lean-pkg comparator config --coverage NAME")
 
 
@@ -392,6 +433,8 @@ def types_mode(args) -> dict | None:
                              ("--timeout", getattr(args, "timeout", None))) if v is not None]
     if emit and frm:
         raise core.UsageError("--emit-script and --from-output are two halves of one run; pass one of them")
+    if getattr(args, "no_registry", False) and not (frm or local):
+        raise core.UsageError("--no-registry: needs --from-output or --challenge-from-type, and --out FILE")
     if getattr(args, "allow_partial", False) and not (frm or local):
         raise core.UsageError("--allow-partial: needs --from-output or --challenge-from-type (it governs ingestion)")
     if frm and tuning:
@@ -409,7 +452,8 @@ def types_mode(args) -> dict | None:
 
 def cmd_comparator_config(args) -> int:
     if getattr(args, "coverage", None):
-        if args.from_claims or args.out or args.dry_run or types_mode(args) is not None or args.agent:
+        if args.from_claims or args.out or args.dry_run or types_mode(args) is not None or args.agent or \
+                getattr(args, "checkout", None):
             raise core.UsageError("--coverage NAME is read-only and takes no other config flag")
         lines, payload = do_coverage(core.load_registry(core.registry_path(args)), args.coverage)
         if getattr(args, "json_out", False):
@@ -420,9 +464,15 @@ def cmd_comparator_config(args) -> int:
     if not args.from_claims:
         raise core.UsageError(USAGE)
     types = types_mode(args)
+    no_registry = bool(getattr(args, "no_registry", False))
+    if no_registry and not args.out:
+        raise core.UsageError("--no-registry: needs --out FILE (a scratch file outside the checkout)")
+    if no_registry and args.agent:
+        raise core.UsageError("--no-registry: takes no --agent (the lease is not consulted)")
     reg = core.load_registry(core.registry_path(args))
     lines, payload, text = do_config_from_claims(reg, args.from_claims, args.out or "comparator.json",
-                                                 args.dry_run, args.challenge_namespace, args.agent, types)
+                                                 args.dry_run, args.challenge_namespace, args.agent, types,
+                                                 getattr(args, "checkout", None), no_registry)
     if getattr(args, "json_out", False):
         if text is not None:
             payload["config"] = json.loads(text)
