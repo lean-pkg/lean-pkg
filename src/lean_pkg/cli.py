@@ -67,8 +67,10 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import copy
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import os
@@ -76,8 +78,11 @@ import pathlib
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
+import traceback
 import urllib.error
 import urllib.request
 
@@ -400,11 +405,77 @@ def load_registry(path: pathlib.Path, *, check_version: bool = True) -> dict:
     return data
 
 
+LOCK_SUFFIX = ".lock"
+_LOCKS_HELD: dict[str, int] = {}   # lock file -> nesting depth held by THIS process
+
+
+def lock_path(reg_path: pathlib.Path) -> pathlib.Path:
+    """<registry>.lock, beside the registry file (a symlinked registry locks beside its target)."""
+    p = pathlib.Path(reg_path).resolve()
+    return p.with_name(p.name + LOCK_SUFFIX)
+
+
+@contextlib.contextmanager
+def registry_lock(reg_path: pathlib.Path):
+    """Exclusive fcntl.flock on <registry>.lock for load -> check -> mutate -> save -> append.
+
+    Every writer takes it, so concurrent processes on one host serialize; the lock file is created if
+    missing and never deleted. Reentrant within a process (save_registry takes it too)."""
+    lp = lock_path(reg_path)
+    key = str(lp)
+    if key in _LOCKS_HELD:
+        _LOCKS_HELD[key] += 1
+        try:
+            yield lp
+        finally:
+            _LOCKS_HELD[key] -= 1
+        return
+    try:
+        fd = os.open(lp, os.O_RDWR | os.O_CREAT, 0o666)
+    except OSError as e:
+        raise Fail(f"cannot open the registry lock {lp}: {e.strerror or e}")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        _LOCKS_HELD[key] = 1
+        try:
+            yield lp
+        finally:
+            del _LOCKS_HELD[key]
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _umask() -> int:
+    old = os.umask(0)
+    os.umask(old)
+    return old
+
+
 def save_registry(path: pathlib.Path, data: dict) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(yaml.safe_dump(data, sort_keys=False, default_flow_style=False,
-                                  allow_unicode=True, width=120))
-    os.replace(tmp, path)
+    """Atomic save (private temp file in the same directory, fsync, os.replace; the old file's mode is
+    kept), then the event lines record() queued on `data` are appended. Under the registry lock."""
+    path = pathlib.Path(path)
+    target = path.resolve() if path.is_symlink() else path
+    text = yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True, width=120)
+    with registry_lock(target):
+        fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(text)
+                f.flush()
+                os.fsync(f.fileno())
+            try:
+                mode = stat.S_IMODE(os.stat(target).st_mode)
+            except FileNotFoundError:
+                mode = 0o666 & ~_umask()
+            os.chmod(tmp, mode)
+            os.replace(tmp, target)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
+            raise
+        flush_events(data)
 
 
 LEAN_PKG_HOME_ENV = "LEAN_PKG_HOME"
@@ -468,18 +539,49 @@ def events_path(args) -> pathlib.Path:
     return registry_path(args).parent / EVENTS_NAME
 
 
-def append_event(events_p: pathlib.Path, ts: str, name, event: str, **fields) -> None:
+def _event_line(ts: str, name, event: str, **fields) -> str:
+    return json.dumps({"ts": ts, "event": event, "name": name, **fields}, sort_keys=True) + "\n"
+
+
+def _write_event_lines(events_p: pathlib.Path, lines: list[str]) -> None:
     events_p.parent.mkdir(parents=True, exist_ok=True)
-    line = {"ts": ts, "event": event, "name": name, **fields}
     with open(events_p, "a", encoding="utf-8") as f:
-        f.write(json.dumps(line, sort_keys=True) + "\n")
+        f.write("".join(lines))
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def append_event(events_p: pathlib.Path, ts: str, name, event: str, **fields) -> None:
+    """Append one event line now: for events with no registry change to save (registry-created after
+    the file is written, registry-migrated after the save, index-added, prior-art-searched)."""
+    _write_event_lines(events_p, [_event_line(ts, name, event, **fields)])
+
+
+# Event lines record() queued, per registry object (id -> (the object, [(events path, line)])); the
+# object is held so its id cannot be reused. save_registry flushes them AFTER the YAML is replaced, so
+# a failure before the save leaves no orphan event line.
+_PENDING_EVENTS: dict[int, tuple[dict, list[tuple[pathlib.Path, str]]]] = {}
+
+
+def flush_events(reg: dict) -> None:
+    """Append the lines queued on `reg` (one write + fsync per event log) and forget them."""
+    entry = _PENDING_EVENTS.pop(id(reg), None)
+    if not entry:
+        return
+    by_path: dict[pathlib.Path, list[str]] = {}
+    for p, line in entry[1]:
+        by_path.setdefault(p, []).append(line)
+    for p, lines in by_path.items():
+        _write_event_lines(p, lines)
 
 
 def record(reg: dict, events_p: pathlib.Path, pkg: dict, event: str, **fields) -> None:
-    """One transition = one history[] entry + one event-log line. Append-only."""
+    """One transition = one history[] entry + one event-log line. Append-only. The line is queued and
+    written by the save_registry(reg) that persists the history entry, never before it."""
     ts = now_iso()
     pkg.setdefault("history", []).append({"ts": ts, "event": event, **fields})
-    append_event(events_p, ts, pkg.get("name"), event, **fields)
+    _PENDING_EVENTS.setdefault(id(reg), (reg, []))[1].append(
+        (pathlib.Path(events_p), _event_line(ts, pkg.get("name"), event, **fields)))
 
 
 # Validator rules a refusal names, keyed by a substring of the validator's message.
@@ -1666,7 +1768,7 @@ def do_init(reg_path: pathlib.Path, events_p: pathlib.Path, force: bool) -> tupl
             raise Fail(f"refusing --force: {reg_path} holds packages or is not a valid YAML registry")
     reg_path.parent.mkdir(parents=True, exist_ok=True)
     data = {"version": REGISTRY_VERSION, "packages": {}}
-    reg_path.write_text(yaml.safe_dump(data, sort_keys=False))
+    save_registry(reg_path, data)
     append_event(events_p, now_iso(), None, "registry-created", registry=str(reg_path))
     out = [f"registry created: {reg_path} (version {REGISTRY_VERSION}); "
            f"events: {events_p}"]
@@ -2076,10 +2178,23 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
         findings.append({"check": check, "name": name,
                          "detail": detail, "fixed": fixed})
 
+    # Parse every lease before mutating anything: a lease that cannot be read is a finding, not a
+    # traceback halfway through a --fix.
+    bad_lease: set[str] = set()
+    for name in sorted(reg["packages"]):
+        lease = (reg["packages"][name] or {}).get("lease")
+        if lease:
+            try:
+                lease_expiry(lease)
+            except (TypeError, ValueError, KeyError, AttributeError) as e:
+                bad_lease.add(name)
+                note("lease-invalid", name,
+                     f"lease cannot be parsed ({type(e).__name__}: {e}); not swept")
+
     for name in sorted(reg["packages"]):
         pkg = reg["packages"][name]
         lease = pkg.get("lease")
-        if lease and not lease_live(lease, now):
+        if lease and name not in bad_lease and not lease_live(lease, now):
             who = f"{lease.get('agent')}@{lease.get('workspace')} until {lease_expiry(lease).isoformat()}"
             if fix:
                 note("lease-expired", name, f"was {who} — cleared", fixed=True)
@@ -2399,6 +2514,21 @@ def cmd_status(args) -> int:
 # --------------------------------------------------------------------------
 # TUI
 
+def parse_ttl_hours(text: str) -> int:
+    """The TUI's TTL prompt: blank -> DEFAULT_TTL_HOURS; otherwise a whole number of hours > 0, else Fail
+    (never a silent default: "1.5" or "0" is refused, not turned into 24)."""
+    t = (text or "").strip()
+    if not t:
+        return DEFAULT_TTL_HOURS
+    try:
+        ttl = int(t)
+    except ValueError:
+        raise Fail(f"ttl must be a whole number of hours, got {t!r}")
+    if ttl <= 0:
+        raise Fail(f"ttl must be a positive number of hours, got {t!r}")
+    return ttl
+
+
 TUI_HELP = """\
 lean-pkg board — keys
 
@@ -2565,15 +2695,20 @@ class _Tui:
         if not agent:
             self.msg = "claim cancelled"
             return
-        ttl_s = self.prompt(f"ttl hours [{DEFAULT_TTL_HOURS}]: ")
-        ttl = int(ttl_s) if ttl_s.isdigit() and int(ttl_s) > 0 else DEFAULT_TTL_HOURS
+        try:
+            ttl = parse_ttl_hours(self.prompt(f"ttl hours [{DEFAULT_TTL_HOURS}]: "))
+        except Fail as e:
+            self.msg = f"claim cancelled: {e}"
+            return
         reason = self.prompt("reason (optional): ")
         if not self.confirm(f"claim {name} for {agent}@{ws} ({ttl}h)?"):
             self.msg = "claim cancelled"
             return
         try:
-            out, _ = do_claim(self.reg_path, self.reg, self.events_p,
-                              name, ws, agent, ttl, reason, False)
+            with registry_lock(self.reg_path):   # act on the registry as it is now, not as last drawn
+                self.reload()
+                out, _ = do_claim(self.reg_path, self.reg, self.events_p,
+                                  name, ws, agent, ttl, reason, False)
             self.msg = out[-1]
         except Fail as e:
             self.msg = f"refused: {e}"
@@ -2589,8 +2724,10 @@ class _Tui:
             self.msg = "release cancelled"
             return
         try:
-            out, _ = do_release(self.reg_path, self.reg, self.events_p,
-                                name, agent or None, force)
+            with registry_lock(self.reg_path):
+                self.reload()
+                out, _ = do_release(self.reg_path, self.reg, self.events_p,
+                                    name, agent or None, force)
             self.msg = out[-1]
         except Fail as e:
             self.msg = f"refused: {e}"
@@ -2608,7 +2745,9 @@ class _Tui:
             self.msg = "gate cancelled"
             return
         try:
-            out, _ = do_gate(self.reg_path, self.reg, self.events_p, name, path)
+            with registry_lock(self.reg_path):
+                self.reload()
+                out, _ = do_gate(self.reg_path, self.reg, self.events_p, name, path)
             self.show_text(f"gate {name}", "\n".join(out))
             self.msg = out[-1]
         except Fail as e:
@@ -2830,7 +2969,7 @@ update    set fields; manual status moves need --reason (a refusal lists the all
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Refuses same
   path, another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
-claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry).
+claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
   flags: --workspace W --agent A (required) [--ttl HOURS=24] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera
@@ -3754,8 +3893,64 @@ def main(argv: list[str] | None = None) -> int:
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)
+    try:
+        with write_lock(args):
+            return run_command(args)
+    except Fail as e:   # the lock itself could not be taken
+        _report_fail(args, e)
+        return 1
+    except OSError as e:   # init could not create the registry directory for its lock
+        _report_fail(args, Fail(f"cannot prepare the registry lock: {e}"))
+        return 1
+
+
+def _report_fail(args, e: Fail) -> None:
+    if getattr(args, "json_out", False):
+        print_json({"ok": False, "error": str(e)})
+    print(f"lean-pkg: {e}", file=sys.stderr)
+
+
+def locks_registry(args) -> bool:
+    """Does this invocation write the registry (load -> check -> mutate -> save -> append)? Those run
+    under registry_lock for the whole command, commit preflight and commit included. `search --record`
+    and `index add` append an event only and lock just around that write (they may use the network)."""
+    cmd = getattr(args, "cmd", None)
+    if cmd in ("init", "record", "register", "claim", "release", "renew", "update", "gate",
+               "comparator", "migrate"):
+        return not getattr(args, "dry_run", False)
+    if cmd == "promote":
+        return bool(getattr(args, "yes", False))
+    if cmd == "audit":
+        return bool(getattr(args, "fix", False))
+    if cmd == "formalization":
+        return bool(getattr(args, "write", False))
+    if cmd == "claims":
+        return getattr(getattr(args, "claims_fn", None), "__name__", "") == "run_sync"
+    return False
+
+
+def write_lock(args):
+    """registry_lock(registry) when this invocation writes and the registry exists (init: its directory
+    is created first); otherwise a no-op context."""
+    if not locks_registry(args):
+        return contextlib.nullcontext()
+    reg_p = registry_path(args)
+    if getattr(args, "cmd", None) == "init":
+        reg_p.parent.mkdir(parents=True, exist_ok=True)
+    elif not reg_p.is_file():
+        return contextlib.nullcontext()   # the command reports "registry not found" itself
+    return registry_lock(reg_p)
+
+
+DEBUG_ENV = "LEAN_PKG_DEBUG"
+
+
+def run_command(args) -> int:
+    """Run the subcommand; refusals map to exit 2/1; an unexpected exception still lets commit_finish
+    report (and not commit), then exits 1 with a one-line internal error (traceback: LEAN_PKG_DEBUG=1)."""
     mode = commit_mode(args)
     ctx = None
+    crash = None
     try:
         if mode:
             ctx = commit_preflight(args, mode)
@@ -3764,12 +3959,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"lean-pkg: {e}", file=sys.stderr)
         rc = 2
     except Fail as e:
-        if getattr(args, "json_out", False):
-            print_json({"ok": False, "error": str(e)})
-        print(f"lean-pkg: {e}", file=sys.stderr)
+        _report_fail(args, e)
+        rc = 1
+    except Exception as e:   # noqa: BLE001 -- the top-level handler: report, never a bare traceback
+        crash = e
         rc = 1
     if ctx is not None:
         rc = commit_finish(ctx, rc)
+    if crash is not None:
+        if _env_on(DEBUG_ENV):
+            traceback.print_exception(type(crash), crash, crash.__traceback__)
+        msg = f"internal error: {type(crash).__name__}: {crash}"
+        if getattr(args, "json_out", False):
+            print_json({"ok": False, "error": msg})
+        print(f"lean-pkg: {msg}", file=sys.stderr)
     return rc
 
 

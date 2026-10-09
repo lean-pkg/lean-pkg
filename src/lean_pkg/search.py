@@ -10,6 +10,7 @@ score. A skipped source is never a zero.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import pathlib
 import re
@@ -259,8 +260,10 @@ def cmd_search(args) -> int:
     if args.record:
         from . import prior_art
         events_p = core.events_path(args) if (args.events or reg_path.is_file()) else None
-        lines, payload["record"] = prior_art.write_record(payload, reg_path=reg_path,
-                                                          events_p=events_p, repo_dir=args.repo_dir)
+        # the network search above runs unlocked; the record file and its event under the registry lock
+        with core.registry_lock(reg_path) if reg_path.is_file() else contextlib.nullcontext():
+            lines, payload["record"] = prior_art.write_record(payload, reg_path=reg_path,
+                                                              events_p=events_p, repo_dir=args.repo_dir)
         out += lines
     if args.json_out:
         core.print_json(payload)

@@ -170,6 +170,14 @@ the local commit; run the `git push origin <branch>` it prints. `--no-commit`
 turns the mode off for one command, and `lean-pkg doctor --fetch` shows how
 the clone stands against `origin`.
 
+Writers on one host serialize on a lock file next to the registry,
+`lean-packages.yaml.lock`. It is created on first use and never deleted;
+keep it out of git:
+
+```bash
+echo lean-packages.yaml.lock >> .gitignore    # in the registry repository
+```
+
 On each machine, link the user-level default to the clone once, so every
 shell, including non-interactive SSH, finds the registry without
 `LEAN_PKG_REGISTRY` or `--registry`:

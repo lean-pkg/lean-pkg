@@ -33,6 +33,7 @@ def shared(env, tmp_path):
     (seed / REG).write_text(env.registry.read_text())
     (seed / EV).write_text(env.events.read_text() if env.events.exists() else "")
     (seed / "README.md").write_text("registry\n")
+    (seed / ".gitignore").write_text(REG + ".lock\n")   # the writers' lock file (docs/how-to.md)
     _git(seed, "add", "-A")
     _git(seed, "commit", "-q", "-m", "registry")
     origin = tmp_path / "origin.git"

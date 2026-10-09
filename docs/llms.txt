@@ -54,7 +54,7 @@ update    set fields; manual status moves need --reason (a refusal lists the all
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Refuses same
   path, another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
-claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry).
+claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
   flags: --workspace W --agent A (required) [--ttl HOURS=24] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera

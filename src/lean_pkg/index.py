@@ -10,6 +10,7 @@ writes the Markdown table. Trust is computed from evidence, never typed.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import pathlib
@@ -724,8 +725,10 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
         out.append("provisional: --allow-unpushed skipped the public-repository check; "
                    "`index check --clone` will fail until the pin and evidence are pushed")
     if events_p is not None:
-        core.append_event(events_p, core.now_iso(), name, "index-added", repo=repo,
-                          commit=pin, trust=trust, index=str(root))
+        lock_reg = opts.get("registry_lock")   # the clone above runs unlocked; the append under the lock
+        with core.registry_lock(lock_reg) if lock_reg else contextlib.nullcontext():
+            core.append_event(events_p, core.now_iso(), name, "index-added", repo=repo,
+                              commit=pin, trust=trust, index=str(root))
     else:
         out.append("no event log (no registry here and no --events): index-added not recorded")
     return out, {"ok": True, "name": name, "event": "index-added", "trust": trust,
@@ -762,7 +765,8 @@ def run_add(args) -> int:
             "formalization_yaml": args.formalization_yaml,
             "consent_recorded": args.consent_recorded, "by": args.by,
             "notes": args.notes, "repo_dir": args.repo_dir,
-            "allow_unpushed": args.allow_unpushed}
+            "allow_unpushed": args.allow_unpushed,
+            "registry_lock": reg_path if reg_path.is_file() else None}
     out, payload = do_index_add(root, events_p, reg, args.name, opts)
     rc = _emit(args, out, payload)
     if not args.json_out:

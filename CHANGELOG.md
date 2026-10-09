@@ -100,6 +100,24 @@ change the registry schema or receipt format, always with a migration).
   supported (supported: 1, 2, 3)`, exit 1) instead of showing an empty table;
   `doctor` still reports it as a warning, and `migrate` of older versions is
   unchanged. (#16)
+- Registry writes are safe across processes on one host. Every write command
+  (and the TUI's claim/release/gate keys) holds an exclusive `flock` on
+  `<registry>.lock`, a sibling file created on first use, from load through
+  save, event append and the `--commit` step, so 8 parallel `claim`s have one
+  winner and parallel `update`s lose nothing (`search --record` and
+  `index add` lock only around their event append). `save_registry` writes a
+  private temp file in the registry's directory, fsyncs it and replaces the
+  registry atomically, keeping the old file's mode (no shared `.tmp`). An
+  event line is appended only after the registry that records it is saved,
+  in one write + fsync, so a failure in between leaves no orphan event.
+  `audit --fix` reports an unparsable lease as `lease-invalid` instead of a
+  traceback. An unexpected exception still lets `--commit` report (and not
+  commit), then exits 1 with `lean-pkg: internal error: <type>: <msg>`
+  (`{"ok": false, "error": ...}` under `--json`; traceback with
+  `LEAN_PKG_DEBUG=1`). The TUI re-reads the registry under the lock before
+  acting and refuses a TTL that is not a positive whole number instead of
+  defaulting it to 24. Add `lean-packages.yaml.lock` to the registry
+  repository's `.gitignore`. (#14)
 
 ## [0.5.0] - 2026-10-08
 
