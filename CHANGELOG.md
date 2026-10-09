@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `--registry-snapshot COMMIT` global option (env `LEAN_PKG_REGISTRY_SNAPSHOT`): run a read-only
+  command against the registry file and event log as of `COMMIT` of the git repository holding
+  them (read with `git show` into a temporary copy). Every write is refused with exit 2
+  (`read-only: --registry-snapshot`); `--json` objects gain `registry_snapshot`. Replaces pointing
+  `LEAN_PKG_REGISTRY` at a hand-made historical copy, for instance to run
+  `comparator config --checkout DIR --dry-run` on a copy at an earlier claims-synced commit. (#34)
+
 ## [0.7.7] - 2026-10-09
 
 ### Fixed

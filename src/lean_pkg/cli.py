@@ -811,6 +811,110 @@ def events_path(args) -> pathlib.Path:
     return events_source(args)[0]
 
 
+SNAPSHOT_ENV = "LEAN_PKG_REGISTRY_SNAPSHOT"
+SNAPSHOT_REFUSAL = "read-only: --registry-snapshot"
+
+
+def registry_snapshot_arg(args) -> str | None:
+    """--registry-snapshot COMMIT, else env LEAN_PKG_REGISTRY_SNAPSHOT, else None."""
+    flag = (getattr(args, "registry_snapshot", None) or "").strip()
+    return flag or os.environ.get(SNAPSHOT_ENV, "").strip() or None
+
+
+def registry_home_dir(args) -> pathlib.Path:
+    """The directory the registry file lives in: under --registry-snapshot the working-tree directory, not
+    the temporary copy (siblings such as index/ and the adoption ledger are read from there)."""
+    origin = getattr(args, "snapshot_origin_dir", None)
+    return pathlib.Path(origin) if origin else registry_path(args).parent
+
+
+def _git_show_bytes(top: pathlib.Path, rev: str, rel: str) -> bytes | None:
+    """The blob `git show REV:REL` in the repository at `top`, or None when REL is not in REV."""
+    try:
+        p = subprocess.run(["git", "-C", str(top), "show", f"{rev}:{rel}"],
+                           capture_output=True, check=False)
+    except OSError as e:
+        raise Fail(f"--registry-snapshot: cannot run git: {e.strerror or e}")
+    return p.stdout if p.returncode == 0 else None
+
+
+def materialize_snapshot(args, commit: str, tmp: pathlib.Path) -> str:
+    """Write the registry file (and its event log, when that commit has one) as of COMMIT into `tmp` and
+    point args at the copies; returns the full commit sha. The registry must live in a git work tree."""
+    reg_p, _ = registry_source(args)
+    reg_p = pathlib.Path(os.path.realpath(reg_p.expanduser()))
+    if reg_p.is_dir():
+        reg_p = reg_p / DEFAULT_REGISTRY_NAME
+    ev_p = pathlib.Path(os.path.realpath(events_path(args)))
+    d = reg_p.parent
+    top_p = registry_git(d, "rev-parse", "--show-toplevel") if d.is_dir() else None
+    if top_p is None or top_p.returncode != 0 or not top_p.stdout.strip():
+        raise Fail(f"--registry-snapshot: the registry {reg_p} is not inside a git work tree")
+    top = pathlib.Path(os.path.realpath(top_p.stdout.strip()))
+    rv = registry_git(top, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")
+    sha = rv.stdout.strip()
+    if rv.returncode != 0 or not sha:
+        raise Fail(f"--registry-snapshot: {commit!r} is not a commit in {top}")
+    rel = reg_p.relative_to(top).as_posix()
+    blob = _git_show_bytes(top, sha, rel)
+    if blob is None:
+        raise Fail(f"--registry-snapshot: {rel} does not exist at {sha[:12]} in {top}")
+    snap_reg = tmp / DEFAULT_REGISTRY_NAME
+    snap_reg.write_bytes(blob)
+    snap_ev = tmp / EVENTS_NAME   # absent unless the commit has the log: an empty history, never the live log
+    try:
+        ev_rel = ev_p.relative_to(top).as_posix()
+    except ValueError:
+        ev_rel = None
+    ev_blob = _git_show_bytes(top, sha, ev_rel) if ev_rel else None
+    if ev_blob is not None:
+        snap_ev.write_bytes(ev_blob)
+    args.snapshot_origin_dir = str(d)
+    args.registry, args.events = str(snap_reg), str(snap_ev)
+    args.no_commit = True
+    args.registry_snapshot_sha = sha
+    return sha
+
+
+def run_snapshot(args, commit: str) -> int:
+    """Run a read-only invocation against the registry as of COMMIT (#34). Every invocation that would
+    write the registry or its event log (is_write_invocation; hence also every commit and push) is refused
+    with exit 2 before anything is read; a --json payload that is one object gains registry_snapshot."""
+    json_out = getattr(args, "json_out", False)
+    args.snapshot_read_only = True   # `board` on a tty prints the static table, never the (writing) TUI
+    if is_write_invocation(args):
+        cmd = getattr(args, "cmd", None) or "board"
+        msg = (f"{SNAPSHOT_REFUSAL}: `{cmd}` would write the registry; a snapshot is read-only "
+               f"(drop --registry-snapshot / unset {SNAPSHOT_ENV} to write the current registry)")
+        if json_out:
+            print_json({"ok": False, "error": msg, "usage": True})
+        print(f"lean-pkg: {msg}", file=sys.stderr)
+        return 2
+    with tempfile.TemporaryDirectory(prefix="lean-pkg-snapshot-") as tmp:
+        try:
+            sha = materialize_snapshot(args, commit, pathlib.Path(tmp))
+        except Fail as e:
+            _report_fail(args, e)
+            return 1
+        print(f"lean-pkg: registry snapshot {sha[:12]} (read-only)", file=sys.stderr)
+        if not json_out:
+            return run_command(args)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = run_command(args)
+    text = buf.getvalue()
+    try:
+        payload = json.loads(text)
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        payload["registry_snapshot"] = sha
+        print_json(payload)
+    else:
+        sys.stdout.write(text)
+    return rc
+
+
 def _event_line(ts: str, name, event: str, **fields) -> str:
     return json.dumps({"ts": ts, "event": event, "name": name, **fields}, sort_keys=True) + "\n"
 
@@ -3707,9 +3811,11 @@ def print_dump(args, reg: dict) -> int:
 
 
 def static_view(args) -> bool:
-    """`board` prints the static table/dump instead of the TUI: --json, --only, --fields or --no-claims given."""
+    """`board` prints the static table/dump instead of the TUI: --json, --only, --fields or --no-claims given,
+    or a read-only --registry-snapshot."""
     return bool(getattr(args, "json_out", False)) or getattr(args, "only", None) is not None \
-        or getattr(args, "fields", None) is not None or bool(getattr(args, "no_claims", False))
+        or getattr(args, "fields", None) is not None or bool(getattr(args, "no_claims", False)) \
+        or bool(getattr(args, "snapshot_read_only", False))
 
 
 def cmd_board(args) -> int:
@@ -4169,7 +4275,7 @@ def cmd_wiki(args) -> int:
     reg = load_registry(reg_path)
     cand_path = (pathlib.Path(args.candidates).expanduser()
                  if getattr(args, "candidates", None)
-                 else reg_path.parent / "lean-adoption-candidates.yaml")
+                 else registry_home_dir(args) / "lean-adoption-candidates.yaml")
     candidates = load_candidates(cand_path)
     text = render_wiki(reg, candidates)
     if args.out:
@@ -4226,7 +4332,7 @@ verified-private -> public         `promote --yes` after a clean dry-run checkli
 public -> upstreamed               `update --status`: a recorded mathlib-pr-merged / palomar-registered event, or a --reason with the URL
 any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public never returns to a private status
 
-SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path})
+SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path}; --registry-snapshot COMMIT (env LEAN_PKG_REGISTRY_SNAPSHOT): read-only, the registry + event log as of COMMIT of its git repo (git show into a temp copy); reads work (status/list/board/audit/dry runs/comparator config --dry-run), every write exits 2 `read-only: --registry-snapshot`; --json +registry_snapshot sha)
 board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
 status    full record + last 5 history entries; --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
@@ -5315,6 +5421,10 @@ def main(argv: list[str] | None = None) -> int:
                     help=f"--commit, then push to origin (default: ${PUSH_ENV}=1)")
     ap.add_argument("--no-commit", action="store_true",
                     help=f"never commit or push, overriding ${COMMIT_ENV} and ${PUSH_ENV}")
+    ap.add_argument("--registry-snapshot", metavar="COMMIT", default=None,
+                    help=f"read-only: read the registry file (and its event log) as of COMMIT of the git "
+                         f"repository holding it (env ${SNAPSHOT_ENV}); every write exits 2; --json adds "
+                         f"registry_snapshot")
     from . import __version__
     ap.add_argument("--version", dest="show_version", action="store_true",
                     help=f"print lean-pkg {__version__} and the build that runs: short commit (+dirty) and "
@@ -5644,6 +5754,9 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     if getattr(args, "show_version", False):   # before the registry lock: --version reads no registry
         return cmd_version(args)
+    snapshot = registry_snapshot_arg(args)
+    if snapshot:   # #34: a historical registry, read-only; no lock (nothing is written)
+        return run_snapshot(args, snapshot)
     try:
         with write_lock(args):
             return run_command(args)

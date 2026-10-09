@@ -57,7 +57,7 @@ def index_source(args) -> tuple[pathlib.Path, str]:
     env = os.environ.get(INDEX_ENV, "").strip()
     if env:
         return pathlib.Path(env).expanduser(), "env"
-    beside = core.registry_path(args).parent / DEFAULT_INDEX_DIR
+    beside = core.registry_home_dir(args) / DEFAULT_INDEX_DIR
     if beside.is_dir():
         return beside, "registry-sibling"
     return pathlib.Path.cwd() / DEFAULT_INDEX_DIR, "cwd"

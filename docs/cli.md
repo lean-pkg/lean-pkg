@@ -15,6 +15,26 @@ as `doctor`'s `install` line, local only, never a fetch; with `--json`:
 outside an editable checkout).
 Every subcommand also accepts `--json`, `--commit`, `--push` and `--no-commit`
 after its name.
+`--registry-snapshot COMMIT` (env `LEAN_PKG_REGISTRY_SNAPSHOT`; the flag wins)
+runs a read-only command against the registry as it was at `COMMIT` of the git
+repository that holds the registry file: `lean-pkg` reads `lean-packages.yaml`
+and, when that commit has it, the event log with `git show COMMIT:<path>` into a
+temporary copy (a commit without the log reads as an empty log, never the live
+one), runs the command against the copy and deletes it. `COMMIT` is anything
+`git rev-parse` accepts (a sha, a tag, `HEAD~3`). Reads work: `status`, `list`,
+`board` (always the static view), `leases`, `audit` without `--fix`,
+`validate`, `wiki`, dry runs, and `comparator config ... --dry-run` (useful with
+`--checkout DIR` on a copy at the commit the claims were synced at back then);
+the index and the adoption ledger are still read beside the working-tree
+registry. Every invocation that would write the registry or its event log, and
+so every commit and push, is refused before anything is read, exit 2:
+``lean-pkg: read-only: --registry-snapshot: `<cmd>` would write the registry; a
+snapshot is read-only (drop --registry-snapshot / unset
+LEAN_PKG_REGISTRY_SNAPSHOT to write the current registry)`` (with `--json`
+`{"ok": false, "error": ..., "usage": true}`). A registry outside a git work
+tree, an unknown commit, or a registry file absent at that commit is a refusal
+(exit 1). stderr notes `registry snapshot <sha12> (read-only)`; a `--json`
+payload that is one object gains `"registry_snapshot": "<full sha>"`.
 Committed mode (`--commit`, or env `LEAN_PKG_COMMIT=1`) applies to invocations
 that write, decided from the parsed arguments: every write command, `index add`,
 `formalization --write`, `claims sync`, `search --record` and the TUI's keys
