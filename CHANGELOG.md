@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-10-09
+
 ### Added
 
 - `status NAME --fields a,b,c` (JSON and text): only those keys of the package record; dotted
