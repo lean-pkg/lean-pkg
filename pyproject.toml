@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lean-pkg"
-version = "0.5.0"
+version = "0.6.0"
 description = "Lifecycle registry and trust gate for Lean 4 formalization packages: leases, receipt-bound gates, comparator (Palomar) evidence, one-way promotion."
 readme = "README.md"
 requires-python = ">=3.11"
