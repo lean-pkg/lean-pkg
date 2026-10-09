@@ -7,6 +7,12 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `board`/`list` have an `EXPIRES` column (`in 2h13m` while a lease is live,
+  `3h ago` once it lapsed and `audit --fix` has not swept it yet); their
+  `--json` output adds `expires_at` to every lease. (#8)
+
 ### Changed
 
 - `lean-pkg audit` is read-only without `--fix`: an expired lease is reported

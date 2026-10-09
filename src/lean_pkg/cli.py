@@ -171,7 +171,7 @@ COMPARATOR_CONFIG_FIELDS = ["path", "sha256", "challenge_module",
 LICENSE_NAMES = ["LICENSE", "LICENSE.md", "LICENSE.txt",
                  "COPYING", "COPYING.md", "COPYING.txt"]
 
-BOARD_HEADER = ("NAME", "STATUS", "VIS", "LEASE", "PIN", "REAUDIT")
+BOARD_HEADER = ("NAME", "STATUS", "VIS", "LEASE", "EXPIRES", "PIN", "REAUDIT")
 
 
 class Fail(Exception):
@@ -444,6 +444,42 @@ def lease_expiry(lease: dict) -> dt.datetime:
 
 def lease_live(lease: dict | None, now: dt.datetime) -> bool:
     return bool(lease) and now < lease_expiry(lease)
+
+
+def human_delta(seconds: float) -> str:
+    """Compact duration: 45s, 12m, 2h13m, 1d2h (largest two units)."""
+    s = int(abs(seconds))
+    d, s = divmod(s, 86400)
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    if d:
+        return f"{d}d{h}h" if h else f"{d}d"
+    if h:
+        return f"{h}h{m}m" if m else f"{h}h"
+    if m:
+        return f"{m}m"
+    return f"{s}s"
+
+
+def lease_expires_label(lease: dict | None, now: dt.datetime) -> str:
+    """Board cell: `in 2h13m` while the lease is live, `3h ago` once it has lapsed
+    (until `audit --fix` sweeps it), `-` without a lease."""
+    if not lease:
+        return "-"
+    delta = (lease_expiry(lease) - now).total_seconds()
+    return f"in {human_delta(delta)}" if delta > 0 else f"{human_delta(delta)} ago"
+
+
+def with_expiry(reg: dict) -> dict:
+    """A copy of the registry whose live lease mappings also carry `expires_at` (ISO, UTC);
+    for --json consumers so nobody recomputes claimed_at + ttl_hours."""
+    import copy
+    out = copy.deepcopy(reg)
+    for pkg in out.get("packages", {}).values():
+        lease = pkg.get("lease")
+        if lease:
+            lease["expires_at"] = lease_expiry(lease).isoformat()
+    return out
 
 
 def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force):
@@ -1838,7 +1874,7 @@ def validate_registry(data) -> list[str]:
 # --------------------------------------------------------------------------
 # board / list / status
 
-def row_fields(pkg: dict, now: dt.datetime) -> tuple[str, str, str, str, str, str]:
+def row_fields(pkg: dict, now: dt.datetime) -> tuple[str, str, str, str, str, str, str]:
     lease = pkg.get("lease")
     if lease:
         label = f"{lease.get('agent')}@{lease.get('workspace') or '-'}"
@@ -1847,7 +1883,7 @@ def row_fields(pkg: dict, now: dt.datetime) -> tuple[str, str, str, str, str, st
     else:
         label = "-"
     return (str(pkg.get("name")), str(pkg.get("status")),
-            str(pkg.get("visibility")), label,
+            str(pkg.get("visibility")), label, lease_expires_label(lease, now),
             str(pkg.get("mathlib_pin") or "-"),
             str(pkg.get("reaudit_after") or "-"))
 
@@ -1864,7 +1900,7 @@ def table_lines(reg: dict, now: dt.datetime | None = None) -> list[str]:
 def cmd_board(args) -> int:
     reg_path = registry_path(args)
     if args.json_out:
-        print_json(load_registry(reg_path))
+        print_json(with_expiry(load_registry(reg_path)))
         return 0
     interactive = (sys.stdin.isatty() and sys.stdout.isatty()
                    and os.environ.get("TERM", "") != "dumb")
@@ -1883,7 +1919,7 @@ def cmd_board(args) -> int:
 def cmd_list(args) -> int:
     reg = load_registry(registry_path(args))
     if args.json_out:
-        print_json(reg)
+        print_json(with_expiry(reg))
         return 0
     print("\n".join(table_lines(reg)))
     return 0

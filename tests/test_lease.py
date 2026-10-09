@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+
 from .conftest import read_events, read_reg, set_lease
 
 
@@ -129,3 +131,34 @@ def test_audit_fix_sweeps_expired_lease(lp, env, fake_gh, capsys):
                for e in events)
     assert any(h["event"] == "lease-expired"
                for h in reg["packages"]["alpha"]["history"])
+
+
+def test_list_shows_when_a_lease_expires(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)      # live: ~23h left
+    set_lease(env, "beta", agent="max", hours_ago=25, ttl=24)       # lapsed ~1h ago, not swept
+    assert lp.main(["--registry", str(env.registry), "list"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].split() == ["NAME", "STATUS", "VIS", "LEASE", "EXPIRES", "PIN", "REAUDIT"]
+    alpha = next(l for l in lines if l.startswith("alpha"))
+    beta = next(l for l in lines if l.startswith("beta"))
+    assert "vera@" in alpha and "in 22h" in alpha
+    assert "max@" in beta and "EXPIRED" in beta and "1h ago" in beta or "59m ago" in beta
+
+
+def test_list_json_carries_expires_at(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    assert lp.main(["--registry", str(env.registry), "--json", "list"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    lease = data["packages"]["alpha"]["lease"]
+    assert lease["expires_at"] == lp.lease_expiry(lease).isoformat()
+    assert data["packages"]["beta"]["lease"] is None
+    # the registry on disk is untouched by the computed field
+    assert "expires_at" not in (read_reg(env)["packages"]["alpha"]["lease"] or {})
+
+
+def test_human_delta(lp):
+    assert lp.human_delta(45) == "45s"
+    assert lp.human_delta(12 * 60) == "12m"
+    assert lp.human_delta(2 * 3600 + 13 * 60) == "2h13m"
+    assert lp.human_delta(26 * 3600) == "1d2h"
+    assert lp.human_delta(-90) == "1m"
