@@ -137,6 +137,23 @@ def test_fresh_repo_refuses_an_export_with_hits(lp, gated, capsys):
     assert list(g.target.parent.glob(".lean-pkg-export-*")) == []   # the staging directory is removed
 
 
+def test_fresh_repo_reports_warn_only_hits_without_refusing(lp, gated, capsys):
+    """#36: a latex-label hit in the exported tree is a warning, not a refusal."""
+    g = gated
+    (g.repo / "Main.lean").write_text("/-- See lem:main_bound. -/\ntheorem t : True := trivial\n")
+    _git(g.repo, "commit", "-q", "-am", "doc comment")
+    assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--dry-run", "--json",
+               "--source-commit", repo_head(g.repo)) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["public_safety"] == {"hits": 1, "tree_hits": 1, "block_hits": 0, "warn_hits": 1}
+    assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--dry-run",
+               "--source-commit", repo_head(g.repo)) == 0
+    out = capsys.readouterr().out
+    assert ("public-safety on the exported tree: 0 blocking hit(s), 1 warning(s) (latex-label); "
+            "review with `lean-pkg public-safety pkg --strict` before publishing") in out
+    assert "main_bound" not in out
+
+
 def test_fresh_repo_keep_receipts_and_remote(lp, gated, capsys):
     g = gated
     url = "git@github.com:example/pkg-public.git"

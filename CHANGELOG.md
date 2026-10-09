@@ -7,6 +7,17 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `public-safety`: a warn-only built-in family `latex-label` for references to a LaTeX manuscript
+  (cross-reference keys such as `lem:`/`thm:`/`eq:`/`sec:`, `main.tex`, `\ref{`/`\cite{`/`\label{`
+  fragments, Overleaf, arXiv ids), which leak an unposted paper with no path in them. Every hit gains
+  `severity` (`block` or `warn`); warn hits print as `WARN` lines, keep the exit status 0 and do not
+  block `promote` or `release --fresh-repo` on their own (promote shows a `WARN` checklist line).
+  `.lean-pkg-private-patterns` accepts `block: REGEX` (as a bare line) and `warn: REGEX`;
+  `--strict` makes warn hits blocking. JSON gains `block_hits`, `warn_hits`, `strict` (and
+  `block_hits`/`warn_hits` in promote's and publish's `public_safety`); `hits` keeps every hit. (#36)
+
 ## [0.7.9] - 2026-10-09
 
 ### Added

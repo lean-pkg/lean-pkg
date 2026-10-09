@@ -178,9 +178,10 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
             else:
                 receipts_note = "--keep-receipts: no .lean-receipts/ tracked at the source HEAD; nothing copied"
         result = ps.scan(pkg, stage, export=True, patterns_root=repo, source_repo=repo)
-        if result["hits"]:
-            lines = [ps.hit_line(h) for h in result["hits"][:20]]
-            raise core.Fail(f"{name}: the exported tree of {src[:12]} has {len(result['hits'])} public-safety "
+        blocking = ps.blocking(result["hits"])   # #36: warn-only hits are reported, not refused
+        if blocking:
+            lines = [ps.hit_line(h) for h in blocking[:20]]
+            raise core.Fail(f"{name}: the exported tree of {src[:12]} has {len(blocking)} public-safety "
                             f"hit(s); nothing written:\n" + "\n".join(lines)
                             + "\nfix them at the source (commit, then --source-commit SHA), or move them under "
                               "an internal path (notes/, drafts/, ...) so the export drops them")
@@ -192,11 +193,15 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
         plan += [f"  dropped: {d['path']}  ({d['reason']})" for d in dropped]
         if receipts_note:
             plan.append(f"  note: {receipts_note}")
-        plan.append("  public-safety on the exported tree: 0 hit(s)")
+        nw = result["warn_hits"]
+        plan.append("  public-safety on the exported tree: 0 hit(s)" if not nw else
+                    f"  public-safety on the exported tree: 0 blocking hit(s), {nw} warning(s) "
+                    f"({ps.warn_families(result['hits'])}); review with `lean-pkg public-safety {name} --strict` "
+                    f"before publishing")
         payload = {"ok": True, "name": name, "dry_run": bool(dry_run), "source_commit": src,
                    "source": chosen, "export_path": stored, "files": files, "excluded": dropped,
                    "kept_receipts": bool(keep_receipts), "commit_message": msg, "remote": remote,
-                   "public_safety": {"hits": 0, "tree_hits": 0}}
+                   "public_safety": {"hits": nw, "tree_hits": nw, "block_hits": 0, "warn_hits": nw}}
         status_after = (preview.get("status") or {}).get("to") or status
         if dry_run:
             nxt = next_commands(name, target, "<new12>", remote, status_after != "gate-pending")

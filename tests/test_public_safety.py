@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from types import SimpleNamespace
 
 import yaml
@@ -143,7 +144,8 @@ def test_promote_refuses_while_hits_remain(lp, env, fake_gh, capsys):
     assert "refusing: checklist has failures" in out
     assert run(lp, env.registry, "promote", "beta", "--json") == 1
     payload = json.loads(capsys.readouterr().out)
-    assert payload["public_safety"] == {"skipped": False, "hits": 1, "tree_hits": 1, "history_hits": 0}
+    assert payload["public_safety"] == {"skipped": False, "hits": 1, "tree_hits": 1, "history_hits": 0,
+                                        "block_hits": 1, "warn_hits": 0}
     assert run(lp, env.registry, "promote", "beta", "--skip-public-safety", "--json") == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["public_safety"] == {"skipped": True}
@@ -191,3 +193,88 @@ def test_package_subdirectory_scans_only_its_own_history(lp, tmp_path, capsys):
     reg = make_env(tmp_path, root / "lean")
     assert run(lp, reg, "public-safety", "pkg", "--json") == 0
     assert json.loads(capsys.readouterr().out)["hits"] == []
+
+
+# #36: LaTeX manuscript references (latex-label, warn-only), per-hit severity, --strict, block:/warn: lines
+
+PAPER_LEAN = "/-- The bound of lem:main_bound in the manuscript. -/\ntheorem t : True := trivial\n"
+
+
+def test_latex_label_is_a_warn_hit_exit_0(lp, tmp_path, capsys):
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={"Main.lean": PAPER_LEAN})
+    reg = make_env(tmp_path, repo)
+    assert run(lp, reg, "public-safety", "pkg") == 0
+    out = capsys.readouterr().out
+    assert "lem:main_bound" not in out and "main_bound" not in out          # redacted like every hit
+    assert "1 hit(s) (1 tree, 0 history); 0 blocking, 1 warning(s)" in out
+    assert "  WARN tree     Main.lean:1  [latex-label]  " in out and "[…]" in out
+    assert "ok: 0 blocking hit(s), 1 warning(s) (latex-label)" in out
+    assert run(lp, reg, "public-safety", "pkg", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True and payload["strict"] is False
+    assert (payload["block_hits"], payload["warn_hits"], len(payload["hits"])) == (0, 1, 1)
+    hit = payload["hits"][0]
+    assert (hit["pattern"], hit["kind"], hit["severity"]) == ("latex-label", "builtin", "warn")
+    assert "main_bound" not in json.dumps(payload)
+    assert payload["patterns_source"]["warn_only"] == ["latex-label"]
+
+
+def test_strict_makes_warn_hits_block(lp, tmp_path, capsys):
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={"Main.lean": PAPER_LEAN})
+    reg = make_env(tmp_path, repo)
+    assert run(lp, reg, "public-safety", "pkg", "--strict") == 1
+    out = capsys.readouterr().out
+    assert "(--strict: warnings block)" in out and "1 blocking hit(s): fix the tree" in out
+    assert run(lp, reg, "public-safety", "pkg", "--strict", "--json") == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False and payload["strict"] is True
+    assert payload["hits"][0]["severity"] == "warn"                    # severity is the pattern's own
+
+
+def test_latex_label_family_patterns(lp):
+    from lean_pkg import public_safety as ps
+    rx = re.compile(ps.LATEX_LABEL_RE)
+    for text in ("see thm:A.2", "eq-3", "built from main.tex", r"as in \\ref{x}", r"\\cite{key}",
+                 "the Overleaf project", "arXiv: 2401.01234v2", "Def. def:foo", "conj:bar"):
+        assert rx.search(text), text
+    for text in ("theorem lem_bound", "h_eq: a = b", "(eq : a = b)", "domain.text", "lemma foo",
+                 "Eq.refl", "simp [sec_foo]"):
+        assert not rx.search(text), text
+
+
+def test_block_and_warn_lines_in_patterns_file(lp, tmp_path, capsys):
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={
+        "Main.lean": PAPER_LEAN + "-- after the Nightjar estimate\n-- the Heron constant\n",
+        ".gitignore": ".lean-pkg-private-patterns\n"})
+    (repo / ".lean-pkg-private-patterns").write_text(
+        "# manuscript label prefixes are blocking here\nblock: lem:\nwarn: Nightjar\nHeron\n")
+    reg = make_env(tmp_path, repo)
+    assert run(lp, reg, "public-safety", "pkg", "--json") == 1
+    payload = json.loads(capsys.readouterr().out)
+    sev = {h["pattern"]: h["severity"] for h in payload["hits"]}
+    assert sev == {".lean-pkg-private-patterns:2": "block", ".lean-pkg-private-patterns:3": "warn",
+                   ".lean-pkg-private-patterns:4": "block", "latex-label": "warn"}
+    assert (payload["block_hits"], payload["warn_hits"]) == (2, 2)
+    assert payload["patterns_source"]["file_patterns"] == 3
+    assert payload["patterns_source"]["file_warn_patterns"] == 1
+    blob = json.dumps(payload)
+    assert "Nightjar" not in blob and "Heron" not in blob and "main_bound" not in blob
+    # warn: alone does not fail the scan
+    (repo / ".lean-pkg-private-patterns").write_text("warn: Nightjar\n")
+    assert run(lp, reg, "public-safety", "pkg") == 0
+    out = capsys.readouterr().out
+    assert "ok: 0 blocking hit(s), 2 warning(s) (.lean-pkg-private-patterns, latex-label)" in out
+
+
+def test_promote_warn_only_hits_do_not_block(lp, env, fake_gh, capsys):
+    publish_evidence(env.repo_b)
+    (env.repo_b / "Paper.lean").write_text(PAPER_LEAN)        # untracked: in the tree git would ship
+    assert run(lp, env.registry, "promote", "beta") == 0
+    out = capsys.readouterr().out
+    assert ("WARN  public-safety: 0 blocking hit(s), 1 warning(s) (latex-label) — review with "
+            "`lean-pkg public-safety beta`") in out
+    assert run(lp, env.registry, "promote", "beta", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["public_safety"]["block_hits"] == 0 and payload["public_safety"]["warn_hits"] == 1
+    assert any(c["status"] == "warn" and c["label"].startswith("public-safety: 0 blocking")
+               for c in payload["checklist"])

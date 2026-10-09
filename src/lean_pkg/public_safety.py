@@ -1,12 +1,13 @@
 # lean-pkg public-safety -- private strings in a package's tree and git history
-"""`lean-pkg public-safety NAME [--history|--no-history]` (#35): before a package goes public, scan
-what would be published (the working tree git would ship) and, by default, everything the public
-flip exposes (every blob and commit message reachable from any ref, the approach of lean-pkg's own
-`make history`) for private patterns:
+"""`lean-pkg public-safety NAME [--history|--no-history] [--strict]` (#35, #36): before a package
+goes public, scan what would be published (the working tree git would ship) and, by default,
+everything the public flip exposes (every blob and commit message reachable from any ref, the
+approach of lean-pkg's own `make history`) for private patterns:
 
-- the package's `.lean-pkg-private-patterns` file: one regular expression per line, `#` comments,
-  `allow: REGEX` lines exempt a matched string (a public URL, a declared address). The file itself
-  lists private strings, so it must stay out of the public tree: tracked (or in history) it is a hit.
+- the package's `.lean-pkg-private-patterns` file: one regular expression per line, `#` comments;
+  a bare line or `block: REGEX` is blocking, `warn: REGEX` is warn-only, `allow: REGEX` exempts a
+  matched string (a public URL, a declared address). The file itself lists private strings, so it
+  must stay out of the public tree: tracked (or in history) it is a hit.
 - built-in defaults: absolute home paths, a cloud-sync folder path, `approvals/`, `notes/`,
   `*.private`, `TODO-private`, and email addresses other than the declared ones (the repository's
   commit identities, `consent[]` entries, `allow:` lines, reserved example domains, `git@`
@@ -14,6 +15,13 @@ flip exposes (every blob and commit message reachable from any ref, the approach
 - user and host names derived at scan time from the registry record's own `local_path`, `agent`
   and `workspace` fields (never stored).
 - internal files by path: `approvals/`, `notes/`, `drafts/`, `scratch/`, `*.priv`, `*.private`.
+- the warn-only built-in family `latex-label` (#36): references to a LaTeX manuscript, which leak an
+  unposted paper even with no path in them: cross-reference keys (`lem:`, `thm:`, `eq:`, `sec:`, ...),
+  `main.tex`, ref/eqref/cite/label/input/include command fragments, Overleaf, arXiv ids.
+
+Every hit has a `severity`: `"block"` (everything above but the warn-only family and `warn:` lines)
+or `"warn"`. Warn hits are reported but do not fail the scan, promote or a fresh-history export;
+`--strict` makes them fail the scan too.
 
 Every hit carries its location, a pattern label and a redacted excerpt: each match is replaced by
 `[…]`, so the raw private string is never printed. A pattern from the file is labelled by its line
@@ -54,16 +62,26 @@ BUILTIN = (
     ("todo-private", r"TODO-private"),
     ("email", EMAIL_RE),
 )
-PATH_READABLE = ("approvals-ref", "notes-ref", "private-file-ref", "todo-private")
+# #36: a LaTeX manuscript's cross-reference keys, source file, commands, Overleaf and arXiv ids.
+# Warn-only: rare in Lean sources, but a published paper may be cited legitimately.
+LATEX_LABEL_RE = (r"\b(?:lem|thm|cor|prop|def|eq|sec|rem|ex|fig|tab|conj)[:-][A-Za-z0-9_.-]+"
+                  r"|\bmain\.tex\b"
+                  r"|\\(?:ref|eqref|cite|label|input|include)\{"
+                  r"|\b(?:Overleaf|arXiv:\s*\d{4}\.\d{4,5}(?:v\d+)?)")
+BUILTIN_WARN = (
+    ("latex-label", LATEX_LABEL_RE),
+)
+BLOCK, WARN = "block", "warn"
+PATH_READABLE = ("approvals-ref", "notes-ref", "private-file-ref", "todo-private", "latex-label")
 DERIVED_MIN_LEN = 4
 DERIVED_STOPWORDS = {"none", "null", "test", "main", "local", "default", "force", "true", "false"}
 
 
 class Pattern:
-    __slots__ = ("label", "kind", "rx")
+    __slots__ = ("label", "kind", "rx", "severity")
 
-    def __init__(self, label: str, kind: str, rx: re.Pattern):
-        self.label, self.kind, self.rx = label, kind, rx
+    def __init__(self, label: str, kind: str, rx: re.Pattern, severity: str = BLOCK):
+        self.label, self.kind, self.rx, self.severity = label, kind, rx, severity
 
 
 def internal_path(rel: str) -> str | None:
@@ -97,8 +115,10 @@ def read_patterns_file(root: pathlib.Path) -> tuple[list[Pattern], list[re.Patte
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        is_allow = line.startswith("allow:")
-        text = line[len("allow:"):].strip() if is_allow else line
+        tag, _, rest = line.partition(":")
+        tag = tag if tag in ("allow", "block", "warn") else None
+        text = rest.strip() if tag else line
+        is_allow = tag == "allow"
         try:
             rx = re.compile(text)
         except re.error as e:
@@ -107,7 +127,7 @@ def read_patterns_file(root: pathlib.Path) -> tuple[list[Pattern], list[re.Patte
         if is_allow:
             allow.append(rx)
         else:
-            pats.append(Pattern(f"{PATTERNS_FILE}:{n}", "file", rx))
+            pats.append(Pattern(f"{PATTERNS_FILE}:{n}", "file", rx, WARN if tag == "warn" else BLOCK))
     return pats, allow, problems, True
 
 
@@ -161,9 +181,11 @@ class Scanner:
     def __init__(self, pkg: dict, patterns_root: pathlib.Path, repo_for_emails: pathlib.Path | None):
         file_pats, self.allow, self.problems, self.file_present = read_patterns_file(patterns_root)
         builtin = [Pattern(label, "builtin", re.compile(rx)) for label, rx in BUILTIN]
+        builtin += [Pattern(label, "builtin", re.compile(rx), WARN) for label, rx in BUILTIN_WARN]
         self.derived = derived_patterns(pkg)
         self.patterns = file_pats + builtin + self.derived
         self.n_file = len(file_pats)
+        self.n_file_warn = sum(1 for p in file_pats if p.severity == WARN)
         self.emails = declared_emails(pkg, repo_for_emails)
 
     def allowed(self, pat: Pattern, text: str) -> bool:
@@ -239,9 +261,9 @@ def _decode(data: bytes) -> str | None:
 
 
 def _hit(sc: Scanner, where: str, path: str, line, pat_label: str, kind: str, excerpt: str,
-         commit: str | None = None) -> dict:
+         commit: str | None = None, severity: str = BLOCK) -> dict:
     h = {"where": where, "path": sc.redact_path(path), "line": line, "pattern": pat_label, "kind": kind,
-         "excerpt": excerpt}
+         "severity": severity, "excerpt": excerpt}
     if where == "history":
         h["commit"] = commit
     return h
@@ -294,7 +316,7 @@ def scan_tree(sc: Scanner, root: pathlib.Path, git_mode: bool = True) -> tuple[l
         if text is None:
             continue
         for n, pat, excerpt in sc.scan_text(text):
-            hits.append(_hit(sc, "tree", rel, n, pat.label, pat.kind, excerpt))
+            hits.append(_hit(sc, "tree", rel, n, pat.label, pat.kind, excerpt, severity=pat.severity))
     return hits, warnings, pf_tracked
 
 
@@ -377,22 +399,36 @@ def scan_history(sc: Scanner, root: pathlib.Path) -> list[dict]:
             if found:
                 commit = _introducing_commit(root, head[0])
                 for n, pat, excerpt in found:
-                    hits.append(_hit(sc, "history", blobs[head[0]], n, pat.label, pat.kind, excerpt, commit))
+                    hits.append(_hit(sc, "history", blobs[head[0]], n, pat.label, pat.kind, excerpt, commit,
+                                     pat.severity))
     log = core.git(root, "log", "--all", "--format=%H%x00%B%x1e", *(["--", "."] if prefix else []))
     for rec in log.stdout.split("\x1e"):
         sha, _, msg = rec.strip("\n").partition("\0")
         if not sha:
             continue
         for n, pat, excerpt in sc.scan_text(msg):
-            hits.append(_hit(sc, "history", "commit-message", n, pat.label, pat.kind, excerpt, sha.strip()))
+            hits.append(_hit(sc, "history", "commit-message", n, pat.label, pat.kind, excerpt, sha.strip(),
+                             pat.severity))
     return hits
+
+
+def blocking(hits: list[dict], strict: bool = False) -> list[dict]:
+    """The hits that fail a scan: severity block, or every hit under --strict."""
+    return [h for h in hits if strict or h.get("severity", BLOCK) == BLOCK]
+
+
+def warn_families(hits: list[dict]) -> str:
+    """The pattern families of the warn hits, for a summary line (file lines collapse to the file)."""
+    fams = sorted({PATTERNS_FILE if h["kind"] == "file" else h["pattern"]
+                   for h in hits if h.get("severity") == WARN})
+    return ", ".join(fams)
 
 
 def scan(pkg: dict, root: pathlib.Path, history: bool = True,
          patterns_root: pathlib.Path | None = None, source_repo: pathlib.Path | None = None,
-         export: bool = False) -> dict:
-    """The scan result as the --json payload body: ok, hits[], tree_hits, history_hits,
-    patterns_source, warnings[]. export=True: root is a plain exported directory (every file, no git,
+         export: bool = False, strict: bool = False) -> dict:
+    """The scan result as the --json payload body: ok, hits[], tree_hits, history_hits, block_hits,
+    warn_hits, strict, patterns_source, warnings[]. ok: no blocking hit (strict: no hit). export=True: root is a plain exported directory (every file, no git,
     no history); patterns_root/source_repo then name the package checkout whose patterns file and
     commit identities apply (default: root)."""
     sc = Scanner(pkg, patterns_root or root, source_repo or root)
@@ -402,10 +438,13 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
     hits = tree + hist
     source = {"file": PATTERNS_FILE if sc.file_present else None, "file_patterns": sc.n_file,
               "allow": len(sc.allow), "tracked": pf_tracked,
-              "builtin": [label for label, _rx in BUILTIN],
+              "builtin": [label for label, _rx in BUILTIN + BUILTIN_WARN],
+              "warn_only": [label for label, _rx in BUILTIN_WARN], "file_warn_patterns": sc.n_file_warn,
               "derived": sorted({p.label for p in sc.derived}),
               "internal_paths": [f"{d}/" for d in INTERNAL_DIRS] + [f"*{s}" for s in INTERNAL_SUFFIXES]}
-    return {"ok": not hits, "hits": hits, "tree_hits": len(tree), "history_hits": len(hist),
+    n_warn = sum(1 for h in hits if h["severity"] == WARN)
+    return {"ok": not blocking(hits, strict), "hits": hits, "tree_hits": len(tree), "history_hits": len(hist),
+            "block_hits": len(hits) - n_warn, "warn_hits": n_warn, "strict": bool(strict),
             "history_scanned": history,
             "patterns_source": source, "warnings": sc.problems + warnings}
 
@@ -414,39 +453,51 @@ def hit_line(h: dict) -> str:
     loc = h["path"] + (f":{h['line']}" if h.get("line") else "")
     if h["where"] == "history":
         loc = f"{str(h.get('commit') or '?')[:12]} {loc}"
-    return f"  {h['where']:<7}  {loc}  [{h['pattern']}]  {h['excerpt']}"
+    mark = "WARN " if h.get("severity") == WARN else ""
+    return f"  {mark}{h['where']:<7}  {loc}  [{h['pattern']}]  {h['excerpt']}"
 
 
 def report_lines(name: str, root, result: dict) -> list[str]:
     src = result["patterns_source"]
     n = len(result["hits"])
+    nb, nw = result["block_hits"], result["warn_hits"]
     lines = [f"public-safety for {name} ({root}): {n} hit(s) ({result['tree_hits']} tree, "
              f"{result['history_hits']} history" + ("" if result["history_scanned"] else "; history not scanned")
-             + ")",
+             + f"); {nb} blocking, {nw} warning(s)" + (" (--strict: warnings block)" if result["strict"] else ""),
              f"  patterns: {src['file'] or 'no ' + PATTERNS_FILE} ({src['file_patterns']} pattern(s), "
-             f"{src['allow']} allow) + {len(src['builtin'])} built-in + {len(src['derived'])} registry-derived "
+             f"{src['allow']} allow, {src['file_warn_patterns']} warn-only) + {len(src['builtin'])} built-in + {len(src['derived'])} registry-derived "
              f"({', '.join(src['derived']) or 'none'}) + internal paths"]
     lines += [f"  WARN {w}" for w in result["warnings"]]
     lines += [hit_line(h) for h in result["hits"]]
-    lines.append("ok: no private pattern found" if not n else
-                 f"{n} hit(s): fix the tree (and rewrite history), or publish a fresh-history tree with "
-                 f"`lean-pkg release {name} --fresh-repo DIR`")
+    nfail = len(blocking(result["hits"], result["strict"]))
+    if not n:
+        lines.append("ok: no private pattern found")
+    elif not nfail:
+        lines.append(f"ok: 0 blocking hit(s), {nw} warning(s) ({warn_families(result['hits'])}): review each; "
+                     f"a `block: REGEX` line in {PATTERNS_FILE} or --strict makes them blocking")
+    else:
+        lines.append(f"{nfail} blocking hit(s): fix the tree (and rewrite history), or publish a fresh-history "
+                     f"tree with `lean-pkg release {name} --fresh-repo DIR`")
     return lines
 
 
-def refusal(name: str, n: int) -> str:
-    return (f"public-safety: {n} hit(s) — fix the tree, or publish a fresh-history tree with "
+def refusal(name: str, n: int, n_warn: int = 0) -> str:
+    extra = f" (+{n_warn} warning(s))" if n_warn else ""
+    return (f"public-safety: {n} hit(s){extra} — fix the tree, or publish a fresh-history tree with "
             f"`release --fresh-repo`; see `lean-pkg public-safety {name}`")
 
 
 def checklist_item(pkg: dict, repo: pathlib.Path) -> tuple[tuple[str, str], dict]:
     """The promote/publish checklist line and the counts for the JSON payload."""
     result = scan(pkg, repo, history=True)
-    n = len(result["hits"])
+    n, nb, nw = len(result["hits"]), result["block_hits"], result["warn_hits"]
     counts = {"skipped": False, "hits": n, "tree_hits": result["tree_hits"],
-              "history_hits": result["history_hits"]}
-    if n:
-        return ("✗", refusal(pkg["name"], n)), counts
+              "history_hits": result["history_hits"], "block_hits": nb, "warn_hits": nw}
+    if nb:
+        return ("✗", refusal(pkg["name"], nb, nw)), counts
+    if nw:   # #36: warn-only hits (latex-label, `warn:` lines) never block on their own
+        return ("WARN", f"public-safety: 0 blocking hit(s), {nw} warning(s) ({warn_families(result['hits'])}) "
+                        f"— review with `lean-pkg public-safety {pkg['name']}`"), counts
     return ("✓", "public-safety: no private pattern in the tree or the history"), counts
 
 
@@ -456,7 +507,7 @@ def cmd_public_safety(args) -> int:
     repo = core.repo_path(pkg)
     if not repo.is_dir():
         raise core.Fail(f"{args.name}: local_path does not exist: {repo}")
-    result = scan(pkg, repo, history=args.history)
+    result = scan(pkg, repo, history=args.history, strict=args.strict)
     if getattr(args, "json_out", False):
         core.print_json(dict(result, name=args.name))
     else:
@@ -470,5 +521,7 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("name")
     s.add_argument("--history", action=argparse.BooleanOptionalAction, default=True,
                    help="also scan every blob and commit message reachable from any ref (default: on)")
+    s.add_argument("--strict", action="store_true",
+                   help="warn-only hits (latex-label, `warn:` lines) fail the scan too (exit 1)")
     add_json(s)
     s.set_defaults(fn=cmd_public_safety)
