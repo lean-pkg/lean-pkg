@@ -17,6 +17,12 @@ change the registry schema or receipt format, always with a migration).
   and `--from-output F` split it across hosts (driver on a Slurm node, JSON
   `comparator-types/1` checked against HEAD). (#25)
 
+### Changed
+
+- `reservoir check` before promote: when every ✗ is pending promote, the closing line reads
+  "not eligible yet (pre-promote): promote --yes will satisfy the ✗ items above" instead of
+  "not eligible: fix every ✗ above"; exit codes and JSON are unchanged.
+
 ## [0.7.1] - 2026-10-09
 
 ### Added

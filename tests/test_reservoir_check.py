@@ -118,13 +118,18 @@ def test_pre_promote_private_repo_is_pending_promote_and_still_fails(lp, env, gh
     out = capsys.readouterr().out
     assert rc == 1 and "✗  pending promote: example/beta is private" in out
     assert out.strip().splitlines()[-1].startswith("pre-promote: beta is verified-private; 2 GitHub-dependent")
+    assert out.strip().splitlines()[-2] == ("not eligible yet (pre-promote): promote --yes will satisfy the ✗ "
+                                            "items above")
+    assert "fix every ✗" not in out
 
 
 def test_pre_promote_summary_counts_other_failures(lp, env, gh_repo, capsys):
     ready(env)
     gh_repo.update(visibility="PRIVATE", stargazerCount=0)
     rc = lp.main(["--registry", str(env.registry), "reservoir", "check", "beta"])
-    assert rc == 1 and "; 1 other ✗ to fix first" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert rc == 1 and "; 1 other ✗ to fix first" in out
+    assert "not eligible: fix every ✗ above" in out and "not eligible yet" not in out
 
 
 def test_pre_promote_repo_not_on_github_says_what_to_do(lp, env, gh_repo, capsys):

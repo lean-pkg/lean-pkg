@@ -162,10 +162,11 @@ def do_reservoir_check(reg: dict, name: str, offline: bool) -> tuple[list[str], 
     eligible = not any(i[0] == "✗" for i in items)
     pending = [label for _m, label in items if label.startswith(PENDING)]
     lines = [f"reservoir check for {name}:"] + [f"  {m}  {label}" for m, label in items]
+    others = sum(1 for m, label in items if m == "✗" and not label.startswith(PENDING))
     lines.append("eligible: Reservoir's listing criteria are met" if eligible else
-                 "not eligible: fix every ✗ above")
+                 "not eligible yet (pre-promote): promote --yes will satisfy the ✗ items above"
+                 if pending and not others else "not eligible: fix every ✗ above")
     if pending:
-        others = sum(1 for m, label in items if m == "✗" and not label.startswith(PENDING))
         lines.append(f"pre-promote: {name} is {pkg.get('status')}; {len(pending)} GitHub-dependent item(s) "
                      f"pending promote (`lean-pkg promote {name} --yes`, one-way, makes the repository "
                      f"public, which they need)" + (f"; {others} other ✗ to fix first" if others else ""))
