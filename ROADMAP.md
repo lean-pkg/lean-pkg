@@ -55,6 +55,13 @@ The intended registry lookup order after implementation is: explicit
 `--registry`, then `LEAN_PKG_REGISTRY`, then the configured global registry,
 then the existing project-local fallback.
 
+Partially done (#12): that lookup order is in place, with the configured
+global registry being the fixed user-level location `~/.lean-pkg/registry`
+(base directory `LEAN_PKG_HOME`; a directory or symlink holding
+`lean-packages.yaml`, or the file itself), and `doctor` reports which source
+won. Still open: `init --global` creating it, and recording a different
+chosen `--path` as the default (today: symlink it into place).
+
 A companion `lean-pkg registry status` should report the selected registry
 location, Git status/branch, optional remote, and last registry commit without
 mutating anything.

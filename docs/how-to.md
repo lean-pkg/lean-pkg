@@ -170,6 +170,15 @@ the local commit; run the `git push origin <branch>` it prints. `--no-commit`
 turns the mode off for one command, and `lean-pkg doctor --fetch` shows how
 the clone stands against `origin`.
 
+On each machine, link the user-level default to the clone once, so every
+shell, including non-interactive SSH, finds the registry without
+`LEAN_PKG_REGISTRY` or `--registry`:
+
+```bash
+mkdir -p ~/.lean-pkg && ln -s /path/to/registry-repo ~/.lean-pkg/registry
+lean-pkg doctor      # registry: ... [source: user-default]
+```
+
 ## Render a status page
 
 ```bash

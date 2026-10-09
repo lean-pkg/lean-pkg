@@ -6,7 +6,9 @@ visibility MIRROR. Every state transition appends BOTH a history[] entry in the
 registry and one JSON line to the event log -- history is append-only, never
 rewritten. See DESIGN.md for the lifecycle.
 
-Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else
+Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else the
+user-level default ~/.lean-pkg/registry (a directory holding lean-packages.yaml,
+or the registry file itself; base directory env LEAN_PKG_HOME), else
 ./lean-packages.yaml in the current directory. The event log is --events PATH,
 else a sibling file <registry dir>/lean-package-events.jsonl.
 
@@ -395,14 +397,52 @@ def save_registry(path: pathlib.Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def registry_path(args) -> pathlib.Path:
-    """--registry, else $LEAN_PKG_REGISTRY, else ./lean-packages.yaml."""
+LEAN_PKG_HOME_ENV = "LEAN_PKG_HOME"
+
+
+def lean_pkg_home() -> pathlib.Path:
+    """The user-level base directory: $LEAN_PKG_HOME, else ~/.lean-pkg (read at call time, not import time)."""
+    env = os.environ.get(LEAN_PKG_HOME_ENV, "").strip()
+    return pathlib.Path(env).expanduser() if env else pathlib.Path.home() / ".lean-pkg"
+
+
+def user_default_registry() -> tuple[pathlib.Path | None, str]:
+    """(registry file or None, detail) for the user-level default <lean_pkg_home>/registry.
+
+    A directory (or a symlink to one) holding lean-packages.yaml yields that file; a file (or a symlink to one) IS
+    the registry file, resolved so that saves rewrite the target, not the link, and the event log lands beside it."""
+    p = lean_pkg_home() / "registry"
+    if p.is_dir():
+        f = p / DEFAULT_REGISTRY_NAME
+        if f.is_file():
+            return f, f"{f}" + (f" ({p} -> {p.resolve()})" if p.is_symlink() else "")
+        return None, f"{p} is a directory without {DEFAULT_REGISTRY_NAME}; not used"
+    if p.is_file():
+        f = p.resolve() if p.is_symlink() else p
+        return f, f"{p}" + (f" -> {f}" if f != p else "") + " (registry file)"
+    if p.is_symlink():
+        return None, f"{p} is a dangling symlink; not used"
+    return None, (f"{p} not configured (mkdir -p {p.parent} && ln -s /path/to/registry-repo {p}; "
+                  f"base dir: env {LEAN_PKG_HOME_ENV})")
+
+
+def registry_source(args) -> tuple[pathlib.Path, str]:
+    """(registry path, source): --registry "flag", else $LEAN_PKG_REGISTRY "env", else the user-level default
+    <lean_pkg_home>/registry "user-default", else ./lean-packages.yaml "cwd"."""
     if getattr(args, "registry", None):
-        return pathlib.Path(args.registry).expanduser()
+        return pathlib.Path(args.registry).expanduser(), "flag"
     env = os.environ.get(REGISTRY_ENV, "").strip()
     if env:
-        return pathlib.Path(env).expanduser()
-    return pathlib.Path.cwd() / DEFAULT_REGISTRY_NAME
+        return pathlib.Path(env).expanduser(), "env"
+    user, _ = user_default_registry()
+    if user is not None:
+        return user, "user-default"
+    return pathlib.Path.cwd() / DEFAULT_REGISTRY_NAME, "cwd"
+
+
+def registry_path(args) -> pathlib.Path:
+    """--registry, else $LEAN_PKG_REGISTRY, else ~/.lean-pkg/registry, else ./lean-packages.yaml."""
+    return registry_source(args)[0]
 
 
 EVENTS_ENV = "LEAN_PKG_EVENTS"
@@ -2562,7 +2602,7 @@ PURPOSE
 A registry YAML file is the source of truth for a set of Lean 4 formalization repos.
 lean-pkg is the ONLY write path; GitHub is just the visibility mirror. history[] and the
 event log (lean-package-events.jsonl next to the registry) are append-only.
-Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ./lean-packages.yaml.
+Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ~/.lean-pkg/registry (dir with lean-packages.yaml, or the file; base env LEAN_PKG_HOME), else ./lean-packages.yaml.
 
 STANDING RULES
 - NEVER hand-edit the registry yaml. Use `lean-pkg register` / `lean-pkg update`.
@@ -2581,7 +2621,7 @@ verified-private -> public         `promote --yes` after a clean dry-run checkli
 public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
 any -> archived                    `audit --fix` (gh isArchived) or maintainer decision
 
-SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit; env LEAN_PKG_REGISTRY, LEAN_PKG_EVENTS; --version prints the version)
+SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS; --version prints the version)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
@@ -2629,7 +2669,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry, events, registry-repo (behind/ahead of origin, dirty registry files: warn = do not write yet; --fetch first), index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported.
+doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events, registry-repo (behind/ahead of origin, dirty registry files: warn = do not write yet; --fetch first), index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported.
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
@@ -3220,17 +3260,21 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
     level, detail = install_check(package_dir(), fetch=fetch)
     add(level, "install", detail)
     reg_ok = True
-    reg_p = registry_path(args)
+    reg_p, source = registry_source(args)
     try:
         data = load_registry(reg_p)
         ver = data.get("version")
         level = "ok" if ver in SUPPORTED_REGISTRY_VERSIONS else "warn"
         reg_ok = level == "ok"
         add(level, "registry", f"{reg_p} (schema version {ver}, {len(data['packages'])} package(s))"
-            + ("" if reg_ok else f"; unsupported, supported: {', '.join(map(str, SUPPORTED_REGISTRY_VERSIONS))}"))
+            + ("" if reg_ok else f"; unsupported, supported: {', '.join(map(str, SUPPORTED_REGISTRY_VERSIONS))}")
+            + f" [source: {source}]")
     except (Fail, OSError, ValueError) as e:
         reg_ok = False
-        add("warn", "registry", f"{reg_p} unreadable: {e}")
+        add("warn", "registry", f"{reg_p} unreadable: {e} [source: {source}]")
+    checks[-1]["source"] = source
+    user, detail = user_default_registry()
+    add("ok" if user is not None else "n/a", "user-default", detail)
     ev = events_path(args)
     add("ok" if ev.is_file() else "n/a", "events", f"{ev}" + ("" if ev.is_file() else " (not created yet)"))
     level, detail = registry_repo_check(reg_p, ev, fetch=fetch)
@@ -3294,7 +3338,7 @@ def main(argv: list[str] | None = None) -> int:
                     "promotion")
     ap.add_argument("--registry", default=None,
                     help=f"registry yaml (default: ${REGISTRY_ENV}, else "
-                         f"./{DEFAULT_REGISTRY_NAME})")
+                         f"~/.lean-pkg/registry, else ./{DEFAULT_REGISTRY_NAME})")
     ap.add_argument("--events", default=None,
                     help=f"event log jsonl (default: {EVENTS_NAME} next to the "
                          f"registry)")

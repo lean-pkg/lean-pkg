@@ -25,6 +25,16 @@ change the registry schema or receipt format, always with a migration).
   `--push` (env `LEAN_PKG_PUSH=1`) also pushes, exiting 1 with the manual
   `git push` command when that fails. `--no-commit` overrides both. Reports
   go to stderr; stdout and `--json` payloads are unchanged. (#7)
+- Registry resolution gains a user-level default between the environment
+  and the current directory: `--registry`, then `LEAN_PKG_REGISTRY`, then
+  `~/.lean-pkg/registry` (base directory overridable with `LEAN_PKG_HOME`; a
+  directory or symlink to one holding `lean-packages.yaml`, or the registry
+  file itself), then `./lean-packages.yaml`. Non-interactive shells no longer
+  need a wrapper to find the registry. `doctor`'s `registry` line ends with
+  `[source: flag|env|user-default|cwd]`, `doctor --json` adds `"source"` to
+  that check, and a new `user-default` line shows what the default points at
+  (`n/a` when not set up). Set it up with
+  `mkdir -p ~/.lean-pkg && ln -s /path/to/registry-repo ~/.lean-pkg/registry`. (#12)
 - `lean-pkg renew NAME --agent A [--ttl H]`: holder-only restart of a live
   lease (event `claim-refreshed`); refuses when there is no lease, another
   agent holds it, or it has already lapsed, instead of silently recording a

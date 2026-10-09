@@ -114,7 +114,7 @@ lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
 git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
 git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 
-export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
+# ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
 
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
 lean-pkg claim my-proof --workspace laptop --agent you --reason "first receipt"

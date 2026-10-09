@@ -43,7 +43,8 @@ External tools, needed only by some commands:
 
 | Setting | Meaning |
 |---|---|
-| `--registry PATH`, then env `LEAN_PKG_REGISTRY`, then `./lean-packages.yaml` | registry file, in that order of precedence |
+| `--registry PATH`, then env `LEAN_PKG_REGISTRY`, then the user-level default `~/.lean-pkg/registry`, then `./lean-packages.yaml` | registry file, in that order of precedence; `lean-pkg doctor` names the one in use (`[source: flag\|env\|user-default\|cwd]`) |
+| `~/.lean-pkg/registry` (base directory: env `LEAN_PKG_HOME`) | user-level default: a directory, or a symlink to one, holding `lean-packages.yaml`, or the registry file itself. Point it at an existing registry repository with `mkdir -p ~/.lean-pkg && ln -s /path/to/registry-repo ~/.lean-pkg/registry` |
 | `--events PATH`, else `lean-package-events.jsonl` next to the registry | append-only event log |
 | `LEAN_PKG_NOTIFY_CMD` | optional command run once after a successful `promote --yes`, message on stdin |
 | `COMPARATOR_RECEIPT_ALLOWED_HOSTS` | comma-separated host names on which `comparator-receipt` may run |
@@ -96,7 +97,7 @@ lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
 git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
 git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 
-export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
+# ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
 ```
 
 After that initial commit, modify the registry through `lean-pkg`, not by
@@ -170,7 +171,7 @@ root or as `comparator/config*.json`. Every one of them must pass. See the
 Assume the shared registry from the setup above:
 
 ```bash
-export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
+# ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
 
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git \
     --path src/my-proof --upstream-target palomar

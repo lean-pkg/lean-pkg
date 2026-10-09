@@ -49,7 +49,7 @@ pipx install git+https://github.com/lean-pkg/lean-pkg.git
 mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init
 lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
-export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
+# ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
 ```
 
