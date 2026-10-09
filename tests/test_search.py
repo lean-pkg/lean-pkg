@@ -167,3 +167,47 @@ def test_module_entry_point(searchable):
                        capture_output=True, text=True, env=subprocess_env())
     assert p.returncode == 0, p.stderr
     assert "beta/foo-le-bar" in p.stdout
+
+
+# ---- #20 R18: the registry source scores packages, not only their cached claims ----------------
+
+def test_search_finds_a_package_by_name_offline(lp, env, capsys):
+    """alpha has no cached claims: before #20 this was "registry: ok, 0 hits"."""
+    assert lp.main(["--registry", str(env.registry), "search", "alpha", "--offline", "--sources",
+                    "registry"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[1].startswith("registry: ok at sha256:") and out[1].endswith(", 1 hit"), out
+    assert out[2] == "  [3 name] package: alpha (gate-pending) — git@github.com:example/alpha.git"
+
+
+def test_package_hits_score_notes_owner_project_and_repo(lp, env, srch, capsys):
+    reg = read_reg(env)
+    reg["packages"]["alpha"]["notes"] = "Stochastic heat equation moments"
+    reg["packages"]["beta"]["owner_project"] = "Article-heat-moments"
+    write_reg(env, reg)
+    assert lp.main(["--registry", str(env.registry), "--json", "search", "heat moments", "--offline",
+                    "--sources", "registry"]) == 0
+    hits = json.loads(capsys.readouterr().out)["sources"][0]["hits"]
+    assert [(h["package"], h["score"], h["where"], h["hit_kind"]) for h in hits] == [
+        ("alpha", 1, "token", "package"), ("beta", 1, "token", "package")]
+    assert hits[0]["summary"] == "Stochastic heat equation moments" and hits[0]["status"] == "gate-pending"
+    for h in hits:
+        assert set(h) == set(srch.HIT_KEYS)
+    assert lp.main(["--registry", str(env.registry), "--json", "search", "example", "--offline",
+                    "--sources", "registry"]) == 0                       # the repo slug's owner
+    assert len(json.loads(capsys.readouterr().out)["sources"][0]["hits"]) == 2
+
+
+def test_claim_hits_are_marked_as_claims(lp, searchable, capsys):
+    assert run_search(lp, searchable, "foo bound", "--offline", "--json") == 0
+    p = json.loads(capsys.readouterr().out)
+    for b in p["sources"][:2]:
+        assert all(h["hit_kind"] == "claim" for h in b["hits"])
+
+
+def test_score_package(srch):
+    pkg = {"notes": "Itô calculus", "owner_project": "Article-x", "repo": "https://github.com/o/heat-lean"}
+    assert srch.score_package("heat-lean", "heat-lean", pkg) == (3, "name")
+    assert srch.score_package("ito", "heat-lean", pkg) == (1, "token")
+    assert srch.score_package("heat lean", "other", pkg) == (1, "token")
+    assert srch.score_package("gumbel", "heat-lean", pkg) == (0, None)

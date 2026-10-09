@@ -64,6 +64,9 @@ def not_found_line(payload: dict) -> str | None:
 
 
 def _candidate(h: dict) -> str:
+    if h.get("hit_kind") == "package":
+        repo = f": {_cell(h['repo'])}" if h.get("repo") else ""
+        return f"- package `{h['package']}` ({h['status']}){repo}"
     if "id" in h:
         pin = f", pin `{str(h['pin'])[:12]}`" if h.get("pin") else ""
         return (f"- `{h['id']}` (`{h['decl']}`): {h['kind']}, {h['status']}, trust {h['trust']}{pin}. "

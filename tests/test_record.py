@@ -37,6 +37,12 @@ def test_consent_recorded_appends(lp, env):
     assert read_events(env)[-1]["event"] == "consent-recorded"
 
 
+def make_public(env, name="beta"):
+    reg = read_reg(env)
+    reg["packages"][name]["status"] = reg["packages"][name]["visibility"] = "public"
+    write_reg(env, reg)
+
+
 def test_palomar_lifecycle_merges_by_commit(lp, env):
     head = repo_head(env.repo_b)
     assert rec(lp, env, "beta", "palomar-preflight-pass", f"commit={head}",
@@ -44,9 +50,10 @@ def test_palomar_lifecycle_merges_by_commit(lp, env):
     assert rec(lp, env, "beta", "palomar-submitted", f"commit={head}", "submission_id=abc",
                "comparator_config=comparator/config-main.json") == 0
     assert rec(lp, env, "beta", "palomar-review", f"commit={head}", "outcome=neutral") == 0
+    make_public(env)                    # Palomar registers public code (#20)
     assert rec(lp, env, "beta", "palomar-registered", f"commit={head}",
                "id=PALOMAR-2026-10-05-000099", "version=1",
-               "comparator_config=comparator/config-main.json") == 0
+               "comparator_config=comparator.json") == 0
     pal = read_reg(env)["packages"]["beta"]["palomar"]
     assert len(pal) == 1
     e = pal[0]
@@ -62,8 +69,9 @@ def test_palomar_registered_requires_40hex_commit(lp, env, capsys):
 
 def test_doi_minted_appends_version(lp, env):
     head = repo_head(env.repo_b)
-    rec(lp, env, "beta", "palomar-registered", f"commit={head}", "id=PALOMAR-2026-10-05-000099",
-        "version=1", "comparator_config=c.json")
+    make_public(env)
+    assert rec(lp, env, "beta", "palomar-registered", f"commit={head}", "id=PALOMAR-2026-10-05-000099",
+               "version=1", "comparator_config=comparator.json") == 0
     assert rec(lp, env, "beta", "doi-minted", "doi=10.5281/zenodo.123", "tag=v1.0.0",
                f"commit={head}", "concept=10.5281/zenodo.122") == 0
     d = read_reg(env)["packages"]["beta"]["doi"]

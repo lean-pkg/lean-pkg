@@ -308,3 +308,49 @@ def test_doctor_json_has_registry_repo_check(lp, env, fake_path, installed, tmp_
     assert rc == 0 and data["ok"]
     chk = next(c for c in data["checks"] if c["item"] == "registry-repo")
     assert chk["level"] == "ok"
+
+
+# ---- #20 R29: gh auth line; "no origin remote" ---------------------------------------------------
+
+def _fake_gh(bindir, out: str, err: str = "", rc: int = 0):
+    """A fake `gh` that answers `gh auth status` with the given stdout/stderr and exit code."""
+    (bindir / "gh").write_text(f"#!/bin/sh\nprintf '%s' '{out}'\nprintf '%s' '{err}' >&2\nexit {rc}\n")
+    (bindir / "gh").chmod(0o755)
+
+
+def test_doctor_gh_auth_na_without_gh(lp, env, fake_path, installed, capsys):
+    rc, cap = _doctor(lp, env, capsys)
+    assert rc == 0
+    assert _line(cap, "gh auth") == "n/a gh auth: gh not on PATH"
+
+
+@pytest.mark.parametrize("out,err", [
+    ("github.com\n  ✓ Logged in to github.com account octo-cat (keyring)\n", ""),   # gh >= 2.40, stdout
+    ("", "github.com\n  ✓ Logged in to github.com as octo-cat (oauth_token)\n"),        # older gh, stderr
+])
+def test_doctor_gh_auth_ok_names_the_account(lp, env, fake_path, installed, capsys, out, err):
+    _fake_gh(fake_path, out, err)
+    rc, cap = _doctor(lp, env, capsys)
+    assert rc == 0
+    assert _line(cap, "gh auth") == "ok gh auth: octo-cat"
+
+
+def test_doctor_gh_auth_warns_when_not_logged_in(lp, env, fake_path, installed, capsys):
+    _fake_gh(fake_path, "", "You are not logged into any GitHub hosts. To log in, run: gh auth login\n", rc=1)
+    rc, cap = _doctor(lp, env, capsys, "--json")
+    assert rc == 0                                         # a warn line never fails doctor
+    checks = {c["item"]: c for c in json.loads(cap.out)["checks"]}
+    assert checks["gh auth"]["level"] == "warn"
+    assert "not logged in" in checks["gh auth"]["detail"] and "promote" in checks["gh auth"]["detail"]
+
+
+def test_doctor_registry_repo_without_origin_remote_says_so(lp, env, fake_path, installed, tmp_path, capsys):
+    repo, reg, ev = _registry_repo(tmp_path, env)
+    _git(repo, "update-ref", "-d", "refs/remotes/origin/main")     # no origin remote and no origin ref
+    lp.main(["--registry", str(reg), "doctor"])
+    line = _line(capsys.readouterr(), "registry-repo")
+    assert line.startswith("warn registry-repo:") and "on main; no origin remote; clean tree" in line, line
+    _git(repo, "remote", "add", "origin", str(tmp_path / "nowhere.git"))   # a remote, but no fetched ref
+    lp.main(["--registry", str(reg), "doctor"])
+    line = _line(capsys.readouterr(), "registry-repo")
+    assert "no local origin/main ref to compare" in line and "no origin remote" not in line, line

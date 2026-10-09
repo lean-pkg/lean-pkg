@@ -36,7 +36,7 @@ def set_status(env, name, status, visibility="public"):
 
 def test_record_refuses_doi_without_palomar_and_names_the_rule(lp, env, capsys):
     before = env.registry.read_text()
-    assert run(lp, env, "--json", "record", "alpha", "doi-minted", "--field", "doi=notadoi",
+    assert run(lp, env, "--json", "record", "alpha", "doi-minted", "--field", "doi=10.5281/zenodo.1",
                "--field", "tag=v1", "--field", f"commit={C}") == 1
     cap = capsys.readouterr()
     assert json.loads(cap.out)["ok"] is False

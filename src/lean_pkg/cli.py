@@ -139,6 +139,10 @@ RETRACT_EVENT = "retract"   # `record NAME retract`: append-only correction of a
 _HEX40 = re.compile(r"[0-9a-f]{40}")
 RESERVOIR_URL_RE = re.compile(r"^https://reservoir\.lean-lang\.org/@([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/?$")
 RESERVOIR_API = "https://reservoir.lean-lang.org/api/v1/packages/{owner}/{name}"
+DOI_RE = re.compile(r"10\.\d{4,9}/\S+", re.IGNORECASE)
+GITHUB_URL_RE = re.compile(r"https://github\.com/[^/\s]+/[^/\s]+(?:/\S*)?")
+PALOMAR_REGISTERED_STATUSES = ("public", "upstreamed")
+PRIVATE_EVIDENCE_HINT = "private path in evidence; use a URL or repo-relative pointer"
 
 
 def reservoir_listing_status(owner: str, name: str) -> int | None:
@@ -2025,6 +2029,71 @@ def do_retract(reg_path, reg, events_p, name, fields: dict, reason: str) -> tupl
     return [f"{name}: {target} at {ts} retracted"], payload
 
 
+def _rule_fail(rule: str, msg: str) -> Fail:
+    """A record refusal that names the evidence rule it enforces."""
+    return Fail(f"{msg} [rule {rule}]")
+
+
+def _int_or_none(v) -> int | None:
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _evidence_version(v) -> int:
+    n = _int_or_none(v)
+    if n is None:
+        raise _rule_fail("palomar-version", f"version must be an integer, got {v!r}")
+    return n
+
+
+def check_evidence_fields(pkg: dict, event: str, fields: dict) -> list[str]:
+    """Shape and binding checks on an evidence event's --field values, before any effect.
+    Refuses (naming the rule) or returns warning notes, which are also printed on stderr."""
+    notes: list[str] = []
+    if event == "doi-minted":
+        for k in ("doi", "concept"):
+            if k in fields and str(fields[k]).strip() and not DOI_RE.fullmatch(str(fields[k]).strip()):
+                raise _rule_fail("doi-format", f"{k} must be a DOI (10.<4-9 digits>/<suffix>), "
+                                 f"got {fields[k]!r}")
+    elif event in ("mathlib-pr-opened", "mathlib-pr-merged"):
+        if not GITHUB_URL_RE.fullmatch(str(fields["url"]).strip()):
+            raise _rule_fail("mathlib-pr-url", f"url must be an https://github.com/<owner>/<repo>/... "
+                             f"pull request URL, got {fields['url']!r}")
+    elif event == "reservoir-listed":
+        url = str(fields["url"]).strip().casefold()
+        nwo = gh_nwo(pkg.get("repo") or "")
+        wanted = [str(pkg.get("name") or "")] + ([nwo, nwo.split("/")[1]] if nwo else [])
+        if not any(w and w.casefold() in url for w in wanted):
+            notes.append(f"WARN: reservoir url names neither the package {pkg.get('name')!r} nor its "
+                         f"repository {nwo or '(no GitHub repo)'}; check it is this package's page")
+    elif event == "palomar-registered":
+        status = pkg.get("status")
+        if status not in PALOMAR_REGISTERED_STATUSES:
+            raise _rule_fail("palomar-registered-public",
+                             f"{pkg.get('name')}: palomar-registered needs status public or upstreamed "
+                             f"(Palomar registers public code), got {status!r}")
+        rel = str(fields["comparator_config"]).strip()
+        repo = repo_path(pkg) if pkg.get("local_path") else None
+        if repo is None or not repo.is_dir():
+            raise _rule_fail("palomar-config-tracked",
+                             f"{pkg.get('name')}: local_path does not exist; cannot check that "
+                             f"comparator_config {rel} is tracked at HEAD")
+        if os.path.isabs(rel) or git(repo, "cat-file", "-e", f"HEAD:./{rel}").returncode != 0:
+            raise _rule_fail("palomar-config-tracked",
+                             f"{pkg.get('name')}: comparator_config {rel} is not tracked at the package's "
+                             f"HEAD; commit it (a repo-relative path) before recording palomar-registered")
+    for n in notes:
+        print(f"lean-pkg: {n}", file=sys.stderr)
+    return notes
+
+
+def warn_private_evidence(hits: list[dict]) -> None:
+    for h in hits:
+        print(f"WARN: {h['field']} looks like a {h['kind']}: {PRIVATE_EVIDENCE_HINT}", file=sys.stderr)
+
+
 def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -> tuple[list[str], dict]:
     """Record a D5 evidence event: required fields checked, registry effect applied, the would-be registry
     validated (a schema error this event introduces refuses; nothing is written), event appended."""
@@ -2044,7 +2113,19 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
                    f"use --reason for free text)")
     if "commit" in fields and not _HEX40.fullmatch(str(fields["commit"])):
         raise Fail(f"commit must be a 40-hex sha, got {fields['commit']!r}")
-    get_pkg(reg, name)
+    current = get_pkg(reg, name)
+    notes = check_evidence_fields(current, event, fields)
+    from .index import private_string_hits
+    private = [{"field": f, "kind": k} for f, k, _ in
+               private_string_hits(json.dumps(fields).encode(), "field")]
+    if event == "palomar-preflight-pass" and any(
+            isinstance(e, dict) and e.get("commit") == fields["commit"]
+            and e.get("preflight_run") == fields["run"] for e in current.get("palomar") or []):
+        warn_private_evidence(private)
+        payload = {"ok": True, "name": name, "event": event, "fields": fields, "notes": notes,
+                   "already_recorded": True, "private_strings": private}
+        return [f"{name}: {event} already recorded for commit {fields['commit'][:12]} "
+                f"(run {fields['run']}); nothing to do", *notes], payload
     before = validate_registry(reg)
     original = reg
     reg = copy.deepcopy(reg)                      # effects go to a copy until the result validates
@@ -2052,7 +2133,7 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
     for k, d in V2_PACKAGE_DEFAULTS.items():      # tolerate a v1 registry
         pkg.setdefault(k, copy.deepcopy(d))
     ts = now_iso()
-    extra_out: list[str] = []
+    extra_out: list[str] = list(notes)
     if event == "consent-recorded":
         pkg["consent"].append({"who": fields["who"], "role": fields["role"],
                                "pointer": fields["pointer"], "recorded_at": ts})
@@ -2068,16 +2149,14 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
                 raise Fail("outcome must be neutral | revision_required | rejected")
             e["review_outcome"] = fields["outcome"]
         else:
-            try:
-                e["version"] = int(fields["version"])
-            except ValueError:
-                raise Fail(f"version must be an integer, got {fields['version']!r}")
+            e["version"] = _evidence_version(fields["version"])
             e["id"] = fields["id"]
             e["comparator_config"] = fields["comparator_config"]
             e["registered_at"] = ts
     elif event == "palomar-withdrawn":
+        version = _evidence_version(fields["version"])
         for e in pkg["palomar"]:
-            if e.get("id") == fields["id"] and str(e.get("version")) == str(fields["version"]):
+            if e.get("id") == fields["id"] and _int_or_none(e.get("version")) == version:
                 e["withdrawn_at"] = ts
                 break
         else:
@@ -2117,7 +2196,9 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
     original["packages"][name] = pkg
     record(original, events_p, pkg, event, reason=reason or "", **fields)
     save_registry(reg_path, original)
-    payload = {"ok": True, "name": name, "event": event, "fields": fields, "notes": extra_out}
+    warn_private_evidence(private)
+    payload = {"ok": True, "name": name, "event": event, "fields": fields, "notes": extra_out,
+               "already_recorded": False, "private_strings": private}
     if preexisting:
         payload["preexisting_errors"] = preexisting
     return [f"{name}: {event} recorded", *extra_out], payload
@@ -2396,6 +2477,22 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
                 note("lease-invalid", name,
                      f"lease cannot be parsed ({type(e).__name__}: {e}); not swept")
 
+    by_path: dict[str, list[str]] = collections.defaultdict(list)
+    for name in sorted(reg["packages"]):
+        lpath = (reg["packages"][name] or {}).get("local_path")
+        if lpath:
+            by_path[_abs_local_path(lpath)].append(name)
+    for names in by_path.values():
+        for name in names if len(names) > 1 else ():
+            # no path echo: local paths are private, and findings are printed
+            note("duplicate-path", name, "local_path resolves to the same checkout as "
+                 + ", ".join(n for n in names if n != name) + "; one checkout per package")
+
+    def untracked(name, repo, tip, rel, label) -> None:
+        if tip and git(repo, "cat-file", "-e", f"{tip}:./{rel}").returncode != 0:
+            note("receipt-untracked", name, f"{rel} exists in the working tree but is not tracked at "
+                 f"{label} {tip[:12]}; commit it so the evidence travels with the repository")
+
     for name in sorted(reg["packages"]):
         pkg = reg["packages"][name]
         mismatch = status_visibility_mismatch(pkg)
@@ -2462,6 +2559,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
             if not rp.is_file():
                 note("receipt-missing", name, str(receipt_rel))
             else:
+                untracked(name, repo, ref_tip, receipt_rel, ref_label)
                 try:
                     rcommit = json.loads(rp.read_text()).get("commit")
                 except Exception:
@@ -2475,6 +2573,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
             if not cpth.is_file():
                 note("comparator-missing", name, str(comp_rel))
             else:
+                untracked(name, repo, ref_tip, comp_rel, ref_label)
                 ccommit = (recorded_json(repo, comp_rel) or {}).get("commit")
                 if ccommit and ref_tip and not evidence_only_descendant(repo, ccommit, ref_tip)[0]:
                     note("comparator-drift", name,
@@ -3163,11 +3262,11 @@ init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
 record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys (all required, others refused; commit 40-hex, version integer):
-          consent-recorded: who role pointer | palomar-preflight-pass: commit run
+          consent-recorded: who role pointer (a /home, /Users, ~ path: WARN + private_strings) | palomar-preflight-pass: commit run (same commit+run again: already recorded, exit 0)
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
-          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version (of a recorded entry) | mathlib-pr-opened, mathlib-pr-merged: url
-          doi-minted: doi tag commit [concept] (rule doi-in-palomar: commit already recorded by a palomar-* event) | reservoir-listed: url (the
-          package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false)
+          palomar-registered: commit id version(int) comparator_config (status public|upstreamed; config tracked at HEAD) | palomar-withdrawn: id version(int) (of a recorded entry) | mathlib-pr-opened, mathlib-pr-merged: url (https://github.com/...)
+          doi-minted: doi(10.NNNN/x) tag commit [concept] (rule doi-in-palomar: commit already recorded by a palomar-* event) | reservoir-listed: url (the
+          package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false; a url naming neither package nor repo warns)
           retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
@@ -3202,9 +3301,9 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
-  nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
+  nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events, registry-repo (behind/ahead of origin, dirty registry files: warn = do not write yet; --fetch first), index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
+doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events, registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
@@ -3229,7 +3328,7 @@ formalization NAME [--write] [--out PATH] [--force] [--author A ...] [--agent A]
   Validated against the vendored v0.4 schema (jsonschema, else structural). audit: formalization-missing/-drift. docs/formalization.md
 search    TERM [--package NAME] [--offline] [--sources a,b,c] [--record [--repo-dir P]] [--json]   prior-art search.
   order: registry, index, loogle, leansearch, reservoir, palomar, github; each "ok" or "skipped: <reason>" (never zero hits).
-  local score: exact alias 3, keyword 2, every term word 1. exit 0 even with zero hits; 2 on usage errors.
+  local score: exact alias or package name 3, keyword 2, every term word 1; registry hits: packages (name, notes, owner_project, repo; hit_kind package) and claims. exit 0 even with zero hits; 2 on usage errors.
   --record: docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-dir; never the registry dir; never
   overwritten; "decision: pending" for a human) + event prior-art-searched. claim/index add print advisory notes on stderr (`notes` in --json).
 
@@ -3698,6 +3797,28 @@ def commit_finish(ctx: dict, rc: int) -> int:
     return rc
 
 
+def no_origin_ref_detail(root: pathlib.Path, branch: str, note: str) -> str:
+    """Why behind/ahead cannot be counted: no origin remote at all, or no local origin/<branch> ref."""
+    if git(root, "remote", "get-url", "origin").returncode != 0:
+        return "no origin remote"
+    return f"no local origin/{branch} ref to compare ({note})"
+
+
+GH_AUTH_RE = re.compile(r"Logged in to github\.com (?:account|as) (\S+)")
+
+
+def gh_auth_check() -> tuple[str, str]:
+    """(level, detail) from `gh auth status`: ok with the github.com account, warn when gh is
+    present but not logged in (promote and audit query GitHub through it), n/a without gh."""
+    if shutil.which("gh") is None:
+        return "n/a", "gh not on PATH"
+    p = gh("auth", "status", "--hostname", "github.com")
+    m = GH_AUTH_RE.search(f"{p.stdout}\n{p.stderr}")
+    if m:
+        return "ok", m.group(1)
+    return "warn", "not logged in to github.com (promote and audit need it): run gh auth login"
+
+
 def install_check(d: pathlib.Path, fetch: bool = False) -> tuple[str, str]:
     """(level, detail) for the install: editable when the package's __init__.py is tracked by a git checkout,
     with HEAD, branch and behind/ahead against origin/<branch> (local refs unless fetch)."""
@@ -3718,7 +3839,7 @@ def install_check(d: pathlib.Path, fetch: bool = False) -> tuple[str, str]:
     note = ref_note(fetch, fetch_error)
     counts = git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
     if counts.returncode != 0:
-        return "warn", f"{head} on {branch}; no local origin/{branch} ref to compare ({note})"
+        return "warn", f"{head} on {branch}; {no_origin_ref_detail(root, branch, note)}"
     behind, ahead = (int(x) for x in counts.stdout.split())
     level = "warn" if behind else "ok"
     return level, f"{head} on {branch}; {behind} behind, {ahead} ahead of origin/{branch} ({note})"
@@ -3758,7 +3879,7 @@ def registry_repo_check(reg_p: pathlib.Path, ev: pathlib.Path, fetch: bool = Fal
     level = "ok"
     counts = git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
     if counts.returncode != 0:
-        sync = f"no local origin/{branch} ref to compare ({note})"
+        sync = no_origin_ref_detail(root, branch, note)
         level = "warn"
     else:
         behind, ahead = (int(x) for x in counts.stdout.split())
@@ -3837,6 +3958,9 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
             add("n/a", f"tool {t}", "not on PATH (needed by comparator-receipt to build the legacy comparator tools)")
         else:
             add("warn" if t in DOCTOR_REQUIRED_TOOLS else "n/a", f"tool {t}", "not on PATH")
+        if t == "gh":
+            level, detail = gh_auth_check()
+            add(level, "gh auth", detail)
     add("ok", "python", f"{sys.version.split()[0]} ({sys.executable})")
     return checks, reg_ok
 

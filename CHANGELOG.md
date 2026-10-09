@@ -9,6 +9,30 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `record` validates evidence fields before any effect, each refusal naming
+  its rule: a `doi`/`concept` must look like a DOI (doi-format), a
+  `mathlib-pr-*` `url` must be an `https://github.com/...` URL
+  (mathlib-pr-url), `palomar-registered` needs status `public` or
+  `upstreamed` (palomar-registered-public) and a `comparator_config` tracked
+  at the package's HEAD (palomar-config-tracked), and a non-integer
+  `version` is refused cleanly while `palomar-withdrawn version=01` matches
+  version 1 (palomar-version). A `reservoir-listed` url naming neither the
+  package nor its repository warns (stderr and `notes`); an identical
+  `palomar-preflight-pass` is an exit-0 no-op (`"already_recorded": true`);
+  a field holding a local absolute path warns and is listed in
+  `private_strings`. (#20)
+- `search` scores the registry's packages themselves (name exact 3; notes,
+  owner_project and repo by token), so `search NAME --offline` finds a
+  registered package with no cached claims; package hits print as
+  `package: NAME (status) — repo`, and every local hit gains `hit_kind`
+  (`package` or `claim`) and `repo` in `--json`. (#20)
+- `doctor` gains a `gh auth` line (the github.com account; `warn` when gh is
+  not logged in, `n/a` without gh) and says "no origin remote" when the
+  registry repository (or an editable install) has none. (#20)
+- `audit` gains two informational findings: `receipt-untracked` (a recorded
+  gate or comparator receipt file is present but not tracked at the
+  reference branch tip) and `duplicate-path` (two packages resolve to the
+  same checkout). (#20)
 - `lean-pkg update NAME --path NEW --reason TEXT [--agent A] [--redetect]
   [--dry-run]` relocates a package to another checkout without losing its
   name, history or claims cache (event `relocated` with `old_path`,

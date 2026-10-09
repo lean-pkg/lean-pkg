@@ -95,6 +95,11 @@ write separate temporary files and publish the cache atomically.
 
 Local sources are scored deterministically: an exact alias scores 3, a
 keyword 2, a match of every word of the term 1; matching is case-insensitive.
+The registry source also scores each package itself: its name (an exact name
+scores 3), notes, owner_project and repo, so a registered package is found
+before it has cached claims. Package hits print as
+`package: NAME (status) — repo`; in `--json` every local hit has `hit_kind`
+(`package` or `claim`).
 Reusable claims are listed before experimental and superseded ones. Network
 sources are listed as each service ranks them and are never merged into the
 local score.

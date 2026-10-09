@@ -1,9 +1,10 @@
 # lean-pkg search -- claim-level prior-art search before building
 """`lean-pkg search TERM`: one block per source, in a fixed order, each with its
 revision and state (`ok` or `skipped: <reason>`), and a closing line naming every
-source consulted. Local sources (the registry's cached claims, the public index)
-always run and are scored deterministically: exact alias 3, keyword 2, every
-term token present 1; no embeddings. Network sources (lean_pkg.adapters) run
+source consulted. Local sources (the registry's packages and cached claims, the
+public index) always run and are scored deterministically: exact alias (or package
+name) 3, keyword 2, every term token present 1; no embeddings. A registry hit is a
+package (`hit_kind: package`: name, notes, owner_project, repo) or a claim. Network sources (lean_pkg.adapters) run
 unless --offline; each is reported separately and never merged into the local
 score. A skipped source is never a zero.
 """
@@ -27,7 +28,8 @@ ADAPTERS = {"loogle": loogle, "leansearch": leansearch, "reservoir": reservoir,
             "palomar": palomar, "github": github}
 LATE_STATUSES = ("experimental", "superseded")
 HIT_KEYS = ("source", "id", "package", "decl", "kind", "summary", "trust", "status", "pin",
-            "file", "score", "where")
+            "file", "score", "where", "hit_kind", "repo")
+PACKAGE_FIELDS = ("name", "notes", "owner_project", "repo")
 _TOKEN_SPLIT = re.compile(r"[\W_]+", re.UNICODE)
 _PATHLIKE = re.compile(r"(?:~|/home/|/Users/|[A-Za-z]:\\)\S*")
 
@@ -72,6 +74,20 @@ def score_claim(term: str, claim: dict) -> tuple[int, str | None]:
     return (1, "token") if qt <= words else (0, None)
 
 
+def score_package(term: str, name: str, pkg: dict) -> tuple[int, str | None]:
+    """(score, where) over a package's own metadata: 3 the name equals the term, 1 every term
+    token occurs in name, notes, owner_project or repo; 0 no match."""
+    q, qt = norm(term), set(tokens(term))
+    if not qt:
+        return 0, None
+    if norm(name) == q:
+        return 3, "name"
+    words: set[str] = set()
+    for f in PACKAGE_FIELDS:
+        words.update(tokens(name if f == "name" else pkg.get(f)))
+    return (1, "token") if qt <= words else (0, None)
+
+
 def rank(hits: list[dict]) -> list[dict]:
     """Reusable before experimental and superseded; then by score, then by id."""
     return sorted(hits, key=lambda h: (h["status"] in LATE_STATUSES, -h["score"], str(h["id"])))
@@ -81,7 +97,14 @@ def _hit(source: str, c: dict, package: str, trust, pin, score: int, where: str)
     return {"source": source, "id": c.get("id"), "package": package, "decl": c.get("decl"),
             "kind": c.get("kind"), "summary": c.get("summary"), "trust": trust or "none",
             "status": c.get("status") or "reusable", "pin": pin, "file": c.get("file"),
-            "score": score, "where": where}
+            "score": score, "where": where, "hit_kind": "claim", "repo": None}
+
+
+def _package_hit(name: str, pkg: dict, score: int, where: str) -> dict:
+    return {"source": "registry", "id": name, "package": name, "decl": None, "kind": None,
+            "summary": pkg.get("notes") or None, "trust": cl.package_trust(pkg),
+            "status": pkg.get("status"), "pin": None, "file": None, "score": score, "where": where,
+            "hit_kind": "package", "repo": scrub_paths(pkg.get("repo")) if pkg.get("repo") else None}
 
 
 def block(source: str, state: str, reason: str | None = None, revision: str | None = None,
@@ -112,6 +135,9 @@ def registry_block(term: str, reg_path: pathlib.Path) -> dict:
     for name in sorted(pkgs):
         pkg = reg["packages"][name]
         trust, pin = cl.package_trust(pkg), pkg.get("claims_synced_commit")
+        s, where = score_package(term, name, pkg)
+        if s:
+            hits.append(_package_hit(name, pkg, s, where))
         for c in pkg.get("claims") or []:
             if isinstance(c, dict):
                 s, where = score_claim(term, c)
@@ -232,7 +258,12 @@ def render_text(payload: dict) -> list[str]:
         note = f" ({b['reason']})" if b["reason"] else ""
         lines.append(f"{b['source']}: ok{rev}, {_n(len(b['hits']))}{note}")
         for h in b["hits"]:
-            if "id" in h:
+            if h.get("hit_kind") == "package":
+                repo = f" — {h['repo']}" if h["repo"] else ""
+                lines.append(f"  [{h['score']} {h['where']}] package: {h['package']} ({h['status']}){repo}")
+                if h["summary"]:
+                    lines.append(f"      {h['summary']}")
+            elif "id" in h:
                 pin = f", pin {str(h['pin'])[:12]}" if h["pin"] else ""
                 lines.append(f"  [{h['score']} {h['where']}] {h['id']}  {h['decl']}  "
                              f"({h['kind']}, {h['status']}, trust {h['trust']}{pin})")
