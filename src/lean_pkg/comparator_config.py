@@ -96,8 +96,11 @@ def synced_claims(pkg: dict, repo: pathlib.Path) -> list[dict]:
 
 
 def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespace: str | None,
-                          agent: str | None) -> tuple[list[str], dict, str | None]:
-    """(lines, payload, would-be JSON text or None when nothing changes)."""
+                          agent: str | None, types: dict | None = None) -> tuple[list[str], dict, str | None]:
+    """(lines, payload, would-be JSON text or None when nothing changes).
+
+    `types` (#25), when given: {"mode": "local"|"emit"|"ingest", "emit": F, "from_output": F,
+    "lake_env": DIR, "jobs": N, "timeout": S}; see comparator_types."""
     pkg = core.get_pkg(reg, name)
     repo = core.repo_path(pkg)
     if not repo.is_dir():
@@ -127,6 +130,7 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     todo_claims = {str(t.get("claim")) for t in todo if isinstance(t, dict)}
     existing = skipped = 0
     added: list[dict] = []
+    sources: list[dict] = []
     for c in claims:
         decl, cid = str(c.get("decl") or ""), str(c.get("id") or "")
         if c.get("kind") not in CLAIM_KINDS or c.get("status") == "superseded" or not decl:
@@ -136,6 +140,7 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
             existing += 1
             continue
         tname = f"{ns}.{decl}"
+        sources.append(c)
         added.append({"theorem_name": tname, "claim": cid, "decl": decl, "file": c.get("file"),
                       "challenge": f"TODO: state {tname} in {cfg.get('challenge_module') or 'Challenge'} in "
                                    f"Mathlib vocabulary, proof `sorry` (what {cid} claims, in the paper's words)",
@@ -149,15 +154,56 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
                "added_names": [a["theorem_name"] for a in added], "written": False}
     if not added:
         return [summary, f"{rel}: nothing to add; nothing written"], payload, None
+    lines = [summary]
+    if types is not None:
+        from . import comparator_types as ct
+        head = core.git_head(repo) or ""
+        cfgd = None
+        if types.get("mode") in ("local", "emit"):
+            jobs, timeout = ct.check_jobs_timeout(types.get("jobs"), types.get("timeout"))
+            cfgd = ct.driver_config(name, head, ct.lake_dir_rel(repo, types.get("lake_env")), sources, jobs, timeout)
+        if types.get("mode") == "emit":
+            decls = [{k: d[k] for k in ("decl", "claim", "module")} for d in cfgd["decls"]]
+            path = ct.emit_path(repo, types["emit"])
+            epay = {"ok": True, "name": name, "dry_run": dry_run, "script": str(path), "commit": head,
+                    "decls": decls, "written": False}
+            elines = [summary, f"{len(decls)} declaration(s) to elaborate at {head[:12]}:"] + \
+                [f"  {d['decl']}  ({d['module'] or 'no module: will be a type_error'})" for d in decls]
+            if dry_run:
+                return elines + ["dry run: no driver written"], epay, None
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(ct.driver_script(cfgd), encoding="utf-8")
+            path.chmod(0o755)
+            epay["written"] = True
+            return elines + [f"wrote {path}; run: cd {repo} && bash {path} OUT.json, then "
+                             f"lean-pkg comparator config --from-claims {name} --from-output OUT.json"], epay, None
+        if types.get("mode") == "local":
+            doc, source = ct.run_local(repo, cfgd), "the local run"
+        else:
+            src = pathlib.Path(types["from_output"]).expanduser()
+            doc, source = ct.read_output(src, name, head, types["from_output"]), types["from_output"]
+        by_decl = {str(r.get("decl")): r for r in doc["results"]}
+        for a, c in zip(added, sources):
+            ct.fill(a, by_decl.get(a["decl"]), str(c.get("summary") or f"what {a['claim']} claims"), source)
+        ok = sum(1 for a in added if "type" in a)
+        nr = sum(1 for a in added if a.get("needs_restatement"))
+        payload["types"] = {"mode": types["mode"], "commit": head, "toolchain": doc.get("toolchain"),
+                            "prefilled": ok, "type_errors": len(added) - ok, "needs_restatement": nr}
+        lines.append(f"types: {ok} pre-filled from the elaborated type, {len(added) - ok} type error(s) "
+                     f"(TODO kept), {nr} marked needs_restatement")
     cfg["theorem_names"] = list(cfg.get("theorem_names") or []) + [a["theorem_name"] for a in added]
     block.setdefault("generated_by", f"lean-pkg comparator config --from-claims {name}")
     block["note"] = ("comparator fails on each TODO name until its Challenge and Solution exist; remove an "
                      "entry from todo once both are written, and this key once todo is empty")
+    if types is not None:
+        block["types_note"] = ("challenge/solution pre-filled from the elaborated type (Lean pretty-printer); "
+                               "needs_restatement: true marks entries a human must restate in Mathlib "
+                               "vocabulary; type_error says why an entry kept its TODO lines")
     block["todo"] = todo + added
     cfg[SCAFFOLD_KEY] = block
     text = json.dumps(cfg, indent=2, ensure_ascii=False) + "\n"
     if dry_run:
-        return [summary, f"{rel} (dry run, nothing written):"], payload, text
+        return lines + [f"{rel} (dry run, nothing written):"], payload, text
     lease = pkg.get("lease")
     core.refuse_invalid_lease(name, lease)
     if core.lease_live(lease, core.dt.datetime.now(core.dt.timezone.utc)) and agent != lease.get("agent"):
@@ -169,17 +215,41 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
     payload["written"] = True
-    return [summary, f"wrote {rel}: {len(added)} TODO entr{'y' if len(added) == 1 else 'ies'} under "
+    return lines + [f"wrote {rel}: {len(added)} TODO entr{'y' if len(added) == 1 else 'ies'} under "
                      f"{SCAFFOLD_KEY}.todo (write each Challenge and Solution, then commit)"], payload, None
+
+
+USAGE = ("usage: lean-pkg comparator config --from-claims NAME [--out comparator.json] [--dry-run] "
+         "[--challenge-namespace NS] [--agent A] [--challenge-from-type | --emit-script F | --from-output F] "
+         "[--lake-env DIR] [--jobs N] [--timeout S]")
+
+
+def types_mode(args) -> dict | None:
+    emit, frm = getattr(args, "emit_script", None), getattr(args, "from_output", None)
+    local = getattr(args, "challenge_from_type", False)
+    tuning = [f for f, v in (("--lake-env", getattr(args, "lake_env", None)), ("--jobs", getattr(args, "jobs", None)),
+                             ("--timeout", getattr(args, "timeout", None))) if v is not None]
+    if emit and frm:
+        raise core.UsageError("--emit-script and --from-output are two halves of one run; pass one of them")
+    if frm and tuning:
+        raise core.UsageError(f"{', '.join(tuning)}: belong to the driver (--challenge-from-type or --emit-script), "
+                              f"not to --from-output")
+    if not (emit or frm or local):
+        if tuning:
+            raise core.UsageError(f"{', '.join(tuning)}: need --challenge-from-type or --emit-script")
+        return None
+    mode = "emit" if emit else "ingest" if frm else "local"
+    return {"mode": mode, "emit": emit, "from_output": frm, "lake_env": getattr(args, "lake_env", None),
+            "jobs": getattr(args, "jobs", None), "timeout": getattr(args, "timeout", None)}
 
 
 def cmd_comparator_config(args) -> int:
     if not args.from_claims:
-        raise core.UsageError("usage: lean-pkg comparator config --from-claims NAME [--out comparator.json] "
-                              "[--dry-run] [--challenge-namespace NS] [--agent A]")
+        raise core.UsageError(USAGE)
+    types = types_mode(args)
     reg = core.load_registry(core.registry_path(args))
     lines, payload, text = do_config_from_claims(reg, args.from_claims, args.out or "comparator.json",
-                                                 args.dry_run, args.challenge_namespace, args.agent)
+                                                 args.dry_run, args.challenge_namespace, args.agent, types)
     if getattr(args, "json_out", False):
         if text is not None:
             payload["config"] = json.loads(text)

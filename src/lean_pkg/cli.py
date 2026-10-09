@@ -3682,7 +3682,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1).
   flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private, --refuse-dirty
-  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot)
+  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped; --challenge-from-type pre-fills Challenge (elaborated type) + Solution (`exact @_root_.<decl>`) via `lake env lean` [--lake-env DIR --jobs N --timeout S], or split it: --emit-script F (bash F OUT.json on a Slurm node, JSON comparator-types/1) then --from-output OUT.json (commit must be HEAD); per entry: type_error keeps the TODO, needs_restatement flags project vocabulary   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot)
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), and (paper field) a paper unpublished with no arXiv id.
@@ -4054,8 +4054,10 @@ def cmd_comparator(args) -> int:
     if is_comparator_config(args):
         from .comparator_config import cmd_comparator_config
         return cmd_comparator_config(args)
-    if args.from_claims or args.out or args.dry_run or args.challenge_namespace:
-        raise UsageError("--from-claims, --out, --dry-run and --challenge-namespace belong to "
+    if args.from_claims or args.out or args.dry_run or args.challenge_namespace or args.challenge_from_type \
+            or args.emit_script or args.from_output or args.lake_env or args.jobs is not None \
+            or args.timeout is not None:
+        raise UsageError("--from-claims, --out, --dry-run, --challenge-namespace and the type flags belong to "
                          "`lean-pkg comparator config --from-claims NAME`")
     if args.receipt is None:
         raise UsageError("comparator NAME needs --receipt PATH (or: lean-pkg comparator host-check)")
@@ -4837,6 +4839,19 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--challenge-namespace", default=None,
                    help="with config: namespace of the new Challenge names (default <Package>Audit)")
     s.add_argument("--agent", default=None, help="with config: lease holder, if one is live")
+    s.add_argument("--challenge-from-type", action="store_true",
+                   help="with config: pre-fill each new Challenge/Solution from the declaration's elaborated "
+                        "type (runs `lake env lean` in the checkout)")
+    s.add_argument("--emit-script", default=None, metavar="F",
+                   help="with config: write the type driver to F (run it elsewhere: cd CHECKOUT && bash F OUT.json); "
+                        "no Lean runs here")
+    s.add_argument("--from-output", default=None, metavar="F",
+                   help="with config: fill the scaffold from the driver's comparator-types/1 JSON F")
+    s.add_argument("--lake-env", default=None, metavar="DIR",
+                   help="with config types: Lake directory inside the checkout (default: the checkout)")
+    s.add_argument("--jobs", type=int, default=None, help="with config types: parallel Lean processes (default 2)")
+    s.add_argument("--timeout", type=int, default=None,
+                   help="with config types: seconds per declaration (default 120)")
     add_json(s)
     s.set_defaults(fn=cmd_comparator)
 

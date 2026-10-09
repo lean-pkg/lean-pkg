@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg comparator config --from-claims NAME --challenge-from-type [--lake-env DIR] [--jobs N]
+  [--timeout S]`: pre-fills each scaffolded Challenge with the declaration's elaborated type
+  (pretty-printed by `lake env lean` on the build host) and its Solution with
+  `exact @_root_.<decl>`; `needs_restatement: true` marks types that use project definitions,
+  and a declaration that fails keeps its `TODO:` lines with `type_error`. `--emit-script F`
+  and `--from-output F` split it across hosts (driver on a Slurm node, JSON
+  `comparator-types/1` checked against HEAD). (#25)
+
 ## [0.7.1] - 2026-10-09
 
 ### Added

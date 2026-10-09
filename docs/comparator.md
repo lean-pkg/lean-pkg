@@ -113,6 +113,131 @@ the list is empty; comparator ignores unknown keys, but do not submit a
 configuration that still carries the key to Palomar. Names still listed
 there are left out of `status.main_results` in `formalization.yaml`.
 
+### Pre-filling statements from the elaborated types
+
+`--challenge-from-type` fills each entry the scaffold adds with a starting
+point instead of two `TODO:` lines: the Challenge statement is the
+declaration's type as Lean pretty-prints it on the build host, and the
+Solution restates it and closes it with `exact @_root_.<decl>`:
+
+```json
+{
+  "theorem_name": "BetaAudit.Demo.wow",
+  "claim": "beta/wow", "decl": "Demo.wow", "file": "Demo/Main.lean",
+  "type": "∀ {α : Type u} [inst : Inhabited α] (s : Demo.Thing α), s = s",
+  "needs_restatement": true,
+  "restatement_reason": "the type uses project definitions (Demo.Main)",
+  "challenge": "-- TODO: restate in Mathlib vocabulary: ...\n/-- wow summary -/\ntheorem BetaAudit.Demo.wow.{u} :\n    ... := by\n  sorry",
+  "solution": "theorem BetaAudit.Demo.wow.{u} :\n    ... := by\n  exact @_root_.Demo.wow"
+}
+```
+
+`needs_restatement: true` (with a `TODO:` comment on the Challenge) marks
+the entries a person must still restate in Mathlib vocabulary: the type
+mentions a constant from a module outside `Init`, `Std`, `Lean`, `Mathlib`
+and Mathlib's own dependencies, or the printed type would not re-elaborate
+(an inaccessible `✝` name or an elided `⋯` proof). An entry whose type is in
+Mathlib vocabulary already carries `needs_restatement: false` and a
+Challenge that compiles as is; it still needs the paper check below. A
+declaration Lean cannot elaborate (module not built, unknown constant,
+timeout) keeps its `TODO:` lines, gets `needs_restatement: true`, and records
+`type_error: <first line of the error>`. Every entry stays under
+`lean_pkg_scaffold.todo` until its Challenge and Solution are written into the
+modules.
+
+How a type is obtained: for each declaration, a scratch file in a temp
+directory imports the claim's module (from its `file`) and `Lean`, and runs
+
+```lean
+set_option pp.fullNames true
+set_option pp.proofs true
+set_option pp.analyze true
+open Lean Elab Command in
+#eval show CommandElabM Unit from do
+  let env ← getEnv
+  let n : Name := ((Name.anonymous).str "Demo").str "wow"
+  match env.find? n with
+  | none => IO.println s!"LEANPKG-ERROR unknown constant {n}"
+  | some ci =>
+    let fmt ← liftTermElabM (Meta.ppExpr ci.type)
+    let mods := ci.type.getUsedConstants.toList.filterMap fun c =>
+      (env.getModuleIdxFor? c).map fun i => (env.header.moduleNames[i.toNat]!).toString
+    IO.println s!"LEANPKG-LEVELS {String.intercalate "," (ci.levelParams.map toString)}"
+    IO.println s!"LEANPKG-MODULES {String.intercalate "," mods.eraseDups}"
+    IO.println "LEANPKG-TYPE-BEGIN"
+    IO.println (fmt.pretty 100)
+    IO.println "LEANPKG-TYPE-END"
+```
+
+with `lake env lean <file>` from the checkout (one process per declaration,
+`--jobs` at a time, default 2; `--timeout` seconds each, default 120). It
+prints the declared universe names (so the Challenge is
+`theorem X.{u, v} : ...` with the same names), the modules of every
+constant in the type, and the type with all binders, implicit and instance
+ones included. `pp.analyze` adds the annotations a pretty-printed term
+needs to elaborate back to the same term (for instance
+`Eq.{u + 1} (α := α) Inhabited.default Inhabited.default`), and
+`pp.proofs true` prints proofs inside types rather than `⋯`. Limits: the
+pretty-printer does not guarantee a round trip, so a type that prints but
+does not re-elaborate, or elaborates to a different term, is caught only
+when the Challenge is built and by comparator itself; binder names of
+non-dependent hypotheses are dropped (`h : P` becomes `P →`, the same type);
+notation from scoped namespaces is not opened, so it prints as the
+underlying constants; the claim's `file` must map to a module under the
+Lake directory (`Demo/Main.lean` → `Demo.Main`), and a library with a custom
+`srcDir` gives a `type_error`. Build the package first (`lake build`): an
+unbuilt module is a `type_error`, not a build.
+
+It refuses when the Lake directory (`--lake-env DIR`, a directory inside the
+checkout; default the checkout) has no `lakefile.lean` or `lakefile.toml`,
+and when `lake` (or a `lean` on `PATH`) is not elan's. Nothing is written
+into the checkout except the configuration; the scratch files live in a temp
+directory.
+
+**Three modes.** Elaborating a large package is heavy, so the step splits
+into two halves that run on different hosts, with the one-shot mode built
+from the same two halves:
+
+```bash
+# 1. on the workstation: write the driver, run nothing
+lean-pkg comparator config --from-claims beta --emit-script /scratch/beta-types.sh --jobs 8
+# 2. on the cluster, with the checkout at the same commit
+sbatch --time=04:00:00 --cpus-per-task=8 --mem=64G \
+  --wrap 'cd ~/lean/beta && lake build && bash /scratch/beta-types.sh /scratch/beta-types.json'
+# 3. back on the workstation: fill the scaffold (refused unless the JSON's commit is HEAD)
+lean-pkg comparator config --from-claims beta --from-output /scratch/beta-types.json --dry-run
+lean-pkg comparator config --from-claims beta --from-output /scratch/beta-types.json
+# or, on a host that may run Lean: all three in one
+lean-pkg comparator config --from-claims beta --challenge-from-type
+```
+
+`--emit-script F` writes a self-contained `bash` + `python3` driver to `F`
+(outside the checkout, or under its `.lake/`) and lists the declarations; it
+embeds the package, the commit, the declarations and their modules, and the
+Lean snippet. Run it as `cd <checkout> && bash F OUT.json`; it refuses
+(exit 2) without a lakefile, with a non-elan `lake`, or when HEAD is not the
+embedded commit, and `LEAN_PKG_TYPES_JOBS` / `LEAN_PKG_TYPES_TIMEOUT` override
+the embedded `--jobs` / `--timeout`. It writes `OUT.json`:
+
+```json
+{"schema": "comparator-types/1", "package": "beta", "commit": "<40-hex HEAD>",
+ "toolchain": "leanprover/lean4:v4.35.0",
+ "results": [{"decl": "Demo.baz", "type": "∀ (n : Nat), n + 0 = n", "status": "ok", "error": null,
+              "levels": [], "modules": ["Init.Prelude"]},
+             {"decl": "Demo.zap", "type": null, "status": "error",
+              "error": "unknown module prefix 'Demo'", "levels": [], "modules": []}]}
+```
+
+`levels` and `modules` are additive; a result without `modules` is marked
+`needs_restatement`. `--from-output F` refuses (nothing written) a file whose
+`schema` is not `comparator-types/1`, whose `package` is another package, or
+whose `commit` is not the checkout's HEAD; a declaration with no result in the
+file falls back to the TODO lines with a `type_error`. `--challenge-from-type`
+emits the driver to a temp directory, runs it from the checkout and ingests
+its output exactly as `--from-output` would. `--dry-run` writes no
+configuration in any mode (and no driver with `--emit-script`), and a second
+run adds nothing, so Lean is not run again for claims already scaffolded.
+
 The smallest complete pair, from a smoke test:
 
 ```lean
