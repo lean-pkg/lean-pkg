@@ -2,28 +2,29 @@ schema: index-entry/2
 name: gromov-filling-lean
 repo: https://github.com/lowrank/gromov-filling-lower-bound
 pin:
-  commit: 1c4ccb9c16ab4f7b6e34a24b07957b2261cb44ef
+  commit: ba787a3eb26eaa88752d06d91f17763478233eab
   tag: null
 lean_toolchain: leanprover/lean4:v4.29.0
 mathlib_rev: 8a178386ffc0f5fef0b77738bb5449d50efeea95
 license_spdx: MIT
-trust: lower-tier
+trust: comparator
 receipts:
-  lower: .lean-receipts/1c4ccb9c16ab-easley-5546126.json
-  comparator: null
+  lower: null
+  comparator: .lean-receipts/ba787a3eb26e-comparator.json
 headline:
 - name: GromovFilling.riemannian_universal_fourier_bound
   file: GromovFilling/RiemannianUniversalFourierBound.lean
   summary: A compact connected Riemannian surface whose boundary is an isometric unit circle has area
     at least 14 zeta(3)/pi, about 5.3567.
+  judged_as: GromovFillingAudit.UniversalFourierBound.riemannian_universal_fourier_bound
 claims:
 - id: gromov-filling-lean/gromovfilling-riemannian-universal-fourier-bound
   decl: GromovFilling.riemannian_universal_fourier_bound
   kind: theorem
   summary: A compact connected Riemannian surface whose boundary is an isometric unit circle has area
     at least 14 zeta(3)/pi, about 5.3567.
-  judged_as: null
-  trust: lower-tier
+  judged_as: GromovFillingAudit.UniversalFourierBound.riemannian_universal_fourier_bound
+  trust: comparator
 palomar: []
 doi: null
 reservoir: null
@@ -34,7 +35,11 @@ fields:
 consent:
   recorded: true
 added:
-  at: '2026-10-06T12:30:18+00:00'
+  at: '2026-10-09T00:08:48+00:00'
   by: chenle02
-notes: First index entry (2026-10-06). Lower-tier receipt produced on the Auburn University Easley Cluster;
-  comparator tier and Palomar registration wait for the Lean v4.35 upgrade.
+notes: 'Theorem 1.1 (universal Fourier bound) carries comparator evidence (legacy mechanism, Lean v4.29.0;
+  NanoDa and Lean kernels) through Audit/UniversalFourierBound/: Defs.lean copies the project''s surface-area
+  definitions verbatim with Mathlib imports only, and the Challenge states that a controlled interior
+  atlas exists and every one gives area at least 14 zeta(3)/pi (the project proves the area is independent
+  of the atlas). Comparator-only entry: the earlier lower-tier receipt bound the previous pin. Re-pinned
+  2026-10-09 after lowrank/gromov-filling-lower-bound#160, before that pull request''s Lean CI had finished.'

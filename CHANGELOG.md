@@ -9,6 +9,10 @@ change the registry schema or receipt format, always with a migration).
 
 ### Changed
 
+- Index: `gromov-filling-lean` re-pinned at `ba787a3eb26e` with a comparator
+  receipt for Theorem 1.1 (legacy mechanism), whose Challenge copies the
+  project's surface-area definitions into a Mathlib-only `Defs.lean`; trust is
+  now `comparator`. All three index entries are at comparator trust.
 - Index: `markovprocess-pilot` re-pinned at `05d99d75df82`, the commit that
   credits Scott Armstrong for the lemma adapted from MarkovProcess and cites
   MarkovProcess; fresh lower-tier and comparator receipts (toolchain

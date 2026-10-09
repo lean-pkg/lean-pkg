@@ -1,0 +1,37 @@
+{
+  "commit": "ba787a3eb26eaa88752d06d91f17763478233eab",
+  "configs": [
+    {
+      "challenge_module": "Audit.UniversalFourierBound.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/ba787a3eb26e-comparator-comparator_config-universal-fourier-bound.log",
+      "log_sha256": "24665101e39a78a7af6761d9344de18e158e894de6ad1393471fc98c6ffe1f7c",
+      "path": "comparator/config-universal-fourier-bound.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "b0642af774196a31b07d9f4e733637aceb3a46c8bf6eb8be7cbe827b71a08f47",
+      "solution_module": "Audit.UniversalFourierBound.Solution",
+      "theorem_names": [
+        "GromovFillingAudit.UniversalFourierBound.riemannian_universal_fourier_bound"
+      ]
+    }
+  ],
+  "generated_at": "2026-10-08T23:57:06+00:00",
+  "host": "home-workstation",
+  "host_policy": "host home-workstation listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS",
+  "job_id": "local-home-workstation-2243912-20261008T235706Z",
+  "lean_toolchain": "leanprover/lean4:v4.29.0",
+  "mechanism": "legacy",
+  "result": "pass",
+  "schema": "comparator-receipt/2",
+  "tools": {
+    "comparator": "575674928e239f5bc452aab72d1dd7b0f1326494",
+    "landrun": "811cfff51ceaf3d9843708aa6d22e9b84ccac8b4",
+    "lean4export": "5a53b634f6a3e21e55b4852337c4fcf0781ad1aa",
+    "nanoda": "68d5ca9db226849b41a6fff59d796ff19d0a8840"
+  }
+}
