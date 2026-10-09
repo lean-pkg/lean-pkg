@@ -182,6 +182,13 @@ Releases are listed in [CHANGELOG.md](CHANGELOG.md); the process is in
 [docs/decisions](docs/decisions/README.md); security reports go by
 [SECURITY.md](SECURITY.md).
 
+## Acknowledgments
+
+This work was completed in part with resources provided by the Auburn University Easley Cluster. The lower-tier receipts (`lake build`, sorry scan and axiom audit) and
+comparator receipts (statement comparison and kernel replay) that exercised
+lean-pkg during development were produced by Slurm jobs on Easley, alongside
+runs on lab workstations.
+
 ## License
 
 Copyright (c) 2026 Le Chen and Auburn University. Licensed under Apache-2.0;

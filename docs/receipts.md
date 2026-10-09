@@ -17,6 +17,10 @@ The comparator tier is optional at `gate`, so exploratory packages do not pay
 its cost. It is required at `promote`, so nothing becomes public without it.
 Both tiers must bind to the same commit.
 
+Either tier may run as a Slurm job (see [Host policy](comparator.md#host-policy)).
+The lab's Slurm receipts were produced on the Auburn University Easley
+Cluster; packages verified there carry the acknowledgment "This work was completed in part with resources provided by the Auburn University Easley Cluster."
+
 ## What a passing pair does and does not prove
 
 | Proves | Does not prove |

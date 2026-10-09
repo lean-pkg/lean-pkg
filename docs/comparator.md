@@ -546,6 +546,13 @@ Otherwise it refuses with a message naming all three options. In CI, set the
 runner's hostname in `COMPARATOR_RECEIPT_ALLOWED_HOSTS` or use the explicit
 override; the override is visible in the receipt either way.
 
+The maintainer's lab runs the Slurm route on the Auburn University Easley
+Cluster: `SLURM_JOB_ID` jobs there produced lower-tier receipts (`lake build`
+plus axiom audit) and comparator receipts (statement comparison and kernel
+replay) while lean-pkg was developed. A package whose receipts came from
+Easley acknowledges it in its README and in `formalization.yaml`'s
+`acknowledgements` with the official sentence: "This work was completed in part with resources provided by the Auburn University Easley Cluster."
+
 ## Tool pins
 
 The pins live in `comparator-check.sh` (`COMPARATOR_COMMIT`,
