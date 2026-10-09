@@ -78,6 +78,41 @@ bash ~/src/lean-pkg/src/lean_pkg/scripts/comparator-check.sh --lint-configs
 # All 1 configuration(s) lint clean.
 ```
 
+### Scaffolding entries from claims.yaml
+
+A package with many claims and few hand-written entries can list the rest
+in one step, once `claims.yaml` is committed and synced
+(`lean-pkg claims sync NAME`):
+
+```bash
+lean-pkg comparator config --from-claims NAME --dry-run     # print the would-be JSON
+lean-pkg comparator config --from-claims NAME               # extend comparator.json
+```
+
+For every claim of kind `theorem` or `lemma` (not `superseded`) that no
+tracked configuration covers yet, it appends a Challenge name
+`<Package>Audit.<decl>` to `theorem_names` (`--challenge-namespace NS`
+changes the prefix) and records, under `lean_pkg_scaffold.todo`, the claim,
+the declaration, its file and two `TODO:` lines: the Challenge statement a
+human must write in Mathlib vocabulary, and the Solution bridge to the
+project theorem. A claim counts as covered when a configured name is its
+declaration, ends with `.<decl>`, or shares its last component. Existing
+keys and entries are never removed, renamed or reordered, and a second run
+adds nothing. It prints the counts (already configured, added, skipped:
+definitions, constructions, libraries and superseded claims). `--out`
+names another configuration (`comparator*.json` or
+`comparator/config*.json`; created with the standard fields when absent).
+It refuses when `claims.yaml` is not tracked at HEAD or the claims are not
+synced at HEAD, and a live lease held by another agent refuses the write
+(`--agent`). The registry is never written.
+
+Until each Challenge and Solution exists, comparator fails on the TODO
+names, which is the point: nothing is certified by scaffolding. Remove an
+entry from `lean_pkg_scaffold.todo` once both are written, and the key once
+the list is empty; comparator ignores unknown keys, but do not submit a
+configuration that still carries the key to Palomar. Names still listed
+there are left out of `status.main_results` in `formalization.yaml`.
+
 The smallest complete pair, from a smoke test:
 
 ```lean

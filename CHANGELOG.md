@@ -7,6 +7,17 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg comparator config --from-claims NAME [--out comparator.json]
+  [--dry-run]`: adds one `theorem_names` entry (`<Package>Audit.<decl>`)
+  per synced `theorem`/`lemma` claim that no tracked comparator
+  configuration covers, with `TODO:` Challenge and Solution lines under
+  `lean_pkg_scaffold.todo`. It never removes or reorders existing entries,
+  prints already-configured/added/skipped counts, and refuses when
+  `claims.yaml` is not tracked or not synced at HEAD. Names still marked TODO
+  are left out of `formalization.yaml`'s `status.main_results`. (#23.6)
+
 ### Fixed
 
 - Consent re-recorded with the same `who`, `role` and `pointer` is now a

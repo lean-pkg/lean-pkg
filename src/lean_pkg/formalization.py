@@ -203,7 +203,14 @@ def main_results(repo: pathlib.Path, warnings: list[str]) -> list[dict]:
                 judged = cfg.get("judged_as")
             except ValueError as e:
                 warnings.append(f"{e}; judged_as is null in main_results")
+        from .comparator_config import scaffold_todo_names
+        todo = scaffold_todo_names(cfg)      # #23.6: scaffolded, not yet written: not a main result
+        if todo & set(names):
+            warnings.append(f"{rel}: {len(todo & set(names))} theorem name(s) still marked TODO under "
+                            f"lean_pkg_scaffold; left out of status.main_results")
         for name in names:
+            if name in todo:
+                continue
             entry = {"comparator_config": rel, "declaration": name, "file": solution}
             if challenge:
                 entry["challenge_file"] = challenge

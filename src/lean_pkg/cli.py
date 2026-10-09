@@ -3682,7 +3682,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1).
   flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private, --refuse-dirty
-  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot)
+  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot)
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), and (paper field) a paper unpublished with no arXiv id.
@@ -4024,6 +4024,15 @@ def is_host_check(args) -> bool:
     return getattr(args, "name", None) == HOST_CHECK and getattr(args, "receipt", None) is None
 
 
+CONFIG_CMD = "config"
+
+
+def is_comparator_config(args) -> bool:
+    """`lean-pkg comparator config --from-claims NAME` (#23.6): writes only the package's comparator
+    configuration, never the registry."""
+    return getattr(args, "name", None) == CONFIG_CMD and getattr(args, "receipt", None) is None
+
+
 def cmd_comparator_host_check(args) -> int:
     from .comparator_receipt import host_checks
     res = host_checks()
@@ -4042,6 +4051,12 @@ def cmd_comparator_host_check(args) -> int:
 def cmd_comparator(args) -> int:
     if is_host_check(args):
         return cmd_comparator_host_check(args)
+    if is_comparator_config(args):
+        from .comparator_config import cmd_comparator_config
+        return cmd_comparator_config(args)
+    if args.from_claims or args.out or args.dry_run or args.challenge_namespace:
+        raise UsageError("--from-claims, --out, --dry-run and --challenge-namespace belong to "
+                         "`lean-pkg comparator config --from-claims NAME`")
     if args.receipt is None:
         raise UsageError("comparator NAME needs --receipt PATH (or: lean-pkg comparator host-check)")
     reg_path, events_p = registry_path(args), events_path(args)
@@ -4813,6 +4828,15 @@ def main(argv: list[str] | None = None) -> int:
                         "default is a WARN line")
     s.add_argument("--refuse-dirty", action="store_true",
                    help="refuse when tracked files are modified in the checkout; default is a WARN line")
+    s.add_argument("--from-claims", default=None, metavar="NAME",
+                   help="`comparator config --from-claims NAME`: add a TODO theorem_names entry per synced "
+                        "claim (theorem/lemma) no comparator configuration covers yet; never overwrites")
+    s.add_argument("--out", default=None, help="with config: the configuration to extend or create "
+                                               "(default comparator.json)")
+    s.add_argument("--dry-run", action="store_true", help="with config: print the would-be JSON; write nothing")
+    s.add_argument("--challenge-namespace", default=None,
+                   help="with config: namespace of the new Challenge names (default <Package>Audit)")
+    s.add_argument("--agent", default=None, help="with config: lease holder, if one is live")
     add_json(s)
     s.set_defaults(fn=cmd_comparator)
 
@@ -4910,7 +4934,8 @@ def is_write_invocation(args) -> bool:
     if cmd in ("init", "record", "register", "claim", "release", "renew", "update", "gate", "migrate"):
         return not getattr(args, "dry_run", False)
     if cmd == "comparator":
-        return not getattr(args, "check", False) and not is_host_check(args)
+        return not getattr(args, "check", False) and not is_host_check(args) \
+            and not is_comparator_config(args)
     if cmd == "promote":
         return bool(getattr(args, "yes", False))
     if cmd == "audit":
