@@ -45,8 +45,9 @@ from .cli import comparator_pass  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
-from .comparator_stage import (PARTIAL_FILE, UNITS_DIR, Interrupted, Judge, Progress, SignalGuard,  # noqa: E402
-                               StageLog, Unit, list_slots, ranges, run_pool, unit_id)
+from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
+                               Progress, SignalGuard, SlotCache, StageLog, Unit, list_slots, ranges,
+                               run_pool, unit_id)
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -559,7 +560,8 @@ class Stage04:
     assemble each configuration's receipt log from the logs of the units that judged it."""
 
     def __init__(self, project: pathlib.Path, configs: list[str], mechanism: str, check: pathlib.Path,
-                 verify: pathlib.Path | None, stages: Stages, log_dir: pathlib.Path, resume_command: str):
+                 verify: pathlib.Path | None, stages: Stages, log_dir: pathlib.Path, resume_command: str,
+                 resume: bool = True):
         self.project, self.configs, self.mechanism = project, configs, mechanism
         self.check, self.verify, self.stages, self.log_dir = check, verify, stages, log_dir
         self.cfgs = [(c, json.loads((project / c).read_bytes())) for c in configs]
@@ -571,14 +573,28 @@ class Stage04:
         self.passed: dict[str, list[tuple[Unit, pathlib.Path]]] = {c: [] for c in configs}
         self.legacy_output = ""
         self.slog: StageLog | None = None
+        self.resume = resume
+        self.cached: dict[int, dict] = {}            # slot index -> valid cache entry (resume)
+        self.cache = None if mechanism == "legacy" else SlotCache(
+            stages.dir / SLOTS_DIR, stages.binding, mechanism, sha256_file(verify),
+            lambda text: comparator_pass(text, "toolchain"))
 
     # -- planning ---------------------------------------------------------------------------------
     def plan(self) -> list[Unit]:
         if self.mechanism == "legacy":   # comparator-check.sh judges every configuration in one run
             units = [Unit(1, "", list(self.slots), True)]
         else:
-            units = [Unit(i, rel, [s for s in self.slots if s.config == rel], True)
-                     for i, (rel, _cfg) in enumerate(self.cfgs, 1)]
+            if self.cache is not None and self.resume:
+                for s in self.slots:
+                    e = self.cache.get(s)
+                    if e is not None:
+                        self.cached[s.index] = e
+            units = []
+            for rel, _cfg in self.cfgs:
+                mine = [s for s in self.slots if s.config == rel]
+                pend = [s for s in mine if s.index not in self.cached]
+                if pend or not mine:
+                    units.append(Unit(len(units) + 1, rel, pend, len(pend) == len(mine)))
         for u in units:
             u.id = unit_id(self.stages.binding, u)
         return units
@@ -588,7 +604,14 @@ class Stage04:
         if self.mechanism == "legacy":
             env["LOG_DIR"] = str(self.log_dir)
             return ["bash", str(self.check)], env
-        return ["bash", str(self.verify), unit.config], env
+        if unit.whole:
+            return ["bash", str(self.verify), unit.config], env
+        # a partial copy: the configuration with theorem_names cut to this unit's slots, all else equal
+        cfg = dict(next(c for rel, c in self.cfgs if rel == unit.config))
+        cfg["theorem_names"] = [s.name for s in unit.slots]
+        part = self.units_dir / f"{unit.id}.json"
+        part.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+        return ["bash", str(self.verify), str(part)], env
 
     # -- progress ---------------------------------------------------------------------------------
     def say(self, text: str) -> None:
@@ -639,6 +662,8 @@ class Stage04:
             self.legacy_output = out
         else:
             self.passed[unit.config].append((unit, j.log))
+            if self.cache is not None and unit.slots:
+                self.cache.put(unit.slots, j.log, unit.whole, secs)
         self.progress.mark(unit.slots, "judged")
         self.say(f"{self.tag(unit)} done in {secs:.1f}s ({self.progress.counts()['done']}/{len(self.slots)} done)")
         self.publish()
@@ -653,6 +678,7 @@ class Stage04:
         try:
             self.say(f"comparator-receipt: {len(self.slots)} slot(s) in {len(self.configs)} config(s), "
                      f"{len(units)} judge invocation(s), mechanism {self.mechanism}")
+            self.announce_cached()
             self.publish()
             try:
                 with SignalGuard():
@@ -686,22 +712,51 @@ class Stage04:
         finally:
             self.slog.close()
 
+    def announce_cached(self) -> None:
+        if not self.cached:
+            return
+        for rel in self.configs:
+            hit = [s for s in self.slots if s.config == rel and s.index in self.cached]
+            if hit:
+                self.progress.mark(hit, "cached")
+                label = hit[0].name if len(hit) == 1 else f"{rel}[{len(hit)} names]"
+                self.say(f"slot {ranges(s.index for s in hit)}/{len(self.slots)} {label} cached "
+                         f"(accepted earlier at this commit and config hash; --no-resume judges again)")
+
+    def parts(self, rel: str) -> list[tuple[list, pathlib.Path, bool]]:
+        """(slots, log, whole) of every unit that accepted part of rel, this run's and cached ones."""
+        out = [(u.slots, log, u.whole) for u, log in self.passed[rel]]
+        by_log: dict[pathlib.Path, list] = {}
+        for s in self.slots:
+            e = self.cached.get(s.index)
+            if s.config == rel and e is not None:
+                by_log.setdefault(e["log_path"], [e.get("whole"), []])[1].append(s)
+        out += [(ss, log, bool(whole) and len(ss) == sum(1 for x in self.slots if x.config == rel))
+                for log, (whole, ss) in by_log.items()]
+        return sorted(out, key=lambda p: min((s.index for s in p[0]), default=0))
+
     def assemble(self) -> None:
         """Each configuration's receipt log: its single whole-config unit log byte for byte, else the
         logs of the units that judged it, each under a header naming its slots."""
+        self.receipt_units: dict[str, list[dict]] = {}
         if self.mechanism == "legacy":
             return                                   # comparator-check.sh wrote LOG_DIR itself
         for rel in self.configs:
-            parts = self.passed[rel]
+            parts = self.parts(rel)
             dst = self.log_dir / f"{cfg_name(rel)}.log"
-            if len(parts) == 1 and parts[0][0].whole:
+            if len(parts) == 1 and parts[0][2]:
                 shutil.copyfile(parts[0][1], dst)
                 continue
+            rows = []
             with open(dst, "wb") as fh:
-                for unit, log in parts:
-                    fh.write(f"== unit: slots {ranges(s.index for s in unit.slots)} "
-                             f"({len(unit.slots)} names)\n".encode())
-                    fh.write(log.read_bytes())
+                for slots, log, _whole in parts:
+                    data = log.read_bytes()
+                    fh.write(f"== unit: slots {ranges(s.index for s in slots)} "
+                             f"({len(slots)} names)\n".encode())
+                    fh.write(data)
+                    rows.append({"slots": [s.name for s in slots],
+                                 "log_sha256": hashlib.sha256(data).hexdigest()})
+            self.receipt_units[rel] = rows
 
 
 def dirty_paths(project: pathlib.Path, evidence: pathlib.Path) -> list[str]:
@@ -725,7 +780,8 @@ def dirty_paths(project: pathlib.Path, evidence: pathlib.Path) -> list[str]:
 def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         mechanism: str = "auto", verify: pathlib.Path | None = None,
         evidence: pathlib.Path | None = None, prepare: bool = False,
-        from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt") -> dict:
+        from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt",
+        resume: bool = True) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     if not prepare and not check.is_file():
@@ -801,8 +857,11 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         result: dict = {}
 
         def comparator_stage(stage_log: pathlib.Path):
-            st = Stage04(project, configs, mechanism, check, verify, stages, log_dir, resume_command)
+            st = Stage04(project, configs, mechanism, check, verify, stages, log_dir, resume_command,
+                         resume=resume)
             status, code, note = st.run(stage_log)
+            result["extra"] = {"resumed_slots": len(st.cached)} if st.cached else {}
+            result["config_extra"] = {rel: {"units": rows} for rel, rows in st.receipt_units.items()}
             result["tools"] = (parse_pins(st.legacy_output) if mechanism == "legacy"
                                else toolchain_tools(project, verify, toolchain))
             return status, code, note
@@ -812,7 +871,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
 
         def receipt_stage(stage_log: pathlib.Path):
             result.update(write_receipt(project, configs, log_dir, commit, mechanism, toolchain, tools,
-                                        host_policy, pathlib.Path(tmp), stages.summary()))
+                                        host_policy, pathlib.Path(tmp), stages.summary(),
+                                        extra=result["extra"], config_extra=result["config_extra"]))
             stage_log.write_text(f"wrote {result['receipt']} and {len(configs)} log(s)\n", encoding="utf-8")
             return "ok", 0, f".lean-receipts/{commit[:12]}-comparator.json"
 
@@ -823,7 +883,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
 
 def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Path, commit: str,
                   mechanism: str, toolchain: str, tools: dict, host_policy: str, tmp: pathlib.Path,
-                  stage_summary: list[dict]) -> dict:
+                  stage_summary: list[dict], extra: dict | None = None,
+                  config_extra: dict | None = None) -> dict:
     entries = []
     staged: list[tuple[pathlib.Path, pathlib.Path]] = []
     for cfg_rel in configs:
@@ -850,6 +911,7 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
             "log": log_rel,
             "log_sha256": sha256_file(src_log),
             "result": "pass",
+            **((config_extra or {}).get(cfg_rel) or {}),
         })
     host = os.environ.get("COMPARATOR_RECEIPT_HOST_LABEL", "").strip() or socket.gethostname()
     now = dt.datetime.now(dt.timezone.utc)
@@ -860,7 +922,7 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
         "lean_toolchain": toolchain, "tools": tools, "host": host,
         **({"test_only": True} if os.environ.get(FAKE_LAKE_ENV) is not None else {}), "host_policy": host_policy, "job_id": job,
         "generated_at": now.isoformat(timespec="seconds"),
-        "result": "pass", "configs": entries, "stages": stage_summary,
+        "result": "pass", "configs": entries, "stages": stage_summary, **(extra or {}),
     }
     rec_tmp = tmp / "receipt.json"
     rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
@@ -931,6 +993,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--from-prepared", default=None, metavar="DIR",
                     help="reuse the completed setup recorded in DIR (an evidence directory or its "
                          "stages.json); refuses when it was prepared for another commit/toolchain/config")
+    ap.add_argument("--no-resume", action="store_true",
+                    help="judge every slot again, ignoring the slots this commit and config hash already "
+                         f"accepted (cached under <evidence-dir>/{STAGES_DIR}/{SLOTS_DIR}/)")
     args = ap.parse_args(argv)
     if args.prepare and args.from_prepared:
         print("comparator-receipt: --prepare and --from-prepared are exclusive", file=sys.stderr)
@@ -960,7 +1025,8 @@ def main(argv: list[str] | None = None) -> int:
             verify = pathlib.Path(args.verify).resolve() if args.verify else pathlib.Path(verify_default).resolve()
             res = run(project, check, host_policy=why, mechanism=args.mechanism, verify=verify,
                       evidence=evidence, prepare=args.prepare, from_prepared=prepared,
-                      resume_command=resume_command(argv if argv is not None else sys.argv[1:]))
+                      resume_command=resume_command(argv if argv is not None else sys.argv[1:]),
+                      resume=not args.no_resume)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
         code = getattr(e, "code", None)

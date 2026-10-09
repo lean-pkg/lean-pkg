@@ -246,3 +246,67 @@ def test_term_writes_partial_report_with_resume_command(tmp_path: Path):
     assert comp["status"] == "partial" and "partial: 0/2 done" in comp["note"]
     assert st["progress"]["done"] == 0 and st["progress"]["total"] == 2
     assert not list(ev.glob("04-units/*.tmp"))       # the judge's temp exports are cleaned up
+
+
+# --- resume -----------------------------------------------------------------------------------
+
+def calls(path: Path) -> list[str]:
+    return path.read_text().splitlines() if path.exists() else []
+
+
+def test_resume_skips_accepted_slots_and_judges_the_rest(tmp_path: Path):
+    project = two_configs(tmp_path)
+    log = tmp_path / "calls.txt"
+    r = run(project, extra={"STUB_FAIL_MATCH": "B.three", "STUB_CALLS": str(log)})
+    assert r.returncode == 1
+    rep = json.loads((stage_dir(project) / "04-comparator.partial.json").read_text())
+    assert rep["done"] == 2 and [s["name"] for s in rep["slots_failed"]] == ["B.three"]
+    assert len(list((stage_dir(project) / "04-slots").glob("*.json"))) == 2
+    first_log = (stage_dir(project) / "04-slots" / "logs")
+    assert len(list(first_log.glob("*.log"))) == 1
+    log.unlink()
+    r = run(project, extra={"STUB_CALLS": str(log)})
+    assert r.returncode == 0, r.stderr
+    assert [c.split()[0] for c in calls(log)] == ["comparator/config-b.json"]   # only the rest
+    assert "slot 1-2/3 comparator.json[2 names] cached" in stage_log(project)
+    rec = receipt(project)
+    assert rec["resumed_slots"] == 2
+    head = git(project, "rev-parse", "HEAD")
+    kept = next(first_log.glob("*.log")).read_bytes()
+    assert (project / ".lean-receipts" / f"{head[:12]}-comparator-comparator.log").read_bytes() == kept
+    assert "Your solution is okay!" in (project / ".lean-receipts"
+                                        / f"{head[:12]}-comparator-comparator_config-b.log").read_text()
+
+
+def test_no_resume_judges_everything_again(tmp_path: Path):
+    project = two_configs(tmp_path)
+    log = tmp_path / "calls.txt"
+    assert run(project, extra={"STUB_FAIL_MATCH": "B.three"}).returncode == 1
+    r = run(project, "--no-resume", extra={"STUB_CALLS": str(log)})
+    assert r.returncode == 0, r.stderr
+    assert len(calls(log)) == 2 and "cached" not in stage_log(project)
+    assert "resumed_slots" not in receipt(project)
+
+
+def test_tampered_cached_log_is_judged_again(tmp_path: Path):
+    project = two_configs(tmp_path)
+    log = tmp_path / "calls.txt"
+    assert run(project, extra={"STUB_FAIL_MATCH": "B.three"}).returncode == 1
+    kept = next((stage_dir(project) / "04-slots" / "logs").glob("*.log"))
+    kept.write_text(kept.read_text().replace("Your solution is okay!", "Your solution is okay?"))
+    r = run(project, extra={"STUB_CALLS": str(log)})
+    assert r.returncode == 0, r.stderr
+    assert len(calls(log)) == 2
+
+
+def test_cache_does_not_cross_a_config_change(tmp_path: Path):
+    project = two_configs(tmp_path)
+    log = tmp_path / "calls.txt"
+    assert run(project, extra={"STUB_FAIL_MATCH": "B.three"}).returncode == 1
+    cfg = json.loads((project / "comparator/config-b.json").read_text())
+    cfg["theorem_names"] = ["B.four"]
+    (project / "comparator/config-b.json").write_text(json.dumps(cfg) + "\n")
+    git(project, "commit", "-qam", "change config")
+    r = run(project, extra={"STUB_CALLS": str(log)})
+    assert r.returncode == 0, r.stderr
+    assert len(calls(log)) == 2          # new commit and config hash: nothing reused

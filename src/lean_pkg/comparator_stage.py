@@ -362,3 +362,74 @@ class Progress:
     def summary(self) -> str:
         c = self.counts()
         return f"partial: {c['done']}/{c['total']} done" + (f", {c['failed']} failed" if c["failed"] else "")
+
+
+# ---------------------------------------------------------------------------
+# Resume (#39): a slot judged and accepted is cached under 04-slots/<slot-hash>.json, keyed by
+# everything that decides its verdict: commit, config hash (every configuration's path and bytes),
+# lean-toolchain, mechanism, the judge script's digest, the configuration path and the slot name.
+# The unit log that accepted it is kept content-addressed in 04-slots/logs/ and re-checked (digest
+# and PASS line) before a cached slot is trusted; anything missing or different is judged again.
+
+SLOTS_DIR = "04-slots"
+SLOT_SCHEMA = "comparator-slot/1"
+
+
+def slot_key(binding: dict, mechanism: str, judge_sha256: str, slot: Slot) -> dict:
+    return {"commit": binding.get("commit"), "config_hash": binding.get("config_hash"),
+            "lean_toolchain": binding.get("lean_toolchain"), "mechanism": mechanism,
+            "judge_sha256": judge_sha256, "config": slot.config, "name": slot.name}
+
+
+def slot_hash(key: dict) -> str:
+    return hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:24]
+
+
+class SlotCache:
+    def __init__(self, root: pathlib.Path, binding: dict, mechanism: str, judge_sha256: str, accept):
+        self.root, self.binding, self.mechanism, self.judge = root, binding, mechanism, judge_sha256
+        self.accept = accept                      # accept(log_text) -> bool: the PASS predicate
+
+    def path(self, slot: Slot) -> pathlib.Path:
+        return self.root / f"{slot_hash(slot_key(self.binding, self.mechanism, self.judge, slot))}.json"
+
+    def get(self, slot: Slot) -> dict | None:
+        """The cache entry for slot when it is valid for this run, else None."""
+        try:
+            e = json.loads(self.path(slot).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(e, dict) or e.get("schema") != SLOT_SCHEMA or e.get("result") != "pass" \
+                or e.get("key") != slot_key(self.binding, self.mechanism, self.judge, slot):
+            return None
+        log = self.root / str(e.get("log") or "")
+        try:
+            data = log.read_bytes()
+        except OSError:
+            return None
+        if hashlib.sha256(data).hexdigest() != e.get("log_sha256") \
+                or not self.accept(data.decode("utf-8", "replace")):
+            return None
+        e["log_path"] = log
+        return e
+
+    def put(self, slots: list[Slot], log: pathlib.Path, whole: bool, wall: float) -> None:
+        data = log.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        logs = self.root / "logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        dst = logs / f"{digest}.log"
+        if not dst.exists():
+            tmp = dst.with_name(dst.name + ".tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, dst)
+        now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+        for s in slots:
+            entry = {"schema": SLOT_SCHEMA, "key": slot_key(self.binding, self.mechanism, self.judge, s),
+                     "result": "pass", "slot": s.index, "unit_slots": [x.name for x in slots],
+                     "whole": whole, "log": f"logs/{digest}.log", "log_sha256": digest,
+                     "wall_s": round(wall, 3), "judged_at": now}
+            p = self.path(s)
+            tmp = p.with_name(p.name + ".tmp")
+            tmp.write_text(json.dumps(entry, indent=2) + "\n", encoding="utf-8")
+            os.replace(tmp, p)

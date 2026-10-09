@@ -4,9 +4,14 @@
 # STUB_BEHAVIOUR (#39) adds judge behaviours before the verdict: slow (progress lines with pauses),
 # stdin (reads stdin first; hangs forever unless stdin is /dev/null or closed), flood (1 MiB on each of
 # stdout and stderr), silent (sleeps with no output), python (a Python child printing, then sleeping).
-# STUB_PIDFILE gets this script's pid; STUB_SLEEP sets the pause (default 1 s).
+# STUB_PIDFILE gets this script's pid; STUB_SLEEP sets the pause (default 1 s). STUB_CALLS gets one line
+# per call: the config argument and, for a JSON file, its theorem_names. STUB_FAIL_MATCH=<word> fails a
+# call whose config argument or theorem_names contain that word.
 set -euo pipefail
 cfg="${1:-comparator.json}"
+names="$(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["theorem_names"]))' "$cfg" 2>/dev/null || true)"
+[ -n "${STUB_CALLS:-}" ] && echo "$cfg $names" >> "$STUB_CALLS"
+if [ -n "${STUB_FAIL_MATCH:-}" ] && [[ "$cfg $names" == *"$STUB_FAIL_MATCH"* ]]; then STUB_MODE=fail; fi
 [ -n "${STUB_PIDFILE:-}" ] && echo $$ > "$STUB_PIDFILE"
 pause="${STUB_SLEEP:-1}"
 echo "== lake comparator (toolchain) $cfg"

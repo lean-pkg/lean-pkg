@@ -565,6 +565,24 @@ comparator stage's status is `partial`, its note reads
 `partial: a/N done; ... resume: <command>`, and the runner exits 128 plus the
 signal number.
 
+**Resume.** Every slot the toolchain judge accepts is cached as
+`comparator-stages/04-slots/<slot-hash>.json`, keyed by the commit, the
+config hash, `lean-toolchain`, the mechanism, the judge script's sha256, the
+configuration path and the slot name; the unit log that accepted it is kept
+content-addressed in `04-slots/logs/` and re-checked (digest and PASS line)
+before the slot is trusted. A rerun at the same binding skips those slots
+(`slot 1-120/242 comparator.json[120 names] cached ...`) and judges the rest
+with a partial copy of the configuration (`theorem_names` cut to the pending
+slots, everything else equal) in `04-units/<unit-id>.json`. The
+configuration's receipt log is then the accepting unit logs, each under an
+`== unit: slots ...` header, every one ending in the PASS line; the receipt
+adds `resumed_slots` and, per configuration judged in more than one unit,
+`units[] {slots, log_sha256}`. The verdict is the same: the comparator's
+acceptance of a configuration is the conjunction of its acceptance of each
+name, whose export closure does not depend on the other names.
+`--no-resume` judges every slot again. The legacy mechanism judges all
+configurations in one `comparator-check.sh` run and does not resume.
+
 `comparator-receipt --prepare` runs only the setup stages and writes no
 receipt. It is idempotent: a second `--prepare` with a matching completed
 setup does nothing. A later `comparator-receipt` whose commit, toolchain and
