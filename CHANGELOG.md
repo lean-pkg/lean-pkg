@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-09
+
 ### Added
 
 - `comparator-receipt` runs in stages (`checkout`, `cache-get`, `build`, `comparator`,

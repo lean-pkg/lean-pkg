@@ -6,7 +6,7 @@ authors:
   - family-names: Chen
     given-names: Le
     affiliation: "Auburn University"
-version: "0.7.2"
+version: "0.7.3"
 date-released: "2026-10-09"
 license: Apache-2.0
 repository-code: "https://github.com/lean-pkg/lean-pkg"
