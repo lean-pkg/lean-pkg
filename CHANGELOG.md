@@ -20,6 +20,12 @@ change the registry schema or receipt format, always with a migration).
   (preferring the one that names the package's `repo`), adds "after
   promote" while the package is not public, and says so when no remote
   points at GitHub. (#23.2)
+- `reservoir check` before promote: while the package is not `public` or
+  `upstreamed`, the GitHub-dependent items `promote --yes` will satisfy are
+  labelled `pending promote: ...` (still failing, exit 1) and a closing
+  `pre-promote:` line says what promote will fix; `--json` gains
+  `pre_promote` and `pending_promote[]`. A new `WARN` flags a
+  `lean-toolchain` that is a release candidate or nightly. (#23.3)
 
 ## [0.7.0] - 2026-10-09
 

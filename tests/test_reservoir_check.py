@@ -96,3 +96,67 @@ def test_offline_skips_the_api_and_no_manifest_fails(lp, env, gh_repo, monkeypat
 def test_bare_reservoir_is_a_usage_error(lp, env, capsys):
     assert lp.main(["--registry", str(env.registry), "reservoir"]) == 2
     assert "reservoir check NAME" in capsys.readouterr().err
+
+
+def set_status(env, status, **extra):
+    reg = read_reg(env)
+    reg["packages"]["beta"]["status"] = status
+    reg["packages"]["beta"].update(extra)
+    write_reg(env, reg)
+
+
+def test_pre_promote_private_repo_is_pending_promote_and_still_fails(lp, env, gh_repo, capsys):
+    ready(env)                                   # beta is verified-private: promote has not run
+    gh_repo.update(visibility="PRIVATE")
+    rc, data = check(lp, env, capsys)
+    assert rc == 1 and data["eligible"] is False and data["pre_promote"] is True
+    pending = data["pending_promote"]
+    assert any("example/beta is private; `lean-pkg promote beta --yes` makes it public" in p for p in pending)
+    assert any("not listed on Reservoir" in p for p in pending)        # the 404 is pending too
+    assert all(c["status"] != "pass" for c in data["checklist"] if c["label"] in pending)
+    rc = lp.main(["--registry", str(env.registry), "reservoir", "check", "beta"])
+    out = capsys.readouterr().out
+    assert rc == 1 and "✗  pending promote: example/beta is private" in out
+    assert out.strip().splitlines()[-1].startswith("pre-promote: beta is verified-private; 2 GitHub-dependent")
+
+
+def test_pre_promote_summary_counts_other_failures(lp, env, gh_repo, capsys):
+    ready(env)
+    gh_repo.update(visibility="PRIVATE", stargazerCount=0)
+    rc = lp.main(["--registry", str(env.registry), "reservoir", "check", "beta"])
+    assert rc == 1 and "; 1 other ✗ to fix first" in capsys.readouterr().out
+
+
+def test_pre_promote_repo_not_on_github_says_what_to_do(lp, env, gh_repo, capsys):
+    ready(env)
+    set_status(env, "verified-private", repo="/srv/git/beta.git")
+    rc, data = check(lp, env, capsys)
+    assert rc == 1 and any("is not a GitHub URL yet" in p and "promote beta --yes" in p
+                           for p in data["pending_promote"])
+
+
+def test_public_package_private_repo_is_a_plain_failure(lp, env, gh_repo, capsys):
+    ready(env)
+    set_status(env, "public", visibility="public")
+    gh_repo.update(visibility="PRIVATE")
+    rc, data = check(lp, env, capsys)
+    assert rc == 1 and data["pre_promote"] is False and data["pending_promote"] == []
+    assert "example/beta is private (Reservoir lists public repositories" in fails(data)
+
+
+@pytest.mark.parametrize("tc,kind", [("leanprover/lean4:v4.35.0-rc2", "a release candidate"),
+                                     ("leanprover/lean4:nightly-2026-10-01", "a nightly")])
+def test_rc_or_nightly_toolchain_warns(lp, env, gh_repo, capsys, tc, kind):
+    ready(env)
+    (env.repo_b / "lean-toolchain").write_text(tc + "\n")
+    rc, data = check(lp, env, capsys)
+    warn = [c["label"] for c in data["checklist"] if c["status"] == "warn" and "lean-toolchain" in c["label"]]
+    assert warn == [f"lean-toolchain {tc} is {kind}; Reservoir may display it poorly "
+                    f"(prefer a release toolchain for the listed tag)"]
+    assert rc == 0                               # a WARN, never a refusal
+
+
+def test_release_toolchain_passes(lp, env, gh_repo, capsys):
+    ready(env)
+    rc, data = check(lp, env, capsys)
+    assert any(c["status"] == "pass" and c["label"].endswith("is a release") for c in data["checklist"])

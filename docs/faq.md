@@ -216,6 +216,9 @@ HTTP 200 (404 means not listed yet); then record it with
 lean-pkg stores the fact; it does not record it for you, but
 `lean-pkg reservoir check NAME` checks these criteria and the API and prints
 the `record` command once the package is listed.
+Before `promote --yes`, the items only promote can satisfy are marked
+`pending promote`, and a release-candidate or nightly `lean-toolchain` is a
+warning (Reservoir may display it poorly).
 
 **Should I search Reservoir before formalizing?**
 Yes, and not only Reservoir. Before writing any new definition, lemma or
