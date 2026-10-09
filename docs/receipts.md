@@ -150,7 +150,17 @@ current tree is clean. The sequence:
    files and the patterns file dropped) into a new repository with one
    commit, scans it, and moves the registry entry there. Gate and comparator
    evidence is cleared, with a dated note keeping the old receipt paths and
-   the source commit.
+   the source commit. When the publishable tree was cleaned by hand (files
+   removed or edited) and is not a commit of the source repository, which
+   must stay untouched, export the working tree instead:
+   `lean-pkg release NAME --fresh-repo DIR --from-tree SRCDIR`. It applies
+   the same exclusions and scan (SRCDIR's `.gitignore` is honoured) and
+   records "source commit: none (hand-cleaned tree)" in the one commit. If
+   the public repository was already built by hand, adopt it as it is:
+   `lean-pkg release NAME --adopt-repo DIR [--remote URL]` scans its tree
+   and whole history, refuses more than one commit unless
+   `--allow-history`, makes no new commit, and relocates the entry the same
+   way.
 3. Run a new gate on the new commit: the lower-tier check, then
    `lean-pkg gate NAME --receipt R`. Receipts copied with `--keep-receipts`
    are provenance only, because a receipt binds one exact commit and the

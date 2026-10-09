@@ -7,6 +7,17 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `release NAME --fresh-repo DIR --from-tree SRCDIR`: export a hand-cleaned working tree (not a commit
+  of the source repository) with the same exclusions, public-safety scan and single commit; in a git
+  checkout the source's `.gitignore` applies. The message records `source commit: none (hand-cleaned
+  tree)` and the gate-bound commit for provenance. (#37)
+- `release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]`: adopt an existing
+  repository that already is the intended public history (exactly one commit unless
+  `--allow-history`; public-safety on its tree and full history; no export, no new commit), then the
+  same relocation as `--fresh-repo` with a dated note naming the adopted commit. (#37)
+
 ## [0.7.10] - 2026-10-09
 
 ### Added

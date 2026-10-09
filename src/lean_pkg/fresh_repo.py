@@ -20,6 +20,21 @@ registry entry there.
 
 Kept receipts do not bind to the new commit: the gate and the comparator must be re-run on it.
 --dry-run stages and scans in a temporary directory, prints the plan, and writes nothing.
+
+`--fresh-repo DIR --from-tree SRCDIR` (#37) exports the working tree at SRCDIR instead of a commit:
+a tree cleaned by hand (files removed or edited) that is not a commit of the source repository. In a
+git checkout the files are those `git ls-files --cached --others --exclude-standard` lists (the
+source's .gitignore applies); otherwise every file but `.git/` and `.lake/`. Same exclusions, same
+scan (the commit message too, since it names SRCDIR's basename), same single commit; its message
+records "source commit: none (hand-cleaned tree)" and the registry's gate-bound commit, if any, for
+provenance.
+
+`release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]` (#37) adopts an
+existing repository that already is the intended public history: refused unless it has exactly one
+commit on all refs (or --allow-history), unless DIR is its top directory, while tracked files are
+modified, and on any blocking public-safety hit in its tree or full history. No export and no new
+commit: the registry entry is relocated to DIR as above, with a dated note naming the adopted commit
+and the previous gate-bound commit.
 """
 
 from __future__ import annotations
@@ -85,6 +100,73 @@ def drop_reason(name: str, keep_receipts: bool) -> str | None:
     return None
 
 
+SKIP_DIRS = (".git", ".lake")
+
+
+def tree_listing(srcdir: pathlib.Path) -> tuple[list[str], str]:
+    """(SRCDIR-relative paths to export, how they were listed): git's view of the working tree
+    (tracked + untracked, .gitignore honoured) in a checkout, else a walk; `.git/` and `.lake/`
+    never."""
+    p = core.git(srcdir, "rev-parse", "--is-inside-work-tree")
+    if p.returncode == 0 and p.stdout.strip() == "true":
+        ls = core.git(srcdir, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+        if ls.returncode != 0:
+            raise core.Fail(f"git ls-files in {srcdir} failed: {(ls.stderr or '').strip()[:200]}")
+        files = sorted({x for x in ls.stdout.split("\0") if x})
+        how = "git ls-files --cached --others --exclude-standard"
+    else:
+        files = []
+        for d, dirs, names in os.walk(srcdir):
+            dirs[:] = sorted(x for x in dirs if x not in SKIP_DIRS)
+            files += [os.path.relpath(os.path.join(d, nm), srcdir).replace(os.sep, "/") for nm in names]
+        files.sort()
+        how = "every file (not a git checkout)"
+    return [f for f in files if not set(pathlib.PurePosixPath(f).parts) & set(SKIP_DIRS)], how
+
+
+def _copy_tree(srcdir: pathlib.Path, dest: pathlib.Path, files: list[str], drop) -> list[dict]:
+    """Copy the listed files from srcdir into dest, skipping those drop(name) names a reason for;
+    a symlink is kept only when it is relative and stays inside the tree. The dropped files, as
+    [{path, reason}]."""
+    dropped: list[dict] = []
+    root = os.path.realpath(srcdir)
+    for rel in files:
+        why = drop(rel)
+        src = srcdir / rel
+        if not why and src.is_symlink():
+            link = os.readlink(src)
+            real = os.path.realpath(src)
+            if os.path.isabs(link) or not (real == root or real.startswith(root + os.sep)):
+                why = "symlink leaving the tree (not exported)"
+        elif not why and src.is_dir():
+            why = "submodule or nested repository (not exported)"
+        if why:
+            dropped.append({"path": rel, "reason": why})
+            continue
+        if not src.is_symlink() and not src.is_file():
+            continue                                  # tracked but deleted in the working tree
+        out = dest / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if src.is_symlink():
+            os.symlink(os.readlink(src), out)
+        else:
+            shutil.copy2(src, out)
+    return dropped
+
+
+def gate_bound_commit(pkg: dict, repo: pathlib.Path) -> str | None:
+    """The commit the recorded gate receipt binds, when it can be read; provenance only."""
+    rel = (pkg.get("gate") or {}).get("receipt")
+    rec = core.recorded_json(repo, rel) if rel and repo.is_dir() else None
+    sha = str((rec or {}).get("commit") or "")
+    return sha if core._HEX40.fullmatch(sha) else None
+
+
+def patterns_root(repo: pathlib.Path, fallback: pathlib.Path) -> pathlib.Path:
+    """The package checkout's patterns file applies when it has one; else the given directory's."""
+    return repo if (repo / ps.PATTERNS_FILE).is_file() else fallback
+
+
 def source_commit(pkg: dict, repo: pathlib.Path, given: str | None) -> tuple[str, str]:
     """(40-hex commit, how it was chosen)."""
     name = pkg["name"]
@@ -111,6 +193,12 @@ def commit_message(src: str, today: str) -> str:
             f"source commit: {src}\nexport date: {today}\n")
 
 
+def tree_commit_message(srcdir: pathlib.Path, provenance: str | None, today: str) -> str:
+    return (f"fresh-history export of working tree {srcdir.name}; receipts and gate must be re-run on "
+            f"this commit\n\nsource commit: none (hand-cleaned tree)\n"
+            f"source package commit for provenance: {provenance or 'none'}\nexport date: {today}\n")
+
+
 def next_commands(name: str, target: pathlib.Path, new12: str, remote: str | None,
                   needs_gate_pending: bool) -> list[str]:
     cmds = [f"lean-pkg public-safety {name}   # the new repository: its tree and its one commit"]
@@ -129,36 +217,51 @@ def next_commands(name: str, target: pathlib.Path, new12: str, remote: str | Non
 
 
 def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_receipts, given_commit,
-                  agent, reason, dry_run) -> tuple[list[str], int, dict]:
+                  agent, reason, dry_run, from_tree=None) -> tuple[list[str], int, dict]:
     pkg = core.get_pkg(reg, name)
     status = pkg.get("status")
     if status in NOT_FROM:
         raise core.Fail(f"{name}: status {status}: a fresh-history export is for a package that has not been "
                         f"promoted (a public history is already exposed; an archived package is not published)")
     repo = core.repo_path(pkg)
-    if not repo.is_dir() or core.git_head(repo) is None:
-        raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
+    srcdir = src_stored = None
+    if from_tree is None:
+        if not repo.is_dir() or core.git_head(repo) is None:
+            raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
+    else:
+        src_stored, _k = core.normalize_local_path(from_tree, "--from-tree")
+        srcdir = core.HOME / pathlib.Path(src_stored)
+        if not srcdir.is_dir():
+            raise core.Fail(f"{name}: --from-tree {srcdir} is not a directory")
     if remote is not None:
         core.require_nonempty("--remote", remote)
     reason = reason or DEFAULT_REASON
-    src, chosen = source_commit(pkg, repo, given_commit)
+    if srcdir is None:
+        src, chosen = source_commit(pkg, repo, given_commit)
+        provenance = None
+    else:
+        src, chosen = None, f"working tree {srcdir}"
+        provenance = gate_bound_commit(pkg, repo)
     stored, _key = core.normalize_local_path(target_arg, "--fresh-repo")
     target = core.HOME / pathlib.Path(stored)
     if target.exists() and (not target.is_dir() or any(target.iterdir())):
         raise core.Fail(f"{name}: --fresh-repo {target} exists and is not an empty directory; refusing")
-    top = core.git(repo, "rev-parse", "--show-toplevel").stdout.strip()
-    if top and (target == pathlib.Path(top) or pathlib.Path(top) in target.parents):
-        raise core.Fail(f"{name}: --fresh-repo {target} lies inside the source repository {top}; choose a "
-                        f"directory outside it")
-    if not dry_run and core.git(repo, "var", "GIT_COMMITTER_IDENT").returncode != 0:
+    tops = []
+    if repo.is_dir() and core.git_head(repo) is not None:
+        tops.append(("the source repository", core.git(repo, "rev-parse", "--show-toplevel").stdout.strip()))
+    if srcdir is not None:
+        tops.append(("--from-tree", os.path.realpath(srcdir)))
+    for what, top in tops:
+        if top and (os.path.realpath(target) == top or pathlib.Path(top) in pathlib.Path(os.path.realpath(target)).parents):
+            raise core.Fail(f"{name}: --fresh-repo {target} lies inside {what} {top}; choose a "
+                            f"directory outside it")
+    if not dry_run and core.git(repo if repo.is_dir() else srcdir, "var", "GIT_COMMITTER_IDENT").returncode != 0:
         raise core.Fail(f"{name}: git has no committer identity here (git config user.name / user.email); "
                         f"the export commit needs one")
     # the relocation's own refusals (lease, another package's path), before anything is written
     _o, preview = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
                                    agent=agent, redetect=False, dry_run=True)
 
-    prefix = core.git(repo, "rev-parse", "--show-prefix").stdout.strip()
-    treeish = f"{src}:{prefix.rstrip('/')}" if prefix else src
     if dry_run:
         stage = pathlib.Path(tempfile.mkdtemp(prefix="lean-pkg-export-"))
     else:
@@ -166,30 +269,59 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
         stage = pathlib.Path(tempfile.mkdtemp(prefix=".lean-pkg-export-", dir=target.parent))
     moved = False
     try:
-        dropped = _extract(_archive(repo, treeish), stage, lambda n: drop_reason(n, keep_receipts))
-        receipts_note = None
-        if keep_receipts:
-            rel = f"{prefix}.lean-receipts"
-            if core.tracked_at(repo, ".lean-receipts"):
-                (stage / ".lean-receipts").mkdir(exist_ok=True)
-                _extract(_archive(repo, f"HEAD:{rel}"), stage / ".lean-receipts", lambda n: None)
-                receipts_note = (f".lean-receipts/ copied from the source HEAD: bound to {src[:12]} or earlier, "
-                                 f"they do NOT bind to the new commit")
-            else:
-                receipts_note = "--keep-receipts: no .lean-receipts/ tracked at the source HEAD; nothing copied"
-        result = ps.scan(pkg, stage, export=True, patterns_root=repo, source_repo=repo)
+        receipts_note = listed = None
+        if srcdir is None:
+            prefix = core.git(repo, "rev-parse", "--show-prefix").stdout.strip()
+            treeish = f"{src}:{prefix.rstrip('/')}" if prefix else src
+            dropped = _extract(_archive(repo, treeish), stage, lambda n: drop_reason(n, keep_receipts))
+            if keep_receipts:
+                rel = f"{prefix}.lean-receipts"
+                if core.tracked_at(repo, ".lean-receipts"):
+                    (stage / ".lean-receipts").mkdir(exist_ok=True)
+                    _extract(_archive(repo, f"HEAD:{rel}"), stage / ".lean-receipts", lambda n: None)
+                    receipts_note = (f".lean-receipts/ copied from the source HEAD: bound to {src[:12]} or "
+                                     f"earlier, they do NOT bind to the new commit")
+                else:
+                    receipts_note = "--keep-receipts: no .lean-receipts/ tracked at the source HEAD; nothing copied"
+            pat_root, email_repo = repo, repo
+        else:
+            paths, listed = tree_listing(srcdir)
+            dropped = _copy_tree(srcdir, stage, paths, lambda n: drop_reason(n, keep_receipts))
+            if keep_receipts:
+                receipts_note = (".lean-receipts/ kept from the working tree: they do NOT bind to the new commit"
+                                 if (stage / ".lean-receipts").is_dir()
+                                 else "--keep-receipts: no .lean-receipts/ in the working tree; nothing copied")
+            pat_root = patterns_root(repo, srcdir)
+            email_repo = repo if repo.is_dir() and core.git_head(repo) else srcdir
+        files = sum(1 for _ in (p for p in stage.rglob("*") if p.is_file() or p.is_symlink()))
+        if not files:
+            raise core.Fail(f"{name}: nothing to export from {srcdir or src[:12]} (every file is excluded or "
+                            f"ignored); nothing written")
+        result = ps.scan(pkg, stage, export=True, patterns_root=pat_root, source_repo=email_repo)
         blocking = ps.blocking(result["hits"])   # #36: warn-only hits are reported, not refused
+        today = core.utc_today()
+        msg = commit_message(src, today) if srcdir is None else tree_commit_message(srcdir, provenance, today)
+        if srcdir is not None:   # the message names SRCDIR's basename: it is published too
+            sc = ps.Scanner(pkg, pat_root, email_repo)
+            blocking += [ps._hit(sc, "tree", "commit-message", n, pat.label, pat.kind, ex, severity=pat.severity)
+                         for n, pat, ex in sc.scan_text(msg) if pat.severity == ps.BLOCK]
         if blocking:
             lines = [ps.hit_line(h) for h in blocking[:20]]
-            raise core.Fail(f"{name}: the exported tree of {src[:12]} has {len(blocking)} public-safety "
-                            f"hit(s); nothing written:\n" + "\n".join(lines)
-                            + "\nfix them at the source (commit, then --source-commit SHA), or move them under "
-                              "an internal path (notes/, drafts/, ...) so the export drops them")
-        files = sum(1 for _ in (p for p in stage.rglob("*") if p.is_file()))
-        today = core.utc_today()
-        msg = commit_message(src, today)
-        plan = [f"{name}: fresh-history export of {src[:12]} ({chosen}) -> {target}",
+            if srcdir is None:
+                raise core.Fail(f"{name}: the exported tree of {src[:12]} has {len(blocking)} public-safety "
+                                f"hit(s); nothing written:\n" + "\n".join(lines)
+                                + "\nfix them at the source (commit, then --source-commit SHA), or move them under "
+                                  "an internal path (notes/, drafts/, ...) so the export drops them")
+            raise core.Fail(f"{name}: the working tree {srcdir} has {len(blocking)} public-safety hit(s); nothing "
+                            f"written:\n" + "\n".join(lines)
+                            + "\nfix them in that tree (a commit-message hit: rename the directory), or move them "
+                              "under an internal path (notes/, drafts/, ...) so the export drops them")
+        what = f"{src[:12]} ({chosen})" if srcdir is None else f"working tree {srcdir} (not a commit; {listed})"
+        plan = [f"{name}: fresh-history export of {what} -> {target}",
                 f"  {files} file(s) exported; {len(dropped)} dropped"]
+        if srcdir is not None:
+            plan.append(f"  source commit: none (hand-cleaned tree); provenance: gate-bound commit "
+                        f"{provenance[:12] if provenance else 'none'}")
         plan += [f"  dropped: {d['path']}  ({d['reason']})" for d in dropped]
         if receipts_note:
             plan.append(f"  note: {receipts_note}")
@@ -202,15 +334,18 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
                    "source": chosen, "export_path": stored, "files": files, "excluded": dropped,
                    "kept_receipts": bool(keep_receipts), "commit_message": msg, "remote": remote,
                    "public_safety": {"hits": nw, "tree_hits": nw, "block_hits": 0, "warn_hits": nw}}
+        if srcdir is not None:
+            payload.update(from_tree=src_stored, provenance_commit=provenance)
         status_after = (preview.get("status") or {}).get("to") or status
         if dry_run:
             nxt = next_commands(name, target, "<new12>", remote, status_after != "gate-pending")
+            old = src[:12] if src else f"gate-bound commit {provenance[:12] if provenance else 'none'}"
             plan += [f"  new commit (on the real run): one root commit on {BRANCH}, message:",
                      *[f"    {x}".rstrip() for x in msg.rstrip("\n").split("\n")],
                      f"  registry: update {name} --path {stored} --reason {reason!r}"
                      + (f" --repo {remote}" if remote else "")
                      + f"; gate/comparator evidence cleared; status {status} -> {status_after}; dated note "
-                       f"with the old receipt paths and {src[:12]}",
+                       f"with the old receipt paths and {old}",
                      "DRY RUN — nothing written. Re-run without --dry-run to export.", "next:"]
             plan += [f"  {c}" for c in nxt]
             payload.update(new_commit=None, next_commands=nxt, relocation=preview)
@@ -240,9 +375,16 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
     reloc_out, reloc = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
                                         agent=agent, redetect=False, dry_run=False)
     pkg = core.get_pkg(reg, name)
-    note = (f"fresh-history release: exported {src[:12]} to {stored} as {new[:12]} (one commit); earlier "
-            f"evidence, bound to {src[:12]} and not to the new commit: gate.receipt="
-            f"{old_gate.get('receipt') or 'none'}, gate.comparator={old_gate.get('comparator') or 'none'}")
+    if srcdir is None:
+        note = (f"fresh-history release: exported {src[:12]} to {stored} as {new[:12]} (one commit); earlier "
+                f"evidence, bound to {src[:12]} and not to the new commit: gate.receipt="
+                f"{old_gate.get('receipt') or 'none'}, gate.comparator={old_gate.get('comparator') or 'none'}")
+    else:
+        note = (f"fresh-history release: exported the working tree {src_stored} (hand-cleaned, not a commit) to "
+                f"{stored} as {new[:12]} (one commit); source package commit for provenance: "
+                f"{provenance[:12] if provenance else 'none'}; earlier evidence, not bound to the new commit: "
+                f"gate.receipt={old_gate.get('receipt') or 'none'}, "
+                f"gate.comparator={old_gate.get('comparator') or 'none'}")
     sets: dict = {"notes": {"text": note, "agent": (agent or "lean-pkg").strip()}}
     if remote:
         sets["repo"] = remote
@@ -258,14 +400,149 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
     return lines, 0, payload
 
 
+ADOPT_REASON = "adopted-repository release"
+
+
+def do_adopt_repo(reg_path, reg, events_p, name, *, target_arg, remote, allow_history, agent, reason,
+                  dry_run) -> tuple[list[str], int, dict]:
+    """`release NAME --adopt-repo DIR` (#37): DIR already is the intended public history (built by
+    hand); scan it, then relocate the package there. No export, no new commit."""
+    pkg = core.get_pkg(reg, name)
+    status = pkg.get("status")
+    if status in NOT_FROM:
+        raise core.Fail(f"{name}: status {status}: adopting a public history is for a package that has not been "
+                        f"promoted (a public history is already exposed; an archived package is not published)")
+    if remote is not None:
+        core.require_nonempty("--remote", remote)
+    reason = reason or ADOPT_REASON
+    stored, _key = core.normalize_local_path(target_arg, "--adopt-repo")
+    target = core.HOME / pathlib.Path(stored)
+    head = core.git_head(target) if target.is_dir() else None
+    if head is None:
+        raise core.Fail(f"{name}: --adopt-repo {target} is not a git repository with a commit")
+    top = core.git(target, "rev-parse", "--show-toplevel").stdout.strip()
+    if os.path.realpath(top) != os.path.realpath(target):
+        raise core.Fail(f"{name}: --adopt-repo {target} is inside the repository {top}, not its top directory; "
+                        f"adopt a repository whose top directory is the package")
+    repo = core.repo_path(pkg)
+    if repo.is_dir() and core.git_head(repo) is not None:
+        src_top = core.git(repo, "rev-parse", "--show-toplevel").stdout.strip()
+        if src_top and os.path.realpath(src_top) == os.path.realpath(top):
+            raise core.Fail(f"{name}: --adopt-repo {target} is the package's own source repository; adopt a "
+                            f"separate repository, or export one with --fresh-repo DIR")
+    count = core.git(target, "rev-list", "--all", "--count").stdout.strip()
+    commits = int(count) if count.isdigit() else 0
+    if commits != 1 and not allow_history:
+        raise core.Fail(f"{name}: --adopt-repo {target} has {commits} commits on its refs; an adopted public "
+                        f"history must be exactly one commit. Pass --allow-history if every commit is meant to "
+                        f"be published (public-safety scans them all), or export a single commit with "
+                        f"--fresh-repo DIR --from-tree {target}")
+    if core.git(target, "status", "--porcelain", "--untracked-files=no").stdout.strip():
+        raise core.Fail(f"{name}: --adopt-repo {target} has uncommitted changes to tracked files; commit or "
+                        f"discard them first (the adopted commit is what gets published)")
+    origin = core.git(target, "remote", "get-url", "origin")
+    origin_url = origin.stdout.strip() if origin.returncode == 0 else None
+    if remote and origin_url and origin_url != remote:
+        raise core.Fail(f"{name}: --adopt-repo {target} already has origin {origin_url}, not --remote {remote}; "
+                        f"refusing to change it (git remote set-url origin URL yourself)")
+    _o, preview = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
+                                   agent=agent, redetect=False, dry_run=True)
+    pat_root = patterns_root(repo, target)
+    result = ps.scan(pkg, target, history=True, patterns_root=pat_root, source_repo=target)
+    blocking = ps.blocking(result["hits"])
+    if blocking:
+        lines = [ps.hit_line(h) for h in blocking[:20]]
+        raise core.Fail(f"{name}: --adopt-repo {target} has {len(blocking)} blocking public-safety hit(s) in its "
+                        f"tree or history; nothing written:\n" + "\n".join(lines)
+                        + "\nfix the tree (a history hit: rebuild the repository), then adopt again")
+    provenance = gate_bound_commit(pkg, repo)
+    prov12 = provenance[:12] if provenance else "none"
+    nw = result["warn_hits"]
+    new_remote = remote if remote and not origin_url else None
+    plan = [f"{name}: adopt {target} at {head[:12]} ({commits} commit(s) on all refs"
+            + ("; --allow-history" if allow_history and commits != 1 else "") + ") as the public history; "
+            f"no export, no new commit",
+            f"  previous gate-bound commit: {prov12}",
+            "  public-safety on its tree and full history: 0 hit(s)" if not nw else
+            f"  public-safety on its tree and full history: 0 blocking hit(s), {nw} warning(s) "
+            f"({ps.warn_families(result['hits'])}); review with `lean-pkg public-safety {name} --strict` "
+            f"before publishing"]
+    if new_remote:
+        plan.append(f"  git remote add origin {remote}")
+    payload = {"ok": True, "name": name, "dry_run": bool(dry_run), "adopted_path": stored,
+               "adopted_commit": head, "commits": commits, "allow_history": bool(allow_history),
+               "remote": remote, "provenance_commit": provenance, "new_commit": None,
+               "public_safety": {"hits": len(result["hits"]), "tree_hits": result["tree_hits"],
+                                 "history_hits": result["history_hits"], "block_hits": 0, "warn_hits": nw}}
+    status_after = (preview.get("status") or {}).get("to") or status
+    if dry_run:
+        nxt = next_commands(name, target, head[:12], remote or origin_url, status_after != "gate-pending")
+        plan += [f"  registry: update {name} --path {stored} --reason {reason!r}"
+                 + (f" --repo {remote}" if remote else "")
+                 + f"; gate/comparator evidence not bound to {head[:12]} cleared; status {status} -> "
+                   f"{status_after}; dated note naming {head[:12]} and {prov12}",
+                 "DRY RUN — nothing written. Re-run without --dry-run to adopt.", "next:"]
+        plan += [f"  {c}" for c in nxt]
+        payload.update(next_commands=nxt, relocation=preview)
+        return plan, 0, payload
+
+    if new_remote:
+        p = core.git(target, "remote", "add", "origin", remote)
+        if p.returncode != 0:
+            raise core.Fail(f"{name}: git remote add origin failed: {(p.stderr or p.stdout).strip()[:200]}")
+    old_gate = dict(pkg.get("gate") or {})
+    reloc_out, reloc = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
+                                        agent=agent, redetect=False, dry_run=False)
+    pkg = core.get_pkg(reg, name)
+    note = (f"adopted-repository release: adopted {stored} at {head[:12]} ({commits} commit(s)) as the public "
+            f"history, no export; previous gate-bound commit: {prov12}; evidence before adoption: gate.receipt="
+            f"{old_gate.get('receipt') or 'none'}, gate.comparator={old_gate.get('comparator') or 'none'}")
+    sets: dict = {"notes": {"text": note, "agent": (agent or "lean-pkg").strip()}}
+    if remote:
+        sets["repo"] = remote
+    core.do_update(reg_path, reg, events_p, name, sets=sets, status=None, reason=reason, redetect=False,
+                   agent=agent, force=False)
+    status_after = pkg.get("status")
+    nxt = next_commands(name, target, head[:12], remote or origin_url, status_after != "gate-pending")
+    lines = plan + [f"  registry: {ln.strip()}" for ln in reloc_out
+                    if ln.strip().startswith(("cleared:", f"{name}:"))]
+    lines += [f"  status: {status} -> {status_after}", f"  note: {note}", "next:"] + [f"  {c}" for c in nxt]
+    payload.update(next_commands=nxt, relocation=reloc, note=note, status={"from": status, "to": status_after})
+    return lines, 0, payload
+
+
+def cmd_release_adopt(args) -> int:
+    extra = [f for f, on in (("--force", args.force), ("--fresh-repo", args.fresh_repo is not None),
+                             ("--from-tree", args.from_tree is not None), ("--keep-receipts", args.keep_receipts),
+                             ("--source-commit", args.source_commit is not None)) if on]
+    if extra:
+        raise core.UsageError(f"{', '.join(extra)} do(es) not go with --adopt-repo DIR (no export: the repository "
+                              f"is adopted as it is)")
+    reg_path, events_p = core.registry_path(args), core.events_path(args)
+    lines, rc, payload = do_adopt_repo(reg_path, core.load_registry(reg_path), events_p, args.name,
+                                       target_arg=args.adopt_repo, remote=args.remote,
+                                       allow_history=args.allow_history, agent=args.agent, reason=args.reason,
+                                       dry_run=args.dry_run)
+    if getattr(args, "json_out", False):
+        core.print_json(payload)
+    else:
+        print("\n".join(lines))
+    return rc
+
+
 def cmd_release_fresh(args) -> int:
     if args.force:
         raise core.UsageError("--force releases a lease; it does not go with --fresh-repo")
+    if args.allow_history:
+        raise core.UsageError("--allow-history goes with --adopt-repo DIR")
+    if args.from_tree is not None and args.source_commit is not None:
+        raise core.UsageError("--from-tree exports a working tree, --source-commit a commit; give one")
     reg_path, events_p = core.registry_path(args), core.events_path(args)
     lines, rc, payload = do_fresh_repo(reg_path, core.load_registry(reg_path), events_p, args.name,
                                        target_arg=args.fresh_repo, remote=args.remote,
                                        keep_receipts=args.keep_receipts, given_commit=args.source_commit,
-                                       agent=args.agent, reason=args.reason, dry_run=args.dry_run)
+                                       agent=args.agent, reason=args.reason, dry_run=args.dry_run,
+                                       from_tree=args.from_tree)
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:

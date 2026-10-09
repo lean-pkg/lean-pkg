@@ -4370,7 +4370,7 @@ update    set fields (--notes replaces, prints the old value; --append-note TEXT
 claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
   flags: --workspace W --agent A (required) [--ttl HOURS: 24 new; a holder's re-claim keeps its TTL] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
-release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing
+release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
@@ -4577,13 +4577,18 @@ def cmd_claim(args) -> int:
 
 
 def cmd_release(args) -> int:
+    if args.adopt_repo is not None:   # #37: adopt a hand-built public history, then a relocation
+        from . import fresh_repo as fresh_mod
+        return fresh_mod.cmd_release_adopt(args)
     if args.fresh_repo is not None:   # #35: a single-commit public export, then a relocation
         from . import fresh_repo as fresh_mod
         return fresh_mod.cmd_release_fresh(args)
     extra = [f for f, on in (("--remote", args.remote is not None), ("--keep-receipts", args.keep_receipts),
-                             ("--source-commit", args.source_commit is not None), ("--dry-run", args.dry_run)) if on]
+                             ("--source-commit", args.source_commit is not None), ("--dry-run", args.dry_run),
+                             ("--from-tree", args.from_tree is not None),
+                             ("--allow-history", args.allow_history)) if on]
     if extra:
-        raise UsageError(f"{', '.join(extra)} go(es) with --fresh-repo DIR")
+        raise UsageError(f"{', '.join(extra)} go(es) with --fresh-repo DIR (or --adopt-repo DIR)")
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_release(reg_path, load_registry(reg_path), events_p,
                               args.name, args.agent, args.force, args.reason)
@@ -5561,8 +5566,9 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_claim)
 
     s = sub.add_parser("release", help="release a lease (holder-only unless --force); with --fresh-repo DIR: "
-                                       "export the gated tree as a new single-commit repository and move the "
-                                       "package there")
+                                       "export the gated tree (or --from-tree SRCDIR) as a new single-commit "
+                                       "repository and move the package there; with --adopt-repo DIR: adopt "
+                                       "an existing one")
     s.add_argument("name")
     s.add_argument("--agent", default=None,
                    help="the holder; with --force, the acting agent recorded as released_by")
@@ -5573,15 +5579,23 @@ def main(argv: list[str] | None = None) -> int:
                         "public-safety scanned) into a NEW single-commit repository at DIR, then relocate the "
                         "package there (update --path): evidence cleared, provenance note added")
     s.add_argument("--remote", metavar="URL", default=None,
-                   help="with --fresh-repo: git remote add origin URL, and set the record's repo")
+                   help="with --fresh-repo or --adopt-repo: git remote add origin URL, and set the record's repo")
     s.add_argument("--keep-receipts", action="store_true",
                    help="with --fresh-repo: copy .lean-receipts/ from the source HEAD (they do not bind to "
                         "the new commit)")
     s.add_argument("--source-commit", metavar="SHA", default=None,
                    help="with --fresh-repo: export this commit instead of the gate-bound one")
+    s.add_argument("--from-tree", metavar="SRCDIR", default=None,
+                   help="with --fresh-repo: export the working tree at SRCDIR (a hand-cleaned tree, not a "
+                        "commit; .gitignore honoured in a checkout) instead of the gate-bound commit")
+    s.add_argument("--adopt-repo", metavar="DIR", default=None,
+                   help="adopt the existing repository at DIR as the public history (exactly one commit unless "
+                        "--allow-history; tree and history public-safety scanned; no new commit), then "
+                        "relocate the package there")
+    s.add_argument("--allow-history", action="store_true",
+                   help="with --adopt-repo: accept a repository with more than one commit")
     s.add_argument("--dry-run", action="store_true",
-                   help="with --fresh-repo: stage and scan in a temporary directory, print the plan; "
-                        "nothing written")
+                   help="with --fresh-repo or --adopt-repo: stage and scan, print the plan; nothing written")
     add_json(s)
     s.set_defaults(fn=cmd_release)
 

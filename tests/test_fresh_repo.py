@@ -214,3 +214,167 @@ def test_fresh_repo_foreign_lease_refused_before_writing(lp, gated, capsys):
 def test_plain_release_unchanged(lp, gated, capsys):
     assert run(lp, gated, "release", "pkg", "--agent", "vera") == 1
     assert "no lease held" in capsys.readouterr().err
+
+
+# #37: --fresh-repo DIR --from-tree SRCDIR (a hand-cleaned working tree) and --adopt-repo DIR
+
+def test_from_tree_exports_a_dirty_working_tree(lp, gated, capsys):
+    """The working tree at SRCDIR, not a commit: uncommitted edits and untracked files are exported,
+    ignored files and internal paths are not, and the source history is untouched."""
+    g = gated
+    clean = g.repo.parent / "cleaned"
+    _git(g.repo, "clone", "-q", str(g.repo), str(clean))
+    (clean / "Main.lean").write_text("theorem t' : True := trivial\n")            # modified, uncommitted
+    (clean / "Extra.lean").write_text("theorem e : True := trivial\n")            # untracked
+    (clean / ".gitignore").write_text("build/\n")
+    (clean / "build").mkdir()
+    (clean / "build" / "out.log").write_text(f"{SECRET_PATH}\n")                 # ignored: never copied
+    (clean / ".lake").mkdir()
+    (clean / ".lake" / "cache").write_text("x\n")
+    _git(clean, "rm", "-q", "README.md")                                        # removed by the cleaning
+    src_log = _git(g.repo, "log", "--format=%H").stdout
+    clean_head = repo_head(clean)
+    assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--from-tree", str(clean),
+               "--agent", "vera") == 0
+    out = capsys.readouterr().out
+    assert f"fresh-history export of working tree {clean} (not a commit; git ls-files" in out
+    assert f"provenance: gate-bound commit {g.bound[:12]}" in out
+    assert "dropped: notes/plan.md  (internal-dir notes/)" in out
+    files = set(_git(g.target, "ls-files").stdout.split())
+    assert files == {"Main.lean", "Extra.lean", ".gitignore", "LICENSE", "lake-manifest.json", "lean-toolchain",
+                     "comparator.json"}
+    assert (g.target / "Main.lean").read_text() == "theorem t' : True := trivial\n"
+    assert _git(g.target, "rev-list", "--count", "HEAD").stdout.strip() == "1"
+    msg = _git(g.target, "log", "-1", "--format=%B").stdout
+    assert msg.startswith("fresh-history export of working tree cleaned; receipts and gate must be re-run")
+    assert "source commit: none (hand-cleaned tree)" in msg
+    assert f"source package commit for provenance: {g.bound}" in msg
+    # neither the source repository nor the cleaned clone was committed to
+    assert _git(g.repo, "log", "--format=%H").stdout == src_log and repo_head(clean) == clean_head
+    pkg = yaml.safe_load(g.registry.read_text())["packages"]["pkg"]
+    assert pkg["local_path"] == str(g.target) and pkg["status"] == "gate-pending"
+    assert pkg["gate"]["receipt"] is None and pkg["gate"]["comparator"] is None
+    last = pkg["notes"].splitlines()[-1]
+    assert "fresh-history release: exported the working tree" in last and "(hand-cleaned, not a commit)" in last
+    assert f"source package commit for provenance: {g.bound[:12]}" in last
+    assert run(lp, g, "public-safety", "pkg") == 0
+
+
+def test_from_tree_plain_directory_dry_run_and_refusals(lp, gated, capsys):
+    g = gated
+    plain = g.repo.parent / "plain"
+    (plain / ".lake").mkdir(parents=True)
+    (plain / ".lake" / "junk").write_text(f"{SECRET_PATH}\n")
+    (plain / "Main.lean").write_text("theorem t : True := trivial\n")
+    (plain / "lean-toolchain").write_text("leanprover/lean4:v4.0.0\n")
+    before = g.registry.read_text()
+    assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--from-tree", str(plain),
+               "--dry-run", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["source_commit"] is None and payload["provenance_commit"] == g.bound
+    assert payload["files"] == 2 and payload["from_tree"] == str(plain)
+    assert "source commit: none (hand-cleaned tree)" in payload["commit_message"]
+    assert not g.target.exists() and g.registry.read_text() == before
+    # a leak in the working tree refuses, nothing written
+    (plain / "Notes.lean").write_text(f"-- {SECRET_PATH}\n")
+    assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--from-tree", str(plain)) == 1
+    err = capsys.readouterr().err
+    assert f"the working tree {plain} has 1 public-safety hit(s); nothing written" in err and "jdoe" not in err
+    assert not g.target.exists() and g.registry.read_text() == before
+    assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--from-tree", str(plain),
+               "--source-commit", g.bound) == 2
+    assert "give one" in capsys.readouterr().err
+    assert run(lp, g, "release", "pkg", "--fresh-repo", str(plain / "out"), "--from-tree", str(plain)) == 1
+    assert "lies inside --from-tree" in capsys.readouterr().err
+    assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--from-tree", str(plain / "nope")) == 1
+    assert "is not a directory" in capsys.readouterr().err
+    assert run(lp, g, "release", "pkg", "--from-tree", str(plain)) == 2
+    assert "go(es) with --fresh-repo DIR" in capsys.readouterr().err
+
+
+def hand_built(g, *, commits=1, files=None):
+    """A public repository built by hand: `git init` + one commit of the cleaned tree."""
+    files = files or {"Main.lean": "theorem t : True := trivial\n", "LICENSE": "MIT\n"}
+    g.target.parent.mkdir(parents=True, exist_ok=True)
+    repo = make_repo(g.target, extra_files=files)
+    for i in range(commits - 1):
+        (repo / f"Step{i}.lean").write_text("theorem s : True := trivial\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", f"step {i}")
+    return repo
+
+
+def test_adopt_repo_relocates_without_a_new_commit(lp, gated, capsys):
+    g = gated
+    repo = hand_built(g)
+    head = repo_head(repo)
+    url = "git@github.com:example/pkg-public.git"
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo), "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert f"adopt {repo} at {head[:12]} (1 commit(s) on all refs) as the public history" in out
+    assert "DRY RUN — nothing written" in out and f"previous gate-bound commit: {g.bound[:12]}" in out
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo), "--remote", url, "--agent", "vera",
+               "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["adopted_commit"] == head and payload["commits"] == 1 and payload["new_commit"] is None
+    assert payload["provenance_commit"] == g.bound and payload["status"] == {"from": "verified-private",
+                                                                             "to": "gate-pending"}
+    assert repo_head(repo) == head and _git(repo, "rev-list", "--all", "--count").stdout.strip() == "1"
+    assert _git(repo, "remote", "get-url", "origin").stdout.strip() == url
+    pkg = yaml.safe_load(g.registry.read_text())["packages"]["pkg"]
+    assert pkg["local_path"] == str(repo) and pkg["repo"] == url and pkg["status"] == "gate-pending"
+    assert pkg["gate"]["receipt"] is None and pkg["gate"]["comparator"] is None
+    last = pkg["notes"].splitlines()[-1]
+    assert f"(vera): adopted-repository release: adopted {repo} at {head[:12]} (1 commit(s))" in last
+    assert f"previous gate-bound commit: {g.bound[:12]}" in last and "gate.receipt=.lean-receipts/seed.json" in last
+    assert [e["event"] for e in read_events(g)] == ["relocated", "status-changed", "updated"]
+    assert read_events(g)[0]["reason"] == "adopted-repository release"
+
+
+def test_adopt_repo_refuses_history_unless_allowed(lp, gated, capsys):
+    g = gated
+    repo = hand_built(g, commits=2)
+    before = g.registry.read_text()
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo)) == 1
+    err = capsys.readouterr().err
+    assert "has 2 commits on its refs; an adopted public history must be exactly one commit" in err
+    assert "--allow-history" in err and g.registry.read_text() == before
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo), "--allow-history") == 0
+    assert "(2 commit(s) on all refs; --allow-history)" in capsys.readouterr().out
+    assert yaml.safe_load(g.registry.read_text())["packages"]["pkg"]["local_path"] == str(repo)
+
+
+def test_adopt_repo_refusals(lp, gated, capsys):
+    g = gated
+    repo = hand_built(g, files={"Main.lean": "theorem t : True := trivial\n"})
+    before = g.registry.read_text()
+    # a leak in the history (not in the tree) refuses
+    (repo / "Main.lean").write_text(f"-- {SECRET_PATH}\n")
+    _git(repo, "commit", "-q", "-am", "leak")
+    (repo / "Main.lean").write_text("theorem t : True := trivial\n")
+    _git(repo, "commit", "-q", "-am", "unleak")
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo), "--allow-history") == 1
+    err = capsys.readouterr().err
+    assert "blocking public-safety hit(s) in its tree or history; nothing written" in err and "jdoe" not in err
+    assert g.registry.read_text() == before
+    # the package's own source repository, a subdirectory, modified tracked files, a different origin
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(g.repo), "--allow-history") == 1
+    assert "is the package's own source repository" in capsys.readouterr().err
+    (repo / "sub").mkdir()
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo / "sub")) == 1
+    assert "not its top directory" in capsys.readouterr().err
+    (repo / "Main.lean").write_text("theorem u : True := trivial\n")
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo), "--allow-history") == 1
+    assert "uncommitted changes to tracked files" in capsys.readouterr().err
+    _git(repo, "checkout", "-q", "--", "Main.lean")
+    _git(repo, "remote", "add", "origin", "git@github.com:example/a.git")
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo), "--allow-history",
+               "--remote", "git@github.com:example/b.git") == 1
+    assert "already has origin git@github.com:example/a.git" in capsys.readouterr().err
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo), "--keep-receipts") == 2
+    assert "do(es) not go with --adopt-repo DIR" in capsys.readouterr().err
+    assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--allow-history") == 2
+    assert "--allow-history goes with --adopt-repo DIR" in capsys.readouterr().err
+    assert run(lp, g, "release", "pkg", "--adopt-repo", str(g.repo.parent / "missing")) == 1
+    assert "is not a git repository with a commit" in capsys.readouterr().err
+    assert g.registry.read_text() == before
