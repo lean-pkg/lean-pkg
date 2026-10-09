@@ -3877,7 +3877,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools, gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
+doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, index/ beside the registry if present, ./index; check/render/migrate exit 1 when it is missing).
@@ -4299,6 +4299,23 @@ DOCTOR_TOOLS = ("lake", "lean", "elan", "git", "gh", "reuse", "bwrap", "comparat
 DOCTOR_REQUIRED_TOOLS = ("lake", "elan", "git")   # missing -> warn; the others are optional (n/a)
 DOCTOR_COMPARATOR_TOOLS = ("go", "cargo", "jq")   # needed only to build the legacy comparator tools
 DOCTOR_ELAN_TOOLS = ("lake", "lean")              # must be elan's, or lean-toolchain is ignored
+_NOT_NEEDED = "gate/status/claims do not need it"
+# What each optional tool is for: the detail of its `n/a ... not on PATH` line, so a clean doctor on a
+# host that only reads the registry does not read as a partial failure (levels unchanged).
+DOCTOR_TOOL_HINTS = {
+    "lean": "provided per project by elan; needed to build Lean projects, not by registry commands",
+    "gh": "needed by promote, audit's GitHub checks and reservoir check; read-only commands do not need it",
+    "reuse": "release gate only: promote's REUSE lint line, a WARN without it; nothing else needs it",
+    "bwrap": "only needed to produce comparator receipts on this host (`lake comparator` sandboxes its judges "
+             f"with it) — `lean-pkg comparator host-check`; {_NOT_NEEDED}",
+    "comparator": "only needed to produce comparator receipts on this host — `lean-pkg comparator host-check`; "
+                  + _NOT_NEEDED,
+    "nanoda": "only needed to produce comparator receipts on this host — `lean-pkg comparator host-check`; "
+              + _NOT_NEEDED,
+}
+for _t in DOCTOR_COMPARATOR_TOOLS:
+    DOCTOR_TOOL_HINTS[_t] = ("only needed by comparator-receipt to build the legacy comparator tools on this host "
+                             f"— `lean-pkg comparator host-check`; {_NOT_NEEDED}")
 
 
 def elan_bin() -> pathlib.Path:
@@ -4783,10 +4800,11 @@ def _doctor_tool(add, t: str) -> None:
             f"each project's lean-toolchain: put {elan_bin()} first on PATH")
     elif where:
         add("ok", f"tool {t}", where)
-    elif t in DOCTOR_COMPARATOR_TOOLS:
-        add("n/a", f"tool {t}", "not on PATH (needed by comparator-receipt to build the legacy comparator tools)")
+    elif t in DOCTOR_REQUIRED_TOOLS:
+        add("warn", f"tool {t}", "not on PATH")
     else:
-        add("warn" if t in DOCTOR_REQUIRED_TOOLS else "n/a", f"tool {t}", "not on PATH")
+        hint = DOCTOR_TOOL_HINTS.get(t)
+        add("n/a", f"tool {t}", "not on PATH" + (f" ({hint})" if hint else ""))
 
 
 def cmd_doctor(args) -> int:

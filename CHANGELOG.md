@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `doctor`: an optional tool's `n/a ... not on PATH` line says what the tool is for and when it
+  is needed (`comparator`, `nanoda`, `bwrap`, `go`, `cargo`, `jq`: only to produce comparator
+  receipts on this host; `reuse`: release gate only; `gh`: promote, audit, reservoir check), so a
+  clean doctor on a read-only host no longer reads as a partial failure. Levels are unchanged. (#28)
+
 ## [0.7.3] - 2026-10-09
 
 ### Added

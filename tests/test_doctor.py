@@ -207,6 +207,28 @@ def test_doctor_reports_go_cargo_jq_for_comparator_receipt(lp, env, fake_path, i
         assert line.startswith(f"n/a tool {t}: not on PATH") and "comparator-receipt" in line, line
 
 
+
+def test_doctor_na_tool_lines_say_what_the_tool_is_for(lp, env, fake_path, installed, capsys):
+    """#28: an optional tool's n/a line names its purpose, so a clean doctor does not read as a partial failure."""
+    rc, cap = _doctor(lp, env, capsys)
+    assert rc == 0, cap.err
+    for t, needle in (("comparator", "comparator receipts"), ("nanoda", "comparator receipts"),
+                      ("bwrap", "comparator receipts"), ("go", "legacy comparator tools"),
+                      ("cargo", "legacy comparator tools"), ("jq", "legacy comparator tools"),
+                      ("reuse", "release gate only"), ("gh", "promote")):
+        if t == "bwrap":
+            (fake_path / "bwrap").unlink()
+            rc, cap = _doctor(lp, env, capsys)
+        line = _line(cap, t)
+        assert line.startswith(f"n/a tool {t}: not on PATH (") and needle in line, line
+    for t in ("comparator", "nanoda", "bwrap", "go"):
+        assert "gate/status/claims do not need it" in _line(cap, t)
+        assert "lean-pkg comparator host-check" in _line(cap, t)
+    data = json.loads(_doctor(lp, env, capsys, "--json")[1].out)
+    levels = {c["item"]: c["level"] for c in data["checks"]}
+    assert all(levels[f"tool {t}"] == "n/a" for t in ("comparator", "nanoda", "reuse", "go", "gh"))
+    assert lp.DOCTOR_TOOL_HINTS.keys() == set(TOOLS) - set(lp.DOCTOR_REQUIRED_TOOLS)
+
 def _registry_repo(tmp_path, env):
     """Move the registry into a fresh git work tree with an origin/main ref at its initial commit."""
     repo = tmp_path / "registry-repo"
