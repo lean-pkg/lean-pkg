@@ -145,16 +145,26 @@ def parse(out):
     return None, None, None, err
 
 
+def tail(out, n=5, cap=800):
+    """The last `n` non-blank lines of `out`, at most `cap` characters."""
+    t = "\n".join([l.rstrip() for l in out.splitlines() if l.strip()][-n:])
+    return t[-cap:]
+
+
 def one(entry, work, lake_dir, timeout):
+    """One declaration -> result. `failure` says why a result is not ok: `declaration` (Lean ran and
+    reported the declaration missing, or the claim names no module: not retried, not an extraction
+    error) or `extraction` (Lean did not run to completion: exit status, timeout, OS error)."""
     decl, module = entry["decl"], entry.get("module")
-    res = {"decl": decl, "type": None, "status": "error", "error": None, "levels": [], "modules": []}
+    res = {"decl": decl, "type": None, "status": "error", "error": None, "levels": [], "modules": [],
+           "rc": None, "failure": "extraction"}
     if not module:
-        res["error"] = "no Lean module for the claim's file " + str(entry.get("file"))
+        res.update(error="no Lean module for the claim's file " + str(entry.get("file")), failure="declaration")
         return res
     src = SNIPPET.replace("__IMPORTS__", "import " + lean_ident(module)).replace("__NAME__", lean_name(decl))
     f = pathlib.Path(work) / ("d%05d.lean" % entry["index"])
-    f.write_text(src, encoding="utf-8")
     try:
+        f.write_text(src, encoding="utf-8")
         p = subprocess.run(["lake", "env", "lean", str(f)], cwd=lake_dir, stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -164,16 +174,30 @@ def one(entry, work, lake_dir, timeout):
         res["error"] = "cannot run lake: %s" % e
         return res
     out = p.stdout.decode("utf-8", "replace")
+    res["rc"] = p.returncode
     typ, levels, modules, err = parse(out)
-    if typ is None:
+    if p.returncode != 0 or typ is None:
         res["error"] = err
+        res["output_tail"] = tail(out)
+        if p.returncode == 0 and any(l.strip().startswith("LEANPKG-ERROR") for l in out.splitlines()):
+            res["failure"] = "declaration"
+        elif p.returncode != 0 and typ is not None:
+            res["error"] = "lake env lean exited %d after printing the type: %s" % (
+                p.returncode, tail(out, 1) or "no output")
         return res
-    res.update(type=typ, status="ok", levels=levels)
+    res.update(type=typ, status="ok", levels=levels, failure=None)
     if modules is None:
         res.pop("modules")
     else:
         res["modules"] = modules
     return res
+
+
+def summarize(results, jobs):
+    filled = sum(1 for r in results if r["status"] == "ok")
+    errors = sum(1 for r in results if r["status"] != "ok" and r.get("failure") != "declaration")
+    return {"ok": errors == 0, "total": len(results), "filled": filled, "errors": errors,
+            "declaration_errors": len(results) - filled - errors, "jobs": jobs}
 
 
 def main():
@@ -209,13 +233,18 @@ def main():
             results = list(ex.map(lambda e: one(e, work, lake_dir, timeout), entries))
     finally:
         shutil.rmtree(work, ignore_errors=True)
+    summary = summarize(results, jobs)
     doc = {"schema": CONFIG["schema"], "package": CONFIG["package"], "commit": head, "toolchain": toolchain,
-           "results": results}
+           "summary": summary, "results": results}
     tmp = out.with_name(out.name + ".tmp")
     tmp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(out)
-    ok = sum(1 for r in results if r["status"] == "ok")
-    sys.stderr.write("lean-pkg types: %d ok, %d error -> %s\n" % (ok, len(results) - ok, out))
+    sys.stderr.write("lean-pkg types: %d of %d filled, %d extraction error(s), %d declaration error(s) -> %s\n"
+                     % (summary["filled"], summary["total"], summary["errors"], summary["declaration_errors"], out))
+    if summary["errors"]:
+        sys.stderr.write("lean-pkg types: extraction failed for %d declaration(s) (see results[].rc, error, "
+                         "output_tail); `--from-output` refuses this file unless --allow-partial\n" % summary["errors"])
+        sys.exit(2 if summary["filled"] == 0 else 1)
 
 
 main()
@@ -324,7 +353,8 @@ def run_local(repo: pathlib.Path, config: dict) -> dict:
         script.write_text(driver_script(config), encoding="utf-8")
         p = subprocess.run(["bash", str(script), str(out)], cwd=repo, stdin=subprocess.DEVNULL,
                            capture_output=True, text=True, env=core.scrubbed_env())   # #27
-        if p.returncode != 0 or not out.is_file():
+        # Exit 1/2 with an output file: some extractions failed; check_partial decides (#30).
+        if p.returncode not in (0, 1, 2) or not out.is_file():
             tail = (p.stderr or p.stdout or "").strip().splitlines()
             raise core.Fail(f"type driver failed (exit {p.returncode}): {tail[-1] if tail else 'no output'}")
         return read_output(out, config["package"], config["commit"], str(out))
@@ -351,6 +381,44 @@ def read_output(path: pathlib.Path, name: str, head: str, shown: str) -> dict:
     return doc
 
 
+DECLARATION_ERRORS = ("unknown constant", "no Lean module for the claim's file")
+
+
+def failure_of(result: dict | None) -> str | None:
+    """Why a result is not usable: None (ok), `declaration` (a per-declaration error Lean reported) or
+    `extraction` (Lean did not run to completion; also a missing result). Output written before #30
+    has no `failure`; there an `rc` other than 0, or an error that is not a declaration error, counts
+    as an extraction failure."""
+    if result is None:
+        return "extraction"
+    if result.get("status") == "ok":
+        return None
+    f = result.get("failure")
+    if f == "declaration":
+        return f
+    if f is not None:
+        return "extraction"
+    rc = result.get("rc")
+    if rc in (None, 0) and str(result.get("error") or "").startswith(DECLARATION_ERRORS):
+        return "declaration"
+    return "extraction"
+
+
+def check_partial(results: list[dict | None], doc: dict, shown: str, allow_partial: bool) -> int:
+    """The number of extraction failures among `results`; refuses when there are any, unless
+    `allow_partial` (#30)."""
+    failed = sum(1 for r in results if failure_of(r) == "extraction")
+    if failed and not allow_partial:
+        filled = sum(1 for r in results if failure_of(r) is None)
+        summ = doc.get("summary") if isinstance(doc.get("summary"), dict) else {}
+        jobs = f" at {summ['jobs']} job(s)" if isinstance(summ.get("jobs"), int) else ""
+        raise core.Fail(f"{shown}: extraction failed for {failed} of {len(results)} declaration(s){jobs} "
+                        f"({filled} filled); re-run the driver (lower LEAN_PKG_TYPES_JOBS), or pass "
+                        f"--allow-partial to use the {filled} filled and mark the rest needs_restatement "
+                        f"(extraction_failed); nothing written")
+    return failed
+
+
 def first_line(s: object) -> str:
     lines = [ln.strip() for ln in str(s or "").splitlines() if ln.strip()]
     return lines[0] if lines else "no error text"
@@ -359,12 +427,15 @@ def first_line(s: object) -> str:
 def fill(entry: dict, result: dict | None, summary: str, source: str) -> dict:
     """Turn a TODO scaffold entry into a pre-filled one, or record why it stays TODO."""
     tname, decl = entry["theorem_name"], entry["decl"]
+    failure = failure_of(result)
     if result is None:
         result = {"status": "error", "error": f"no result for {decl} in {source}"}
     typ = result.get("type")
-    if result.get("status") != "ok" or not isinstance(typ, str) or not typ.strip():
+    if failure is not None or not isinstance(typ, str) or not typ.strip():
         entry["needs_restatement"] = True
         entry["type_error"] = first_line(result.get("error") or "no type in the output")
+        if failure == "extraction":
+            entry["restatement_reason"] = "extraction_failed"
         return entry
     levels = [lv for lv in result.get("levels") or [] if isinstance(lv, str) and lv]
     modules = result.get("modules")

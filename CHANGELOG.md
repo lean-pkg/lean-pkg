@@ -7,6 +7,17 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `comparator config --challenge-from-type` / `--emit-script` driver: a `lake env lean` process that
+  exits non-zero (or times out) is an extraction failure, not a per-declaration type error. Each
+  result records `rc`, `failure` (`declaration` or `extraction`) and `output_tail`; the output gains
+  a `summary` `{ok, total, filled, errors, declaration_errors, jobs}`; the driver exits 1 when any
+  extraction failed and 2 when nothing was filled (it exited 0 after 224 of 225 extractions failed).
+  `--from-output` and `--challenge-from-type` refuse such a run (exit 1, counts named, nothing
+  written) unless `--allow-partial`, which uses the filled entries and keeps the rest as TODO with
+  `restatement_reason: extraction_failed`. (#30)
+
 ## [0.7.5] - 2026-10-09
 
 ### Added

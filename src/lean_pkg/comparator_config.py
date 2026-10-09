@@ -183,14 +183,22 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
             src = pathlib.Path(types["from_output"]).expanduser()
             doc, source = ct.read_output(src, name, head, types["from_output"]), types["from_output"]
         by_decl = {str(r.get("decl")): r for r in doc["results"]}
+        failed = ct.check_partial([by_decl.get(a["decl"]) for a in added], doc,
+                                  "the local run" if types["mode"] == "local" else f"--from-output {source}",
+                                  bool(types.get("allow_partial")))
         for a, c in zip(added, sources):
             ct.fill(a, by_decl.get(a["decl"]), str(c.get("summary") or f"what {a['claim']} claims"), source)
         ok = sum(1 for a in added if "type" in a)
         nr = sum(1 for a in added if a.get("needs_restatement"))
         payload["types"] = {"mode": types["mode"], "commit": head, "toolchain": doc.get("toolchain"),
-                            "prefilled": ok, "type_errors": len(added) - ok, "needs_restatement": nr}
+                            "prefilled": ok, "type_errors": len(added) - ok, "needs_restatement": nr,
+                            "extraction_failed": failed, "allow_partial": bool(types.get("allow_partial")),
+                            "driver_summary": doc.get("summary") if isinstance(doc.get("summary"), dict) else None}
         lines.append(f"types: {ok} pre-filled from the elaborated type, {len(added) - ok} type error(s) "
                      f"(TODO kept), {nr} marked needs_restatement")
+        if failed:
+            lines.append(f"types: --allow-partial: {failed} extraction failure(s) kept their TODO lines "
+                         f"(restatement_reason extraction_failed)")
     cfg["theorem_names"] = list(cfg.get("theorem_names") or []) + [a["theorem_name"] for a in added]
     block.setdefault("generated_by", f"lean-pkg comparator config --from-claims {name}")
     block["note"] = ("comparator fails on each TODO name until its Challenge and Solution exist; remove an "
@@ -371,6 +379,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
 
 USAGE = ("usage: lean-pkg comparator config --from-claims NAME [--out comparator.json] [--dry-run] "
          "[--challenge-namespace NS] [--agent A] [--challenge-from-type | --emit-script F | --from-output F] "
+         "[--allow-partial] "
          "[--lake-env DIR] [--jobs N] [--timeout S]  |  lean-pkg comparator config --coverage NAME")
 
 
@@ -381,6 +390,8 @@ def types_mode(args) -> dict | None:
                              ("--timeout", getattr(args, "timeout", None))) if v is not None]
     if emit and frm:
         raise core.UsageError("--emit-script and --from-output are two halves of one run; pass one of them")
+    if getattr(args, "allow_partial", False) and not (frm or local):
+        raise core.UsageError("--allow-partial: needs --from-output or --challenge-from-type (it governs ingestion)")
     if frm and tuning:
         raise core.UsageError(f"{', '.join(tuning)}: belong to the driver (--challenge-from-type or --emit-script), "
                               f"not to --from-output")
@@ -390,7 +401,8 @@ def types_mode(args) -> dict | None:
         return None
     mode = "emit" if emit else "ingest" if frm else "local"
     return {"mode": mode, "emit": emit, "from_output": frm, "lake_env": getattr(args, "lake_env", None),
-            "jobs": getattr(args, "jobs", None), "timeout": getattr(args, "timeout", None)}
+            "jobs": getattr(args, "jobs", None), "timeout": getattr(args, "timeout", None),
+            "allow_partial": bool(getattr(args, "allow_partial", False))}
 
 
 def cmd_comparator_config(args) -> int:

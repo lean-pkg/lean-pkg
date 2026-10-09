@@ -42,7 +42,12 @@ src = open(args[2], encoding="utf-8").read()
 comps = re.findall(r'\.str "([^"]*)"', src)
 imp = re.search(r"^import (\S+)$", src, re.M).group(1)
 decl = ".".join(comps)
-if decl == "Demo.baz":
+if os.environ.get("FAKE_LAKE_FAIL_ALL"):
+    print("lake: error: something broke")
+    sys.exit(3)
+if decl == "Demo.gone":
+    print("LEANPKG-ERROR unknown constant " + decl)
+elif decl == "Demo.baz":
     print("LEANPKG-LEVELS \nLEANPKG-MODULES Init.Prelude\nLEANPKG-TYPE-BEGIN\nTrue\nLEANPKG-TYPE-END")
 elif decl == "Demo.wow":
     print(args[2] + ":3:0: warning: declaration uses 'sorry'")
@@ -73,7 +78,7 @@ def fake_lake(tmp_path, monkeypatch):
     lake.chmod(0o755)
     monkeypatch.setenv("PATH", str(bindir))
     monkeypatch.setenv("FAKE_LAKE_LOG", str(tmp_path / "lake.log"))
-    for v in ("LEAN_PKG_TYPES_JOBS", "LEAN_PKG_TYPES_TIMEOUT"):
+    for v in ("LEAN_PKG_TYPES_JOBS", "LEAN_PKG_TYPES_TIMEOUT", "FAKE_LAKE_FAIL_ALL"):
         monkeypatch.delenv(v, raising=False)
     return bindir
 
@@ -106,10 +111,12 @@ def todo_by_claim(cfg):
 
 def test_local_mode_prefills_challenge_and_solution_with_per_entry_fallback(lp, env, fake_lake, tmp_path, capsys):
     synced(lp, env, capsys)
-    rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--json")
+    rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--allow-partial", "--json")
     assert rc == 0, cap.err
     data = json.loads(cap.out)
     assert data["written"] is True and (data["existing"], data["added"]) == (1, 3)
+    assert data["types"]["extraction_failed"] == 1 and data["types"]["allow_partial"] is True
+    assert data["types"]["driver_summary"]["errors"] == 1 and data["types"]["driver_summary"]["filled"] == 2
     assert data["types"]["mode"] == "local" and data["types"]["commit"] == repo_head(env.repo_b)
     assert (data["types"]["prefilled"], data["types"]["type_errors"], data["types"]["needs_restatement"]) == (2, 1, 2)
     cfg = json.loads((env.repo_b / "comparator.json").read_text())
@@ -127,6 +134,7 @@ def test_local_mode_prefills_challenge_and_solution_with_per_entry_fallback(lp, 
     assert wow["solution"].endswith("exact @_root_.Demo.wow")
     zap = todo["beta/zap"]
     assert zap["needs_restatement"] is True and zap["type_error"] == "unknown module prefix 'Demo'"
+    assert zap["restatement_reason"] == "extraction_failed"
     assert zap["challenge"].startswith("TODO: ") and zap["solution"].startswith("TODO: ")
     calls = lake_calls(tmp_path)
     assert len(calls) == 3 and all(c["args"][:2] == ["env", "lean"] for c in calls)
@@ -139,13 +147,13 @@ def test_local_mode_prefills_challenge_and_solution_with_per_entry_fallback(lp, 
 def test_dry_run_runs_lean_but_writes_nothing_and_second_run_adds_nothing(lp, env, fake_lake, tmp_path, capsys):
     synced(lp, env, capsys)
     before = (env.repo_b / "comparator.json").read_text()
-    rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--dry-run")
+    rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--dry-run", "--allow-partial")
     assert rc == 0, cap.err
     assert "types: 2 pre-filled from the elaborated type, 1 type error(s)" in cap.out
     cfg = dry_cfg(cap)
     assert todo_by_claim(cfg)["beta/baz"]["type"] == "True"
     assert (env.repo_b / "comparator.json").read_text() == before
-    assert cc(lp, env, capsys, "--challenge-from-type")[0] == 0
+    assert cc(lp, env, capsys, "--challenge-from-type", "--allow-partial")[0] == 0
     n = len(lake_calls(tmp_path))
     after = (env.repo_b / "comparator.json").read_text()
     rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--json")
@@ -204,18 +212,25 @@ def run_driver(env, script, out):
 
 def test_emit_then_ingest_equals_local_mode(lp, env, fake_lake, tmp_path, capsys):
     synced(lp, env, capsys)
-    rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--dry-run")
+    rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--dry-run", "--allow-partial")
     local = dry_cfg(cap)
     script, out = tmp_path / "d.sh", tmp_path / "types.json"
     assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
     p = run_driver(env, script, out)
-    assert p.returncode == 0, p.stderr
+    assert p.returncode == 1, p.stderr                       # one extraction failed (zap: lean exit 1)
+    assert "1 extraction error(s)" in p.stderr and "--allow-partial" in p.stderr
     doc = json.loads(out.read_text())
+    assert doc["summary"] == {"ok": False, "total": 3, "filled": 2, "errors": 1, "declaration_errors": 0,
+                              "jobs": 2}
+    zap = doc["results"][1]
+    assert zap["rc"] == 1 and zap["failure"] == "extraction" and "Demo.olean" in zap["output_tail"]
     assert doc["schema"] == "comparator-types/1" and doc["package"] == "beta"
     assert doc["commit"] == repo_head(env.repo_b)
     assert [(r["decl"], r["status"]) for r in doc["results"]] == [("Demo.baz", "ok"), ("Demo.zap", "error"),
                                                                   ("Demo.wow", "ok")]
     rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--dry-run")
+    assert rc == 1 and "extraction failed for 1 of 3 declaration(s) at 2 job(s) (2 filled)" in cap.err
+    rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--dry-run", "--allow-partial")
     assert rc == 0, cap.err
     assert dry_cfg(cap) == local
 
@@ -236,7 +251,7 @@ def write_output(tmp_path, env, **over):
 
 def test_ingest_a_good_file_with_per_entry_fallback(lp, env, tmp_path, capsys):
     synced(lp, env, capsys)
-    rc, cap = cc(lp, env, capsys, "--from-output", str(write_output(tmp_path, env)), "--json")
+    rc, cap = cc(lp, env, capsys, "--from-output", str(write_output(tmp_path, env)), "--json", "--allow-partial")
     assert rc == 0, cap.err
     data = json.loads(cap.out)
     assert data["types"]["mode"] == "ingest" and data["types"]["toolchain"] == "leanprover/lean4:v4.35.0"
@@ -251,6 +266,8 @@ def test_ingest_missing_result_falls_back(lp, env, tmp_path, capsys):
     synced(lp, env, capsys)
     f = write_output(tmp_path, env, results=[])
     rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--json")
+    assert rc == 1 and "extraction failed for 3 of 3" in cap.err          # a missing result is a failure
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--json", "--allow-partial")
     assert rc == 0, cap.err
     todo = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))
     assert todo["beta/baz"]["type_error"].startswith("no result for Demo.baz in ")
@@ -289,8 +306,55 @@ def test_type_flags_usage_errors(lp, env, tmp_path, capsys):
     assert rc == 2 and "need --challenge-from-type or --emit-script" in cap.err
     rc, cap = cc(lp, env, capsys, "--from-output", "b.json", "--jobs", "3")
     assert rc == 2 and "not to --from-output" in cap.err
+    rc, cap = cc(lp, env, capsys, "--emit-script", "a.sh", "--allow-partial")
+    assert rc == 2 and "--allow-partial: needs --from-output" in cap.err
     rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--jobs", "0")
     assert rc == 2 and "--jobs 0" in cap.err
     rc = lp.main(["--registry", str(env.registry), "comparator", "beta", "--receipt", "x.json",
                   "--challenge-from-type"])
     assert rc == 2 and "comparator config --from-claims" in capsys.readouterr().err
+
+
+def test_local_run_with_extraction_failures_is_refused_and_writes_nothing(lp, env, fake_lake, tmp_path, capsys):
+    """#30: lean exiting non-zero is an extraction failure, not a per-declaration type error."""
+    synced(lp, env, capsys)
+    before = (env.repo_b / "comparator.json").read_text()
+    rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--json")
+    assert rc == 1 and "the local run: extraction failed for 1 of 3 declaration(s)" in cap.err
+    assert "--allow-partial" in cap.err and "nothing written" in cap.err
+    assert (env.repo_b / "comparator.json").read_text() == before
+
+
+def test_driver_exits_2_when_nothing_was_filled(lp, env, fake_lake, tmp_path, monkeypatch, capsys):
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    monkeypatch.setenv("FAKE_LAKE_FAIL_ALL", "1")
+    p = run_driver(env, script, out)
+    assert p.returncode == 2, p.stderr
+    doc = json.loads(out.read_text())
+    assert (doc["summary"]["ok"], doc["summary"]["filled"], doc["summary"]["errors"]) == (False, 0, 3)
+    assert all(r["rc"] == 3 and r["error"] == "lake: error: something broke" for r in doc["results"])
+    rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--allow-partial", "--json")
+    assert rc == 0, cap.err
+    todo = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))
+    assert all(todo[c]["restatement_reason"] == "extraction_failed" for c in ("beta/baz", "beta/zap", "beta/wow"))
+
+
+def test_declaration_errors_are_not_extraction_failures(lp, env, fake_lake, tmp_path, capsys):
+    """An unknown constant (Lean ran, exit 0) keeps its TODO without failing the run."""
+    claims = dict(CLAIMS, claims=[claim("baz", "Demo.baz", kind="lemma"), claim("gone", "Demo.gone")])
+    (env.repo_b / "lakefile.lean").write_text("import Lake\nopen Lake DSL\npackage beta\nlean_lib Demo\n")
+    commit_claims(env.repo_b, yaml.safe_dump(claims, sort_keys=False), lean=LEAN + "theorem gone : True := trivial\n")
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 0
+    capsys.readouterr()
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    p = run_driver(env, script, out)
+    assert p.returncode == 0, p.stderr
+    doc = json.loads(out.read_text())
+    assert doc["summary"]["ok"] is True and doc["summary"]["declaration_errors"] == 1
+    rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--json")
+    assert rc == 0, cap.err
+    gone = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/gone"]
+    assert gone["type_error"] == "unknown constant Demo.gone" and "restatement_reason" not in gone

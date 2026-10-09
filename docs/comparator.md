@@ -139,9 +139,12 @@ and Mathlib's own dependencies, or the printed type would not re-elaborate
 (an inaccessible `✝` name or an elided `⋯` proof). An entry whose type is in
 Mathlib vocabulary already carries `needs_restatement: false` and a
 Challenge that compiles as is; it still needs the paper check below. A
-declaration Lean cannot elaborate (module not built, unknown constant,
-timeout) keeps its `TODO:` lines, gets `needs_restatement: true`, and records
-`type_error: <first line of the error>`. Every entry stays under
+declaration Lean reports as unknown (or a claim whose `file` maps to no
+module) keeps its `TODO:` lines, gets `needs_restatement: true`, and records
+`type_error: <first line of the error>`. A declaration whose extraction
+failed (`lake env lean` exited non-zero, for instance a module not built, or
+timed out) fails the whole run instead; see "Exit codes and partial runs"
+below. Every entry stays under
 `lean_pkg_scaffold.todo` until its Challenge and Solution are written into the
 modules.
 
@@ -222,14 +225,16 @@ the embedded `--jobs` / `--timeout`. It writes `OUT.json`:
 ```json
 {"schema": "comparator-types/1", "package": "beta", "commit": "<40-hex HEAD>",
  "toolchain": "leanprover/lean4:v4.35.0",
+ "summary": {"ok": false, "total": 2, "filled": 1, "errors": 1, "declaration_errors": 0, "jobs": 2},
  "results": [{"decl": "Demo.baz", "type": "∀ (n : Nat), n + 0 = n", "status": "ok", "error": null,
-              "levels": [], "modules": ["Init.Prelude"]},
+              "levels": [], "modules": ["Init.Prelude"], "rc": 0, "failure": null},
              {"decl": "Demo.zap", "type": null, "status": "error",
-              "error": "unknown module prefix 'Demo'", "levels": [], "modules": []}]}
+              "error": "unknown module prefix 'Demo'", "levels": [], "modules": [],
+              "rc": 1, "failure": "extraction", "output_tail": "...last lines of lake env lean..."}]}
 ```
 
-`levels` and `modules` are additive; a result without `modules` is marked
-`needs_restatement`. `--from-output F` refuses (nothing written) a file whose
+`levels`, `modules`, `summary`, `rc`, `failure` and `output_tail` are
+additive; a result without `modules` is marked `needs_restatement`. `--from-output F` refuses (nothing written) a file whose
 `schema` is not `comparator-types/1`, whose `package` is another package, or
 whose `commit` is not the checkout's HEAD; a declaration with no result in the
 file falls back to the TODO lines with a `type_error`. `--challenge-from-type`
@@ -237,6 +242,25 @@ emits the driver to a temp directory, runs it from the checkout and ingests
 its output exactly as `--from-output` would. `--dry-run` writes no
 configuration in any mode (and no driver with `--emit-script`), and a second
 run adds nothing, so Lean is not run again for claims already scaffolded.
+
+**Exit codes and partial runs.** Each result records the exit status of its
+`lake env lean` process (`rc`) and, when it failed, why (`failure`):
+`declaration` when Lean ran to the end and reported the declaration unknown
+(or the claim names no module), `extraction` when it did not (non-zero exit,
+timeout, the process could not start). `summary.errors` counts extraction
+failures, `summary.declaration_errors` the others. The driver exits 0 when no
+extraction failed, 1 when some did, and 2 when some did and nothing was
+filled (2 is also its refusal status, which writes no `OUT.json`); the output
+file is written in all three cases. `--from-output` and
+`--challenge-from-type` refuse (exit 1, nothing written) to ingest a run with
+extraction failures, naming the counts; a declaration with no result in the
+file counts as one. `--allow-partial` ingests it anyway: the filled entries
+are pre-filled as usual, and the failed ones keep their `TODO:` lines with
+`needs_restatement: true`, `restatement_reason: "extraction_failed"` and the
+`type_error`. A later run skips names already scaffolded, so to retry them
+remove those entries from `theorem_names` and `lean_pkg_scaffold.todo` first.
+Output written by an older driver has no `failure`: there a non-zero `rc`, or
+an error other than an unknown constant, counts as an extraction failure.
 
 The smallest complete pair, from a smoke test:
 
