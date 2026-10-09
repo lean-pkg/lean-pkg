@@ -3436,7 +3436,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`).
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
-- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes; --no-commit overrides. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error}.
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (rejected as non-fast-forward: one fetch + rebase of that one commit + retry; a conflict aborts, commit kept); --no-commit overrides. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error}.
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -3960,6 +3960,54 @@ def commit_message(ctx: dict) -> str:
 FALLBACK_IDENTITY = ("lean-pkg", "lean-pkg@localhost")
 
 
+_REJECTED_MARKERS = ("non-fast-forward", "[rejected]", "fetch first", "Updates were rejected")
+
+
+def _push_rejected(p: subprocess.CompletedProcess) -> bool:
+    """A push refused because origin moved on (not an auth or network failure)."""
+    text = f"{p.stderr}\n{p.stdout}"
+    return any(m in text for m in _REJECTED_MARKERS)
+
+
+def _rebase_in_progress(root: pathlib.Path) -> bool:
+    for d in ("rebase-merge", "rebase-apply"):
+        q = git(root, "rev-parse", "--git-path", d)
+        if q.returncode == 0 and (root / q.stdout.strip()).exists():
+            return True
+    return False
+
+
+def _rebase_and_repush(ctx: dict, rejected: subprocess.CompletedProcess) -> subprocess.CompletedProcess:
+    """One retry after a non-fast-forward rejection (#22.9): fetch origin, rebase our one commit onto
+    origin/<branch> (the event log merges as a union: both sides only append lines), push once more.
+    Retried only when our commit is the single commit ahead of origin/<branch>; a rebase conflict is
+    aborted, so the local commit stays as it was. Returns the push (or the original rejection)."""
+    root, branch = ctx["root"], ctx["branch"]
+    upstream = f"refs/remotes/origin/{branch}"
+    ahead = git(root, "rev-list", "--count", f"{upstream}..HEAD")
+    if ahead.returncode != 0 or ahead.stdout.strip() != "1":
+        return rejected
+    if fetch_origin(root) is not None:
+        return rejected
+    print(f"lean-pkg: push rejected (origin/{branch} moved on); rebasing the commit and retrying once",
+          file=sys.stderr)
+    ev_rel = ctx["files"][-1]
+    with tempfile.NamedTemporaryFile("w", suffix=".gitattributes", delete=False) as fh:
+        fh.write(f"/{ev_rel} merge=union\n")
+        attrs = fh.name
+    try:
+        rb = git(root, "-c", f"core.attributesFile={attrs}", "rebase", "--quiet", upstream)
+    finally:
+        os.unlink(attrs)
+    if rb.returncode != 0:
+        if _rebase_in_progress(root):
+            git(root, "rebase", "--abort")
+        print(f"lean-pkg: rebase onto origin/{branch} failed ({_first_line(rb, 'rebase failed')}); "
+              f"kept the local commit", file=sys.stderr)
+        return rejected
+    return git(root, "push", "--quiet", "origin", branch)
+
+
 def commit_finish(ctx: dict, rc: int) -> int:
     """After the subcommand in committed mode: commit the changed registry files (only those paths),
     then push when asked. Writes only to stderr; stdout stays the subcommand's. The outcome is left in
@@ -4004,6 +4052,9 @@ def commit_finish(ctx: dict, rc: int) -> int:
             print(f"lean-pkg: push failed: no origin remote; run: git push origin {branch}", file=sys.stderr)
             return 1
         p = git(root, "push", "--quiet", "origin", branch)
+        if p.returncode != 0 and _push_rejected(p):
+            p = _rebase_and_repush(ctx, p)
+            res["sha"] = git(root, "rev-parse", "HEAD").stdout.strip() or res["sha"]
         if p.returncode != 0:
             res["error"] = f"push failed: {_first_line(p, 'git push failed')}"
             print(f"lean-pkg: push failed: {_first_line(p, 'git push failed')}; run: git push origin {branch}",

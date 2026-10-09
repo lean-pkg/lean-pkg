@@ -18,7 +18,11 @@ on a branch with the registry file and event log unmodified, fetches `origin`
 and fast-forwards (`pull --ff-only`; a diverged clone is refused); after a
 successful write it commits exactly those two files together with the message
 `lean-pkg: <event> <name>`. `--push` (env `LEAN_PKG_PUSH=1`) also pushes to
-`origin`; a failed push exits 1 and keeps the commit. `--no-commit` overrides
+`origin`; a push rejected as non-fast-forward (origin moved on since the
+pull) is retried once: fetch, rebase that one commit onto `origin/<branch>`
+(the event log merges as a union of appended lines), push again; the retry is
+skipped when other local commits are unpushed, and a rebase conflict is
+aborted. A failed push exits 1 and keeps the commit. `--no-commit` overrides
 both variables. Its reports go to stderr; a `--json` payload gains
 `"commit": {"sha", "pushed", "error"}` (`"ok": false` when the commit or push
 failed); a commit made with the fallback identity `lean-pkg <lean-pkg@localhost>`

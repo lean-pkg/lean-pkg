@@ -213,3 +213,52 @@ def test_audit_fix_commit_commits_the_sweep(lp, env, shared, fake_gh, capsys):
     assert _subject(a.root) == "lean-pkg: lease-expired alpha", cap.err
     assert _clean(a.root)
     assert read_reg(a)["packages"]["alpha"]["lease"] is None
+
+
+def _race(lp, monkeypatch, b, *b_argv):
+    """Origin moves on between A's preflight and A's push: B writes and pushes right after A's preflight."""
+    real, fired = lp.commit_preflight, []
+
+    def preflight(args, mode):
+        ctx = real(args, mode)
+        if not fired:
+            fired.append(True)
+            assert lp.main(["--registry", str(b.registry), *b_argv, "--push"]) == 0
+        return ctx
+    monkeypatch.setattr(lp, "commit_preflight", preflight)
+
+
+def test_rejected_push_rebases_once_and_pushes(lp, env, shared, monkeypatch, capsys):   # #22.9
+    a, b = shared.a, shared.clone_b()
+    _race(lp, monkeypatch, b, "claim", "beta", "--workspace", "w4", "--agent", "otto")
+    rc, cap = run(lp, a, capsys, *CLAIM, "--push")
+    assert rc == 0, cap.err
+    assert "push rejected" in cap.err and "lean-pkg: pushed origin/main" in cap.err
+    assert _head(shared.origin, "main") == _head(a.root) and _clean(a.root)
+    assert _subject(a.root) == "lean-pkg: claimed alpha"
+    reg = read_reg(a)["packages"]
+    assert reg["alpha"]["lease"]["agent"] == "vera" and reg["beta"]["lease"]["agent"] == "otto"
+    assert [e["name"] for e in read_events(a) if e["event"] == "claimed"] == ["beta", "alpha"]
+
+
+def test_rejected_push_with_conflict_aborts_and_keeps_commit(lp, env, shared, monkeypatch, capsys):
+    a, b = shared.a, shared.clone_b()
+    _race(lp, monkeypatch, b, "claim", "alpha", "--workspace", "w4", "--agent", "otto")
+    rc, cap = run(lp, a, capsys, *CLAIM, "--push")
+    assert rc == 1
+    assert "kept the local commit" in cap.err and "run: git push origin main" in cap.err
+    assert _subject(a.root) == "lean-pkg: claimed alpha" and _clean(a.root)
+    assert not (a.root / ".git" / "rebase-merge").exists()
+    assert read_reg(a)["packages"]["alpha"]["lease"]["agent"] == "vera"
+
+
+def test_rejected_push_with_other_local_commits_is_not_rebased(lp, env, shared, monkeypatch, capsys):
+    a, b = shared.a, shared.clone_b()
+    (a.root / "README.md").write_text("local only\n")
+    _git(a.root, "commit", "-q", "-am", "unpushed")
+    _race(lp, monkeypatch, b, "claim", "beta", "--workspace", "w4", "--agent", "otto")
+    tip = _head(a.root)
+    rc, cap = run(lp, a, capsys, *CLAIM, "--push")
+    assert rc == 1 and "push rejected" not in cap.err
+    assert "run: git push origin main" in cap.err
+    assert _head(a.root, "HEAD~1") == tip

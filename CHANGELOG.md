@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- Committed mode: a `--push` rejected as non-fast-forward is retried once:
+  fetch, rebase the one new commit onto `origin/<branch>` (the event log
+  merges as a union of appended lines), push again. Skipped when other local
+  commits are unpushed; a rebase conflict is aborted and the local commit is
+  kept, reported as before. (#22.9)
+
 ## [0.6.0] - 2026-10-09
 
 ### Added
