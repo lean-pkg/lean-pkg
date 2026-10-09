@@ -182,3 +182,67 @@ def test_legacy_judge_streams_too(project: Path):
     r = run(project, mechanism="legacy", extra={"COMPARATOR_FAKE_LAKE_OK": "0"})
     assert r.returncode == 0, r.stderr
     assert "== comparator @ 5555" in stage_log(project)
+
+
+# --- progress lines, partial report, stages.json progress ---------------------------------------
+
+def two_configs(tmp_path: Path) -> Path:
+    return make_project(tmp_path, {"comparator.json": ["A.one", "A.two"],
+                                   "comparator/config-b.json": ["B.three"]})
+
+
+def stages_json(project: Path) -> dict:
+    return json.loads((stage_dir(project) / "stages.json").read_text())
+
+
+def test_progress_lines_name_slots_and_times(tmp_path: Path):
+    project = two_configs(tmp_path)
+    r = run(project)
+    assert r.returncode == 0, r.stderr
+    log = stage_log(project)
+    assert "3 slot(s) in 2 config(s), 2 judge invocation(s)" in log
+    assert "slot 1-2/3 comparator.json[2 names] started" in log
+    assert "slot 3/3 B.three started" in log
+    assert "slot 1-2/3 comparator.json[2 names] done in " in log
+    assert "slot 3/3 B.three done in " in log and "(3/3 done)" in log
+    st = stages_json(project)
+    assert st["progress"] == {"done": 3, "total": 3, "failed": 0, "partial_report": None}
+    assert not (stage_dir(project) / "04-comparator.partial.json").exists()
+    assert receipt_log(project).splitlines()[0] == "== lake comparator (toolchain) comparator.json"
+
+
+def test_failed_unit_leaves_a_partial_report(tmp_path: Path):
+    project = two_configs(tmp_path)
+    r = run(project, extra={"STUB_MODE": "fail"})
+    assert r.returncode == 1
+    assert "partial: 0/3 done, 2 failed" in r.stderr
+    rep = json.loads((stage_dir(project) / "04-comparator.partial.json").read_text())
+    assert rep["schema"] == "comparator-partial/1" and rep["state"] == "failed"
+    assert [s["name"] for s in rep["slots_failed"]] == ["A.one", "A.two"]
+    assert [s["name"] for s in rep["slots_pending"]] == ["B.three"]
+    assert "failed (exit 1)" in stage_log(project)
+    st = stages_json(project)
+    assert st["failed_stage"] == "comparator"
+    assert st["progress"]["partial_report"].endswith("04-comparator.partial.json")
+
+
+def test_term_writes_partial_report_with_resume_command(tmp_path: Path):
+    project = make_project(tmp_path, {"comparator.json": ["A.one"],
+                                      "comparator/config-b.json": ["B.two"]})
+    p = start(project, "--evidence-dir", str(tmp_path / "ev"),
+              extra={"STUB_BEHAVIOUR": "slow", "STUB_SLEEP": "30"})
+    ev = tmp_path / "ev" / "comparator-stages"
+    assert wait_for(lambda: (ev / "04-comparator.log").exists()
+                    and "stub progress 1" in (ev / "04-comparator.log").read_text())
+    p.send_signal(signal.SIGTERM)
+    out, err = p.communicate(timeout=60)
+    assert p.returncode == 128 + signal.SIGTERM
+    assert "partial: 0/2 done" in err and "resume: comparator-receipt" in err
+    rep = json.loads((ev / "04-comparator.partial.json").read_text())
+    assert rep["state"] == "interrupted" and rep["done"] == 0 and rep["total"] == 2
+    assert "--evidence-dir" in rep["resume_command"]
+    st = json.loads((ev / "stages.json").read_text())
+    comp = [e for e in st["stages"] if e["stage"] == "comparator"][0]
+    assert comp["status"] == "partial" and "partial: 0/2 done" in comp["note"]
+    assert st["progress"]["done"] == 0 and st["progress"]["total"] == 2
+    assert not list(ev.glob("04-units/*.tmp"))       # the judge's temp exports are cleaned up

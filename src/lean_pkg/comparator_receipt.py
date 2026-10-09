@@ -45,7 +45,8 @@ from .cli import comparator_pass  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
-from .comparator_stage import Interrupted, Judge, SignalGuard, StageLog, run_pool  # noqa: E402
+from .comparator_stage import (PARTIAL_FILE, UNITS_DIR, Interrupted, Judge, Progress, SignalGuard,  # noqa: E402
+                               StageLog, Unit, list_slots, ranges, run_pool, unit_id)
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -432,6 +433,7 @@ class Stages:
         self.json = self.dir / STAGES_FILE
         self.binding, self.prepare = binding, prepare
         self.entries: dict[str, dict] = {}
+        self.progress: dict | None = None   # stage 04's {done, total, failed, partial_report} (#39)
 
     def log(self, stage: str) -> pathlib.Path:
         return self.dir / f"{STAGES.index(stage) + 1:02d}-{stage}.log"
@@ -445,11 +447,12 @@ class Stages:
 
     def save(self) -> None:
         entries = [self.entries[s] for s in STAGES if s in self.entries]
-        failed = next((e["stage"] for e in entries if e["status"] == "failed"), None)
+        failed = next((e["stage"] for e in entries if e["status"] in ("failed", "partial")), None)
         setup_done = all(self.entries.get(s, {}).get("status") in DONE for s in SETUP_STAGES)
         data = {"schema": STAGES_SCHEMA, **self.binding, "prepare": self.prepare,
                 "setup_complete": setup_done, "failed_stage": failed, "stages": entries,
                 "git_env_scrubbed": git_env_set(),   # #27: removed from every lake/git/bash it ran
+                **({"progress": self.progress} if self.progress is not None else {}),
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         tmp = self.json.with_name(STAGES_FILE + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -475,8 +478,12 @@ class Stages:
         except RunnerError as e:
             with open(log, "a", encoding="utf-8") as fh:
                 fh.write(f"comparator-receipt: {e}\n")
-            self.record(stage, "failed", getattr(e, "code", None), time.monotonic() - t0, str(e), log)
-            raise RunnerError(f"stage {tag} failed: {e} (log: {log}; stages: {self.json})") from None
+            status = "partial" if isinstance(e, PartialStage) else "failed"
+            self.record(stage, status, getattr(e, "code", None), time.monotonic() - t0, str(e), log)
+            msg = f"stage {tag} {status}: {e} (log: {log}; stages: {self.json})"
+            if isinstance(e, PartialStage):
+                raise PartialStage(msg, e.code) from None
+            raise RunnerError(msg) from None
         self.record(stage, status, code, time.monotonic() - t0, note, log)
         print(f"comparator-receipt: stage {tag}: {status}" + (f" ({note})" if note else ""),
               file=sys.stderr)
@@ -542,6 +549,161 @@ def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> N
                    ("skipped", None, "no challenge/solution module configured"))
 
 
+class PartialStage(StageError):
+    """Stage 04 stopped part-way (a signal): its stage status is `partial`, not `failed`."""
+
+
+class Stage04:
+    """Stage 04 (#39): plan the units, run their judges (streamed, heartbeat, killed on TERM), print
+    per-slot progress, keep 04-comparator.partial.json and stages.json `progress` current, and
+    assemble each configuration's receipt log from the logs of the units that judged it."""
+
+    def __init__(self, project: pathlib.Path, configs: list[str], mechanism: str, check: pathlib.Path,
+                 verify: pathlib.Path | None, stages: Stages, log_dir: pathlib.Path, resume_command: str):
+        self.project, self.configs, self.mechanism = project, configs, mechanism
+        self.check, self.verify, self.stages, self.log_dir = check, verify, stages, log_dir
+        self.cfgs = [(c, json.loads((project / c).read_bytes())) for c in configs]
+        self.slots = list_slots(self.cfgs)
+        self.units_dir = stages.dir / UNITS_DIR
+        self.resume_command = resume_command
+        self.progress = Progress(stages.dir / PARTIAL_FILE, self.slots, {
+            **stages.binding, "mechanism": mechanism, "resume_command": resume_command})
+        self.passed: dict[str, list[tuple[Unit, pathlib.Path]]] = {c: [] for c in configs}
+        self.legacy_output = ""
+        self.slog: StageLog | None = None
+
+    # -- planning ---------------------------------------------------------------------------------
+    def plan(self) -> list[Unit]:
+        if self.mechanism == "legacy":   # comparator-check.sh judges every configuration in one run
+            units = [Unit(1, "", list(self.slots), True)]
+        else:
+            units = [Unit(i, rel, [s for s in self.slots if s.config == rel], True)
+                     for i, (rel, _cfg) in enumerate(self.cfgs, 1)]
+        for u in units:
+            u.id = unit_id(self.stages.binding, u)
+        return units
+
+    def command(self, unit: Unit) -> tuple[list[str], dict]:
+        env = scrubbed_env()
+        if self.mechanism == "legacy":
+            env["LOG_DIR"] = str(self.log_dir)
+            return ["bash", str(self.check)], env
+        return ["bash", str(self.verify), unit.config], env
+
+    # -- progress ---------------------------------------------------------------------------------
+    def say(self, text: str) -> None:
+        assert self.slog is not None
+        self.slog.write(text)
+
+    def tag(self, unit: Unit) -> str:
+        idx = ranges(s.index for s in unit.slots) if unit.slots else "-"
+        return f"slot {idx}/{len(self.slots)} {unit.label()}"
+
+    def publish(self) -> None:
+        self.progress.write()
+        self.stages.progress = {**self.progress.counts(), "partial_report": str(self.progress.path)}
+        self.stages.save()
+
+    # -- running ----------------------------------------------------------------------------------
+    def start(self, unit: Unit) -> Judge:
+        log = self.units_dir / f"{unit.id}.log"
+        tmpdir = self.units_dir / f"{unit.id}.tmp"
+        for stale in (log,):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        cmd, env = self.command(unit)
+        self.say(f"{self.tag(unit)} started (unit {unit.n}/{self.n_units}, judge log {log.name})")
+        j = Judge(cmd, self.project, env, log, self.slog, f"unit {unit.n}/{self.n_units} ({unit.label()})",
+                  prefix=f"[{unit.n}] " if self.width > 1 else "", tmpdir=tmpdir)
+        j.start()
+        return j
+
+    def finish(self, unit: Unit, j: Judge) -> bool:
+        shutil.rmtree(j.tmpdir, ignore_errors=True) if j.tmpdir else None
+        secs = j.elapsed()
+        if j.killed:
+            self.say(f"{self.tag(unit)} stopped after {secs:.1f}s (judge killed)")
+            return False
+        out = j.log.read_text(encoding="utf-8", errors="replace") if j.log.is_file() else ""
+        ok = j.returncode == 0 and (self.mechanism == "legacy" or comparator_pass(out, "toolchain"))
+        if not ok:
+            self.progress.mark(unit.slots, "failed")
+            self.failure = (unit, j.returncode)
+            self.say(f"{self.tag(unit)} failed (exit {j.returncode}) in {secs:.1f}s")
+            self.publish()
+            return False
+        if self.mechanism == "legacy":
+            self.legacy_output = out
+        else:
+            self.passed[unit.config].append((unit, j.log))
+        self.progress.mark(unit.slots, "judged")
+        self.say(f"{self.tag(unit)} done in {secs:.1f}s ({self.progress.counts()['done']}/{len(self.slots)} done)")
+        self.publish()
+        return True
+
+    def run(self, stage_log: pathlib.Path) -> tuple[str, int, str]:
+        self.units_dir.mkdir(parents=True, exist_ok=True)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        units = self.plan()
+        self.n_units, self.width, self.failure = len(units), 1, None
+        self.slog = StageLog(stage_log, echo=sys.stdout)
+        try:
+            self.say(f"comparator-receipt: {len(self.slots)} slot(s) in {len(self.configs)} config(s), "
+                     f"{len(units)} judge invocation(s), mechanism {self.mechanism}")
+            self.publish()
+            try:
+                with SignalGuard():
+                    run_pool(units, self.width, self.start, self.finish)
+            except Interrupted as e:
+                for t in self.units_dir.glob("*.tmp"):   # a killed judge's exports (can be GBs)
+                    shutil.rmtree(t, ignore_errors=True)
+                self.progress.state = "interrupted"
+                self.publish()
+                msg = (f"{e}; judges killed; {self.progress.summary()}; nothing written; "
+                       f"partial report {self.progress.path}; resume: {self.resume_command}")
+                self.say(f"comparator-receipt: {msg}")
+                raise PartialStage(msg, 128 + e.signum)
+            if self.failure is not None:
+                unit, rc = self.failure
+                self.progress.state = "failed"
+                self.publish()
+                what = "comparator-check" if self.mechanism == "legacy" else f"{unit.config}: lake comparator"
+                raise StageError(f"{what} did not accept the solution ({self.tag(unit)}, exit {rc}); "
+                                 f"{self.progress.summary()}; nothing written; partial report "
+                                 f"{self.progress.path}", rc)
+            self.assemble()
+            self.progress.state = "complete"
+            try:
+                self.progress.path.unlink()
+            except OSError:
+                pass
+            self.stages.progress = {**self.progress.counts(), "partial_report": None}
+            return "ok", 0, (f"{len(self.configs)} config(s) accepted ({self.mechanism}; "
+                             f"{len(self.slots)} slot(s))")
+        finally:
+            self.slog.close()
+
+    def assemble(self) -> None:
+        """Each configuration's receipt log: its single whole-config unit log byte for byte, else the
+        logs of the units that judged it, each under a header naming its slots."""
+        if self.mechanism == "legacy":
+            return                                   # comparator-check.sh wrote LOG_DIR itself
+        for rel in self.configs:
+            parts = self.passed[rel]
+            dst = self.log_dir / f"{cfg_name(rel)}.log"
+            if len(parts) == 1 and parts[0][0].whole:
+                shutil.copyfile(parts[0][1], dst)
+                continue
+            with open(dst, "wb") as fh:
+                for unit, log in parts:
+                    fh.write(f"== unit: slots {ranges(s.index for s in unit.slots)} "
+                             f"({len(unit.slots)} names)\n".encode())
+                    fh.write(log.read_bytes())
+
+
 def dirty_paths(project: pathlib.Path, evidence: pathlib.Path) -> list[str]:
     """Modified or untracked paths, ignoring the stage evidence directory when it lies in the project."""
     st = git(project, "status", "--porcelain", "--untracked-files=all")
@@ -563,7 +725,7 @@ def dirty_paths(project: pathlib.Path, evidence: pathlib.Path) -> list[str]:
 def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         mechanism: str = "auto", verify: pathlib.Path | None = None,
         evidence: pathlib.Path | None = None, prepare: bool = False,
-        from_prepared: pathlib.Path | None = None) -> dict:
+        from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt") -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     if not prepare and not check.is_file():
@@ -638,44 +800,12 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         log_dir = pathlib.Path(tmp) / "logs"
         result: dict = {}
 
-        def judge(cmd: list[str], env: dict, log: pathlib.Path, slog: StageLog, label: str) -> tuple[int, str]:
-            """One streamed judge run (#39): (exit code, the judge's merged output)."""
-            j = Judge(cmd, project, env, log, slog, label, tmpdir=pathlib.Path(tmp) / "judge-tmp")
-            j.start()
-            run_pool([j], 1, lambda job: job, lambda job, jd: True)
-            return j.returncode, log.read_text(encoding="utf-8", errors="replace")
-
         def comparator_stage(stage_log: pathlib.Path):
-            slog = StageLog(stage_log, echo=sys.stdout)
-            try:
-                with SignalGuard():
-                    return judged(slog)
-            except Interrupted as e:
-                slog.write(f"comparator-receipt: {e}; judge process group killed")
-                raise StageError(f"{e}; the judge was killed; nothing written", 128 + e.signum)
-            finally:
-                slog.close()
-
-        def judged(slog: StageLog):
-            log_dir.mkdir(parents=True)
-            if mechanism == "legacy":
-                env = scrubbed_env()
-                env["LOG_DIR"] = str(log_dir)
-                rc, out = judge(["bash", str(check)], env, pathlib.Path(tmp) / "comparator-check.out",
-                                slog, "comparator-check.sh")
-                if rc != 0:
-                    raise StageError(f"comparator-check exited {rc}; nothing written", rc)
-                result["tools"] = parse_pins(out)
-            else:
-                for cfg_rel in configs:
-                    slog.write(f"== {cfg_rel}")
-                    rc, out = judge(["bash", str(verify), cfg_rel], scrubbed_env(),
-                                    log_dir / f"{cfg_name(cfg_rel)}.log", slog, cfg_rel)
-                    if rc != 0 or not comparator_pass(out, "toolchain"):
-                        raise StageError(f"{cfg_rel}: lake comparator did not accept the solution "
-                                         f"(exit {rc}); nothing written", rc)
-                result["tools"] = toolchain_tools(project, verify, toolchain)
-            return "ok", 0, f"{len(configs)} config(s) accepted ({mechanism})"
+            st = Stage04(project, configs, mechanism, check, verify, stages, log_dir, resume_command)
+            status, code, note = st.run(stage_log)
+            result["tools"] = (parse_pins(st.legacy_output) if mechanism == "legacy"
+                               else toolchain_tools(project, verify, toolchain))
+            return status, code, note
 
         stages.run("comparator", comparator_stage)
         tools = result["tools"]
@@ -767,6 +897,12 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
     return {"receipt": str(rec_path)}
 
 
+def resume_command(argv: list[str]) -> str:
+    """The command that resumes this run: the same arguments; completed setup and slots are reused."""
+    import shlex
+    return shlex.join(["comparator-receipt", *[a for a in argv if a != "--no-resume"]])
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="comparator-receipt",
@@ -823,10 +959,12 @@ def main(argv: list[str] | None = None) -> int:
             check = pathlib.Path(args.check).resolve() if args.check else pathlib.Path(check_default).resolve()
             verify = pathlib.Path(args.verify).resolve() if args.verify else pathlib.Path(verify_default).resolve()
             res = run(project, check, host_policy=why, mechanism=args.mechanism, verify=verify,
-                      evidence=evidence, prepare=args.prepare, from_prepared=prepared)
+                      evidence=evidence, prepare=args.prepare, from_prepared=prepared,
+                      resume_command=resume_command(argv if argv is not None else sys.argv[1:]))
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
-        return 1
+        code = getattr(e, "code", None)
+        return code if isinstance(e, PartialStage) and isinstance(code, int) else 1
     if res.get("prepared"):
         return 0
     print(f"comparator receipt written: {res['receipt']} ({res['configs']} config(s), "

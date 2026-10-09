@@ -17,6 +17,10 @@ reached the log only after it exited: a run killed by an external timeout left a
 """
 from __future__ import annotations
 
+import dataclasses
+import datetime as dt
+import hashlib
+import json
 import os
 import pathlib
 import shutil
@@ -120,8 +124,8 @@ class Judge:
             self.tmpdir.mkdir(parents=True, exist_ok=True)
             self.env["TMPDIR"] = str(self.tmpdir)
         self.log.parent.mkdir(parents=True, exist_ok=True)
-        self.logfh = open(self.log, "ab", buffering=0)
-        self.logfh.write(("$ " + " ".join(self.cmd) + "\n").encode())
+        self.logfh = open(self.log, "ab", buffering=0)   # copied into .lean-receipts: no paths added
+        self.stage.write(self.prefix + "$ " + " ".join(self.cmd))
         self.started = self.last_output = self.last_beat = time.monotonic()
         try:
             self.proc = subprocess.Popen(line_buffered(self.cmd), cwd=self.cwd, env=self.env,
@@ -259,3 +263,102 @@ def run_pool(jobs: list, width: int, start, finish, poll_interval: float = 0.2) 
         for _j, jd in running:
             jd.kill()
         raise
+
+
+# ---------------------------------------------------------------------------
+# Slots and units. A slot is one theorem_names entry of one configuration, numbered 1..N across
+# the configurations in order. A unit is what one judge invocation judges: a configuration (or a
+# subset of its slots). Progress lines name slots; 04-comparator.partial.json names the slots done,
+# pending and failed, rewritten after every unit so even a SIGKILL leaves it current.
+
+PARTIAL_FILE = "04-comparator.partial.json"
+PARTIAL_SCHEMA = "comparator-partial/1"
+UNITS_DIR = "04-units"
+
+
+@dataclasses.dataclass(frozen=True)
+class Slot:
+    index: int          # 1-based, global over the configurations in order
+    config: str
+    name: str
+
+    def row(self) -> dict:
+        return {"slot": self.index, "config": self.config, "name": self.name}
+
+
+@dataclasses.dataclass
+class Unit:
+    n: int
+    config: str                     # "" for a judge that takes every configuration at once (legacy)
+    slots: list
+    whole: bool                     # judges the configuration file itself, not a partial copy
+    id: str = ""
+
+    def label(self) -> str:
+        if len(self.slots) == 1:
+            return self.slots[0].name
+        return f"{self.config or 'all configs'}[{len(self.slots)} names]"
+
+
+def list_slots(cfgs: list[tuple[str, dict]]) -> list[Slot]:
+    out: list[Slot] = []
+    for rel, cfg in cfgs:
+        for name in cfg.get("theorem_names") or []:
+            out.append(Slot(len(out) + 1, rel, str(name)))
+    return out
+
+
+def ranges(indices) -> str:
+    """[1,2,3,7,9,10] -> '1-3,7,9-10'."""
+    xs = sorted(set(indices))
+    parts, i = [], 0
+    while i < len(xs):
+        j = i
+        while j + 1 < len(xs) and xs[j + 1] == xs[j] + 1:
+            j += 1
+        parts.append(str(xs[i]) if i == j else f"{xs[i]}-{xs[j]}")
+        i = j + 1
+    return ",".join(parts)
+
+
+def unit_id(binding: dict, unit: Unit) -> str:
+    key = [binding.get("commit"), binding.get("config_hash"), unit.config, unit.whole,
+           [s.name for s in unit.slots]]
+    return hashlib.sha256(json.dumps(key).encode()).hexdigest()[:16]
+
+
+class Progress:
+    """Slots done / pending / failed for one stage-04 run, mirrored to the partial report."""
+
+    def __init__(self, path: pathlib.Path, slots: list[Slot], meta: dict):
+        self.path, self.slots, self.meta = path, slots, dict(meta)
+        self.done: dict[int, str] = {}      # slot index -> how ("judged" | "cached")
+        self.failed: set[int] = set()
+        self.state = "running"
+
+    def mark(self, slots, how: str) -> None:
+        for s in slots:
+            if how == "failed":
+                self.failed.add(s.index)
+            else:
+                self.done[s.index] = how
+                self.failed.discard(s.index)
+
+    def counts(self) -> dict:
+        return {"done": len(self.done), "total": len(self.slots), "failed": len(self.failed)}
+
+    def write(self) -> None:
+        pend = [s.row() for s in self.slots if s.index not in self.done and s.index not in self.failed]
+        data = {"schema": PARTIAL_SCHEMA, **self.meta, "state": self.state, **self.counts(),
+                "slots_done": [{**s.row(), "how": self.done[s.index]} for s in self.slots
+                               if s.index in self.done],
+                "slots_pending": pend,
+                "slots_failed": [s.row() for s in self.slots if s.index in self.failed],
+                "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, self.path)
+
+    def summary(self) -> str:
+        c = self.counts()
+        return f"partial: {c['done']}/{c['total']} done" + (f", {c['failed']} failed" if c["failed"] else "")

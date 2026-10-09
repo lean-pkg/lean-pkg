@@ -548,6 +548,23 @@ silent and the size of the files in its private `TMPDIR`, where
 TERM, INT or HUP to the runner (an external `timeout`, Slurm's time limit)
 kills the whole judge tree, and the error names the signal.
 
+**Slots and progress.** A slot is one `theorem_names` entry, numbered `1..N`
+across the configurations in order; a unit is what one judge invocation
+judges. Stage 04 prints, flushed at once, a line per unit:
+`slot 3/242 Foo.bar started` or
+`slot 1-242/242 comparator.json[242 names] started`, then
+`... done in 812.4s (242/242 done)` or `... failed (exit 1) in 9.0s`. Each unit's judge output goes to
+`comparator-stages/04-units/<unit-id>.log`, and its private `TMPDIR` is
+`04-units/<unit-id>.tmp/`, removed when the unit ends or is killed.
+`04-comparator.partial.json` (schema `comparator-partial/1`) names the slots
+done, pending and failed, the run's binding and the resume command; it is
+rewritten after every unit, so even a SIGKILL leaves it current, and it is
+removed when the stage passes. `stages.json` gains
+`progress {done, total, failed, partial_report}`. On TERM, INT or HUP the
+comparator stage's status is `partial`, its note reads
+`partial: a/N done; ... resume: <command>`, and the runner exits 128 plus the
+signal number.
+
 `comparator-receipt --prepare` runs only the setup stages and writes no
 receipt. It is idempotent: a second `--prepare` with a matching completed
 setup does nothing. A later `comparator-receipt` whose commit, toolchain and
