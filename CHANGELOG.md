@@ -16,6 +16,14 @@ change the registry schema or receipt format, always with a migration).
   `LEAN_PKG_REGISTRY` at a hand-made historical copy, for instance to run
   `comparator config --checkout DIR --dry-run` on a copy at an earlier claims-synced commit. (#34)
 
+### Changed
+
+- The `comparator config --emit-script` driver now runs `export LEAN_NUM_THREADS="${LEAN_NUM_THREADS:-1}"`
+  near its top: one Lean thread per process on a cluster node unless the job script sets a value,
+  which is kept. The one-shot `--challenge-from-type` run is unchanged. docs/comparator.md gains
+  "On shared cluster nodes": the file table is per node, so request a whole node or one job per
+  node, set `LEAN_NUM_THREADS`, and keep `LEAN_PKG_TYPES_JOBS` at 2 or less. (#34)
+
 ## [0.7.7] - 2026-10-09
 
 ### Fixed

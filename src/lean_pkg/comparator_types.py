@@ -367,8 +367,17 @@ main()
 '''
 
 
-def driver_script(config: dict) -> str:
-    """The self-contained driver: bash that hands an embedded python3 program its argument."""
+LEAN_THREADS_LINES = (
+    "# Shared cluster nodes (#34): the file table is per node, not per job, so several jobs' Lean\n"
+    "# processes can exhaust it together. One Lean thread per process unless the caller set\n"
+    "# LEAN_NUM_THREADS (an explicit value is kept); keep LEAN_PKG_TYPES_JOBS <= 2 as well.\n"
+    'export LEAN_NUM_THREADS="${LEAN_NUM_THREADS:-1}"\n')
+
+
+def driver_script(config: dict, *, lean_threads: bool = True) -> str:
+    """The self-contained driver: bash that hands an embedded python3 program its argument.
+    lean_threads (the --emit-script driver, run on a cluster node): default LEAN_NUM_THREADS to 1, keeping
+    an explicit value; the one-shot local run passes False and inherits the environment unchanged."""
     cfg = json.dumps(json.dumps(config, ensure_ascii=True))
     py = DRIVER_PY.replace("__CONFIG__", cfg)
     names = ", ".join(d["decl"] for d in config["decls"][:3]) + (" ..." if len(config["decls"]) > 3 else "")
@@ -382,6 +391,7 @@ def driver_script(config: dict) -> str:
             "# on 'too many open files' it halves the workers and retries. Exit 0 ok, 1 some extraction\n"
             "# failed, 2 nothing filled (or refused).\n"
             "set -euo pipefail\n"
+            + (LEAN_THREADS_LINES if lean_threads else "") +
             'if [ "$#" -ne 1 ]; then echo "usage: bash $0 OUT.json" >&2; exit 2; fi\n'
             "exec python3 - \"$1\" <<'LEAN_PKG_DRIVER'\n"
             f"{py}"
@@ -472,7 +482,7 @@ def run_local(repo: pathlib.Path, config: dict) -> dict:
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="lean-pkg-types-"))
     try:
         script, out = tmp / "driver.sh", tmp / "types.json"
-        script.write_text(driver_script(config), encoding="utf-8")
+        script.write_text(driver_script(config, lean_threads=False), encoding="utf-8")
         p = subprocess.run(["bash", str(script), str(out)], cwd=repo, stdin=subprocess.DEVNULL,
                            capture_output=True, text=True, env=core.scrubbed_env())   # #27
         # Exit 1/2 with an output file: some extractions failed; check_partial decides (#30).

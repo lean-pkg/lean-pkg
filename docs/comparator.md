@@ -252,7 +252,8 @@ Lean snippet. Run it as `cd <checkout> && bash F OUT.json`; it refuses
 (exit 2) without a lakefile, with a non-elan `lake`, or when HEAD is not the
 embedded commit, and `LEAN_PKG_TYPES_JOBS` / `LEAN_PKG_TYPES_TIMEOUT` override
 the embedded `--jobs` / `--timeout`. Without `--jobs` the driver picks the default on the host it
-runs on. It writes `OUT.json`:
+runs on. It defaults `LEAN_NUM_THREADS` to 1 and keeps an explicit value (see
+"On shared cluster nodes" below). It writes `OUT.json`:
 
 ```json
 {"schema": "comparator-types/1", "package": "beta", "commit": "<40-hex HEAD>",
@@ -331,6 +332,25 @@ pausing `LEAN_PKG_TYPES_BACKOFF_SECONDS` (default 5) times the round number
 before each. `summary.backoff` lists the rounds
 (`{"round", "jobs", "retried", "recovered"}`); what still fails counts as an
 extraction failure.
+
+**On shared cluster nodes.** The file table is per node, not per job: on a
+Slurm cluster whose nodes share a filesystem, Lake and Lean processes from
+several jobs placed on one node can still exhaust it together (ENFILE), even
+though each driver caps and backs off its own workers. Request a whole node
+(`--exclusive`) or arrange one such job per node, set `LEAN_NUM_THREADS=1` (or
+another small value) in the Slurm script, and keep `LEAN_PKG_TYPES_JOBS` (or
+`--jobs`) at 2 or less. The emitted driver honours both: it reads
+`LEAN_PKG_TYPES_JOBS`, and near its top it runs
+`export LEAN_NUM_THREADS="${LEAN_NUM_THREADS:-1}"`, so its Lean processes use
+one thread unless the job script sets another value, which is kept. (The
+one-shot `--challenge-from-type` run on a workstation leaves
+`LEAN_NUM_THREADS` as it finds it.)
+
+```bash
+#SBATCH --exclusive
+export LEAN_NUM_THREADS=1 LEAN_PKG_TYPES_JOBS=2
+cd ~/lean/beta && lake build && bash /scratch/beta-types.sh /scratch/beta-types.json
+```
 
 The smallest complete pair, from a smoke test:
 

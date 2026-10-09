@@ -36,7 +36,7 @@ import json, os, re, sys
 log = os.environ["FAKE_LAKE_LOG"]
 args = sys.argv[1:]
 with open(log, "a") as f:
-    f.write(json.dumps({"args": args, "cwd": os.getcwd()}) + "\n")
+    f.write(json.dumps({"args": args, "cwd": os.getcwd(), "threads": os.environ.get("LEAN_NUM_THREADS")}) + "\n")
 assert args[:2] == ["env", "lean"], args
 src = open(args[2], encoding="utf-8").read()
 rt = re.search(r"^-- LEANPKG-ROUNDTRIP (\S+)$", src, re.M)
@@ -101,7 +101,7 @@ def fake_lake(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(bindir))
     monkeypatch.setenv("FAKE_LAKE_LOG", str(tmp_path / "lake.log"))
     monkeypatch.setenv("LEAN_PKG_TYPES_BACKOFF_SECONDS", "0")
-    for v in ("LEAN_PKG_TYPES_JOBS", "LEAN_PKG_TYPES_TIMEOUT", "FAKE_LAKE_FAIL_ALL",
+    for v in ("LEAN_PKG_TYPES_JOBS", "LEAN_PKG_TYPES_TIMEOUT", "FAKE_LAKE_FAIL_ALL", "LEAN_NUM_THREADS",
               "FAKE_LAKE_ENFILE_FIRST", "FAKE_LAKE_RT_REJECT"):
         monkeypatch.delenv(v, raising=False)
     return bindir
@@ -542,3 +542,26 @@ def test_checkout_without_a_lakefile_is_refused(lp, env, tmp_path, capsys):
     synced(lp, env, capsys, lakefile=False)
     rc, cap = cc(lp, env, capsys, "--from-output", str(good_output(tmp_path, env)), "--checkout", str(env.repo_b))
     assert rc == 1 and "no lakefile.lean or lakefile.toml" in cap.err
+
+
+def test_emitted_driver_defaults_lean_threads_to_one_and_keeps_an_explicit_value(lp, env, fake_lake, tmp_path,
+                                                                                  monkeypatch, capsys):
+    """#34: shared cluster nodes. The --emit-script driver exports LEAN_NUM_THREADS="${LEAN_NUM_THREADS:-1}"
+    near the top; the one-shot local run leaves the environment as it is."""
+    synced(lp, env, capsys)
+    script = tmp_path / "d.sh"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    lines = script.read_text().splitlines()
+    export = 'export LEAN_NUM_THREADS="${LEAN_NUM_THREADS:-1}"'
+    assert export in lines and lines.index(export) < lines.index("exec python3 - \"$1\" <<'LEAN_PKG_DRIVER'")
+    assert lines.index(export) < 20 and "LEAN_PKG_TYPES_JOBS <= 2" in script.read_text()
+    run_driver(env, script, tmp_path / "a.json")
+    assert {c["threads"] for c in lake_calls(tmp_path)} == {"1"}
+    (tmp_path / "lake.log").unlink()
+    monkeypatch.setenv("LEAN_NUM_THREADS", "3")
+    run_driver(env, script, tmp_path / "b.json")
+    assert {c["threads"] for c in lake_calls(tmp_path)} == {"3"}
+    (tmp_path / "lake.log").unlink()
+    monkeypatch.delenv("LEAN_NUM_THREADS")
+    cc(lp, env, capsys, "--challenge-from-type", "--dry-run", "--allow-partial")
+    assert {c["threads"] for c in lake_calls(tmp_path)} == {None}
