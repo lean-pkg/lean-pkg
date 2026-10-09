@@ -9,7 +9,7 @@ import pathlib
 import pytest
 
 from .conftest import (COMPARATOR_PASS_LINE, _git, add_comparator_config,
-                       make_comparator_receipt, read_reg, repo_head, sha256)
+                       make_comparator_receipt, publish_evidence, read_reg, repo_head, sha256)
 
 
 def pkg_of(lp, env, name="alpha"):
@@ -331,10 +331,13 @@ def promote(lp, env, name="beta", yes=False):
 
 
 def test_promote_checklist_shows_comparator_pass(lp, env, fake_gh, capsys):
+    publish_evidence(env.repo_b)
     assert promote(lp, env) == 0
     out = capsys.readouterr().out
     assert "comparator PASS bound to HEAD" in out
-    assert "nanoda" in out
+    # the label states what was checked; nothing is replayed (#15)
+    assert "config and log bytes match the receipt, PASS line present" in out
+    assert "nanoda replay" not in out
 
 
 def test_promote_refuses_without_comparator(lp, env, fake_gh, capsys):
@@ -361,6 +364,7 @@ def test_promote_refuses_tampered_log(lp, env, fake_gh, capsys):
 
 
 def test_promote_yes_still_works_with_valid_comparator(lp, env, fake_gh, fake_notify):
+    publish_evidence(env.repo_b)
     assert promote(lp, env, yes=True) == 0
     assert read_reg(env)["packages"]["beta"]["status"] == "public"
 
@@ -550,6 +554,7 @@ def test_comparator_refused_when_bound_commit_is_not_an_ancestor(lp, env):
 
 def test_promote_passes_after_evidence_commit_on_both_tiers(lp, env, fake_gh, capsys):
     commit_evidence(env.repo_b)   # seed.json + comparator receipt + log now tracked
+    publish_evidence(env.repo_b)  # ... and pushed: HEAD contained in origin/<branch>
     assert promote(lp, env) == 0
     out = capsys.readouterr().out
     assert "evidence-only descendant" in out

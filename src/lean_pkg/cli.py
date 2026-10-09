@@ -148,6 +148,9 @@ NOTIFY_ENV = "LEAN_PKG_NOTIFY_CMD"
 STATUSES = ["scratch", "active", "gate-pending", "verified-private",
             "public", "upstreamed", "archived"]
 VISIBILITIES = ["private", "public"]
+# register may only mint pre-evidence statuses; verified-private is gate's, public is promote's
+# (register accepts public only for an already-public repository: --visibility public --reason).
+REGISTER_STATUSES = ["scratch", "active", "gate-pending", "public"]
 UPSTREAM_TARGETS = ["none", "mathlib", "palomar"]
 DEFAULT_AXIOMS = ["propext", "Quot.sound", "Classical.choice"]
 DEFAULT_TTL_HOURS = 24
@@ -1218,13 +1221,7 @@ def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
         raise Fail(f"receipt commit {commit[:12]}… != repo HEAD {head[:12]}… — "
                    f"the receipt must bind to HEAD or an evidence-only descendant "
                    f"({note})")
-    tc_file = repo / "lean-toolchain"
-    if not tc_file.is_file():
-        raise Fail(f"{repo}: no lean-toolchain file")
-    toolchain = tc_file.read_text().strip()
-    if str(receipt["lean_toolchain"]).strip() != toolchain:
-        raise Fail(f"toolchain mismatch: receipt={receipt['lean_toolchain']!r} "
-                   f"file={toolchain!r}")
+    check_toolchain_at(repo, commit, receipt["lean_toolchain"], "toolchain mismatch")
     if not str(receipt["mathlib_rev"]).strip():
         raise Fail("receipt mathlib_rev is empty")
     sc = receipt["sorry_count"]
@@ -1245,6 +1242,26 @@ def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
     for f in ("job_id", "checker", "generated_at"):
         if not str(receipt[f]).strip():
             raise Fail(f"receipt field {f!r} is empty")
+    check_timestamp(receipt["generated_at"], "receipt")
+    receipt_job_slug(receipt["job_id"])
+
+
+def check_timestamp(value, what: str) -> None:
+    """generated_at must parse as an ISO-8601 timestamp (parse_ts), not merely be non-empty."""
+    try:
+        parse_ts(value)
+    except (ValueError, TypeError):
+        raise Fail(f"{what} field 'generated_at' is not an ISO-8601 timestamp: {value!r}") from None
+
+
+def receipt_job_slug(job_id) -> str:
+    """The job id as it appears in the stored receipt's file name: characters outside
+    [A-Za-z0-9._-] become '-', and leading dots and dashes are stripped (so '../../evil' is
+    'evil', never a '..'-led name). An empty result is refused."""
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", str(job_id)).lstrip(".-")
+    if not slug:
+        raise Fail(f"receipt job_id {str(job_id)!r} leaves no usable file-name characters")
+    return slug
 
 
 def sha256_bytes(b: bytes) -> str:
@@ -1256,6 +1273,47 @@ def git_show_bytes(repo: pathlib.Path, rel: str, rev: str = "HEAD") -> bytes | N
     p = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{rel}"],
                        capture_output=True)
     return p.stdout if p.returncode == 0 else None
+
+
+def tracked_at(repo: pathlib.Path, rel: str, rev: str = "HEAD") -> bool:
+    """True when <rel> (relative to the package directory `repo`) is committed at <rev>."""
+    return git(repo, "cat-file", "-e", f"{rev}:./{rel}").returncode == 0
+
+
+def check_toolchain_at(repo: pathlib.Path, commit: str, claimed, label: str) -> None:
+    """The receipt's lean_toolchain must equal the lean-toolchain file committed at the bound
+    commit (relative to the package directory). The working-tree file never counts."""
+    blob = git_show_bytes(repo, "./lean-toolchain", commit)
+    if blob is None:
+        raise Fail(f"{repo}: no lean-toolchain committed at {commit[:12]}")
+    committed = blob.decode("utf-8", "replace").strip()
+    if str(claimed).strip() != committed:
+        wt = repo / "lean-toolchain"
+        work = wt.read_text().strip() if wt.is_file() else None
+        raise Fail(f"{label}: receipt={str(claimed).strip()!r} committed at {commit[:12]}="
+                   f"{committed!r}"
+                   + (f" (the working-tree file says {work!r}; uncommitted files do not count)"
+                      if work is not None and work != committed else ""))
+
+
+def dirty_tracked(repo: pathlib.Path) -> list[str]:
+    """Tracked files under the package directory that differ from HEAD (staged or not)."""
+    p = git(repo, "status", "--porcelain", "--untracked-files=no", "--", ".")
+    return [x[3:] for x in p.stdout.splitlines() if x.strip()]
+
+
+def dirty_guard(repo: pathlib.Path, name: str, refuse: bool) -> list[str]:
+    """Evidence is judged at the bound commit, never the working tree; a dirty checkout is a WARN
+    on stderr (the lab's workflow edits while gating) or, with --refuse-dirty, a refusal."""
+    dirty = dirty_tracked(repo)
+    if dirty:
+        shown = ", ".join(dirty[:5]) + (", ..." if len(dirty) > 5 else "")
+        msg = (f"{name}: {len(dirty)} tracked file(s) modified in the checkout ({shown}); "
+               f"receipts are checked against the bound commit, not these edits")
+        if refuse:
+            raise Fail(f"--refuse-dirty: {msg}; commit or stash them first")
+        print(f"WARN: {msg} (--refuse-dirty refuses)", file=sys.stderr)
+    return dirty
 
 
 COMPARATOR_CONFIG_RE = re.compile(r"^(comparator[^/]*\.json|comparator/config[^/]*\.json)$")
@@ -1320,13 +1378,7 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
     if receipt_commit and commit != receipt_commit:
         raise Fail(f"comparator commit {commit[:12]}… != lower-tier receipt commit "
                    f"{receipt_commit[:12]}… — both tiers must bind to one commit")
-    tc_file = repo / "lean-toolchain"
-    if not tc_file.is_file():
-        raise Fail(f"{repo}: no lean-toolchain file")
-    toolchain = tc_file.read_text().strip()
-    if str(comp["lean_toolchain"]).strip() != toolchain:
-        raise Fail(f"comparator toolchain mismatch: receipt={comp['lean_toolchain']!r} "
-                   f"file={toolchain!r}")
+    check_toolchain_at(repo, commit, comp["lean_toolchain"], "comparator toolchain mismatch")
     tools = comp["tools"]
     if not isinstance(tools, dict):
         raise Fail("comparator tools must be a mapping")
@@ -1345,6 +1397,7 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
     for f in ("host", "job_id", "generated_at"):
         if not str(comp[f]).strip():
             raise Fail(f"comparator field {f!r} is empty")
+    check_timestamp(comp["generated_at"], "comparator receipt")
     if comp["result"] != "pass":
         raise Fail(f"comparator result must be 'pass', got {comp['result']!r}")
     configs = comp["configs"]
@@ -1512,17 +1565,20 @@ def recorded_json(repo: pathlib.Path, rel) -> dict | None:
 
 
 def do_gate(reg_path, reg, events_p, name, receipt_arg,
-            comparator_arg=None, refuse_private: bool = False) -> tuple[list[str], dict]:
+            comparator_arg=None, refuse_private: bool = False,
+            refuse_dirty: bool = False) -> tuple[list[str], dict]:
     return _with_private_warnings(_do_gate, reg_path, reg, events_p, name, receipt_arg,
-                                  comparator_arg, refuse_private)
+                                  comparator_arg, refuse_private, refuse_dirty=refuse_dirty)
 
 
 def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
-             refuse_private: bool = False, private_sink=None) -> tuple[list[str], dict]:
+             refuse_private: bool = False, private_sink=None,
+             refuse_dirty: bool = False) -> tuple[list[str], dict]:
     pkg = get_pkg(reg, name)
     repo = repo_path(pkg)
     if not repo.is_dir():
         raise Fail(f"{name}: local_path does not exist: {repo}")
+    dirty = dirty_guard(repo, name, refuse_dirty)
     rp, receipt = load_json_object(receipt_arg, "receipt")
     cp = comp = None
     if comparator_arg is not None:
@@ -1539,7 +1595,8 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
         if comp is None or (rec_comp is not None and rec_comp == comp):
             payload = {"ok": True, "name": name, "event": "already-gated",
                        "status": pkg.get("status"), "gate": pkg.get("gate"),
-                       "receipt": gate.get("receipt"), "private_strings": private}
+                       "receipt": gate.get("receipt"), "private_strings": private,
+                       "dirty": dirty}
             return ([f"{name}: already gated (receipt {gate.get('receipt')}); "
                      f"nothing to do"], payload)
         raise Fail(f"{name}: already gated with this receipt; to add or replace "
@@ -1558,7 +1615,7 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     if comp is not None:
         validate_comparator(pkg, repo, comp, commit)
 
-    job = re.sub(r"[^A-Za-z0-9._-]+", "-", str(receipt["job_id"]))
+    job = receipt_job_slug(receipt["job_id"])
     dest_rel = f".lean-receipts/{commit[:12]}-{job}.json"
     dest = repo / dest_rel
     out: list[str] = []
@@ -1609,24 +1666,27 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     payload = {"ok": True, "name": name, "event": "gate-passed",
                "status": new_status, "gate": pkg["gate"],
                "receipt": dest_rel, "commit": commit, "rl_reminder": True,
-               "status_unchanged": was_public, "private_strings": private}
+               "status_unchanged": was_public, "private_strings": private, "dirty": dirty}
     if comp_rel:
         payload["comparator"] = comp_rel
     return out, payload
 
 
 def do_comparator(reg_path, reg, events_p, name, receipt_arg,
-                  check_only: bool = False, refuse_private: bool = False) -> tuple[list[str], dict]:
+                  check_only: bool = False, refuse_private: bool = False,
+                  refuse_dirty: bool = False) -> tuple[list[str], dict]:
     return _with_private_warnings(_do_comparator, reg_path, reg, events_p, name, receipt_arg,
-                                  check_only, refuse_private)
+                                  check_only, refuse_private, refuse_dirty=refuse_dirty)
 
 
 def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool = False,
-                   refuse_private: bool = False, private_sink=None) -> tuple[list[str], dict]:
+                   refuse_private: bool = False, private_sink=None,
+                   refuse_dirty: bool = False) -> tuple[list[str], dict]:
     pkg = get_pkg(reg, name)
     repo = repo_path(pkg)
     if not repo.is_dir():
         raise Fail(f"{name}: local_path does not exist: {repo}")
+    dirty = dirty_guard(repo, name, refuse_dirty)
     cp, comp = load_json_object(receipt_arg, "comparator receipt")
     private = receipt_private_strings([("comparator", cp.read_bytes())], refuse_private, private_sink)
     gate = pkg.get("gate") or {}
@@ -1640,13 +1700,15 @@ def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool 
                + ("" if lower_commit else "; no lower-tier receipt recorded yet"))
         payload = {"ok": True, "name": name, "event": "comparator-checked",
                    "recorded": False, "commit": comp["commit"], "configs": n,
-                   "lower_receipt_commit": lower_commit, "private_strings": private}
+                   "lower_receipt_commit": lower_commit, "private_strings": private,
+                   "dirty": dirty}
         return [msg], payload
     rec_comp = recorded_json(repo, gate.get("comparator"))
     if rec_comp is not None and rec_comp == comp:
         payload = {"ok": True, "name": name, "event": "already-attached",
                    "status": pkg.get("status"), "gate": gate,
-                   "comparator": gate.get("comparator"), "private_strings": private}
+                   "comparator": gate.get("comparator"), "private_strings": private,
+                   "dirty": dirty}
         return ([f"{name}: comparator receipt already attached "
                  f"({gate.get('comparator')}); nothing to do"], payload)
     if pkg.get("status") not in ("verified-private", "public"):
@@ -1667,7 +1729,8 @@ def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool 
                  f"{len(comp['configs'])} config(s))"]
     payload = {"ok": True, "name": name, "event": "comparator-attached",
                "status": pkg.get("status"), "gate": pkg["gate"],
-               "comparator": comp_rel, "commit": commit, "private_strings": private}
+               "comparator": comp_rel, "commit": commit, "private_strings": private,
+               "dirty": dirty}
     return out, payload
 
 
@@ -1676,7 +1739,17 @@ def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool 
 
 def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
                 visibility, status, upstream_target, automation, notes,
-                workspace, agent, dry_run) -> tuple[list[str], dict]:
+                workspace, agent, dry_run, reason: str = "") -> tuple[list[str], dict]:
+    if status not in REGISTER_STATUSES:
+        raise Fail(f"register cannot set status {status!r} (allowed: "
+                   f"{', '.join(REGISTER_STATUSES)}); verified-private is reached through "
+                   f"`lean-pkg gate`, public through `lean-pkg promote --yes`")
+    if status == "public":
+        if visibility != "public":
+            raise UsageError("register --status public requires --visibility public")
+        if not str(reason or "").strip():
+            raise UsageError("register --status public requires --reason (why an already-public "
+                             "repository is registered without promote)")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
         raise Fail(f"bad package name {name!r} — use kebab-case-ish "
                    f"[A-Za-z0-9._-]+ not starting with a punctuation mark")
@@ -1740,7 +1813,8 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
     record(reg, events_p, entry, "registered", repo=repo,
            local_path=local_path, status=status, visibility=visibility,
            lean_toolchain=toolchain, mathlib_pin=mathlib_pin,
-           workspace=workspace, agent=agent)
+           workspace=workspace, agent=agent,
+           **({"reason": reason} if str(reason or "").strip() else {}))
     save_registry(reg_path, reg)
     payload["event"] = "registered"
     lines = [f"warn: {w}" for w in warnings]
@@ -1970,8 +2044,39 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
         payload["preexisting_errors"] = preexisting
     return [f"{name}: {event} recorded", *extra_out], payload
 
-def promote_checklist(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
-    """(mark, label) pairs; mark in {'✓', '✗', 'WARN'}."""
+def evidence_tracked_item(repo: pathlib.Path, what: str, rels: list[str]) -> tuple[str, str]:
+    """✓ when every evidence path is committed at HEAD with the bytes the working tree holds;
+    ✗ naming the untracked or modified ones (untracked files do not count, as in `index add`)."""
+    untracked = [r for r in rels if not tracked_at(repo, r)]
+    changed = [r for r in rels if r not in untracked and (repo / r).is_file()
+               and git_show_bytes(repo, f"./{r}") != (repo / r).read_bytes()]
+    if not untracked and not changed:
+        return ("✓", f"{what} tracked at HEAD ({len(rels)} file(s))")
+    bad = ([f"not committed: {', '.join(untracked[:3])}"] if untracked else []) \
+        + ([f"modified since HEAD: {', '.join(changed[:3])}"] if changed else [])
+    return ("✗", f"{what} not committed at HEAD — {'; '.join(bad)} (untracked files do not "
+                 f"count; commit .lean-receipts/ first)")
+
+
+def head_pushed_item(repo: pathlib.Path) -> tuple[str, str]:
+    """HEAD must be contained in origin/<branch>, judged on local refs only (no fetch)."""
+    head = git_head(repo)
+    branch = current_branch(repo)
+    if branch == "detached HEAD":
+        branch = reference_branch(repo)[0] or "main"
+    ref = f"refs/remotes/origin/{branch}"
+    if head is None or _rev(repo, ref) is None:
+        return ("✗", f"no origin/{branch} in local refs — push the branch first "
+                     f"(local refs; nothing fetched)")
+    if _is_ancestor(repo, head, ref):
+        return ("✓", f"HEAD {head[:12]} contained in origin/{branch} (local refs; nothing fetched)")
+    return ("✗", f"HEAD {head[:12]} not contained in origin/{branch} (local refs; nothing "
+                 f"fetched) — push first; the public repository must hold the evidence")
+
+
+def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False) -> list[tuple[str, str]]:
+    """(mark, label) pairs; mark in {'✓', '✗', 'WARN'}. With yes (promote --yes), a failed gh
+    visibility query is ✗, not WARN."""
     checks: list[tuple[str, str]] = []
     reuse = find_reuse()
     if reuse is None:
@@ -2012,6 +2117,7 @@ def promote_checklist(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
         else:
             checks.append(("✗", f"gate receipt/HEAD drift: "
                                 f"receipt={str(rcommit)[:12]} HEAD={str(head)[:12]} ({note})"))
+        checks.append(evidence_tracked_item(repo, f"gate receipt {receipt_rel}", [receipt_rel]))
     comp_rel = (pkg.get("gate") or {}).get("comparator")
     if not comp_rel:
         checks.append(("✗", "no comparator receipt recorded — a comparator PASS "
@@ -2024,14 +2130,21 @@ def promote_checklist(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
             try:
                 validate_comparator(pkg, repo, comp, rcommit if rcommit else None)
                 checks.append(("✓", f"comparator PASS bound to HEAD {str(head)[:12]} "
-                                    f"({len(comp['configs'])} config(s), nanoda replay)"))
+                                    f"({len(comp['configs'])} config(s): config and log bytes "
+                                    f"match the receipt, PASS line present; not re-run)"))
             except Fail as e:
                 checks.append(("✗", f"comparator receipt invalid: {str(e)[:140]}", str(e)))
+            logs = [c["log"] for c in comp.get("configs") or []
+                    if isinstance(c, dict) and isinstance(c.get("log"), str) and c["log"]]
+            checks.append(evidence_tracked_item(repo, f"comparator receipt {comp_rel} and its "
+                                                      f"{len(logs)} log(s)", [comp_rel, *logs]))
+    checks.append(head_pushed_item(repo))
     nwo = gh_nwo(pkg.get("repo") or "") or str(pkg.get("repo"))
     p = gh("repo", "view", nwo, "--json", "visibility", "-q", ".visibility")
     if p.returncode != 0:
-        checks.append(("WARN", f"gh visibility query failed: "
-                               f"{(p.stderr or p.stdout).strip()[:120]}"))
+        checks.append(("✗" if yes else "WARN", f"gh visibility query failed: "
+                       f"{(p.stderr or p.stdout).strip()[:120]}"
+                       + (" (--yes needs a working gh)" if yes else "")))
     else:
         gvis = p.stdout.strip().lower()
         if gvis == str(pkg.get("visibility")).lower():
@@ -2069,7 +2182,7 @@ def do_promote(reg_path, reg, events_p, name, yes) -> tuple[list[str], int, dict
     if not repo.is_dir():
         raise Fail(f"{name}: local_path does not exist: {repo}")
     lines = [f"promotion checklist for {name} ({repo}):"]
-    checks = promote_checklist(pkg, repo)
+    checks = promote_checklist(pkg, repo, yes=yes)
     lines += [f"  {c[0]}  {c[1]}" for c in checks]
     payload = {"name": name, "dry_run": not yes,
                "checklist": [dict({"status": _MARK_TO_STATUS[c[0]], "label": c[1]},
@@ -2158,6 +2271,18 @@ def render_findings(findings: list[dict]) -> list[str]:
     return lines
 
 
+def status_visibility_mismatch(pkg: dict) -> str | None:
+    """Cross-field rule, audited (warn) rather than validated: verified-private means a private
+    repository, public/upstreamed a public one. Registries written before the rule may hold a
+    mismatch, so `validate` does not refuse it."""
+    status, vis = pkg.get("status"), pkg.get("visibility")
+    if status == "verified-private" and vis != "private":
+        return f"status verified-private but visibility {vis} (expected private)"
+    if status in ("public", "upstreamed") and vis != "public":
+        return f"status {status} but visibility {vis} (expected public)"
+    return None
+
+
 def audit_registry(reg_path, reg, events_p, fix: bool = False,
                    toolchain_floor: str | None = None) -> list[dict]:
     """Structured findings: {"check", "name", "detail", "fixed"}. Read-only unless fix:
@@ -2193,6 +2318,9 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
 
     for name in sorted(reg["packages"]):
         pkg = reg["packages"][name]
+        mismatch = status_visibility_mismatch(pkg)
+        if mismatch:
+            note("status-visibility-mismatch", name, mismatch)
         lease = pkg.get("lease")
         if lease and name not in bad_lease and not lease_live(lease, now):
             who = f"{lease.get('agent')}@{lease.get('workspace')} until {lease_expiry(lease).isoformat()}"
@@ -2417,6 +2545,9 @@ def validate_registry(data) -> list[str]:
             comp = gate.get("comparator")
             if comp is not None and not isinstance(comp, str):
                 errors.append(f"{pfx}.gate: comparator must be a string path or null")
+            if pkg.get("status") == "verified-private" and not gate.get("receipt"):
+                errors.append(f"{pfx}: status verified-private requires gate.receipt "
+                              f"(only `lean-pkg gate` reaches verified-private)")
         hist = pkg.get("history")
         if not isinstance(hist, list):
             errors.append(f"{pfx}.history: not a list")
@@ -2961,8 +3092,8 @@ record    record a D5 evidence event; validated before writing (a schema error i
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
-         [--visibility private|public] [--status ENUM] [--upstream-target none|mathlib|palomar]
-         [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
+         [--visibility private|public] [--status scratch|active|gate-pending|public (public: --visibility public --reason R)]
+         [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
 update    set fields; manual status moves need --reason (a refusal lists the allowed moves). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
@@ -2975,18 +3106,18 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
 release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
-  flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt:
-  refuse, exit 1, nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}])
+  flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
+  nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[])
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op. It is required by promote.
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1).
-  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private
+  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private, --refuse-dirty
   ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
-  (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
-  promote refuses without a byte-valid comparator receipt bound to HEAD.
+  (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
+  valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs).
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
@@ -3025,14 +3156,14 @@ search    TERM [--package NAME] [--offline] [--sources a,b,c] [--record [--repo-
 RECEIPT SCHEMA (JSON object; `gate` enforces every line)
 commit         40 lowercase hex; MUST equal HEAD, or HEAD must be an evidence-only descendant of it
                (only .lean-receipts/ paths differ between the two commits)
-lean_toolchain string; MUST equal the repo's lean-toolchain file content, stripped
+lean_toolchain string; MUST equal the lean-toolchain file committed at `commit`, stripped (the working tree never counts)
 mathlib_rev    nonempty string (full mathlib rev)
 sorry_count    integer; MUST be 0
 axioms         list of strings; subset of gate.axioms_allowed (default exactly: propext, Quot.sound, Classical.choice)
 report_sha256  64 hex chars; SHA-256 of the verification report
-job_id         nonempty terminal executor job identity, unique within that executor
+job_id         nonempty terminal executor job identity, unique within that executor (stored as <c12>-<job_id sanitised>.json)
 checker        nonempty exact checker command/mode (e.g. serial leanchecker manifest)
-generated_at   nonempty ISO-8601 timestamp
+generated_at   ISO-8601 timestamp; MUST parse
 
 COMPARATOR RECEIPT SCHEMA ("comparator-receipt/2"; "comparator-receipt/1" still validates; written by comparator-receipt; `promote` re-derives every line from bytes)
 schema          "comparator-receipt/2" (or "/1": legacy mechanism implied)
@@ -3040,11 +3171,11 @@ mechanism       "toolchain" (lake comparator + the toolchain's bundled NanoDa/co
                 or "legacy" (pinned comparator/lean4export/nanoda/landrun stack); comparator-receipt --mechanism auto|toolchain|legacy
 commit          40 lowercase hex; MUST equal the lower-tier receipt commit, and equal HEAD or have HEAD as
                 an evidence-only descendant (only .lean-receipts/ paths differ)
-lean_toolchain  MUST equal the repo's lean-toolchain file, stripped
+lean_toolchain  MUST equal the lean-toolchain file committed at `commit`, stripped
 tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
                 toolchain: {lean_toolchain, lake_sha256, leanexport_sha256, leanchecker_sha256, nanoda_bin_sha256, con-ron_sha256}:
                 64-hex sha256 of the judging binaries under `lean --print-prefix`/bin
-host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>)
+host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>); generated_at MUST parse as ISO-8601
 host_policy     optional; the runner's host-policy reason (an override run is visible here)
 test_only       if present and true the receipt was produced under a test-only override and is REFUSED
 result          "pass" (the runner writes a receipt only on PASS)
@@ -3148,7 +3279,7 @@ def cmd_register(args) -> int:
                                args.name, args.repo, args.path,
                                args.owner_project, args.visibility, args.status,
                                args.upstream_target, args.automation, args.notes,
-                               args.workspace, args.agent, args.dry_run)
+                               args.workspace, args.agent, args.dry_run, reason=args.reason)
     if args.json_out:
         print_json(payload)
     else:
@@ -3247,7 +3378,7 @@ def cmd_gate(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_gate(reg_path, load_registry(reg_path), events_p,
                            args.name, args.receipt, args.comparator,
-                           refuse_private=args.refuse_private)
+                           refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
     if args.json_out:
         print_json(payload)
     else:
@@ -3259,7 +3390,7 @@ def cmd_comparator(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_comparator(reg_path, load_registry(reg_path), events_p,
                                  args.name, args.receipt, args.check,
-                                 refuse_private=args.refuse_private)
+                                 refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
     if args.json_out:
         print_json(payload)
     else:
@@ -3732,10 +3863,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="local checkout path, $HOME-relative")
     s.add_argument("--owner-project", default=None)
     s.add_argument("--visibility", choices=VISIBILITIES, default="private")
-    s.add_argument("--status", choices=STATUSES, default="active")
+    s.add_argument("--status", choices=REGISTER_STATUSES, default="active",
+                   help="public only with --visibility public and --reason (an already-public repo)")
     s.add_argument("--upstream-target", choices=UPSTREAM_TARGETS, default="none")
     s.add_argument("--automation", default="")
     s.add_argument("--notes", default="")
+    s.add_argument("--reason", default="", help="required with --status public")
     s.add_argument("--workspace", default=None,
                    help="metadata only; does NOT claim")
     s.add_argument("--agent", default=None, help="metadata only; does NOT claim")
@@ -3825,6 +3958,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--refuse-private", action="store_true",
                    help="refuse (exit 1, nothing copied) when a receipt holds private strings; "
                         "default is a WARN line")
+    s.add_argument("--refuse-dirty", action="store_true",
+                   help="refuse when tracked files are modified in the checkout; default is a WARN "
+                        "line (receipts are always checked against the bound commit)")
     add_json(s)
     s.set_defaults(fn=cmd_gate)
 
@@ -3837,6 +3973,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--refuse-private", action="store_true",
                    help="refuse (exit 1, nothing copied) when the receipt holds private strings; "
                         "default is a WARN line")
+    s.add_argument("--refuse-dirty", action="store_true",
+                   help="refuse when tracked files are modified in the checkout; default is a WARN line")
     add_json(s)
     s.set_defaults(fn=cmd_comparator)
 

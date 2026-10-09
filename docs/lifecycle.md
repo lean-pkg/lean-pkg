@@ -41,12 +41,20 @@ scratch | active | gate-pending | verified-private | public | upstreamed | archi
 | gate-pending → verified-private | `gate` | a valid lower-tier receipt, optionally with comparator evidence |
 | public → public | `gate` | a package that was public before it was ever gated (for example a collaborator-owned repository): the receipt and the `gate-passed` event are recorded, the status does not change |
 | verified-private → gate-pending | `update --status` | re-certification after a content change |
-| verified-private → public | `promote --yes` | clean checklist, including a byte-valid comparator PASS |
+| verified-private → public | `promote --yes` | clean checklist: a byte-valid comparator PASS, both receipts and every comparator log committed at HEAD, HEAD contained in `origin/<branch>` |
 | public → upstreamed | `update --status` | a recorded `mathlib-pr-merged` or `palomar-registered` event (not retracted, not withdrawn), or a `--reason` containing the URL |
 | any status → archived | `update --status --reason`, or `audit --fix` from GitHub's archived flag | — |
 
 Public is one-way: from `public` the only moves are to `upstreamed` and
 `archived`. A refused move names the moves allowed from the current status.
+
+`register` starts a package at `scratch`, `active` or `gate-pending`, or at
+`public` for a repository that is already public (`--visibility public` and a
+`--reason` are both required). It cannot start one at `verified-private` or
+`upstreamed`. `validate` refuses a `verified-private` package without a
+`gate.receipt`; `audit` reports `status-visibility-mismatch` for a
+`verified-private` package that is not private, or a `public`/`upstreamed`
+one that is not public.
 
 ## Leases
 

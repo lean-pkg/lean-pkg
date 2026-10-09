@@ -46,8 +46,8 @@ record    record a D5 evidence event; validated before writing (a schema error i
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
-         [--visibility private|public] [--status ENUM] [--upstream-target none|mathlib|palomar]
-         [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
+         [--visibility private|public] [--status scratch|active|gate-pending|public (public: --visibility public --reason R)]
+         [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
 update    set fields; manual status moves need --reason (a refusal lists the allowed moves). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
@@ -60,18 +60,18 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
 release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
-  flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt:
-  refuse, exit 1, nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}])
+  flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
+  nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[])
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op. It is required by promote.
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1).
-  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private
+  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private, --refuse-dirty
   ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
-  (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh`.
-  promote refuses without a byte-valid comparator receipt bound to HEAD.
+  (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
+  valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs).
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
@@ -110,14 +110,14 @@ search    TERM [--package NAME] [--offline] [--sources a,b,c] [--record [--repo-
 RECEIPT SCHEMA (JSON object; `gate` enforces every line)
 commit         40 lowercase hex; MUST equal HEAD, or HEAD must be an evidence-only descendant of it
                (only .lean-receipts/ paths differ between the two commits)
-lean_toolchain string; MUST equal the repo's lean-toolchain file content, stripped
+lean_toolchain string; MUST equal the lean-toolchain file committed at `commit`, stripped (the working tree never counts)
 mathlib_rev    nonempty string (full mathlib rev)
 sorry_count    integer; MUST be 0
 axioms         list of strings; subset of gate.axioms_allowed (default exactly: propext, Quot.sound, Classical.choice)
 report_sha256  64 hex chars; SHA-256 of the verification report
-job_id         nonempty terminal executor job identity, unique within that executor
+job_id         nonempty terminal executor job identity, unique within that executor (stored as <c12>-<job_id sanitised>.json)
 checker        nonempty exact checker command/mode (e.g. serial leanchecker manifest)
-generated_at   nonempty ISO-8601 timestamp
+generated_at   ISO-8601 timestamp; MUST parse
 
 COMPARATOR RECEIPT SCHEMA ("comparator-receipt/2"; "comparator-receipt/1" still validates; written by comparator-receipt; `promote` re-derives every line from bytes)
 schema          "comparator-receipt/2" (or "/1": legacy mechanism implied)
@@ -125,11 +125,11 @@ mechanism       "toolchain" (lake comparator + the toolchain's bundled NanoDa/co
                 or "legacy" (pinned comparator/lean4export/nanoda/landrun stack); comparator-receipt --mechanism auto|toolchain|legacy
 commit          40 lowercase hex; MUST equal the lower-tier receipt commit, and equal HEAD or have HEAD as
                 an evidence-only descendant (only .lean-receipts/ paths differ)
-lean_toolchain  MUST equal the repo's lean-toolchain file, stripped
+lean_toolchain  MUST equal the lean-toolchain file committed at `commit`, stripped
 tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
                 toolchain: {lean_toolchain, lake_sha256, leanexport_sha256, leanchecker_sha256, nanoda_bin_sha256, con-ron_sha256}:
                 64-hex sha256 of the judging binaries under `lean --print-prefix`/bin
-host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>)
+host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>); generated_at MUST parse as ISO-8601
 host_policy     optional; the runner's host-policy reason (an override run is visible here)
 test_only       if present and true the receipt was produced under a test-only override and is REFUSED
 result          "pass" (the runner writes a receipt only on PASS)

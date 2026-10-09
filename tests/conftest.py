@@ -313,6 +313,24 @@ def env(tmp_path: Path) -> Env:
                comp_b=comp_b)
 
 
+def publish_evidence(repo: Path, stage: bool = True) -> str:
+    """Commit .lean-receipts/ (an evidence-only descendant of the bound commit) and push the
+    branch to a local bare origin: the tracked, pushed state `promote` requires. Returns HEAD.
+    stage=False only pushes what is already committed."""
+    if stage and (repo / ".lean-receipts").is_dir():
+        _git(repo, "add", "-f", ".lean-receipts")
+        if _git(repo, "diff", "--cached", "--name-only").stdout.strip():
+            _git(repo, "commit", "-q", "-m", "evidence")
+    origin = repo.parent / f"{repo.name}-origin.git"
+    if not origin.exists():
+        subprocess.run(["git", "init", "-q", "--bare", str(origin)],
+                       check=True, capture_output=True)
+        _git(repo, "remote", "add", "origin", str(origin))
+    branch = _git(repo, "symbolic-ref", "--short", "HEAD").stdout.strip()
+    _git(repo, "push", "-q", "origin", f"HEAD:refs/heads/{branch}")
+    return repo_head(repo)
+
+
 def read_reg(env: Env) -> dict:
     return yaml.safe_load(env.registry.read_text())
 

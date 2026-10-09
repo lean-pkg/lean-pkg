@@ -31,12 +31,12 @@ Both tiers must bind to the same commit.
 | Field | Rule |
 |---|---|
 | `commit` | 40 lowercase hex; HEAD, or HEAD is an evidence-only descendant of it |
-| `lean_toolchain` | equals the repo's `lean-toolchain`, stripped |
+| `lean_toolchain` | equals the `lean-toolchain` file committed at `commit`, stripped (an uncommitted edit never counts) |
 | `mathlib_rev` | nonempty |
 | `sorry_count` | integer, must be 0 |
 | `axioms` | list of strings, subset of `gate.axioms_allowed` (default `propext`, `Quot.sound`, `Classical.choice`) |
 | `report_sha256` | 64 hex characters: the frozen verification report |
-| `job_id`, `checker`, `generated_at` | nonempty: the executor's terminal job identity, the exact checker mode, an ISO-8601 time |
+| `job_id`, `checker`, `generated_at` | nonempty: the executor's terminal job identity, the exact checker mode, and an ISO-8601 time that must parse. The stored copy is named `<commit12>-<job_id>.json`, with characters outside `[A-Za-z0-9._-]` replaced by `-` and leading dots and dashes dropped |
 
 The frozen report named by `report_sha256` is expected to bind the candidate
 commit or tree, the toolchain and dependency pins, complete checker
@@ -50,9 +50,9 @@ manifest, or a receipt for a previous candidate is not gate evidence.
 | `schema` | `"comparator-receipt/2"` (a `"comparator-receipt/1"` receipt is read as the legacy mechanism) |
 | `mechanism` | `"toolchain"` (`lake comparator` with the toolchain's bundled kernels, Lean v4.35.0-rc2+) or `"legacy"` (pinned stack); see [Comparator](comparator.md#mechanisms) |
 | `commit` | equals the lower-tier receipt commit; HEAD, or HEAD is an evidence-only descendant |
-| `lean_toolchain` | equals the repo's `lean-toolchain` |
+| `lean_toolchain` | equals the `lean-toolchain` file committed at `commit` |
 | `tools` | legacy: `comparator`, `lean4export`, `nanoda`, `landrun` as 40-hex commits; toolchain: `lean_toolchain` and the 64-hex sha256 of `lake`, `leanexport`, `leanchecker`, `nanoda_bin`, `con-ron` |
-| `host`, `job_id`, `generated_at` | nonempty |
+| `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601 |
 | `host_policy` | the runner's host-policy reason (an override run is visible here) |
 | `test_only` | present and true only on receipts produced under the runner's test-only digest override; such a receipt is refused by every validator |
 | `result` | `"pass"` (the runner writes a receipt only on PASS) |
@@ -77,13 +77,19 @@ can never be tracked at the commit it names. The rule:
 The source closure stays byte-identical to the certified commit while the
 evidence travels with the code. The rule applies to both tiers, to the
 `promote` checklist, and to the `receipt-drift` / `comparator-drift`
-findings of `audit`. Comparator configurations are read at X, not at H.
+findings of `audit`. Comparator configurations and `lean-toolchain` are read
+at X, not at H, and never from the working tree. Modified tracked files in
+the checkout print a WARN at `gate` and `comparator`; `--refuse-dirty` turns
+the WARN into a refusal.
 
 ## Where evidence lives
 
 Receipts and logs are copied into `<repo>/.lean-receipts/` by `gate` and
 `comparator` (never committed by the tool; you commit them). The registry
-stores only the relative paths; `promote` re-reads the bytes. An
+stores only the relative paths; `promote` re-reads the bytes, and refuses
+unless the receipts and every comparator log are committed at HEAD unmodified
+and HEAD is contained in `origin/<branch>` (judged on local refs; nothing is
+fetched). An
 [index entry](index-catalog.md) keeps verbatim copies of the receipts (not
 the logs) and `index check --clone` re-derives them at the pin.
 

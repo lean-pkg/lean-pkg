@@ -119,6 +119,33 @@ change the registry schema or receipt format, always with a migration).
   defaulting it to 24. Add `lean-packages.yaml.lock` to the registry
   repository's `.gitignore`. (#14)
 
+- `gate` and `comparator` compared a receipt's `lean_toolchain` with the
+  working-tree `lean-toolchain`, so an uncommitted edit could make a receipt
+  pass. Both now read `lean-toolchain` at the receipt's bound commit and the
+  refusal names both values. Modified tracked files in the checkout print a
+  stderr WARN (`dirty` in `--json`); the new `--refuse-dirty` flag refuses
+  instead. (#15)
+- The `promote` checklist passed with untracked or unpushed evidence. It now
+  also requires the gate receipt, the comparator receipt and every comparator
+  log it names to be committed at HEAD, unmodified, and HEAD to be contained
+  in `origin/<branch>`, judged on local refs (nothing is fetched). Under
+  `--yes`, a failed `gh` visibility query is a ✗, not a WARN. The comparator
+  line now says what was checked (config and log bytes match the receipt,
+  PASS line present) and no longer says "nanoda replay". (#15)
+- A receipt's `generated_at`, and a comparator receipt's, must now parse as an
+  ISO-8601 timestamp; being non-empty is not enough. The stored receipt name
+  now drops leading dots and dashes from the job id, so `../../evil` is stored
+  as `<c12>-evil.json`, and a job id left with no usable characters is
+  refused. (#15)
+- `register --status` only accepts `scratch`, `active` and `gate-pending`.
+  `public` is accepted only together with `--visibility public` and a
+  non-empty `--reason` (the reason is stored on the `registered` event);
+  `verified-private` and `upstreamed` are refused. `validate` now refuses a
+  `verified-private` package with no `gate.receipt`. A status/visibility
+  mismatch (`verified-private` but not private, `public`/`upstreamed` but not
+  public) is reported by `audit` as `status-visibility-mismatch` rather than
+  refused by `validate`, because existing registries hold such rows. (#15)
+
 ## [0.5.0] - 2026-10-08
 
 ### Added

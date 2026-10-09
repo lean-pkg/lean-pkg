@@ -278,7 +278,10 @@ lean-pkg promote my-proof
 #   ✓  LICENSE/COPYING present at repo root
 #   ✓  lake-manifest.json tracked at HEAD
 #   ✓  gate receipt bound to HEAD 148818d4c635 (evidence-only descendant of cb3d68a21454 (+3 evidence file(s)))
-#   ✓  comparator PASS bound to HEAD 148818d4c635 (1 config(s), nanoda replay)
+#   ✓  gate receipt .lean-receipts/cb3d68a21454-<job>.json tracked at HEAD (1 file(s))
+#   ✓  comparator PASS bound to HEAD 148818d4c635 (1 config(s): config and log bytes match the receipt, PASS line present; not re-run)
+#   ✓  comparator receipt .lean-receipts/cb3d68a21454-comparator.json and its 1 log(s) tracked at HEAD (2 file(s))
+#   ✓  HEAD 148818d4c635 contained in origin/main (local refs; nothing fetched)
 #   ✓  gh visibility matches registry (private)
 #   ✓  automation disclosure not required (upstream_target=palomar)
 # WARNING: a GitHub private→public flip is effectively ONE-WAY — ...

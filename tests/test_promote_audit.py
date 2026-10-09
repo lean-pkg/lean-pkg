@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from .conftest import FakeGh, read_events, read_reg, repo_head
+from .conftest import FakeGh, publish_evidence, read_events, read_reg, repo_head
 
 
 def test_promote_dry_run_refuses_wrong_status(lp, env, fake_gh, capsys):
@@ -15,6 +15,7 @@ def test_promote_dry_run_refuses_wrong_status(lp, env, fake_gh, capsys):
 
 
 def test_promote_checklist_renders_on_verified_private(lp, env, fake_gh, capsys):
+    publish_evidence(env.repo_b)
     rc = lp.main(["--registry", str(env.registry), "promote", "beta"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -30,6 +31,7 @@ def test_promote_checklist_renders_on_verified_private(lp, env, fake_gh, capsys)
 
 def test_promote_yes_flips_visibility_and_notifies_once(lp, env, fake_gh,
                                                         fake_notify, capsys):
+    publish_evidence(env.repo_b)
     rc = lp.main(["--registry", str(env.registry), "promote", "beta", "--yes"])
     assert rc == 0
     head = repo_head(env.repo_b)
@@ -84,6 +86,7 @@ def test_audit_reports_and_fix_visibility_mismatch(lp, env, monkeypatch, capsys)
 
 
 def test_promote_dry_run_has_no_rl_reminder(lp, env, fake_gh, capsys):
+    publish_evidence(env.repo_b)
     rc = lp.main(["--registry", str(env.registry), "promote", "beta"])
     assert rc == 0
     assert "results-ledger" not in capsys.readouterr().out
@@ -91,6 +94,7 @@ def test_promote_dry_run_has_no_rl_reminder(lp, env, fake_gh, capsys):
 
 def test_promote_success_prints_rl_reminder(lp, env, fake_gh,
                                             fake_notify, capsys):
+    publish_evidence(env.repo_b)
     rc = lp.main(["--registry", str(env.registry), "promote", "beta", "--yes"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -99,6 +103,7 @@ def test_promote_success_prints_rl_reminder(lp, env, fake_gh,
 
 def test_promote_success_json_includes_rl_reminder(lp, env, fake_gh,
                                                    fake_notify, capsys):
+    publish_evidence(env.repo_b)
     import json
     rc = lp.main(["--registry", str(env.registry), "--json", "promote",
                   "beta", "--yes"])

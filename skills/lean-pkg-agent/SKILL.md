@@ -56,6 +56,7 @@ lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.j
 git add .lean-receipts && git commit -m "evidence: comparator receipt"
 lean-pkg comparator my-proof --receipt .lean-receipts/<c12>-comparator.json --json
 
+git push                                        # promote needs the evidence committed and HEAD in origin/<branch>
 lean-pkg promote my-proof --json                # dry run: give the checklist to a human
 lean-pkg release my-proof --agent my-agent --json
 ```

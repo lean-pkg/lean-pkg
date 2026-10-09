@@ -171,7 +171,10 @@ lean-pkg promote markovprocess-pilot
 #   ✓  LICENSE/COPYING present at repo root
 #   ✓  lake-manifest.json tracked at HEAD
 #   ✓  gate receipt bound to HEAD <h12> (evidence-only descendant of <c12> (+3 evidence file(s)))
-#   ✓  comparator PASS bound to HEAD <h12> (1 config(s), nanoda replay)
+#   ✓  gate receipt .lean-receipts/<c12>-<job>.json tracked at HEAD (1 file(s))
+#   ✓  comparator PASS bound to HEAD <h12> (1 config(s): config and log bytes match the receipt, PASS line present; not re-run)
+#   ✓  comparator receipt .lean-receipts/<c12>-comparator.json and its 1 log(s) tracked at HEAD (2 file(s))
+#   ✓  HEAD <h12> contained in origin/main (local refs; nothing fetched)
 #   ✓  gh visibility matches registry (private)
 #   ✓  automation disclosure not required (upstream_target=none)
 # WARNING: a GitHub private→public flip is effectively ONE-WAY — …

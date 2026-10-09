@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 
-from .conftest import read_reg, set_lease
+from .conftest import publish_evidence, read_reg, set_lease
 
 
 def test_list_json_parses_and_contains_both(lp, env, capsys):
@@ -70,6 +70,7 @@ def test_audit_fix_json_counts_what_it_wrote(lp, env, fake_gh, capsys):
 
 
 def test_promote_dry_run_json_checklist(lp, env, fake_gh, capsys):
+    publish_evidence(env.repo_b)
     rc = lp.main(["--registry", str(env.registry), "--json", "promote", "beta"])
     assert rc == 0
     data = json.loads(capsys.readouterr().out)

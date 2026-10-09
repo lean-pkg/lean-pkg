@@ -8,7 +8,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
-from .conftest import CLI, read_reg, subprocess_env
+from .conftest import CLI, publish_evidence, read_reg, subprocess_env
 
 
 def _args(**kw):
@@ -78,6 +78,7 @@ def test_notify_command_failure(lp, monkeypatch):
 
 def test_promote_without_notify_cmd_says_not_configured(lp, env, fake_gh,
                                                         monkeypatch, capsys):
+    publish_evidence(env.repo_b)
     monkeypatch.delenv("LEAN_PKG_NOTIFY_CMD", raising=False)
     rc = lp.main(["--registry", str(env.registry), "--json", "promote",
                   "beta", "--yes"])
@@ -90,6 +91,7 @@ def test_promote_without_notify_cmd_says_not_configured(lp, env, fake_gh,
 
 def test_promote_text_reports_notify_not_configured(lp, env, fake_gh,
                                                     monkeypatch, capsys):
+    publish_evidence(env.repo_b)
     monkeypatch.delenv("LEAN_PKG_NOTIFY_CMD", raising=False)
     assert lp.main(["--registry", str(env.registry), "promote", "beta", "--yes"]) == 0
     assert "notify command not configured" in capsys.readouterr().out
@@ -97,6 +99,7 @@ def test_promote_text_reports_notify_not_configured(lp, env, fake_gh,
 
 def test_promote_with_fake_notify_reports_notified(lp, env, fake_gh, fake_notify,
                                                    capsys):
+    publish_evidence(env.repo_b)
     rc = lp.main(["--registry", str(env.registry), "--json", "promote",
                   "beta", "--yes"])
     assert rc == 0
