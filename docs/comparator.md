@@ -137,8 +137,12 @@ the entries a person must still restate in Mathlib vocabulary: the type
 mentions a constant from a module outside `Init`, `Std`, `Lean`, `Mathlib`
 and Mathlib's own dependencies, or the printed type would not re-elaborate
 (an inaccessible `✝` name or an elided `⋯` proof). An entry whose type is in
-Mathlib vocabulary already carries `needs_restatement: false` and a
-Challenge that compiles as is; it still needs the paper check below. A
+Mathlib vocabulary and passed the round-trip check below carries
+`needs_restatement: false` and a Challenge that elaborates; it still needs
+the paper check below. A printed type that fails the round-trip check keeps
+the `TODO:` lines, with `needs_restatement: true`,
+`restatement_reason: "round_trip_failed"`, the check's error in `type_error`
+and the printed text in `printed_type` (a starting point, not a statement). A
 declaration Lean reports as unknown (or a claim whose `file` maps to no
 module) keeps its `TODO:` lines, gets `needs_restatement: true`, and records
 `type_error: <first line of the error>`. A declaration whose extraction
@@ -181,10 +185,36 @@ constant in the type, and the type with all binders, implicit and instance
 ones included. `pp.analyze` adds the annotations a pretty-printed term
 needs to elaborate back to the same term (for instance
 `Eq.{u + 1} (α := α) Inhabited.default Inhabited.default`), and
-`pp.proofs true` prints proofs inside types rather than `⋯`. Limits: the
-pretty-printer does not guarantee a round trip, so a type that prints but
-does not re-elaborate, or elaborates to a different term, is caught only
-when the Challenge is built and by comparator itself; binder names of
+`pp.proofs true` prints proofs inside types rather than `⋯`.
+
+The pretty-printer does not guarantee a round trip, even with these options:
+on a real package it dropped coercion targets (`↑n + 1` for an integer cast),
+the domain of an integral, and explicit `Matrix` types inside existentials,
+so the printed text elaborated to another statement or not at all. So the
+driver checks every printed type `T` in a second `lake env lean` run, in the
+same module context:
+
+```lean
+import Demo.Main
+set_option autoImplicit false
+-- LEANPKG-ROUNDTRIP Demo.wow
+universe u_1 v
+example :
+    (T) :=
+  @_root_.Demo.wow
+```
+
+which passes only when `T` elaborates (no auto-bound names) and the
+declaration inhabits it, i.e. `T` is definitionally equal to the declaration's
+type. Only an exit status of 0 makes the result `ok` (`round_trip: "ok"`); a
+non-zero one makes it `status: "error"`, `failure: "round_trip"`,
+`round_trip: "failed"`, with `round_trip_rc` and the error, and
+`summary.round_trip_failed` counts them (they are not extraction failures and
+do not change the exit status). The check runs with the declaration's own
+module imported, so it does not prove the statement is in Mathlib
+vocabulary; the module test above does that. Output from a driver without
+the check (no `round_trip` field) is pre-filled but always
+`needs_restatement`. Other limits: binder names of
 non-dependent hypotheses are dropped (`h : P` becomes `P →`, the same type);
 notation from scoped namespaces is not opened, so it prints as the
 underlying constants; the claim's `file` must map to a module under the
@@ -227,17 +257,19 @@ runs on. It writes `OUT.json`:
 ```json
 {"schema": "comparator-types/1", "package": "beta", "commit": "<40-hex HEAD>",
  "toolchain": "leanprover/lean4:v4.35.0",
- "summary": {"ok": false, "total": 2, "filled": 1, "errors": 1, "declaration_errors": 0, "jobs": 2,
+ "summary": {"ok": false, "total": 2, "filled": 1, "errors": 1, "round_trip_failed": 0,
+             "declaration_errors": 0, "jobs": 2,
              "backoff": []},
  "results": [{"decl": "Demo.baz", "type": "∀ (n : Nat), n + 0 = n", "status": "ok", "error": null,
-              "levels": [], "modules": ["Init.Prelude"], "rc": 0, "failure": null},
+              "levels": [], "modules": ["Init.Prelude"], "rc": 0, "failure": null,
+              "round_trip": "ok", "round_trip_rc": 0},
              {"decl": "Demo.zap", "type": null, "status": "error",
               "error": "unknown module prefix 'Demo'", "levels": [], "modules": [],
               "rc": 1, "failure": "extraction", "output_tail": "...last lines of lake env lean..."}]}
 ```
 
-`levels`, `modules`, `summary`, `rc`, `failure` and `output_tail` are
-additive; a result without `modules` is marked `needs_restatement`. `--from-output F` refuses (nothing written) a file whose
+`levels`, `modules`, `summary`, `rc`, `failure`, `output_tail`, `round_trip`
+and `round_trip_rc` are additive; a result without `modules` is marked `needs_restatement`. `--from-output F` refuses (nothing written) a file whose
 `schema` is not `comparator-types/1`, whose `package` is another package, or
 whose `commit` is not the checkout's HEAD; a declaration with no result in the
 file falls back to the TODO lines with a `type_error`. `--challenge-from-type`

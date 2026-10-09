@@ -39,6 +39,18 @@ with open(log, "a") as f:
     f.write(json.dumps({"args": args, "cwd": os.getcwd()}) + "\n")
 assert args[:2] == ["env", "lean"], args
 src = open(args[2], encoding="utf-8").read()
+rt = re.search(r"^-- LEANPKG-ROUNDTRIP (\S+)$", src, re.M)
+if rt:                                             # the round-trip check (#31)
+    assert "set_option autoImplicit false" in src and "@_root_." + rt.group(1) in src, src
+    if rt.group(1) in os.environ.get("FAKE_LAKE_RT_REJECT", "").split(","):
+        print(args[2] + ":6:5: error: type mismatch")
+        print("  " + rt.group(1))
+        print("has type")
+        print("  ∀ (n : ℕ), ↑n + 1 = ↑(n + 1)")
+        print("but is expected to have type")
+        print("  ∀ (n : ℕ), n + 1 = n + 1")
+        sys.exit(1)
+    sys.exit(0)
 comps = re.findall(r'\.str "([^"]*)"', src)
 imp = re.search(r"^import (\S+)$", src, re.M).group(1)
 decl = ".".join(comps)
@@ -90,7 +102,7 @@ def fake_lake(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_LAKE_LOG", str(tmp_path / "lake.log"))
     monkeypatch.setenv("LEAN_PKG_TYPES_BACKOFF_SECONDS", "0")
     for v in ("LEAN_PKG_TYPES_JOBS", "LEAN_PKG_TYPES_TIMEOUT", "FAKE_LAKE_FAIL_ALL",
-              "FAKE_LAKE_ENFILE_FIRST"):
+              "FAKE_LAKE_ENFILE_FIRST", "FAKE_LAKE_RT_REJECT"):
         monkeypatch.delenv(v, raising=False)
     return bindir
 
@@ -112,9 +124,11 @@ def dry_cfg(cap):
     return json.loads(cap.out[cap.out.index("\n{") + 1:])
 
 
-def lake_calls(tmp_path):
+def lake_calls(tmp_path, round_trip=False):
+    """The logged `lake` calls: type extractions, or with round_trip=True the round-trip checks."""
     p = tmp_path / "lake.log"
-    return [json.loads(x) for x in p.read_text().splitlines()] if p.exists() else []
+    calls = [json.loads(x) for x in p.read_text().splitlines()] if p.exists() else []
+    return [c for c in calls if os.path.basename(c["args"][2]).startswith("r") == round_trip]
 
 
 def todo_by_claim(cfg):
@@ -127,6 +141,7 @@ def test_local_mode_prefills_challenge_and_solution_with_per_entry_fallback(lp, 
     assert rc == 0, cap.err
     data = json.loads(cap.out)
     assert data["written"] is True and (data["existing"], data["added"]) == (1, 3)
+    assert data["types"]["round_trip_failed"] == 0
     assert data["types"]["extraction_failed"] == 1 and data["types"]["allow_partial"] is True
     assert data["types"]["driver_summary"]["errors"] == 1 and data["types"]["driver_summary"]["filled"] == 2
     assert data["types"]["mode"] == "local" and data["types"]["commit"] == repo_head(env.repo_b)
@@ -150,6 +165,7 @@ def test_local_mode_prefills_challenge_and_solution_with_per_entry_fallback(lp, 
     assert zap["challenge"].startswith("TODO: ") and zap["solution"].startswith("TODO: ")
     calls = lake_calls(tmp_path)
     assert len(calls) == 3 and all(c["args"][:2] == ["env", "lean"] for c in calls)
+    assert len(lake_calls(tmp_path, round_trip=True)) == 2              # baz and wow printed a type
     assert all(c["cwd"] == str(env.repo_b) for c in calls)
     assert all(not c["args"][2].startswith(str(env.repo_b)) for c in calls)     # scratch files in a temp dir
     status = _git(env.repo_b, "status", "--porcelain").stdout.split("\n")
@@ -232,7 +248,8 @@ def test_emit_then_ingest_equals_local_mode(lp, env, fake_lake, tmp_path, capsys
     assert p.returncode == 1, p.stderr                       # one extraction failed (zap: lean exit 1)
     assert "1 extraction error(s)" in p.stderr and "--allow-partial" in p.stderr
     doc = json.loads(out.read_text())
-    assert doc["summary"] == {"ok": False, "total": 3, "filled": 2, "errors": 1, "declaration_errors": 0,
+    assert doc["summary"] == {"ok": False, "total": 3, "filled": 2, "errors": 1, "round_trip_failed": 0,
+                              "declaration_errors": 0,
                               "jobs": min(2, len(os.sched_getaffinity(0))), "backoff": []}
     zap = doc["results"][1]
     assert zap["rc"] == 1 and zap["failure"] == "extraction" and "Demo.olean" in zap["output_tail"]
@@ -252,7 +269,7 @@ def write_output(tmp_path, env, **over):
     doc = {"schema": "comparator-types/1", "package": "beta", "commit": repo_head(env.repo_b),
            "toolchain": "leanprover/lean4:v4.35.0",
            "results": [{"decl": "Demo.baz", "type": "True", "status": "ok", "error": None, "levels": [],
-                        "modules": ["Init.Prelude"]},
+                        "modules": ["Init.Prelude"], "round_trip": "ok"},
                        {"decl": "Demo.zap", "type": None, "status": "error",
                         "error": "timed out after 120s\nsecond line", "levels": [], "modules": []},
                        {"decl": "Demo.wow", "type": "∀ (n : Nat), n = n", "status": "ok", "error": None}]}
@@ -410,3 +427,43 @@ def test_driver_backoff_gives_up_after_one_worker_rounds(lp, env, fake_lake, tmp
     assert [b["jobs"] for b in json.loads(out.read_text())["summary"]["backoff"]] == [1, 1]
     rc, cap = cc(lp, env, capsys, "--from-output", str(out))
     assert rc == 1 and "extraction failed for 3 of 3 declaration(s) at 1 job(s) (0 filled)" in cap.err
+
+
+def test_round_trip_failure_keeps_the_todo(lp, env, fake_lake, tmp_path, monkeypatch, capsys):
+    """#31: a printed type that does not elaborate back to the declaration's is never ready."""
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    assert "LEANPKG-ROUNDTRIP" in script.read_text() and "autoImplicit false" in script.read_text()
+    monkeypatch.setenv("FAKE_LAKE_RT_REJECT", "Demo.baz")
+    p = run_driver(env, script, out)
+    assert p.returncode == 1, p.stderr                       # zap's extraction failure, not the round trip
+    assert "1 round-trip failure(s)" in p.stderr
+    doc = json.loads(out.read_text())
+    assert (doc["summary"]["filled"], doc["summary"]["round_trip_failed"], doc["summary"]["errors"]) == (1, 1, 1)
+    baz = doc["results"][0]
+    assert (baz["status"], baz["failure"], baz["round_trip"], baz["round_trip_rc"]) == ("error", "round_trip",
+                                                                                         "failed", 1)
+    assert baz["type"] == "True" and "type mismatch" in baz["error"]
+    assert doc["results"][2]["round_trip"] == "ok" and doc["results"][2]["status"] == "ok"
+    rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--allow-partial", "--json")
+    assert rc == 0, cap.err
+    data = json.loads(cap.out)
+    assert data["types"]["round_trip_failed"] == 1 and data["types"]["prefilled"] == 1
+    todo = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))
+    baz = todo["beta/baz"]
+    assert baz["needs_restatement"] is True and baz["restatement_reason"] == "round_trip_failed"
+    assert baz["type_error"].startswith("round-trip check failed (exit 1):") and "but is expected" in baz["type_error"]
+    assert baz["challenge"].startswith("TODO: ") and baz["solution"].startswith("TODO: ")
+    assert baz["printed_type"] == "True" and "type" not in baz
+
+
+def test_output_without_round_trip_is_never_ready(lp, env, tmp_path, capsys):
+    """Output from a driver before #31 has no round_trip: pre-filled, but needs_restatement."""
+    synced(lp, env, capsys)
+    f = write_output(tmp_path, env, results=[
+        {"decl": "Demo.baz", "type": "True", "status": "ok", "error": None, "levels": [], "modules": ["Init.Prelude"]}])
+    rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--allow-partial", "--json")
+    assert rc == 0, cap.err
+    baz = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/baz"]
+    assert baz["needs_restatement"] is True and "no round-trip check" in baz["restatement_reason"]

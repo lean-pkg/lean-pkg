@@ -22,6 +22,14 @@ change the registry schema or receipt format, always with a migration).
   declaration fails with "too many open files" (ENFILE/EMFILE, typical on Lustre/NFS) it halves
   the workers and retries those declarations, at least two rounds down to one worker, recording
   the rounds in `summary.backoff`. `LEAN_PKG_TYPES_BACKOFF_SECONDS` sets the pause. (#30)
+- `comparator config --challenge-from-type`: a pretty-printed type is no longer trusted as is.
+  The driver re-elaborates each printed type in the declaration's module context
+  (`example : (T) := @_root_.<decl>`, `autoImplicit false`) and only an exit status of 0 makes the
+  result `ok`; on a real package 5 of 24 entries marked ready had lost a coercion target, an
+  integral domain or a `Matrix` type. A failure keeps the TODO lines with `needs_restatement: true`,
+  `restatement_reason: round_trip_failed`, the error in `type_error` and the text in
+  `printed_type`; `summary.round_trip_failed` and the JSON `types.round_trip_failed` count them.
+  Output without the check is pre-filled but always `needs_restatement`. (#31)
 
 ## [0.7.5] - 2026-10-09
 

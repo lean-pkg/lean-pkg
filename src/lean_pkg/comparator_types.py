@@ -19,6 +19,10 @@ Output contract (schema comparator-types/1), written by the driver to its first 
 
 `levels` (the declaration's universe parameters) and `modules` (modules of the constants its type
 mentions) are additive; an ingested result without `modules` is marked `needs_restatement`.
+Also additive: `summary` {ok, total, filled, errors, round_trip_failed, declaration_errors, jobs,
+backoff} and per result `rc`, `failure` (declaration | resource | extraction | round_trip),
+`output_tail`, `round_trip` ("ok" | "failed") and `round_trip_rc` (#30, #31). A result is `ok` only
+when its printed type passed the round-trip check (ROUNDTRIP_SNIPPET).
 
 The driver writes only to a temp dir (its Lean scratch files) and to the output path; it never
 writes into the checkout.
@@ -70,12 +74,25 @@ open Lean Elab Command in
     IO.println "LEANPKG-TYPE-END"
 """
 
+# The round-trip check (#31): the printed type must elaborate, in the declaration's own module context
+# with no auto-bound implicits, to a type the declaration itself inhabits (defeq). Exit status decides.
+ROUNDTRIP_SNIPPET = """\
+__IMPORTS__
+set_option autoImplicit false
+-- LEANPKG-ROUNDTRIP __DECL__
+__UNIVERSES__
+example :
+    (__TYPE__) :=
+  @_root_.__IDENT__
+"""
+
 DRIVER_PY = r'''
 import concurrent.futures, errno, json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 CONFIG = json.loads(__CONFIG__)
 DEFAULT_JOBS = CONFIG["default_jobs"]
 SNIPPET = CONFIG["snippet"]
+ROUNDTRIP = CONFIG["roundtrip_snippet"]
 SIMPLE = re.compile(r"^[A-Za-z_][A-Za-z0-9_']*$")
 DIAG = re.compile(r"^.*?:\d+:\d+: (error|warning|info)(\([^)]*\))?: ?")
 # File-table exhaustion (ENFILE 23 / EMFILE 24), common with many Lean processes on Lustre/NFS (#30).
@@ -194,11 +211,48 @@ def one(entry, work, lake_dir, timeout):
         if res["failure"] == "extraction" and RESOURCE.search(out):
             res["failure"] = "resource"
         return res
-    res.update(type=typ, status="ok", levels=levels, failure=None)
+    res.update(type=typ, levels=levels)
     if modules is None:
         res.pop("modules")
     else:
         res["modules"] = modules
+    return round_trip(res, entry, module, work, lake_dir, timeout)
+
+
+def round_trip(res, entry, module, work, lake_dir, timeout):
+    """Re-elaborate the printed type against the declaration (#31); only a pass makes the result ok."""
+    src = (ROUNDTRIP.replace("__IMPORTS__", "import " + lean_ident(module))
+           .replace("__DECL__", res["decl"])
+           .replace("__UNIVERSES__", ("universe " + " ".join(res["levels"])) if res["levels"] else "")
+           .replace("__IDENT__", lean_ident(res["decl"]))
+           .replace("__TYPE__", res["type"].replace("\n", "\n      ")))
+    f = pathlib.Path(work) / ("r%05d.lean" % entry["index"])
+    try:
+        f.write_text(src, encoding="utf-8")
+        p = subprocess.run(["lake", "env", "lean", str(f)], cwd=lake_dir, stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        res["error"] = "round-trip check timed out after %ss" % timeout
+        return res
+    except OSError as e:
+        res["error"] = "cannot run lake for the round-trip check: %s" % e
+        if e.errno in RESOURCE_ERRNOS:
+            res["failure"] = "resource"
+        return res
+    out = p.stdout.decode("utf-8", "replace")
+    res["round_trip_rc"] = p.returncode
+    if p.returncode == 0:
+        res.update(status="ok", failure=None, round_trip="ok")
+        return res
+    res["output_tail"] = tail(out)
+    if RESOURCE.search(out):
+        res.update(error="round-trip check: " + tail(out, 1), failure="resource")
+        return res
+    lines = [l.rstrip() for l in out.splitlines() if l.strip()]
+    first = next((i for i, l in enumerate(lines) if DIAG.match(l) and DIAG.match(l).group(1) == "error"), 0)
+    msg = [DIAG.sub("", lines[first])] + lines[first + 1:first + 8] if lines else ["no output"]
+    res.update(round_trip="failed", failure="round_trip",
+               error=("round-trip check failed (exit %d): %s" % (p.returncode, " | ".join(msg)))[:800])
     return res
 
 
@@ -250,9 +304,11 @@ def default_jobs():
 
 def summarize(results, jobs, backoff=()):
     filled = sum(1 for r in results if r["status"] == "ok")
-    errors = sum(1 for r in results if r["status"] != "ok" and r.get("failure") != "declaration")
+    rt = sum(1 for r in results if r["status"] != "ok" and r.get("failure") == "round_trip")
+    errors = sum(1 for r in results if r["status"] != "ok" and r.get("failure") not in ("declaration", "round_trip"))
     return {"ok": errors == 0, "total": len(results), "filled": filled, "errors": errors,
-            "declaration_errors": len(results) - filled - errors, "jobs": jobs, "backoff": list(backoff)}
+            "round_trip_failed": rt, "declaration_errors": len(results) - filled - errors - rt, "jobs": jobs,
+            "backoff": list(backoff)}
 
 
 def main():
@@ -297,8 +353,10 @@ def main():
     tmp = out.with_name(out.name + ".tmp")
     tmp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(out)
-    sys.stderr.write("lean-pkg types: %d of %d filled, %d extraction error(s), %d declaration error(s) -> %s\n"
-                     % (summary["filled"], summary["total"], summary["errors"], summary["declaration_errors"], out))
+    sys.stderr.write("lean-pkg types: %d of %d filled, %d extraction error(s), %d round-trip failure(s), "
+                     "%d declaration error(s) -> %s\n" % (summary["filled"], summary["total"], summary["errors"],
+                                                          summary["round_trip_failed"],
+                                                          summary["declaration_errors"], out))
     if summary["errors"]:
         sys.stderr.write("lean-pkg types: extraction failed for %d declaration(s) (see results[].rc, error, "
                          "output_tail); `--from-output` refuses this file unless --allow-partial\n" % summary["errors"])
@@ -363,7 +421,8 @@ def driver_config(name: str, head: str, lake_rel: str, claims: list[dict], jobs:
         decls.append({"decl": decl, "claim": str(c.get("id") or ""), "file": c.get("file"),
                       "module": module_of(c.get("file"), lake_rel) if DECL_RE.match(decl) else None})
     return {"schema": SCHEMA, "package": name, "commit": head, "lake_dir": lake_rel, "jobs": jobs,
-            "default_jobs": DEFAULT_JOBS, "timeout": timeout, "snippet": LEAN_SNIPPET, "decls": decls}
+            "default_jobs": DEFAULT_JOBS, "timeout": timeout, "snippet": LEAN_SNIPPET,
+            "roundtrip_snippet": ROUNDTRIP_SNIPPET, "decls": decls}
 
 
 def check_jobs_timeout(jobs: int | None, timeout: int | None) -> tuple[int | None, int]:
@@ -456,7 +515,7 @@ def failure_of(result: dict | None) -> str | None:
     if result.get("status") == "ok":
         return None
     f = result.get("failure")
-    if f == "declaration":
+    if f in ("declaration", "round_trip"):
         return f
     if f is not None:
         return "extraction"
@@ -498,6 +557,11 @@ def fill(entry: dict, result: dict | None, summary: str, source: str) -> dict:
         entry["type_error"] = first_line(result.get("error") or "no type in the output")
         if failure == "extraction":
             entry["restatement_reason"] = "extraction_failed"
+        elif failure == "round_trip":     # the printed type does not elaborate back to the declaration's (#31)
+            entry["restatement_reason"] = "round_trip_failed"
+            entry["type_error"] = " ".join(str(result.get("error") or "round-trip check failed").split())[:500]
+            if isinstance(typ, str) and typ.strip():
+                entry["printed_type"] = typ.strip()
         return entry
     levels = [lv for lv in result.get("levels") or [] if isinstance(lv, str) and lv]
     modules = result.get("modules")
@@ -511,6 +575,8 @@ def fill(entry: dict, result: dict | None, summary: str, source: str) -> dict:
                      (", ..." if len(foreign) > 5 else "") + ")"
     if reason is None and any(ch in typ for ch in UNPARSEABLE):
         reason = "the printed type has inaccessible names or elided proofs and will not re-elaborate"
+    if reason is None and result.get("round_trip") != "ok":
+        reason = "the output has no round-trip check of the printed type (a driver older than #31); re-run it"
     head = f"theorem {tname}" + (".{" + ", ".join(levels) + "}" if levels else "")
     body = typ.strip()
     doc = summary.replace("-/", "- /").replace("\n", " ").strip()

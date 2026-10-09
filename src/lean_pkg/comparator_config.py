@@ -190,12 +190,14 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
             ct.fill(a, by_decl.get(a["decl"]), str(c.get("summary") or f"what {a['claim']} claims"), source)
         ok = sum(1 for a in added if "type" in a)
         nr = sum(1 for a in added if a.get("needs_restatement"))
+        rtf = sum(1 for a in added if a.get("restatement_reason") == "round_trip_failed")
         payload["types"] = {"mode": types["mode"], "commit": head, "toolchain": doc.get("toolchain"),
                             "prefilled": ok, "type_errors": len(added) - ok, "needs_restatement": nr,
-                            "extraction_failed": failed, "allow_partial": bool(types.get("allow_partial")),
+                            "extraction_failed": failed, "round_trip_failed": rtf, "allow_partial": bool(types.get("allow_partial")),
                             "driver_summary": doc.get("summary") if isinstance(doc.get("summary"), dict) else None}
         lines.append(f"types: {ok} pre-filled from the elaborated type, {len(added) - ok} type error(s) "
-                     f"(TODO kept), {nr} marked needs_restatement")
+                     f"(TODO kept, {rtf} of them: printed type failed the round-trip check), "
+                     f"{nr} marked needs_restatement")
         if failed:
             lines.append(f"types: --allow-partial: {failed} extraction failure(s) kept their TODO lines "
                          f"(restatement_reason extraction_failed)")
