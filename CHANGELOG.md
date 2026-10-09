@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-10-09
+
 ### Fixed
 
 - `audit` human output led with the check code even for `info` findings (an archived package with a
