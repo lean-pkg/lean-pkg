@@ -125,10 +125,28 @@ lean-pkg audit --fix      # clear expired leases; copy GitHub's visibility and a
 ## Share one registry across machines
 
 Keep checkouts at the same `$HOME`-relative paths on every machine and
-commit the registry file plus the event log to a repository the machines
-pull. `register` and the drift checks resolve `local_path` against the local
-`$HOME`. A package whose checkout is absent on this host is reported as
-`missing-path` by `audit` and refused by the commands that need the files.
+keep the registry file plus the event log in their own git repository that
+every machine clones. `register` and the drift checks resolve `local_path`
+against the local `$HOME`. A package whose checkout is absent on this host is
+reported as `missing-path` by `audit` and refused by the commands that need
+the files.
+
+Let lean-pkg do the git part. With committed mode on, every write pulls
+(`--ff-only`) before it touches the files and commits the two files together
+afterwards; with push on, it also pushes:
+
+```bash
+export LEAN_PKG_COMMIT=1 LEAN_PKG_PUSH=1     # e.g. in the shell profile of each machine
+lean-pkg claim my-lean --workspace w3 --agent vera
+# or per command:
+lean-pkg claim my-lean --workspace w3 --agent vera --commit --push
+```
+
+A clone that has diverged from `origin`, or registry files with uncommitted
+edits, is refused before anything is written. A failed push exits 1 and keeps
+the local commit; run the `git push origin <branch>` it prints. `--no-commit`
+turns the mode off for one command, and `lean-pkg doctor --fetch` shows how
+the clone stands against `origin`.
 
 ## Render a status page
 

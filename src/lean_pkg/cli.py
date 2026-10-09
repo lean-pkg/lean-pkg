@@ -15,7 +15,7 @@ shared between machines that keep checkouts at the same home-relative place.
 An absolute local_path is accepted transparently. Mutating operations that
 touch the outside world are dry-run by default.
 
-    lean-pkg [--registry PATH] [--events PATH] [--json] [subcommand]
+    lean-pkg [--registry PATH] [--events PATH] [--json] [--commit|--push|--no-commit] [subcommand]
 
     board     (default) curses TUI on a tty; static aligned table otherwise
     list      static table, pipe-friendly
@@ -44,6 +44,10 @@ touch the outside world are dry-run by default.
     wiki      [--out PATH]                  render a Markdown status page
 
 --json emits machine-readable JSON on stdout (exit codes unchanged).
+--commit (env LEAN_PKG_COMMIT=1) makes a write command pull --ff-only from origin
+first, then commit the registry and the event log together; --push (env
+LEAN_PKG_PUSH=1) also pushes; --no-commit overrides both. Read-only commands
+ignore them; their reports go to stderr, so stdout is unchanged.
 Everything is non-interactive: off a tty, no code path may block on input;
 prompt paths refuse with exit 2.
 
@@ -2427,6 +2431,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes; --no-commit overrides. Reports on stderr.
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -2437,7 +2442,7 @@ verified-private -> public         `promote --yes` after a clean dry-run checkli
 public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
 any -> archived                    `audit --fix` (gh isArchived) or maintainer decision
 
-SUBCOMMANDS (global flags: --registry PATH --events PATH --json; env LEAN_PKG_REGISTRY, LEAN_PKG_EVENTS; --version prints the version)
+SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit; env LEAN_PKG_REGISTRY, LEAN_PKG_EVENTS; --version prints the version)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean
@@ -2815,6 +2820,153 @@ def ref_note(fetched: bool, fetch_error: str | None) -> str:
     return "fetched" if fetched else "local refs; --fetch to be sure"
 
 
+# --------------------------------------------------------------------------
+# committed mode (--commit / --push): pull --ff-only, write, commit the two registry files together
+
+COMMIT_ENV = "LEAN_PKG_COMMIT"
+PUSH_ENV = "LEAN_PKG_PUSH"
+WRITE_CMDS = {"init", "migrate", "record", "register", "claim", "release", "renew", "update", "gate",
+              "comparator", "promote", "audit", "claims", "search"}
+_IDENTITY_ERRORS = ("Author identity unknown", "Please tell me who you are")
+
+
+def _env_on(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def commit_mode(args) -> str | None:
+    """None, "commit" or "push" for this invocation: flags, else env; --no-commit wins; read-only
+    commands are always None."""
+    if getattr(args, "cmd", None) not in WRITE_CMDS or getattr(args, "no_commit", False):
+        return None
+    if getattr(args, "push", False) or _env_on(PUSH_ENV):
+        return "push"
+    if getattr(args, "commit", False) or _env_on(COMMIT_ENV):
+        return "commit"
+    return None
+
+
+def _first_line(p: subprocess.CompletedProcess, default: str) -> str:
+    text = (p.stderr or p.stdout or "").strip()
+    return text.splitlines()[0] if text else default
+
+
+def _count_lines(p: pathlib.Path) -> int:
+    try:
+        return len(p.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        return 0
+
+
+def _dirty(ctx: dict) -> list[str]:
+    porcelain = git(ctx["root"], "status", "--porcelain", "--", *ctx["files"]).stdout.splitlines()
+    return [line[3:] for line in porcelain if line.strip()]
+
+
+def commit_preflight(args, mode: str) -> dict:
+    """Before a write in committed mode: the registry sits in a git work tree on a branch, its two
+    files carry no uncommitted changes, and the branch is fast-forwarded to origin/<branch> when
+    origin is ahead. Returns the context commit_finish needs; raises Fail on a refusal."""
+    if shutil.which("git") is None:
+        raise Fail("--commit needs git on PATH")
+    reg_p, ev = registry_path(args), events_path(args)
+    top = git(reg_p.parent, "rev-parse", "--show-toplevel") if reg_p.parent.is_dir() else None
+    if top is None or top.returncode != 0 or not top.stdout.strip():
+        raise Fail(f"--commit needs the registry inside a git work tree ({reg_p.parent} is not)")
+    root = pathlib.Path(top.stdout.strip())
+    files = []
+    for f in (reg_p, ev):
+        try:
+            files.append(str(f.resolve().relative_to(root.resolve())))
+        except ValueError:
+            raise Fail(f"--commit needs {f} inside the registry's git work tree {root}")
+    br = git(root, "symbolic-ref", "-q", "--short", "HEAD")
+    branch = br.stdout.strip() if br.returncode == 0 else ""
+    if not branch:
+        raise Fail(f"--commit needs a branch checked out in {root} (detached HEAD)")
+    ctx = {"root": root, "files": files, "branch": branch, "events": ev, "push": mode == "push"}
+    dirty = _dirty(ctx)
+    if dirty:
+        raise Fail(f"uncommitted registry changes in {', '.join(dirty)}; commit them first")
+    if git(root, "remote", "get-url", "origin").returncode != 0:
+        print(f"lean-pkg: no origin remote in {root}; committing locally without a pull", file=sys.stderr)
+        ctx["origin"] = False
+    else:
+        ctx["origin"] = True
+        err = fetch_origin(root)
+        if err:
+            print(f"lean-pkg: fetch origin failed: {err}; using local refs", file=sys.stderr)
+        counts = git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
+        if counts.returncode == 0 and int(counts.stdout.split()[0]) > 0:
+            p = git(root, "pull", "--ff-only", "--quiet", "origin", branch)
+            if p.returncode != 0:
+                raise Fail(f"registry clone has diverged from origin/{branch}; reconcile by hand before "
+                           f"writing ({_first_line(p, 'pull --ff-only failed')})")
+    ctx["lines_before"] = _count_lines(ev)
+    return ctx
+
+
+def commit_message(ctx: dict) -> str:
+    try:
+        lines = ctx["events"].read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    new = [line for line in lines[ctx["lines_before"]:] if line.strip()]
+    if not new:
+        return "lean-pkg: registry update"
+    try:
+        last = json.loads(new[-1])
+    except ValueError:
+        return "lean-pkg: registry update"
+    msg = f"lean-pkg: {last.get('event', 'update')}"
+    if last.get("name"):
+        msg += f" {last['name']}"
+    if len(new) > 1:
+        msg += f" (+{len(new) - 1} more)"
+    return msg
+
+
+def commit_finish(ctx: dict, rc: int) -> int:
+    """After the subcommand in committed mode: commit the changed registry files (only those paths),
+    then push when asked. Writes only to stderr; stdout stays the subcommand's."""
+    root, branch = ctx["root"], ctx["branch"]
+    dirty = _dirty(ctx)
+    if rc != 0:
+        if dirty:
+            print(f"lean-pkg: not committing: the command failed and left {', '.join(dirty)} modified",
+                  file=sys.stderr)
+        return rc
+    if not dirty:
+        return rc
+    msg = commit_message(ctx)
+    add = git(root, "add", "--", *dirty)
+    if add.returncode != 0:
+        print(f"lean-pkg: commit failed: {_first_line(add, 'git add failed')}; the registry files are "
+              f"modified and uncommitted", file=sys.stderr)
+        return 1
+    argv = ("commit", "-q", "-m", msg, "--", *dirty)
+    p = git(root, *argv)
+    if p.returncode != 0 and any(s in (p.stderr + p.stdout) for s in _IDENTITY_ERRORS):
+        p = git(root, "-c", "user.name=lean-pkg", "-c", "user.email=lean-pkg@localhost", *argv)
+    if p.returncode != 0:
+        print(f"lean-pkg: commit failed: {_first_line(p, 'git commit failed')}; the registry files are "
+              f"modified and uncommitted", file=sys.stderr)
+        return 1
+    short = git(root, "rev-parse", "--short", "HEAD").stdout.strip()
+    print(f"lean-pkg: committed {short} on {branch}: {msg}", file=sys.stderr)
+    if ctx["push"]:
+        if not ctx["origin"]:
+            print(f"lean-pkg: push failed: no origin remote; run: git push origin {branch}", file=sys.stderr)
+            return 1
+        p = git(root, "push", "--quiet", "origin", branch)
+        if p.returncode != 0:
+            print(f"lean-pkg: push failed: {_first_line(p, 'git push failed')}; run: git push origin {branch}",
+                  file=sys.stderr)
+            return 1
+        print(f"lean-pkg: pushed origin/{branch}", file=sys.stderr)
+    return rc
+
+
 def install_check(d: pathlib.Path, fetch: bool = False) -> tuple[str, str]:
     """(level, detail) for the install: editable when the package's __init__.py is tracked by a git checkout,
     with HEAD, branch and behind/ahead against origin/<branch> (local refs unless fetch)."""
@@ -2992,6 +3144,13 @@ def main(argv: list[str] | None = None) -> int:
                          f"registry)")
     ap.add_argument("--json", dest="json_out", action="store_true",
                     help="machine-readable JSON on stdout (exit codes unchanged)")
+    ap.add_argument("--commit", action="store_true",
+                    help=f"write commands: pull --ff-only first, then commit the registry and event log "
+                         f"together (default: ${COMMIT_ENV}=1)")
+    ap.add_argument("--push", action="store_true",
+                    help=f"--commit, then push to origin (default: ${PUSH_ENV}=1)")
+    ap.add_argument("--no-commit", action="store_true",
+                    help=f"never commit or push, overriding ${COMMIT_ENV} and ${PUSH_ENV}")
     from . import __version__
     ap.add_argument("--version", action="version", version=f"lean-pkg {__version__}")
     sub = ap.add_subparsers(dest="cmd")
@@ -3003,6 +3162,10 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--json", dest="json_out", action="store_true",
                        default=argparse.SUPPRESS,
                        help="machine-readable JSON on stdout")
+        s.add_argument("--commit", action="store_true", default=argparse.SUPPRESS,
+                       help="write commands: pull --ff-only, then commit the registry files")
+        s.add_argument("--push", action="store_true", default=argparse.SUPPRESS,
+                       help="--commit, then push to origin")
 
     s = sub.add_parser("board", help="curses TUI on a tty; static table otherwise")
     add_json(s)
@@ -3199,16 +3362,23 @@ def main(argv: list[str] | None = None) -> int:
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)
+    mode = commit_mode(args)
+    ctx = None
     try:
-        return args.fn(args)
+        if mode:
+            ctx = commit_preflight(args, mode)
+        rc = args.fn(args)
     except UsageError as e:
         print(f"lean-pkg: {e}", file=sys.stderr)
-        return 2
+        rc = 2
     except Fail as e:
         if getattr(args, "json_out", False):
             print_json({"ok": False, "error": str(e)})
         print(f"lean-pkg: {e}", file=sys.stderr)
-        return 1
+        rc = 1
+    if ctx is not None:
+        rc = commit_finish(ctx, rc)
+    return rc
 
 
 if __name__ == "__main__":

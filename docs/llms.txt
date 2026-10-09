@@ -18,6 +18,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes; --no-commit overrides. Reports on stderr.
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -28,7 +29,7 @@ verified-private -> public         `promote --yes` after a clean dry-run checkli
 public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
 any -> archived                    `audit --fix` (gh isArchived) or maintainer decision
 
-SUBCOMMANDS (global flags: --registry PATH --events PATH --json; env LEAN_PKG_REGISTRY, LEAN_PKG_EVENTS; --version prints the version)
+SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit; env LEAN_PKG_REGISTRY, LEAN_PKG_EVENTS; --version prints the version)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
 list      static table.                                ex: lean-pkg list --json
 status    full record + last 5 history entries.        ex: lean-pkg status my-lean

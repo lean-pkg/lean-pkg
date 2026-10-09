@@ -9,6 +9,14 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- Committed mode for a registry kept in git: global `--commit` (env
+  `LEAN_PKG_COMMIT=1`) makes every write command fetch `origin` and
+  `pull --ff-only` first (refusing a diverged clone or registry files that
+  are already modified), then commit `lean-packages.yaml` and
+  `lean-package-events.jsonl` together as `lean-pkg: <event> <name>`;
+  `--push` (env `LEAN_PKG_PUSH=1`) also pushes, exiting 1 with the manual
+  `git push` command when that fails. `--no-commit` overrides both. Reports
+  go to stderr; stdout and `--json` payloads are unchanged. (#7)
 - `lean-pkg renew NAME --agent A [--ttl H]`: holder-only restart of a live
   lease (event `claim-refreshed`); refuses when there is no lease, another
   agent holds it, or it has already lapsed, instead of silently recording a

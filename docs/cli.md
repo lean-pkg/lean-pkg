@@ -4,9 +4,17 @@ title: CLI reference
 
 [&larr; lean-pkg documentation](index.md)
 
-Global flags: `--registry PATH`, `--events PATH`, `--json`, `--version` (prints
-`lean-pkg <version>`, exit 0). Every subcommand
-also accepts `--json` after its name. Exit codes: 0 success or dry run,
+Global flags: `--registry PATH`, `--events PATH`, `--json`, `--commit`,
+`--push`, `--no-commit`, `--version` (prints `lean-pkg <version>`, exit 0).
+Every subcommand also accepts `--json`, `--commit` and `--push` after its name.
+Committed mode (`--commit`, or env `LEAN_PKG_COMMIT=1`) applies to the write
+commands only: before writing it requires the registry inside a git work tree
+on a branch with the registry file and event log unmodified, fetches `origin`
+and fast-forwards (`pull --ff-only`; a diverged clone is refused); after a
+successful write it commits exactly those two files together with the message
+`lean-pkg: <event> <name>`. `--push` (env `LEAN_PKG_PUSH=1`) also pushes to
+`origin`; a failed push exits 1 and keeps the commit. `--no-commit` overrides
+both variables. Its reports go to stderr; stdout and `--json` are unchanged. Exit codes: 0 success or dry run,
 1 refusal or validation failure (reason on stderr; with `--json` also
 `{"ok": false, "error": ...}` on stdout), 2 usage error or a prompt attempted
 off a terminal.
