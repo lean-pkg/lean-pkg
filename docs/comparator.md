@@ -535,6 +535,19 @@ the binding (`commit`, `lean_toolchain`, `config_hash`) and, per stage,
 `<project>/.lake/comparator-receipt`, which the runner leaves out of its
 dirty-tree check.
 
+The judge in the `comparator` stage streams too. It runs with stdin from
+`/dev/null`, its stdout and stderr merged into one pipe that a reader thread
+drains line by line into `04-comparator.log` (and the runner's stdout) as the
+lines arrive, under `stdbuf -oL -eL` when `stdbuf` exists (Lean's
+`IO.println` is fully buffered on a pipe, so without it `lake comparator`'s
+own phase lines would appear only at exit) and with `PYTHONUNBUFFERED=1`.
+While the judge prints nothing, a `heartbeat:` line every 60 seconds
+(`COMPARATOR_HEARTBEAT_SECONDS`) gives its run time, how long it has been
+silent and the size of the files in its private `TMPDIR`, where
+`lake comparator` writes its exports. The judge runs in its own process group: a
+TERM, INT or HUP to the runner (an external `timeout`, Slurm's time limit)
+kills the whole judge tree, and the error names the signal.
+
 `comparator-receipt --prepare` runs only the setup stages and writes no
 receipt. It is idempotent: a second `--prepare` with a matching completed
 setup does nothing. A later `comparator-receipt` whose commit, toolchain and

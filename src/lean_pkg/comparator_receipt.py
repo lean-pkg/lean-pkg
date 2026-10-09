@@ -45,6 +45,7 @@ from .cli import comparator_pass  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
+from .comparator_stage import Interrupted, Judge, SignalGuard, StageLog, run_pool  # noqa: E402
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -637,32 +638,42 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         log_dir = pathlib.Path(tmp) / "logs"
         result: dict = {}
 
+        def judge(cmd: list[str], env: dict, log: pathlib.Path, slog: StageLog, label: str) -> tuple[int, str]:
+            """One streamed judge run (#39): (exit code, the judge's merged output)."""
+            j = Judge(cmd, project, env, log, slog, label, tmpdir=pathlib.Path(tmp) / "judge-tmp")
+            j.start()
+            run_pool([j], 1, lambda job: job, lambda job, jd: True)
+            return j.returncode, log.read_text(encoding="utf-8", errors="replace")
+
         def comparator_stage(stage_log: pathlib.Path):
+            slog = StageLog(stage_log, echo=sys.stdout)
+            try:
+                with SignalGuard():
+                    return judged(slog)
+            except Interrupted as e:
+                slog.write(f"comparator-receipt: {e}; judge process group killed")
+                raise StageError(f"{e}; the judge was killed; nothing written", 128 + e.signum)
+            finally:
+                slog.close()
+
+        def judged(slog: StageLog):
+            log_dir.mkdir(parents=True)
             if mechanism == "legacy":
                 env = scrubbed_env()
                 env["LOG_DIR"] = str(log_dir)
-                p = subprocess.run(["bash", str(check)], cwd=project, env=env,
-                                   capture_output=True, text=True)
-                stage_log.write_text(p.stdout + (("\n" + p.stderr) if p.stderr else ""), encoding="utf-8")
-                sys.stdout.write(p.stdout)
-                if p.returncode != 0:
-                    sys.stderr.write(p.stderr)
-                    raise StageError(f"comparator-check exited {p.returncode}; nothing written", p.returncode)
-                result["tools"] = parse_pins(p.stdout)
+                rc, out = judge(["bash", str(check)], env, pathlib.Path(tmp) / "comparator-check.out",
+                                slog, "comparator-check.sh")
+                if rc != 0:
+                    raise StageError(f"comparator-check exited {rc}; nothing written", rc)
+                result["tools"] = parse_pins(out)
             else:
-                log_dir.mkdir(parents=True)
                 for cfg_rel in configs:
-                    p = subprocess.run(["bash", str(verify), cfg_rel], cwd=project,
-                                       capture_output=True, text=True, env=scrubbed_env())
-                    log_text = p.stdout + (("\n" + p.stderr) if p.stderr else "")
-                    (log_dir / f"{cfg_name(cfg_rel)}.log").write_text(log_text, encoding="utf-8")
-                    with open(stage_log, "a", encoding="utf-8") as fh:
-                        fh.write(f"== {cfg_rel}\n{log_text}\n")
-                    sys.stdout.write(p.stdout)
-                    if p.returncode != 0 or not comparator_pass(log_text, "toolchain"):
-                        sys.stderr.write(p.stderr)
+                    slog.write(f"== {cfg_rel}")
+                    rc, out = judge(["bash", str(verify), cfg_rel], scrubbed_env(),
+                                    log_dir / f"{cfg_name(cfg_rel)}.log", slog, cfg_rel)
+                    if rc != 0 or not comparator_pass(out, "toolchain"):
                         raise StageError(f"{cfg_rel}: lake comparator did not accept the solution "
-                                         f"(exit {p.returncode}); nothing written", p.returncode)
+                                         f"(exit {rc}); nothing written", rc)
                 result["tools"] = toolchain_tools(project, verify, toolchain)
             return "ok", 0, f"{len(configs)} config(s) accepted ({mechanism})"
 
