@@ -91,8 +91,14 @@ def test_validate_checks_doi_binding_on_v1_registry(lp, tmp_path, capsys):
     """The D5 binding rule applies whenever the keys are present, migrated or not."""
     reg = copy_v1(tmp_path)
     c = "0123456789abcdef0123456789abcdef01234567"
+    before = reg.read_text()
     assert lp.main(["--registry", str(reg), "record", "beta", "doi-minted", "--field", "doi=10.5281/zenodo.9",
-                    "--field", "tag=v1.0.0", "--field", f"commit={c}"]) == 0
+                    "--field", "tag=v1.0.0", "--field", f"commit={c}"]) == 1   # record refuses (#16) ...
+    assert "rule doi-in-palomar" in capsys.readouterr().err and reg.read_text() == before
+    data = yaml.safe_load(reg.read_text())                                     # ... a legacy entry is flagged
+    data["packages"]["beta"]["doi"] = {"concept": None, "versions": [
+        {"doi": "10.5281/zenodo.9", "tag": "v1.0.0", "commit": c, "minted_at": "2026-10-01T00:00:00+00:00"}]}
+    reg.write_text(yaml.safe_dump(data, sort_keys=False))
     assert lp.main(["--registry", str(reg), "validate"]) == 1
     out = capsys.readouterr().out
     assert c[:12] in out and "palomar" in out

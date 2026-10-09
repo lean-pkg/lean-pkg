@@ -26,8 +26,8 @@ active -> gate-pending             lower-tier check submitted (terminal executor
 gate-pending -> verified-private   `gate` accepts a receipt (schema below)
 public -> public                   `gate` on an already-public package records evidence; status unchanged
 verified-private -> public         `promote --yes` after a clean dry-run checklist; ONE-WAY flip
-public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
-any -> archived                    `audit --fix` (gh isArchived) or maintainer decision
+public -> upstreamed               `update --status`: a recorded mathlib-pr-merged / palomar-registered event, or a --reason with the URL
+any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public never returns to a private status
 
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS; --version prints the version)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
@@ -36,12 +36,13 @@ status    full record + last 5 history entries.        ex: lean-pkg status my-le
 init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
-record    record a D5 evidence event; required --field keys per event:
+record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys:
           consent-recorded: who role pointer | palomar-preflight-pass: commit run
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
-          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version
-          doi-minted: doi tag commit [concept] | reservoir-listed: url (the package's https://reservoir.lean-lang.org/@owner/name page;
-          verified against Reservoir's API: 404 refuses, unreachable records verified=false) | mathlib-pr-opened: url
+          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version | mathlib-pr-opened, mathlib-pr-merged: url
+          doi-minted: doi tag commit [concept] (rule doi-in-palomar: commit already recorded by a palomar-* event) | reservoir-listed: url (the
+          package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false)
+          retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
@@ -49,7 +50,7 @@ register  add a package; dedupes by name AND local_path; auto-detects toolchain 
          [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields of a registered package; manual status moves need --reason.
+update    set fields; manual status moves need --reason (a refusal lists the allowed moves). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Refuses same
   path, another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
@@ -77,7 +78,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events, registry-repo (behind/ahead of origin, dirty registry files: warn = do not write yet; --fetch first), index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported.
+doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events, registry-repo (behind/ahead of origin, dirty registry files: warn = do not write yet; --fetch first), index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
@@ -170,7 +171,7 @@ EVENT LINE SCHEMA (one JSON object per line; the same entry is appended to histo
 ts      ISO-8601 timestamp
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
         released, release-forced, lease-expired, gate-passed, promoted, audit-fix, relocated, status-changed,
-        comparator-attached, index-added, claims-synced, prior-art-searched, and the evidence events listed under `record`
+        comparator-attached, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`
 name    package name or null
 plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt, ...)
 

@@ -40,8 +40,11 @@ scratch | active | gate-pending | verified-private | public | upstreamed | archi
 | gate-pending -> verified-private | `gate` | a valid lower-tier receipt, optionally with comparator evidence |
 | verified-private -> gate-pending | `update --status` | re-certification after a content change |
 | verified-private -> public | `promote --yes` | clean checklist, including a comparator PASS |
-| public -> upstreamed | maintainer | Mathlib PR merged or Palomar entry |
-| scratch/active/gate-pending/verified-private -> archived | `update --status`, or `audit --fix` from GitHub's archived flag | — |
+| public -> upstreamed | `update --status` | a recorded `mathlib-pr-merged` or `palomar-registered` event (not retracted, not withdrawn), or a `--reason` containing the URL |
+| any status -> archived | `update --status --reason`, or `audit --fix` from GitHub's archived flag | — |
+
+Public is one-way: from `public` the only moves are to `upstreamed` and
+`archived`. A refused move names the moves allowed from the current status.
 
 ## Leases
 

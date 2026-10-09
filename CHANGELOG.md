@@ -72,6 +72,35 @@ change the registry schema or receipt format, always with a migration).
   MarkovProcess; fresh lower-tier and comparator receipts (toolchain
   mechanism).
 
+### Fixed
+
+- `record` validates the would-be registry before writing: an evidence event
+  that introduces a schema error is refused with the rule named (for example
+  rule doi-in-palomar: a `doi-minted` commit must already be recorded by a
+  `palomar-*` event), nothing is written, and `--json` prints
+  `{"ok": false, ...}`. Before, such an event was saved and then blocked every
+  later `update`/`register`. (#16)
+- `update`, `register` and `record` no longer refuse because of schema errors
+  already in the registry (another package's, say): those are reported on
+  stderr as `pre-existing (not caused by this change): ...` and in `--json` as
+  `preexisting_errors`; an error the change itself introduces still refuses.
+  (#16)
+- `record NAME retract --field event=E --field ts=T --reason TEXT` is the
+  append-only correction path for a wrong evidence entry: the entry stays in
+  `history[]`, an `evidence-retracted` entry names it, and `validate` and the
+  upstreamed check ignore it. (#16)
+- The documented transitions now exist: `update --status upstreamed` from
+  `public` (needs a recorded `mathlib-pr-merged`, a new evidence event, or
+  `palomar-registered`, or a `--reason` containing the URL) and
+  `update --status archived` from any status, including `public` and
+  `upstreamed`; public still never returns to a private status. A refused
+  move lists the moves allowed from the current status. (#16)
+- Every command except `doctor` refuses a registry whose schema version is
+  newer than this lean-pkg supports (`registry schema version 9 is not
+  supported (supported: 1, 2, 3)`, exit 1) instead of showing an empty table;
+  `doctor` still reports it as a warning, and `migrate` of older versions is
+  unchanged. (#16)
+
 ## [0.5.0] - 2026-10-08
 
 ### Added

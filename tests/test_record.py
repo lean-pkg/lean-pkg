@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 
-from .conftest import read_events, read_reg, repo_head
+from .conftest import read_events, read_reg, repo_head, write_reg
 
 C = "0123456789abcdef0123456789abcdef01234567"
 
@@ -72,9 +72,11 @@ def test_doi_minted_appends_version(lp, env):
 
 
 def test_validate_rejects_doi_commit_not_registered(lp, env, capsys):
-    assert rec(lp, env, "beta", "doi-minted", "doi=10.5281/zenodo.123", "tag=v1.0.0",
-               f"commit={C}") == 0          # recording is allowed ...
-    assert lp.main(["--registry", str(env.registry), "validate"]) == 1   # ... validate flags it
+    reg = read_reg(env)                 # a legacy entry, written before record validated (#16)
+    reg["packages"]["beta"]["doi"] = {"concept": None, "versions": [
+        {"doi": "10.5281/zenodo.123", "tag": "v1.0.0", "commit": C, "minted_at": "2026-10-01T00:00:00+00:00"}]}
+    write_reg(env, reg)
+    assert lp.main(["--registry", str(env.registry), "validate"]) == 1   # validate flags it
     out = capsys.readouterr().out
     assert C[:12] in out and "palomar" in out
 

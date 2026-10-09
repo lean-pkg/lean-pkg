@@ -66,6 +66,7 @@ Constraints enforced here:
 from __future__ import annotations
 
 import argparse
+import collections
 import copy
 import datetime as dt
 import hashlib
@@ -115,7 +116,9 @@ EVIDENCE_EVENTS = {
     "doi-minted":              ("doi", "tag", "commit"),
     "reservoir-listed":        ("url",),
     "mathlib-pr-opened":       ("url",),
+    "mathlib-pr-merged":       ("url",),
 }
+RETRACT_EVENT = "retract"   # `record NAME retract`: append-only correction of an evidence entry
 _HEX40 = re.compile(r"[0-9a-f]{40}")
 RESERVOIR_URL_RE = re.compile(r"^https://reservoir\.lean-lang\.org/@([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/?$")
 RESERVOIR_API = "https://reservoir.lean-lang.org/api/v1/packages/{owner}/{name}"
@@ -378,7 +381,7 @@ def detect_mathlib_pin(repo: pathlib.Path) -> tuple[str | None, str | None]:
 # --------------------------------------------------------------------------
 # registry IO, events
 
-def load_registry(path: pathlib.Path) -> dict:
+def load_registry(path: pathlib.Path, *, check_version: bool = True) -> dict:
     if not path.is_file():
         raise Fail(f"registry not found: {path}")
     try:
@@ -387,6 +390,13 @@ def load_registry(path: pathlib.Path) -> dict:
         raise Fail(f"registry is not valid YAML: {e}")
     if not isinstance(data, dict) or not isinstance(data.get("packages"), dict):
         raise Fail(f"registry has no top-level 'packages' map: {path}")
+    v = data.get("version")
+    if check_version and isinstance(v, int) and not isinstance(v, bool) \
+            and v > max(SUPPORTED_REGISTRY_VERSIONS):
+        # A newer schema read by an older lean-pkg: refuse rather than show a silently partial view.
+        raise Fail(f"registry schema version {v} is not supported (supported: "
+                   f"{', '.join(map(str, SUPPORTED_REGISTRY_VERSIONS))}); this lean-pkg is older than the "
+                   f"registry: upgrade lean-pkg (`lean-pkg migrate` upgrades only older registries)")
     return data
 
 
@@ -470,6 +480,59 @@ def record(reg: dict, events_p: pathlib.Path, pkg: dict, event: str, **fields) -
     ts = now_iso()
     pkg.setdefault("history", []).append({"ts": ts, "event": event, **fields})
     append_event(events_p, ts, pkg.get("name"), event, **fields)
+
+
+# Validator rules a refusal names, keyed by a substring of the validator's message.
+RULE_HINTS = {
+    "matches no palomar entry": "rule doi-in-palomar: a doi-minted commit must already be recorded by a "
+                                "palomar-* event on the package (record that first)",
+}
+
+
+def _err_key(e: str) -> str:
+    """Comparison form of a validator message: a trailing parenthetical (a context listing) is dropped."""
+    return re.sub(r" \([^()]*\)$", "", e)
+
+
+def split_new_errors(before: list[str], after: list[str]) -> tuple[list[str], list[str]]:
+    """(errors this change introduces or repeats beyond the count before, pre-existing errors it leaves)."""
+    left = collections.Counter(_err_key(e) for e in before)
+    new, old = [], []
+    for e in after:
+        k = _err_key(e)
+        if left[k] > 0:
+            left[k] -= 1
+            old.append(e)
+        else:
+            new.append(next((f"{e} [{h}]" for m, h in RULE_HINTS.items() if m in e), e))
+    return new, old
+
+
+def report_preexisting(errors: list[str]) -> None:
+    """Pre-existing schema errors do not block an unrelated write; they are reported on stderr."""
+    for e in errors:
+        print(f"lean-pkg: pre-existing (not caused by this change): {e}", file=sys.stderr)
+
+
+def _fingerprint(entry: dict) -> str:
+    return json.dumps(entry, sort_keys=True, default=str)
+
+
+def retracted_entries(pkg: dict) -> list[dict]:
+    """Copies of the history entries that evidence-retracted entries retract (each stores its target verbatim,
+    so a later entry with the same event and ts is not swept up)."""
+    hist = pkg.get("history") if isinstance(pkg, dict) else None
+    return [h["retracted_entry"] for h in (hist if isinstance(hist, list) else [])
+            if isinstance(h, dict) and h.get("event") == "evidence-retracted"
+            and isinstance(h.get("retracted_entry"), dict)]
+
+
+def live_history(pkg: dict) -> list[dict]:
+    """history[] without the entries an evidence-retracted entry retracts."""
+    gone = {_fingerprint(e) for e in retracted_entries(pkg)}
+    hist = pkg.get("history") if isinstance(pkg, dict) else None
+    return [h for h in (hist if isinstance(hist, list) else []) if isinstance(h, dict)
+            and _fingerprint(h) not in gone]
 
 
 def get_pkg(reg: dict, name: str) -> dict:
@@ -758,7 +821,39 @@ MANUAL_TRANSITIONS = {
                                            # fresh receipt for the new commit
     ("scratch", "archived"), ("active", "archived"),
     ("gate-pending", "archived"), ("verified-private", "archived"),
+    ("public", "upstreamed"),        # needs upstream evidence or a --reason URL
+                                     # (see upstream_evidence); public stays
+                                     # one-way: no move back to a private status
+    ("public", "archived"), ("upstreamed", "archived"),
 }
+# Status moves a dedicated subcommand makes; a refusal names them next to the manual moves.
+SUBCOMMAND_TRANSITIONS = {
+    ("gate-pending", "verified-private"): "lean-pkg gate --receipt R",
+    ("verified-private", "public"): "lean-pkg promote --yes",
+}
+UPSTREAM_EVIDENCE_EVENTS = ("mathlib-pr-merged", "palomar-registered")
+URL_RE = re.compile(r"https?://\S+")
+
+
+def allowed_moves(old) -> str:
+    """The moves out of status `old`, for a refusal: manual ones, then the subcommands' ones."""
+    moves = sorted(b for a, b in MANUAL_TRANSITIONS if a == old)
+    moves += [f"{b} (via {cmd})" for (a, b), cmd in SUBCOMMAND_TRANSITIONS.items() if a == old]
+    return ", ".join(moves) or "none"
+
+
+def upstream_evidence(pkg: dict) -> list[str]:
+    """Unretracted mathlib-pr-merged / palomar-registered events (a withdrawn Palomar entry does not count)."""
+    hist = live_history(pkg)
+    withdrawn = {(str(h.get("id")), str(h.get("version"))) for h in hist if h.get("event") == "palomar-withdrawn"}
+    out = []
+    for h in hist:
+        if h.get("event") == "mathlib-pr-merged":
+            out.append(f"mathlib-pr-merged {h.get('url')}")
+        elif h.get("event") == "palomar-registered" \
+                and (str(h.get("id")), str(h.get("version"))) not in withdrawn:
+            out.append(f"palomar-registered {h.get('id')} v{h.get('version')}")
+    return out
 
 
 def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
@@ -818,7 +913,13 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
                 hint = {"verified-private": "lean-pkg gate --receipt R",
                         "public": "lean-pkg promote --yes"}.get(status)
                 raise Fail(f"{name}: {old} -> {status} is not a manual transition"
-                           + (f" — use {hint}" if hint else ""))
+                           + (f" — use {hint}" if hint else "")
+                           + f"; allowed from {old}: {allowed_moves(old)}")
+            if status == "upstreamed" and not upstream_evidence(pkg) and not URL_RE.search(reason):
+                raise Fail(f"{name}: public -> upstreamed needs evidence: a recorded "
+                           f"{' or '.join(UPSTREAM_EVIDENCE_EVENTS)} event (`lean-pkg record {name} "
+                           f"mathlib-pr-merged --field url=URL`), or a --reason containing the merged PR / "
+                           f"Palomar URL (http...)")
             changes["status"] = (old, status)
 
     if not changes:
@@ -827,14 +928,17 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
         payload = {"ok": True, "name": name, "event": "update-noop", "changes": {}}
         return ([f"{name}: already up to date; nothing written"], payload)
 
+    before = validate_registry(reg)
     for field, (_old, new) in changes.items():
         pkg[field] = new
 
-    errors = validate_registry(reg)
+    errors, preexisting = split_new_errors(before, validate_registry(reg))
     if errors:
-        # Never persist a registry that fails its own schema.
+        # Never persist a schema error this change introduces; errors already in the
+        # registry (another package's, say) are reported and do not block.
         raise Fail(f"{name}: update would break the registry schema:\n  "
                    + "\n  ".join(errors))
+    report_preexisting(preexisting)
 
     record(reg, events_p, pkg, "updated",
            fields=sorted(changes), reason=reason or "", forced=bool(force),
@@ -847,6 +951,8 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
     payload = {"ok": True, "name": name, "event": "updated",
                "changes": {f: {"from": o, "to": n} for f, (o, n) in changes.items()},
                "reason": reason or "", "forced": bool(force)}
+    if preexisting:
+        payload["preexisting_errors"] = preexisting
     return (out, payload)
 
 
@@ -968,10 +1074,11 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
         tp["claims_synced_commit"], tp["claims"] = None, []
     for field, v in redetected.items():
         tp[field] = v["to"]
-    errors = validate_registry(trial)
+    errors, preexisting = split_new_errors(validate_registry(reg), validate_registry(trial))
     if errors:
         raise Fail(f"{name}: relocation would break the registry schema:\n  "
                    + "\n  ".join(errors))
+    report_preexisting(preexisting)
     for field in ("local_path", "gate", "status", "claims_synced_commit", "claims",
                   *redetected):
         if field in tp:
@@ -1516,12 +1623,18 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
         lines.append("DRY RUN — nothing written. Re-run without --dry-run "
                      "to register.")
         return lines, payload
+    before = validate_registry(reg)
     pkgs[name] = entry
-    errors = validate_registry(reg)  # safety net: never write an invalid registry
+    # safety net: never write a schema error this registration introduces; pre-existing
+    # errors on other packages are reported on stderr and do not block
+    errors, preexisting = split_new_errors(before, validate_registry(reg))
     if errors:
         del pkgs[name]
         raise Fail("register would produce an invalid registry: "
                    + "; ".join(errors))
+    report_preexisting(preexisting)
+    if preexisting:
+        payload["preexisting_errors"] = preexisting
     record(reg, events_p, entry, "registered", repo=repo,
            local_path=local_path, status=status, visibility=visibility,
            lean_toolchain=toolchain, mathlib_pin=mathlib_pin,
@@ -1610,10 +1723,62 @@ def _palomar_entry(pkg: dict, commit: str) -> dict:
     return e
 
 
+def do_retract(reg_path, reg, events_p, name, fields: dict, reason: str) -> tuple[list[str], dict]:
+    """record NAME retract --field event=E --field ts=T --reason R: mark an evidence entry retracted.
+
+    Append-only: the entry stays in history[]; an evidence-retracted entry names it, and the validator
+    and the upstream-evidence check ignore what it names."""
+    missing = [f for f in ("event", "ts") if not str(fields.get(f, "")).strip()]
+    if missing:
+        raise Fail(f"retract requires --field for: {', '.join(missing)} (the event name and ts of the "
+                   f"history entry to retract; see `lean-pkg status {name} --json`)")
+    unknown = sorted(set(fields) - {"event", "ts"})
+    if unknown:
+        raise Fail(f"retract: unknown --field key(s) {', '.join(unknown)}; allowed: event, ts")
+    if not (reason or "").strip():
+        raise Fail("retract requires --reason (why the evidence entry is wrong)")
+    target, ts = str(fields["event"]).strip(), str(fields["ts"]).strip()
+    if target not in EVIDENCE_EVENTS:
+        raise Fail(f"retract: {target!r} is not an evidence event; one of {sorted(EVIDENCE_EVENTS)}")
+    pkg = get_pkg(reg, name)
+    hits = [h for h in pkg.get("history") or []
+            if isinstance(h, dict) and h.get("event") == target and str(h.get("ts")) == ts]
+    if not hits:
+        known = [str(h.get("ts")) for h in pkg.get("history") or []
+                 if isinstance(h, dict) and h.get("event") == target]
+        raise Fail(f"{name}: no {target} history entry at ts {ts} (recorded at: {', '.join(known) or 'none'})")
+    gone = {_fingerprint(e) for e in retracted_entries(pkg)}
+    hits = [h for h in hits if _fingerprint(h) not in gone]
+    if not hits:
+        raise Fail(f"{name}: {target} at {ts} is already retracted")
+    if len(hits) > 1:
+        raise Fail(f"{name}: {len(hits)} {target} entries share ts {ts}; retract cannot tell them apart")
+    entry = {"retracted_event": target, "retracted_ts": ts, "retracted_entry": copy.deepcopy(hits[0]),
+             "reason": reason}
+    trial = copy.deepcopy(reg)
+    trial["packages"][name].setdefault("history", []).append(
+        {"ts": now_iso(), "event": "evidence-retracted", **entry})
+    errors, preexisting = split_new_errors(validate_registry(reg), validate_registry(trial))
+    if errors:
+        raise Fail(f"{name}: retract would break the registry schema:\n  " + "\n  ".join(errors))
+    report_preexisting(preexisting)
+    record(reg, events_p, pkg, "evidence-retracted", **entry)
+    save_registry(reg_path, reg)
+    payload = {"ok": True, "name": name, "event": "evidence-retracted",
+               "retracted": {"event": target, "ts": ts}, "reason": reason}
+    if preexisting:
+        payload["preexisting_errors"] = preexisting
+    return [f"{name}: {target} at {ts} retracted"], payload
+
+
 def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -> tuple[list[str], dict]:
-    """Record a D5 evidence event: required fields checked, registry effect applied, event appended."""
+    """Record a D5 evidence event: required fields checked, registry effect applied, the would-be registry
+    validated (a schema error this event introduces refuses; nothing is written), event appended."""
+    if event == RETRACT_EVENT:
+        return do_retract(reg_path, reg, events_p, name, fields, reason)
     if event not in EVIDENCE_EVENTS:
-        raise Fail(f"unknown evidence event {event!r}; one of {sorted(EVIDENCE_EVENTS)}")
+        raise Fail(f"unknown evidence event {event!r}; one of {sorted(EVIDENCE_EVENTS)} "
+                   f"(or {RETRACT_EVENT})")
     missing = [f for f in EVIDENCE_EVENTS[event] if not str(fields.get(f, "")).strip()]
     if missing:
         raise Fail(f"{event} requires --field for: {', '.join(missing)}")
@@ -1625,7 +1790,11 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
                    f"use --reason for free text)")
     if "commit" in fields and not _HEX40.fullmatch(str(fields["commit"])):
         raise Fail(f"commit must be a 40-hex sha, got {fields['commit']!r}")
-    pkg = get_pkg(reg, name)
+    get_pkg(reg, name)
+    before = validate_registry(reg)
+    original = reg
+    reg = copy.deepcopy(reg)                      # effects go to a copy until the result validates
+    pkg = reg["packages"][name]
     for k, d in V2_PACKAGE_DEFAULTS.items():      # tolerate a v1 registry
         pkg.setdefault(k, copy.deepcopy(d))
     ts = now_iso()
@@ -1683,10 +1852,21 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
         if not verified:
             extra_out.append(f"reservoir listing unverified (API status {status!r}; network "
                              f"unreachable or unexpected); re-run `record` later to verify")
-    record(reg, events_p, pkg, event, reason=reason or "", **fields)
-    save_registry(reg_path, reg)
-    return [f"{name}: {event} recorded", *extra_out], {"ok": True, "name": name, "event": event,
-                                                       "fields": fields, "notes": extra_out}
+    trial = copy.deepcopy(reg)
+    trial["packages"][name].setdefault("history", []).append(
+        {"ts": ts, "event": event, "reason": reason or "", **fields})
+    errors, preexisting = split_new_errors(before, validate_registry(trial))
+    if errors:
+        raise Fail(f"{name}: {event} would break the registry schema; nothing written:\n  "
+                   + "\n  ".join(errors))
+    report_preexisting(preexisting)
+    original["packages"][name] = pkg
+    record(original, events_p, pkg, event, reason=reason or "", **fields)
+    save_registry(reg_path, original)
+    payload = {"ok": True, "name": name, "event": event, "fields": fields, "notes": extra_out}
+    if preexisting:
+        payload["preexisting_errors"] = preexisting
+    return [f"{name}: {event} recorded", *extra_out], payload
 
 def promote_checklist(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
     """(mark, label) pairs; mark in {'✓', '✗', 'WARN'}."""
@@ -2075,8 +2255,12 @@ def validate_registry(data) -> list[str]:
             doi = pkg.get("doi")
             if isinstance(doi, dict):
                 pal_commits = [e.get("commit") for e in (pkg.get("palomar") or []) if isinstance(e, dict)]
+                retracted = {(str(h.get("doi")), str(h.get("commit")), str(h.get("tag")))   # ignored versions
+                             for h in retracted_entries(pkg) if h.get("event") == "doi-minted"}
                 for v in doi.get("versions") or []:
                     c = str((v or {}).get("commit") or "")
+                    if isinstance(v, dict) and (str(v.get("doi")), c, str(v.get("tag"))) in retracted:
+                        continue
                     if c and c not in pal_commits:
                         known = ", ".join(str(x)[:12] for x in pal_commits) or "none"
                         errors.append(f"{pfx}: doi {v.get('doi')} commit {c[:12]} matches no "
@@ -2618,8 +2802,8 @@ active -> gate-pending             lower-tier check submitted (terminal executor
 gate-pending -> verified-private   `gate` accepts a receipt (schema below)
 public -> public                   `gate` on an already-public package records evidence; status unchanged
 verified-private -> public         `promote --yes` after a clean dry-run checklist; ONE-WAY flip
-public -> upstreamed               mathlib PR merged or Palomar entry; record link in notes
-any -> archived                    `audit --fix` (gh isArchived) or maintainer decision
+public -> upstreamed               `update --status`: a recorded mathlib-pr-merged / palomar-registered event, or a --reason with the URL
+any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public never returns to a private status
 
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS; --version prints the version)
 board     TUI on a tty, static table otherwise.       ex: lean-pkg board
@@ -2628,12 +2812,13 @@ status    full record + last 5 history entries.        ex: lean-pkg status my-le
 init      bootstrap an empty registry + event log.    ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
-record    record a D5 evidence event; required --field keys per event:
+record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys:
           consent-recorded: who role pointer | palomar-preflight-pass: commit run
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
-          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version
-          doi-minted: doi tag commit [concept] | reservoir-listed: url (the package's https://reservoir.lean-lang.org/@owner/name page;
-          verified against Reservoir's API: 404 refuses, unreachable records verified=false) | mathlib-pr-opened: url
+          palomar-registered: commit id version comparator_config | palomar-withdrawn: id version | mathlib-pr-opened, mathlib-pr-merged: url
+          doi-minted: doi tag commit [concept] (rule doi-in-palomar: commit already recorded by a palomar-* event) | reservoir-listed: url (the
+          package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false)
+          retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
 register  add a package; dedupes by name AND local_path; auto-detects toolchain + mathlib pin.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
@@ -2641,7 +2826,7 @@ register  add a package; dedupes by name AND local_path; auto-detects toolchain 
          [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields of a registered package; manual status moves need --reason.
+update    set fields; manual status moves need --reason (a refusal lists the allowed moves). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Refuses same
   path, another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
@@ -2669,7 +2854,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; repo not on GitHub -> no-github-mirror (human: one line). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events, registry-repo (behind/ahead of origin, dirty registry files: warn = do not write yet; --fetch first), index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported.
+doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events, registry-repo (behind/ahead of origin, dirty registry files: warn = do not write yet; --fetch first), index, tools, python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract.                               ex: lean-pkg llms
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, ./index).
@@ -2762,7 +2947,7 @@ EVENT LINE SCHEMA (one JSON object per line; the same entry is appended to histo
 ts      ISO-8601 timestamp
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
         released, release-forced, lease-expired, gate-passed, promoted, audit-fix, relocated, status-changed,
-        comparator-attached, index-added, claims-synced, prior-art-searched, and the evidence events listed under `record`
+        comparator-attached, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`
 name    package name or null
 plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt, ...)
 
@@ -3262,7 +3447,7 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
     reg_ok = True
     reg_p, source = registry_source(args)
     try:
-        data = load_registry(reg_p)
+        data = load_registry(reg_p, check_version=False)   # doctor reports an unsupported version itself
         ver = data.get("version")
         level = "ok" if ver in SUPPORTED_REGISTRY_VERSIONS else "warn"
         reg_ok = level == "ok"
@@ -3392,7 +3577,8 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("record", help="record a publication evidence event (consent, Palomar, DOI, Reservoir, Mathlib PR)")
     s.add_argument("name")
-    s.add_argument("event", help="one of: " + ", ".join(EVIDENCE_EVENTS))
+    s.add_argument("event", help="one of: " + ", ".join(EVIDENCE_EVENTS) + f", or {RETRACT_EVENT} "
+                   "(--field event=E --field ts=T --reason TEXT: mark an evidence entry retracted)")
     s.add_argument("--field", action="append", metavar="KEY=VALUE",
                    help="event field (repeatable); required keys per event are listed by `lean-pkg llms`")
     s.add_argument("--reason", default="", help="free-text reason stored with the event")

@@ -42,8 +42,11 @@ scratch | active | gate-pending | verified-private | public | upstreamed | archi
 | public → public | `gate` | a package that was public before it was ever gated (for example a collaborator-owned repository): the receipt and the `gate-passed` event are recorded, the status does not change |
 | verified-private → gate-pending | `update --status` | re-certification after a content change |
 | verified-private → public | `promote --yes` | clean checklist, including a byte-valid comparator PASS |
-| public → upstreamed | maintainer | Mathlib PR merged or Palomar entry |
-| scratch / active / gate-pending / verified-private → archived | `update --status`, or `audit --fix` from GitHub's archived flag | — |
+| public → upstreamed | `update --status` | a recorded `mathlib-pr-merged` or `palomar-registered` event (not retracted, not withdrawn), or a `--reason` containing the URL |
+| any status → archived | `update --status --reason`, or `audit --fix` from GitHub's archived flag | — |
+
+Public is one-way: from `public` the only moves are to `upstreamed` and
+`archived`. A refused move names the moves allowed from the current status.
 
 ## Leases
 
@@ -61,10 +64,10 @@ event-specific fields. Event names: `registry-created`, `registered`,
 `updated`, `claimed`, `claim-refreshed`, `claim-forced`, `released`,
 `release-forced`, `lease-expired`, `gate-passed`, `comparator-attached`,
 `promoted`, `audit-fix`, `registry-migrated`, `index-added` (event log only,
-not `history[]`), and the evidence events written
+not `history[]`), `evidence-retracted`, and the evidence events written
 by `record`: `consent-recorded`, `palomar-preflight-pass`, `palomar-submitted`,
 `palomar-review`, `palomar-registered`, `palomar-withdrawn`, `doi-minted`,
-`reservoir-listed`, `mathlib-pr-opened`. The same entry is appended to the
+`reservoir-listed`, `mathlib-pr-opened`, `mathlib-pr-merged`. The same entry is appended to the
 package's `history[]`.
 
 ## Non-interactive by default
