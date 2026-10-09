@@ -17,6 +17,11 @@ change the registry schema or receipt format, always with a migration).
   `--from-output` and `--challenge-from-type` refuse such a run (exit 1, counts named, nothing
   written) unless `--allow-partial`, which uses the filled entries and keeps the rest as TODO with
   `restatement_reason: extraction_failed`. (#30)
+- The type driver no longer runs more Lean processes than the CPUs it may use (default
+  `min(2, CPUs)`, decided on the host that runs it, Slurm allocation included), and when a
+  declaration fails with "too many open files" (ENFILE/EMFILE, typical on Lustre/NFS) it halves
+  the workers and retries those declarations, at least two rounds down to one worker, recording
+  the rounds in `summary.backoff`. `LEAN_PKG_TYPES_BACKOFF_SECONDS` sets the pause. (#30)
 
 ## [0.7.5] - 2026-10-09
 

@@ -42,6 +42,16 @@ src = open(args[2], encoding="utf-8").read()
 comps = re.findall(r'\.str "([^"]*)"', src)
 imp = re.search(r"^import (\S+)$", src, re.M).group(1)
 decl = ".".join(comps)
+if os.environ.get("FAKE_LAKE_ENFILE_FIRST"):
+    import fcntl
+    with open(log + ".count", "a+") as c:          # calls so far, across concurrent processes
+        fcntl.flock(c, fcntl.LOCK_EX)
+        c.seek(0)
+        n = len(c.read())
+        c.write("x")
+    if n < int(os.environ["FAKE_LAKE_ENFILE_FIRST"]):
+        print("error: " + args[2] + ": Too many open files in system (error code: 23)")
+        sys.exit(1)
 if os.environ.get("FAKE_LAKE_FAIL_ALL"):
     print("lake: error: something broke")
     sys.exit(3)
@@ -78,7 +88,9 @@ def fake_lake(tmp_path, monkeypatch):
     lake.chmod(0o755)
     monkeypatch.setenv("PATH", str(bindir))
     monkeypatch.setenv("FAKE_LAKE_LOG", str(tmp_path / "lake.log"))
-    for v in ("LEAN_PKG_TYPES_JOBS", "LEAN_PKG_TYPES_TIMEOUT", "FAKE_LAKE_FAIL_ALL"):
+    monkeypatch.setenv("LEAN_PKG_TYPES_BACKOFF_SECONDS", "0")
+    for v in ("LEAN_PKG_TYPES_JOBS", "LEAN_PKG_TYPES_TIMEOUT", "FAKE_LAKE_FAIL_ALL",
+              "FAKE_LAKE_ENFILE_FIRST"):
         monkeypatch.delenv(v, raising=False)
     return bindir
 
@@ -221,7 +233,7 @@ def test_emit_then_ingest_equals_local_mode(lp, env, fake_lake, tmp_path, capsys
     assert "1 extraction error(s)" in p.stderr and "--allow-partial" in p.stderr
     doc = json.loads(out.read_text())
     assert doc["summary"] == {"ok": False, "total": 3, "filled": 2, "errors": 1, "declaration_errors": 0,
-                              "jobs": 2}
+                              "jobs": min(2, len(os.sched_getaffinity(0))), "backoff": []}
     zap = doc["results"][1]
     assert zap["rc"] == 1 and zap["failure"] == "extraction" and "Demo.olean" in zap["output_tail"]
     assert doc["schema"] == "comparator-types/1" and doc["package"] == "beta"
@@ -229,7 +241,8 @@ def test_emit_then_ingest_equals_local_mode(lp, env, fake_lake, tmp_path, capsys
     assert [(r["decl"], r["status"]) for r in doc["results"]] == [("Demo.baz", "ok"), ("Demo.zap", "error"),
                                                                   ("Demo.wow", "ok")]
     rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--dry-run")
-    assert rc == 1 and "extraction failed for 1 of 3 declaration(s) at 2 job(s) (2 filled)" in cap.err
+    jobs = doc["summary"]["jobs"]
+    assert rc == 1 and f"extraction failed for 1 of 3 declaration(s) at {jobs} job(s) (2 filled)" in cap.err
     rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--dry-run", "--allow-partial")
     assert rc == 0, cap.err
     assert dry_cfg(cap) == local
@@ -358,3 +371,42 @@ def test_declaration_errors_are_not_extraction_failures(lp, env, fake_lake, tmp_
     assert rc == 0, cap.err
     gone = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/gone"]
     assert gone["type_error"] == "unknown constant Demo.gone" and "restatement_reason" not in gone
+
+
+def test_driver_backs_off_on_too_many_open_files(lp, env, fake_lake, tmp_path, monkeypatch, capsys):
+    """#30: ENFILE/EMFILE halves the workers and retries only the failed declarations."""
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    text = script.read_text()
+    assert "def run_all(" in text and "too many open files" in text and "LEAN_PKG_TYPES_BACKOFF_SECONDS" in text
+    assert '\\"jobs\\": null' in text                # no --jobs: the driver picks min(2, CPUs) where it runs
+    monkeypatch.setenv("LEAN_PKG_TYPES_JOBS", "4")
+    monkeypatch.setenv("FAKE_LAKE_ENFILE_FIRST", "3")      # the first round fails for every declaration
+    p = run_driver(env, script, out)
+    assert p.returncode == 1, p.stderr                     # only zap's genuine failure is left
+    assert "retry 1 with 2 worker(s)" in p.stderr
+    doc = json.loads(out.read_text())
+    assert doc["summary"]["jobs"] == 4 and (doc["summary"]["filled"], doc["summary"]["errors"]) == (2, 1)
+    assert doc["summary"]["backoff"] == [{"round": 1, "jobs": 2, "retried": 3, "recovered": 3}]
+    assert [r["status"] for r in doc["results"]] == ["ok", "error", "ok"]
+    assert doc["results"][1]["failure"] == "extraction"
+
+
+def test_driver_backoff_gives_up_after_one_worker_rounds(lp, env, fake_lake, tmp_path, monkeypatch, capsys):
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script), "--jobs", "4")[0] == 0
+    monkeypatch.setenv("FAKE_LAKE_ENFILE_FIRST", "1000")
+    p = run_driver(env, script, out)
+    assert p.returncode == 2, p.stderr                     # nothing filled
+    doc = json.loads(out.read_text())
+    assert [b["jobs"] for b in doc["summary"]["backoff"]] == [2, 1]
+    assert all(r["failure"] == "resource" and r["rc"] == 1 and "Too many open files" in r["error"]
+               for r in doc["results"])
+    assert doc["summary"]["errors"] == 3
+    monkeypatch.setenv("LEAN_PKG_TYPES_JOBS", "1")
+    p = run_driver(env, script, out)
+    assert [b["jobs"] for b in json.loads(out.read_text())["summary"]["backoff"]] == [1, 1]
+    rc, cap = cc(lp, env, capsys, "--from-output", str(out))
+    assert rc == 1 and "extraction failed for 3 of 3 declaration(s) at 1 job(s) (0 filled)" in cap.err

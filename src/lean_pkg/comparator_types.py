@@ -71,12 +71,16 @@ open Lean Elab Command in
 """
 
 DRIVER_PY = r'''
-import concurrent.futures, json, os, pathlib, re, shutil, subprocess, sys, tempfile
+import concurrent.futures, errno, json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 CONFIG = json.loads(__CONFIG__)
+DEFAULT_JOBS = CONFIG["default_jobs"]
 SNIPPET = CONFIG["snippet"]
 SIMPLE = re.compile(r"^[A-Za-z_][A-Za-z0-9_']*$")
 DIAG = re.compile(r"^.*?:\d+:\d+: (error|warning|info)(\([^)]*\))?: ?")
+# File-table exhaustion (ENFILE 23 / EMFILE 24), common with many Lean processes on Lustre/NFS (#30).
+RESOURCE = re.compile(r"too many open files|\bENFILE\b|\bEMFILE\b", re.I)
+RESOURCE_ERRNOS = (errno.ENFILE, errno.EMFILE)
 
 
 def refuse(msg):
@@ -154,7 +158,8 @@ def tail(out, n=5, cap=800):
 def one(entry, work, lake_dir, timeout):
     """One declaration -> result. `failure` says why a result is not ok: `declaration` (Lean ran and
     reported the declaration missing, or the claim names no module: not retried, not an extraction
-    error) or `extraction` (Lean did not run to completion: exit status, timeout, OS error)."""
+    error), `resource` (the file table was exhausted: retried with fewer workers, an extraction error
+    if it persists) or `extraction` (Lean did not run to completion: exit status, timeout, OS error)."""
     decl, module = entry["decl"], entry.get("module")
     res = {"decl": decl, "type": None, "status": "error", "error": None, "levels": [], "modules": [],
            "rc": None, "failure": "extraction"}
@@ -172,6 +177,8 @@ def one(entry, work, lake_dir, timeout):
         return res
     except OSError as e:
         res["error"] = "cannot run lake: %s" % e
+        if e.errno in RESOURCE_ERRNOS:
+            res["failure"] = "resource"
         return res
     out = p.stdout.decode("utf-8", "replace")
     res["rc"] = p.returncode
@@ -184,6 +191,8 @@ def one(entry, work, lake_dir, timeout):
         elif p.returncode != 0 and typ is not None:
             res["error"] = "lake env lean exited %d after printing the type: %s" % (
                 p.returncode, tail(out, 1) or "no output")
+        if res["failure"] == "extraction" and RESOURCE.search(out):
+            res["failure"] = "resource"
         return res
     res.update(type=typ, status="ok", levels=levels, failure=None)
     if modules is None:
@@ -193,11 +202,57 @@ def one(entry, work, lake_dir, timeout):
     return res
 
 
-def summarize(results, jobs):
+def safe_one(entry, work, lake_dir, timeout):
+    try:
+        return one(entry, work, lake_dir, timeout)
+    except Exception as e:      # never lose the run to one declaration
+        return {"decl": entry["decl"], "type": None, "status": "error", "levels": [], "modules": [], "rc": None,
+                "error": "driver error: %s: %s" % (type(e).__name__, e),
+                "failure": "resource" if getattr(e, "errno", None) in RESOURCE_ERRNOS else "extraction"}
+
+
+def run_pool(entries, workers, work, lake_dir, timeout):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        return list(ex.map(lambda e: safe_one(e, work, lake_dir, timeout), entries))
+
+
+def run_all(entries, jobs, work, lake_dir, timeout, pause):
+    """Run every entry with `jobs` workers; while some fail on file-table exhaustion, halve the workers
+    and retry only those (at least two retry rounds, the last ones with one worker). -> (results,
+    backoff rounds)."""
+    results = run_pool(entries, jobs, work, lake_dir, timeout)
+    backoff, workers, rnd = [], jobs, 0
+    while True:
+        idx = [i for i, r in enumerate(results) if r.get("failure") == "resource"]
+        if not idx or (rnd >= 2 and workers == 1):
+            break
+        rnd += 1
+        workers = max(1, workers // 2)
+        sys.stderr.write("lean-pkg types: %d declaration(s) hit 'too many open files'; retry %d with %d "
+                         "worker(s)\n" % (len(idx), rnd, workers))
+        time.sleep(pause * rnd)
+        redo = run_pool([entries[i] for i in idx], workers, work, lake_dir, timeout)
+        for i, r in zip(idx, redo):
+            results[i] = r
+        backoff.append({"round": rnd, "jobs": workers, "retried": len(idx),
+                        "recovered": sum(1 for r in redo if r.get("failure") != "resource")})
+    return results, backoff
+
+
+def default_jobs():
+    """min(DEFAULT_JOBS, the CPUs this process may use: a Slurm allocation, not the whole node)."""
+    try:
+        cpus = len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        cpus = os.cpu_count() or 1
+    return max(1, min(DEFAULT_JOBS, cpus))
+
+
+def summarize(results, jobs, backoff=()):
     filled = sum(1 for r in results if r["status"] == "ok")
     errors = sum(1 for r in results if r["status"] != "ok" and r.get("failure") != "declaration")
     return {"ok": errors == 0, "total": len(results), "filled": filled, "errors": errors,
-            "declaration_errors": len(results) - filled - errors, "jobs": jobs}
+            "declaration_errors": len(results) - filled - errors, "jobs": jobs, "backoff": list(backoff)}
 
 
 def main():
@@ -224,16 +279,19 @@ def main():
                % (head or "(not a git checkout)", CONFIG["commit"]))
     tc = lake_dir / "lean-toolchain"
     toolchain = tc.read_text(encoding="utf-8").strip() if tc.is_file() else None
-    jobs = int(os.environ.get("LEAN_PKG_TYPES_JOBS") or CONFIG["jobs"])
-    timeout = int(os.environ.get("LEAN_PKG_TYPES_TIMEOUT") or CONFIG["timeout"])
+    try:
+        jobs = max(1, int(os.environ.get("LEAN_PKG_TYPES_JOBS") or CONFIG["jobs"] or default_jobs()))
+        timeout = int(os.environ.get("LEAN_PKG_TYPES_TIMEOUT") or CONFIG["timeout"])
+        pause = float(os.environ.get("LEAN_PKG_TYPES_BACKOFF_SECONDS") or 5)
+    except ValueError as e:
+        refuse("LEAN_PKG_TYPES_JOBS / _TIMEOUT / _BACKOFF_SECONDS: %s" % e)
     work = tempfile.mkdtemp(prefix="lean-pkg-types-")
     try:
         entries = [dict(e, index=i) for i, e in enumerate(CONFIG["decls"])]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
-            results = list(ex.map(lambda e: one(e, work, lake_dir, timeout), entries))
+        results, backoff = run_all(entries, jobs, work, lake_dir, timeout, pause)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    summary = summarize(results, jobs)
+    summary = summarize(results, jobs, backoff)
     doc = {"schema": CONFIG["schema"], "package": CONFIG["package"], "commit": head, "toolchain": toolchain,
            "summary": summary, "results": results}
     tmp = out.with_name(out.name + ".tmp")
@@ -262,7 +320,9 @@ def driver_script(config: dict) -> str:
             f"# {config['commit']} with `lake env lean` and writes the {SCHEMA} JSON to OUT.json.\n"
             "# Usage: cd <package checkout> && bash THIS_FILE OUT.json\n"
             "# Needs python3, git and elan's lake; build the package first (`lake build`). Writes only a\n"
-            "# temp dir and OUT.json. LEAN_PKG_TYPES_JOBS / LEAN_PKG_TYPES_TIMEOUT override the defaults.\n"
+            "# temp dir and OUT.json. LEAN_PKG_TYPES_JOBS / LEAN_PKG_TYPES_TIMEOUT override the defaults;\n"
+            "# on 'too many open files' it halves the workers and retries. Exit 0 ok, 1 some extraction\n"
+            "# failed, 2 nothing filled (or refused).\n"
             "set -euo pipefail\n"
             'if [ "$#" -ne 1 ]; then echo "usage: bash $0 OUT.json" >&2; exit 2; fi\n'
             "exec python3 - \"$1\" <<'LEAN_PKG_DRIVER'\n"
@@ -295,20 +355,22 @@ def module_of(file: object, lake_rel: str) -> str | None:
     return ".".join(parts) if parts and all(parts) else None
 
 
-def driver_config(name: str, head: str, lake_rel: str, claims: list[dict], jobs: int, timeout: int) -> dict:
+def driver_config(name: str, head: str, lake_rel: str, claims: list[dict], jobs: int | None,
+                  timeout: int) -> dict:
     decls = []
     for c in claims:
         decl = str(c.get("decl") or "")
         decls.append({"decl": decl, "claim": str(c.get("id") or ""), "file": c.get("file"),
                       "module": module_of(c.get("file"), lake_rel) if DECL_RE.match(decl) else None})
     return {"schema": SCHEMA, "package": name, "commit": head, "lake_dir": lake_rel, "jobs": jobs,
-            "timeout": timeout, "snippet": LEAN_SNIPPET, "decls": decls}
+            "default_jobs": DEFAULT_JOBS, "timeout": timeout, "snippet": LEAN_SNIPPET, "decls": decls}
 
 
-def check_jobs_timeout(jobs: int | None, timeout: int | None) -> tuple[int, int]:
-    j = DEFAULT_JOBS if jobs is None else jobs
+def check_jobs_timeout(jobs: int | None, timeout: int | None) -> tuple[int | None, int]:
+    """(jobs, timeout). jobs None: the driver picks min(DEFAULT_JOBS, CPUs) on the host it runs on (#30)."""
+    j = jobs
     t = DEFAULT_TIMEOUT if timeout is None else timeout
-    if j < 1:
+    if j is not None and j < 1:
         raise core.UsageError(f"--jobs {j}: must be at least 1")
     if t < 1:
         raise core.UsageError(f"--timeout {t}: must be at least 1 second")

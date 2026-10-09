@@ -173,7 +173,8 @@ open Lean Elab Command in
 ```
 
 with `lake env lean <file>` from the checkout (one process per declaration,
-`--jobs` at a time, default 2; `--timeout` seconds each, default 120). It
+`--jobs` at a time, default 2 or the CPUs available to the driver if fewer;
+`--timeout` seconds each, default 120). It
 prints the declared universe names (so the Challenge is
 `theorem X.{u, v} : ...` with the same names), the modules of every
 constant in the type, and the type with all binders, implicit and instance
@@ -203,9 +204,9 @@ from the same two halves:
 
 ```bash
 # 1. on the workstation: write the driver, run nothing
-lean-pkg comparator config --from-claims beta --emit-script /scratch/beta-types.sh --jobs 8
+lean-pkg comparator config --from-claims beta --emit-script /scratch/beta-types.sh --jobs 4
 # 2. on the cluster, with the checkout at the same commit
-sbatch --time=04:00:00 --cpus-per-task=8 --mem=64G \
+sbatch --time=04:00:00 --cpus-per-task=4 --mem=64G \
   --wrap 'cd ~/lean/beta && lake build && bash /scratch/beta-types.sh /scratch/beta-types.json'
 # 3. back on the workstation: fill the scaffold (refused unless the JSON's commit is HEAD)
 lean-pkg comparator config --from-claims beta --from-output /scratch/beta-types.json --dry-run
@@ -220,12 +221,14 @@ embeds the package, the commit, the declarations and their modules, and the
 Lean snippet. Run it as `cd <checkout> && bash F OUT.json`; it refuses
 (exit 2) without a lakefile, with a non-elan `lake`, or when HEAD is not the
 embedded commit, and `LEAN_PKG_TYPES_JOBS` / `LEAN_PKG_TYPES_TIMEOUT` override
-the embedded `--jobs` / `--timeout`. It writes `OUT.json`:
+the embedded `--jobs` / `--timeout`. Without `--jobs` the driver picks the default on the host it
+runs on. It writes `OUT.json`:
 
 ```json
 {"schema": "comparator-types/1", "package": "beta", "commit": "<40-hex HEAD>",
  "toolchain": "leanprover/lean4:v4.35.0",
- "summary": {"ok": false, "total": 2, "filled": 1, "errors": 1, "declaration_errors": 0, "jobs": 2},
+ "summary": {"ok": false, "total": 2, "filled": 1, "errors": 1, "declaration_errors": 0, "jobs": 2,
+             "backoff": []},
  "results": [{"decl": "Demo.baz", "type": "∀ (n : Nat), n + 0 = n", "status": "ok", "error": null,
               "levels": [], "modules": ["Init.Prelude"], "rc": 0, "failure": null},
              {"decl": "Demo.zap", "type": null, "status": "error",
@@ -261,6 +264,20 @@ are pre-filled as usual, and the failed ones keep their `TODO:` lines with
 remove those entries from `theorem_names` and `lean_pkg_scaffold.todo` first.
 Output written by an older driver has no `failure`: there a non-zero `rc`, or
 an error other than an unknown constant, counts as an extraction failure.
+
+**Jobs and file handles.** Every `lake env lean` process opens the `.olean`
+files of its whole import closure, so a few parallel processes over Mathlib
+can exhaust the node's file table, especially on Lustre or NFS ("Too many
+open files in system", ENFILE, or the per-process EMFILE). Keep `--jobs` (or
+`LEAN_PKG_TYPES_JOBS`) small; more workers rarely help, since each process
+spends most of its time loading the same files. When a declaration fails that
+way (errno 23/24 starting the process, or "too many open files" in its
+output; its `failure` is `resource`), the driver halves the workers and
+retries only those declarations, at least two rounds and down to one worker,
+pausing `LEAN_PKG_TYPES_BACKOFF_SECONDS` (default 5) times the round number
+before each. `summary.backoff` lists the rounds
+(`{"round", "jobs", "retried", "recovered"}`); what still fails counts as an
+extraction failure.
 
 The smallest complete pair, from a smoke test:
 
