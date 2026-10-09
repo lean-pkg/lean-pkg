@@ -3022,26 +3022,45 @@ def resolve_toolchain_floor(flag: str | None) -> str:
     return floor
 
 
+AUDIT_LEVELS = ("warn", "info")
+AUDIT_LEVEL_WIDTH = 6        # the level column: "warn  " / "info  "
+
+
 def render_finding(f: dict, width: int = 20) -> str:
-    tail = " [info]" if f.get("level") == "info" else ""
-    return f"{(f['check'] + ' ').ljust(width)}{f['name']}: {f['detail']}{tail}"
+    """One human audit line: the level (warn|info), the check code padded to width, then
+    `NAME: DETAIL`. The level column replaces the old trailing ` [info]` suffix (#33)."""
+    level = f.get("level") or "warn"
+    return f"{level.ljust(AUDIT_LEVEL_WIDTH)}{(f['check'] + ' ').ljust(width)}{f['name']}: {f['detail']}"
+
+
+def audit_counts(findings: list[dict]) -> dict[str, int]:
+    """Findings per level: {"warn": N, "info": M} (a finding without a level counts as warn)."""
+    counts = dict.fromkeys(AUDIT_LEVELS, 0)
+    for f in findings:
+        lvl = f.get("level") or "warn"
+        counts[lvl] = counts.get(lvl, 0) + 1
+    return counts
 
 
 NO_GITHUB_MIRROR_DETAIL = "repo is not on GitHub; visibility not mirrored"
 
 
 def render_findings(findings: list[dict]) -> list[str]:
-    """Human audit output: no-github-mirror findings collapse into one summary line."""
+    """Human audit output: no-github-mirror and gh-skipped findings collapse into one summary line
+    each; a last line counts every finding by level ("N finding(s): W warn, I info")."""
     mirror = [f["name"] for f in findings if f["check"] == "no-github-mirror"]
     skipped = [f["name"] for f in findings if f["check"] == "gh-skipped"]
     shown = [f for f in findings if f["check"] not in ("no-github-mirror", "gh-skipped")]
-    width = max([20] + [len(f["check"]) + 2 for f in shown])
+    width = max([0] + [len(f["check"]) + 2 for f in shown])   # check column: longest code + 2
     lines = [render_finding(f, width) for f in shown]
     if mirror:
         lines.append(f"{len(mirror)} package(s) without a GitHub mirror (visibility not checked): "
                      + ", ".join(mirror))
     if skipped:
         lines.append(f"{len(skipped)} package(s): gh checks skipped (--no-gh): " + ", ".join(skipped))
+    if findings:
+        c = audit_counts(findings)
+        lines.append(f"{len(findings)} finding(s): {c['warn']} warn, {c['info']} info")
     return lines
 
 
@@ -3171,6 +3190,12 @@ def classify_gh_failure(p, nwo: str, repo: pathlib.Path | None, auth_ok) -> tupl
                                  "(no checkout remote names it to tell which)")
         return "not-found", f"repository {nwo} not found (gh and the checkout's git remote both fail)"
     return "error", f"gh query failed: {text[:120]}"
+
+
+def gh_check_code(outcome: str) -> str:
+    """The audit check code of a failed gh query: gh-missing | gh-not-authenticated | gh-no-access |
+    gh-not-found | gh-error (the `gh` key keeps the bare outcome)."""
+    return outcome if outcome.startswith("gh-") else f"gh-{outcome}"
 
 
 def audit_registry(reg_path, reg, events_p, fix: bool = False,
@@ -3377,12 +3402,12 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
                 level = "info"
                 detail = ("archived; upstream repo not found — expected if the owner removed it; see notes ("
                           + detail + ")")
-            note("warn", name, detail, level=level, gh=outcome)
+            note(gh_check_code(outcome), name, detail, level=level, gh=outcome)
             continue
         try:
             info = json.loads(p.stdout)
         except ValueError:
-            note("warn", name, "gh returned non-JSON")
+            note("gh-error", name, "gh returned non-JSON", gh="error")
             continue
         gvis = str(info.get("visibility") or "").lower()
         if gvis and gvis != str(pkg.get("visibility")).lower():
@@ -4248,7 +4273,7 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
-  nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once); a failed gh query: check warn, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); --no-gh: gh-skipped (info); missing-path: recorded path + `update NAME --path DIR --reason .. --dry-run` (+ "found at DIR": a sibling with lakefile + same remote). ex: lean-pkg audit --json
+  nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once); a failed gh query: check gh-OUTCOME, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); human line `LEVEL  CHECK  NAME: DETAIL` + last line "N finding(s): W warn, I info"; --json counts {warn, info}; --no-gh: gh-skipped (info); missing-path: recorded path + `update NAME --path DIR --reason .. --dry-run` (+ "found at DIR": a sibling with lakefile + same remote). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed; tool comparator without bwrap: run `comparator host-check`), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
@@ -4667,7 +4692,8 @@ def cmd_audit(args) -> int:
                               use_gh=not args.no_gh)
     fixed = [f for f in findings if f.get("fixed")]
     if args.json_out:
-        print_json({"ok": True, "fix": args.fix, "findings": findings, "fixed": len(fixed)})
+        print_json({"ok": True, "fix": args.fix, "findings": findings, "fixed": len(fixed),
+                    "counts": audit_counts(findings)})
     else:
         print("\n".join(render_findings(findings)) if findings else "no findings")
     if fixed:

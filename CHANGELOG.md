@@ -7,6 +7,19 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `audit` human output led with the check code even for `info` findings (an archived package with a
+  vanished upstream printed `warn    NAME: archived; ... [info]`). Each line is now `LEVEL  CHECK
+  NAME: DETAIL`: the level (`warn`/`info`) first, the check code aligned after it; the trailing
+  ` [info]` suffix is dropped (the column carries it, TTY or not). A last line counts the findings
+  by level ("N finding(s): W warn, I info"), and `audit --json` gains top-level `counts`
+  `{warn, info}`. (#33)
+- `audit`: a failed gh query reported the check as the literal `warn`, which was never a documented
+  check value. Its `check` is now `gh-missing`, `gh-not-authenticated`, `gh-no-access`,
+  `gh-not-found` or `gh-error` (also for "gh returned non-JSON", which now carries `gh: error`); the
+  `gh` key is unchanged. (#33)
+
 ## [0.7.6] - 2026-10-09
 
 ### Added

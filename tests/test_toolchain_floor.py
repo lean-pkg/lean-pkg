@@ -112,8 +112,9 @@ def test_private_package_below_the_floor_is_info(lp, env, fake_gh, capsys, monke
     assert f["detail"].startswith("toolchain below the comparator floor leanprover/lean4:v4.35.0-rc2 "
                                   "(matters only for promote/comparator)")
     assert lp.main(["--registry", str(env.registry), "audit"]) == 0
-    line = next(x for x in capsys.readouterr().out.splitlines() if x.startswith("below-toolchain-floor"))
-    assert line.endswith("[info]")
+    line = next(x for x in capsys.readouterr().out.splitlines() if " below-toolchain-floor " in x)
+    assert line.split()[:3] == ["info", "below-toolchain-floor", "alpha:"]
+    assert not line.endswith("[info]")                        # the level column carries it (#33)
 
 
 def test_public_package_below_the_floor_warns_as_before(lp, env, fake_gh, capsys, monkeypatch):

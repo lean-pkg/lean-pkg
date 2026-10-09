@@ -26,7 +26,7 @@ def test_json_keeps_one_finding_per_package_without_path_echo(lp, env, fake_gh, 
     assert sorted(f["name"] for f in mirror) == ["alpha", "beta"]
     assert all(f["detail"] == DETAIL for f in mirror)
     assert not any("cannot parse" in f["detail"] or "/srv/git" in f["detail"] for f in findings)
-    assert not [f for f in findings if f["check"] == "warn"]
+    assert not [f for f in findings if f["check"].startswith("gh-")]
 
 
 def test_human_output_prints_one_summary_line(lp, env, fake_gh, capsys):
@@ -48,5 +48,8 @@ def test_gh_query_failures_stay_individual_warnings(lp, env, monkeypatch, capsys
 
 def test_long_check_names_stay_separated_from_the_package_name(lp):
     line = lp.render_finding({"check": "below-toolchain-floor", "name": "alpha", "detail": "d", "fixed": False})
-    assert line.startswith("below-toolchain-floor alpha: d")
-    assert lp.render_finding({"check": "warn", "name": "a", "detail": "d"}) == "warn".ljust(20) + "a: d"
+    assert line.startswith("warn  below-toolchain-floor alpha: d")
+    assert lp.render_finding({"check": "gh-error", "name": "a", "detail": "d", "level": "warn"}) \
+        == "warn  " + "gh-error".ljust(20) + "a: d"
+    assert lp.render_finding({"check": "receipt-untracked", "name": "a", "detail": "d", "level": "info"},
+                             width=19) == "info  receipt-untracked  a: d"

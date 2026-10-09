@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 
 import pytest
@@ -35,7 +36,7 @@ def gh_bin(tmp_path, monkeypatch):
 def _audit(lp, env, capsys, *extra) -> dict[str, dict]:
     assert lp.main(["--registry", str(env.registry), "audit", "--json", *extra]) == 0
     return {f["name"]: f for f in json.loads(capsys.readouterr().out)["findings"]
-            if f["check"] in ("warn", "gh-skipped")}
+            if f["check"].startswith("gh-")}
 
 
 def _remote_that_works(repo, n):
@@ -126,3 +127,71 @@ def test_no_gh_skips_every_query(lp, env, gh_bin, capsys, monkeypatch):
         "beta": ("gh-skipped", "info", "gh checks skipped (--no-gh)")}
     assert lp.main(["--registry", str(env.registry), "audit", "--no-gh"]) == 0
     assert "2 package(s): gh checks skipped (--no-gh): alpha, beta" in capsys.readouterr().out
+
+
+# --- #33: a real check code, the level as the first human column, counts by level ---------------
+
+def test_gh_findings_carry_a_real_check_code(lp, env, gh_bin, capsys, monkeypatch):
+    monkeypatch.setenv("FAKE_GH_VIEW", "HTTP 502: bad gateway")
+    f = _audit(lp, env, capsys)
+    assert (f["alpha"]["check"], f["alpha"]["gh"]) == ("gh-error", "error")
+    monkeypatch.setenv("FAKE_GH_VIEW", "GraphQL: Resource not accessible by personal access token (repository)")
+    assert _audit(lp, env, capsys)["alpha"]["check"] == "gh-no-access"
+    monkeypatch.setenv("FAKE_GH_VIEW", RESOLVE.format(n="alpha"))
+    monkeypatch.setenv("FAKE_GH_AUTH", "1")
+    assert _audit(lp, env, capsys)["alpha"]["check"] == "gh-not-authenticated"
+
+
+def test_gh_check_code_maps_every_outcome(lp):
+    assert {o: lp.gh_check_code(o) for o in ("gh-missing", "not-authenticated", "no-access",
+                                             "not-found", "error")} == {
+        "gh-missing": "gh-missing", "not-authenticated": "gh-not-authenticated",
+        "no-access": "gh-no-access", "not-found": "gh-not-found", "error": "gh-error"}
+
+
+def _archived_alpha_vanished(env, tmp_path):
+    reg = read_reg(env)
+    reg["packages"]["alpha"]["status"] = "archived"
+    write_reg(env, reg)
+    url = "git@github.com:example/alpha.git"
+    subprocess.run(["git", "-C", str(env.repo_a), "remote", "add", "gh", url], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(env.repo_a), "config", f"url.{tmp_path / 'gone'}.insteadOf", url],
+                   check=True, capture_output=True)
+
+
+def test_archived_vanished_upstream_human_line_leads_with_info(lp, env, gh_bin, capsys, monkeypatch, tmp_path):
+    monkeypatch.setenv("FAKE_GH_VIEW", RESOLVE.format(n="alpha"))
+    _archived_alpha_vanished(env, tmp_path)
+    f = _audit(lp, env, capsys)
+    assert (f["alpha"]["check"], f["alpha"]["level"], f["alpha"]["gh"]) == ("gh-not-found", "info", "not-found")
+    assert lp.main(["--registry", str(env.registry), "audit"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    alpha = next(x for x in lines if " alpha: " in x)
+    beta = next(x for x in lines if " gh-not-found " in x and " beta: " in x)
+    assert alpha.split()[:3] == ["info", "gh-not-found", "alpha:"]
+    assert re.match(r"info  gh-not-found  +alpha: archived; upstream repo not found", alpha)   # aligned column
+    assert beta.split()[:3] == ["warn", "gh-not-found", "beta:"]
+    assert not any(x.endswith("[info]") for x in lines)        # the level column replaces the suffix
+
+
+def test_summary_and_json_count_findings_by_level(lp, env, gh_bin, capsys, monkeypatch, tmp_path):
+    monkeypatch.setenv("FAKE_GH_VIEW", RESOLVE.format(n="alpha"))
+    _archived_alpha_vanished(env, tmp_path)
+    assert lp.main(["--registry", str(env.registry), "audit", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    levels = [x["level"] for x in data["findings"]]
+    assert data["counts"] == {"warn": levels.count("warn"), "info": levels.count("info")}
+    assert data["counts"]["info"] >= 1 and data["counts"]["warn"] >= 1
+    assert lp.main(["--registry", str(env.registry), "audit"]) == 0
+    last = capsys.readouterr().out.splitlines()[-1]
+    assert last == (f"{len(levels)} finding(s): {data['counts']['warn']} warn, "
+                    f"{data['counts']['info']} info")
+
+
+def test_summary_counts_collapsed_findings_too(lp, env, gh_bin, capsys):
+    assert lp.main(["--registry", str(env.registry), "audit", "--no-gh", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["counts"]["info"] >= 2                         # alpha and beta gh-skipped
+    assert lp.main(["--registry", str(env.registry), "audit", "--no-gh"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1] == f"{len(data['findings'])} finding(s): {data['counts']['warn']} warn, {data['counts']['info']} info"
