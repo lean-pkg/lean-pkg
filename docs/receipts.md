@@ -182,6 +182,11 @@ reports the common forms as warnings: cross-reference keys (`lem:`, `thm:`,
 `conj:`, also with `-`), `main.tex`, `\ref{`, `\eqref{`, `\cite{`, `\label{`,
 `\input{`, `\include{`, `Overleaf` and arXiv identifiers. They are warnings
 because a published paper may be cited legitimately.
+The family is calibrated for Lean sources: a key inside a longer name
+(`foo_eq_bar`, `eq_comm`), `def-eq`, `defeq`, `eq-of-...`, `ex-falso` and
+other all-lowercase hyphen prose are not reported, and the summary line says
+how many warnings came from `latex-label`, so you can judge whether a
+package needs `allow:` lines at all.
 
 For a package incubated beside a paper, make the paper's own identifiers
 blocking. Keep `.lean-pkg-private-patterns` untracked (list it in

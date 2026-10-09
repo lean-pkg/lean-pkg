@@ -17,7 +17,9 @@ approach of lean-pkg's own `make history`) for private patterns:
 - internal files by path: `approvals/`, `notes/`, `drafts/`, `scratch/`, `*.priv`, `*.private`.
 - the warn-only built-in family `latex-label` (#36): references to a LaTeX manuscript, which leak an
   unposted paper even with no path in them: cross-reference keys (`lem:`, `thm:`, `eq:`, `sec:`, ...),
-  `main.tex`, ref/eqref/cite/label/input/include command fragments, Overleaf, arXiv ids.
+  `main.tex`, ref/eqref/cite/label/input/include command fragments, Overleaf, arXiv ids. Calibrated
+  for Lean sources (#37): equality-API names, `def-eq`/`defeq` and lowercase hyphen prose are not
+  reported (see LATEX_LABEL_RE and the built-in allow list LATEX_LABEL_ALLOW).
 
 Every hit has a `severity`: `"block"` (everything above but the warn-only family and `warn:` lines)
 or `"warn"`. Warn hits are reported but do not fail the scan, promote or a fresh-history export;
@@ -64,13 +66,25 @@ BUILTIN = (
 )
 # #36: a LaTeX manuscript's cross-reference keys, source file, commands, Overleaf and arXiv ids.
 # Warn-only: rare in Lean sources, but a published paper may be cited legitimately.
-LATEX_LABEL_RE = (r"\b(?:lem|thm|cor|prop|def|eq|sec|rem|ex|fig|tab|conj)[:-][A-Za-z0-9_.-]+"
-                  r"|\bmain\.tex\b"
+# #37 calibration (Mathlib-style sources): a key is never part of a longer name (no letter, digit, `_`
+# or `.` before it: `foo_eq_bar`, `Nat.eq:`); `key:` takes any label body (`eq:spectral`,
+# `lem:bound-2.1`); `key-` is a label only when its body has a digit, a capital or an inner `.`, since
+# all-lowercase hyphen tokens (`sec-intro`-like, `eq-of-foo`) are Lean prose; and `eq`, `def`, `ex`
+# never take `-` (`def-eq`, `eq-of`, `ex-falso`).
+_LL_BODY = r"[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_])?"
+LATEX_LABEL_RE = (r"(?<![A-Za-z0-9_.])(?:lem|thm|cor|prop|def|eq|sec|rem|ex|fig|tab|conj):" + _LL_BODY
+                  + r"|(?<![A-Za-z0-9_.])(?:lem|thm|cor|prop|sec|rem|fig|tab|conj)-"
+                    r"(?=[a-z_-]*[A-Z0-9]|[a-z_-]*\.[A-Za-z0-9])" + _LL_BODY
+                  + r"|\bmain\.tex\b"
                   r"|\\(?:ref|eqref|cite|label|input|include)\{"
                   r"|\b(?:Overleaf|arXiv:\s*\d{4}\.\d{4,5}(?:v\d+)?)")
 BUILTIN_WARN = (
     ("latex-label", LATEX_LABEL_RE),
 )
+# #37: Lean prose the latex-label family never reports, whatever the regex above admits.
+LATEX_LABEL_ALLOW = ("def-eq", "defeq", "eq-of", "eq-iff", "ex-falso")
+_LATEX_LABEL_ALLOW_RE = re.compile(r"(?:" + "|".join(re.escape(a) for a in LATEX_LABEL_ALLOW) + r")(?![A-Za-z0-9])",
+                                   re.I)
 BLOCK, WARN = "block", "warn"
 PATH_READABLE = ("approvals-ref", "notes-ref", "private-file-ref", "todo-private", "latex-label")
 DERIVED_MIN_LEN = 4
@@ -193,6 +207,8 @@ class Scanner:
             return True
         if pat.label == "email":
             return text.casefold() in self.emails or bool(ALWAYS_ALLOWED_EMAIL.search(text))
+        if pat.label == "latex-label":
+            return bool(_LATEX_LABEL_ALLOW_RE.match(text))
         return False
 
     def spans(self, line: str) -> list[tuple[int, int, Pattern]]:
@@ -440,11 +456,13 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
               "allow": len(sc.allow), "tracked": pf_tracked,
               "builtin": [label for label, _rx in BUILTIN + BUILTIN_WARN],
               "warn_only": [label for label, _rx in BUILTIN_WARN], "file_warn_patterns": sc.n_file_warn,
+              "latex_label_allow": list(LATEX_LABEL_ALLOW),
               "derived": sorted({p.label for p in sc.derived}),
               "internal_paths": [f"{d}/" for d in INTERNAL_DIRS] + [f"*{s}" for s in INTERNAL_SUFFIXES]}
     n_warn = sum(1 for h in hits if h["severity"] == WARN)
     return {"ok": not blocking(hits, strict), "hits": hits, "tree_hits": len(tree), "history_hits": len(hist),
             "block_hits": len(hits) - n_warn, "warn_hits": n_warn, "strict": bool(strict),
+            "latex_label_hits": sum(1 for h in hits if h["pattern"] == "latex-label"),
             "history_scanned": history,
             "patterns_source": source, "warnings": sc.problems + warnings}
 
@@ -463,7 +481,8 @@ def report_lines(name: str, root, result: dict) -> list[str]:
     nb, nw = result["block_hits"], result["warn_hits"]
     lines = [f"public-safety for {name} ({root}): {n} hit(s) ({result['tree_hits']} tree, "
              f"{result['history_hits']} history" + ("" if result["history_scanned"] else "; history not scanned")
-             + f"); {nb} blocking, {nw} warning(s)" + (" (--strict: warnings block)" if result["strict"] else ""),
+             + f"); {nb} blocking, {nw} warning(s)" + (" (--strict: warnings block)" if result["strict"] else "")
+             + f"; {result['latex_label_hits']} from latex-label",
              f"  patterns: {src['file'] or 'no ' + PATTERNS_FILE} ({src['file_patterns']} pattern(s), "
              f"{src['allow']} allow, {src['file_warn_patterns']} warn-only) + {len(src['builtin'])} built-in + {len(src['derived'])} registry-derived "
              f"({', '.join(src['derived']) or 'none'}) + internal paths"]

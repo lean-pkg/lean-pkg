@@ -18,6 +18,15 @@ change the registry schema or receipt format, always with a migration).
   `--allow-history`; public-safety on its tree and full history; no export, no new commit), then the
   same relocation as `--fresh-repo` with a dated note naming the adopted commit. (#37)
 
+### Changed
+
+- `public-safety`: the `latex-label` family is calibrated for Lean sources. A key is never matched
+  inside a longer name (`foo_eq_bar`, `eq_comm`, `Nat.eq:`); `eq`, `def` and `ex` match only with
+  `:`; a `key-` form needs a digit, a capital or an inner `.` in the label, so all-lowercase hyphen
+  prose (`eq-of-foo`, `def-eq`) is silent; a built-in allow list covers `def-eq`, `defeq`, `eq-of`,
+  `eq-iff`, `ex-falso`. The human summary says how many hits came from `latex-label`; JSON gains
+  `latex_label_hits` and `patterns_source.latex_label_allow`. (#37)
+
 ## [0.7.10] - 2026-10-09
 
 ### Added

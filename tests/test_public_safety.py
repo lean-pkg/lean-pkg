@@ -7,6 +7,7 @@ import json
 import re
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from .conftest import _git, base_pkg, make_repo, publish_evidence, repo_head
@@ -234,12 +235,81 @@ def test_strict_makes_warn_hits_block(lp, tmp_path, capsys):
 def test_latex_label_family_patterns(lp):
     from lean_pkg import public_safety as ps
     rx = re.compile(ps.LATEX_LABEL_RE)
-    for text in ("see thm:A.2", "eq-3", "built from main.tex", r"as in \\ref{x}", r"\\cite{key}",
+    for text in ("see thm:A.2", "lem-3", "built from main.tex", r"as in \\ref{x}", r"\\cite{key}",
                  "the Overleaf project", "arXiv: 2401.01234v2", "Def. def:foo", "conj:bar"):
         assert rx.search(text), text
     for text in ("theorem lem_bound", "h_eq: a = b", "(eq : a = b)", "domain.text", "lemma foo",
-                 "Eq.refl", "simp [sec_foo]"):
+                 "Eq.refl", "simp [sec_foo]", "eq-3"):
         assert not rx.search(text), text
+
+
+# #37: the field report's false positives (a Mathlib-style package: 42 raw warnings, all Lean) and the
+# manuscript labels the family exists for.
+LATEX_LABEL_FALSE_POSITIVES = (
+    "theorem foo_eq_bar : a = b := rfl",
+    "-- def-eq check",
+    "/-- holds by defeq -/",
+    "simp [eq_comm]",
+    "(h : a = b)",
+    "exact eq-of-",
+    "/-- eq-of-foo, then eq-iff-bar -/",
+    "-- by ex-falso",
+    "lemma add_eq-of_le",
+    "Nat.eq:x",
+    "-- see sec-intro and lem-bound for the plan",
+    "theorem lem_main_bound : True := trivial",
+    "-- eq-3 rewrites the left side",
+)
+LATEX_LABEL_TRUE_POSITIVES = (
+    "the bound of lem:main_bound",
+    "Theorem thm:2.3",
+    "by eq:spectral",
+    "as in sec:intro",
+    r"cf. \ref{lem:foo}",
+    "lem:bound-2.1 gives",
+    "eq:main_bound",
+    "see lem-3.1",
+    "thm-A holds",
+)
+
+
+@pytest.mark.parametrize("text", LATEX_LABEL_FALSE_POSITIVES)
+def test_latex_label_lean_false_positives_are_silent(text):
+    from lean_pkg import public_safety as ps
+    assert not re.search(ps.LATEX_LABEL_RE, text), text
+
+
+@pytest.mark.parametrize("text", LATEX_LABEL_TRUE_POSITIVES)
+def test_latex_label_manuscript_labels_still_warn(text):
+    from lean_pkg import public_safety as ps
+    assert re.search(ps.LATEX_LABEL_RE, text), text
+
+
+def test_latex_label_builtin_allow_list(tmp_path):
+    from lean_pkg import public_safety as ps
+    assert ps.LATEX_LABEL_ALLOW == ("def-eq", "defeq", "eq-of", "eq-iff", "ex-falso")
+    sc = ps.Scanner({"name": "pkg", "local_path": str(tmp_path)}, tmp_path, None)
+    label = next(p for p in sc.patterns if p.label == "latex-label")
+    for text in ("def-eq", "Defeq", "eq-of", "eq-iff", "ex-falso"):
+        assert sc.allowed(label, text), text
+    for text in ("lem:main_bound", "eq:spectral", "eq-off", "defeqs"):
+        assert not sc.allowed(label, text), text
+
+
+def test_latex_label_summary_counts_the_family(lp, tmp_path, capsys):
+    lean = "\n".join(LATEX_LABEL_FALSE_POSITIVES) + "\n" + PAPER_LEAN + "-- eq:spectral\n"
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={"Main.lean": lean,
+                                                         ".gitignore": ".lean-pkg-private-patterns\n"})
+    (repo / ".lean-pkg-private-patterns").write_text("warn: Nightjar\n")
+    (repo / "Notes.lean").write_text("-- the Nightjar estimate\n")
+    reg = make_env(tmp_path, repo)
+    assert run(lp, reg, "public-safety", "pkg") == 0
+    out = capsys.readouterr().out
+    assert "0 blocking, 3 warning(s); 2 from latex-label" in out
+    assert run(lp, reg, "public-safety", "pkg", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["latex_label_hits"] == 2 and payload["warn_hits"] == 3
+    assert payload["patterns_source"]["latex_label_allow"] == ["def-eq", "defeq", "eq-of", "eq-iff", "ex-falso"]
 
 
 def test_block_and_warn_lines_in_patterns_file(lp, tmp_path, capsys):
