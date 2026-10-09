@@ -240,33 +240,55 @@ receipt. That is evidence of statement equality and second-kernel replay; it
 says nothing about Palomar. If Palomar is the target, move the package to a
 toolchain at or above the floor first.
 
-## Host requirements for the toolchain mechanism
+## Host requirements per mechanism
 
-`lake comparator` sandboxes its judges with `bwrap` (bubblewrap), which needs
-an unprivileged user namespace. Ubuntu 24.04 forbids that by default through
-AppArmor, and the symptom is `bwrap: setting up uid map: Permission denied`.
-The runner checks `bwrap --ro-bind / / true` before judging and refuses with
-the fix in its message: as root, either an AppArmor profile for
-`/usr/bin/bwrap` that grants `userns` (narrow, recommended) or
+The two mechanisms sandbox their judges differently, and neither needs the
+other's sandbox.
+
+| Mechanism | Sandbox | Needs on the host | Source |
+|---|---|---|---|
+| `toolchain` (what Palomar runs) | `bwrap` (bubblewrap), an unprivileged user namespace | Linux, a working `bwrap`, `lean`, `lake`, `python3`; per project, Lean v4.35.0-rc2 or later. No Landlock | `verify-comparator.sh` (its required commands) and `lake comparator` |
+| `legacy` | `landrun` (Landlock) | Linux with Landlock ABI 1 or later (kernel 5.13+), `go`, `cargo`, `git`, `jq`, `lean`, `lake`. No `bwrap` | `comparator-check.sh` (the tools it builds) and the pinned comparator |
+
+`lake comparator` needs an unprivileged user namespace for `bwrap`. Ubuntu
+24.04 forbids that by default through AppArmor, and the symptom is
+`bwrap: setting up uid map: Permission denied`. The runner checks
+`bwrap --ro-bind / / true` before judging and refuses with the fix in its
+message: as root, either an AppArmor profile for `/usr/bin/bwrap` that
+grants `userns` (narrow, recommended) or
 `sysctl kernel.apparmor_restrict_unprivileged_userns=0` (broad). The legacy
-mechanism uses landrun (Landlock) and is not affected.
+mechanism is not affected, so such a host can still produce `legacy`
+receipts, which are not Palomar-predictive.
+
+Landlock for the legacy mechanism: landrun at the pinned `LANDRUN_COMMIT`
+targets Landlock ABI 9 in strict mode by default, but the pinned comparator
+always calls it with `--best-effort` (`buildLandrunArgs` in its `Main.lean`),
+so landrun degrades to the ABI the kernel offers and any ABI from 1 runs.
+What a lower ABI loses is sandbox strength, not the ability to judge: below
+ABI 4 (kernel 6.7) landrun has no network rules, below ABI 6 (kernel 6.12)
+no IPC scoping (landrun's README, kernel compatibility table). ABI 9 is not
+a requirement of this runner.
 
 ## Checking a host first
 
 `lean-pkg comparator host-check` answers "can this host produce comparator
-receipts?" before any build. It is read-only, needs no registry and no
-project, and prints one `ok`/`warn`/`fail` line each for: `kernel` (Linux
-and its release), `landlock` (the Landlock ABI from
+receipts, and which kind?" before any build. It is read-only, needs no
+registry and no project, and prints one `ok`/`warn`/`fail` line each for:
+`kernel` (Linux and its release), `landlock` (the Landlock ABI from
 `landlock_create_ruleset`, plus the LSM list from `/sys/kernel/security/lsm`;
-`fail` when absent, `warn` below ABI 4, which lacks network rules), `bwrap`
-(the same user-namespace probe the runner makes), and `go`, `cargo`, `jq`,
-`git`, `lean`, `lake` on `PATH`. The last line is the verdict: the toolchain
-mechanism is usable with a working `bwrap` plus `lean` and `lake` (and, per
-project, Lean v4.35.0-rc2 or later); the legacy mechanism with Landlock plus
-`go`, `cargo`, `git`, `jq`, `lean` and `lake`. Exit 0 when either is
-usable, 1 when neither (`--json`: `checks`, `mechanisms`, `can`, `verdict`).
-`comparator-receipt` prints the same verdict on stderr when it starts (a
-report, never a refusal), and `lean-pkg doctor` shows it as its `host` line.
+`fail` when absent, `warn` below ABI 4, which lacks network rules; the line
+names where the thresholds come from), `bwrap` (the same user-namespace
+probe the runner makes), and `go`, `cargo`, `jq`, `git`, `lean`, `lake`,
+`python3` on `PATH`. Then one `mechanism toolchain|legacy: ok|fail` line
+each, judged against that mechanism's own requirements (the table above)
+with the failing ones named, and the verdict, which names only the
+mechanisms whose every requirement holds and says that Palomar accepts only
+the `toolchain` mechanism (when only `legacy` is usable it says so, and why
+`toolchain` fails). Exit 0 when either is usable, 1 when neither (`--json`:
+`checks`, `mechanisms`, `mechanism_detail` with `ok`, `needs`, `failing`,
+`palomar` per mechanism, `can`, `palomar`, `verdict`). `comparator-receipt`
+prints the same verdict on stderr when it starts (a report, never a
+refusal), and `lean-pkg doctor` shows it as its `host` line.
 
 ## Host policy
 

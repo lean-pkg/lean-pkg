@@ -26,6 +26,19 @@ change the registry schema or receipt format, always with a migration).
   `pre-promote:` line says what promote will fix; `--json` gains
   `pre_promote` and `pending_promote[]`. A new `WARN` flags a
   `lean-toolchain` that is a release candidate or nightly. (#23.3)
+- `comparator host-check` judges each mechanism against its own
+  requirements and prints a `mechanism toolchain|legacy: ok|fail` line
+  for each, naming what fails. The verdict names only the usable mechanisms
+  and says that Palomar runs only `toolchain`: a host where `bwrap` cannot
+  create a user namespace can still produce `legacy` receipts (landrun does
+  not use bwrap), and the verdict now says why `toolchain` fails there and
+  that `legacy` receipts do not predict Palomar. `toolchain` now also needs
+  `python3`, which `verify-comparator.sh` requires. The Landlock thresholds
+  are unchanged and now cite their source: the pinned comparator calls
+  landrun with `--best-effort`, so any ABI from 1 runs (ABI 9 is landrun's
+  strict default, not a requirement), and below ABI 4 the sandbox has no
+  network rules. `--json` gains `mechanism_detail` and `palomar`;
+  docs/comparator.md has a per-mechanism requirements table. (#23.4)
 
 ## [0.7.0] - 2026-10-09
 

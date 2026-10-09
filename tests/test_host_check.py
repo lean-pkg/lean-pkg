@@ -35,7 +35,7 @@ def test_capable_host_passes_with_both_mechanisms(lp, cr, monkeypatch, capsys):
     assert rc == 0 and data["ok"] is True and data["can"] is True
     assert data["mechanisms"] == {"toolchain": True, "legacy": True}
     assert {c["item"] for c in data["checks"]} == {"kernel", "landlock", "bwrap", "go", "cargo", "jq", "git",
-                                                   "lean", "lake"}
+                                                   "lean", "lake", "python3"}
     assert data["verdict"].startswith("this host can produce comparator receipts")
 
 
@@ -97,3 +97,60 @@ def test_comparator_receipt_reports_the_host_check_first(cr, monkeypatch, capsys
     assert cr.main(["--project", str(tmp_path)]) == 1          # not a Lake project: refused after the report
     err = capsys.readouterr().err
     assert err.splitlines()[0] == "comparator-receipt: host-check: this host cannot produce comparator receipts: x"
+
+
+def test_blocked_bwrap_leaves_legacy_and_the_verdict_says_palomar_needs_toolchain(lp, cr, monkeypatch, capsys):
+    """#23.4: the field case. bwrap is only the toolchain mechanism's requirement; legacy (landrun) does not
+    need it, so the host can still produce legacy receipts, but the verdict must say they are not Palomar's."""
+    host(cr, monkeypatch, abi=4, bwrap=("fail", "bwrap cannot create a user namespace (AppArmor)"))
+    rc, cap = hc(lp, capsys, "--json")
+    data = json.loads(cap.out)
+    assert rc == 0 and data["mechanisms"] == {"toolchain": False, "legacy": True} and data["palomar"] is False
+    d = data["mechanism_detail"]
+    assert d["toolchain"]["palomar"] is True and d["legacy"]["palomar"] is False
+    assert d["toolchain"]["failing"] == ["bwrap: bwrap cannot create a user namespace (AppArmor)"]
+    assert "bwrap" not in d["legacy"]["needs"] and "landlock" not in d["toolchain"]["needs"]
+    v = data["verdict"]
+    assert v.startswith("this host can produce comparator receipts with: legacy (")
+    assert "not Palomar-predictive" in v and "toolchain (" not in v
+    assert v.endswith("Palomar accepts only the toolchain mechanism, which fails here (bwrap; "
+                      "see `mechanism toolchain` above)")
+    rc, cap = hc(lp, capsys)
+    lines = cap.out.splitlines()
+    assert "mechanism toolchain: fail (Palomar runs this): bwrap: bwrap cannot create a user namespace (AppArmor)" in lines
+    assert any(x.startswith("mechanism legacy: ok (not Palomar-predictive): every requirement met") for x in lines)
+
+
+def test_landlock_abi_4_is_enough_for_legacy_and_names_its_source(lp, cr, monkeypatch, capsys):
+    host(cr, monkeypatch, abi=4)
+    rc, cap = hc(lp, capsys, "--json")
+    ll = next(c for c in json.loads(cap.out)["checks"] if c["item"] == "landlock")
+    assert ll["level"] == "ok" and "landrun --best-effort" in ll["detail"]
+    assert "ABI 9 is landrun's strict default, not a requirement here" in ll["detail"]
+    assert "docs/comparator.md" in ll["detail"]
+
+
+def test_missing_python3_fails_the_toolchain_mechanism_only(lp, cr, monkeypatch, capsys):
+    host(cr, monkeypatch, missing=("python3",))
+    rc, cap = hc(lp, capsys, "--json")
+    data = json.loads(cap.out)
+    assert rc == 0 and data["mechanisms"] == {"toolchain": False, "legacy": True}
+    assert data["mechanism_detail"]["toolchain"]["failing"] == ["python3: not on PATH"]
+
+
+def test_no_usable_mechanism_lists_each_mechanisms_failures(lp, cr, monkeypatch, capsys):
+    host(cr, monkeypatch, abi=0, bwrap=("fail", "blocked"), missing=("go",))
+    rc, cap = hc(lp, capsys, "--json")
+    data = json.loads(cap.out)
+    assert rc == 1 and data["can"] is False
+    assert data["verdict"].startswith("this host cannot produce comparator receipts: toolchain: bwrap: blocked | "
+                                      "legacy: landlock: absent or disabled")
+    assert "go: not on PATH" in data["verdict"]
+
+
+def test_both_usable_names_toolchain_as_palomars(lp, cr, monkeypatch, capsys):
+    host(cr, monkeypatch)
+    rc, cap = hc(lp, capsys, "--json")
+    v = json.loads(cap.out)["verdict"]
+    assert "toolchain (what Palomar runs; the project needs Lean v4.35.0-rc2+); legacy (" in v
+    assert "fails here" not in v

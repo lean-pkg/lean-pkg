@@ -101,18 +101,28 @@ def bwrap_preflight() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Host check (#22.5): can this host produce comparator receipts at all? Read-only; no project needed.
-# toolchain mechanism: `lake comparator` sandboxes its judges with bwrap (an unprivileged user
-# namespace) and needs lean + lake (the project's toolchain must also be v4.35.0-rc2+).
-# legacy mechanism: comparator-check.sh builds comparator/lean4export (go), nanoda (cargo) and
-# landrun (go; Landlock LSM), needs git, jq, lean, lake.
+# Host check (#22.5, #23.4): can this host produce comparator receipts at all, and with which mechanism?
+# Read-only; no project needed. Per-mechanism requirements, from the scripts that run them:
+# toolchain: the vendored verify-comparator.sh requires bwrap, lake, lean and python3, and `lake comparator`
+#   sandboxes its judges with bwrap (an unprivileged user namespace); the project's toolchain must also be
+#   v4.35.0-rc2+. No Landlock. This is what Palomar runs (docs/comparator.md, "Mechanisms").
+# legacy: comparator-check.sh builds comparator/lean4export (go), nanoda (cargo) and landrun (go), needs git,
+#   jq, lean, lake; comparator runs its judges under landrun (Landlock). No bwrap. The pinned comparator
+#   (COMPARATOR_COMMIT, Main.lean buildLandrunArgs) always passes `--best-effort`, so landrun degrades to the
+#   kernel's Landlock ABI: any ABI >= 1 runs. landrun's own default (ABI v9, strict) applies only without that
+#   flag. Below ABI 4 the sandbox has no network rules; below 6 no IPC scoping (landrun README, kernel table).
 
 LANDLOCK_SYSCALL = 444            # landlock_create_ruleset: the same number on every Linux architecture
 LANDLOCK_CREATE_RULESET_VERSION = 1
+LANDLOCK_MIN_ABI = 1              # landrun --best-effort runs on any Landlock (kernel 5.13+)
 LANDLOCK_FULL_ABI = 4             # TCP bind/connect rules (kernel 6.7+); ABI 1-3 sandbox files only
+LANDLOCK_LANDRUN_TARGET_ABI = 9   # landrun's strict default; comparator's --best-effort makes it a ceiling
+ABI_SOURCE = ("thresholds: docs/comparator.md (Host requirements); landrun README at the pinned LANDRUN_COMMIT; "
+              "the pinned comparator passes --best-effort")
 LSM_FILE = pathlib.Path("/sys/kernel/security/lsm")
 LEGACY_TOOLS = ("go", "cargo", "git", "jq", "lean", "lake")
-TOOLCHAIN_TOOLS_ON_PATH = ("lean", "lake")
+TOOLCHAIN_TOOLS_ON_PATH = ("lean", "lake", "python3")   # verify-comparator.sh's required commands besides bwrap
+PALOMAR_MECHANISM = "toolchain"   # docs/comparator.md: only the toolchain mechanism is Palomar-predictive
 
 
 def landlock_abi() -> int | None:
@@ -150,7 +160,9 @@ def bwrap_probe() -> tuple[str, str]:
 
 def host_checks() -> dict:
     """{"checks": [{"item", "level" ok|warn|fail, "detail"}], "mechanisms": {"toolchain": bool,
-    "legacy": bool}, "can": bool, "verdict": str}. Read-only."""
+    "legacy": bool}, "mechanism_detail": {m: {"ok", "needs", "failing", "palomar"}}, "can": bool,
+    "palomar": bool, "verdict": str}. Read-only. A mechanism is usable only when every one of its own
+    requirements holds; the verdict names only those (#23.4)."""
     import platform
     checks: list[dict] = []
 
@@ -164,30 +176,49 @@ def host_checks() -> dict:
     lsm_note = "" if lsms is None else f"; LSMs: {','.join(lsms)}"
     if abi is None:
         add("landlock", "fail", "cannot probe (not Linux)" + lsm_note)
-    elif abi == 0:
+    elif abi < LANDLOCK_MIN_ABI:
         add("landlock", "fail", "absent or disabled (needs kernel 5.13+ with landlock in the LSM list); "
             "the legacy mechanism's landrun sandbox needs it" + lsm_note)
     elif abi < LANDLOCK_FULL_ABI:
-        add("landlock", "warn", f"ABI {abi} (files only; network rules need ABI {LANDLOCK_FULL_ABI}, "
-            f"kernel 6.7+)" + lsm_note)
+        add("landlock", "warn", f"ABI {abi}: landrun runs (--best-effort) but sandboxes files only; network "
+            f"rules need ABI {LANDLOCK_FULL_ABI}, kernel 6.7+ ({ABI_SOURCE})" + lsm_note)
+    elif abi < LANDLOCK_LANDRUN_TARGET_ABI:
+        add("landlock", "ok", f"ABI {abi}: enough for the legacy mechanism (landrun --best-effort; ABI "
+            f"{LANDLOCK_LANDRUN_TARGET_ABI} is landrun's strict default, not a requirement here; {ABI_SOURCE})"
+            + lsm_note)
     else:
         add("landlock", "ok", f"ABI {abi}" + lsm_note)
     level, detail = bwrap_probe() if linux else ("fail", "Linux only")
     add("bwrap", level, detail)
-    for tool in ("go", "cargo", "jq", "git", "lean", "lake"):
+    for tool in ("go", "cargo", "jq", "git", "lean", "lake", "python3"):
         where = shutil.which(tool)
         add(tool, "ok" if where else "fail", where or "not on PATH")
-    have = {c["item"]: c["level"] != "fail" for c in checks}
-    mech = {"toolchain": linux and have["bwrap"] and all(have[t] for t in TOOLCHAIN_TOOLS_ON_PATH),
-            "legacy": linux and have["landlock"] and all(have[t] for t in LEGACY_TOOLS)}
-    can = mech["toolchain"] or mech["legacy"]
+    by_item = {c["item"]: c for c in checks}
+    needs = {"toolchain": ("kernel", "bwrap") + TOOLCHAIN_TOOLS_ON_PATH,
+             "legacy": ("kernel", "landlock") + LEGACY_TOOLS}
+    detail_by: dict = {}
+    for m, items in needs.items():
+        failing = [f"{i}: {by_item[i]['detail']}" for i in items if by_item[i]["level"] == "fail"]
+        detail_by[m] = {"ok": not failing, "needs": list(items), "failing": failing,
+                        "palomar": m == PALOMAR_MECHANISM}
+    mech = {m: d["ok"] for m, d in detail_by.items()}
+    can = any(mech.values())
     usable = [m for m in ("toolchain", "legacy") if mech[m]]
-    verdict = (f"this host can produce comparator receipts (mechanism: {', '.join(usable)}"
-               + ("; toolchain also needs the project's Lean v4.35.0-rc2+" if mech["toolchain"] else "")
-               + ")") if can else \
-        ("this host cannot produce comparator receipts: "
-         + "; ".join(f"{c['item']}: {c['detail']}" for c in checks if c["level"] == "fail"))
-    return {"checks": checks, "mechanisms": mech, "can": can, "verdict": verdict}
+    if can:
+        parts = []
+        for m in usable:
+            parts.append(f"{m} (what Palomar runs; the project needs Lean {TOOLCHAIN_FLOOR}+)" if m == PALOMAR_MECHANISM
+                         else f"{m} (a second-kernel replay; not what Palomar runs, so not Palomar-predictive)")
+        verdict = "this host can produce comparator receipts with: " + "; ".join(parts)
+        if not mech[PALOMAR_MECHANISM]:
+            verdict += (f". Palomar accepts only the {PALOMAR_MECHANISM} mechanism, which fails here ("
+                        + ", ".join(f.split(":", 1)[0] for f in detail_by[PALOMAR_MECHANISM]["failing"])
+                        + f"; see `mechanism {PALOMAR_MECHANISM}` above)")
+    else:
+        verdict = ("this host cannot produce comparator receipts: "
+                   + " | ".join(f"{m}: " + "; ".join(detail_by[m]["failing"]) for m in ("toolchain", "legacy")))
+    return {"checks": checks, "mechanisms": mech, "mechanism_detail": detail_by, "can": can,
+            "palomar": mech[PALOMAR_MECHANISM], "verdict": verdict}
 
 
 def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str) -> dict:
