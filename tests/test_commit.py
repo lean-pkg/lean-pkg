@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -67,8 +68,30 @@ def run(lp, clone, capsys, *argv):
     return rc, capsys.readouterr()
 
 
-def test_claim_commit_makes_one_commit_with_both_files(lp, env, shared, capsys):
+class _TickingClock:
+    """A stand-in for cli's `dt` module whose datetime.now() moves one second per read: the
+    wall clock of a loaded host, where the --commit claim (fetch, add, commit) and the plain claim
+    after it land in different seconds."""
+
+    def __init__(self):
+        start = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+        ticks = [start]
+
+        class Ticking(dt.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                ticks[0] += dt.timedelta(seconds=1)
+                return ticks[0] if tz is None else ticks[0].astimezone(tz)
+
+        self.datetime, self.date, self.timedelta, self.timezone = Ticking, dt.date, dt.timedelta, dt.timezone
+
+
+def _claim_commit_one_commit_both_files(lp, shared, capsys, monkeypatch):
     a = shared.a
+    # Both claims below stamp claimed_at with now_iso() (second precision) and print
+    # "until <claimed_at + ttl>". Pin it: a loaded host puts the two claims in different seconds.
+    stamp = lp.now_iso()
+    monkeypatch.setattr(lp, "now_iso", lambda: stamp)
     before = _count(a.root)
     rc, cap = run(lp, a, capsys, *CLAIM, "--commit")
     assert rc == 0
@@ -83,8 +106,18 @@ def test_claim_commit_makes_one_commit_with_both_files(lp, env, shared, capsys):
     _git(a.root, "reset", "-q", "--hard", "HEAD~1")
     rc, plain = run(lp, a, capsys, *CLAIM)
     assert rc == 0 and "committed" not in plain.err
-    strip = lambda s: [x for x in s.splitlines() if "expires" not in x and "claimed_at" not in x]
-    assert strip(plain.out) == strip(cap.out)
+    assert plain.out == cap.out
+
+
+def test_claim_commit_makes_one_commit_with_both_files(lp, env, shared, capsys, monkeypatch):
+    _claim_commit_one_commit_both_files(lp, shared, capsys, monkeypatch)
+
+
+def test_claim_commit_stdout_comparison_across_a_second_boundary(lp, env, shared, capsys, monkeypatch):
+    """Regression: the two claims above land in different seconds whenever the host is loaded
+    (the full suite under concurrent agents); the stdout comparison must not depend on that."""
+    monkeypatch.setattr(lp, "dt", _TickingClock())
+    _claim_commit_one_commit_both_files(lp, shared, capsys, monkeypatch)
 
 
 def test_subcommand_position_and_read_only_commands(lp, env, shared, capsys):
