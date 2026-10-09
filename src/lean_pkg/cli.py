@@ -2994,12 +2994,15 @@ NO_GITHUB_MIRROR_DETAIL = "repo is not on GitHub; visibility not mirrored"
 def render_findings(findings: list[dict]) -> list[str]:
     """Human audit output: no-github-mirror findings collapse into one summary line."""
     mirror = [f["name"] for f in findings if f["check"] == "no-github-mirror"]
-    shown = [f for f in findings if f["check"] != "no-github-mirror"]
+    skipped = [f["name"] for f in findings if f["check"] == "gh-skipped"]
+    shown = [f for f in findings if f["check"] not in ("no-github-mirror", "gh-skipped")]
     width = max([20] + [len(f["check"]) + 2 for f in shown])
     lines = [render_finding(f, width) for f in shown]
     if mirror:
         lines.append(f"{len(mirror)} package(s) without a GitHub mirror (visibility not checked): "
                      + ", ".join(mirror))
+    if skipped:
+        lines.append(f"{len(skipped)} package(s): gh checks skipped (--no-gh): " + ", ".join(skipped))
     return lines
 
 
@@ -3028,13 +3031,69 @@ def floor_applies(pkg: dict, promotion: bool = False) -> bool:
                for c in pkg.get("claims") or [])
 
 
+_GH_NO_ACCESS_RE = re.compile(r"Resource not accessible|HTTP 403|SAML|must have (?:push|admin|read)", re.I)
+_GH_NOT_FOUND_RE = re.compile(r"Could not resolve to a Repository|HTTP 404|Not Found", re.I)
+_GH_UNAUTH_RE = re.compile(r"HTTP 401|Bad credentials|gh auth login|not logged in|authentication required", re.I)
+
+
+def remote_reachable(repo: pathlib.Path | None, nwo: str) -> bool | None:
+    """Whether a git remote of the checkout that names nwo (by its configured, un-rewritten URL)
+    answers `git ls-remote`: True / False, or None when no remote names it. No prompts, 30 s cap."""
+    if repo is None or not repo.is_dir():
+        return None
+    p = git(repo, "config", "--get-regexp", r"^remote\..*\.url$")
+    names = [m.group(1) for line in p.stdout.splitlines()
+             if (m := re.match(r"remote\.(.+)\.url\s+(\S+)$", line.strip()))
+             and (gh_nwo(m.group(2)) or "").lower() == nwo.lower()]
+    if not names:
+        return None
+    env = scrubbed_env()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=15")
+    try:
+        q = subprocess.run(["git", "-C", str(repo), "ls-remote", "-q", names[0], "HEAD"], capture_output=True,
+                           text=True, check=False, env=env, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return q.returncode == 0
+
+
+def classify_gh_failure(p, nwo: str, repo: pathlib.Path | None, auth_ok) -> tuple[str, str]:
+    """(outcome, detail) for a failed `gh repo view`: gh-missing | not-authenticated | no-access |
+    not-found | error. auth_ok() is `gh auth status` succeeding (asked only when the text is ambiguous).
+    GitHub answers not-found for a private repository the token cannot read, so a not-found whose
+    checkout remote still answers ls-remote is no-access."""
+    text = (p.stderr or p.stdout or "").strip()
+    if p.returncode == 127 and "not on PATH" in text:
+        return "gh-missing", "gh is not installed: gh checks skipped (install gh, or pass --no-gh)"
+    access = (f"token lacks access to {nwo}: re-run `gh auth login` with a token that can read it "
+              "(or pass --no-gh)")
+    if _GH_UNAUTH_RE.search(text):
+        return "not-authenticated", "gh is not authenticated: run `gh auth login` (or pass --no-gh)"
+    if _GH_NO_ACCESS_RE.search(text):
+        return "no-access", access
+    if _GH_NOT_FOUND_RE.search(text):
+        if not auth_ok():
+            return "not-authenticated", "gh is not authenticated: run `gh auth login` (or pass --no-gh)"
+        reach = remote_reachable(repo, nwo)
+        if reach:
+            return "no-access", access + "; the checkout's git remote reaches it, so it exists"
+        if reach is None:
+            return "not-found", (f"repository {nwo} not found on GitHub, or the token lacks access to it "
+                                 "(no checkout remote names it to tell which)")
+        return "not-found", f"repository {nwo} not found (gh and the checkout's git remote both fail)"
+    return "error", f"gh query failed: {text[:120]}"
+
+
 def audit_registry(reg_path, reg, events_p, fix: bool = False,
-                   toolchain_floor: str | None = None, promotion: bool = False) -> list[dict]:
+                   toolchain_floor: str | None = None, promotion: bool = False,
+                   use_gh: bool = True) -> list[dict]:
     """Structured findings: {"check", "name", "detail", "fixed", "level"}; level is warn or info.
     Read-only unless fix: lease sweeps and visibility/archive reconciliation both need it (an
     expired lease is reported with fixed=False otherwise).
     toolchain_floor None: the environment's floor, else the default (the TUI path).
-    promotion: the floor is a warning for every package (else see floor_applies)."""
+    promotion: the floor is a warning for every package (else see floor_applies).
+    use_gh False (--no-gh): no gh query; each GitHub package gets a gh-skipped info finding."""
     findings: list[dict] = []
     if toolchain_floor is None:
         try:
@@ -3045,11 +3104,18 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
     now = dt.datetime.now(dt.timezone.utc)
     mutated = False
 
-    def note(check, name, detail, fixed=False, level=None):
+    def note(check, name, detail, fixed=False, level=None, **extra):
         if level is None:
             level = "info" if check in AUDIT_INFO_CHECKS else "warn"
         findings.append({"check": check, "name": name,
-                         "detail": detail, "fixed": fixed, "level": level})
+                         "detail": detail, "fixed": fixed, "level": level, **extra})
+
+    auth_cache: list[bool] = []
+
+    def auth_ok() -> bool:
+        if not auth_cache:
+            auth_cache.append(gh("auth", "status", "--hostname", "github.com").returncode == 0)
+        return auth_cache[0]
 
     # Parse every lease before mutating anything: a lease that cannot be read is a finding, not a
     # traceback halfway through a --fix.
@@ -3203,10 +3269,18 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
             # no path echo: the repo may be a private local path, and findings are printed
             note("no-github-mirror", name, NO_GITHUB_MIRROR_DETAIL)
             continue
+        if not use_gh:
+            note("gh-skipped", name, "gh checks skipped (--no-gh)", level="info")
+            continue
         p = gh("repo", "view", nwo, "--json", "visibility,isArchived")
         if p.returncode != 0:
-            note("warn", name,
-                 f"gh query failed: {(p.stderr or p.stdout).strip()[:120]}")
+            outcome, detail = classify_gh_failure(p, nwo, repo, auth_ok)
+            level = "warn"
+            if outcome == "not-found" and pkg.get("status") == "archived":
+                level = "info"
+                detail = ("archived; upstream repo not found — expected if the owner removed it; see notes ("
+                          + detail + ")")
+            note("warn", name, detail, level=level, gh=outcome)
             continue
         try:
             info = json.loads(p.stdout)
@@ -4076,7 +4150,7 @@ promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + o
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
-  nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once). ex: lean-pkg audit --json
+  nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once); a failed gh query: check warn, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); --no-gh: gh-skipped (info). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
@@ -4480,7 +4554,8 @@ def cmd_audit(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     floor = resolve_toolchain_floor(args.toolchain_floor)
     findings = audit_registry(reg_path, load_registry(reg_path), events_p,
-                              fix=args.fix, toolchain_floor=floor, promotion=args.promotion)
+                              fix=args.fix, toolchain_floor=floor, promotion=args.promotion,
+                              use_gh=not args.no_gh)
     fixed = [f for f in findings if f.get("fixed")]
     if args.json_out:
         print_json({"ok": True, "fix": args.fix, "findings": findings, "fixed": len(fixed)})
@@ -5370,6 +5445,8 @@ def main(argv: list[str] | None = None) -> int:
                         f"else {DEFAULT_TOOLCHAIN_FLOOR})")
     s.add_argument("--promotion", action="store_true",
                    help="judge every package against the toolchain floor as for promote (warn, not info)")
+    s.add_argument("--no-gh", action="store_true",
+                   help="skip the GitHub (gh) checks: visibility and archived state are not compared")
     add_json(s)
     s.set_defaults(fn=cmd_audit)
 

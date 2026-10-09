@@ -20,6 +20,13 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `audit`: a failed gh query says why. The `warn` finding gains `gh` (`gh-missing`,
+  `not-authenticated`, `no-access`, `not-found`, `error`) and a detail naming the remedy ("token lacks
+  access to OWNER/REPO: re-run `gh auth login` with a token that can read it" vs "repository not
+  found"). A GraphQL "Could not resolve to a Repository" is checked against `gh auth status` and the
+  checkout's own git remote, since GitHub reports a repository the token cannot read as not found.
+  An `archived` package whose upstream is gone is `info`. New `audit --no-gh` skips the gh checks
+  (`gh-skipped`, info). (#32)
 - `audit`: the toolchain floor is the comparator/promotion requirement, so `below-toolchain-floor` is a
   `warn` only for `public`/`upstreamed` packages, packages with comparator evidence, or under the new
   `audit --promotion`; elsewhere it is `info` ("toolchain below the comparator floor FLOOR (matters only
