@@ -21,7 +21,7 @@ def test_llms_exits_zero_and_covers_contract(lp, capsys):
     assert "The gate is executor-neutral" in out
     assert "A pilot," in out
     assert "partial manifest" in out
-    assert len(out.splitlines()) <= 170
+    assert len(out.splitlines()) <= 175    # raised from 170 when renew/leases landed (#10)
 
 
 def test_llms_mentions_event_names_and_status_enum(lp, capsys):

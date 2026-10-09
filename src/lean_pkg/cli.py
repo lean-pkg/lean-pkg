@@ -27,6 +27,8 @@ touch the outside world are dry-run by default.
                                             fields of a registered package
     claim     <name> --workspace W --agent A [--ttl H] [--reason T] [--force]
     release   <name> [--agent A] [--force]
+    renew     <name> --agent A [--ttl H]    restart your live lease; refuses once lapsed
+    leases    [--agent A] [--expiring H]    held leases, soonest expiry first
     gate      <name> --receipt PATH         validate a lower-tier receipt, then
               [--comparator PATH]           gate-pending -> verified-private;
                                             optional comparator evidence;
@@ -470,6 +472,63 @@ def lease_expires_label(lease: dict | None, now: dt.datetime) -> str:
     return f"in {human_delta(delta)}" if delta > 0 else f"{human_delta(delta)} ago"
 
 
+LEASE_WARN_HOURS = 2    # doctor warns about leases that lapse within this window
+
+
+def lease_rows(reg: dict, now: dt.datetime, agent: str | None = None,
+               expiring_hours: float | None = None) -> list[dict]:
+    """Every held lease as a dict (name, agent, workspace, claimed_at, ttl_hours, expires_at, live,
+    remaining_seconds), soonest expiry first; filtered by holder and by `expires within N hours
+    or already lapsed`."""
+    rows = []
+    for name in sorted(reg.get("packages", {})):
+        lease = reg["packages"][name].get("lease")
+        if not lease:
+            continue
+        if agent is not None and lease.get("agent") != agent:
+            continue
+        exp = lease_expiry(lease)
+        remaining = (exp - now).total_seconds()
+        if expiring_hours is not None and remaining > expiring_hours * 3600:
+            continue
+        rows.append({"name": name, "agent": lease.get("agent"), "workspace": lease.get("workspace"),
+                     "claimed_at": lease.get("claimed_at"), "ttl_hours": lease.get("ttl_hours"),
+                     "expires_at": exp.isoformat(), "live": remaining > 0,
+                     "remaining_seconds": int(remaining)})
+    rows.sort(key=lambda r: r["remaining_seconds"])
+    return rows
+
+
+LEASES_HEADER = ("NAME", "AGENT", "WORKSPACE", "CLAIMED", "EXPIRES", "STATE")
+
+
+def leases_lines(rows: list[dict], now: dt.datetime) -> list[str]:
+    table = [(r["name"], str(r["agent"]), str(r["workspace"] or "-"), str(r["claimed_at"])[:16],
+              f"in {human_delta(r['remaining_seconds'])}" if r["live"]
+              else f"{human_delta(r['remaining_seconds'])} ago",
+              "live" if r["live"] else "EXPIRED (audit --fix sweeps)") for r in rows]
+    widths = [max([len(LEASES_HEADER[i])] + [len(t[i]) for t in table]) for i in range(len(LEASES_HEADER))]
+    fmt = lambda t: "  ".join(t[i].ljust(widths[i]) for i in range(len(LEASES_HEADER))).rstrip()
+    return [fmt(LEASES_HEADER)] + [fmt(t) for t in table]
+
+
+def leases_summary(reg: dict, now: dt.datetime) -> tuple[str, str]:
+    """(level, detail) for doctor: live / expiring within LEASE_WARN_HOURS / expired-unswept counts with names."""
+    rows = lease_rows(reg, now)
+    live = [r for r in rows if r["live"]]
+    soon = [r for r in live if r["remaining_seconds"] <= LEASE_WARN_HOURS * 3600]
+    gone = [r for r in rows if not r["live"]]
+    parts = [f"{len(live)} live"]
+    if soon:
+        parts.append(f"{len(soon)} expiring within {LEASE_WARN_HOURS}h: "
+                     + ", ".join(f"{r['name']} ({r['agent']}, in {human_delta(r['remaining_seconds'])})" for r in soon))
+    if gone:
+        parts.append(f"{len(gone)} expired, not swept: "
+                     + ", ".join(f"{r['name']} ({r['agent']}, {human_delta(r['remaining_seconds'])} ago)" for r in gone)
+                     + " (audit --fix clears)")
+    return ("warn" if soon or gone else "ok"), "; ".join(parts)
+
+
 def with_expiry(reg: dict) -> dict:
     """A copy of the registry whose live lease mappings also carry `expires_at` (ISO, UTC);
     for --json consumers so nobody recomputes claimed_at + ttl_hours."""
@@ -482,6 +541,47 @@ def with_expiry(reg: dict) -> dict:
     return out
 
 
+def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason):
+    """Restart a live lease held by `agent` from now with `ttl` hours; event claim-refreshed."""
+    name = pkg["name"]
+    lease["claimed_at"] = now_iso()
+    lease["ttl_hours"] = ttl
+    if workspace:
+        lease["workspace"] = workspace
+    if reason:
+        lease["reason"] = reason
+    pkg["workspace"] = lease.get("workspace")
+    record(reg, events_p, pkg, "claim-refreshed", agent=agent,
+           workspace=lease.get("workspace"), ttl_hours=ttl)
+    save_registry(reg_path, reg)
+    payload = {"ok": True, "name": name, "event": "claim-refreshed",
+               "lease": dict(lease),
+               "expires_at": lease_expiry(lease).isoformat()}
+    return ([f"{name}: lease refreshed for {agent} "
+             f"until {lease_expiry(lease).isoformat()}"], payload)
+
+
+def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason):
+    """Holder-only refresh that refuses when there is nothing to renew: no lease, another
+    holder, or a lease that has already lapsed (claim again instead; `audit --fix` sweeps it)."""
+    if ttl is not None and ttl <= 0:
+        raise Fail("--ttl must be a positive number of hours")
+    pkg = get_pkg(reg, name)
+    now = dt.datetime.now(dt.timezone.utc)
+    lease = pkg.get("lease")
+    if not lease:
+        raise Fail(f"{name}: no lease held — claim it: lean-pkg claim {name} --workspace W --agent {agent}")
+    if lease.get("agent") != agent:
+        raise Fail(f"{name}: lease held by {lease.get('agent')}, not {agent} — renew is holder-only "
+                   f"(take it over with claim --force --reason)")
+    if not lease_live(lease, now):
+        raise Fail(f"{name}: lease by {agent} expired at {lease_expiry(lease).isoformat()} "
+                   f"({human_delta((now - lease_expiry(lease)).total_seconds())} ago) — not renewable; "
+                   f"claim it again (audit --fix sweeps the expired lease)")
+    ttl = ttl or int(lease.get("ttl_hours") or DEFAULT_TTL_HOURS)
+    return refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason)
+
+
 def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force):
     if ttl <= 0:
         raise Fail("--ttl must be a positive number of hours")
@@ -492,21 +592,7 @@ def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force
     lease = pkg.get("lease")
     if lease and lease_live(lease, now):
         if lease.get("agent") == agent and not force:
-            lease["claimed_at"] = now_iso()
-            lease["ttl_hours"] = ttl
-            if workspace:
-                lease["workspace"] = workspace
-            if reason:
-                lease["reason"] = reason
-            pkg["workspace"] = lease.get("workspace")
-            record(reg, events_p, pkg, "claim-refreshed", agent=agent,
-                   workspace=lease.get("workspace"), ttl_hours=ttl)
-            save_registry(reg_path, reg)
-            payload = {"ok": True, "name": name, "event": "claim-refreshed",
-                       "lease": dict(lease),
-                       "expires_at": lease_expiry(lease).isoformat()}
-            return ([f"{name}: lease refreshed for {agent} "
-                     f"until {lease_expiry(lease).isoformat()}"], payload)
+            return refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason)
         if not force:
             raise Fail(f"{name}: lease held by {lease.get('agent')} "
                        f"(workspace {lease.get('workspace')}) until "
@@ -2377,6 +2463,7 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   flags: --workspace W --agent A (required) [--ttl HOURS=24] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera
+renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt:
   refuse, exit 1, nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}])
@@ -2584,6 +2671,31 @@ def cmd_release(args) -> int:
         print_json(payload)
     else:
         print("\n".join(out))
+    return 0
+
+
+def cmd_renew(args) -> int:
+    reg_path, events_p = registry_path(args), events_path(args)
+    out, payload = do_renew(reg_path, load_registry(reg_path), events_p,
+                            args.name, args.agent, args.ttl, args.workspace, args.reason)
+    if args.json_out:
+        print_json(payload)
+    else:
+        print("\n".join(out))
+    return 0
+
+
+def cmd_leases(args) -> int:
+    reg = load_registry(registry_path(args))
+    now = dt.datetime.now(dt.timezone.utc)
+    rows = lease_rows(reg, now, agent=args.agent, expiring_hours=args.expiring)
+    if args.json_out:
+        print_json({"ok": True, "now": now.isoformat(), "leases": rows})
+    elif rows:
+        print("\n".join(leases_lines(rows, now)))
+    else:
+        print("no leases" + (f" held by {args.agent}" if args.agent else "")
+              + (f" expiring within {args.expiring:g}h" if args.expiring is not None else ""))
     return 0
 
 
@@ -2815,6 +2927,9 @@ def doctor_checks(args) -> tuple[list[dict], bool]:
     add("ok" if ev.is_file() else "n/a", "events", f"{ev}" + ("" if ev.is_file() else " (not created yet)"))
     level, detail = registry_repo_check(reg_p, ev, fetch=fetch)
     add(level, "registry-repo", detail)
+    if reg_ok:
+        level, detail = leases_summary(data, dt.datetime.now(dt.timezone.utc))
+        add(level, "leases", detail)
     root = index_mod.index_root(args)
     if root.is_dir():
         add("ok", "index", f"{root} ({len(index_mod.entry_names(root))} entries)")
@@ -2960,6 +3075,24 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--force", action="store_true")
     add_json(s)
     s.set_defaults(fn=cmd_release)
+
+    s = sub.add_parser("renew", help="restart your own live lease from now (holder-only; refuses once it "
+                                     "has lapsed: claim again)")
+    s.add_argument("name")
+    s.add_argument("--agent", required=True)
+    s.add_argument("--ttl", type=int, default=None, metavar="HOURS",
+                   help="new TTL (default: the lease's current ttl_hours)")
+    s.add_argument("--workspace", default=None, help="move the lease to this workspace")
+    s.add_argument("--reason", default="")
+    add_json(s)
+    s.set_defaults(fn=cmd_renew)
+
+    s = sub.add_parser("leases", help="held leases, soonest expiry first; read-only")
+    s.add_argument("--agent", default=None, help="only leases held by this agent")
+    s.add_argument("--expiring", type=float, default=None, metavar="HOURS",
+                   help="only leases that lapse within HOURS (or have already lapsed)")
+    add_json(s)
+    s.set_defaults(fn=cmd_leases)
 
     s = sub.add_parser("update", help="set fields of an already-registered "
                                       "package (register is for NEW ones)")

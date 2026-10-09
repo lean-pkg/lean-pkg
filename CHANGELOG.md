@@ -9,6 +9,12 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `lean-pkg renew NAME --agent A [--ttl H]`: holder-only restart of a live
+  lease (event `claim-refreshed`); refuses when there is no lease, another
+  agent holds it, or it has already lapsed, instead of silently recording a
+  fresh claim. `lean-pkg leases [--agent A] [--expiring H]` lists held leases
+  soonest-expiry first. `doctor` adds a `leases` line that warns about leases
+  lapsing within 2 h and expired-but-unswept ones. (#10)
 - `lean-pkg doctor` reports `registry-repo`: the git work tree holding the
   registry, its branch, behind/ahead counts against `origin/<branch>` and
   uncommitted tracked files, naming `lean-packages.yaml` and

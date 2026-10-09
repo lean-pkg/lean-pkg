@@ -162,3 +162,91 @@ def test_human_delta(lp):
     assert lp.human_delta(2 * 3600 + 13 * 60) == "2h13m"
     assert lp.human_delta(26 * 3600) == "1d2h"
     assert lp.human_delta(-90) == "1m"
+
+
+# renew / leases (#10)
+
+def test_renew_restarts_a_live_lease_and_keeps_its_ttl(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=20, ttl=24)
+    rc = lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera"])
+    assert rc == 0
+    assert "lease refreshed for vera" in capsys.readouterr().out
+    lease = read_reg(env)["packages"]["alpha"]["lease"]
+    assert lease["ttl_hours"] == 24
+    assert (lp.lease_expiry(lease) - lp.dt.datetime.now(lp.dt.timezone.utc)).total_seconds() > 23 * 3600
+    assert read_events(env)[-1]["event"] == "claim-refreshed"
+
+
+def test_renew_refuses_a_lapsed_lease_and_changes_nothing(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=25, ttl=24)
+    before = env.registry.read_bytes()
+    rc = lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "expired at" in err and "not renewable" in err and "claim it again" in err
+    assert env.registry.read_bytes() == before
+    assert not any(e["event"] == "claim-refreshed" for e in read_events(env))
+
+
+def test_renew_is_holder_only_and_needs_a_lease(lp, env, capsys):
+    rc = lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera"])
+    assert rc == 1 and "no lease held" in capsys.readouterr().err
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    rc = lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "max"])
+    assert rc == 1
+    assert "held by vera, not max" in capsys.readouterr().err
+    assert read_reg(env)["packages"]["alpha"]["lease"]["agent"] == "vera"
+
+
+def test_renew_json_and_new_ttl(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    rc = lp.main(["--registry", str(env.registry), "--json", "renew", "alpha", "--agent", "vera", "--ttl", "6"])
+    assert rc == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] and data["event"] == "claim-refreshed" and data["lease"]["ttl_hours"] == 6
+    assert data["expires_at"] == lp.lease_expiry(data["lease"]).isoformat()
+
+
+def test_leases_lists_soonest_first_with_state_and_filters(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)      # ~23h left
+    set_lease(env, "beta", agent="max", hours_ago=25, ttl=24)       # lapsed ~1h ago
+    assert lp.main(["--registry", str(env.registry), "leases"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].split() == ["NAME", "AGENT", "WORKSPACE", "CLAIMED", "EXPIRES", "STATE"]
+    assert lines[1].startswith("beta") and "EXPIRED" in lines[1] and "ago" in lines[1]
+    assert lines[2].startswith("alpha") and "live" in lines[2] and "in 22h" in lines[2]
+    assert lp.main(["--registry", str(env.registry), "leases", "--agent", "vera"]) == 0
+    out = capsys.readouterr().out
+    assert "alpha" in out and "beta" not in out
+    assert lp.main(["--registry", str(env.registry), "leases", "--expiring", "2"]) == 0
+    out = capsys.readouterr().out
+    assert "beta" in out and "alpha" not in out
+    assert lp.main(["--registry", str(env.registry), "leases", "--agent", "nobody"]) == 0
+    assert "no leases held by nobody" in capsys.readouterr().out
+
+
+def test_leases_json(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    assert lp.main(["--registry", str(env.registry), "--json", "leases"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] and len(data["leases"]) == 1
+    row = data["leases"][0]
+    assert row["name"] == "alpha" and row["live"] is True and row["remaining_seconds"] > 22 * 3600
+    assert row["expires_at"].endswith("+00:00")
+
+
+def test_doctor_leases_line_warns_on_expiring_and_expired(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=23, ttl=24)     # lapses within 2h
+    set_lease(env, "beta", agent="max", hours_ago=25, ttl=24)       # expired, unswept
+    assert lp.main(["--registry", str(env.registry), "doctor"]) == 0
+    line = next(x for x in capsys.readouterr().out.splitlines() if " leases:" in x)
+    assert line.startswith("warn leases:")
+    assert "1 live" in line and "1 expiring within 2h: alpha" in line
+    assert "1 expired, not swept: beta" in line and "audit --fix" in line
+
+
+def test_doctor_leases_line_ok_when_nothing_is_due(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    assert lp.main(["--registry", str(env.registry), "doctor"]) == 0
+    line = next(x for x in capsys.readouterr().out.splitlines() if " leases:" in x)
+    assert line == "ok leases: 1 live"

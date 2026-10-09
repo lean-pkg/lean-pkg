@@ -54,6 +54,7 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   flags: --workspace W --agent A (required) [--ttl HOURS=24] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force.                  ex: lean-pkg release my-lean --agent vera
+renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt:
   refuse, exit 1, nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}])
