@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.10] - 2026-10-09
+
 ### Added
 
 - `public-safety`: a warn-only built-in family `latex-label` for references to a LaTeX manuscript
