@@ -69,6 +69,7 @@ lean-pkg formalization my-lean                       # YAML on stdout
 lean-pkg formalization my-lean --out /tmp/f.yaml     # write elsewhere; registry untouched
 lean-pkg formalization my-lean --write               # <repo>/formalization.yaml + registry pointer
 lean-pkg formalization my-lean --write --force       # overwrite a file that differs
+lean-pkg formalization my-lean --write --no-registry # the file only; the registry is not written
 lean-pkg formalization my-lean --write --author "Ada Lovelace" --json
 ```
 
@@ -81,6 +82,12 @@ through the same path as `lean-pkg update` (append-only history, event
 `updated`), skipping that step when the pointer is already set. A live lease
 held by another agent blocks the registry write, as for `update`; pass
 `--agent HOLDER`. The file is **not** committed; commit it with the package.
+`--write` is therefore a registry write (it takes the registry lock and is
+covered by `--commit`) whenever the pointer is not yet set. During a registry
+freeze, `--write --no-registry` writes the file the same way (lease checked,
+same refusals) but never writes the registry: no pointer update, no event, no
+lock, and `--commit` is ignored; when the pointer is unset it prints the
+`lean-pkg update NAME --formalization-yaml REL` to run later.
 Nothing requires a clean tree: the generator reads tracked bytes at HEAD and
 the written file itself dirties the tree.
 

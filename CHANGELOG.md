@@ -14,6 +14,10 @@ change the registry schema or receipt format, always with a migration).
   merges as a union of appended lines), push again. Skipped when other local
   commits are unpushed; a rebase conflict is aborted and the local commit is
   kept, reported as before. (#22.9)
+- `formalization NAME --write --no-registry` writes the file (lease checked,
+  same refusals) without touching the registry: no pointer update, no event,
+  no lock, `--commit` ignored; `--json` gains `"registry_skipped": true`. The
+  docs now say plainly that `--write` alone is a registry write. (#22.8)
 
 ## [0.6.0] - 2026-10-09
 

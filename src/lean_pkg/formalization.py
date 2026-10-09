@@ -456,12 +456,14 @@ def render_for(pkg: dict, repo: pathlib.Path, authors: list[str] | None = None
 
 def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: str | None,
                      force: bool, authors: list[str] | None, agent: str | None,
-                     reason: str = "") -> tuple[list[str], dict, list[str]]:
+                     reason: str = "", no_registry: bool = False) -> tuple[list[str], dict, list[str]]:
     """(stdout lines, payload, stderr warnings). The YAML text is in payload['yaml'].
 
     --write checks before it writes: the lease (a live lease held by another agent refuses unless
     --force --reason) and a dry run of the registry update, so a refusal leaves formalization.yaml
-    untouched. --force alone overwrites a differing file; with --reason it also overrides the lease."""
+    untouched. --force alone overwrites a differing file; with --reason it also overrides the lease.
+    no_registry (--write --no-registry, #22.8): write the file only; the registry is read, never written
+    (no pointer update, no event), so the invocation is not a registry write."""
     pkg = core.get_pkg(reg, name)
     repo = core.repo_path(pkg)
     if not repo.is_dir():
@@ -470,6 +472,8 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
         raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
     if write and out:
         raise core.UsageError("--write and --out are mutually exclusive")
+    if no_registry and not write:
+        raise core.UsageError("--no-registry needs --write (a render without --write never touches the registry)")
 
     rel = target_rel(pkg)
     text, doc, warnings, existing_text = render_for(pkg, repo, authors)
@@ -512,7 +516,9 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
     update_kw = dict(sets={"formalization_yaml": rel}, status=None,
                      reason=reason or "lean-pkg formalization --write", redetect=False,
                      agent=agent, force=lease_force)
-    if needs_update:   # every registry check first, on a copy: a refusal writes nothing
+    if no_registry:
+        payload["registry_skipped"] = True
+    if needs_update and not no_registry:   # every registry check first, on a copy: a refusal writes nothing
         core.do_update(reg_path, reg, events_p, name, dry_run=True, **update_kw)
     if existing_text is not None and existing_text == text:
         payload["unchanged"] = True
@@ -525,7 +531,10 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
         _atomic_write(target, text)
         payload["written"] = True
         lines = [f"{name}: wrote {target} ({summary}) — not committed; commit it yourself"]
-    if needs_update:
+    if needs_update and no_registry:
+        lines.append(f"{name}: registry untouched (--no-registry); the formalization_yaml pointer is not "
+                     f"set: run `lean-pkg update {name} --formalization-yaml {rel}` when the registry is open")
+    elif needs_update:
         up_lines, _ = core.do_update(reg_path, reg, events_p, name, **update_kw)
         lines += up_lines
         payload["registry_updated"] = True
@@ -556,7 +565,7 @@ def cmd_formalization(args) -> int:
     lines, payload, warnings = do_formalization(
         reg_path, core.load_registry(reg_path), events_p, args.name, write=args.write,
         out=args.out, force=args.force, authors=args.author, agent=args.agent,
-        reason=getattr(args, "reason", "") or "")
+        reason=getattr(args, "reason", "") or "", no_registry=getattr(args, "no_registry", False))
     for w in warnings:
         print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
     if getattr(args, "json_out", False):
@@ -574,6 +583,9 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--write", action="store_true",
                    help="write <repo>/<formalization_yaml or formalization.yaml> and set the "
                         "registry pointer (event updated); refuses a differing file without --force")
+    s.add_argument("--no-registry", action="store_true",
+                   help="with --write: write the file only; the registry is not updated (no pointer, no "
+                        "event), so this is not a registry write (no lock, no --commit)")
     s.add_argument("--out", default=None, metavar="PATH",
                    help="write the render here instead; the registry is untouched")
     s.add_argument("--force", action="store_true",

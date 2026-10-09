@@ -3512,13 +3512,13 @@ index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, e
 claims    claims.yaml (schema claims/1) at the package repo root: named reusable results, cached in the registry.
   sync NAME   read claims.yaml at HEAD (committed bytes only); every decl must occur in its file; event claims-synced.
   list [NAME] | check [NAME]   cached claims with status and derived trust | re-validate; exit 0/1.
-formalization NAME [--write] [--out PATH] [--force [--reason TEXT]] [--author A ...] [--agent A]   render formalization.yaml (mathlib-initiative
+formalization NAME [--write] [--no-registry] [--out PATH] [--force [--reason TEXT]] [--author A ...] [--agent A]   render formalization.yaml (mathlib-initiative
   v0.4, what Palomar reads) from the registry + the repo at HEAD. Derived every run: project.name/license (license_spdx),
   automation.notes, status.sorry_count/axioms/evidence (gate receipt), status.main_results (every tracked comparator config:
   comparator_config, declaration, file; definition holes carry judged_as, null when unsigned), alignment (claims.yaml). Every other
   key is KEPT from the file; first render seeds authors from consent[] owner/author, else "[PLACEHOLDER] ..." + stderr warning (never
-  invented: no paper titles). --write: idempotent; lease + update checked BEFORE writing (foreign lease: --force --reason); a differing file needs --force.
-  Validated against the vendored v0.4 schema (jsonschema, else structural). audit: formalization-missing/-drift. docs/formalization.md
+  invented: no paper titles). --write: idempotent; lease + update checked BEFORE writing (foreign lease: --force --reason); a differing file needs --force;
+  --write also sets the registry pointer (a registry write); --write --no-registry: the file only, registry untouched (no lock/--commit). Validated against the vendored v0.4 schema (jsonschema, else structural). audit: formalization-missing/-drift. docs/formalization.md
 search    TERM [--package NAME] [--offline] [--sources a,b,c] [--record [--repo-dir P]] [--json]   prior-art search.
   order: registry, index, loogle, leansearch, reservoir, palomar, github; each "ok" or "skipped: <reason>" (never zero hits).
   local score: exact alias or package name 3, keyword 2, every term word 1; registry hits: packages (name, notes, owner_project, repo; hit_kind package) and claims. exit 0 even with zero hits; 2 on usage errors.
@@ -4597,7 +4597,7 @@ def is_write_invocation(args) -> bool:
     """Does this invocation, as parsed, write the registry or its event log? The one predicate behind the
     registry lock (locks_registry) and committed mode (commit_mode). Dry runs and read-only forms are not
     writes: register/update/migrate --dry-run, promote without --yes, audit without --fix, comparator
-    --check, formalization without --write, claims list/check, index check/render/migrate, search without
+    --check, formalization without --write or with --no-registry, claims list/check, index check/render/migrate, search without
     --record, board off a tty or with --json."""
     cmd = getattr(args, "cmd", None)
     if cmd in ("init", "record", "register", "claim", "release", "renew", "update", "gate", "migrate"):
@@ -4608,8 +4608,8 @@ def is_write_invocation(args) -> bool:
         return bool(getattr(args, "yes", False))
     if cmd == "audit":
         return bool(getattr(args, "fix", False))
-    if cmd == "formalization":
-        return bool(getattr(args, "write", False))
+    if cmd == "formalization":   # --write --no-registry writes only the package's file (#22.8)
+        return bool(getattr(args, "write", False)) and not getattr(args, "no_registry", False)
     if cmd == "claims":
         return getattr(getattr(args, "claims_fn", None), "__name__", "") == "run_sync"
     if cmd == "index":

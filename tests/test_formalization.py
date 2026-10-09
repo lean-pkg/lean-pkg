@@ -216,6 +216,35 @@ def test_write_json_payload_flags(lp, env, capsys):
     assert data["written"] is False and data["unchanged"] is True and data["registry_updated"] is False
 
 
+def test_write_no_registry_writes_the_file_and_leaves_the_registry_alone(lp, env, capsys):   # #22.8
+    before_reg, before_ev = env.registry.read_bytes(), read_events(env)
+    assert run(lp, env, "beta", "--write", "--no-registry", "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["written"] is True and data["registry_updated"] is False and data["registry_skipped"] is True
+    assert (env.repo_b / "formalization.yaml").is_file()
+    assert env.registry.read_bytes() == before_reg and read_events(env) == before_ev
+    assert not env.registry.with_name(env.registry.name + ".lock").exists()
+    assert run(lp, env, "beta", "--write", "--no-registry") == 0
+    out = capsys.readouterr().out
+    assert "nothing written" in out and "--formalization-yaml formalization.yaml" in out
+    assert env.registry.read_bytes() == before_reg
+
+
+def test_no_registry_needs_write_and_is_not_a_commit_write(lp, env, capsys):
+    assert run(lp, env, "beta", "--no-registry") == 2
+    assert "--no-registry needs --write" in capsys.readouterr().err
+    assert run(lp, env, "beta", "--write", "--no-registry", "--commit") == 0
+    assert "--commit ignored: read-only command" in capsys.readouterr().err
+
+
+def test_no_registry_still_respects_a_live_lease(lp, env, capsys):
+    assert lp.main(["--registry", str(env.registry), "claim", "beta", "--workspace", "w", "--agent", "vera"]) == 0
+    capsys.readouterr()
+    assert run(lp, env, "beta", "--write", "--no-registry", "--agent", "otto") == 1
+    assert "lease held by vera" in capsys.readouterr().err
+    assert not (env.repo_b / "formalization.yaml").exists()
+
+
 def test_write_refuses_a_differing_file_without_force(lp, env, capsys):
     assert run(lp, env, "beta", "--write") == 0
     capsys.readouterr()
