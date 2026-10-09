@@ -48,6 +48,12 @@ change the registry schema or receipt format, always with a migration).
   `promote`/`git tag`/`record` commands; exit 0 ready, 1 not. Named `publish`
   because `release` already releases a lease; without `--dry-run` it is
   refused in this version. (#22.1)
+- `lean-pkg reservoir check NAME [--offline]`: read-only checks of the
+  documented Reservoir listing criteria (public, not a fork, 2 stars,
+  root manifest and toolchain tracked, license, lakefile package without
+  `reservoir := false`, display metadata, tag) and of Reservoir's package
+  API, printing the `record ... reservoir-listed` command once listed. No
+  automatic poller or recording. (#22.2)
 
 ## [0.6.0] - 2026-10-09
 

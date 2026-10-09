@@ -213,7 +213,9 @@ Reservoir displays and what people search. To opt out, set
 `https://reservoir.lean-lang.org/api/v1/packages/<owner>/<name>` returns
 HTTP 200 (404 means not listed yet); then record it with
 `lean-pkg record NAME reservoir-listed --field url=<package page>`.
-lean-pkg stores the fact; it does not query Reservoir for you.
+lean-pkg stores the fact; it does not record it for you, but
+`lean-pkg reservoir check NAME` checks these criteria and the API and prints
+the `record` command once the package is listed.
 
 **Should I search Reservoir before formalizing?**
 Yes, and not only Reservoir. Before writing any new definition, lemma or
