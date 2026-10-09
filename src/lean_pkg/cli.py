@@ -2417,13 +2417,24 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
         out.append(f"{name}: gate-pending -> verified-private (commit {commit[:12]})"
                    + (f" with comparator evidence {comp_rel}" if comp_rel else ""))
     out.append(RL_REMINDER.format(name=name))
+    ignored = attached_ignored_evidence(pkg, repo)
     payload = {"ok": True, "name": name, "event": "gate-passed",
                "status": new_status, "gate": pkg["gate"],
                "receipt": dest_rel, "commit": commit, "rl_reminder": True,
-               "status_unchanged": was_public, "private_strings": private, "dirty": dirty}
+               "status_unchanged": was_public, "private_strings": private, "dirty": dirty,
+               "ignored_evidence": ignored}
     if comp_rel:
         payload["comparator"] = comp_rel
     return out, payload
+
+
+def attached_ignored_evidence(pkg: dict, repo: pathlib.Path) -> list[dict]:
+    """After `gate`/`comparator` attach evidence: [{path, rule}] for the evidence files git ignores,
+    each also a stderr WARN, so the gap shows now and not at promote time (#40)."""
+    from . import publish as publish_mod
+    ignored = publish_mod.ignored_evidence(repo, publish_mod.evidence_paths(pkg, repo))
+    publish_mod.warn_ignored_evidence(ignored)
+    return ignored
 
 
 def do_comparator(reg_path, reg, events_p, name, receipt_arg,
@@ -2485,7 +2496,7 @@ def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool 
     payload = {"ok": True, "name": name, "event": "comparator-attached",
                "status": pkg.get("status"), "gate": pkg["gate"],
                "comparator": comp_rel, "commit": commit, "private_strings": private,
-               "dirty": dirty}
+               "dirty": dirty, "ignored_evidence": attached_ignored_evidence(pkg, repo)}
     return out, payload
 
 
@@ -2908,16 +2919,23 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
 
 def evidence_tracked_item(repo: pathlib.Path, what: str, rels: list[str]) -> tuple[str, str]:
     """✓ when every evidence path is committed at HEAD with the bytes the working tree holds;
-    ✗ naming the untracked or modified ones (untracked files do not count, as in `index add`)."""
+    ✗ naming the untracked or modified ones (untracked files do not count, as in `index add`).
+    An untracked path that git ignores is named with its ignore rule (#40)."""
+    from . import publish as publish_mod
     untracked = [r for r in rels if not tracked_at(repo, r)]
     changed = [r for r in rels if r not in untracked and (repo / r).is_file()
                and git_show_bytes(repo, f"./{r}") != (repo / r).read_bytes()]
     if not untracked and not changed:
         return ("✓", f"{what} tracked at HEAD ({len(rels)} file(s))")
-    bad = ([f"not committed: {', '.join(untracked[:3])}"] if untracked else []) \
+    rules = {i["path"]: i["rule"] for i in publish_mod.ignored_evidence(
+        repo, [r for r in untracked if (repo / r).is_file()])}
+    named = [f"{r} (git-ignored by {rules[r]})" if r in rules else r for r in untracked[:3]]
+    bad = ([f"not committed: {', '.join(named)}"] if untracked else []) \
         + ([f"modified since HEAD: {', '.join(changed[:3])}"] if changed else [])
+    fix = (f"`git add` skips git-ignored files; {publish_mod.IGNORE_REMEDY}" if rules
+           else "commit .lean-receipts/ first")
     return ("✗", f"{what} not committed at HEAD — {'; '.join(bad)} (untracked files do not "
-                 f"count; commit .lean-receipts/ first)")
+                 f"count; {fix})")
 
 
 def head_pushed_item(repo: pathlib.Path) -> tuple[str, str]:
@@ -2936,9 +2954,11 @@ def head_pushed_item(repo: pathlib.Path) -> tuple[str, str]:
                  f"fetched) — push first; the public repository must hold the evidence")
 
 
-def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False) -> list[tuple[str, str]]:
+def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False,
+                      ignored_sink: list | None = None) -> list[tuple[str, str]]:
     """(mark, label) pairs; mark in {'✓', '✗', 'WARN'}. With yes (promote --yes), a failed gh
-    visibility query is ✗, not WARN."""
+    visibility query is ✗, not WARN. Evidence on disk that git ignores is a WARN (#40), its
+    [{path, rule}] appended to ignored_sink."""
     checks: list[tuple[str, str]] = []
     reuse = find_reuse()
     if reuse is None:
@@ -3000,6 +3020,13 @@ def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False) -> list[
                     if isinstance(c, dict) and isinstance(c.get("log"), str) and c["log"]]
             checks.append(evidence_tracked_item(repo, f"comparator receipt {comp_rel} and its "
                                                       f"{len(logs)} log(s)", [comp_rel, *logs]))
+    from . import publish as publish_mod
+    ignored = publish_mod.ignored_evidence(repo, publish_mod.evidence_paths(pkg, repo))
+    if ignored_sink is not None:
+        ignored_sink.extend(ignored)
+    item = publish_mod.ignored_evidence_item(ignored)
+    if item:
+        checks.append(item)
     paper = pkg.get("paper")
     if paper_blocks_promote(pkg):
         checks.append(("✗", "paper is unpublished and no arXiv id is recorded: going public would disclose "
@@ -3052,7 +3079,8 @@ def do_promote(reg_path, reg, events_p, name, yes, skip_public_safety: bool = Fa
     if not repo.is_dir():
         raise Fail(f"{name}: local_path does not exist: {repo}")
     lines = [f"promotion checklist for {name} ({repo}):"]
-    checks = promote_checklist(pkg, repo, yes=yes)
+    ignored: list[dict] = []
+    checks = promote_checklist(pkg, repo, yes=yes, ignored_sink=ignored)
     # #35: private strings in the tree or the history; the flip publishes both.
     if skip_public_safety:
         checks.append(("WARN", f"public-safety skipped (--skip-public-safety); run "
@@ -3068,7 +3096,8 @@ def do_promote(reg_path, reg, events_p, name, yes, skip_public_safety: bool = Fa
                                   **({"reason": c[2]} if len(c) > 2 else {}))
                              for c in checks],
                "public_safety": safety,
-               "one_way_warning": ONEWAY_WARNING}
+               "one_way_warning": ONEWAY_WARNING,
+               "ignored_evidence": ignored}
     if any(c[0] == "✗" for c in checks):
         lines.append("refusing: checklist has failures")
         payload.update(ok=False, refused=True)
@@ -4387,7 +4416,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
   ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped; --challenge-from-type pre-fills Challenge (elaborated type) + Solution (`exact @_root_.<decl>`) via `lake env lean` [--lake-env DIR --jobs N --timeout S], or split it: --emit-script F (bash F OUT.json on a Slurm node, JSON comparator-types/1; ENFILE/EMFILE: halves jobs, retries) then --from-output OUT.json (commit must be HEAD; driver exits 1 on extraction errors, 2 if none filled; ingest refuses those unless --allow-partial: failures kept TODO, extraction_failed; --checkout DIR instead of local_path; --no-registry --out FILE: scratch config, no lease check); per entry: type_error keeps the TODO, needs_restatement flags project vocabulary; each printed type re-elaborated vs the decl (example : (T) := @decl), failure keeps TODO, round_trip_failed   |   comparator config --coverage NAME: read-only; claims covered/not/TODO by the config tracked at the gate-bound commit (never a candidate); a changed or uncommitted config cannot certify that tree, a new gate at a commit tracking it is required; prints the exact next commands (JSON next_commands[])   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot); warn git-env (JSON env_warnings[]) when GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES/GIT_COMMON_DIR/GIT_NAMESPACE is set (comparator-receipt and package-checkout git drop them; stages.json git_env_scrubbed[])
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
-  valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), (paper field) a paper unpublished with no arXiv id, and blocking public-safety hits (warn-only hits: a WARN line; skip: --skip-public-safety, a WARN).
+  valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), (paper field) a paper unpublished with no arXiv id, and blocking public-safety hits (warn-only hits: a WARN line; skip: --skip-public-safety, a WARN). Evidence on disk that git ignores (receipts, comparator logs, comparator-stages/ files) is a WARN naming each path + rule (.gitignore:3:*.log) and the remedy (!.lean-receipts/ + !**/.lean-receipts/** after it, or git add -f); a not-committed ✗ names the rule; JSON ignored_evidence[{path, rule}] (also publish, and gate/comparator after attaching: stderr WARN).
   ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, lakefile package name, tag at HEAD (--public-safety: + the scan below, implies --dry-run); prints the next promote/tag/record commands (the tag push names the GitHub remote, found by URL); exit 0 ready / 1 not   |   public-safety NAME [--history|--no-history] [--strict] (read-only): tree git would ship + (default) every blob/commit message on any ref under the package dir, for .lean-pkg-private-patterns regexes (# comments; bare or `block: RE` blocks, `warn: RE` warns, `allow: RE` exempts; tracked = a hit), built-ins (/home/<u>/, /Users/<u>/, ~/Dropbox/, approvals/, notes/, *.private, TODO-private, emails not declared), names from the record's local_path/agent/workspace, internal paths (approvals/ notes/ drafts/ scratch/ *.priv), warn-only latex-label (lem:/thm:/eq:/sec:... keys, main.tex, \\ref{ \\cite{ \\label{, Overleaf, arXiv ids; Lean-calibrated: never inside a name like foo_eq_bar, eq/def/ex only with `:`, key- only with a digit/capital/inner `.`, built-in allow def-eq defeq eq-of eq-iff ex-falso; the summary counts its warnings); hit = location (path:line, history: commit + path) + pattern label + severity (block|warn; warn printed as WARN) + excerpt with each match as […] (raw strings never printed); --json {ok, hits[], tree_hits, history_hits, block_hits, warn_hits, latex_label_hits, strict, patterns_source, warnings[]}; exit 1 on blocking hits (--strict: on any hit)   |   reservoir check NAME [--offline] (read-only): public, not a fork, >=2 stars (gh), lake-manifest.json + lean-toolchain tracked, LICENSE vs license_spdx, lakefile package + no `reservoir := false` (+ WARN without description/keywords/versionTags), lean-toolchain a release (rc/nightly: WARN), tag at HEAD; not yet public: GitHub items `pending promote: ...` (still ✗) + a `pre-promote:` line; then the Reservoir API (200: prints the `record ... reservoir-listed` command; never records itself); exit 0 eligible / 1 not
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).

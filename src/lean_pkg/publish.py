@@ -15,12 +15,79 @@ releases a lease.
 from __future__ import annotations
 
 import re
+import subprocess
 
 from . import cli as core
 
 LAKEFILE_PACKAGE_RE = re.compile(r"^\s*package\s+(«[^»\n]+»|[A-Za-z_][A-Za-z0-9_'!?.-]*)", re.MULTILINE)
 PROMOTABLE = ("verified-private",)
 ALREADY_PUBLIC = ("public", "upstreamed")
+
+
+# Evidence that exists on disk but is git-ignored (#40): a default `.gitignore` with `*.log` hides the
+# comparator logs `promote` requires committed, and nobody notices until promote time.
+STAGES_DIR = "comparator-stages"
+IGNORE_REMEDY = ("un-ignore it: add `!.lean-receipts/` and `!**/.lean-receipts/**` to .gitignore after "
+                 "the ignoring rule (a `!PATH` line for evidence elsewhere), or `git add -f PATH`")
+
+
+def evidence_paths(pkg: dict, repo) -> list[str]:
+    """The evidence files on disk that publishing needs committed: the gate receipt, the comparator
+    receipt and its logs, and the comparator-stages/ files (stages.json, stage logs) kept beside them."""
+    gate = pkg.get("gate") or {}
+    rels = [r for r in (gate.get("receipt"), gate.get("comparator")) if isinstance(r, str) and r]
+    comp = core.recorded_json(repo, gate.get("comparator"))
+    if isinstance(comp, dict) and isinstance(comp.get("configs"), list):
+        rels += [c["log"] for c in comp["configs"]
+                 if isinstance(c, dict) and isinstance(c.get("log"), str) and c["log"]]
+    dirs = {".lean-receipts"} | {r.rsplit("/", 1)[0] for r in rels if "/" in r}
+    for d in sorted(dirs):
+        base = repo / d
+        if not base.is_dir():
+            continue
+        for stages in sorted(base.rglob(STAGES_DIR)):
+            if stages.is_dir():
+                rels += [f.relative_to(repo).as_posix() for f in sorted(stages.rglob("*")) if f.is_file()]
+    seen: set[str] = set()
+    return [r for r in rels if not (r in seen or seen.add(r)) and (repo / r).is_file()]
+
+
+def ignored_evidence(repo, rels: list[str]) -> list[dict]:
+    """[{path, rule}] for each of `rels` that git ignores (`git check-ignore -v`; tracked files are never
+    ignored); rule is SOURCE:LINE:PATTERN, e.g. `.gitignore:3:*.log`. A git failure reports nothing."""
+    if not rels:
+        return []
+    try:
+        p = subprocess.run(["git", "-C", str(repo), "check-ignore", "-v", "-z", "--stdin"],
+                           input="\0".join(rels) + "\0", capture_output=True, text=True,
+                           env=core.scrubbed_env(), check=False)
+    except OSError:
+        return []
+    if p.returncode not in (0, 1):
+        return []
+    f = p.stdout.split("\0")
+    out = []
+    for i in range(0, len(f) - 3, 4):
+        source, line, pattern, path = f[i:i + 4]
+        if pattern and not pattern.startswith("!"):   # a matched negation means "not ignored"
+            out.append({"path": path, "rule": f"{source}:{line}:{pattern}"})
+    return out
+
+
+def ignored_evidence_item(ignored: list[dict]) -> tuple[str, str] | None:
+    """The checklist WARN naming each ignored evidence path and its rule, with the remedy."""
+    if not ignored:
+        return None
+    return ("WARN", "evidence on disk is git-ignored, so `git add` skips it: "
+            + ", ".join(f"{i['path']} ({i['rule']})" for i in ignored) + f"; {IGNORE_REMEDY}")
+
+
+def warn_ignored_evidence(ignored: list[dict]) -> None:
+    """stderr WARN lines for `gate`/`comparator` when the evidence they attached is git-ignored."""
+    import sys
+    for i in ignored:
+        print(f"WARN: {i['path']} is git-ignored ({i['rule']}): `git add` skips it and `promote` needs it "
+              f"committed; {IGNORE_REMEDY}", file=sys.stderr)
 
 
 def lakefile_package_name(repo) -> str | None:
@@ -168,15 +235,21 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
         raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
     status = pkg.get("status")
     items: list[tuple] = []
+    ignored: list[dict] = []
     if status in PROMOTABLE:
         items.append(("✓", f"status {status}"))
-        items += core.promote_checklist(pkg, repo)
+        items += core.promote_checklist(pkg, repo, ignored_sink=ignored)
     elif status in ALREADY_PUBLIC:
         items.append(("✓", f"status {status} (promoted at {pkg.get('promoted_at') or '?'}); promote not needed"))
         items.append(core.head_pushed_item(repo))
     else:
         items.append(("✗", f"status {status}: publishing starts from verified-private "
                            f"(`lean-pkg gate {name} --receipt R` first)"))
+    if status not in PROMOTABLE:   # the promote checklist already carries this WARN
+        ignored = ignored_evidence(repo, evidence_paths(pkg, repo))
+        item = ignored_evidence_item(ignored)
+        if item:
+            items.append(item)
     safety = None
     if public_safety:   # #35: private strings in the tree or the history
         from . import public_safety as ps_mod
@@ -202,7 +275,7 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
     payload = {"ok": ready, "name": name, "dry_run": True, "ready": ready, "head": head,
                "checklist": [dict({"status": core._MARK_TO_STATUS[i[0]], "label": i[1]},
                                   **({"reason": i[2]} if len(i) > 2 else {})) for i in items],
-               "next": cmds}
+               "next": cmds, "ignored_evidence": ignored}
     if safety is not None:
         payload["public_safety"] = safety
     return lines, 0 if ready else 1, payload

@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- Git-ignored evidence is reported before promote time. A default `.gitignore` with `*.log` silently hid the
+  comparator logs (and `comparator-stages/` files) that `promote` requires committed, and owners found out only
+  when promote refused them as untracked. `publish --dry-run`, the `promote` checklist, and `gate`/`comparator`
+  after attaching evidence now run `git check-ignore -v` on each evidence file on disk and print a `WARN` naming
+  every ignored path, its rule (`.gitignore:3:*.log`) and the remedy (`!.lean-receipts/` and
+  `!**/.lean-receipts/**`, or `git add -f`); promote still refuses, but its `✗` names the rule. `--json` gains
+  `ignored_evidence[]` {path, rule}. (#40)
+
 ### Added
 
 - `comparator-receipt` stage 04 progress: `slot i/N <name> started` / `done in Ss` / `failed` lines,
