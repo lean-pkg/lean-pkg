@@ -54,6 +54,28 @@ lean-pkg update my-proof --reaudit-after 2027-01-15
 `verified-private` is reachable only through `gate`, and `public` only
 through `promote --yes`. See [Lifecycle](lifecycle.md).
 
+## Move a package to another checkout
+
+When a package registered from an in-paper `lean/` tree moves to a dedicated
+repository, relocate it instead of registering a second name. The name,
+history and claims cache stay with it:
+
+```bash
+lean-pkg update my-proof --path src/my-proof --reason "split into its own repo" --dry-run
+lean-pkg update my-proof --path src/my-proof --reason "split into its own repo" --agent vera --redetect
+```
+
+The path is `$HOME`-relative, like `register --path`. `update` refuses the
+current path, a path another package already holds, and a live lease held by
+another agent (the holder passes `--agent`; `--force` is not accepted). It
+never touches the file system; a path absent on this host is recorded with a
+note. Evidence bound to a commit survives only when the new checkout's HEAD
+is that commit (or an evidence-only descendant of it): otherwise the gate
+receipt, the comparator receipt and the cached claims are cleared, a
+`verified-private` package returns to `gate-pending`, and the `relocated`
+event lists what was cleared. Without `--redetect`, `lean_toolchain` and
+`mathlib_pin` are left as recorded.
+
 ## Produce the lower-tier receipt
 
 `lean-pkg` validates this receipt but does not produce it. Any executor

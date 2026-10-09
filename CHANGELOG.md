@@ -9,6 +9,14 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `lean-pkg update NAME --path NEW --reason TEXT [--agent A] [--redetect]
+  [--dry-run]` relocates a package to another checkout without losing its
+  name, history or claims cache (event `relocated` with `old_path`,
+  `new_path`, `reason`, `cleared`). It refuses the current path, another
+  package's path and a foreign live lease (no `--force`), never touches the
+  file system, and clears gate receipts and cached claims not bound to the
+  new checkout's HEAD; a `verified-private` package then returns to
+  `gate-pending` (event `status-changed`). (#13)
 - Committed mode for a registry kept in git: global `--commit` (env
   `LEAN_PKG_COMMIT=1`) makes every write command fetch `origin` and
   `pull --ff-only` first (refusing a diverged clone or registry files that

@@ -51,6 +51,8 @@ register  add a package; dedupes by name AND local_path; auto-detects toolchain 
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
 update    set fields of a registered package; manual status moves need --reason.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
+  --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Refuses same
+  path, another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
 claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry).
   flags: --workspace W --agent A (required) [--ttl HOURS=24] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
@@ -167,7 +169,7 @@ partial manifest, pre-terminal marker, or prior-candidate receipt is not gate ev
 EVENT LINE SCHEMA (one JSON object per line; the same entry is appended to history[])
 ts      ISO-8601 timestamp
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
-        released, release-forced, lease-expired, gate-passed, promoted, audit-fix,
+        released, release-forced, lease-expired, gate-passed, promoted, audit-fix, relocated, status-changed,
         comparator-attached, index-added, claims-synced, prior-art-searched, and the evidence events listed under `record`
 name    package name or null
 plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt, ...)

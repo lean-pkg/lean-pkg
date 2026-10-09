@@ -701,7 +701,7 @@ OWNED_ELSEWHERE = {
     "promoted_commit": "lean-pkg promote", "visibility": "lean-pkg promote",
     "lease": "lean-pkg claim/release", "workspace": "lean-pkg claim",
     "agent": "lean-pkg claim", "status": "lean-pkg update --status",
-    "name": "(immutable)", "local_path": "(immutable; re-register instead)",
+    "name": "(immutable)", "local_path": "lean-pkg update NAME --path NEW --reason TEXT",
     "history": "(append-only)",
 }
 
@@ -808,6 +808,145 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
                "changes": {f: {"from": o, "to": n} for f, (o, n) in changes.items()},
                "reason": reason or "", "forced": bool(force)}
     return (out, payload)
+
+
+def _abs_local_path(p) -> str:
+    """Comparison form of a local_path as this host resolves it ($HOME-joined, normalised)."""
+    return os.path.normpath(str(HOME / pathlib.Path(normalize_local_path(p))))
+
+
+def _bound_at(repo: pathlib.Path, head: str | None, rel) -> tuple[bool, str | None]:
+    """(kept, bound commit) for a recorded receipt path at the new checkout: the file must be
+    readable there and its commit must equal HEAD (or HEAD an evidence-only descendant of it)."""
+    rec = recorded_json(repo, rel)
+    commit = str((rec or {}).get("commit") or "") or None
+    if not (head and commit and _HEX40.fullmatch(commit)):
+        return False, commit
+    return evidence_only_descendant(repo, commit, head)[0], commit
+
+
+def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
+                redetect, dry_run) -> tuple[list[str], dict]:
+    """update NAME --path NEW: move a package's local_path, keeping its name, history and
+    claims cache. Never touches the file system; anything bound to a checkout commit that
+    cannot be shown to hold at the new checkout is cleared, and the event lists it."""
+    pkg = get_pkg(reg, name)
+    if not reason:
+        raise Fail(f"{name}: --path requires --reason (why the package moved)")
+    new = normalize_local_path(new_path)
+    if not new or new == ".":
+        raise Fail(f"{name}: --path must name a $HOME-relative checkout, got {new_path!r}")
+    old = pkg.get("local_path")
+    if _abs_local_path(new) == _abs_local_path(old or ""):
+        raise Fail(f"{name}: already at {old}; nothing written")
+    for other, opkg in (reg.get("packages") or {}).items():
+        if other != name and opkg.get("local_path") \
+                and _abs_local_path(opkg["local_path"]) == _abs_local_path(new):
+            raise Fail(f"{name}: local_path {new} is already registered by {other!r} — "
+                       f"one registry row per checkout; refusing")
+    now = dt.datetime.now(dt.timezone.utc)
+    lease = pkg.get("lease")
+    if lease_live(lease, now) and agent != lease.get("agent"):
+        holder = lease.get("agent")
+        raise Fail(f"{name}: lease held by {holder} until "
+                   f"{lease_expiry(lease).isoformat(timespec='seconds')} — the holder "
+                   f"relocates with --agent {holder} (--force is not accepted for --path)")
+
+    new_abs = HOME / pathlib.Path(new)
+    present = new_abs.is_dir()
+    head = git_head(new_abs) if present else None
+    if redetect and not present:
+        raise Fail(f"{name}: cannot --redetect: path not present on this host: {new_abs}")
+    notes: list[str] = []
+    if not present:
+        notes.append(f"path not present on this host: {new_abs} (other machines may hold it); "
+                     f"commit-bound evidence cannot be confirmed here")
+    elif head is None:
+        notes.append(f"no git HEAD at {new_abs}; commit-bound evidence cannot be confirmed here")
+
+    cleared: list[str] = []
+    gate = copy.deepcopy(pkg.get("gate") or {})
+    if gate.get("receipt"):
+        kept, commit = _bound_at(new_abs, head, gate["receipt"])
+        if not kept:
+            cleared.append("gate.receipt")
+            notes.append(f"gate.receipt cleared: {gate['receipt']} (commit {str(commit)[:12]}) "
+                         f"is not bound to HEAD {str(head)[:12]} at the new path")
+            gate["receipt"] = None
+    if gate.get("comparator"):
+        kept = bool(gate.get("receipt")) and _bound_at(new_abs, head, gate["comparator"])[0]
+        if not kept:
+            cleared.append("gate.comparator")
+            notes.append(f"gate.comparator cleared: {gate['comparator']} is not bound to "
+                         f"HEAD {str(head)[:12]} at the new path")
+            gate["comparator"] = None
+    csc = pkg.get("claims_synced_commit")
+    if (csc or pkg.get("claims")) and not (csc and head and csc == head):
+        cleared += ["claims_synced_commit", "claims"]
+        notes.append(f"claims cache cleared (synced at {str(csc)[:12]}, HEAD {str(head)[:12]}); "
+                     f"run `lean-pkg claims sync {name}`")
+
+    old_status = pkg.get("status")
+    new_status = old_status
+    if "gate.receipt" in cleared:
+        if old_status == "verified-private":
+            new_status = "gate-pending"
+            notes.append(f"status verified-private -> gate-pending: re-gate with "
+                         f"`lean-pkg gate {name} --receipt R`")
+        elif old_status in ("public", "upstreamed"):
+            notes.append(f"status {old_status} unchanged (one-way); record fresh evidence "
+                         f"with `lean-pkg gate {name} --receipt R`")
+
+    redetected: dict[str, dict] = {}
+    if redetect:
+        tool, _ = detect_toolchain(new_abs)
+        pin, _ = detect_mathlib_pin(new_abs)
+        for field, value in (("lean_toolchain", tool), ("mathlib_pin", pin)):
+            if pkg.get(field) != value:
+                redetected[field] = {"from": pkg.get(field), "to": value}
+    else:
+        notes.append(f"lean_toolchain/mathlib_pin left as recorded; run "
+                     f"`lean-pkg update {name} --redetect` to re-read toolchain/pin")
+
+    payload = {"ok": True, "name": name, "event": "relocated", "old_path": old,
+               "new_path": new, "cleared": cleared, "notes": notes, "dry_run": bool(dry_run),
+               "status": ({"from": old_status, "to": new_status}
+                          if new_status != old_status else None),
+               "redetected": redetected}
+    out = [f"{name}: relocated {old} -> {new}"]
+    out += [f"  cleared: {c}" for c in cleared]
+    out += [f"  {f}: {v['from']!r} -> {v['to']!r}" for f, v in redetected.items()]
+    out += [f"  note: {n}" for n in notes]
+    if dry_run:
+        out.append("DRY RUN — nothing written. Re-run without --dry-run to relocate.")
+        return out, payload
+
+    trial = copy.deepcopy(reg)
+    tp = trial["packages"][name]
+    tp["local_path"], tp["gate"], tp["status"] = new, gate, new_status
+    if "claims" in cleared:
+        tp["claims_synced_commit"], tp["claims"] = None, []
+    for field, v in redetected.items():
+        tp[field] = v["to"]
+    errors = validate_registry(trial)
+    if errors:
+        raise Fail(f"{name}: relocation would break the registry schema:\n  "
+                   + "\n  ".join(errors))
+    for field in ("local_path", "gate", "status", "claims_synced_commit", "claims",
+                  *redetected):
+        if field in tp:
+            pkg[field] = tp[field]
+    fields = {"old_path": old, "new_path": new, "reason": reason, "cleared": cleared}
+    if agent:
+        fields["agent"] = agent
+    if redetected:
+        fields["redetected"] = redetected
+    record(reg, events_p, pkg, "relocated", **fields)
+    if new_status != old_status:
+        record(reg, events_p, pkg, "status-changed", status_from=old_status,
+               status_to=new_status, reason=f"relocated: {', '.join(cleared)} cleared")
+    save_registry(reg_path, reg)
+    return out, payload
 
 
 # --------------------------------------------------------------------------
@@ -2464,6 +2603,8 @@ register  add a package; dedupes by name AND local_path; auto-detects toolchain 
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
 update    set fields of a registered package; manual status moves need --reason.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
+  --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Refuses same
+  path, another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`).
 claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry).
   flags: --workspace W --agent A (required) [--ttl HOURS=24] [--reason TEXT] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
@@ -2580,7 +2721,7 @@ partial manifest, pre-terminal marker, or prior-candidate receipt is not gate ev
 EVENT LINE SCHEMA (one JSON object per line; the same entry is appended to history[])
 ts      ISO-8601 timestamp
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
-        released, release-forced, lease-expired, gate-passed, promoted, audit-fix,
+        released, release-forced, lease-expired, gate-passed, promoted, audit-fix, relocated, status-changed,
         comparator-attached, index-added, claims-synced, prior-art-searched, and the evidence events listed under `record`
 name    package name or null
 plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt, ...)
@@ -2712,6 +2853,21 @@ def cmd_update(args) -> int:
         value = getattr(args, field.replace("-", "_"), None)
         if value is not None:
             sets[field] = value
+    if args.path is not None:
+        if sets or args.status is not None:
+            raise UsageError("--path is a relocation on its own; set other fields in a separate update")
+        if args.force:
+            raise UsageError("--force is not accepted with --path; the lease holder relocates with --agent")
+        out, payload = do_relocate(reg_path, load_registry(reg_path), events_p, args.name,
+                                   new_path=args.path, reason=args.reason, agent=args.agent,
+                                   redetect=args.redetect, dry_run=args.dry_run)
+        if args.json_out:
+            print_json(payload)
+        else:
+            print("\n".join(out))
+        return 0
+    if args.dry_run:
+        raise UsageError("update --dry-run is supported only with --path")
     out, payload = do_update(reg_path, load_registry(reg_path), events_p,
                              args.name, sets=sets, status=args.status,
                              reason=args.reason, redetect=args.redetect,
@@ -3281,6 +3437,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--agent", default=None, help="lease holder, if one is live")
     s.add_argument("--force", action="store_true",
                    help="override a live lease held by another agent; needs --reason")
+    s.add_argument("--path", default=None, metavar="HOME-RELATIVE",
+                   help="relocate: move local_path to another checkout, keeping name, history "
+                        "and claims (needs --reason; event relocated; commit-bound evidence "
+                        "not bound to the new HEAD is cleared)")
+    s.add_argument("--dry-run", dest="dry_run", action="store_true",
+                   help="with --path: print the would-be changes, write nothing")
     add_json(s)
     s.set_defaults(fn=cmd_update)
 
