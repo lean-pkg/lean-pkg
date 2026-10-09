@@ -2062,9 +2062,10 @@ def recorded_json(repo: pathlib.Path, rel) -> dict | None:
 
 def do_gate(reg_path, reg, events_p, name, receipt_arg,
             comparator_arg=None, refuse_private: bool = False,
-            refuse_dirty: bool = False) -> tuple[list[str], dict]:
+            refuse_dirty: bool = False, formalization_path: str | None = None) -> tuple[list[str], dict]:
     return _with_private_warnings(_do_gate, reg_path, reg, events_p, name, receipt_arg,
-                                  comparator_arg, refuse_private, refuse_dirty=refuse_dirty)
+                                  comparator_arg, refuse_private, refuse_dirty=refuse_dirty,
+                                  formalization_path=formalization_path)
 
 
 def do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: bool = False,
@@ -2110,11 +2111,16 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
 
 def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
              refuse_private: bool = False, private_sink=None,
-             refuse_dirty: bool = False) -> tuple[list[str], dict]:
+             refuse_dirty: bool = False, formalization_path: str | None = None) -> tuple[list[str], dict]:
+    """formalization_path (#26.4): the formalization.yaml `--refresh-formalization` is about to own and
+    point the registry at; when no pointer is recorded yet, the evidence rule's derived-only exception
+    is judged for that path (the refresh records it as the pointer right after the gate)."""
     pkg = get_pkg(reg, name)
     repo = repo_path(pkg)
     if not repo.is_dir():
         raise Fail(f"{name}: local_path does not exist: {repo}")
+    vpkg = pkg if (formalization_rel(pkg) or not formalization_path) \
+        else {**pkg, "formalization_yaml": formalization_path}
     dirty = dirty_guard(repo, name, refuse_dirty)
     rp, receipt = load_json_object(receipt_arg, "receipt")
     cp = comp = None
@@ -2150,10 +2156,10 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
                       f"--reason TEXT`, then `lean-pkg gate {name} --receipt R`"
                       if pkg.get("status") == "verified-private" else ""))
     was_public = pkg.get("status") == "public"
-    validate_receipt(pkg, repo, receipt)
+    validate_receipt(vpkg, repo, receipt)
     commit = receipt["commit"]
     if comp is not None:
-        validate_comparator(pkg, repo, comp, commit)
+        validate_comparator(vpkg, repo, comp, commit)
 
     job = receipt_job_slug(receipt["job_id"])
     dest_rel = f".lean-receipts/{commit[:12]}-{job}.json"
@@ -3826,7 +3832,7 @@ release   holder-only unless --force --reason (released_by: --agent, else force)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
-  nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; no write, no event; exit 0/1; JSON event gate-checked, checks[]; comparator --check prints the same binding ✓ lines)
+  nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; no write, no event; exit 0/1; JSON event gate-checked, checks[]; comparator --check prints the same binding ✓ lines)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op. It is required by promote.
@@ -4132,7 +4138,8 @@ def do_gate_refresh(reg_path, reg, events_p, args) -> tuple[list[str], dict, lis
     from . import formalization as fz
     refresh_preflight(reg, args.name, args.agent)
     out, payload = do_gate(reg_path, reg, events_p, args.name, args.receipt, args.comparator,
-                           refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
+                           refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
+                           formalization_path=fz.target_rel(get_pkg(reg, args.name)))
     gated = payload.get("event") == "gate-passed"
     pkg = get_pkg(reg, args.name)
     if not gated:

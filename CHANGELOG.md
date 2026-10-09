@@ -32,6 +32,17 @@ change the registry schema or receipt format, always with a migration).
   derived-only regeneration is cleared, `comparator-receipt` + `comparator`, `claims sync`, or
   "nothing to re-gate". JSON gains `binding` and `next_commands[]`. (#26.3)
 
+### Fixed
+
+- `gate NAME --receipt R --refresh-formalization` refused at an evidence-only descendant
+  whose `formalization.yaml` had only derived keys regenerated when no `formalization_yaml`
+  pointer was recorded yet, because the derived-only exception follows the pointer. The
+  refresh owns that path and records the pointer right after the gate, so it now judges the
+  exception for that path. A kept-key change still refuses. A new end-to-end test covers a
+  clean checkout: refresh, commit as an evidence-only descendant, then `gate --check` and
+  `comparator --check` pass; it also checks that kept keys are byte-equal across the
+  refresh. (#26.4)
+
 ## [0.7.2] - 2026-10-09
 
 ### Added

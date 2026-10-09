@@ -88,6 +88,18 @@ hand-authored and never exempt. A `formalization.yaml` first added after X
 is drift too: render it (`lean-pkg formalization NAME --write`) and commit
 it with the source before gating, then regenerate it after the gate.
 
+With no `formalization_yaml` pointer recorded, the exception does not apply,
+except under `gate NAME --receipt R --refresh-formalization` (#26.4). That
+command owns the file at the pointer path, or `formalization.yaml` when no
+pointer is set, and records the pointer right after the gate, so it judges
+the exception for that path. The tested sequence is: on a clean checkout at
+X, `gate --receipt R --refresh-formalization`; commit the regenerated file
+with `.lean-receipts/` as H; then `gate --check` and `comparator --check`
+both pass at H. Every kept key's text is byte-equal before and after the
+refresh, as long as the file was in the renderer's own layout (the renderer
+rewrites the whole file, so comments and hand formatting do not survive;
+the values do).
+
 The source closure stays byte-identical to the certified commit while the
 evidence travels with the code. The rule applies to both tiers, to the
 `promote` checklist, and to the `receipt-drift` / `comparator-drift`
