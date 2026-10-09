@@ -43,6 +43,7 @@ touch the outside world are dry-run by default.
               [--check]                     package; required before promote
     promote   <name> [--yes]                dry-run default; --yes flips GitHub
                                             visibility to public (ONE-WAY)
+    publish   <name> --dry-run              release checklist + next commands (read-only)
     audit     [--fix]                       report expired leases, gh visibility,
                                             paths, drift; --fix clears/reconciles
     validate                                schema + enum + history sanity
@@ -3607,7 +3608,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), and (paper field) a paper unpublished with no arXiv id.
-  ex: lean-pkg promote my-lean          # always read the dry-run checklist first
+  ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, lakefile package name, tag at HEAD; prints the next promote/tag/record commands; exit 0 ready / 1 not
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
@@ -4784,6 +4785,8 @@ def main(argv: list[str] | None = None) -> int:
     search_mod.add_parsers(sub, add_json)
     from . import formalization as formalization_mod
     formalization_mod.add_parsers(sub, add_json)
+    from . import publish as publish_mod
+    publish_mod.add_parsers(sub, add_json)
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)

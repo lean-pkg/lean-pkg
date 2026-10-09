@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""#22.1: `publish NAME --dry-run`, the read-only checklist from verified-private to listed."""
+
+from __future__ import annotations
+
+import json
+
+from .conftest import _git, publish_evidence, read_events, read_reg, write_reg
+
+MIT = "MIT License\n\nPermission is hereby granted, free of charge, ...\n"
+
+
+def pub(lp, env, capsys, *extra, name="beta"):
+    rc = lp.main(["--registry", str(env.registry), "publish", name, *extra])
+    return rc, capsys.readouterr()
+
+
+def labels(data, status=None):
+    return [c["label"] for c in data["checklist"] if status is None or c["status"] == status]
+
+
+def make_ready(lp, env, capsys):
+    (env.repo_b / "LICENSE").write_text(MIT)
+    (env.repo_b / "lakefile.lean").write_text("import Lake\nopen Lake DSL\n\npackage «beta» where\n")
+    # read from the working tree: committing them would break the receipts' evidence-only descendant
+    head = publish_evidence(env.repo_b)
+    reg = read_reg(env)
+    pkg = reg["packages"]["beta"]
+    pkg["license_spdx"] = "MIT"
+    pkg["consent"] = [{"who": "Ada", "role": "owner", "pointer": "https://example.org/c"}]
+    write_reg(env, reg)
+    assert lp.main(["--registry", str(env.registry), "formalization", "beta", "--write",
+                    "--author", "Ada"]) == 0
+    _git(env.repo_b, "tag", "v1.0.0")
+    capsys.readouterr()
+    return head
+
+
+def test_a_ready_package_passes_and_prints_the_next_commands(lp, env, fake_gh, capsys):
+    make_ready(lp, env, capsys)
+    before_reg, before_ev = env.registry.read_text(), read_events(env)
+    rc, cap = pub(lp, env, capsys, "--dry-run", "--json")
+    data = json.loads(cap.out)
+    assert rc == 0 and data["ready"] is True and data["dry_run"] is True, labels(data, "fail")
+    text = " | ".join(labels(data))
+    for needle in ("status verified-private", "consent recorded (Ada)", "license_spdx MIT; the LICENSE file matches",
+                   "formalization.yaml is current", "lakefile package name beta", "tag at HEAD: v1.0.0",
+                   "comparator PASS bound to HEAD"):
+        assert needle in text, needle
+    assert data["next"][:2] == ["lean-pkg promote beta", "lean-pkg promote beta --yes   # ONE-WAY"]
+    assert any("reservoir-listed" in c for c in data["next"])
+    assert not any("git -C" in c for c in data["next"])          # already tagged
+    assert env.registry.read_text() == before_reg and read_events(env) == before_ev
+
+
+def test_gaps_are_failures_with_their_fix(lp, env, fake_gh, capsys):
+    rc, cap = pub(lp, env, capsys, "--dry-run")
+    assert rc == 1
+    out = cap.out
+    for needle in ("✗  no consent recorded (`lean-pkg record beta consent-recorded",
+                   "✗  license_spdx unset", "✗  no package name in lakefile",
+                   "WARN  no formalization.yaml recorded", "WARN  no tag at HEAD",
+                   "not ready: the checklist has failures", "git -C "):
+        assert needle in out, needle
+
+
+def test_license_text_must_match_and_stale_formalization_fails(lp, env, fake_gh, capsys):
+    make_ready(lp, env, capsys)
+    reg = read_reg(env)
+    reg["packages"]["beta"]["license_spdx"] = "Apache-2.0"
+    write_reg(env, reg)
+    target = env.repo_b / "formalization.yaml"
+    target.write_text(target.read_text().replace("Ada", "Ada Lovelace"))   # a kept key: still current
+    rc, cap = pub(lp, env, capsys, "--dry-run", "--json")
+    data = json.loads(cap.out)
+    fails = " | ".join(labels(data, "fail"))
+    assert rc == 1 and "does not read like Apache-2.0" in fails
+    assert "is stale" in fails      # project.license is derived from license_spdx
+
+
+def test_palomar_target_needs_formalization_and_unpublished_paper_blocks(lp, env, fake_gh, capsys):
+    reg = read_reg(env)
+    reg["packages"]["beta"]["upstream_target"] = "palomar"
+    reg["packages"]["beta"]["paper"] = {"arxiv": None, "status": "unpublished"}
+    write_reg(env, reg)
+    rc, cap = pub(lp, env, capsys, "--dry-run", "--json")
+    fails = " | ".join(labels(json.loads(cap.out), "fail"))
+    assert "no formalization.yaml recorded" in fails and "Palomar reads it" in fails
+    assert "paper is unpublished" in fails
+
+
+def test_wrong_status_is_a_failure_not_a_crash(lp, env, fake_gh, capsys):
+    rc, cap = pub(lp, env, capsys, "--dry-run", name="alpha")
+    assert rc == 1 and "✗  status gate-pending: publishing starts from verified-private" in cap.out
+
+
+def test_without_dry_run_is_refused(lp, env, capsys):
+    rc, cap = pub(lp, env, capsys)
+    assert rc == 2 and "dry-run only in this version" in cap.err
+
+
+def test_publish_is_read_only_for_commit_mode(lp, env, fake_gh, capsys):
+    rc, cap = pub(lp, env, capsys, "--dry-run", "--commit")
+    assert "--commit ignored: read-only command" in cap.err
+    assert not env.registry.with_name(env.registry.name + ".lock").exists()

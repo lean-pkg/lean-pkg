@@ -1,0 +1,194 @@
+# lean-pkg publish -- the read-only release checklist from verified-private to listed
+"""`lean-pkg publish NAME --dry-run` (#22.1): one checklist for the whole path from a
+verified-private package to a public, tagged, listed one, composed from checks that
+already exist elsewhere (the promote checklist, the index license check, the
+formalization renderer, the claims cache), plus the exact next commands.
+
+Read-only: nothing is written, the registry is not locked, `--commit` is ignored.
+`publish` without `--dry-run` is refused in this version: the steps it would take
+(`promote --yes`, `git tag`, `record`) each stay an explicit command of their own.
+
+The command is named `publish`, not `release`, because `release NAME` already
+releases a lease.
+"""
+
+from __future__ import annotations
+
+import re
+
+from . import cli as core
+
+LAKEFILE_PACKAGE_RE = re.compile(r"^\s*package\s+(«[^»\n]+»|[A-Za-z_][A-Za-z0-9_'!?.-]*)", re.MULTILINE)
+PROMOTABLE = ("verified-private",)
+ALREADY_PUBLIC = ("public", "upstreamed")
+
+
+def lakefile_package_name(repo) -> str | None:
+    """The Lake package name from lakefile.lean (`package NAME`) or lakefile.toml (`name = ...`)."""
+    try:
+        m = LAKEFILE_PACKAGE_RE.search((repo / "lakefile.lean").read_text(encoding="utf-8", errors="replace"))
+        if m:
+            return m.group(1).strip("«»")
+    except OSError:
+        pass
+    try:
+        import tomllib
+        name = tomllib.loads((repo / "lakefile.toml").read_text(encoding="utf-8")).get("name")
+        return str(name) if name else None
+    except (OSError, ValueError):
+        return None
+
+
+def tags_at_head(repo) -> list[str]:
+    p = core.git(repo, "tag", "--points-at", "HEAD")
+    return sorted(t for t in p.stdout.split() if t) if p.returncode == 0 else []
+
+
+def license_items(pkg: dict, repo) -> list[tuple[str, str]]:
+    from . import index as index_mod
+    spdx = pkg.get("license_spdx")
+    if not spdx:
+        return [("✗", f"license_spdx unset in the registry (`lean-pkg update {pkg['name']} --license-spdx ID`)")]
+    problem = index_mod.license_problem(repo, spdx)
+    if problem and problem.startswith("no license file"):
+        return [("✓", f"license_spdx {spdx}")]   # the promote checklist already reports the missing file
+    if problem:
+        return [("✗", f"license_spdx {spdx}: {problem.replace(' at the pin', ' at the repo root')}")]
+    return [("✓", f"license_spdx {spdx}; the LICENSE file matches")]
+
+
+def formalization_items(pkg: dict, repo) -> list[tuple[str, str]]:
+    from . import formalization as fz
+    name = pkg["name"]
+    rel = pkg.get("formalization_yaml")
+    palomar = pkg.get("upstream_target") == "palomar"
+    if not rel:
+        return [("✗" if palomar else "WARN",
+                 f"no formalization.yaml recorded (`lean-pkg formalization {name} --write`)"
+                 + (" — Palomar reads it" if palomar else ""))]
+    try:
+        text, doc, _w, existing = fz.render_for(pkg, repo)
+    except (core.Fail, core.UsageError) as e:
+        return [("✗", f"{rel} cannot be rendered: {str(e)[:160]}")]
+    mode, errors = fz.validate_doc(doc)
+    if errors:
+        return [("✗", f"{rel} fails the {fz.SCHEMA_VERSION} schema ({mode}): {errors[0]}")]
+    if existing is None:
+        return [("✗", f"{rel} is missing (`lean-pkg formalization {name} --write`)")]
+    if existing != text:
+        return [("✗", f"{rel} is stale: a derived key (e.g. status.evidence) differs from the render "
+                      f"(`lean-pkg formalization {name} --write --force`, or "
+                      f"`lean-pkg gate {name} --receipt R --refresh-formalization` after a new receipt)")]
+    placeholders = fz.find_placeholders(doc)
+    if placeholders:
+        return [("WARN", f"{rel} is current and valid ({mode}) but has {len(placeholders)} placeholder(s): "
+                         + ", ".join(placeholders[:3]))]
+    return [("✓", f"{rel} is current and valid ({mode})")]
+
+
+def claims_item(pkg: dict, repo, head: str | None) -> tuple[str, str]:
+    rel = pkg.get("claims_file") or "claims.yaml"
+    if not head or not core.tracked_at(repo, rel):
+        return ("✓", f"no {rel} tracked at HEAD (nothing to sync)")
+    synced = pkg.get("claims_synced_commit")
+    if synced:
+        ok, _note = core.evidence_only_descendant(repo, synced, head)
+        if ok:
+            return ("✓", f"claims synced at {str(synced)[:12]}")
+    return ("✗", f"{rel} not synced at HEAD {head[:12]} (`lean-pkg claims sync {pkg['name']}`)")
+
+
+def consent_item(pkg: dict) -> tuple[str, str]:
+    consent = [c for c in pkg.get("consent") or [] if isinstance(c, dict)]
+    if consent:
+        who = ", ".join(str(c.get("who")) for c in consent)
+        return ("✓", f"consent recorded ({who})")
+    return ("✗", f"no consent recorded (`lean-pkg record {pkg['name']} consent-recorded --field who=W "
+                 f"--field role=R --field pointer=P`)")
+
+
+def next_commands(pkg: dict, repo, ready: bool, tags: list[str]) -> list[str]:
+    name, status = pkg["name"], pkg.get("status")
+    cmds: list[str] = []
+    if not ready:
+        cmds.append(f"fix every ✗ above, then: lean-pkg publish {name} --dry-run")
+    if status in PROMOTABLE:
+        cmds += [f"lean-pkg promote {name}", f"lean-pkg promote {name} --yes   # ONE-WAY"]
+    if not tags:
+        cmds.append(f"git -C {repo} tag -a vX.Y.Z -m '{name} vX.Y.Z' && git -C {repo} push origin vX.Y.Z")
+    nwo = core.gh_nwo(pkg.get("repo") or "")
+    if not pkg.get("reservoir"):
+        url = (f"https://reservoir.lean-lang.org/@{nwo}" if nwo
+               else "https://reservoir.lean-lang.org/@OWNER/NAME")
+        cmds.append(f"lean-pkg record {name} reservoir-listed --field url={url}   # once Reservoir lists it")
+    if pkg.get("upstream_target") == "palomar" and not pkg.get("palomar"):
+        cmds.append(f"lean-pkg record {name} palomar-submitted --field commit=<40hex> "
+                    f"--field submission_id=ID --field comparator_config=REL   # after submitting")
+    return cmds
+
+
+def do_publish_check(reg: dict, name: str) -> tuple[list[str], int, dict]:
+    pkg = core.get_pkg(reg, name)
+    repo = core.repo_path(pkg)
+    if not repo.is_dir():
+        raise core.Fail(f"{name}: local_path does not exist: {repo}")
+    head = core.git_head(repo)
+    if head is None:
+        raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
+    status = pkg.get("status")
+    items: list[tuple] = []
+    if status in PROMOTABLE:
+        items.append(("✓", f"status {status}"))
+        items += core.promote_checklist(pkg, repo)
+    elif status in ALREADY_PUBLIC:
+        items.append(("✓", f"status {status} (promoted at {pkg.get('promoted_at') or '?'}); promote not needed"))
+        items.append(core.head_pushed_item(repo))
+    else:
+        items.append(("✗", f"status {status}: publishing starts from verified-private "
+                           f"(`lean-pkg gate {name} --receipt R` first)"))
+    items.append(consent_item(pkg))
+    items += license_items(pkg, repo)
+    items += formalization_items(pkg, repo)
+    items.append(claims_item(pkg, repo, head))
+    lake_name = lakefile_package_name(repo)
+    items.append(("✓", f"lakefile package name {lake_name}") if lake_name else
+                 ("✗", "no package name in lakefile.lean or lakefile.toml (Reservoir indexes the Lake package)"))
+    tags = tags_at_head(repo)
+    items.append(("✓", f"tag at HEAD: {', '.join(tags)}") if tags else
+                 ("WARN", f"no tag at HEAD {head[:12]} (tag the release after promote)"))
+    ready = not any(i[0] == "✗" for i in items)
+    cmds = next_commands(pkg, repo, ready, tags)
+    lines = [f"publish checklist for {name} ({repo}) — dry run, nothing written:"]
+    lines += [f"  {i[0]}  {i[1]}" for i in items]
+    lines.append("ready: every check passes" if ready else "not ready: the checklist has failures")
+    lines.append("next:")
+    lines += [f"  {c}" for c in cmds]
+    payload = {"ok": ready, "name": name, "dry_run": True, "ready": ready, "head": head,
+               "checklist": [dict({"status": core._MARK_TO_STATUS[i[0]], "label": i[1]},
+                                  **({"reason": i[2]} if len(i) > 2 else {})) for i in items],
+               "next": cmds}
+    return lines, 0 if ready else 1, payload
+
+
+def cmd_publish(args) -> int:
+    if not args.dry_run:
+        raise core.UsageError("publish is dry-run only in this version: pass --dry-run "
+                              "(then run the printed promote/tag/record commands yourself)")
+    reg_path = core.registry_path(args)
+    lines, rc, payload = do_publish_check(core.load_registry(reg_path), args.name)
+    if getattr(args, "json_out", False):
+        core.print_json(payload)
+    else:
+        print("\n".join(lines))
+    return rc
+
+
+def add_parsers(sub, add_json) -> None:
+    s = sub.add_parser("publish", help="read-only release checklist from verified-private to listed "
+                                       "(--dry-run only), with the exact next commands")
+    s.add_argument("name")
+    s.add_argument("--dry-run", action="store_true",
+                   help="required: print the checklist and next commands; nothing is written")
+    add_json(s)
+    s.set_defaults(fn=cmd_publish)
+

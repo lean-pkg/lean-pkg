@@ -41,6 +41,13 @@ change the registry schema or receipt format, always with a migration).
   lease and a kept key failing the schema refuse before the gate; an
   identical re-gate whose file is current is refused with nothing written.
   `--json` gains `"formalization"`. (#22.4)
+- `lean-pkg publish NAME --dry-run`: one read-only checklist from
+  verified-private to listed (the promote checklist, consent, license_spdx
+  against the LICENSE text, formalization.yaml current and valid, claims
+  synced, lakefile package name, tag at HEAD) followed by the exact next
+  `promote`/`git tag`/`record` commands; exit 0 ready, 1 not. Named `publish`
+  because `release` already releases a lease; without `--dry-run` it is
+  refused in this version. (#22.1)
 
 ## [0.6.0] - 2026-10-09
 
