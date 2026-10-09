@@ -103,3 +103,32 @@ def test_publish_is_read_only_for_commit_mode(lp, env, fake_gh, capsys):
     rc, cap = pub(lp, env, capsys, "--dry-run", "--commit")
     assert "--commit ignored: read-only command" in cap.err
     assert not env.registry.with_name(env.registry.name + ".lock").exists()
+
+
+def tag_hint(data):
+    return next(c for c in data["next"] if " tag -a " in c)
+
+
+def test_tag_hint_without_a_github_remote_says_so(lp, env, fake_gh, capsys):
+    rc, cap = pub(lp, env, capsys, "--dry-run", "--json")         # origin is a local bare mirror
+    hint = tag_hint(json.loads(cap.out))
+    assert "push origin" not in hint and "no GitHub remote in this checkout" in hint
+    assert hint.endswith(", after promote")
+
+
+def test_tag_hint_names_the_github_remote_by_url(lp, env, fake_gh, capsys):
+    _git(env.repo_b, "remote", "add", "aaa-fork", "https://github.com/someone-else/beta.git")
+    _git(env.repo_b, "remote", "add", "gh", "git@github.com:example/beta.git")   # the package's repo
+    rc, cap = pub(lp, env, capsys, "--dry-run", "--json")
+    hint = tag_hint(json.loads(cap.out))
+    assert " push gh vX.Y.Z" in hint and "push the tag to gh (GitHub), after promote" in hint
+
+
+def test_tag_hint_for_a_public_package_drops_after_promote(lp, env, fake_gh, capsys):
+    _git(env.repo_b, "remote", "add", "hub", "https://github.com/someone/other.git")
+    reg = read_reg(env)
+    reg["packages"]["beta"]["status"] = reg["packages"]["beta"]["visibility"] = "public"
+    write_reg(env, reg)
+    rc, cap = pub(lp, env, capsys, "--dry-run", "--json")
+    hint = tag_hint(json.loads(cap.out))
+    assert hint.endswith("# push the tag to hub (GitHub)")

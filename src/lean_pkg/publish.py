@@ -107,6 +107,37 @@ def consent_item(pkg: dict) -> tuple[str, str]:
                  f"--field role=R --field pointer=P`)")
 
 
+def github_remote(repo, pkg: dict) -> str | None:
+    """The checkout's GitHub remote, found by URL (#23.2): `origin` may be a private mirror while
+    GitHub is another remote. Prefers the remote whose URL names the package's `repo`, else the
+    first github.com remote (by name); None when no remote points at GitHub."""
+    p = core.git(repo, "remote", "-v")
+    if p.returncode != 0:
+        return None
+    found: dict[str, str] = {}
+    for line in p.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and "github.com" in parts[1].lower():
+            found.setdefault(parts[0], parts[1])
+    want = core.gh_nwo(pkg.get("repo") or "")
+    for name in sorted(found):
+        if want and (core.gh_nwo(found[name]) or "").casefold() == want.casefold():
+            return name
+    return sorted(found)[0] if found else None
+
+
+def tag_command(pkg: dict, repo) -> str:
+    """The tag-and-push hint, naming the GitHub remote (#23.2)."""
+    name = pkg["name"]
+    tag = f"git -C {repo} tag -a vX.Y.Z -m '{name} vX.Y.Z'"
+    when = "" if pkg.get("status") in ALREADY_PUBLIC else ", after promote"
+    remote = github_remote(repo, pkg)
+    if remote:
+        return f"{tag} && git -C {repo} push {remote} vX.Y.Z   # push the tag to {remote} (GitHub){when}"
+    return (f"{tag}   # no GitHub remote in this checkout: add one (git remote add NAME "
+            f"git@github.com:OWNER/REPO.git) and push the tag there{when}")
+
+
 def next_commands(pkg: dict, repo, ready: bool, tags: list[str]) -> list[str]:
     name, status = pkg["name"], pkg.get("status")
     cmds: list[str] = []
@@ -115,7 +146,7 @@ def next_commands(pkg: dict, repo, ready: bool, tags: list[str]) -> list[str]:
     if status in PROMOTABLE:
         cmds += [f"lean-pkg promote {name}", f"lean-pkg promote {name} --yes   # ONE-WAY"]
     if not tags:
-        cmds.append(f"git -C {repo} tag -a vX.Y.Z -m '{name} vX.Y.Z' && git -C {repo} push origin vX.Y.Z")
+        cmds.append(tag_command(pkg, repo))
     nwo = core.gh_nwo(pkg.get("repo") or "")
     if not pkg.get("reservoir"):
         url = (f"https://reservoir.lean-lang.org/@{nwo}" if nwo

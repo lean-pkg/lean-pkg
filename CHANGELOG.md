@@ -15,6 +15,11 @@ change the registry schema or receipt format, always with a migration).
   `publish --dry-run` and the human `status` view show each (who, role)
   once (`status --json` keeps every record), and `audit` gains the
   informational finding `consent-duplicate`. (#23.1)
+- The `publish --dry-run` tag hint no longer assumes `origin` is GitHub: it
+  names the checkout's GitHub remote, found by URL among `git remote -v`
+  (preferring the one that names the package's `repo`), adds "after
+  promote" while the package is not public, and says so when no remote
+  points at GitHub. (#23.2)
 
 ## [0.7.0] - 2026-10-09
 
