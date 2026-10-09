@@ -1,6 +1,6 @@
 # HANDOFF — lean-pkg
 
-Last updated: 2026-10-09 01:45 UTC
+Last updated: 2026-10-09 01:55 UTC
 
 This file is written for the maintainer's own agents. It follows the repository's
 private-name rule: machines are called the home workstation (where this session
@@ -70,6 +70,14 @@ symlink, pull the lab repo, report HEAD, `readlink`, and `doctor` lines.
 - Lab-repo cut-over: wrapper pointing at the new path with the leak fix, wrapper
   tests updated, skills and runbooks updated, `MOVED.md`, ADR-0072.
 - The new repository listed in the fleet-pull tier with the lab repo.
+- After the cut-over (maintainer's decision, 2026-10-09): this handoff moves to
+  `~/…/svn/Project-lean-registry/HANDOFF.md`, rewritten with real machine names
+  and paths (that repository stays private); this file is deleted from
+  `Project-lean-pkg`; the registry repository's README notes that `HANDOFF.md` is
+  an ordinary hand-edited file, while the registry file and event log are written
+  only through lean-pkg. From then on, registry and operations sessions start in
+  `Project-lean-registry`; tool-development handoffs return to this repository
+  only when tool work is pending.
 
 ## Success criteria for the immediate next step
 
