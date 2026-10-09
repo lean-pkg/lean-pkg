@@ -14,7 +14,7 @@ Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ~/.lean-p
 
 STANDING RULES
 - NEVER hand-edit the registry yaml. Use `lean-pkg register` / `lean-pkg update`.
-- Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`).
+- Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`; one package: `status NAME --json [--fields ...]` or `list --json --only NAME`).
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`).
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
@@ -30,9 +30,9 @@ public -> upstreamed               `update --status`: a recorded mathlib-pr-merg
 any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public never returns to a private status
 
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version)
-board     TUI on a tty, static table otherwise.       ex: lean-pkg board
-list      static table.                                ex: lean-pkg list --json
-status    full record + last 5 history entries; record keys: status --help, docs/cli.md#package-record. ex: lean-pkg status my-lean
+board     TUI on a tty, static table otherwise; --only NAME[,NAME] restricts the table/--json dump (never the TUI). ex: lean-pkg board --json --only my-lean
+list      static table; --only NAME[,NAME] restricts the table/--json dump to those packages (shape unchanged). ex: lean-pkg list --json --only my-lean
+status    full record + last 5 history entries; --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run

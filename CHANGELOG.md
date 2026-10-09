@@ -9,6 +9,12 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `status NAME --fields a,b,c` (JSON and text): only those keys of the package record; dotted
+  paths reach into mappings (`gate.receipt`, `lease.agent`). `--json` keeps the nesting and adds
+  a `fields` list; text prints YAML. An unknown field exits 2 listing the valid keys.
+  `list --json --only NAME[,NAME]` and `board --json --only NAME` restrict the registry dump to
+  those packages with the shape unchanged (also the static table; `board --only` never opens the
+  TUI); an unknown name exits 1. (#28)
 - `lean-pkg status --help` lists every top-level key of the package record with a one-line
   meaning, and docs/cli.md gains a "Package record" section. Both come from one table in the
   code (`PACKAGE_FIELDS`), which also defines the keys `validate` requires. (#28)
