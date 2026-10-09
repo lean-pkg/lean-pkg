@@ -15,12 +15,66 @@ from .conftest import _git, make_repo
 TOOLS = ("lake", "lean", "elan", "git", "gh", "reuse", "bwrap", "comparator", "nanoda", "go", "cargo", "jq")
 
 
-def test_version_flag(lp, capsys):
+def test_version_flag_installed_build(lp, installed, capsys):
     import lean_pkg
-    with pytest.raises(SystemExit) as e:
-        lp.main(["--version"])
-    assert e.value.code == 0
-    assert capsys.readouterr().out.strip() == f"lean-pkg {lean_pkg.__version__}"
+    assert lp.main(["--version"]) == 0
+    assert capsys.readouterr().out.strip() == f"lean-pkg {lean_pkg.__version__} (installed {installed})"
+    assert lp.main(["--version", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"ok": True, "version": lean_pkg.__version__, "commit": None,
+                                                   "dirty": None, "install": "installed", "path": str(installed)}
+
+
+def _editable_checkout(lp, tmp_path, monkeypatch):
+    repo = make_repo(tmp_path / "checkout")
+    pkgdir = repo / "src" / "lean_pkg"
+    pkgdir.mkdir(parents=True)
+    (pkgdir / "__init__.py").write_text("")
+    _git(repo, "add", "src/lean_pkg/__init__.py")
+    _git(repo, "commit", "-q", "-m", "package")
+    monkeypatch.setattr(lp, "package_dir", lambda: pkgdir)
+    return repo, pkgdir
+
+
+def test_version_flag_editable_build_commit_and_dirty_without_network(lp, tmp_path, monkeypatch, capsys):
+    import lean_pkg
+    repo, pkgdir = _editable_checkout(lp, tmp_path, monkeypatch)
+    root = _git(repo, "rev-parse", "--show-toplevel").stdout.strip()
+    short = _git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
+    calls = []
+    real_git = lp.registry_git
+    monkeypatch.setattr(lp, "registry_git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
+    assert lp.main(["--json", "--version"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"ok": True, "version": lean_pkg.__version__, "commit": short,
+                                                   "dirty": False, "install": "editable", "path": root}
+    (pkgdir / "__init__.py").write_text("# local edit\n")
+    assert lp.main(["--version"]) == 0
+    assert capsys.readouterr().out.strip() == f"lean-pkg {lean_pkg.__version__} ({short}+dirty, editable {root})"
+    assert not any(a and a[0] in ("fetch", "pull", "ls-remote") for a in calls)
+
+
+def test_version_flag_unknown_build_without_git(lp, installed, tmp_path, monkeypatch, capsys):
+    import lean_pkg
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    assert lp.main(["--version"]) == 0
+    assert capsys.readouterr().out.strip() == f"lean-pkg {lean_pkg.__version__} (unknown build, {installed})"
+
+
+def test_version_flag_reads_no_registry(lp, installed, tmp_path, capsys):
+    missing = tmp_path / "nowhere" / "registry.yaml"
+    assert lp.main(["--registry", str(missing), "--version"]) == 0
+    assert capsys.readouterr().out.startswith("lean-pkg ")
+    assert not missing.parent.exists()
+
+
+def test_doctor_install_line_marks_dirty_checkout(lp, env, fake_path, tmp_path, monkeypatch, capsys):
+    repo, pkgdir = _editable_checkout(lp, tmp_path, monkeypatch)
+    (pkgdir / "__init__.py").write_text("# local edit\n")
+    rc, cap = _doctor(lp, env, capsys)
+    line = next(x for x in cap.out.splitlines() if " install:" in x)
+    short = _git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
+    assert f"@ {short}+dirty" in line
 
 
 @pytest.fixture()

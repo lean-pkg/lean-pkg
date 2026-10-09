@@ -5,7 +5,14 @@ title: CLI reference
 [&larr; lean-pkg documentation](index.md)
 
 Global flags: `--registry PATH`, `--events PATH`, `--json`, `--commit`,
-`--push`, `--no-commit`, `--version` (prints `lean-pkg <version>`, exit 0).
+`--push`, `--no-commit`, `--version` (prints which build runs, exit 0:
+`lean-pkg X.Y.Z (<short-sha>[+dirty], editable <checkout>)` for an editable
+install, `lean-pkg X.Y.Z (installed <package dir>)` for a wheel or pipx install,
+`lean-pkg X.Y.Z (unknown build, <package dir>)` without git; the same detection
+as `doctor`'s `install` line, local only, never a fetch; with `--json`:
+`{"ok": true, "version", "commit", "dirty", "install", "path"}`, where
+`install` is `editable`, `installed` or `unknown` and `commit`/`dirty` are null
+outside an editable checkout).
 Every subcommand also accepts `--json`, `--commit`, `--push` and `--no-commit`
 after its name.
 Committed mode (`--commit`, or env `LEAN_PKG_COMMIT=1`) applies to invocations

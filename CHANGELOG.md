@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `lean-pkg --version` says which build runs: `lean-pkg X.Y.Z (<short-sha>[+dirty], editable
+  <checkout>)` for an editable install, `(installed <package dir>)` for a wheel or pipx install,
+  `(unknown build, <package dir>)` without git. The same local detection as `doctor`'s `install`
+  line (which now also marks a dirty checkout `+dirty`); no network. `--version --json` prints
+  `{"ok": true, "version", "commit", "dirty", "install", "path"}`. (#29)
+
 ## [0.7.4] - 2026-10-09
 
 ### Added

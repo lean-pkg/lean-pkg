@@ -3945,7 +3945,7 @@ verified-private -> public         `promote --yes` after a clean dry-run checkli
 public -> upstreamed               `update --status`: a recorded mathlib-pr-merged / palomar-registered event, or a --reason with the URL
 any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public never returns to a private status
 
-SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version)
+SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path})
 board     TUI on a tty, static table otherwise; --only NAME[,NAME] restricts the table/--json dump (never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] restricts the table/--json dump to those packages (shape unchanged). ex: lean-pkg list --json --only my-lean
 status    full record + last 5 history entries; --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
@@ -4723,17 +4723,48 @@ def commit_now(ctx: dict) -> str:
     return lines[-1].removeprefix("lean-pkg: ") if lines else ""
 
 
-def install_check(d: pathlib.Path, fetch: bool = False) -> tuple[str, str]:
-    """(level, detail) for the install: editable when the package's __init__.py is tracked by a git checkout,
-    with HEAD, branch and behind/ahead against origin/<branch> (local refs unless fetch)."""
+def install_detect(d: pathlib.Path) -> dict:
+    """Which build is running, local and fast (no network, no fetch): {"install": "editable" | "installed" |
+    "unknown", "path", "commit", "dirty"}. editable when the package's __init__.py is tracked by a git checkout
+    (path: the checkout; commit: its short HEAD; dirty: modified tracked files); installed for a wheel or pipx
+    install (path: the package directory; commit and dirty null); unknown when git is not on PATH. The one
+    detection behind `doctor`'s install line and `--version`."""
+    info = {"install": "unknown", "path": str(d), "commit": None, "dirty": None}
     if shutil.which("git") is None:
-        return "warn", f"{d} (git not on PATH; install kind unknown)"
+        return info
     top = registry_git(d, "rev-parse", "--show-toplevel")
     tracked = registry_git(d, "ls-files", "--error-unmatch", "__init__.py").returncode == 0
     if top.returncode != 0 or not top.stdout.strip() or not tracked:
-        return "ok", f"installed {d}"   # not tracked: e.g. site-packages that sit inside a checkout
+        info["install"] = "installed"   # not tracked: e.g. site-packages that sit inside a checkout
+        return info
     root = pathlib.Path(top.stdout.strip())
-    short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?"
+    st = registry_git(root, "status", "--porcelain", "--untracked-files=no")
+    info.update(install="editable", path=str(root),
+                commit=registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?",
+                dirty=bool(st.stdout.strip()) if st.returncode == 0 else None)
+    return info
+
+
+def version_line(version: str, info: dict) -> str:
+    """`lean-pkg --version`: lean-pkg X.Y.Z (<short-sha>[+dirty], <install kind> <path>)."""
+    if info["install"] == "editable":
+        return (f"lean-pkg {version} ({info['commit']}{'+dirty' if info['dirty'] else ''}, "
+                f"editable {info['path']})")
+    if info["install"] == "installed":
+        return f"lean-pkg {version} (installed {info['path']})"
+    return f"lean-pkg {version} (unknown build, {info['path']})"
+
+
+def install_check(d: pathlib.Path, fetch: bool = False) -> tuple[str, str]:
+    """(level, detail) for the install (install_detect): an editable checkout adds HEAD (+dirty), branch and
+    behind/ahead against origin/<branch> (local refs unless fetch)."""
+    info = install_detect(d)
+    if info["install"] == "unknown":
+        return "warn", f"{d} (git not on PATH; install kind unknown)"
+    if info["install"] == "installed":
+        return "ok", f"installed {d}"
+    root = pathlib.Path(info["path"])
+    short = info["commit"] + ("+dirty" if info["dirty"] else "")
     br = registry_git(root, "symbolic-ref", "-q", "--short", "HEAD")
     branch = br.stdout.strip() if br.returncode == 0 else ""
     head = f"editable {root} @ {short}"
@@ -4803,6 +4834,16 @@ def registry_repo_check(reg_p: pathlib.Path, ev: pathlib.Path, fetch: bool = Fal
     if advice:
         detail += "; " + "; ".join(advice)
     return level, detail
+
+
+def cmd_version(args) -> int:
+    from . import __version__
+    info = install_detect(package_dir())
+    if getattr(args, "json_out", False):
+        print_json({"ok": True, "version": __version__, **info})
+    else:
+        print(version_line(__version__, info))
+    return 0
 
 
 def doctor_checks(args) -> tuple[list[dict], bool]:
@@ -4974,7 +5015,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-commit", action="store_true",
                     help=f"never commit or push, overriding ${COMMIT_ENV} and ${PUSH_ENV}")
     from . import __version__
-    ap.add_argument("--version", action="version", version=f"lean-pkg {__version__}")
+    ap.add_argument("--version", dest="show_version", action="store_true",
+                    help=f"print lean-pkg {__version__} and the build that runs: short commit (+dirty) and "
+                         f"checkout of an editable install, else the installed package directory; local "
+                         f"only (no fetch); with --json: {{ok, version, commit, dirty, install, path}}")
     sub = ap.add_subparsers(dest="cmd")
 
     def add_json(s):
@@ -5260,6 +5304,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)
+    if getattr(args, "show_version", False):   # before the registry lock: --version reads no registry
+        return cmd_version(args)
     try:
         with write_lock(args):
             return run_command(args)
