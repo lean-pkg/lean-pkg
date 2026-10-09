@@ -1429,6 +1429,10 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
             if errs:
                 raise Fail("; ".join(errs))
             sets[field] = {k: merged[k] for k in PAPER_KEYS}
+        if field == "notes" and isinstance(value, dict):   # --append-note: a dated, signed line (#32)
+            line = f"{dt.datetime.now(dt.timezone.utc).date().isoformat()} ({value['agent']}): {value['text']}"
+            prev = str(pkg.get("notes") or "").rstrip("\n")
+            sets[field] = f"{prev}\n{line}" if prev.strip() else line
         if field == "namespace_notes":   # {ns: text} merged into the recorded notes (#32)
             text = str(value.get("text") or "").strip()
             require_nonempty("--namespace-note", text)
@@ -1529,9 +1533,16 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
     out = [f"{name}: updated {len(changes)} field(s)"]
     for field, (old, new) in sorted(changes.items()):
         out.append(f"  {field}: {old!r} -> {new!r}")
+    old_notes = str((changes.get("notes") or ("", ""))[0] or "").strip()
+    replaced = bool(old_notes) and not str(changes["notes"][1] or "").startswith(old_notes)
+    if replaced:
+        out.append(f"  replaced notes were: {old_notes!r}")
+        out.append("  use --append-note to keep the previous note")
     payload = {"ok": True, "name": name, "event": "updated",
                "changes": {f: {"from": o, "to": n} for f, (o, n) in changes.items()},
                "reason": reason or "", "forced": bool(force)}
+    if replaced:
+        payload["hint"] = "use --append-note to keep the previous note"
     if preexisting:
         payload["preexisting_errors"] = preexisting
     return (out, payload)
@@ -4211,7 +4222,7 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields; manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
+update    set fields (--notes replaces, prints the old value; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT`, not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
@@ -4474,6 +4485,13 @@ def cmd_update(args) -> int:
             require_nonempty("--paper-arxiv", paper["arxiv"])
             paper["arxiv"] = paper["arxiv"].strip().removeprefix("arXiv:").removeprefix("arxiv:")
         sets["paper"] = paper
+    if args.append_note is not None:
+        if args.notes is not None:
+            raise UsageError("--append-note and --notes are mutually exclusive (--notes replaces the notes)")
+        require_nonempty("--append-note", args.append_note)
+        if not (args.agent or "").strip():
+            raise UsageError("--append-note needs --agent A: the note is signed `YYYY-MM-DD (A): TEXT`")
+        sets["notes"] = {"text": args.append_note.strip(), "agent": args.agent.strip()}
     if args.namespace_note is not None:
         sets["namespace_notes"] = {"text": args.namespace_note, "namespaces": args.namespace or []}
     elif args.namespace:
@@ -5436,6 +5454,9 @@ def main(argv: list[str] | None = None) -> int:
                         "preprint)")
     s.add_argument("--paper-status", dest="paper_status", choices=PAPER_STATUSES,
                    help="the verified paper's status; promote refuses while unpublished without an arXiv id")
+    s.add_argument("--append-note", dest="append_note", metavar="TEXT",
+                   help="append a line `YYYY-MM-DD (AGENT): TEXT` (UTC date, --agent) to notes, keeping what is "
+                        "there; --notes replaces instead")
     s.add_argument("--namespace-note", dest="namespace_note", metavar="TEXT",
                    help="record why this package shares a Lean root namespace with another (namespace_notes); "
                         "audit's duplicate-namespace is info once both packages carry a note for it")

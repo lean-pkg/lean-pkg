@@ -20,6 +20,10 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `update --notes TEXT` silently replaced the notes. It now prints the replaced value and "use
+  --append-note to keep the previous note" (JSON `hint`); new `update NAME --append-note TEXT --agent A`
+  appends `YYYY-MM-DD (A): TEXT` (UTC), creating `notes` if absent; it cannot be combined with
+  `--notes`. (#32)
 - docs/comparator.md "Host policy" gains "Which hosts can produce receipts": run `lean-pkg comparator
   host-check` on the candidate host; one that fails `mechanism toolchain` cannot produce `toolchain`
   receipts. `doctor`'s `tool comparator` line says to run `host-check` when `bwrap` is missing. (#32)
