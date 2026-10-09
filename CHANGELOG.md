@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-10-09
+
 ### Added
 
 - `lean-pkg public-safety NAME [--history|--no-history] [--json]`: read-only scan of the package's
