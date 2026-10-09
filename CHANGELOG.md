@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-09
+
 ### Added
 
 - `lean-pkg comparator config --from-claims NAME [--out comparator.json]
