@@ -265,7 +265,7 @@ def test_internal_error_still_runs_commit_finish(lp, env, monkeypatch, capsys):
 # --------------------------------------------------------------------------
 # TUI
 
-@pytest.mark.parametrize("text,ttl", [("", 24), ("  ", 24), ("12", 12), (" 3 ", 3)])
+@pytest.mark.parametrize("text,ttl", [("", None), ("  ", None), ("12", 12), (" 3 ", 3)])
 def test_tui_ttl_accepts(lp, text, ttl):
     assert lp.parse_ttl_hours(text) == ttl
 
@@ -299,6 +299,21 @@ def test_tui_claim_refuses_a_bad_ttl_without_writing(lp, env):
     t.key_claim()
     assert "claim cancelled" in t.msg and "whole number" in t.msg
     assert env.registry.read_bytes() == before
+
+
+def test_tui_reclaim_with_blank_ttl_keeps_the_lease_ttl(lp, env):
+    """#21.5: a blank TTL is the CLI's no --ttl: the holder's re-claim keeps a longer lease's TTL."""
+    set_lease(env, "alpha", agent="tui-agent", workspace="w", hours_ago=1, ttl=72)
+    t = _tui(lp, env, ["w", "tui-agent", "", "", "y"])
+    t.key_claim()
+    assert not t.msg.startswith("refused"), t.msg
+    assert read_reg(env)["packages"]["alpha"]["lease"]["ttl_hours"] == 72
+
+
+def test_tui_new_claim_with_blank_ttl_gets_the_default(lp, env):
+    t = _tui(lp, env, ["w", "tui-agent", "", "", "y"])
+    t.key_claim()
+    assert read_reg(env)["packages"]["alpha"]["lease"]["ttl_hours"] == lp.DEFAULT_TTL_HOURS
 
 
 def test_tui_claim_rereads_the_registry_before_acting(lp, env):

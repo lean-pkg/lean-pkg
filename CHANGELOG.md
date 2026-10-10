@@ -44,6 +44,9 @@ change the registry schema or receipt format, always with a migration).
 - `register --status public` without `--reason` exited 2 (usage error, no JSON) while every other missing
   `--reason` has been a refusal since #17; it is now one too: exit 1, and `{ok: false, error}` under
   `--json`. (#21.6)
+- The TUI claim prompt turned a blank TTL into 24 h, so a holder's re-claim from the TUI shortened a
+  longer lease. A blank TTL now means what no `--ttl` means on the CLI: 24 h for a new claim, the
+  lease's own TTL for the holder's re-claim; the prompt and the confirmation say so. (#21.5)
 - `gate`/`comparator` (and every caller of the comparator validator) read a comparator log from the
   working tree even when it was already committed, so a log edited after its commit passed until
   `promote` refused it. Once a log is tracked at HEAD, a working copy that differs from the committed

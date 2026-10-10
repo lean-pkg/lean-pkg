@@ -3962,12 +3962,13 @@ def cmd_status(args) -> int:
 # --------------------------------------------------------------------------
 # TUI
 
-def parse_ttl_hours(text: str) -> int:
-    """The TUI's TTL prompt: blank -> DEFAULT_TTL_HOURS; otherwise a whole number of hours > 0, else Fail
-    (never a silent default: "1.5" or "0" is refused, not turned into 24)."""
+def parse_ttl_hours(text: str) -> int | None:
+    """The TUI's TTL prompt: blank -> None, which do_claim reads as the CLI does without --ttl (a new
+    claim gets DEFAULT_TTL_HOURS, the holder's re-claim keeps its lease's TTL, #21.5); otherwise a whole
+    number of hours > 0, else Fail (never a silent default: "1.5" or "0" is refused, not turned into 24)."""
     t = (text or "").strip()
     if not t:
-        return DEFAULT_TTL_HOURS
+        return None
     try:
         ttl = int(t)
     except ValueError:
@@ -4152,12 +4153,13 @@ class _Tui:
             self.msg = "claim cancelled"
             return
         try:
-            ttl = parse_ttl_hours(self.prompt(f"ttl hours [{DEFAULT_TTL_HOURS}]: "))
+            ttl = parse_ttl_hours(self.prompt(f"ttl hours [{DEFAULT_TTL_HOURS} new; a re-claim keeps its TTL]: "))
         except Fail as e:
             self.msg = f"claim cancelled: {e}"
             return
         reason = self.prompt("reason (optional): ")
-        if not self.confirm(f"claim {name} for {agent}@{ws} ({ttl}h)?"):
+        shown = f"{ttl}h" if ttl is not None else "default TTL"
+        if not self.confirm(f"claim {name} for {agent}@{ws} ({shown})?"):
             self.msg = "claim cancelled"
             return
         try:
