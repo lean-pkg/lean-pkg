@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""#70: `receipt slurm` turns a finished Slurm job and its sealed verify log into a lower-tier receipt
-that `gate --check` accepts; every refusal writes nothing. sacct is a fake on PATH; no registry is read."""
+"""#70: `receipt slurm` turns a finished Slurm job (accounting, raw verify log, stdout seal, stderr) into a
+lower-tier receipt that `gate --check` accepts; every refusal writes nothing. sacct is a fake on PATH; no
+registry is read."""
 
 from __future__ import annotations
 
@@ -11,21 +12,31 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import repo_head
+from .conftest import MATHLIB_MANIFEST, MATHLIB_REV, TOOLCHAIN, _git, repo_head
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "slurm"
 SACCT_OK = (FIXTURES / "sacct-completed.txt").read_text()
+LOG = (FIXTURES / "verify.log").read_text()
+STD_AXIOMS = ["propext", "Classical.choice", "Quot.sound"]
+CHECKER = "verify.sh (lake build; #print axioms; negative controls)"
 
 
-def seal(body: str) -> bytes:
-    """The verify script's rule: hash the log, then append the verify-log-sha256 line."""
-    raw = body.encode()
-    return raw + f"verify-log-sha256: {hashlib.sha256(raw).hexdigest()}\n".encode()
+def sha(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
+
+
+@pytest.fixture()
+def repo(env) -> Path:
+    """alpha's checkout with lake-manifest.json committed (a mathlib package at MATHLIB_REV)."""
+    (env.repo_a / "lake-manifest.json").write_text(MATHLIB_MANIFEST)
+    _git(env.repo_a, "add", "lake-manifest.json")
+    _git(env.repo_a, "commit", "-m", "manifest")
+    return env.repo_a
 
 
 @pytest.fixture()
 def fake_sacct(tmp_path, monkeypatch):
-    """A `sacct` on PATH that prints the text written to .output (and records its argv)."""
+    """A `sacct` on PATH that prints the text written to the returned file (and records its argv)."""
     bindir = tmp_path / "fake-bin"
     bindir.mkdir()
     out = bindir / "output.txt"
@@ -37,87 +48,6 @@ def fake_sacct(tmp_path, monkeypatch):
     return out
 
 
-def write_log(tmp_path, body: str | None = None, sealed: bytes | None = None) -> Path:
-    p = tmp_path / "verify.log"
-    p.write_bytes(sealed if sealed is not None else seal(body if body is not None
-                                                         else (FIXTURES / "verify.log").read_text()))
-    return p
-
-
-def run(lp, env, log, *extra, job="123"):
-    return lp.main(["receipt", "slurm", "--job", job, "--log", str(log), "--commit", repo_head(env.repo_a),
-                    "--repo", str(env.repo_a), *extra])
-
-
-def receipts_dir(env) -> Path:
-    return env.repo_a / ".lean-receipts"
-
-
-def assert_nothing_written(env):
-    assert not receipts_dir(env).exists() or list(receipts_dir(env).iterdir()) == []
-
-
-def test_happy_path_receipt_passes_gate_check(lp, env, tmp_path, fake_sacct, capsys):
-    before = env.registry.read_bytes()
-    assert run(lp, env, write_log(tmp_path)) == 0
-    out = capsys.readouterr().out
-    c12 = repo_head(env.repo_a)[:12]
-    rp, lg = receipts_dir(env) / f"{c12}-123.json", receipts_dir(env) / f"{c12}-123.verify.log"
-    assert out.splitlines()[0].startswith("receipt slurm: ok, job 123")
-    assert f"- Lower-tier receipt: [`.lean-receipts/{c12}-123.json`]" in out
-    assert f"next: lean-pkg gate NAME --check --receipt .lean-receipts/{c12}-123.json" in out
-    receipt = json.loads(rp.read_text())
-    assert sorted(receipt) == sorted(lp.RECEIPT_FIELDS)
-    assert receipt["report_sha256"] == hashlib.sha256(lg.read_bytes()).hexdigest()
-    assert receipt["job_id"] == "123" and receipt["sorry_count"] == 0
-    assert receipt["axioms"] == ["propext", "Quot.sound", "Classical.choice"]
-    assert receipt["checker"] == "lake build + leanchecker (serial manifest)"
-    log_text = lg.read_text()
-    assert "/tmp/user-job123/" not in log_text and "/scratch/user/" not in log_text
-    assert "/tmp/<job-tmp>/checkout" in log_text and "/scratch/<user>/lake-cache" in log_text
-    argv = (fake_sacct.parent / "argv.txt").read_text().split()
-    assert argv == ["-j", "123", "--format=JobID,State,ExitCode", "-P", "-n"]
-    assert env.registry.read_bytes() == before                # receipt slurm never touches the registry
-    assert lp.main(["--registry", str(env.registry), "gate", "alpha", "--check", "--receipt", str(rp)]) == 0
-    assert "receipt valid at commit" in capsys.readouterr().out
-
-
-def test_json_payload(lp, env, tmp_path, fake_sacct, capsys):
-    assert run(lp, env, write_log(tmp_path), "--json") == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["ok"] is True and data["refusals"] == [] and data["job_id"] == "123"
-    assert Path(data["receipt"]).is_file() and Path(data["log"]).is_file()
-    assert data["report_sha256"] == hashlib.sha256(Path(data["log"]).read_bytes()).hexdigest()
-    assert data["sacct"] == {"job_id": "123", "state": "COMPLETED", "exit_code": "0:0"}
-    assert data["redactions"] == 3
-
-
-def test_rerun_is_idempotent_and_differing_file_is_refused(lp, env, tmp_path, fake_sacct, capsys):
-    body = (FIXTURES / "verify.log").read_text() + "generated-at: 2026-10-10T12:00:00+00:00\n"
-    log = write_log(tmp_path, body)
-    assert run(lp, env, log) == 0
-    assert run(lp, env, log) == 0
-    rp = next(receipts_dir(env).glob("*-123.json"))
-    rp.write_text("{}")
-    capsys.readouterr()
-    assert run(lp, env, log) == 1
-    assert "already exists with different content" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize("sacct, needle", [
-    ("123|FAILED|1:0\n123.batch|FAILED|1:0\n", "State=FAILED"),
-    ("123|COMPLETED|1:0\n", "ExitCode=1:0"),
-    ("123|CANCELLED by 42|0:15\n", "State=CANCELLED by 42"),
-    ("124|COMPLETED|0:0\n123.batch|COMPLETED|0:0\n", "no main job line"),
-])
-def test_unclean_job_is_refused(lp, env, tmp_path, fake_sacct, capsys, sacct, needle):
-    fake_sacct.write_text(sacct)
-    assert run(lp, env, write_log(tmp_path)) == 1
-    err = capsys.readouterr().err
-    assert needle in err and "nothing written" in err.splitlines()[0]
-    assert_nothing_written(env)
-
-
 def no_sacct(monkeypatch):
     """No sacct on this host (a real one, on a cluster node, is never run by the suite)."""
     from lean_pkg import receipt
@@ -125,123 +55,334 @@ def no_sacct(monkeypatch):
     monkeypatch.setattr(receipt.shutil, "which", lambda name, *a, **k: None if name == "sacct" else real(name, *a, **k))
 
 
-def test_no_sacct_on_path_names_the_sacct_file_route(lp, env, tmp_path, monkeypatch, capsys):
+class Job:
+    """The files a Slurm verify job leaves: the raw verify log, its stdout (.out) and stderr (.err)."""
+
+    def __init__(self, tmp_path: Path, log: str = LOG, *, seal: str | None = None, pre: str | None = None,
+                 post: str | None = None, err: str = "", stdout_extra: str = ""):
+        man = sha(MATHLIB_MANIFEST.encode())
+        self.log = tmp_path / "verify.log"
+        self.log.write_text(log)
+        self.out = tmp_path / "job-123.out"
+        self.out.write_text("toolchain-staged-seconds 12\n"
+                            f"pre-manifest-sha256 {pre or man}\n"
+                            f"post-manifest-sha256 {post or man}\n"
+                            f"verify-log-sha256: {seal or sha(log.encode())}\n" + stdout_extra)
+        self.err = tmp_path / "job-123.err"
+        self.err.write_text(err)
+
+
+def run(lp, repo, job: Job, *extra, stdout=True, stderr=True, checker=True):
+    argv = ["receipt", "slurm", "--job", "123", "--log", str(job.log), "--commit", repo_head(repo),
+            "--repo", str(repo)]
+    if stdout:
+        argv += ["--stdout", str(job.out)]
+    if stderr:
+        argv += ["--stderr", str(job.err)]
+    if checker:
+        argv += ["--checker", CHECKER]
+    return lp.main(argv + list(extra))
+
+
+def rdir(repo) -> Path:
+    return repo / ".lean-receipts"
+
+
+def assert_nothing_written(repo):
+    assert not rdir(repo).exists() or list(rdir(repo).iterdir()) == []
+
+
+def test_happy_path_receipt_passes_gate_check(lp, env, repo, tmp_path, fake_sacct, capsys):
+    before = env.registry.read_bytes()
+    assert run(lp, repo, Job(tmp_path)) == 0
+    out = capsys.readouterr().out
+    c12 = repo_head(repo)[:12]
+    rp, lg = rdir(repo) / f"{c12}-slurm-123.json", rdir(repo) / f"{c12}-slurm-123-verify.redacted.log"
+    lines = out.splitlines()
+    assert lines[0].startswith("receipt slurm: ok, job slurm-123")
+    for needle in ("✓ sacct: job 123 COMPLETED", "✓ seal: job stdout verify-log-sha256", "✓ manifest: pre = post",
+                   "✓ stderr: empty", "✓ public-safety"):
+        assert needle in out, needle
+    assert f"## `{c12[:7]}`: lower-tier receipt, Slurm job 123" in out
+    assert "elapsed 00:12:05, TotalCPU 01:10:22." in out
+    assert f"next: lean-pkg gate NAME --check --receipt .lean-receipts/{c12}-slurm-123.json" in out
+    receipt = json.loads(rp.read_text())
+    assert list(receipt) == list(lp.RECEIPT_FIELDS)
+    assert receipt["report_sha256"] == sha(lg.read_bytes())
+    assert receipt["job_id"] == "slurm-123" and receipt["sorry_count"] == 0
+    assert receipt["lean_toolchain"] == TOOLCHAIN and receipt["mathlib_rev"] == MATHLIB_REV
+    assert receipt["axioms"] == STD_AXIOMS and receipt["checker"] == CHECKER
+    text = lg.read_text()
+    assert "/tmp/user-job" not in text and "/scratch/user/" not in text
+    assert "/tmp/<USER>-job-123/src" in text and "/scratch/<USER>/lake-cache" in text
+    argv = (fake_sacct.parent / "argv.txt").read_text().split()
+    assert argv == ["-j", "123", "--format=JobID,State,ExitCode,Elapsed,TotalCPU", "-P", "-n"]
+    assert not (rdir(repo) / "README.md").exists()            # printed, not appended, without the flag
+    assert env.registry.read_bytes() == before                # receipt slurm never touches the registry
+    assert lp.main(["--registry", str(env.registry), "gate", "alpha", "--check", "--receipt", str(rp)]) == 0
+    assert "receipt valid at commit" in capsys.readouterr().out
+
+
+def test_json_payload(lp, repo, tmp_path, fake_sacct, capsys):
+    job = Job(tmp_path)
+    assert run(lp, repo, job, "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is True and data["refusals"] == [] and data["job_id"] == "slurm-123"
+    assert Path(data["receipt"]).is_file() and Path(data["log"]).is_file()
+    assert data["report_sha256"] == sha(Path(data["log"]).read_bytes())
+    assert data["raw_log_sha256"] == sha(job.log.read_bytes())
+    assert data["sacct"] == {"job_id": "123", "state": "COMPLETED", "exit_code": "0:0", "elapsed": "00:12:05",
+                             "total_cpu": "01:10:22"}
+    assert data["redactions"] == 3 and data["lines_redacted"] == 3
+    assert data["readme_appended"] is False and data["readme_block"].startswith("## `")
+
+
+def test_append_readme_writes_the_block_once(lp, repo, tmp_path, fake_sacct, capsys):
+    job = Job(tmp_path)
+    rdir(repo).mkdir()
+    (rdir(repo) / "README.md").write_text("# Receipts\n\nEarlier entries.\n")
+    extra = ("--append-readme", "--readme-heading", "first replay", "--readme-line", "- Note: rerun of the v2 wave.",
+             "--tar-sha256", "b" * 64)
+    assert run(lp, repo, job, *extra) == 0
+    c12 = repo_head(repo)[:12]
+    text = (rdir(repo) / "README.md").read_text()
+    assert text.startswith("# Receipts\n\nEarlier entries.\n\n## `")
+    assert f"## `{c12[:7]}`: first replay" in text
+    assert f"- Receipt: `{c12}-slurm-123.json`. Slurm job `123`: COMPLETED, exit `0:0`," in text
+    assert f"tar SHA-256 `{'b' * 64}`." in text
+    assert f"raw log SHA-256 `{sha(job.log.read_bytes())}` (3 line(s) differ" in text
+    assert text.rstrip().endswith("- Note: rerun of the v2 wave.")
+    assert run(lp, repo, job, *extra) == 0                    # identical re-run: no second entry
+    assert (rdir(repo) / "README.md").read_text().count(f"`{c12}-slurm-123.json`") == 1
+    assert "not appended again" in capsys.readouterr().out
+
+
+def test_append_readme_creates_the_file(lp, repo, tmp_path, fake_sacct):
+    assert run(lp, repo, Job(tmp_path), "--append-readme") == 0
+    assert (rdir(repo) / "README.md").read_text().startswith("# Receipts\n\n## `")
+
+
+def test_private_readme_text_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path), "--append-readme", "--readme-line", "see /home/someone/run") == 1
+    assert "README block (home-path)" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_differing_receipt_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    log = LOG + "generated-at: 2026-10-10T12:00:00+00:00\n"
+    assert run(lp, repo, Job(tmp_path, log)) == 0
+    assert run(lp, repo, Job(tmp_path, log)) == 0
+    next(rdir(repo).glob("*-slurm-123.json")).write_text("{}")
+    capsys.readouterr()
+    assert run(lp, repo, Job(tmp_path, log)) == 1
+    assert "already exists with different content" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("sacct, needle", [
+    ("123|FAILED|1:0|00:01:00|00:00:10\n123.batch|FAILED|1:0||\n", "State=FAILED"),
+    ("123|COMPLETED|1:0|00:01:00|00:00:10\n", "ExitCode=1:0"),
+    ("123|CANCELLED by 42|0:15\n", "State=CANCELLED by 42"),
+    ("124|COMPLETED|0:0\n123.batch|COMPLETED|0:0\n", "no main job line"),
+])
+def test_unclean_job_is_refused(lp, repo, tmp_path, fake_sacct, capsys, sacct, needle):
+    fake_sacct.write_text(sacct)
+    assert run(lp, repo, Job(tmp_path)) == 1
+    err = capsys.readouterr().err
+    assert needle in err and "nothing written" in err.splitlines()[0]
+    assert_nothing_written(repo)
+
+
+def test_no_sacct_on_path_names_the_sacct_file_route(lp, repo, tmp_path, monkeypatch, capsys):
     no_sacct(monkeypatch)
-    assert run(lp, env, write_log(tmp_path)) == 1
+    assert run(lp, repo, Job(tmp_path)) == 1
     assert "--sacct-file" in capsys.readouterr().err
-    assert_nothing_written(env)
+    assert_nothing_written(repo)
 
 
-def test_sacct_file_replaces_sacct(lp, env, tmp_path, monkeypatch, capsys):
+def test_sacct_file_replaces_sacct_and_three_columns_suffice(lp, repo, tmp_path, monkeypatch, capsys):
     no_sacct(monkeypatch)
     saved = tmp_path / "sacct.txt"
-    saved.write_text(SACCT_OK)
-    assert run(lp, env, write_log(tmp_path), "--sacct-file", str(saved)) == 0
+    saved.write_text("123|COMPLETED|0:0\n")
+    assert run(lp, repo, Job(tmp_path), "--sacct-file", str(saved)) == 0
+    assert "elapsed unknown, TotalCPU unknown." in capsys.readouterr().out
     saved.write_text("123|TIMEOUT|0:0\n")
-    for p in receipts_dir(env).iterdir():
+    for p in rdir(repo).iterdir():
         p.unlink()
-    assert run(lp, env, write_log(tmp_path), "--sacct-file", str(saved)) == 1
+    assert run(lp, repo, Job(tmp_path), "--sacct-file", str(saved)) == 1
     assert "State=TIMEOUT" in capsys.readouterr().err
-    assert_nothing_written(env)
+    assert_nothing_written(repo)
 
 
-def test_hash_mismatch_is_refused(lp, env, tmp_path, fake_sacct, capsys):
-    sealed = seal((FIXTURES / "verify.log").read_text()).replace(b"result: pass", b"result: PASS")
-    assert run(lp, env, write_log(tmp_path, sealed=sealed)) == 1
+def test_stdout_seal_mismatch_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path, seal="c" * 64)) == 1
+    assert "is not the raw verify log's sha256" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_edited_log_breaks_the_stdout_seal(lp, repo, tmp_path, fake_sacct, capsys):
+    job = Job(tmp_path)
+    job.log.write_text(LOG.replace("exit 0", "exit 0 (edited)"))
+    assert run(lp, repo, job) == 1
+    assert "the log is not the one the job sealed" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_missing_or_duplicate_stdout_lines_are_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    job = Job(tmp_path)
+    job.out.write_text("\n".join(x for x in job.out.read_text().splitlines() if not x.startswith("post-")) + "\n")
+    assert run(lp, repo, job) == 1
+    assert "0 `post-manifest-sha256` line(s)" in capsys.readouterr().err
+    job = Job(tmp_path, stdout_extra=f"verify-log-sha256 {'d' * 64}\n")
+    assert run(lp, repo, job) == 1
+    assert "2 `verify-log-sha256` line(s)" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_manifest_changed_during_the_job_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path, post="e" * 64)) == 1
+    assert "the manifest changed during the job" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_manifest_not_the_committed_one_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path, pre="f" * 64, post="f" * 64)) == 1
+    assert "is not lake-manifest.json committed at" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_manifest_check_needs_a_committed_manifest(lp, env, tmp_path, fake_sacct, capsys):
+    assert run(lp, env.repo_a, Job(tmp_path)) == 1             # repo_a has no lake-manifest.json
+    err = capsys.readouterr().err
+    assert "no lake-manifest.json committed" in err and "no mathlib rev" in err
+    assert_nothing_written(env.repo_a)
+
+
+def test_nonempty_stderr_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path, err="warning: something\n")) == 1
+    assert "job stderr is not empty (19 bytes)" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_in_log_seal_is_the_fallback_without_stdout(lp, repo, tmp_path, fake_sacct, capsys):
+    raw = LOG.encode()
+    sealed = (raw + f"verify-log-sha256: {sha(raw)}\n".encode()).decode()
+    assert run(lp, repo, Job(tmp_path, sealed), stdout=False, stderr=False) == 0
+    out = capsys.readouterr().out
+    assert "✓ seal: in-log verify-log-sha256 (fallback; no --stdout)" in out
+    assert "· manifest: not checked (no --stdout)" in out and "· stderr: not checked" in out
+    for p in rdir(repo).iterdir():
+        p.unlink()
+    assert run(lp, repo, Job(tmp_path, sealed.replace("exit 0", "exit 1")), stdout=False) == 1
     assert "changed after it was sealed" in capsys.readouterr().err
-    assert_nothing_written(env)
+    assert run(lp, repo, Job(tmp_path), stdout=False) == 1
+    assert "--stdout" in capsys.readouterr().err               # no seal anywhere: names the stdout route
+    assert_nothing_written(repo)
 
 
-def test_missing_or_duplicate_hash_line_is_refused(lp, env, tmp_path, fake_sacct, capsys):
-    body = (FIXTURES / "verify.log").read_text()
-    assert run(lp, env, write_log(tmp_path, sealed=body.encode())) == 1
-    assert "no `verify-log-sha256: <64 hex>` line" in capsys.readouterr().err
-    sealed = seal(body)
-    assert run(lp, env, write_log(tmp_path, sealed=sealed + sealed.splitlines(keepends=True)[-1])) == 1
-    assert "exactly one is allowed" in capsys.readouterr().err
-    assert_nothing_written(env)
-
-
-def test_hash_line_anywhere_is_excluded(lp, env, tmp_path, fake_sacct):
-    body = (FIXTURES / "verify.log").read_text()
-    digest = hashlib.sha256(body.encode()).hexdigest()
-    lines = body.splitlines(keepends=True)
-    sealed = "".join(lines[:2] + [f"verify-log-sha256: {digest}\n"] + lines[2:]).encode()
-    assert run(lp, env, write_log(tmp_path, sealed=sealed)) == 0
-
-
-@pytest.mark.parametrize("key", ["lean-toolchain", "mathlib-rev", "checker", "sorry-count", "axioms"])
-def test_missing_field_is_refused(lp, env, tmp_path, fake_sacct, capsys, key):
-    body = "".join(ln for ln in (FIXTURES / "verify.log").read_text().splitlines(keepends=True)
-                   if not ln.startswith(key + ":"))
-    assert run(lp, env, write_log(tmp_path, body)) == 1
-    assert f"no `{key}:` line" in capsys.readouterr().err
-    assert_nothing_written(env)
-
-
-def test_nonzero_sorry_count_is_refused(lp, env, tmp_path, fake_sacct, capsys):
-    body = (FIXTURES / "verify.log").read_text().replace("sorry-count: 0", "sorry-count: 2")
-    assert run(lp, env, write_log(tmp_path, body)) == 1
-    assert "sorry-count is 2; gate requires 0" in capsys.readouterr().err
-    assert_nothing_written(env)
-
-
-def test_toolchain_mismatch_is_refused(lp, env, tmp_path, fake_sacct, capsys):
-    body = (FIXTURES / "verify.log").read_text().replace("v4.32.0", "v4.33.0")
-    assert run(lp, env, write_log(tmp_path, body)) == 1
+def test_log_key_lines_are_used_and_must_agree_with_the_commit(lp, repo, tmp_path, fake_sacct, capsys):
+    keyed = (LOG + f"lean-toolchain: {TOOLCHAIN}\nmathlib-rev: {MATHLIB_REV}\nchecker: serial leanchecker\n"
+             "sorry-count: 0\naxioms: propext\n")
+    assert run(lp, repo, Job(tmp_path, keyed), checker=False) == 0
+    r = json.loads(next(rdir(repo).glob("*.json")).read_text())
+    assert r["checker"] == "serial leanchecker" and r["axioms"] == ["propext"]
+    for p in rdir(repo).iterdir():
+        p.unlink()
+    capsys.readouterr()
+    assert run(lp, repo, Job(tmp_path, keyed.replace("v4.32.0", "v4.33.0"))) == 1
     assert "toolchain mismatch" in capsys.readouterr().err
-    assert_nothing_written(env)
+    assert run(lp, repo, Job(tmp_path, keyed.replace(MATHLIB_REV, "0" * 40))) == 1
+    assert "mathlib mismatch" in capsys.readouterr().err
+    assert run(lp, repo, Job(tmp_path, keyed + "axioms: propext\n")) == 1
+    assert "`axioms:` appears 2 times" in capsys.readouterr().err
+    assert_nothing_written(repo)
 
 
-def test_unknown_commit_and_disagreeing_commit_line_are_refused(lp, env, tmp_path, fake_sacct, capsys):
-    log = write_log(tmp_path)
-    assert lp.main(["receipt", "slurm", "--job", "123", "--log", str(log), "--commit", "f" * 40,
-                    "--repo", str(env.repo_a)]) == 1
+def test_missing_checker_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path), checker=False) == 1
+    assert "no checker: pass --checker TEXT" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_missing_axiom_evidence_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    log = "".join(x for x in LOG.splitlines(keepends=True) if "axioms" not in x)
+    assert run(lp, repo, Job(tmp_path, log)) == 1
+    assert "no `axioms:` line and no `#print axioms` output" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_sorry_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    log = LOG + "warning: Demo.lean:3:8: declaration uses 'sorry'\n"
+    assert run(lp, repo, Job(tmp_path, log)) == 1
+    assert "sorry count is 1; gate requires 0" in capsys.readouterr().err
+    assert run(lp, repo, Job(tmp_path, LOG + "sorry-count: 2\n")) == 1
+    assert "sorry count is 2" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_unknown_commit_and_disagreeing_log_lines_are_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    job = Job(tmp_path)
+    assert lp.main(["receipt", "slurm", "--job", "123", "--log", str(job.log), "--commit", "f" * 40,
+                    "--repo", str(repo), "--checker", CHECKER]) == 1
     assert "not a commit" in capsys.readouterr().err
-    body = (FIXTURES / "verify.log").read_text() + "commit: " + "e" * 40 + "\n"
-    assert run(lp, env, write_log(tmp_path, body)) == 1
+    assert run(lp, repo, Job(tmp_path, LOG + "commit: " + "e" * 40 + "\n")) == 1
     assert "`commit:`" in capsys.readouterr().err
-    body = (FIXTURES / "verify.log").read_text() + f"commit: {repo_head(env.repo_a)}\njob-id: 123\n"
-    assert run(lp, env, write_log(tmp_path, body)) == 0
+    assert run(lp, repo, Job(tmp_path, LOG + "job-id: 999\n")) == 1
+    assert "`job-id:`" in capsys.readouterr().err
+    assert run(lp, repo, Job(tmp_path, LOG + f"commit: {repo_head(repo)}\njob-id: slurm-123\n")) == 0
 
 
-def test_residual_private_string_is_refused_and_redact_clears_it(lp, env, tmp_path, fake_sacct, capsys):
-    body = (FIXTURES / "verify.log").read_text() + "source: /home/someone/proj/Main.lean\n"
-    log = write_log(tmp_path, body)
-    assert run(lp, env, log, "--json") == 1
+def test_job_given_as_slurm_prefixed(lp, repo, tmp_path, fake_sacct):
+    job = Job(tmp_path)
+    assert lp.main(["receipt", "slurm", "--job", "slurm-123", "--log", str(job.log), "--commit", repo_head(repo),
+                    "--repo", str(repo), "--checker", CHECKER, "--stdout", str(job.out)]) == 0
+    assert (rdir(repo) / f"{repo_head(repo)[:12]}-slurm-123.json").is_file()
+
+
+def test_residual_private_string_is_refused_and_redact_clears_it(lp, repo, tmp_path, fake_sacct, capsys):
+    log = LOG + "source: /home/someone/proj/Main.lean\n"
+    assert run(lp, repo, Job(tmp_path, log), "--json") == 1
     out, err = capsys.readouterr()
     data = json.loads(out)
     assert data["ok"] is False and data["receipt"] is None
     assert any("home-path" in r and "redacted verify log" in r for r in data["refusals"])
     assert "/home/someone" not in out + err                  # the private string is never printed
-    assert_nothing_written(env)
-    assert run(lp, env, log, "--redact", r"/home/[^/]+/") == 0
-    lg = next(receipts_dir(env).glob("*.verify.log")).read_text()
-    assert "source: <redacted>proj/Main.lean" in lg
+    assert_nothing_written(repo)
+    assert run(lp, repo, Job(tmp_path, log), "--redact", r"/home/[^/]+/") == 0
+    assert "source: <redacted>proj/Main.lean" in next(rdir(repo).glob("*.log")).read_text()
 
 
-def test_private_string_in_a_receipt_field_is_refused(lp, env, tmp_path, fake_sacct, capsys):
-    body = (FIXTURES / "verify.log").read_text().replace("(serial manifest)", "(TODO-private manifest)")
-    assert run(lp, env, write_log(tmp_path, body)) == 1
-    err = capsys.readouterr().err
-    assert "receipt JSON (todo-private)" in err
-    assert_nothing_written(env)
+def test_private_string_in_a_receipt_field_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path), "--checker", "verify.sh TODO-private") == 1
+    assert "receipt JSON (todo-private)" in capsys.readouterr().err
+    assert_nothing_written(repo)
 
 
-def test_bad_redact_regex_is_a_usage_error(lp, env, tmp_path, fake_sacct, capsys):
-    assert run(lp, env, write_log(tmp_path), "--redact", "(") == 2
-    assert "not a valid regular expression" in capsys.readouterr().err
-    assert_nothing_written(env)
+@pytest.mark.parametrize("extra, needle", [
+    (("--redact", "("), "not a valid regular expression"),
+    (("--tar-sha256", "xyz"), "--tar-sha256 must be 64 hex"),
+    (("--stderr", "/nonexistent/job.err"), "no such file"),
+])
+def test_usage_errors(lp, repo, tmp_path, fake_sacct, capsys, extra, needle):
+    assert run(lp, repo, Job(tmp_path), *extra, stderr=False) == 2
+    assert needle in capsys.readouterr().err
+    assert_nothing_written(repo)
 
 
-def test_out_path_puts_the_log_beside_it(lp, env, tmp_path, fake_sacct, capsys):
+def test_dash_led_commit_is_a_usage_error(lp, repo, tmp_path, fake_sacct, capsys):
+    job = Job(tmp_path)
+    assert lp.main(["receipt", "slurm", "--job", "123", "--log", str(job.log), "--commit=--all",
+                    "--repo", str(repo)]) == 2
+    assert "--commit must name a commit" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_out_path_puts_the_log_beside_it(lp, repo, tmp_path, fake_sacct, capsys):
     dest = tmp_path / "elsewhere" / "r.json"
-    assert run(lp, env, write_log(tmp_path), "--out", str(dest)) == 0
-    c12 = repo_head(env.repo_a)[:12]
-    assert dest.is_file() and (dest.parent / f"{c12}-123.verify.log").is_file()
-    out = capsys.readouterr().out
-    assert "[`r.json`](r.json)" in out                        # outside the repo: the file name only
-    assert_nothing_written(env)
+    assert run(lp, repo, Job(tmp_path), "--out", str(dest)) == 0
+    c12 = repo_head(repo)[:12]
+    assert dest.is_file() and (dest.parent / f"{c12}-slurm-123-verify.redacted.log").is_file()
+    assert "next: lean-pkg gate NAME --check --receipt r.json" in capsys.readouterr().out
+    assert_nothing_written(repo)
 
 
 def test_report_does_not_rerun_receipt_slurm(lp):
@@ -249,11 +390,3 @@ def test_report_does_not_rerun_receipt_slurm(lp):
     lp.main(["llms"])   # builds the parser, so report knows the subcommands
     plan = report.plan_rerun(["receipt", "slurm", "--job", "1", "--log", "x", "--commit", "abc"])
     assert plan["argv"] is None and "receipt slurm writes" in plan["skip"]
-
-
-def test_dash_led_commit_is_a_usage_error(lp, env, tmp_path, fake_sacct, capsys):
-    log = write_log(tmp_path)
-    assert lp.main(["receipt", "slurm", "--job", "123", "--log", str(log), "--commit=--all",
-                    "--repo", str(env.repo_a)]) == 2
-    assert "--commit must name a commit" in capsys.readouterr().err
-    assert_nothing_written(env)

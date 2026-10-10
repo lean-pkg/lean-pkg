@@ -123,19 +123,22 @@ bind the commit, the toolchain, the Mathlib rev, `sorry_count` (must be 0),
 the axioms, the SHA-256 of a frozen report, and the executor's job identity.
 Schema: [Receipts and trust](receipts.md).
 
-From a finished Slurm job whose verify log is sealed with a
-`verify-log-sha256:` line, `lean-pkg receipt` writes it for you:
+From a finished Slurm job, `lean-pkg receipt` writes it for you:
 
 ```bash
-lean-pkg receipt slurm --job 123 --log verify.log --commit "$(git rev-parse HEAD)"
-lean-pkg receipt slurm --job 123 --log verify.log --commit SHA --sacct-file sacct.txt   # a host without Slurm
+lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" --log verify.log \
+  --stdout job-123.out --stderr job-123.err --checker "verify.sh (lake build; #print axioms)" --append-readme
+lean-pkg receipt slurm ... --sacct-file sacct.txt   # a host without Slurm: sacct output saved on the cluster
 ```
 
-It checks the job finished `COMPLETED` with `0:0`, the log's self-hash, the
-fields and the toolchain, redacts the per-job temporary paths, refuses while
-a private string remains, and writes the receipt and the redacted log under
-`.lean-receipts/`; then run the `gate NAME --check --receipt` command it
-prints. The log lines it reads:
+It checks that the job finished `COMPLETED` with `0:0`, that the stdout's
+`verify-log-sha256` equals the raw log's hash and its pre- and post-job
+manifest hashes equal the committed `lake-manifest.json`, that stderr is
+empty, and that the toolchain, Mathlib rev, sorry count and axioms hold. It
+then redacts the per-job temporary paths, refuses while a private string
+remains, and writes `<c12>-slurm-<J>.json`, the redacted log and (with
+`--append-readme`) the `.lean-receipts/README.md` entry; then run the
+`gate NAME --check --receipt` command it prints. The lines it reads:
 [A lower-tier receipt from a Slurm job](receipts.md#a-lower-tier-receipt-from-a-slurm-job).
 
 ## Check that this machine can produce comparator receipts

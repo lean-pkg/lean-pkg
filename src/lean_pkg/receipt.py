@@ -1,28 +1,38 @@
 # lean-pkg receipt slurm -- a lower-tier receipt from a finished Slurm job
-"""`lean-pkg receipt slurm --job J --log PATH --commit SHA [--repo DIR] [--redact REGEX ...]
-[--sacct-file F] [--out PATH] [--json]` (#70): turn a Slurm verification job and its verify log into a
-lower-tier receipt in exactly the shape `gate --receipt` validates. It never reads or writes a registry.
+"""`lean-pkg receipt slurm --job J --log PATH --commit SHA [--stdout PATH] [--stderr PATH] [--checker TEXT]
+[--repo DIR] [--redact REGEX ...] [--sacct-file F] [--out PATH] [--append-readme [--readme-heading TEXT]
+[--readme-line TEXT ...] [--tar-sha256 HEX]] [--json]` (#70): turn a Slurm verification job (its accounting,
+its verify log, its stdout and stderr) into a lower-tier receipt in exactly the shape `gate --receipt`
+validates. It never reads or writes a registry.
 
 Checks, all run before anything is written (every failed check is listed; any one refuses, exit 1):
 
-1. Job state: `sacct -j J --format=JobID,State,ExitCode -P -n` (or the same output saved to
-   `--sacct-file`, for a host without Slurm). The main job line (JobID equal to J, not a `.batch` or
-   `.extern` step) must say State `COMPLETED` and ExitCode `0:0`.
-2. Log self-hash: the raw log must hold exactly one line `verify-log-sha256: <64 hex>`, and that value
-   must equal the SHA-256 of the raw log bytes with that one line (and its line ending) removed. A script
-   that hashes the log and then appends the line satisfies it.
-3. Fields: the log lines `lean-toolchain:`, `mathlib-rev:`, `checker:`, `sorry-count:` and `axioms:`
-   (key at the start of the line, each exactly once; optional `commit:`, `job-id:`, `generated-at:`).
-   `sorry-count` must be 0. `--commit` must resolve in `--repo` and its committed `lean-toolchain` must
-   equal the log's; a `commit:` or `job-id:` line, when present, must agree with `--commit` / `--job`.
-4. Redaction: the per-job temporary prefixes (DEFAULT_REDACTIONS) and every `--redact REGEX` are
-   replaced in the log text; then the public-safety scanner (built-in families plus the repository's
-   `.lean-pkg-private-patterns`, when present) runs over the redacted log and the receipt JSON. Any
-   blocking hit refuses, naming the families only.
+1. Job state: `sacct -j J --format=JobID,State,ExitCode,Elapsed,TotalCPU -P -n` (or that output saved to
+   `--sacct-file`, for a host without Slurm; the first three columns suffice). The main job line (JobID
+   equal to J, not a `.batch` or `.extern` step) must say State `COMPLETED` and ExitCode `0:0`.
+2. Seal. With `--stdout` (the job's `.out` file): its one `verify-log-sha256` line must equal the SHA-256
+   of the raw verify log, and its `pre-manifest-sha256` and `post-manifest-sha256` lines must be equal and
+   equal the SHA-256 of `lake-manifest.json` committed at the commit. A stdout line is `KEY VALUE` or
+   `KEY: VALUE`. Without `--stdout` (fallback): the verify log itself must hold exactly one
+   `verify-log-sha256: <hex>` line equal to the SHA-256 of the log with that line removed; the manifest
+   check is skipped and says so.
+3. `--stderr` (the job's `.err` file), when given, must be empty.
+4. Fields: `lean_toolchain` is `lean-toolchain` committed at the commit and `mathlib_rev` the `mathlib`
+   package's rev in `lake-manifest.json` committed there (else the log's `mathlib-rev:`); a log
+   `lean-toolchain:` / `mathlib-rev:` line that disagrees refuses. `sorry_count` is the log's
+   `sorry-count:` line, else the number of `declaration uses 'sorry'` lines; it must be 0. `axioms` is the
+   log's `axioms:` line, else the union of its `#print axioms` output (`depends on axioms: [...]`, `does not
+   depend on any axioms`); none of either refuses. `checker` is `--checker`, else the log's `checker:`.
+   Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse.
+5. Redaction: the per-job temporary prefixes (DEFAULT_REDACTIONS) and every `--redact REGEX` are replaced
+   in the log text; the public-safety scanner then runs over the redacted log, the receipt JSON and the
+   README block. Any blocking hit refuses, naming the families only.
 
-Output: the redacted log `<c12>-<job>.verify.log` and the receipt `<c12>-<job>.json` (default directory
-`<repo>/.lean-receipts/`; `--out PATH` names the receipt, the log goes beside it). `report_sha256` is the
-SHA-256 of the redacted log file as written. A differing file already at either path is refused.
+Output: `job_id` is `slurm-<J>`; the redacted log `<c12>-slurm-<J>-verify.redacted.log` and the receipt
+`<c12>-slurm-<J>.json` (the name `gate` stores it under) go to `<repo>/.lean-receipts/` (`--out PATH` names
+the receipt, the log goes beside it). `report_sha256` is the SHA-256 of the redacted log as written. A
+differing file already at either path is refused. The README entry block is printed, and with
+`--append-readme` appended to `README.md` beside the receipt.
 """
 
 from __future__ import annotations
@@ -41,18 +51,25 @@ from . import cli as core
 from . import public_safety as ps
 
 SHA_KEY = "verify-log-sha256"
-REQUIRED_KEYS = ("lean-toolchain", "mathlib-rev", "checker", "sorry-count", "axioms")
-OPTIONAL_KEYS = ("commit", "job-id", "generated-at")
-# (regex, replacement): the per-job temporary account/directory prefixes a Slurm verify script prints.
+PRE_KEY, POST_KEY = "pre-manifest-sha256", "post-manifest-sha256"
+LOG_KEYS = ("lean-toolchain", "mathlib-rev", "checker", "sorry-count", "axioms", "commit", "job-id",
+            "generated-at")
+# (regex, replacement): the per-job temporary account prefix and the scratch user directory a Slurm verify
+# script prints (`/tmp/<account>-job-...`, `/tmp/<account>-job123/`, `/scratch/<user>/`).
+USER_TOKEN = "<USER>"
 DEFAULT_REDACTIONS = (
-    (r"/tmp/[^/\s]+-job\d+/", "/tmp/<job-tmp>/"),
-    (r"/scratch/[^/\s]+/", "/scratch/<user>/"),
+    (r"/tmp/[^/\s<>]+?-job(?=[-\d])", f"/tmp/{USER_TOKEN}-job"),
+    (r"/scratch/[^/\s<>]+/", f"/scratch/{USER_TOKEN}/"),
 )
 REDACT_TOKEN = "<redacted>"
-SACCT_FORMAT = "JobID,State,ExitCode"
+SACCT_FORMAT = "JobID,State,ExitCode,Elapsed,TotalCPU"
 SACCT_TIMEOUT = 60
 _KEY_LINE = re.compile(r"^([a-z0-9-]+):[ \t]*(.*?)[ \t]*$")
 _SHA_LINE = re.compile(rb"^" + SHA_KEY.encode() + rb":[ \t]*([0-9A-Fa-f]{64})[ \t]*\r?$")
+_HEX64 = re.compile(r"[0-9a-fA-F]{64}")
+_SORRY_RE = re.compile(r"declaration uses 'sorry'")
+_DEPENDS_RE = re.compile(r"depends on axioms:\s*\[([^\]]*)\]")
+_NO_AXIOMS_RE = re.compile(r"does not depend on any axioms")
 
 
 # --------------------------------------------------------------------------
@@ -80,13 +97,15 @@ def sacct_text(job: str, sacct_file: str | None) -> tuple[str | None, str | None
 
 
 def check_job(job: str, text: str) -> tuple[dict | None, str | None]:
-    """({job_id, state, exit_code}, refusal) from `JobID|State|ExitCode` lines."""
+    """({job_id, state, exit_code, elapsed, total_cpu}, refusal) from `JobID|State|ExitCode[|Elapsed|TotalCPU]`."""
     for raw in text.splitlines():
         cols = [c.strip() for c in raw.split("|")]
         if len(cols) < 3 or cols[0] != job:
             continue
+        cols += [""] * (5 - len(cols))
         state = cols[1].split()[0] if cols[1] else ""
-        seen = {"job_id": cols[0], "state": cols[1], "exit_code": cols[2]}
+        seen = {"job_id": cols[0], "state": cols[1], "exit_code": cols[2], "elapsed": cols[3] or None,
+                "total_cpu": cols[4] or None}
         bad = []
         if state != "COMPLETED":
             bad.append(f"State={cols[1] or '(empty)'}")
@@ -96,15 +115,15 @@ def check_job(job: str, text: str) -> tuple[dict | None, str | None]:
             return seen, (f"sacct: job {job} is not a clean finish ({', '.join(bad)}); "
                           f"a receipt needs State=COMPLETED and ExitCode=0:0")
         return seen, None
-    return None, (f"sacct: no main job line for job {job} (expected `{job}|COMPLETED|0:0` among the "
+    return None, (f"sacct: no main job line for job {job} (expected `{job}|COMPLETED|0:0|...` among the "
                   f"`{SACCT_FORMAT}` lines)")
 
 
 # --------------------------------------------------------------------------
-# the verify log
+# seals
 
 def check_self_hash(raw: bytes) -> str | None:
-    """Refusal unless exactly one `verify-log-sha256: <hex>` line equals sha256(raw minus that line)."""
+    """Fallback seal: exactly one `verify-log-sha256: <hex>` line in the log, equal to sha256(raw minus that line)."""
     lines = raw.split(b"\n")
     keep, found = [], []
     for i, line in enumerate(lines):
@@ -114,7 +133,8 @@ def check_self_hash(raw: bytes) -> str | None:
             continue
         keep.append(line + (b"\n" if i < len(lines) - 1 else b""))
     if not found:
-        return f"verify log: no `{SHA_KEY}: <64 hex>` line"
+        return (f"verify log: no `{SHA_KEY}: <64 hex>` line (pass the job's stdout with --stdout when the "
+                f"seal is printed there)")
     if len(found) > 1:
         return f"verify log: {len(found)} `{SHA_KEY}` lines; exactly one is allowed"
     actual = hashlib.sha256(b"".join(keep)).hexdigest()
@@ -123,6 +143,57 @@ def check_self_hash(raw: bytes) -> str | None:
                 f"to {actual[:12]}…; the log was changed after it was sealed")
     return None
 
+
+def stdout_values(text: str, key: str) -> list[str]:
+    """The values of the job-stdout lines `KEY VALUE` / `KEY: VALUE` (key first on the line)."""
+    rx = re.compile(r"^\s*" + re.escape(key) + r":?[ \t]+(\S+)")
+    return [m.group(1) for m in map(rx.match, text.splitlines()) if m]
+
+
+def _one_hex(text: str, key: str, refusals: list[str]) -> str | None:
+    vals = stdout_values(text, key)
+    if len(vals) != 1:
+        refusals.append(f"job stdout: {len(vals)} `{key}` line(s); exactly one is required")
+        return None
+    if not _HEX64.fullmatch(vals[0]):
+        refusals.append(f"job stdout: `{key}` is not 64 hex characters")
+        return None
+    return vals[0].lower()
+
+
+def check_stdout(text: str, raw_sha: str, manifest: bytes | None, c12: str | None,
+                 refusals: list[str], checks: list[str]) -> None:
+    """The operator's seal: verify-log-sha256 in the job stdout = sha256(raw log); pre- and post-manifest
+    hashes equal and equal to lake-manifest.json committed at the commit."""
+    seal = _one_hex(text, SHA_KEY, refusals)
+    if seal is not None:
+        if seal != raw_sha:
+            refusals.append(f"job stdout: {SHA_KEY} {seal[:12]}… is not the raw verify log's sha256 "
+                            f"{raw_sha[:12]}…; the log is not the one the job sealed")
+        else:
+            checks.append(f"✓ seal: job stdout {SHA_KEY} = sha256(raw verify log) {raw_sha[:12]}…")
+    pre, post = _one_hex(text, PRE_KEY, refusals), _one_hex(text, POST_KEY, refusals)
+    if pre is None or post is None:
+        return
+    if pre != post:
+        refusals.append(f"job stdout: {PRE_KEY} {pre[:12]}… != {POST_KEY} {post[:12]}…; the manifest "
+                        f"changed during the job")
+        return
+    if c12 is None:
+        return
+    if manifest is None:
+        refusals.append(f"no lake-manifest.json committed at {c12}; cannot check {PRE_KEY}")
+        return
+    man = hashlib.sha256(manifest).hexdigest()
+    if pre != man:
+        refusals.append(f"job stdout: manifest sha256 {pre[:12]}… is not lake-manifest.json committed at "
+                        f"{c12} ({man[:12]}…)")
+    else:
+        checks.append(f"✓ manifest: pre = post = lake-manifest.json at {c12} ({man[:12]}…)")
+
+
+# --------------------------------------------------------------------------
+# the verify log
 
 def redact(text: str, extra: list[re.Pattern]) -> tuple[str, int]:
     """(text with the default per-job prefixes and every --redact match replaced, replacements made)."""
@@ -136,37 +207,58 @@ def redact(text: str, extra: list[re.Pattern]) -> tuple[str, int]:
     return text, n_total
 
 
-def parse_fields(text: str) -> tuple[dict, list[str]]:
-    """(key -> value, refusals) for the recognised `key: value` lines of the (redacted) log."""
+def lines_differing(a: str, b: str) -> int:
+    la, lb = a.splitlines(), b.splitlines()
+    return sum(1 for x, y in zip(la, lb) if x != y) + abs(len(la) - len(lb))
+
+
+def parse_log(text: str) -> tuple[dict, list[str]]:
+    """(key -> value, refusals) for the recognised `key: value` lines of the (redacted) log, plus the derived
+    `sorry-count` and `axioms` when the log has no such line."""
     values: dict[str, list[str]] = {}
     for line in text.splitlines():
         m = _KEY_LINE.match(line.rstrip("\r"))
-        if m and m.group(1) in REQUIRED_KEYS + OPTIONAL_KEYS:
+        if m and m.group(1) in LOG_KEYS:
             values.setdefault(m.group(1), []).append(m.group(2))
     out, refusals = {}, []
-    for key in REQUIRED_KEYS + OPTIONAL_KEYS:
+    for key in LOG_KEYS:
         got = values.get(key, [])
         if len(got) > 1:
             refusals.append(f"verify log: `{key}:` appears {len(got)} times; exactly one is allowed")
         elif got:
             out[key] = got[0]
-        elif key in REQUIRED_KEYS:
-            refusals.append(f"verify log: no `{key}:` line")
     for key in ("lean-toolchain", "mathlib-rev", "checker"):
         if key in out and not out[key]:
             refusals.append(f"verify log: `{key}:` is empty")
+            del out[key]
     if "sorry-count" in out:
         if not re.fullmatch(r"\d+", out["sorry-count"]):
             refusals.append(f"verify log: `sorry-count:` is not a non-negative integer: {out['sorry-count']!r}")
-        elif int(out["sorry-count"]) != 0:
-            refusals.append(f"verify log: sorry-count is {int(out['sorry-count'])}; gate requires 0")
+            out["sorry-count"] = None
+        else:
+            out["sorry-count"] = int(out["sorry-count"])
+    else:
+        out["sorry-count"] = len(_SORRY_RE.findall(text))
+    if out.get("sorry-count"):
+        refusals.append(f"verify log: sorry count is {out['sorry-count']}; gate requires 0")
     if "axioms" in out:
         out["axioms"] = parse_axioms(out["axioms"])
+    else:
+        found = [parse_axioms(m) for m in _DEPENDS_RE.findall(text)]
+        if not found and not _NO_AXIOMS_RE.search(text):
+            refusals.append("verify log: no `axioms:` line and no `#print axioms` output "
+                            "(`depends on axioms: [...]` / `does not depend on any axioms`)")
+        else:
+            union: list[str] = []
+            for lst in found:
+                union += [a for a in lst if a not in union]
+            out["axioms"] = union
     if "generated-at" in out:
         try:
             core.parse_ts(out["generated-at"])
         except (ValueError, TypeError):
             refusals.append(f"verify log: `generated-at:` is not an ISO-8601 timestamp: {out['generated-at']!r}")
+            del out["generated-at"]
     return out, refusals
 
 
@@ -180,6 +272,20 @@ def parse_axioms(value: str) -> list[str]:
         if a and a not in out:
             out.append(a)
     return out
+
+
+def manifest_mathlib_rev(manifest: bytes | None) -> str | None:
+    if manifest is None:
+        return None
+    try:
+        data = json.loads(manifest.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    pkgs = data.get("packages") if isinstance(data, dict) else None
+    for p in pkgs if isinstance(pkgs, list) else []:
+        if isinstance(p, dict) and str(p.get("name", "")).casefold() == "mathlib" and p.get("rev"):
+            return str(p["rev"])
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -205,7 +311,7 @@ def blocking_families(sc: ps.Scanner, text: str) -> list[str]:
 
 def _shown(path: pathlib.Path, repo: pathlib.Path) -> str:
     """The path relative to the repository when inside it, else its file name (never an absolute path,
-    which would carry a user name into the README line)."""
+    which would carry a user name into the README)."""
     try:
         return path.resolve().relative_to(repo.resolve()).as_posix()
     except ValueError:
@@ -226,19 +332,44 @@ def _write(path: pathlib.Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+def readme_block(*, commit: str, job: str, receipt_name: str, log_name: str, sacct: dict | None,
+                 receipt: dict, raw_sha: str, n_diff: int, heading: str | None, tar_sha: str | None,
+                 extra: list[str]) -> str:
+    """The `.lean-receipts/README.md` entry, in the field operator's block shape."""
+    s = sacct or {}
+    axioms = ", ".join(receipt["axioms"]) or "none"
+    tar = f"; tar SHA-256 `{tar_sha}`" if tar_sha else ""
+    lines = [f"## `{commit[:7]}`: {heading or f'lower-tier receipt, Slurm job {job}'}", "",
+             f"- Receipt: `{receipt_name}`. Slurm job `{job}`: COMPLETED, exit `0:0`,",
+             f"  elapsed {s.get('elapsed') or 'unknown'}, TotalCPU {s.get('total_cpu') or 'unknown'}{tar}.",
+             f"- Checker: {receipt['checker']}; sorry_count 0; axioms {axioms}.",
+             f"- Log: `{log_name}`, SHA-256 `{receipt['report_sha256']}` (= `report_sha256`);",
+             f"  raw log SHA-256 `{raw_sha}` ({n_diff} line(s) differ: per-job paths redacted)."]
+    return "\n".join(lines + [x for x in extra if x.strip()]) + "\n"
+
+
 def cmd_receipt_slurm(args) -> int:
-    job = (args.job or "").strip()
+    job = (args.job or "").strip().removeprefix("slurm-")
     if not job:
         raise core.UsageError("--job must not be empty")
-    slug = core.receipt_job_slug(job)
+    job_id = f"slurm-{job}"
+    slug = core.receipt_job_slug(job_id)
     repo = pathlib.Path(args.repo or ".").expanduser()
     if not repo.is_dir():
         raise core.UsageError(f"--repo {repo}: not a directory")
-    log_path = pathlib.Path(args.log).expanduser()
-    if not log_path.is_file():
-        raise core.UsageError(f"--log {args.log}: no such file")
+    paths = {}
+    for flag, value in (("--log", args.log), ("--stdout", args.stdout), ("--stderr", args.stderr)):
+        if value is not None:
+            p = pathlib.Path(value).expanduser()
+            if not p.is_file():
+                raise core.UsageError(f"{flag} {value}: no such file")
+            paths[flag] = p
     if not args.commit_sha.strip() or args.commit_sha.startswith("-"):
         raise core.UsageError(f"--commit must name a commit, got {args.commit_sha!r}")
+    if args.tar_sha256 is not None and not _HEX64.fullmatch(args.tar_sha256):
+        raise core.UsageError("--tar-sha256 must be 64 hex characters")
+    if args.checker is not None and not args.checker.strip():
+        raise core.UsageError("--checker must not be empty")
     extra = []
     for r in args.redact or []:
         try:
@@ -247,6 +378,7 @@ def cmd_receipt_slurm(args) -> int:
             raise core.UsageError(f"--redact {r!r} is not a valid regular expression ({e.msg})") from None
 
     refusals: list[str] = []
+    checks: list[str] = []
     text, why = sacct_text(job, args.sacct_file)
     sacct = None
     if why:
@@ -255,83 +387,135 @@ def cmd_receipt_slurm(args) -> int:
         sacct, why = check_job(job, text)
         if why:
             refusals.append(why)
-
-    raw = log_path.read_bytes()
-    why = check_self_hash(raw)
-    if why:
-        refusals.append(why)
-    redacted, n_redacted = redact(raw.decode("utf-8", errors="replace"), extra)
-    fields, problems = parse_fields(redacted)
-    refusals += problems
+        else:
+            checks.append(f"✓ sacct: job {job} COMPLETED, exit 0:0")
 
     commit = resolve_commit(repo, args.commit_sha)
+    c12 = commit[:12] if commit else None
+    toolchain = manifest = None
     if commit is None:
         refusals.append(f"--commit {args.commit_sha}: not a commit in the --repo checkout "
                         f"(default the current directory)")
     else:
         blob = core.git_show_bytes(repo, "./lean-toolchain", commit)
         if blob is None:
-            refusals.append(f"no lean-toolchain committed at {commit[:12]}")
-        elif "lean-toolchain" in fields:
-            committed = blob.decode("utf-8", "replace").strip()
-            if fields["lean-toolchain"] != committed:
-                refusals.append(f"toolchain mismatch: verify log says {fields['lean-toolchain']!r}, "
-                                f"lean-toolchain committed at {commit[:12]} says {committed!r}")
-        if "commit" in fields:
-            claimed = fields["commit"].lower()
-            if len(claimed) < 7 or not commit.startswith(claimed):
-                refusals.append(f"verify log: `commit:` {fields['commit']!r} is not --commit {commit[:12]}")
-    if "job-id" in fields and fields["job-id"] != job:
+            refusals.append(f"no lean-toolchain committed at {c12}")
+        else:
+            toolchain = blob.decode("utf-8", "replace").strip()
+        manifest = core.git_show_bytes(repo, "./lake-manifest.json", commit)
+
+    raw = paths["--log"].read_bytes()
+    raw_sha = hashlib.sha256(raw).hexdigest()
+    if "--stdout" in paths:
+        check_stdout(paths["--stdout"].read_text(encoding="utf-8", errors="replace"), raw_sha, manifest, c12,
+                     refusals, checks)
+    else:
+        why = check_self_hash(raw)
+        if why:
+            refusals.append(why)
+        else:
+            checks.append(f"✓ seal: in-log {SHA_KEY} (fallback; no --stdout)")
+        checks.append("· manifest: not checked (no --stdout)")
+    if "--stderr" in paths:
+        n = paths["--stderr"].stat().st_size
+        if n:
+            refusals.append(f"job stderr is not empty ({n} bytes); a clean job writes nothing there")
+        else:
+            checks.append("✓ stderr: empty")
+    else:
+        checks.append("· stderr: not checked (no --stderr)")
+
+    raw_text = raw.decode("utf-8", errors="replace")
+    redacted, n_redacted = redact(raw_text, extra)
+    n_diff = lines_differing(raw_text, redacted)
+    fields, problems = parse_log(redacted)
+    refusals += problems
+
+    if toolchain is not None and "lean-toolchain" in fields and fields["lean-toolchain"] != toolchain:
+        refusals.append(f"toolchain mismatch: verify log says {fields['lean-toolchain']!r}, "
+                        f"lean-toolchain committed at {c12} says {toolchain!r}")
+    mathlib = manifest_mathlib_rev(manifest)
+    if mathlib and "mathlib-rev" in fields and fields["mathlib-rev"] != mathlib:
+        refusals.append(f"mathlib mismatch: verify log says {fields['mathlib-rev']!r}, lake-manifest.json "
+                        f"committed at {c12} says {mathlib!r}")
+    mathlib = mathlib or fields.get("mathlib-rev")
+    if commit is not None and not mathlib:
+        refusals.append(f"no mathlib rev: no `mathlib` package in lake-manifest.json at {c12} and no "
+                        f"`mathlib-rev:` line in the verify log")
+    checker = args.checker.strip() if args.checker else fields.get("checker")
+    if not checker:
+        refusals.append("no checker: pass --checker TEXT (the exact checker command or mode) or print a "
+                        "`checker:` line in the verify log")
+    if commit is not None and "commit" in fields:
+        claimed = fields["commit"].lower()
+        if len(claimed) < 7 or not commit.startswith(claimed):
+            refusals.append(f"verify log: `commit:` {fields['commit']!r} is not --commit {c12}")
+    if "job-id" in fields and fields["job-id"].removeprefix("slurm-") != job:
         refusals.append(f"verify log: `job-id:` {fields['job-id']!r} is not --job {job!r}")
 
-    c12 = commit[:12] if commit else "0" * 12
-    out = pathlib.Path(args.out).expanduser() if args.out else repo / ".lean-receipts" / f"{c12}-{slug}.json"
-    log_out = out.with_name(f"{c12}-{slug}.verify.log")
+    name12 = c12 or "0" * 12
+    out = (pathlib.Path(args.out).expanduser() if args.out
+           else repo / ".lean-receipts" / f"{name12}-{slug}.json")
+    log_out = out.with_name(f"{name12}-{slug}-verify.redacted.log")
     log_bytes = redacted.encode("utf-8")
     report_sha = hashlib.sha256(log_bytes).hexdigest()
     receipt = {
         "commit": commit,
-        "lean_toolchain": fields.get("lean-toolchain"),
-        "mathlib_rev": fields.get("mathlib-rev"),
-        "sorry_count": int(fields["sorry-count"]) if re.fullmatch(r"\d+", str(fields.get("sorry-count", ""))) else None,
-        "axioms": fields.get("axioms"),
+        "lean_toolchain": toolchain,
+        "mathlib_rev": mathlib,
+        "sorry_count": fields.get("sorry-count"),
+        "axioms": fields.get("axioms", []),
         "report_sha256": report_sha,
-        "job_id": job,
-        "checker": fields.get("checker"),
+        "job_id": job_id,
+        "checker": checker,
         "generated_at": fields.get("generated-at") or core.now_iso(),
     }
-    receipt_bytes = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    receipt_bytes = (json.dumps(receipt, indent=2) + "\n").encode("utf-8")
+    rel_r, rel_l = _shown(out, repo), _shown(log_out, repo)
+    block = readme_block(commit=commit or name12, job=job, receipt_name=out.name, log_name=log_out.name,
+                         sacct=sacct, receipt=receipt, raw_sha=raw_sha, n_diff=n_diff,
+                         heading=args.readme_heading, tar_sha=args.tar_sha256, extra=args.readme_line or [])
 
     sc = _scanner(repo)
-    for what, blob_text in (("redacted verify log", redacted), ("receipt JSON", receipt_bytes.decode())):
+    for what, blob_text in (("redacted verify log", redacted), ("receipt JSON", receipt_bytes.decode()),
+                            ("README block", block)):
         fams = blocking_families(sc, blob_text)
         if fams:
             refusals.append(f"public-safety: a private string remains in the {what} ({', '.join(fams)}); "
-                            f"add a --redact REGEX for it")
+                            + ("add a --redact REGEX for it" if what != "README block"
+                               else "fix --readme-heading / --readme-line"))
     if not refusals:
         for path, data in ((log_out, log_bytes), (out, receipt_bytes)):
             why = _same_or_absent(path, data)
             if why:
                 refusals.append(why)
+    readme = out.parent / "README.md"
+    if not refusals and args.append_readme and readme.is_symlink():
+        refusals.append("README.md beside the receipt is a symlink; nothing written")
 
-    readme_line = next_cmd = None
+    appended = False
+    next_cmd = None
     if not refusals:
+        checks.append(f"✓ public-safety: no blocking hit after {n_redacted} redaction(s)")
         out.parent.mkdir(parents=True, exist_ok=True)
         _write(log_out, log_bytes)
         _write(out, receipt_bytes)
-        rel_r, rel_l = _shown(out, repo), _shown(log_out, repo)
-        axioms = ", ".join(receipt["axioms"]) or "none"
-        readme_line = (f"- Lower-tier receipt: [`{rel_r}`]({rel_r}) (Slurm job {job}, commit {c12}, "
-                       f"`{receipt['lean_toolchain']}`, sorry 0, axioms {axioms}; verify log [`{rel_l}`]({rel_l}), "
-                       f"sha256 {report_sha[:12]}…)")
+        if args.append_readme:
+            old = readme.read_text(encoding="utf-8") if readme.is_file() else "# Receipts\n"
+            if f"`{out.name}`" in old:
+                checks.append(f"· README.md already lists {out.name}; not appended again")
+            else:
+                _write(readme, (old.rstrip() + "\n\n" + block).encode("utf-8"))
+                appended = True
         next_cmd = f"lean-pkg gate NAME --check --receipt {rel_r}"
 
     if args.json_out:
         core.print_json({"ok": not refusals, "receipt": None if refusals else str(out),
                          "log": None if refusals else str(log_out),
-                         "report_sha256": None if refusals else report_sha, "job_id": job,
-                         "sacct": sacct, "redactions": n_redacted, "readme_line": readme_line,
-                         "next": next_cmd, "refusals": refusals})
+                         "report_sha256": None if refusals else report_sha, "raw_log_sha256": raw_sha,
+                         "job_id": job_id, "sacct": sacct, "redactions": n_redacted, "lines_redacted": n_diff,
+                         "checks": checks, "readme_block": None if refusals else block,
+                         "readme_appended": appended, "next": next_cmd, "refusals": refusals})
     if refusals:
         verdict = f"receipt slurm: refused, {len(refusals)} problem(s); nothing written"
         print(f"lean-pkg: {verdict}", file=sys.stderr)
@@ -340,10 +524,16 @@ def cmd_receipt_slurm(args) -> int:
         print(f"lean-pkg: {verdict}", file=sys.stderr)
         return 1
     if not args.json_out:
-        print(f"receipt slurm: ok, job {job} at commit {c12}; {n_redacted} redaction(s)")
-        print(f"  receipt     {out}")
-        print(f"  verify log  {log_out} (redacted; report_sha256 {report_sha})")
-        print(f"README line to add:\n{readme_line}")
+        print(f"receipt slurm: ok, job {job_id} at commit {c12}; {n_redacted} redaction(s)")
+        for c in checks:
+            print(f"  {c}")
+        print(f"  receipt     {rel_r}")
+        print(f"  verify log  {rel_l} (redacted; report_sha256 {report_sha})")
+        if appended:
+            print(f"README entry appended to {_shown(readme, repo)}:")
+        else:
+            print("README entry to add (or rerun with --append-readme):")
+        print(block.rstrip("\n"))
         print(f"next: {next_cmd}")
     allowed = set(core.DEFAULT_AXIOMS)
     if set(receipt["axioms"]) - allowed:
@@ -358,22 +548,36 @@ def add_parsers(sub, add_json) -> None:
     r = sub.add_parser("receipt", help="produce lower-tier receipts (writes files in the package checkout, "
                                        "never the registry)")
     rsub = r.add_subparsers(dest="receipt_cmd", metavar="{slurm}", required=True)
-    s = rsub.add_parser("slurm", help="a lower-tier receipt from a finished Slurm job and its sealed verify log")
-    s.add_argument("--job", required=True, metavar="J", help="the Slurm job id (the receipt's job_id)")
-    s.add_argument("--log", required=True, metavar="PATH",
-                   help=f"the job's verify log (key lines {', '.join(REQUIRED_KEYS)}, {SHA_KEY})")
+    s = rsub.add_parser("slurm", help="a lower-tier receipt from a finished Slurm job, its verify log and "
+                                      "its stdout seal")
+    s.add_argument("--job", required=True, metavar="J", help="the Slurm job id (job_id becomes slurm-J)")
+    s.add_argument("--log", required=True, metavar="PATH", help="the job's raw verify log")
     s.add_argument("--commit", dest="commit_sha", required=True, metavar="SHA",
                    help="the verified commit; must exist in --repo")
+    s.add_argument("--stdout", default=None, metavar="PATH",
+                   help=f"the job's stdout (.out): {SHA_KEY} = sha256(raw log), {PRE_KEY} = {POST_KEY} = "
+                        "sha256(lake-manifest.json at the commit); without it the log must carry its own seal")
+    s.add_argument("--stderr", default=None, metavar="PATH", help="the job's stderr (.err); must be empty")
+    s.add_argument("--checker", default=None, metavar="TEXT",
+                   help="the exact checker command or mode (default: the log's `checker:` line)")
     s.add_argument("--repo", default=None, metavar="DIR", help="the package checkout (default: the current directory)")
     s.add_argument("--redact", action="append", default=[], metavar="REGEX",
-                   help=f"also replace matches with {REDACT_TOKEN} (repeatable); the per-job /tmp/<name>-job<N>/ "
-                        "and /scratch/<user>/ prefixes are always redacted")
+                   help=f"also replace matches with {REDACT_TOKEN} (repeatable); the per-job /tmp/<account>-job "
+                        "prefix and /scratch/<user>/ are always redacted")
     s.add_argument("--sacct-file", default=None, metavar="F",
                    help=f"saved output of `sacct -j J --format={SACCT_FORMAT} -P -n` (a host without Slurm)")
     s.add_argument("--out", default=None, metavar="PATH",
-                   help="receipt path (default <repo>/.lean-receipts/<commit12>-<job>.json); the redacted log is "
-                        "written beside it as <commit12>-<job>.verify.log")
+                   help="receipt path (default <repo>/.lean-receipts/<commit12>-slurm-<J>.json); the redacted log "
+                        "is written beside it as <commit12>-slurm-<J>-verify.redacted.log")
+    s.add_argument("--append-readme", action="store_true",
+                   help="append the entry block to README.md beside the receipt (created if absent; an entry "
+                        "already naming the receipt is not repeated)")
+    s.add_argument("--readme-heading", default=None, metavar="TEXT",
+                   help="the entry heading after the short commit (default: lower-tier receipt, Slurm job J)")
+    s.add_argument("--readme-line", action="append", default=[], metavar="TEXT",
+                   help="an extra line at the end of the entry block (repeatable)")
+    s.add_argument("--tar-sha256", default=None, metavar="HEX",
+                   help="the frozen source tarball's SHA-256, named in the entry block")
     s.add_argument("--json", dest="json_out", action="store_true", default=argparse.SUPPRESS,
                    help="machine-readable JSON on stdout")
     s.set_defaults(fn=cmd_receipt_slurm)
-

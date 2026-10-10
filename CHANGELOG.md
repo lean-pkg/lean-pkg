@@ -39,6 +39,21 @@ change the registry schema or receipt format, always with a migration).
   writes `<c12>-<job>.verify.log` (redacted; its SHA-256 is `report_sha256`) and `<c12>-<job>.json` under
   `.lean-receipts/`, and prints the README line and the `gate NAME --check --receipt` command. docs/receipts.md
   documents the log lines and the seal rule. (#70)
+- `lean-pkg receipt slurm --job J --log PATH --commit SHA [--stdout PATH] [--stderr PATH] [--checker TEXT]
+  [--repo DIR] [--redact REGEX ...] [--sacct-file F] [--out PATH] [--append-readme] [--json]` writes a lower-tier
+  receipt from a finished Slurm job. The main `sacct` line must say `COMPLETED` and `0:0` (`--sacct-file` reads saved
+  output on a host without Slurm). The job stdout's `verify-log-sha256` must equal the raw verify log's SHA-256, its
+  `pre-manifest-sha256` and `post-manifest-sha256` must be equal and equal the committed `lake-manifest.json`'s, and
+  `--stderr` must be empty; without `--stdout` the log must carry its own `verify-log-sha256:` seal. `lean_toolchain`
+  and `mathlib_rev` come from the commit (a disagreeing log line refuses); sorry count and axioms come from the log
+  (`sorry-count:`/`axioms:` lines, else its `declaration uses 'sorry'` warnings and `#print axioms` output); `checker`
+  from `--checker` or the log. The per-job `/tmp/<account>-job` prefix, `/scratch/<user>/` and `--redact` matches
+  are redacted, and any public-safety blocking hit left in the log, the receipt or the README entry refuses. Every
+  refusal writes nothing. On success it writes `<c12>-slurm-<J>.json` (`job_id` `slurm-<J>`) and
+  `<c12>-slurm-<J>-verify.redacted.log` (its SHA-256 is `report_sha256`) under `.lean-receipts/`, prints the README
+  entry (`--append-readme` appends it to `.lean-receipts/README.md`: state, exit, elapsed, TotalCPU, log name and
+  hashes) and the `gate NAME --check --receipt` command. docs/receipts.md documents the seals and the log lines.
+  (#70)
 
 ## [0.7.23] - 2026-10-10
 
