@@ -1,6 +1,6 @@
 # lean-pkg report -- a redacted bug report in the repository's own issue format
-"""`lean-pkg report [--command "<lean-pkg args>"] [--package NAME] [--title T] [--enhancement]
-[--repo OWNER/NAME] [--dry-run|--yes] [--json]` (#47): assemble a bug report in the shape of
+"""`lean-pkg report [--command "<lean-pkg args>"] [--body TEXT] [--from-log FILE[:N]] [--package NAME]
+[--title T] [--enhancement] [--repo OWNER/NAME] [--dry-run|--yes] [--json]` (#47, #55): assemble a bug report in the shape of
 `.github/ISSUE_TEMPLATE/bug_report.md` (same section headings, same order: SECTIONS, which a test
 keeps equal to the template's) and, with `--yes`, file it with `gh issue create` on lean-pkg/lean-pkg
 (label `bug`, or `enhancement`; `--repo` for a fork).
@@ -12,7 +12,9 @@ Filled automatically, all read-only:
 - Command / What happened: the command as given, re-run through the CLI entry point in a subprocess
   (`--json` appended when it is not there and the subcommand's parser has the flag), its exit code,
   stdout and stderr. A command that would write (the registry, a package file, a README) is not
-  re-run; the body says so.
+  re-run; the body says so. `--body TEXT` (free text, no re-run) and `--from-log FILE[:N]` (the last N
+  lines, default 200, of a stage log, under "Log excerpt") go first in What happened, before any re-run;
+  at least one of `--command`, `--body`, `--from-log` is required (#55).
 - Minimal registry or receipt: with `--package`, the registry record (status, visibility, lease fields,
   gate and comparator receipt paths with the commits they bind).
 - Checklist: ticked from what is known (`--json` used; `validate` passes).
@@ -65,6 +67,7 @@ REGISTRY_TOKEN, REGISTRY_DIR_TOKEN, CHECKOUT_TOKEN = "<registry>", "<registry-di
 USER_REGISTRY_TOKEN, USER_REGISTRY_DIR_TOKEN = "<user-default-registry>", "<user-default-registry-dir>"
 RERUN_TIMEOUT = 600                  # seconds for the re-run command
 KEEP_HEAD, KEEP_TAIL = 150, 50       # lines kept of a long captured stream
+LOG_TAIL = 200                       # default N of --from-log FILE[:N]
 GLOBAL_VALUE_FLAGS = ("--registry", "--events", "--registry-snapshot")
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _PATH_END = r"(?![A-Za-z0-9._-])"
@@ -332,13 +335,24 @@ def render_body(f: dict) -> str:
     parts += ["`lean-pkg doctor --json` (ok/warn lines):", fence("\n".join(f["doctor"]) or "(none)"), "",
               f"`lean-pkg comparator host-check --json`: {f['host']}", ""]
     parts += [f"**{c}** (exact, with flags; private paths redacted):", "", fence(f["command"]), ""]
+    given = []                         # --body, then --from-log (#55), before any re-run
+    if f.get("body_text"):
+        given += [f["body_text"].rstrip("\n"), ""]
+    if f.get("log"):
+        lg = f["log"]
+        given += [f"_Log excerpt_ (last {lg['lines']} line(s) of `{lg['path']}`):", fence(lg["text"] or "(empty)"), ""]
     if f["run"] is None:
-        parts += [f"**{h}** (paste the output, including any JSON reason):", "", f["what"], ""]
+        head = f"**{h}**:" if given else f"**{h}** (paste the output, including any JSON reason):"
+        parts += [head, ""] + given + ([f["what"], ""] if f["what"] else [])
     else:
         r = f["run"]
-        parts += [f"**{h}** (re-run by `lean-pkg report`" + (", with `--json` appended" if r["json_added"] else "")
-                  + f"; exit code {r['exit']}):", "",
-                  "stdout:", fence(r["stdout"] or "(empty)"), "", "stderr:", fence(r["stderr"] or "(empty)"), ""]
+        rerun = ("re-run by `lean-pkg report`" + (", with `--json` appended" if r["json_added"] else "")
+                 + f"; exit code {r['exit']}")
+        streams = ["stdout:", fence(r["stdout"] or "(empty)"), "", "stderr:", fence(r["stderr"] or "(empty)"), ""]
+        if given:
+            parts += [f"**{h}**:", ""] + given + [rerun[0].upper() + rerun[1:] + ":", ""] + streams
+        else:
+            parts += [f"**{h}** ({rerun}):", ""] + streams
     parts += [f"**{e}**:", "", "<!-- what should have happened -->", ""]
     parts += [f"**{m}** that reproduces it, if the problem is about validation (attach a file; replace "
               f"private paths with placeholders):", ""]
@@ -376,12 +390,46 @@ def _tokens(command: str) -> list[str]:
     return tokens
 
 
+def _log_spec(spec: str) -> tuple[pathlib.Path, int]:
+    """--from-log FILE[:N] -> (file, N); N defaults to LOG_TAIL. A FILE that exists as given wins over a
+    `:N` reading (a colon in the file name)."""
+    if not spec:
+        raise core.UsageError("--from-log needs FILE or FILE:N")
+    path, n = spec, LOG_TAIL
+    if not pathlib.Path(spec).is_file() and ":" in spec:
+        path, _sep, tail = spec.rpartition(":")
+        if not re.fullmatch(r"[0-9]+", tail) or int(tail) < 1:
+            raise core.UsageError(f"--from-log FILE:N: N must be a positive integer, got {tail!r}")
+        n = int(tail)
+    p = pathlib.Path(path)
+    if not p.is_file():
+        raise core.UsageError(f"--from-log: no such file: {path}")
+    return p, n
+
+
+def _log_tail(p: pathlib.Path, n: int) -> list[str]:
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        raise core.UsageError(f"--from-log: cannot read {p} ({e.strerror or e})")
+    return text.rstrip("\n").splitlines()[-n:] if text.strip("\n") else []
+
+
 def cmd_report(args) -> int:
     if args.repo is not None and not _REPO_RE.match(args.repo):
         raise core.UsageError(f"--repo must be OWNER/NAME, got {args.repo!r}")
     if args.title is not None and not args.title.strip():
         raise core.UsageError("--title must not be empty")
+    if args.body is not None and not args.body.strip():
+        raise core.UsageError("--body must not be empty")
+    if args.command is None and args.body is None and args.from_log is None:
+        raise core.UsageError("report needs at least one of --command \"ARGS\" (re-run it), --body TEXT "
+                              "(describe it) or --from-log FILE[:N] (the tail of a stage log)")
     tokens = _tokens(args.command) if args.command is not None else None
+    log = None
+    if args.from_log is not None:
+        log_path, log_n = _log_spec(args.from_log)
+        log = {"path": str(log_path), "tail": _log_tail(log_path, log_n)}
     if args.yes:
         _gh_ready()
     reg_path = core.registry_path(args)
@@ -413,8 +461,10 @@ def cmd_report(args) -> int:
              "host": red(safely(host_verdict)),
              "package": red(args.package) if args.package else None,
              "record": [red(x) for x in record_lines(pkg)] if pkg is not None else [],
-             "valid": valid, "run": None, "json": False,
-             "what": "<!-- describe what happened; add --command to capture it -->"}
+             "valid": valid, "run": None, "json": False, "what": None,
+             "body_text": red(args.body.strip("\n")) if args.body is not None else None,
+             "log": ({"path": red(log["path"]), "lines": len(log["tail"]), "text": red("\n".join(log["tail"]))}
+                     if log is not None else None)}
     if tokens is None:
         facts["command"] = "lean-pkg ..."
         shown = None
@@ -445,6 +495,8 @@ def cmd_report(args) -> int:
     families = red.blocking_families(title + "\n" + body)
     payload = {"ok": True, "filed": False, "url": None, "title": title, "labels": labels, "body": body,
                "redactions": red.count}
+    if facts["log"] is not None:
+        payload["log_excerpt"] = {"path": facts["log"]["path"], "lines": facts["log"]["lines"]}
     if families:
         msg = (f"report: a blocking private pattern remains after redaction ({', '.join(families)}); nothing "
                f"filed")
@@ -487,6 +539,12 @@ def add_parsers(sub, add_json) -> None:
                    help="the lean-pkg arguments to capture, quoted as one string (\"status NAME\"); re-run in a "
                         "subprocess (with --json when the subcommand has it) unless it would write; "
                         "a value starting with '-' needs --command=VALUE")
+    s.add_argument("--body", default=None, metavar="TEXT",
+                   help="free text for What happened, nothing re-run (before the re-run when --command is "
+                        "given too); redacted like everything else")
+    s.add_argument("--from-log", default=None, metavar="FILE[:N]",
+                   help=f"the last N lines (default {LOG_TAIL}) of a stage log, under Log excerpt in What "
+                        "happened; redacted like everything else; a missing file is a usage error")
     s.add_argument("--package", default=None, metavar="NAME",
                    help="add the package's registry record (status, lease, receipt commits); its "
                         f"{ps.PATTERNS_FILE} joins the redaction")

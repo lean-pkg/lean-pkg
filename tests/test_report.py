@@ -171,7 +171,7 @@ def test_yes_files_with_gh_and_the_body_file_is_redacted(lp, env, capsys, tmp_pa
 
 def test_yes_text_mode_prints_the_url_and_repo_override(lp, env, capsys, tmp_path):
     assert lp.main(["--registry", str(env.registry), "report", "--yes", "--repo", "someone/fork",
-                    "--title", "lease refused"]) == 0
+                    "--title", "lease refused", "--body", "claim refused"]) == 0
     assert capsys.readouterr().out.strip() == "https://github.com/lean-pkg/lean-pkg/issues/999"
     argv = (tmp_path / "gh-argv.txt").read_text().splitlines()
     assert argv[2:8] == ["-R", "someone/fork", "--title", "lease refused", "--label", "bug"]
@@ -183,14 +183,14 @@ def test_yes_without_gh_refuses(lp, env, capsys, tmp_path, monkeypatch):
     real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True).stdout.strip()
     (empty / "git").symlink_to(real)
     monkeypatch.setenv("PATH", str(empty))
-    assert lp.main(["--registry", str(env.registry), "report", "--yes"]) == 1
+    assert lp.main(["--registry", str(env.registry), "report", "--yes", "--body", "x"]) == 1
     err = capsys.readouterr().err
     assert "gh is not on PATH" in err and "gh auth login" in err and "nothing filed" in err
 
 
 def test_yes_with_gh_logged_out_refuses(lp, env, capsys, tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_GH_AUTH", "1")
-    rc = lp.main(["--registry", str(env.registry), "report", "--yes", "--json"])
+    rc = lp.main(["--registry", str(env.registry), "report", "--yes", "--body", "x", "--json"])
     assert rc == 1
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is False and "gh auth login" in out["error"]
@@ -198,22 +198,26 @@ def test_yes_with_gh_logged_out_refuses(lp, env, capsys, tmp_path, monkeypatch):
 
 
 def test_json_shape(lp, env, capsys):
-    rc, out = _report(lp, env, capsys)
+    rc, out = _report(lp, env, capsys, "--body", "the lease vanished")
     assert rc == 0
     assert set(out) == {"ok", "filed", "url", "title", "labels", "body", "redactions"}
     assert out["ok"] is True and out["filed"] is False and out["url"] is None
     assert out["labels"] == ["bug"] and isinstance(out["redactions"], int)
     from lean_pkg import __version__
     assert out["title"] == f"report: lean-pkg {__version__}"
-    assert "lean-pkg ..." in out["body"] and "add --command to capture it" in out["body"]
+    assert "lean-pkg ..." in out["body"] and "the lease vanished" in out["body"]
 
 
 @pytest.mark.parametrize("argv", [
     ["--command", ""],
     ["--command", "lean-pkg"],
     ["--command", "status 'alpha"],
-    ["--repo", "not-a-repo"],
-    ["--title", "  "],
+    ["--repo", "not-a-repo", "--body", "x"],
+    ["--title", "  ", "--body", "x"],
+    ["--body", " "],
+    ["--from-log", "x.log:0"],
+    ["--from-log", "x.log:-3"],
+    ["--from-log", "x.log:many"],
 ])
 def test_usage_errors_exit_2(lp, env, capsys, argv):
     assert lp.main(["--registry", str(env.registry), "report", *argv]) == 2
@@ -250,7 +254,7 @@ def test_json_is_not_appended_twice_and_unknown_commands_run_as_given(lp, env, c
 def test_a_blocking_hit_left_in_the_body_refuses(lp, env, capsys, rp, monkeypatch, tmp_path):
     real = rp.render_body
     monkeypatch.setattr(rp, "render_body", lambda f: real(f) + "\nleaked: x.y@uni.edu\n")
-    rc, out = _report(lp, env, capsys, "--yes")
+    rc, out = _report(lp, env, capsys, "--yes", "--body", "x")
     assert rc == 1
     assert out["ok"] is False and out["filed"] is False and out["families"] == ["email"]
     assert out["body"] is None and "x.y@uni.edu" not in json.dumps(out)
@@ -261,3 +265,106 @@ def test_report_is_not_a_write_invocation(lp):
     import argparse
     assert not lp.is_write_invocation(argparse.Namespace(cmd="report", yes=True))
 
+
+
+# --------------------------------------------------------------------------
+# --body and --from-log (#55)
+
+def _what(body: str) -> str:
+    """The What happened section of a report body."""
+    return body.split("**What happened**", 1)[1].split("**What you expected**", 1)[0]
+
+
+def _log(tmp_path, n: int, extra: str = "") -> pathlib.Path:
+    p = tmp_path / "stages" / "03-build.log"
+    p.parent.mkdir(exist_ok=True)
+    p.write_text("".join(f"line {i}\n" for i in range(1, n + 1)) + extra)
+    return p
+
+
+def test_none_of_command_body_from_log_is_a_usage_error(lp, env, capsys):
+    rc = lp.main(["--registry", str(env.registry), "report", "--json"])
+    assert rc == 2
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is False
+    assert all(f in out["error"] for f in ("--command", "--body", "--from-log"))
+
+
+def test_body_alone_is_not_re_run(lp, env, capsys, tmp_path):
+    rc, out = _report(lp, env, capsys, "--body", "prepare failed inside stage 03-build")
+    assert rc == 0
+    what = _what(out["body"])
+    assert what.startswith(":\n\nprepare failed inside stage 03-build\n")
+    assert "re-run by" not in out["body"].lower() and "stdout:" not in what
+    assert "log_excerpt" not in out
+    assert "- [ ] I ran the command with `--json`" in out["body"]
+
+
+def test_body_with_command_puts_the_body_before_the_re_run(lp, env, capsys):
+    rc, out = _report(lp, env, capsys, "--body", "status looked stale", "--command", "status alpha")
+    assert rc == 0
+    what = _what(out["body"])
+    assert what.index("status looked stale") < what.index("Re-run by `lean-pkg report`, with `--json` appended; "
+                                                          "exit code 0:") < what.index("stdout:")
+    assert '"status": "gate-pending"' in what
+
+
+def test_from_log_tail_with_n_and_default(lp, env, capsys, tmp_path):
+    log = _log(tmp_path, 250)
+    rc, out = _report(lp, env, capsys, "--from-log", f"{log}:5")
+    assert rc == 0
+    what = _what(out["body"])
+    assert "_Log excerpt_ (last 5 line(s) of `" in what
+    assert "line 246\nline 247\nline 248\nline 249\nline 250\n" in what and "line 245\n" not in what
+    assert out["log_excerpt"]["lines"] == 5 and str(tmp_path) not in out["log_excerpt"]["path"]
+    assert out["log_excerpt"]["path"].endswith("stages/03-build.log")
+    rc, out = _report(lp, env, capsys, "--from-log", str(log))         # default N = 200
+    assert rc == 0 and out["log_excerpt"]["lines"] == 200
+    assert "line 51\n" in out["body"] and "line 50\n" not in out["body"]
+    short = _log(tmp_path, 3)
+    rc, out = _report(lp, env, capsys, "--from-log", f"{short}:10", "--body", "first", "--command", "status alpha")
+    assert rc == 0 and out["log_excerpt"]["lines"] == 3
+    what = _what(out["body"])
+    assert what.index("first") < what.index("_Log excerpt_") < what.index("Re-run by")
+
+
+def test_from_log_missing_file_is_a_usage_error(lp, env, capsys, tmp_path):
+    for spec in (str(tmp_path / "nope.log"), f"{tmp_path / 'nope.log'}:20"):
+        assert lp.main(["--registry", str(env.registry), "report", "--from-log", spec]) == 2
+        assert "--from-log: no such file" in capsys.readouterr().err
+    assert not (tmp_path / "gh-argv.txt").exists()
+
+
+def test_from_log_excerpt_is_redacted(lp, env, capsys, tmp_path, monkeypatch):
+    p = _private_notes(lp, env, monkeypatch)
+    log = _log(tmp_path, 2, extra=f"error: cannot open {p['home_file']}\nby zorblax-7 at /home/someoneelse/a.lean\n")
+    rc, out = _report(lp, env, capsys, "--from-log", str(log))
+    assert rc == 0
+    what = _what(out["body"])
+    assert p["home_file"] not in what and "error: cannot open ~/proj/file.txt" in what
+    assert "someoneelse" not in what and "zorblax" not in what
+    assert str(env.registry.parent) not in out["body"]
+    assert out["redactions"] >= 3
+
+
+def test_yes_files_the_log_excerpt_with_gh(lp, env, capsys, tmp_path, monkeypatch):
+    p = _private_notes(lp, env, monkeypatch)
+    log = _log(tmp_path, 4, extra=f"lake: build failed in {p['home_file']}\n")
+    rc, out = _report(lp, env, capsys, "--from-log", f"{log}:2", "--body", "timeout in stage 03-build", "--yes")
+    assert rc == 0 and out["filed"] is True
+    sent = (tmp_path / "gh-body.md").read_text()
+    assert sent == out["body"]
+    assert "timeout in stage 03-build" in sent and "_Log excerpt_ (last 2 line(s)" in sent
+    assert "line 4\nlake: build failed in ~/proj/file.txt" in sent and p["home_file"] not in sent
+    argv = (tmp_path / "gh-argv.txt").read_text().splitlines()
+    from lean_pkg import __version__
+    assert argv[4:6] == ["--title", f"report: lean-pkg {__version__}"]
+
+
+def test_a_blocking_hit_left_after_the_log_excerpt_refuses(lp, env, capsys, rp, monkeypatch, tmp_path):
+    log = _log(tmp_path, 1, extra="leak\n")
+    real = rp.render_body
+    monkeypatch.setattr(rp, "render_body", lambda f: real(f).replace("leak", "x.y@uni.edu"))
+    rc, out = _report(lp, env, capsys, "--from-log", str(log), "--yes")
+    assert rc == 1 and out["families"] == ["email"] and out["body"] is None
+    assert not (tmp_path / "gh-argv.txt").exists()

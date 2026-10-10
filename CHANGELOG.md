@@ -21,6 +21,13 @@ change the registry schema or receipt format, always with a migration).
   without a `COMPARATOR_LAKE` wrapper (Lake 5 has no `-j`; the wrapper stays documented as the fallback). The runner
   prints the applied value and the receipt records it as the additive `lean_threads` (`N` or `null`); a value that
   is not a positive integer exits 2. (#55)
+- `report --body TEXT` and `report --from-log FILE[:N]`: describe friction that has no cheap re-run (a failure
+  inside a long stage, a timeout). `--body` is free text and `--from-log` the last N lines (default 200) of a stage
+  log under a `Log excerpt` line; both go first in What happened, before the `--command` re-run when that is given
+  too, and are redacted like every captured text (the final redaction gate still refuses on a residual blocking
+  hit). At least one of `--command`, `--body`, `--from-log` is now required (exit 2 otherwise); a missing log file
+  or an `N` that is not a positive integer is a usage error. `--json` gains `log_excerpt` {path, lines} with
+  `--from-log`. (#55)
 
 ## [0.7.21] - 2026-10-10
 
