@@ -12,6 +12,7 @@
 <p align="center">
   <a href="https://github.com/lean-pkg/lean-pkg/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lean-pkg/lean-pkg/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+  <a href="https://doi.org/10.5281/zenodo.23272098"><img alt="DOI" src="https://zenodo.org/badge/DOI/10.5281/zenodo.23272098.svg"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB.svg">
   <a href="https://lean-pkg.github.io/lean-pkg/"><img alt="Documentation" src="https://img.shields.io/badge/docs-site-0A7E8C.svg"></a>
   <a href="llms.txt"><img alt="LLM entry: llms.txt" src="https://img.shields.io/badge/LLM%20entry-llms.txt-6f42c1.svg"></a>
@@ -115,8 +116,6 @@ git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
 git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 
 # ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
-
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23272098.svg)](https://doi.org/10.5281/zenodo.23272098)
 
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
 lean-pkg claim my-proof --workspace laptop --agent you --reason "first receipt"
