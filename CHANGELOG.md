@@ -22,6 +22,10 @@ change the registry schema or receipt format, always with a migration).
   carries the sha (`pushed origin/<branch> (<sha>)`), and every subcommand's `--commit`/`--push` help
   names its variable and adds `set now` when it is set. A wrapper that exports the variable no longer
   makes `renew` (or any write) commit and push without a word about why.
+- `public-safety`: with hits, the human report prints the verdict line right after the summary and
+  patterns lines as well as last, lists blocking hits before warn-only ones, and puts the warn-only hits
+  under a `warn-only hit(s): N (families); they do not block` line, so dozens of `latex-label` `WARN`
+  lines no longer push the verdict out of a truncated view. `--json` is unchanged.
 - Docs: CLI reference section "Lease holders": a lease stores no session address; find your own leases
   with `leases --agent A` (the `--agent` you claimed with) and one package's holder with `status NAME
   --fields lease.agent,lease.workspace,lease.reason,lease.expires_at`.

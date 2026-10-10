@@ -572,7 +572,9 @@ def hit_line(h: dict) -> str:
 
 def report_lines(name: str, result: dict) -> list[str]:
     """The human report. The summary line names no path (#38): it is pasted into release notes
-    verbatim, and the checkout is the one the registry record names."""
+    verbatim, and the checkout is the one the registry record names. With hits, the verdict line comes
+    right after the summary and patterns lines and again last; blocking hits are listed before the
+    warn-only ones, which follow under a count line. --json is not affected."""
     src = result["patterns_source"]
     n = len(result["hits"])
     nb, nw = result["block_hits"], result["warn_hits"]
@@ -584,17 +586,24 @@ def report_lines(name: str, result: dict) -> list[str]:
              f"{src['allow']} allow, {src['file_warn_patterns']} warn-only, "
              f"{src['scoped_patterns'] + src['allow_scoped']} path-scoped) + {len(src['builtin'])} built-in + {len(src['derived'])} registry-derived "
              f"({', '.join(src['derived']) or 'none'}) + internal paths"]
-    lines += [f"  WARN {w}" for w in result["warnings"]]
-    lines += [hit_line(h) for h in result["hits"]]
-    nfail = len(blocking(result["hits"], result["strict"]))
+    fail = blocking(result["hits"], result["strict"])
+    rest = [h for h in result["hits"] if not any(h is f for f in fail)]
     if not n:
-        lines.append("ok: no private pattern found")
-    elif not nfail:
-        lines.append(f"ok: 0 blocking hit(s), {nw} warning(s) ({warn_families(result['hits'])}): review each; "
-                     f"a `block: REGEX` line in {PATTERNS_FILE} or --strict makes them blocking")
+        verdict = "ok: no private pattern found"
+    elif not fail:
+        verdict = (f"ok: 0 blocking hit(s), {nw} warning(s) ({warn_families(result['hits'])}): review each; "
+                   f"a `block: REGEX` line in {PATTERNS_FILE} or --strict makes them blocking")
     else:
-        lines.append(f"{nfail} blocking hit(s): fix the tree (and rewrite history), or publish a fresh-history "
-                     f"tree with `lean-pkg release {name} --fresh-repo DIR`")
+        verdict = (f"{len(fail)} blocking hit(s): fix the tree (and rewrite history), or publish a fresh-history "
+                   f"tree with `lean-pkg release {name} --fresh-repo DIR`")
+    if n:
+        lines.append(verdict)   # also up front: dozens of warn lines must not push the verdict out of view
+    lines += [f"  WARN {w}" for w in result["warnings"]]
+    lines += [hit_line(h) for h in fail]           # blocking hits first, then the warn-only ones as a group
+    if rest:
+        lines.append(f"  warn-only hit(s): {len(rest)} ({warn_families(rest)}); they do not block")
+        lines += [hit_line(h) for h in rest]
+    lines.append(verdict)
     return lines
 
 

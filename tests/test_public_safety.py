@@ -433,3 +433,35 @@ def test_derived_token_allow_sees_its_non_space_run(lp, tmp_path, capsys):
     assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 1
     got = sorted(h["path"] for h in json.loads(capsys.readouterr().out)["hits"])
     assert got == ["Other.lean", "README.md"]
+
+
+def test_report_puts_the_verdict_up_front_and_groups_warn_hits_after_blocking(lp, tmp_path, capsys):
+    """Field report 2026-10-10: ~66 latex-label WARN lines pushed the verdict out of a truncated view. With
+    hits, the verdict is the third line and the last; blocking hits come first, then the warn-only ones
+    under a count line. --json is unchanged (every hit, scan order)."""
+    lean = "".join(f"-- see lem:bound_{i}\n" for i in range(12)) + "theorem t : True := trivial\n"
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={"A.lean": lean})
+    (repo / "Z.md").write_text("TODO-private: ask\n")
+    reg = make_env(tmp_path, repo)
+    assert run(lp, reg, "public-safety", "pkg", "--no-history") == 1
+    lines = capsys.readouterr().out.splitlines()
+    verdict = "1 blocking hit(s): fix the tree"
+    assert lines[0].startswith("public-safety for pkg: 13 hit(s)")
+    assert lines[2].startswith(verdict) and lines[-1] == lines[2]
+    block = next(i for i, x in enumerate(lines) if "[TODO-private]" in x or "Z.md" in x)
+    group = next(i for i, x in enumerate(lines) if x.startswith("  warn-only hit(s): 12 (latex-label)"))
+    warns = [i for i, x in enumerate(lines) if x.startswith("  WARN tree")]
+    assert len(warns) == 12 and block < group < min(warns) and max(warns) == len(lines) - 2
+    assert run(lp, reg, "public-safety", "pkg", "--no-history", "--json") == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert len(payload["hits"]) == 13 and payload["hits"][0]["path"] == "A.lean"     # scan order kept
+    # warn-only scan: verdict up front too; no hit: three lines, verdict last only
+    (repo / "Z.md").unlink()
+    assert run(lp, reg, "public-safety", "pkg", "--no-history") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[2].startswith("ok: 0 blocking hit(s), 12 warning(s)") and lines[-1] == lines[2]
+    assert lines[3].startswith("  warn-only hit(s): 12")
+    (repo / "A.lean").write_text("theorem t : True := trivial\n")
+    assert run(lp, reg, "public-safety", "pkg", "--no-history") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 3 and lines[-1] == "ok: no private pattern found"
