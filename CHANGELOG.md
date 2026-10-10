@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.12] - 2026-10-09
+
+### Changed
+
+- The repository is public. Decision 0006 (public flip) is accepted: G5, G7 and G8 signed,
+  G1 waived and G2 accepted with its documented residue by the maintainer; `MAINTAINERS.md`
+  names a deputy (operations, releases). No code change since 0.7.11; this is the release
+  that matches the public documentation.
+
 ## [0.7.11] - 2026-10-09
 
 ### Added
