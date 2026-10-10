@@ -41,6 +41,9 @@ change the registry schema or receipt format, always with a migration).
   repository root when the path was bare: git resolves `<rev>:<path>` from the root. Every such read
   is now relative to the package directory (`<rev>:./<path>`), as the toolchain and config-list reads
   already were. (#21.2)
+- `register --status public` without `--reason` exited 2 (usage error, no JSON) while every other missing
+  `--reason` has been a refusal since #17; it is now one too: exit 1, and `{ok: false, error}` under
+  `--json`. (#21.6)
 - `gate`/`comparator` (and every caller of the comparator validator) read a comparator log from the
   working tree even when it was already committed, so a log edited after its commit passed until
   `promote` refused it. Once a log is tracked at HEAD, a working copy that differs from the committed

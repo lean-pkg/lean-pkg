@@ -255,8 +255,15 @@ def test_register_public_needs_public_visibility(lp, env, tmp_path, capsys):
 
 
 def test_register_public_needs_reason(lp, env, tmp_path, capsys):
-    assert register(lp, env, tmp_path, "--status", "public", "--visibility", "public") == 2
+    """#21.6: a missing --reason is a refusal (exit 1, JSON under --json) like every other one (#17)."""
+    assert register(lp, env, tmp_path, "--status", "public", "--visibility", "public") == 1
     assert "--reason" in capsys.readouterr().err
+    assert "gamma" not in read_reg(env)["packages"]
+    assert lp.main(["--registry", str(env.registry), "register", "gamma", "--repo", "git@github.com:example/gamma.git",
+                    "--path", str(tmp_path / "gamma-repo"), "--status", "public", "--visibility", "public",
+                    "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False and "requires --reason" in payload["error"] and "usage" not in payload
     assert "gamma" not in read_reg(env)["packages"]
 
 

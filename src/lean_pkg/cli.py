@@ -2548,8 +2548,9 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
         if visibility != "public":
             raise UsageError("register --status public requires --visibility public")
         if not str(reason or "").strip():
-            raise UsageError("register --status public requires --reason (why an already-public "
-                             "repository is registered without promote)")
+            # #21.6: a missing --reason is a refusal (exit 1, JSON under --json), as everywhere else (#17)
+            raise Fail("register --status public requires --reason (why an already-public "
+                       "repository is registered without promote)")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
         raise Fail(f"bad package name {name!r} — use kebab-case-ish "
                    f"[A-Za-z0-9._-]+ not starting with a punctuation mark")
