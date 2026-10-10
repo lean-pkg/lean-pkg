@@ -615,6 +615,21 @@ so. The slots it judged are cached, so the full run that follows skips them.
 A SPEC that selects every slot is a full run. The legacy mechanism refuses
 `--slots`.
 
+**Estimate first.** `comparator-receipt --estimate [--sample K] [--json]`
+runs (or reuses) the setup stages, then judges the stratified sample
+`sample:K` (default 5; `--slots` replaces it) one slot per judge invocation,
+one at a time, and prints the timings, `per_slot_seconds`, `slots`,
+`estimated_seconds`, `lower_bound_seconds` and `recommended_cap` (also written to
+`comparator-stages/04-comparator.estimate.json`, schema
+`comparator-estimate/1`). It writes no receipt; the slots it judged are
+cached, so the real run skips them. `estimated_seconds` is the per-slot
+model, `per_slot_seconds * slots / judges`: what a run costs when every slot
+pays its own export closure, hence an upper bound for a batched run, which
+pays the shared closure once. `lower_bound_seconds` is the dearest sampled
+slot: no run that includes it can be faster. `recommended_cap` is
+`ceil_5min(1.25 * estimated_seconds + 600)`, the 600 seconds covering the
+per-invocation `lake env`, no-op builds and `lake exe cache get`.
+
 `comparator-receipt --prepare` runs only the setup stages and writes no
 receipt. It is idempotent: a second `--prepare` with a matching completed
 setup does nothing. A later `comparator-receipt` whose commit, toolchain and

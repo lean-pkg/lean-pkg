@@ -454,3 +454,49 @@ def test_slots_selecting_everything_is_a_full_run(tmp_path: Path):
     r = run(project, "--slots", "1-3")
     assert r.returncode == 0, r.stderr
     assert "partial" not in receipt(project)
+
+
+# --- --estimate -------------------------------------------------------------------------------
+
+def test_estimate_numbers_bounds_and_cap():
+    from lean_pkg.comparator_receipt import estimate_numbers
+    e = estimate_numbers([100.0, 200.0, 300.0], slots=250, judges=1)
+    assert e["per_slot_seconds"] == 200.0 and e["estimated_seconds"] == 50000
+    assert e["lower_bound_seconds"] == 300
+    assert e["recommended_cap"] == 63300 and e["recommended_cap"] % 300 == 0   # ceil_5min(1.25*50000+600)
+    assert estimate_numbers([100.0], slots=250, judges=4)["estimated_seconds"] == 6250
+
+
+def test_estimate_times_a_stratified_sample_and_writes_no_receipt(tmp_path: Path):
+    names = [f"A.t{i}" for i in range(6)] + [f"B.t{i}" for i in range(3)] + ["C.only"]
+    project = make_project(tmp_path, {"comparator.json": names})
+    log = tmp_path / "calls.txt"
+    r = run(project, "--estimate", "--sample", "3", "--json",
+            extra={"STUB_CALLS": str(log), "STUB_BEHAVIOUR": "slow", "STUB_SLEEP": "0.1"})
+    assert r.returncode == 0, r.stderr
+    e = json.loads(r.stdout[r.stdout.index("{"):])
+    assert e["schema"] == "comparator-estimate/1" and e["slots"] == 10
+    assert [row["name"] for row in e["sample"]] == ["A.t0", "B.t0", "C.only"]
+    assert all(row["seconds"] >= 0.3 for row in e["sample"])        # three 0.1 s pauses each
+    assert e["per_slot_seconds"] >= 0.3 and e["recommended_cap"] % 300 == 0
+    for k in ("per_slot_seconds", "slots", "estimated_seconds", "recommended_cap"):
+        assert k in e
+    assert [c.split()[1] for c in calls(log)] == ["A.t0", "B.t0", "C.only"]   # one judge per slot
+    assert not (project / ".lean-receipts").exists()
+    assert (stage_dir(project) / "04-comparator.estimate.json").is_file()
+    assert "--estimate: 3 sampled slot(s)" in stage_log(project)
+    log.unlink()
+    r = run(project, extra={"STUB_CALLS": str(log)})                # the real run reuses the sample
+    assert r.returncode == 0, r.stderr
+    assert receipt(project)["resumed_slots"] == 3
+    assert len(calls(log)) == 1 and "C.only" not in calls(log)[0]
+
+
+def test_estimate_text_output_and_refusals(project: Path):
+    r = run(project, "--estimate")
+    assert r.returncode == 0, r.stderr
+    assert "recommended_cap" in r.stdout and "no receipt written" in r.stdout
+    assert run(project, "--sample", "3").returncode == 2
+    assert run(project, "--estimate", "--sample", "0").returncode == 2
+    r = run(project, "--estimate", mechanism="legacy", extra={"COMPARATOR_FAKE_LAKE_OK": "0"})
+    assert r.returncode == 1 and "legacy" in r.stderr

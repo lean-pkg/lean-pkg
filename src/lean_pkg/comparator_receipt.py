@@ -35,6 +35,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import math
 import tempfile
 import time
 
@@ -47,7 +48,7 @@ from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
 from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
                                JOBS_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, list_slots,
-                               parse_slot_spec, ranges, run_pool, shards, unit_id)
+                               parse_slot_spec, ranges, run_pool, shards, stratified_sample, unit_id)
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -561,8 +562,9 @@ class Stage04:
 
     def __init__(self, project: pathlib.Path, configs: list[str], mechanism: str, check: pathlib.Path,
                  verify: pathlib.Path | None, stages: Stages, log_dir: pathlib.Path, resume_command: str,
-                 resume: bool = True, judges: int = 1, subset: list | None = None):
+                 resume: bool = True, judges: int = 1, subset: list | None = None, isolate: bool = False):
         self.judges = max(1, judges)
+        self.isolate = isolate                       # one unit per slot, run one at a time (--estimate)
         self.project, self.configs, self.mechanism = project, configs, mechanism
         self.check, self.verify, self.stages, self.log_dir = check, verify, stages, log_dir
         self.cfgs = [(c, json.loads((project / c).read_bytes())) for c in configs]
@@ -602,7 +604,7 @@ class Stage04:
                 pend = [s for s in mine if s.index not in self.cached]
                 if not mine:
                     units.append(Unit(len(units) + 1, rel, [], True))
-                for part in (shards(pend, self.judges) if pend else []):
+                for part in (shards(pend, len(pend) if self.isolate else self.judges) if pend else []):
                     units.append(Unit(len(units) + 1, rel, part, len(part) == every))
         for u in units:
             u.id = unit_id(self.stages.binding, u)
@@ -683,11 +685,16 @@ class Stage04:
         self.units_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         units = self.plan()
-        self.n_units, self.width, self.failure = len(units), self.judges, None
+        self.n_units, self.failure = len(units), None
+        self.width = 1 if self.isolate else self.judges
         self.units, self.wall = units, {}
         self.slog = StageLog(stage_log, echo=sys.stdout)
         try:
-            if self.partial:
+            if self.isolate:
+                self.say(f"comparator-receipt: --estimate: {len(self.slots)} sampled slot(s) "
+                         f"({ranges(s.index for s in self.slots)}), each judged alone, one at a time; "
+                         f"no receipt")
+            elif self.partial:
                 self.say(f"comparator-receipt: --slots: {len(self.slots)} of {len(self.all_slots)} slot(s) "
                          f"({ranges(s.index for s in self.slots)}); a receipt from them is partial "
                          f"(diagnostic only)")
@@ -774,6 +781,62 @@ class Stage04:
             self.receipt_units[rel] = rows
 
 
+ESTIMATE_FILE = "04-comparator.estimate.json"
+ESTIMATE_SCHEMA = "comparator-estimate/1"
+ESTIMATE_MARGIN = 1.25          # recommended_cap = ceil_5min(MARGIN * estimated_seconds + SETUP_ALLOWANCE)
+SETUP_ALLOWANCE = 600           # seconds: lake env, the no-op builds and `lake exe cache get` per run
+
+
+def ceil_5min(seconds: float) -> int:
+    return int(math.ceil(seconds / 300.0) * 300)
+
+
+def estimate_numbers(times: list[float], slots: int, judges: int) -> dict:
+    """The estimate from isolated per-slot timings. A slot judged alone pays its whole export closure;
+    a batched run pays the union once, so the run costs at most sum-of-slots (estimated_seconds, the
+    per-slot model) and at least the dearest single slot (lower_bound_seconds)."""
+    mean = sum(times) / len(times)
+    est = mean * slots / max(1, judges)
+    lower = max(times)
+    return {"per_slot_seconds": round(mean, 1), "per_slot_max_seconds": round(lower, 1),
+            "per_slot_min_seconds": round(min(times), 1), "slots": slots, "judges": judges,
+            "estimated_seconds": int(math.ceil(est)), "lower_bound_seconds": int(math.ceil(lower)),
+            "recommended_cap": ceil_5min(ESTIMATE_MARGIN * est + SETUP_ALLOWANCE),
+            "recommended_cap_formula": f"ceil_5min({ESTIMATE_MARGIN} * per_slot_seconds * slots / judges "
+                                       f"+ {SETUP_ALLOWANCE})"}
+
+
+def run_estimate(project, configs, mechanism, check, verify, stages, commit, judges, subset, k,
+                 resume_command) -> dict:
+    """--estimate: judge a stratified sample of K slots one at a time, time each, print and record the
+    estimate. Writes no receipt; the judged slots are cached for the real run."""
+    cfgs = [(c, json.loads((project / c).read_bytes())) for c in configs]
+    all_slots = list_slots(cfgs)
+    sample = subset if subset is not None else stratified_sample(all_slots, k)
+    with tempfile.TemporaryDirectory(prefix="comparator-receipt.") as tmp:
+        st = Stage04(project, configs, mechanism, check, verify, stages, pathlib.Path(tmp) / "logs",
+                     resume_command, resume=False, judges=1, subset=sample, isolate=True)
+
+        def body(stage_log: pathlib.Path):
+            status, code, note = st.run(stage_log)
+            return status, code, f"estimate: {note}"
+
+        stages.run("comparator", body)
+    rows, times = [], []
+    for u in st.units:
+        secs = st.wall.get(u.n)
+        for s in u.slots:
+            rows.append({**s.row(), "seconds": None if secs is None else round(secs, 1)})
+        if secs is not None:
+            times.append(secs)
+    out = {"schema": ESTIMATE_SCHEMA, "commit": commit, "mechanism": mechanism, "sample": rows,
+           **estimate_numbers(times, len(all_slots), judges),
+           "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
+    path = stages.dir / ESTIMATE_FILE
+    path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+    return {"estimate": out, "estimate_file": str(path), "commit": commit, "stages": str(stages.json)}
+
+
 def dirty_paths(project: pathlib.Path, evidence: pathlib.Path) -> list[str]:
     """Modified or untracked paths, ignoring the stage evidence directory when it lies in the project."""
     st = git(project, "status", "--porcelain", "--untracked-files=all")
@@ -796,7 +859,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         mechanism: str = "auto", verify: pathlib.Path | None = None,
         evidence: pathlib.Path | None = None, prepare: bool = False,
         from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt",
-        resume: bool = True, judges: int = 1, slot_spec: str | None = None) -> dict:
+        resume: bool = True, judges: int = 1, slot_spec: str | None = None,
+        estimate: int | None = None) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     if not prepare and not check.is_file():
@@ -838,6 +902,9 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                 raise RunnerError(f"verify-comparator script not found: {verify}")
             if os.environ.get(FAKE_LAKE_ENV) is None:   # real host: check the sandbox first
                 bwrap_preflight()
+        if mechanism == "legacy" and estimate is not None:
+            raise RunnerError("--estimate times single slots, which the legacy mechanism's comparator-check.sh "
+                              "cannot judge; use --mechanism toolchain; nothing written")
         if mechanism == "legacy" and slot_spec:
             raise RunnerError("--slots: the legacy mechanism's comparator-check.sh judges every configuration "
                               "in one run and cannot judge a subset; use --mechanism toolchain; nothing written")
@@ -881,6 +948,9 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         print(f"prepared at {commit[:12]}: setup stages done; stages: {stages.json}")
         print("next: comparator-receipt (same commit; the setup stages are skipped)")
         return {"prepared": True, "commit": commit, "stages": str(stages.json), "reused": False}
+    if estimate is not None:
+        return run_estimate(project, configs, mechanism, check, verify, stages, commit, judges,
+                            subset, estimate, resume_command)
     with tempfile.TemporaryDirectory(prefix="comparator-receipt.") as tmp:
         log_dir = pathlib.Path(tmp) / "logs"
         result: dict = {}
@@ -1059,7 +1129,23 @@ def main(argv: list[str] | None = None) -> int:
                          "<config>:<name>, 1-based indices or ranges i-j over all configurations, or "
                          "sample:K (the stratified sample --estimate uses). Writes a PARTIAL receipt into "
                          "the stage directory, marked partial: true: diagnostic only, refused as evidence")
+    ap.add_argument("--estimate", action="store_true",
+                    help="after setup, judge a stratified sample of slots one at a time and print an estimate "
+                         "{per_slot_seconds, slots, estimated_seconds, recommended_cap}; writes no receipt "
+                         "(the judged slots are cached for the real run)")
+    ap.add_argument("--sample", type=int, default=None, metavar="K",
+                    help="--estimate: sample size (default 5); --slots overrides the sample")
+    ap.add_argument("--json", action="store_true", help="--estimate: print the estimate as JSON")
     args = ap.parse_args(argv)
+    if (args.sample is not None or args.json) and not args.estimate:
+        print("comparator-receipt: --sample and --json go with --estimate", file=sys.stderr)
+        return 2
+    if args.sample is not None and args.sample < 1:
+        print("comparator-receipt: --sample must be a positive integer", file=sys.stderr)
+        return 2
+    if args.estimate and args.prepare:
+        print("comparator-receipt: --estimate and --prepare are exclusive", file=sys.stderr)
+        return 2
     raw_jobs = args.judges if args.judges is not None else (os.environ.get(JOBS_ENV) or "1")
     try:
         judges = int(raw_jobs)
@@ -1098,12 +1184,28 @@ def main(argv: list[str] | None = None) -> int:
             res = run(project, check, host_policy=why, mechanism=args.mechanism, verify=verify,
                       evidence=evidence, prepare=args.prepare, from_prepared=prepared,
                       resume_command=resume_command(argv if argv is not None else sys.argv[1:]),
-                      resume=not args.no_resume, judges=judges, slot_spec=args.slots)
+                      resume=not args.no_resume, judges=judges, slot_spec=args.slots,
+                      estimate=(args.sample or 5) if args.estimate else None)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
         code = getattr(e, "code", None)
         return code if isinstance(e, PartialStage) and isinstance(code, int) else 1
     if res.get("prepared"):
+        return 0
+    if res.get("estimate"):
+        e = res["estimate"]
+        if args.json:
+            print(json.dumps(e, indent=2))
+            return 0
+        print(f"estimate ({len(e['sample'])} sampled slot(s), each judged alone; no receipt written):")
+        for row in e["sample"]:
+            print(f"  slot {row['slot']} {row['name']}: {row['seconds']}s")
+        print(f"per_slot_seconds {e['per_slot_seconds']} (min {e['per_slot_min_seconds']}, max "
+              f"{e['per_slot_max_seconds']}); slots {e['slots']}; judges {e['judges']}")
+        print(f"estimated_seconds {e['estimated_seconds']} (per-slot model: an upper bound for a batched run, "
+              f"which pays the shared export closure once); lower_bound_seconds {e['lower_bound_seconds']}")
+        print(f"recommended_cap {e['recommended_cap']} s = {e['recommended_cap_formula']}")
+        print(f"estimate: {res['estimate_file']}")
         return 0
     if res.get("partial"):
         print(f"PARTIAL comparator receipt written: {res['receipt']} ({res['slots']} of "
