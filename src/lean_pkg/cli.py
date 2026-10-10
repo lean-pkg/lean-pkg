@@ -33,7 +33,7 @@ touch the outside world are dry-run by default.
                                             fields of a registered package
     claim     <name> --workspace W --agent A [--ttl H] [--reason T] [--contact C] [--force]
     release   <name> [--agent A] [--force]
-    renew     <name> --agent A [--ttl H] [--contact C]
+    renew     <name> --agent A [--ttl H] [--contact C | --no-contact]
                                             restart your live lease; refuses once lapsed
     leases    [--agent A] [--expiring H]    held leases, soonest expiry first
     gate      <name> --receipt PATH         validate a lower-tier receipt, then
@@ -1269,10 +1269,12 @@ def contact_field(lease: dict) -> dict:
     return {"contact": lease["contact"]} if lease.get("contact") else {}
 
 
-def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason, contact=None):
+def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason, contact=None,
+                  clear_contact=False):
     """Restart a live lease held by `agent` from now with `ttl` hours; event claim-refreshed (with the
     reason when one is given, and the lease's contact when it has one). Callers pass the lease's own
-    ttl_hours when no --ttl was given; a contact replaces the lease's, None keeps it."""
+    ttl_hours when no --ttl was given; a contact replaces the lease's, None keeps it. `clear_contact`
+    (renew --no-contact) removes the key; the event then records contact_cleared when one was removed."""
     name = pkg["name"]
     lease["claimed_at"] = now_iso()
     lease["ttl_hours"] = ttl
@@ -1282,10 +1284,11 @@ def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, re
         lease["reason"] = reason
     if contact:
         lease["contact"] = contact
+    cleared = clear_contact and lease.pop("contact", None) is not None
     pkg["workspace"] = lease.get("workspace")
     record(reg, events_p, pkg, "claim-refreshed", agent=agent,
            workspace=lease.get("workspace"), ttl_hours=ttl, **({"reason": reason} if reason else {}),
-           **contact_field(lease))
+           **contact_field(lease), **({"contact_cleared": True} if cleared else {}))
     save_registry(reg_path, reg)
     payload = {"ok": True, "name": name, "event": "claim-refreshed",
                "lease": dict(lease),
@@ -1294,10 +1297,12 @@ def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, re
              f"until {lease_expiry(lease).isoformat()}"], payload)
 
 
-def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason, contact=None):
+def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason, contact=None, no_contact=False):
     """Holder-only refresh that refuses when there is nothing to renew: no lease, another
     holder, or a lease that has already lapsed (claim again instead; `audit --fix` sweeps it).
-    A contact sets or replaces the lease's; None keeps it."""
+    A contact sets or replaces the lease's; None keeps it; `no_contact` (--no-contact) clears it."""
+    if no_contact and contact is not None:
+        raise UsageError("--contact and --no-contact are mutually exclusive")
     contact = check_contact(contact)
     if ttl is not None and ttl <= 0:
         raise Fail("--ttl must be a positive number of hours")
@@ -1315,7 +1320,8 @@ def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason, conta
                    f"({human_delta((now - lease_expiry(lease)).total_seconds())} ago) — not renewable; "
                    f"claim it again (audit --fix sweeps the expired lease)")
     ttl = ttl or int(lease.get("ttl_hours") or DEFAULT_TTL_HOURS)
-    return refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason, contact)
+    return refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason, contact,
+                         clear_contact=no_contact)
 
 
 def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force, contact=None):
@@ -4612,7 +4618,7 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   flags: --workspace W --agent A (required) [--ttl HOURS: 24 new; a holder's re-claim keeps its TTL] [--reason TEXT] [--contact TEXT: address of the holding session (e.g. lab-desk/n14-paper, @lean-ops), stored as lease.contact; one line, <= 200 chars, else exit 2; a re-claim without it keeps it] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
-renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it. leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
+renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; no write, no event; exit 0/1; JSON event gate-checked, checks[]; comparator --check prints the same binding ✓ lines)
@@ -4845,7 +4851,8 @@ def cmd_release(args) -> int:
 def cmd_renew(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_renew(reg_path, load_registry(reg_path), events_p,
-                            args.name, args.agent, args.ttl, args.workspace, args.reason, args.contact)
+                            args.name, args.agent, args.ttl, args.workspace, args.reason, args.contact,
+                            args.no_contact)
     if args.json_out:
         print_json(payload)
     else:
@@ -5921,6 +5928,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--contact", default=None, metavar="TEXT",
                    help=f"set or replace the lease's contact (address of the holding session; one line, at most "
                         f"{LEASE_CONTACT_MAX} characters); without it the lease keeps its contact")
+    s.add_argument("--no-contact", action="store_true",
+                   help="clear the lease's contact while renewing (not with --contact)")
     add_json(s)
     s.set_defaults(fn=cmd_renew)
 

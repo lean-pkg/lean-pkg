@@ -21,6 +21,9 @@ change the registry schema or receipt format, always with a migration).
   schema version unchanged, no `migrate` step; `validate` accepts leases with or without `contact` and
   rejects a non-string. `public-safety` derives patterns from the contact's tokens as it does from
   `agent` and `workspace`. The CLI reference's "Lease holders" section now points at `--contact`.
+- `renew NAME --no-contact` clears the lease's contact while renewing (holder-only, like `renew`); the
+  `claim-refreshed` event records `contact_cleared: true` when a contact was removed. With `--contact`
+  it is a usage error (exit 2, nothing written). `claim` does not take it.
 
 ### Changed
 
