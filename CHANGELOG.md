@@ -22,6 +22,12 @@ change the registry schema or receipt format, always with a migration).
 - `public-safety`: the human summary line names no path (`public-safety for NAME: N hit(s) ...`), so it
   can be pasted into release notes verbatim; it used to carry the scanned checkout's absolute path in
   parentheses. RELEASING step 3 no longer asks to strip it. (#38)
+- `public-safety`: a registry-derived user or host token is judged inside its surrounding non-space run.
+  An `allow:` line exempts an occurrence only when one of its matches in that run covers the token, so
+  `allow: https://host\.example/~user/` exempts that URL and nothing else; before, the allow line saw
+  only the bare token, and the only way to allow the URL was to exempt the token everywhere. An
+  anchored bare-token allow (`allow: ^user$`) now exempts only a standalone occurrence. The reported
+  span and the redaction are still the token itself. (#38)
 
 ## [0.7.13] - 2026-10-10
 

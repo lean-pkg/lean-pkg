@@ -17,7 +17,9 @@ approach of lean-pkg's own `make history`) for private patterns:
   commit identities, `consent[]` entries, `allow:` lines, reserved example domains, `git@`
   SSH remotes).
 - user and host names derived at scan time from the registry record's own `local_path`, `agent`
-  and `workspace` fields (never stored).
+  and `workspace` fields (never stored). `allow:` lines see a derived token's whole non-space run
+  (#38) and exempt it only where one of their matches covers the token, so allowing a public URL
+  that contains the token does not exempt the bare token elsewhere.
 - internal files by path: `approvals/`, `notes/`, `drafts/`, `scratch/`, `*.priv`, `*.private`.
 - the warn-only built-in family `latex-label` (#36): references to a LaTeX manuscript, which leak an
   unposted paper even with no path in them: cross-reference keys (`lem:`, `thm:`, `eq:`, `sec:`, ...),
@@ -93,6 +95,7 @@ BLOCK, WARN = "block", "warn"
 PATH_READABLE = ("approvals-ref", "notes-ref", "private-file-ref", "todo-private", "latex-label")
 DERIVED_MIN_LEN = 4
 DERIVED_STOPWORDS = {"none", "null", "test", "main", "local", "default", "force", "true", "false"}
+_RUN_RE = re.compile(r"\S+")
 
 
 class Pattern:
@@ -282,10 +285,32 @@ class Scanner:
         pats, allow = self.active(path)
         out = []
         for pat in pats:
+            if pat.kind == "derived":
+                out += self._derived_spans(pat, line, allow)
+                continue
             for m in pat.rx.finditer(line):
                 if m.end() > m.start() and not self.allowed(pat, m.group(0), allow):
                     out.append((m.start(), m.end(), pat))
         return sorted(out, key=lambda s: (s[0], -s[1]))
+
+    @staticmethod
+    def _derived_spans(pat: Pattern, line: str, allow: list[re.Pattern]) -> list[tuple[int, int, Pattern]]:
+        """#38: a derived token is judged inside its surrounding non-space run: an allow line exempts
+        an occurrence only when one of its matches in the run covers it (a public URL holding the
+        token), never the bare token everywhere. The reported span stays the token itself."""
+        out: list[tuple[int, int, Pattern]] = []
+        if not pat.rx.search(line):
+            return out
+        for run in _RUN_RE.finditer(line):
+            text = run.group(0)
+            toks = [(m.start(), m.end()) for m in pat.rx.finditer(text) if m.end() > m.start()]
+            if not toks:
+                continue
+            cover = [(a.start(), a.end()) for rx in allow for a in rx.finditer(text) if a.end() > a.start()]
+            for s, e in toks:
+                if not any(a <= s and e <= b for a, b in cover):
+                    out.append((run.start() + s, run.start() + e, pat))
+        return out
 
     def redact(self, text: str) -> str:
         """text with every non-allowed match of every pattern replaced by […]."""

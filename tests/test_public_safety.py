@@ -409,3 +409,27 @@ def test_summary_line_names_no_path(lp, tmp_path, capsys):
     first = out.splitlines()[0]
     assert first.startswith("public-safety for pkg: 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)")
     assert str(tmp_path) not in out and "pkg-repo" not in out
+
+
+def test_derived_token_allow_sees_its_non_space_run(lp, tmp_path, capsys):
+    """#38: allowing a public URL that holds a derived token exempts that URL only; the bare token (and
+    a different URL with it) are still hits. An anchored bare-token allow exempts only a standalone run."""
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={
+        "README.md": "slides: [talk](https://www.example.org/~nodeheron/talk.pdf)\n",
+        "Main.lean": "-- built on nodeheron\n",
+        "Other.lean": "-- see https://elsewhere.example.net/nodeheron/x and nodeheron-scratch\n",
+        ".gitignore": ".lean-pkg-private-patterns\n"})
+    (repo / ".lean-pkg-private-patterns").write_text("allow: https://www\\.example\\.org/~nodeheron/\n")
+    reg = make_env(tmp_path, repo, workspace="nodeheron")
+    assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 1
+    payload = json.loads(capsys.readouterr().out)
+    got = sorted((h["path"], h["line"], h["pattern"]) for h in payload["hits"])
+    assert got == [("Main.lean", 1, "registry workspace"), ("Other.lean", 1, "registry workspace")]
+    assert "nodeheron" not in json.dumps(payload)
+    other = [h for h in payload["hits"] if h["path"] == "Other.lean"][0]
+    assert other["excerpt"].count("[…]") == 2                     # both occurrences redacted
+    # a bare-token allow (anchored) exempts the standalone word, not the token inside a longer run
+    (repo / ".lean-pkg-private-patterns").write_text("allow: ^nodeheron$\n")
+    assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 1
+    got = sorted(h["path"] for h in json.loads(capsys.readouterr().out)["hits"])
+    assert got == ["Other.lean", "README.md"]
