@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
 import signal
 import subprocess
@@ -32,6 +33,52 @@ import time
 HEARTBEAT_ENV = "COMPARATOR_HEARTBEAT_SECONDS"
 DEFAULT_HEARTBEAT = 60.0
 KILL_GRACE = 10.0          # seconds between TERM and KILL for a judge's process group
+
+
+# ---------------------------------------------------------------------------
+# Redaction (#41): absolute paths under the checkout, HOME and TMPDIR never reach a stage log, a
+# receipt log or a receipt field; they become <checkout>/..., <home>/..., <tmp>/... . Hashes and
+# bindings cover the tree's bytes, not where it was checked out, so nothing they bind changes.
+
+_REDACT: list[tuple[re.Pattern, str]] = []
+_PATH_TAIL = r"(?![A-Za-z0-9_.\-])"     # the prefix must end at a path boundary (/home/u, not /home/u2)
+
+
+def set_redactions(checkout: pathlib.Path | None, home: str | None = None, tmp: str | None = None) -> None:
+    """Configure redaction for this process: longest prefix first, real and as-given spellings."""
+    import tempfile
+    pairs: list[tuple[str, str]] = []
+    for value, tag in ((str(checkout) if checkout else None, "<checkout>"),
+                       (tmp if tmp is not None else (os.environ.get("TMPDIR") or tempfile.gettempdir()), "<tmp>"),
+                       (home if home is not None else os.environ.get("HOME"), "<home>")):
+        if not value:
+            continue
+        for v in {value.rstrip("/"), os.path.realpath(value).rstrip("/")}:
+            if len(v) > 1:
+                pairs.append((v, tag))
+    pairs.sort(key=lambda p: -len(p[0]))
+    _REDACT[:] = [(re.compile(re.escape(v) + _PATH_TAIL), tag) for v, tag in pairs]
+
+
+def redact(text: str) -> str:
+    for rx, tag in _REDACT:
+        text = rx.sub(tag, text)
+    return text
+
+
+def redact_bytes(data: bytes) -> bytes:
+    return redact(data.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape") \
+        if _REDACT else data
+
+
+def redact_json(obj):
+    if isinstance(obj, str):
+        return redact(obj)
+    if isinstance(obj, list):
+        return [redact_json(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: redact_json(v) for k, v in obj.items()}
+    return obj
 
 
 class Interrupted(Exception):
@@ -89,6 +136,7 @@ class StageLog:
 
     def write(self, text: str | bytes) -> None:
         data = text.encode("utf-8", "replace") if isinstance(text, str) else text
+        data = redact_bytes(data)
         if not data.endswith(b"\n"):
             data += b"\n"
         with self.lock:
@@ -107,7 +155,7 @@ class StageLog:
 class Judge:
     """One judge process; see the module docstring for the wiring."""
 
-    def __init__(self, cmd: list[str], cwd: pathlib.Path, env: dict, log: pathlib.Path,
+    def __init__(self, cmd: list[str], cwd: pathlib.Path, env: dict, log: pathlib.Path | None,
                  stage: StageLog, label: str, prefix: str = "", tmpdir: pathlib.Path | None = None):
         self.cmd, self.cwd, self.env, self.log = cmd, cwd, dict(env), log
         self.stage, self.label, self.prefix, self.tmpdir = stage, label, prefix, tmpdir
@@ -123,8 +171,10 @@ class Judge:
         if self.tmpdir is not None:
             self.tmpdir.mkdir(parents=True, exist_ok=True)
             self.env["TMPDIR"] = str(self.tmpdir)
-        self.log.parent.mkdir(parents=True, exist_ok=True)
-        self.logfh = open(self.log, "ab", buffering=0)   # copied into .lean-receipts: no paths added
+        self.logfh = None                 # log None: the stage log is the only sink (setup stages)
+        if self.log is not None:
+            self.log.parent.mkdir(parents=True, exist_ok=True)
+            self.logfh = open(self.log, "ab", buffering=0)   # copied into .lean-receipts: no paths added
         self.stage.write(self.prefix + "$ " + " ".join(self.cmd))
         self.started = self.last_output = self.last_beat = time.monotonic()
         try:
@@ -133,10 +183,11 @@ class Judge:
                                          stderr=subprocess.STDOUT, start_new_session=True, bufsize=0)
         except OSError as e:
             msg = f"error: cannot run {self.cmd[0]}: {e}"
-            self.logfh.write((msg + "\n").encode())
+            if self.logfh is not None:
+                self.logfh.write(redact_bytes((msg + "\n").encode()))
+                self.logfh.close()
             self.stage.write(self.prefix + msg)
             self.returncode = 127
-            self.logfh.close()
             return
         self.reader = threading.Thread(target=self._pump, daemon=True)
         self.reader.start()
@@ -145,7 +196,9 @@ class Judge:
         assert self.proc is not None and self.proc.stdout is not None
         for raw in iter(self.proc.stdout.readline, b""):
             self.last_output = time.monotonic()
-            self.logfh.write(raw)
+            raw = redact_bytes(raw)
+            if self.logfh is not None:
+                self.logfh.write(raw)
             line = raw.decode("utf-8", "replace").rstrip("\n")
             if line.strip():
                 self.last_line = line.strip()[:160]
@@ -161,7 +214,8 @@ class Judge:
             return None
         if self.reader is not None:
             self.reader.join()
-        self.logfh.close()
+        if self.logfh is not None:
+            self.logfh.close()
         self.returncode = rc
         return rc
 

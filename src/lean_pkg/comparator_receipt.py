@@ -46,6 +46,7 @@ from .cli import comparator_pass  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
+from .comparator_stage import redact, redact_bytes, redact_json, set_redactions  # noqa: E402
 from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
                                JOBS_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, list_slots,
                                parse_slot_spec, ranges, run_pool, shards, stratified_sample, unit_id)
@@ -502,17 +503,21 @@ def config_modules(project: pathlib.Path, configs: list[str]) -> list[str]:
     return mods
 
 
-def run_logged(cmd: list[str], cwd: pathlib.Path, log: pathlib.Path) -> int:  # env: tool_env() (#41)
-    """Run cmd with stdout and stderr appended to log (streamed, so a hung step can be watched)."""
-    with open(log, "ab") as fh:
-        fh.write(("$ " + " ".join(cmd) + "\n").encode())
-        fh.flush()
-        try:
-            return subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT,
-                                  env=tool_env()).returncode
-        except OSError as e:
-            fh.write(f"error: cannot run {cmd[0]}: {e}\n".encode())
-            return 127
+def run_logged(cmd: list[str], cwd: pathlib.Path, log: pathlib.Path) -> int:
+    """Run cmd (env: tool_env(), #41) with its output streamed, redacted, into log, the way stage 04
+    runs its judges: stdin /dev/null, one merged pipe, heartbeats, killed with the runner."""
+    slog = StageLog(log)
+    try:
+        j = Judge(cmd, cwd, tool_env(), None, slog, " ".join(cmd[1:3]) or cmd[0])
+        j.start()
+        with SignalGuard():
+            try:
+                run_pool([j], 1, lambda job: job, lambda job, jd: True)
+            except Interrupted as e:
+                raise StageError(f"{e}; `{' '.join(cmd)}` killed; nothing written", 128 + e.signum)
+        return j.returncode if j.returncode is not None else 1
+    finally:
+        slog.close()
 
 
 class Stages:
@@ -954,6 +959,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         estimate: int | None = None) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
+    set_redactions(project)   # #41: no checkout/HOME/TMPDIR path reaches a log or a receipt
     if not prepare and not check.is_file():
         raise RunnerError(f"comparator-check script not found: {check}")
     evidence = evidence or project / DEFAULT_EVIDENCE
@@ -1122,6 +1128,9 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
         log_rel = f".lean-receipts/{commit[:12]}-comparator-{name}.log"
         if partial:
             log_rel = f"{commit[:12]}-comparator-{name}{sfx}.log"
+        red = tmp / f"redacted-{name}.log"            # #41: the committed log never names host paths
+        red.write_bytes(redact_bytes(src_log.read_bytes()))
+        src_log = red
         staged.append((src_log, (dest / log_rel) if partial else (project / log_rel)))
         entries.append({
             "path": cfg_rel,
@@ -1137,7 +1146,8 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
             "result": "pass",
             **((config_extra or {}).get(cfg_rel) or {}),
         })
-    host = os.environ.get("COMPARATOR_RECEIPT_HOST_LABEL", "").strip() or socket.gethostname()
+    label = host_label()
+    host = label or socket.gethostname()
     now = dt.datetime.now(dt.timezone.utc)
     job = (os.environ.get("SLURM_JOB_ID")
            or f"local-{host}-{os.getpid()}-{now.strftime('%Y%m%dT%H%M%SZ')}")
@@ -1147,7 +1157,9 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
         **({"test_only": True} if os.environ.get(FAKE_LAKE_ENV) is not None else {}), "host_policy": host_policy, "job_id": job,
         "generated_at": now.isoformat(timespec="seconds"),
         "result": "pass", "configs": entries, "stages": stage_summary, **(extra or {}),
+        **({"host_label": label} if label else {}),
     }
+    receipt = redact_json(receipt)    # #41: <checkout>/, <home>/, <tmp>/ instead of host paths
     rec_tmp = tmp / "receipt.json"
     rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     rec_dir = dest if partial else project / ".lean-receipts"
@@ -1181,6 +1193,14 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
         raise RunnerError(f"could not write evidence into .lean-receipts/ ({e}); "
                           f"nothing written")
     return {"receipt": str(rec_path)}
+
+
+HOST_LABEL_ENV = "COMPARATOR_RECEIPT_HOST_LABEL"
+
+
+def host_label() -> str:
+    """The label that replaces the host name in the receipt and its output (--host-label or the env)."""
+    return os.environ.get(HOST_LABEL_ENV, "").strip()
 
 
 def resume_command(argv: list[str]) -> str:
@@ -1236,7 +1256,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sample", type=int, default=None, metavar="K",
                     help="--estimate: sample size (default 5); --slots overrides the sample")
     ap.add_argument("--json", action="store_true", help="--estimate: print the estimate as JSON")
+    ap.add_argument("--host-label", default=None, metavar="LABEL",
+                    help=f"name the host LABEL instead of its host name in the receipt (host, host_label, "
+                         f"job_id, host_policy) and the output (env {HOST_LABEL_ENV})")
     args = ap.parse_args(argv)
+    if args.host_label is not None:
+        if not args.host_label.strip():
+            print("comparator-receipt: --host-label must not be empty", file=sys.stderr)
+            return 2
+        os.environ[HOST_LABEL_ENV] = args.host_label.strip()
     if (args.sample is not None or args.json) and not args.estimate:
         print("comparator-receipt: --sample and --json go with --estimate", file=sys.stderr)
         return 2
@@ -1269,7 +1297,7 @@ def main(argv: list[str] | None = None) -> int:
     if os.environ.get(FAKE_LAKE_ENV) is None and not args.prepare:   # the host check (#22.5); never a refusal
         hc = host_checks()
         print(f"comparator-receipt: host-check: {hc['verdict']}", file=sys.stderr)
-    label = os.environ.get("COMPARATOR_RECEIPT_HOST_LABEL", "").strip()
+    label = host_label()
     if label:
         # the label replaces the host name everywhere a receipt or its output names the host
         why = why.replace(socket.gethostname(), label)

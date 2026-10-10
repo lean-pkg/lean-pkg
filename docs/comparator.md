@@ -697,6 +697,19 @@ without repeating setup. The receipt gains an additive `stages` list
 (`stage`, `status`, `exit`, `wall_s`; no paths) for the stages before
 `receipt`. Validators ignore it.
 
+**No host paths in evidence.** Every line the runner writes to a stage
+log, every unit and receipt log, and every receipt field has absolute paths
+under the checkout, `HOME` and `TMPDIR` replaced by `<checkout>/...`,
+`<home>/...` and `<tmp>/...` (longest prefix first, at path boundaries, both
+as given and resolved), so `public-safety` does not flag lean-pkg's own
+output. The receipt's hashes and bindings cover the tree's bytes and the
+logs as committed, not where the checkout lives, so validation is
+unaffected. `--host-label LABEL` (or `COMPARATOR_RECEIPT_HOST_LABEL`)
+replaces the host name in `host`, `job_id`, `host_policy` and the output,
+and is recorded as `host_label`; without it the host name is kept. Messages
+printed to the terminal keep real paths. `stages.json` keeps real paths as
+pointers for the operator; it is never committed.
+
 **Which `lake`.** The runner never takes `lake` or `lean` from a bare PATH
 lookup, since a non-login shell can find a system `lake` from an old Lean
 before elan's proxies. When elan is installed (`$ELAN_HOME/bin/elan`,
@@ -804,10 +817,11 @@ refusal), and `lean-pkg doctor` shows it as its `host` line.
 
 ## Host policy
 
-The receipt records the host name. Set `COMPARATOR_RECEIPT_HOST_LABEL` to a
-public-safe label (for example `lab-workstation`) when the receipt will be
-copied into a public index; the label replaces the host name everywhere in
-the receipt, including the `host_policy` sentence.
+The receipt records the host name. Pass `--host-label LABEL` (or set
+`COMPARATOR_RECEIPT_HOST_LABEL`) to a public-safe label (for example
+`lab-workstation`) when the receipt will be copied into a public index; the
+label replaces the host name everywhere in the receipt, including the
+`host_policy` sentence, and is recorded as `host_label`.
 
 The comparator build is heavy. The runner allows a run only when one of
 these holds, and records which in `host_policy`:

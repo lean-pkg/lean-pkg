@@ -587,3 +587,46 @@ def test_receipt_records_toolchain_resolution(tmp_path: Path):
     assert r.returncode == 0, r.stderr
     res = receipt(project)["toolchain_resolution"]
     assert res["source"] == "elan" and "4.35.0-rc2" in res["version"]
+
+
+# --- #41: receipts and logs never name host paths; --host-label ---------------------------------
+
+def test_receipt_and_logs_carry_no_host_paths_and_still_validate(tmp_path: Path, lp):
+    import socket
+    home = tmp_path / "home" / "someone"
+    home.mkdir(parents=True)
+    tmpdir = home / "tmp"
+    tmpdir.mkdir()
+    project = make_project(home)
+    r = run(project, "--host-label", "lab-node", extra={"HOME": str(home), "TMPDIR": str(tmpdir),
+                                                        "STUB_BEHAVIOUR": "slow", "STUB_SLEEP": "0"})
+    assert r.returncode == 0, r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    files = sorted((project / ".lean-receipts").iterdir())
+    assert len(files) == 2
+    for f in files:
+        text = f.read_text()
+        assert "/home/" not in text and str(tmp_path) not in text, (f.name, text)
+    assert "project <checkout>," in receipt_log(project)          # the stub printed its cwd
+    st_log = stage_log(project)
+    assert str(project) not in st_log and "<checkout>" in st_log
+    comp = validate(lp, project)                                  # hashes cover bytes, not paths
+    assert comp["host"] == "lab-node" and comp["host_label"] == "lab-node"
+    assert "lab-node" in comp["job_id"] and socket.gethostname() not in json.dumps(comp)
+    assert (project / ".lean-receipts" / f"{head[:12]}-comparator.json").is_file()
+
+
+def test_redaction_respects_path_boundaries():
+    from lean_pkg import comparator_stage as cs
+    cs.set_redactions(Path("/work/u/pkg"), home="/home/u", tmp="/tmp")
+    try:
+        assert cs.redact("/home/u/x /home/u2/y /home/u") == "<home>/x /home/u2/y <home>"
+        assert cs.redact("cd /work/u/pkg/.lake; /tmpfoo /tmp/a") == "cd <checkout>/.lake; /tmpfoo <tmp>/a"
+        assert cs.redact_json({"a": ["/home/u/k"], "n": 3}) == {"a": ["<home>/k"], "n": 3}
+    finally:
+        cs.set_redactions(None, home="", tmp="")
+
+
+def test_empty_host_label_is_refused(project: Path):
+    r = run(project, "--host-label", " ")
+    assert r.returncode == 2 and "--host-label" in r.stderr

@@ -30,6 +30,11 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `comparator-receipt` evidence no longer names the host: absolute paths under the checkout,
+  `HOME` and `TMPDIR` become `<checkout>/`, `<home>/`, `<tmp>/` in every stage log, unit log,
+  receipt log and receipt field; `--host-label LABEL` (or `COMPARATOR_RECEIPT_HOST_LABEL`) replaces
+  the host name and is recorded as `host_label`. The setup stages now stream through the same
+  runner as the judge (stdin `/dev/null`, heartbeats, killed with the runner). (#41)
 - `comparator-receipt` resolves `lake`/`lean` through elan per the checkout's `lean-toolchain`
   (elan's `bin/` first on `PATH`, `ELAN_TOOLCHAIN` set) for every stage, probe and judge, instead of
   a bare PATH lookup that could pick a system `lake` of another Lean; without elan, a `PATH` lake
