@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- Note for callers of the Python module (not the CLI): `public_safety.report_lines(name, result)`
+  dropped its `root` argument in 0.7.14 ("summary line names no path", `52142de`); the old
+  three-argument call raises `TypeError`. The module is not a supported API, but the change was
+  unannounced.
+
 ## [0.7.15] - 2026-10-10
 
 ### Changed
