@@ -18,7 +18,8 @@ OR this host's name is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
 in the receipt's host_policy field.
 
 Env: COMPARATOR_CHECK (script path; default: the comparator-check.sh shipped
-inside the lean_pkg package), COMPARATOR_LAKE (the lake the setup stages run), SLURM_JOB_ID (job identity when under Slurm).
+inside the lean_pkg package), COMPARATOR_LAKE (the lake the setup stages run), SLURM_JOB_ID (job identity when under Slurm),
+COMPARATOR_RECEIPT_STACK (unlimited | a size in kB: the soft stack limit for the lake/lean children).
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ import json
 import os
 import pathlib
 import re
+import resource
 import shutil
 import socket
 import subprocess
@@ -467,6 +469,72 @@ LAKE_CMD_ENV = "COMPARATOR_LAKE"   # the lake the setup stages run (default: `la
 DONE = ("ok", "skipped", "prepared")
 
 
+# Stack limit (#52). Lean recurses deeply on a large module: under the common 8 MiB soft RLIMIT_STACK a
+# lean child can die with SIGSEGV (exit 139) in lean::sharecommon_quick_fn::visit_ctor, a stack overflow.
+# COMPARATOR_RECEIPT_STACK=unlimited|<kB> raises the soft limit for the lake/lean children of the setup
+# and comparator stages only (in their preexec), never above the hard limit; the runner itself is unchanged.
+STACK_ENV = "COMPARATOR_RECEIPT_STACK"
+STACK_WARN_BYTES = 8 * 1024 * 1024
+STACK_WARNING = ("WARN: soft stack limit is 8 MiB; a lean SIGSEGV (exit 139) deep in "
+                 "lean::sharecommon_quick_fn::visit_ctor on a large module is a stack overflow; set "
+                 f"{STACK_ENV}=unlimited (or a size in kB) to raise it for the lean children")
+_STACK_SOFT: list = []     # the soft limit the children get (empty: inherited, no preexec)
+
+
+def parse_stack(value: str) -> int:
+    """COMPARATOR_RECEIPT_STACK as bytes (resource.RLIM_INFINITY for unlimited); ValueError otherwise."""
+    v = value.strip().lower()
+    if v == "unlimited":
+        return resource.RLIM_INFINITY
+    if not re.fullmatch(r"[0-9]+", v) or int(v) <= 0:
+        raise ValueError(f"{STACK_ENV} must be unlimited or a positive size in kB, got {value!r}")
+    return int(v) * 1024
+
+
+def stack_label(n: int) -> str:
+    return "unlimited" if n == resource.RLIM_INFINITY else f"{n // 1024} kB"
+
+
+def stack_kb(n: int):
+    return "unlimited" if n == resource.RLIM_INFINITY else n // 1024
+
+
+def plan_stack(value: str | None) -> tuple[dict, list[str]]:
+    """(the receipt's stack_limit record, lines to print) for this run; sets what stack_preexec applies.
+    Never above the hard limit: a request above it is clipped to it."""
+    soft, hard = resource.getrlimit(resource.RLIMIT_STACK)
+    _STACK_SOFT.clear()
+    lines: list[str] = []
+    source = "inherited"
+    if value is not None and value.strip():
+        want = parse_stack(value)
+        new = want
+        if hard != resource.RLIM_INFINITY and (want == resource.RLIM_INFINITY or want > hard):
+            new = hard
+        _STACK_SOFT.append(new)
+        source = STACK_ENV
+        lines.append(f"comparator-receipt: stack: {STACK_ENV}={value.strip()}: soft stack limit for the lake/lean "
+                     f"children set to {stack_label(new)} (was {stack_label(soft)}; hard limit {stack_label(hard)})"
+                     + (f"; the requested {stack_label(want)} is above the hard limit, clipped to it"
+                        if new != want else ""))
+        soft = new
+    if soft != resource.RLIM_INFINITY and soft <= STACK_WARN_BYTES:
+        lines.append(STACK_WARNING)
+    return {"soft_kb": stack_kb(soft), "hard_kb": stack_kb(hard), "source": source}, lines
+
+
+def stack_preexec():
+    """The preexec_fn of the setup and comparator children: apply the planned soft stack limit, or None
+    (no preexec at all) when the run inherits the runner's limit."""
+    if not _STACK_SOFT:
+        return None
+    soft = _STACK_SOFT[0]
+
+    def apply() -> None:
+        resource.setrlimit(resource.RLIMIT_STACK, (soft, resource.getrlimit(resource.RLIMIT_STACK)[1]))
+    return apply
+
+
 class StageError(RunnerError):
     def __init__(self, msg: str, code: int | None = None):
         super().__init__(msg)
@@ -508,7 +576,7 @@ def run_logged(cmd: list[str], cwd: pathlib.Path, log: pathlib.Path) -> int:
     runs its judges: stdin /dev/null, one merged pipe, heartbeats, killed with the runner."""
     slog = StageLog(log)
     try:
-        j = Judge(cmd, cwd, tool_env(), None, slog, " ".join(cmd[1:3]) or cmd[0])
+        j = Judge(cmd, cwd, tool_env(), None, slog, " ".join(cmd[1:3]) or cmd[0], preexec=stack_preexec())
         j.start()
         with SignalGuard():
             try:
@@ -747,7 +815,7 @@ class Stage04:
         cmd, env = self.command(unit)
         self.say(f"{self.tag(unit)} started (unit {unit.n}/{self.n_units}, judge log {log.name})")
         j = Judge(cmd, self.project, env, log, self.slog, f"unit {unit.n}/{self.n_units} ({unit.label()})",
-                  prefix=f"[{unit.n}] " if self.width > 1 else "", tmpdir=tmpdir)
+                  prefix=f"[{unit.n}] " if self.width > 1 else "", tmpdir=tmpdir, preexec=stack_preexec())
         j.start()
         return j
 
@@ -1023,6 +1091,10 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
     if from_prepared is not None and mismatch:
         raise RunnerError(f"--from-prepared {from_prepared}: {mismatch}; run `comparator-receipt --prepare` "
                           f"at this commit first; nothing written")
+    try:
+        stack_limit, stack_lines = plan_stack(os.environ.get(STACK_ENV))
+    except ValueError as e:
+        raise RunnerError(f"{e}; nothing written")
     stages = Stages(evidence, binding, prepare)
     stages.resolution = resolution
     if mismatch is None:
@@ -1039,11 +1111,15 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
             return {"prepared": True, "commit": commit, "stages": str(stages.json), "reused": True}
         print(f"comparator-receipt: setup reused from {prior_src} (prepared {when}); "
               f"running the comparison only", file=sys.stderr)
+        for line in stack_lines:              # before the comparator stage's lean children
+            print(line, file=sys.stderr)
     else:
         if prior is not None:
             print(f"comparator-receipt: no reusable prepared state ({mismatch}); running setup",
                   file=sys.stderr)
         stages.clear(STAGES)
+        for line in stack_lines:              # before the build stage's lean children
+            print(line, file=sys.stderr)
         setup_stages(project, configs, stages)
         dirty = dirty_paths(project, evidence)
         if dirty:
@@ -1065,7 +1141,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                          resume=resume, judges=judges, subset=subset)
             result["stage04"] = st
             status, code, note = st.run(stage_log)
-            result["extra"] = {**({"judges": judges} if mechanism == "toolchain" else {}),
+            result["extra"] = {"stack_limit": stack_limit,
+                               **({"judges": judges} if mechanism == "toolchain" else {}),
                                **({"toolchain_resolution": resolution} if resolution else {}),
                                **({"resumed_slots": len(st.cached)} if st.cached else {})}
             result["config_extra"] = {rel: {"units": rows} for rel, rows in st.receipt_units.items()}
@@ -1286,6 +1363,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.prepare and args.from_prepared:
         print("comparator-receipt: --prepare and --from-prepared are exclusive", file=sys.stderr)
         return 2
+    if (os.environ.get(STACK_ENV) or "").strip():
+        try:
+            parse_stack(os.environ[STACK_ENV])
+        except ValueError as e:
+            print(f"comparator-receipt: {e}", file=sys.stderr)
+            return 2
     ok, why = host_policy_ok(os.environ.get("SLURM_JOB_ID"),
                              os.environ.get(ALLOW_HOST_ENV) == "1",
                              hostname=socket.gethostname(),

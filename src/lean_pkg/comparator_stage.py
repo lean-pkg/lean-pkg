@@ -156,8 +156,10 @@ class Judge:
     """One judge process; see the module docstring for the wiring."""
 
     def __init__(self, cmd: list[str], cwd: pathlib.Path, env: dict, log: pathlib.Path | None,
-                 stage: StageLog, label: str, prefix: str = "", tmpdir: pathlib.Path | None = None):
+                 stage: StageLog, label: str, prefix: str = "", tmpdir: pathlib.Path | None = None,
+                 preexec=None):
         self.cmd, self.cwd, self.env, self.log = cmd, cwd, dict(env), log
+        self.preexec = preexec            # run in the child before exec (the stack limit, #52), or None
         self.stage, self.label, self.prefix, self.tmpdir = stage, label, prefix, tmpdir
         self.proc: subprocess.Popen | None = None
         self.reader: threading.Thread | None = None
@@ -180,7 +182,8 @@ class Judge:
         try:
             self.proc = subprocess.Popen(line_buffered(self.cmd), cwd=self.cwd, env=self.env,
                                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                         stderr=subprocess.STDOUT, start_new_session=True, bufsize=0)
+                                         stderr=subprocess.STDOUT, start_new_session=True, bufsize=0,
+                                         preexec_fn=self.preexec)
         except OSError as e:
             msg = f"error: cannot run {self.cmd[0]}: {e}"
             if self.logfh is not None:

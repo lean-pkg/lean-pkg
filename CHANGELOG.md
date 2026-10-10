@@ -14,6 +14,15 @@ change the registry schema or receipt format, always with a migration).
   On the DOI-only track (the record's `track`, or `record ... doi-minted --track doi-only`) a public package records
   its DOI without a `palomar-*` event (rule doi-in-palomar skipped); a non-public package is refused (rule
   doi-only-public). The `doi-minted` event carries `track`. (#51)
+- `comparator-receipt` stack limit: before the `build` stage (and before the comparator stage of a reused or
+  `--from-prepared` setup) it warns when the soft `RLIMIT_STACK` is 8 MiB or less, since a `lean` SIGSEGV (exit 139)
+  in `lean::sharecommon_quick_fn::visit_ctor` on a large module is a stack overflow;
+  `COMPARATOR_RECEIPT_STACK=unlimited|<kB>` raises the soft limit for the `lake`/`lean` children of the setup and
+  comparator stages (never above the hard limit; an invalid value exits 2), and the receipt records it as the additive
+  `stack_limit` `{soft_kb, hard_kb, source}`. docs/comparator.md adds serial builds on a memory-tight host
+  (`COMPARATOR_LAKE` wrapper with `-j1`, `systemd-run --user --scope -p MemoryMax=...`; the estimate reports time, not
+  memory) and hosts without user namespaces (EL7 compute nodes cannot run the toolchain mechanism; run
+  `comparator host-check` on every candidate host first). (#52)
 
 ## [0.7.19] - 2026-10-10
 

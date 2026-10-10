@@ -628,7 +628,37 @@ pays its own export closure, hence an upper bound for a batched run, which
 pays the shared closure once. `lower_bound_seconds` is the dearest sampled
 slot: no run that includes it can be faster. `recommended_cap` is
 `ceil_5min(1.25 * estimated_seconds + 600)`, the 600 seconds covering the
-per-invocation `lake env`, no-op builds and `lake exe cache get`.
+per-invocation `lake env`, no-op builds and `lake exe cache get`. The
+estimate reports time per slot, not memory: it says nothing about whether
+the build or the judges fit in the host's RAM.
+
+**Serial builds on a memory-tight host.** `COMPARATOR_LAKE` may name a
+wrapper script that runs the real `lake` and appends `-j1` when the
+subcommand is `build`, so the `build` stage compiles one module at a time.
+That caps the number of modules in memory at once; it does not lower a
+single module's peak, so a module that alone exceeds the host's memory still
+fails. Put the run under a memory cap, for example
+`systemd-run --user --scope -p MemoryMax=48G comparator-receipt --prepare`,
+so an overrun is a clean kill of that scope (the stage log and
+`stages.json` say which stage died) rather than the kernel's OOM killer
+choosing a process elsewhere on the host.
+
+**Stack limit.** Lean recurses deeply on a large module. Under the common
+8 MiB default soft `RLIMIT_STACK`, a `lean` child can die with SIGSEGV
+(exit 139) deep in `lean::sharecommon_quick_fn::visit_ctor`; that is a stack
+overflow, not a Lean bug in the package. Before the `build` stage (and,
+when the setup is reused or taken from `--from-prepared`, before the
+`comparator` stage) the runner reads the soft limit and, when it is at most
+8 MiB, prints `WARN: soft stack limit is 8 MiB; ...` on stderr.
+`COMPARATOR_RECEIPT_STACK=unlimited` (or a size in kB, such as `65536`)
+raises the soft limit for the `lake`/`lean` children of the setup and
+comparator stages only, set in each child just before it starts, never
+above the hard limit (a larger request is clipped to it, and the line says
+so); the runner prints what it applied. Any other value is a usage error
+(exit 2). The receipt records the limit the children ran under as the
+additive `stack_limit` `{soft_kb, hard_kb, source}` (`soft_kb`/`hard_kb` an
+integer or `unlimited`; `source` `inherited` or `COMPARATOR_RECEIPT_STACK`);
+validators ignore it.
 
 ### Runtime
 
@@ -848,6 +878,15 @@ can). A host that fails `mechanism toolchain` cannot produce `toolchain`
 receipts, the mechanism Palomar runs: the usual causes are a missing `bwrap`,
 or a kernel or AppArmor policy that forbids unprivileged user namespaces. Such
 a host may still produce `legacy` receipts if Landlock is available.
+
+Older cluster images are a common case. EL7 compute nodes, for example,
+often have unprivileged user namespaces disabled: `bwrap` is missing or
+cannot unshare, and `unshare -Ur true` fails too. Such a node cannot run the
+`toolchain` mechanism at all, however well it builds and audits: a cluster
+that passes the full lower-tier gate (`lake build` plus the axiom audit) may
+still fail here. Run `lean-pkg comparator host-check` on every candidate
+host, compute nodes included, before planning a comparator run, and plan the
+`--prepare` and comparison on a host that passes `mechanism toolchain`.
 `lean-pkg doctor` reports the same verdict on its `host` line, and its `tool comparator`
 line points at `host-check` when `bwrap` is missing. Which of your own hosts
 passes is a fact about your infrastructure: record it in your private registry

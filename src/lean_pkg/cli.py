@@ -4776,7 +4776,7 @@ tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commi
                 toolchain: {lean_toolchain, lake_sha256, leanexport_sha256, leanchecker_sha256, nanoda_bin_sha256, con-ron_sha256}:
                 64-hex sha256 of the judging binaries under `lean --print-prefix`/bin
 host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>); generated_at MUST parse as ISO-8601
-host_policy     optional; the runner's host-policy reason (an override run is visible here)
+host_policy     optional; the runner's host-policy reason (an override run is visible here); stack_limit optional, not validated: {soft_kb, hard_kb, source} the lake/lean children ran under (COMPARATOR_RECEIPT_STACK=unlimited|<kB> raises it; WARN at <= 8 MiB)
 test_only, partial  if present and true (a test-only override; a --slots subset run) the receipt is REFUSED
 result          "pass" (the runner writes a receipt only on PASS)
 configs[]       MUST list exactly the comparator*.json / comparator/config*.json files tracked at HEAD

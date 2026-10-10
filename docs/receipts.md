@@ -58,6 +58,7 @@ manifest, or a receipt for a previous candidate is not gate evidence.
 | `tools` | legacy: `comparator`, `lean4export`, `nanoda`, `landrun` as 40-hex commits; toolchain: `lean_toolchain` and the 64-hex sha256 of `lake`, `leanexport`, `leanchecker`, `nanoda_bin`, `con-ron` |
 | `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601 |
 | `host_policy` | the runner's host-policy reason (an override run is visible here) |
+| `stack_limit` | optional, additive, not validated: `{soft_kb, hard_kb, source}`, the soft stack limit the runner's `lake`/`lean` children ran under (`soft_kb`/`hard_kb` an integer or `unlimited`; `source` `inherited` or `COMPARATOR_RECEIPT_STACK`); see [Comparator](comparator.md#stages-and---prepare) |
 | `stages` | optional, additive, not validated: the runner's stage summary (`stage`, `status`, `exit`, `wall_s` for `checkout`, `cache-get`, `build`, `comparator`); the full logs stay in the runner's evidence directory, see [The comparator tier](comparator.md) |
 | `test_only` | present and true only on receipts produced under the runner's test-only digest override; such a receipt is refused by every validator |
 | `result` | `"pass"` (the runner writes a receipt only on PASS) |

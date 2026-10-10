@@ -129,7 +129,10 @@ The authoritative, machine-oriented version of this page is
 
 `comparator-receipt [--project DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
 script that produces comparator receipts; see
-[The comparator tier](comparator.md).
+[The comparator tier](comparator.md). `COMPARATOR_RECEIPT_STACK=unlimited|<kB>`
+raises the soft stack limit of its `lake`/`lean` children (never above the hard
+limit; recorded as the receipt's `stack_limit`); it warns when the soft limit is
+8 MiB or less; see [Stack limit](comparator.md#stages-and---prepare).
 
 ## Lease holders
 

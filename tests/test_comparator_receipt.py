@@ -628,3 +628,102 @@ def test_prepared_mismatch_names_the_config_hash(cr):
     assert "toolchain" in cr.prepared_mismatch(state, {**binding, "lean_toolchain": "u"})
     state["stages"][2]["status"] = "failed"
     assert "build" in cr.prepared_mismatch(state, binding)
+
+
+# --- stack limit (#52) -----------------------------------------------------
+
+MIB = 1024 * 1024
+
+
+def _fake_rlimit(monkeypatch, cr, soft, hard):
+    monkeypatch.setattr(cr, "_STACK_SOFT", [])             # restored afterwards: no plan leaks to other tests
+    monkeypatch.setattr(cr.resource, "getrlimit", lambda which: (soft, hard))
+
+
+def test_stack_warning_when_soft_limit_is_8_mib(cr, monkeypatch):
+    _fake_rlimit(monkeypatch, cr, 8 * MIB, cr.resource.RLIM_INFINITY)
+    rec, lines = cr.plan_stack(None)
+    assert lines == [cr.STACK_WARNING]
+    assert "exit 139" in cr.STACK_WARNING and "sharecommon_quick_fn::visit_ctor" in cr.STACK_WARNING
+    assert "COMPARATOR_RECEIPT_STACK=unlimited" in cr.STACK_WARNING
+    assert rec == {"soft_kb": 8192, "hard_kb": "unlimited", "source": "inherited"}
+    assert cr.stack_preexec() is None                       # inherited: no preexec at all
+
+
+def test_no_stack_warning_above_8_mib(cr, monkeypatch):
+    _fake_rlimit(monkeypatch, cr, cr.resource.RLIM_INFINITY, cr.resource.RLIM_INFINITY)
+    rec, lines = cr.plan_stack("")
+    assert lines == [] and rec["soft_kb"] == "unlimited"
+
+
+def test_stack_env_sets_the_soft_limit_in_preexec(cr, monkeypatch):
+    _fake_rlimit(monkeypatch, cr, 8 * MIB, cr.resource.RLIM_INFINITY)
+    calls = []
+    monkeypatch.setattr(cr.resource, "setrlimit", lambda which, lim: calls.append((which, lim)))
+    rec, lines = cr.plan_stack("unlimited")
+    assert rec == {"soft_kb": "unlimited", "hard_kb": "unlimited", "source": "COMPARATOR_RECEIPT_STACK"}
+    assert len(lines) == 1 and "set to unlimited" in lines[0] and "was 8192 kB" in lines[0]
+    cr.stack_preexec()()
+    assert calls == [(cr.resource.RLIMIT_STACK, (cr.resource.RLIM_INFINITY, cr.resource.RLIM_INFINITY))]
+
+
+def test_stack_env_never_exceeds_the_hard_limit(cr, monkeypatch):
+    _fake_rlimit(monkeypatch, cr, 8 * MIB, 64 * MIB)
+    calls = []
+    monkeypatch.setattr(cr.resource, "setrlimit", lambda which, lim: calls.append(lim))
+    rec, lines = cr.plan_stack("unlimited")
+    assert rec["soft_kb"] == 65536 and "clipped" in lines[0]
+    cr.stack_preexec()()
+    assert calls == [(64 * MIB, 64 * MIB)]
+    rec, lines = cr.plan_stack("4096")                     # explicit and low: applied, and still warned
+    assert rec["soft_kb"] == 4096 and lines[-1] == cr.STACK_WARNING
+
+
+@pytest.mark.parametrize("bad", ["lots", "-1", "0", "8M", "1.5"])
+def test_stack_env_invalid_value_is_a_usage_error(cr, project: Path, bad):
+    with pytest.raises(ValueError):
+        cr.parse_stack(bad)
+    r = run_runner(project, extra_env={"COMPARATOR_RECEIPT_STACK": bad})
+    assert r.returncode == 2 and "COMPARATOR_RECEIPT_STACK" in r.stderr
+    assert not (project / ".lean-receipts").exists()
+
+
+def test_stack_env_reaches_the_lake_children_and_the_receipt(cr, project: Path, tmp_path: Path):
+    import resource
+    hard = resource.getrlimit(resource.RLIMIT_STACK)[1]
+    want_kb = 12345
+    if hard != resource.RLIM_INFINITY and hard < want_kb * 1024:
+        pytest.skip("hard stack limit below the test value")
+    _lake_project(project)
+    seen = tmp_path / "ulimit.txt"
+    wrapper = tmp_path / "lake-wrapper.sh"
+    wrapper.write_text(f'#!/usr/bin/env bash\nulimit -s >> "{seen}"\nexec "{LAKE_STUB}" "$@"\n')
+    wrapper.chmod(0o755)
+    r, calls = run_staged(project, extra_env={"COMPARATOR_LAKE": str(wrapper),
+                                              "COMPARATOR_RECEIPT_STACK": str(want_kb)})
+    assert r.returncode == 0, r.stderr
+    assert seen.read_text().split() == [str(want_kb)] * 3   # every setup child
+    assert f"COMPARATOR_RECEIPT_STACK={want_kb}" in r.stderr and f"set to {want_kb} kB" in r.stderr
+    head = git(project, "rev-parse", "HEAD")
+    rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+    assert rec["stack_limit"]["soft_kb"] == want_kb and rec["stack_limit"]["source"] == "COMPARATOR_RECEIPT_STACK"
+
+
+def test_stack_warning_printed_before_the_build_stage(project: Path):
+    import resource
+    _lake_project(project)
+    hard = resource.getrlimit(resource.RLIMIT_STACK)[1]
+    if hard != resource.RLIM_INFINITY and hard < 8 * MIB:
+        pytest.skip("hard stack limit below 8 MiB")
+    calls = project.parent / "lake-calls.txt"
+    env = subprocess_env({"COMPARATOR_CHECK": str(STUB), "COMPARATOR_VERIFY": str(STUB_TC),
+                          "STUB_MODE": "pass", "COMPARATOR_RECEIPT_ALLOW_HOST": "1",
+                          "COMPARATOR_FAKE_LAKE_OK": "1", "COMPARATOR_LAKE": str(LAKE_STUB),
+                          "LAKE_STUB_CALLS": str(calls)})
+    env.pop("SLURM_JOB_ID", None)
+    env.pop("COMPARATOR_RECEIPT_STACK", None)
+    r = subprocess.run([*RECEIPT_CLI, "--mechanism", "toolchain", "--prepare"], cwd=project, env=env,
+                       capture_output=True, text=True,
+                       preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_STACK, (8 * MIB, hard)))
+    assert r.returncode == 0, r.stderr
+    assert "WARN: soft stack limit is 8 MiB" in r.stderr
