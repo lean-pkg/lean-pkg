@@ -439,9 +439,47 @@ def reference_branch(repo: pathlib.Path) -> tuple[str | None, str | None, str]:
     return None, git_head(repo), ""
 
 
-def current_branch(repo: pathlib.Path) -> str:
+def current_branch(repo: pathlib.Path) -> str | None:
+    """The checked-out branch's short name, or None on a detached HEAD (or outside a checkout)."""
     p = git(repo, "symbolic-ref", "-q", "--short", "HEAD")
-    return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else "detached HEAD"
+    return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else None
+
+
+def default_branch(repo: pathlib.Path) -> str | None:
+    """The repository's default branch from local refs only (no network): the target of
+    refs/remotes/origin/HEAD, else `main`, else `master`, when that local or origin/ branch exists;
+    else None."""
+    p = git(repo, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
+    if p.returncode == 0 and p.stdout.strip().startswith("refs/remotes/origin/"):
+        return p.stdout.strip()[len("refs/remotes/origin/"):]
+    for b in ("main", "master"):
+        if _rev(repo, f"refs/heads/{b}") or _rev(repo, f"refs/remotes/origin/{b}"):
+            return b
+    return None
+
+
+def branch_state(repo: pathlib.Path | None) -> dict:
+    """{current, default, detached, is_default} for a package checkout (#48); the `status --json`
+    "branch" object. Outside a checkout with a commit: all null/false."""
+    head = git_head(repo) if repo is not None and repo.is_dir() else None
+    if head is None:
+        return {"current": None, "default": None, "detached": False, "is_default": False}
+    cur, dflt = current_branch(repo), default_branch(repo)
+    return {"current": cur, "default": dflt, "detached": cur is None,
+            "is_default": cur is not None and cur == dflt}
+
+
+def branch_notice(repo: pathlib.Path | None, state: dict | None = None) -> str | None:
+    """`evaluating branch X, not the default D` / `evaluating a detached HEAD <sha12>, not the
+    default D` when the checkout is not on its default branch (#48); None when it is, or when no
+    default branch can be determined. Informational only: HEAD is still what is evaluated."""
+    st = state if state is not None else branch_state(repo)
+    if st["default"] is None or st["is_default"]:
+        return None
+    if st["detached"]:
+        head = git_head(repo) or ""
+        return f"evaluating a detached HEAD {head[:12]}, not the default {st['default']}"
+    return f"evaluating branch {st['current']}, not the default {st['default']}"
 
 
 def formalization_rel(pkg: dict | None) -> str | None:
@@ -2119,7 +2157,8 @@ def dirty_tracked(repo: pathlib.Path) -> list[str]:
 
 def dirty_guard(repo: pathlib.Path, name: str, refuse: bool) -> list[str]:
     """Evidence is judged at the bound commit, never the working tree; a dirty checkout is a WARN
-    on stderr (the lab's workflow edits while gating) or, with --refuse-dirty, a refusal."""
+    on stderr (the lab's workflow edits while gating) or, with --refuse-dirty, a refusal. A checkout
+    off its default branch (or detached) is a second stderr WARN, never a refusal (#48)."""
     dirty = dirty_tracked(repo)
     if dirty:
         shown = ", ".join(dirty[:5]) + (", ..." if len(dirty) > 5 else "")
@@ -2128,6 +2167,9 @@ def dirty_guard(repo: pathlib.Path, name: str, refuse: bool) -> list[str]:
         if refuse:
             raise Fail(f"--refuse-dirty: {msg}; commit or stash them first")
         print(f"WARN: {msg} (--refuse-dirty refuses)", file=sys.stderr)
+    notice = branch_notice(repo)
+    if notice:   # #48: informational, never a refusal; evidence commits are often made detached
+        print(f"WARN: {notice}", file=sys.stderr)
     return dirty
 
 
@@ -3138,9 +3180,7 @@ def evidence_tracked_item(repo: pathlib.Path, what: str, rels: list[str]) -> tup
 def head_pushed_item(repo: pathlib.Path) -> tuple[str, str]:
     """HEAD must be contained in origin/<branch>, judged on local refs only (no fetch)."""
     head = git_head(repo)
-    branch = current_branch(repo)
-    if branch == "detached HEAD":
-        branch = reference_branch(repo)[0] or "main"
+    branch = current_branch(repo) or reference_branch(repo)[0] or "main"
     ref = f"refs/remotes/origin/{branch}"
     if head is None or _rev(repo, ref) is None:
         return ("✗", f"no origin/{branch} in local refs — push the branch first "
@@ -3688,7 +3728,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
         off_ref = ""
         if gate_rec.get("receipt") or gate_rec.get("comparator"):
             ref_branch, ref_tip, ref_note = reference_branch(repo)
-            here = current_branch(repo)
+            here = current_branch(repo) or "detached HEAD"
             at_tip = here == "detached HEAD" and git_head(repo) == ref_tip
             if ref_branch and here != ref_branch and not at_tip:
                 off_ref = f"checkout on {here}; judged against {ref_branch}"
@@ -4121,9 +4161,14 @@ def cmd_status(args) -> int:
         return 0
     if no_claims:
         pkg = drop_bulk(pkg)
+    try:
+        repo = repo_path(pkg)
+    except (KeyError, TypeError, ValueError):
+        repo = None
+    branch = branch_state(repo)
     if args.json_out:
         print_json({"ok": True, "name": args.name, "package": pkg,
-                    "history_count": len(hist), **omitted})
+                    "history_count": len(hist), **omitted, "branch": branch})
         return 0
     view = dict(pkg)
     view["history"] = f"<{len(hist)} entries; last 5 below>"
@@ -4134,6 +4179,9 @@ def cmd_status(args) -> int:
     print(f"history (last {min(5, len(hist))} of {len(hist)}):")
     for e in hist[-5:]:
         print("  " + json.dumps(e, sort_keys=True))
+    notice = branch_notice(repo, branch)
+    if notice:
+        print(f"branch: {notice}")
     return 0
 
 
@@ -4638,7 +4686,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once); a failed gh query: check gh-OUTCOME, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); human line `LEVEL  CHECK  NAME: DETAIL` + last line "N finding(s): W warn, I info"; --json counts {warn, info}; --no-gh: gh-skipped (info); missing-path: recorded path + `update NAME --path DIR --reason .. --dry-run` (+ "found at DIR": a sibling with lakefile + same remote). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-next      NAME [--agent A] read-only, offline (never gh, never writes): the ONE recommended next command + a one-line reason, from the record + checkout (claim / update --status / gate --check / gate / comparator-receipt / comparator config --from-claims / comparator / publish --dry-run / reservoir check / palomar prepare / record ...); without --agent a live lease is only noted; exit 0 command (or nothing left: command null), 1 blocked; --json {ok, name, command, reason, blockers[{kind: foreign-lease|invalid-lease|missing-checkout|no-commit|dirty-tree|invalid-receipt|unreadable-receipt, detail}], notes[], state{status, lease, gate_commit, comparator_commit, head, dirty[], receipt_candidate, ...}}. ex: lean-pkg next my-lean --agent vera --json
+next      NAME [--agent A] read-only, offline (never gh, never writes): the ONE recommended next command + a one-line reason, from the record + checkout (claim / update --status / gate --check / gate / comparator-receipt / comparator config --from-claims / comparator / publish --dry-run / reservoir check / palomar prepare / record ...); without --agent a live lease is only noted; a checkout off its default branch (or detached) is noted, HEAD still judged; exit 0 command (or nothing left: command null), 1 blocked; --json {ok, name, command, reason, blockers[{kind: foreign-lease|invalid-lease|missing-checkout|no-commit|dirty-tree|invalid-receipt|unreadable-receipt, detail}], notes[], state{status, lease, gate_commit, comparator_commit, head, dirty[], receipt_candidate, ...}}. ex: lean-pkg next my-lean --agent vera --json
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed; tool comparator without bwrap: run `comparator host-check`), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}); --short: ~40 lines cut from it by section (title, PURPOSE head, STANDING RULES, the first line of each subcommand; --json adds "short": true; the rest, e.g. publish, public-safety, reservoir check, palomar prepare, comparator config/host-check, release --fresh-repo/--adopt-repo: the full text). ex: lean-pkg llms --short
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md   |   report (read-only): a bug report in the shape of .github/ISSUE_TEMPLATE/bug_report.md: version + doctor ok/warn lines + host-check verdict, --command "ARGS" re-run in a subprocess (+ --json when the subcommand has it; a writing command is not re-run), --package NAME record (status, lease, receipt commits); every captured text redacted (registry/checkout paths -> <registry>/<registry-dir>/<checkout>, home -> ~, public-safety built-ins + .lean-pkg-private-patterns of the checkout and registry dir + record-derived names -> […]); a blocking hit left: exit 1, nothing filed. Dry run unless --yes: gh issue create -R lean-pkg/lean-pkg (--repo OWNER/NAME) --label bug|enhancement (--enhancement), prints the URL; no gh or gh not logged in: exit 1 (gh auth login). --json {ok, filed, url, title, labels, body, redactions}. ex: lean-pkg report --command "status my-lean" --package my-lean

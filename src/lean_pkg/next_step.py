@@ -136,6 +136,9 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
                        None, f"missing checkout: {repo} is not a git checkout with a commit; commit the "
                              f"package there (or fix local_path with `lean-pkg update {name} --path DIR "
                              f"--reason TEXT`)")
+    notice = core.branch_notice(repo)
+    if notice:   # #48: HEAD is still what is judged; the note only says it is not the default branch
+        notes.append(notice)
 
     # The lease.
     if core.lease_invalid(lease):

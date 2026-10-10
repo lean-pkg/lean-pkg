@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `next`, `status`, `gate` and `comparator` say when the package checkout is not on its default branch
+  (`refs/remotes/origin/HEAD`, else `main`/`master`; local refs only) or is on a detached HEAD: a `notes[]` entry and
+  a `note:` line in `next` (`evaluating branch X, not the default D`), a `branch:` line and an always-present
+  `"branch": {current, default, detached, is_default}` object in `status` (`--json`), and a stderr `WARN` beside the
+  dirty-tree one in `gate`/`comparator`. Never a refusal: HEAD is still what is evaluated. (#48)
+
 ## [0.7.17] - 2026-10-10
 
 ### Added
