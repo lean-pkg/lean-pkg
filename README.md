@@ -141,7 +141,7 @@ the [roadmap](ROADMAP.md); it is not implemented yet.
 | Step | Commands | What it gives you |
 |---|---|---|
 | register | `lean-pkg register`, `update` | one record per package; `register` is the only way in |
-| claim | `lean-pkg claim`, `renew`, `release`, `leases` | a lease (24 h by default), so two people or agents never work on one package unknowingly |
+| claim | `lean-pkg claim`, `renew`, `release`, `leases` | a lease (24 h by default; `--contact` names the session behind it), so two people or agents never work on one package unknowingly |
 | gate | `lean-pkg gate` | the lower-tier receipt (build, no `sorry`, axioms) moves the package to `verified-private` |
 | comparator | `comparator-receipt`, `lean-pkg comparator` | the comparator receipt: trusted statements against untrusted proofs, replayed in a second kernel |
 | publish | `lean-pkg publish --dry-run`, `promote` | one read-only checklist to listed, then the one-way flip to public |
