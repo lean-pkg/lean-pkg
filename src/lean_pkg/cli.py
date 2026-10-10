@@ -2399,15 +2399,40 @@ def comparator_check_lines(pkg: dict, repo: pathlib.Path, comp: dict, lower_comm
 
 def claims_schema_at(name: str, pkg: dict, repo: pathlib.Path, commit: str) -> dict:
     """#58: the claims/1 schema check (claims.schema_check_text, the validator `claims sync` uses) on
-    the package's claims file as tracked at the gated commit, never the working tree.
-    {checked, commit, file, ok, claims, errors}; checked False (ok null) when no file is tracked there."""
+    the package's claims file as tracked at the gated commit, never the working tree, then
+    `claims sync`'s declaration check (claims.decl_problems) with each claim's file read at that same
+    commit. {checked, commit, file, ok, claims, errors, declarations: {checked, ok, problems}}; `ok` is
+    False on either kind of problem; checked False (ok null) when no file is tracked there."""
     from . import claims as claims_mod
+    from . import index as idx
     rel = pkg.get("claims_file") or claims_mod.DEFAULT_CLAIMS_FILE
     blob = git_show_bytes(repo, rel, commit)
+    unchecked = {"checked": False, "ok": None, "problems": []}
     if blob is None:
-        return {"checked": False, "commit": commit, "file": rel, "ok": None, "claims": None, "errors": []}
-    n, errors = claims_mod.schema_check_text(blob.decode("utf-8", errors="replace"), rel, name)
-    return {"checked": True, "commit": commit, "file": rel, "ok": not errors, "claims": n, "errors": errors}
+        return {"checked": False, "commit": commit, "file": rel, "ok": None, "claims": None, "errors": [],
+                "declarations": unchecked}
+    text = blob.decode("utf-8", errors="replace")
+    n, errors = claims_mod.schema_check_text(text, rel, name)
+    decls = unchecked
+    try:
+        listed = claims_mod.load_claims_text(text, rel).get("claims")
+    except Fail:
+        listed = None
+    # decl_problems needs a claim's id, decl and file; with schema errors present, only the claims
+    # whose three fields are well formed are looked up (no other rule is added).
+    usable = [c for c in (listed if isinstance(listed, list) else [])
+              if isinstance(c, dict) and isinstance(c.get("id"), str) and isinstance(c.get("decl"), str)
+              and idx._is_rel(c.get("file")) and str(c["file"]).endswith(".lean")]
+    if usable:
+        problems = claims_mod.decl_problems(claims_mod._reader(repo, commit), usable)
+        decls = {"checked": True, "ok": not problems, "problems": problems}
+    return {"checked": True, "commit": commit, "file": rel, "ok": not errors and decls["ok"] is not False,
+            "claims": n, "errors": errors, "declarations": decls}
+
+
+def claims_problems(cs: dict) -> list[str]:
+    """Schema errors first, then declaration problems in `claims sync`'s wording."""
+    return list(cs["errors"]) + list(cs.get("declarations", {}).get("problems", []))
 
 
 def claims_schema_line(cs: dict) -> str:
@@ -2415,9 +2440,11 @@ def claims_schema_line(cs: dict) -> str:
     if not cs["checked"]:
         return f"· no {cs['file']} tracked at {str(cs['commit'])[:12]} (claims schema not checked)"
     if cs["ok"]:
-        return f"✓ {at}: schema ok ({cs['claims']} claims)"
-    more = f" (+{len(cs['errors']) - 1} more)" if len(cs["errors"]) > 1 else ""
-    return f"✗ {at}: {cs['errors'][0]}{more}"
+        found = ", declarations found" if cs["declarations"]["checked"] else ""
+        return f"✓ {at}: schema ok ({cs['claims']} claims){found}"
+    problems = claims_problems(cs)
+    more = f" (+{len(problems) - 1} more)" if len(problems) > 1 else ""
+    return f"✗ {at}: {problems[0]}{more}"
 
 
 def load_json_object(path_arg, what: str) -> tuple[pathlib.Path, dict]:
@@ -2572,7 +2599,8 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
     ok = cs["ok"] is not False
     msg = (f"{name}: receipt valid at commit {commit[:12]}"
            + (f" with comparator ({len(comp['configs'])} config(s))" if comp else "")
-           + ("" if ok else f"; {cs['file']} FAILS the claims schema (`gate` would refuse)")
+           + ("" if ok else f"; {cs['file']} FAILS the claims "
+                  + ("schema" if cs["errors"] else "declaration check") + " (`gate` would refuse)")
            + " — not recorded (--check)")
     payload = {"ok": ok, "name": name, "event": "gate-checked", "recorded": False, "commit": commit,
                "head": git_head(repo), "status": status, "checks": checks,
@@ -2634,11 +2662,21 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
         validate_comparator(vpkg, repo, comp, commit)
     cs = claims_schema_at(name, pkg, repo, commit)
     if cs["ok"] is False:
-        raise Fail(f"{name}: {cs['file']} at {commit[:12]} fails the claims/1 schema, so `claims sync` "
-                   f"would refuse what this gate binds: " + "; ".join(cs["errors"][:3])
-                   + (f" (+{len(cs['errors']) - 3} more)" if len(cs["errors"]) > 3 else "")
+        problems = claims_problems(cs)
+        if cs["errors"]:
+            what = "fails the claims/1 schema"
+            fix = (f"fix the file, check it with `lean-pkg claims check --file {cs['file']}`"
+                   + (" (schema only; the declarations are checked by `claims sync` at HEAD)"
+                      if cs["declarations"]["problems"] else ""))
+        else:
+            what = "names declarations missing from their files at that commit"
+            fix = (f"fix the declarations or the claims' decl/file entries (`lean-pkg claims sync {name}` "
+                   f"runs the same check at HEAD)")
+        raise Fail(f"{name}: {cs['file']} at {commit[:12]} {what}, so `claims sync` "
+                   f"would refuse what this gate binds: " + "; ".join(problems[:3])
+                   + (f" (+{len(problems) - 3} more)" if len(problems) > 3 else "")
                    + f". Nothing copied or recorded. Fixing it is a new commit, which needs a new receipt "
-                   f"and a re-gate: fix the file, check it with `lean-pkg claims check --file {cs['file']}`, "
+                   f"and a re-gate: {fix}, "
                    f"commit, re-run the receipt at that commit, then `lean-pkg gate {name} --receipt R`")
 
     job = receipt_job_slug(receipt["job_id"])
@@ -4756,7 +4794,7 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
-gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema, else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[]}).
+gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}).
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
@@ -4791,7 +4829,7 @@ index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, e
   migrate [--check]   rewrite index-entry/1 entries as index-entry/2 (claims derived from the headline).
 claims    claims.yaml (schema claims/1) at the package repo root: named reusable results, cached in the registry.
   sync NAME   read claims.yaml at HEAD (committed bytes only); every decl must occur in its file; event claims-synced.
-  list [NAME] | check [NAME] [--file PATH]   cached claims with status and derived trust | re-validate; exit 0/1 (--file: schema-check a working-copy file, no registry; --json {ok, path, claims, errors[]}). With NAME both report coverage synced|empty|unsynced|none (--json: coverage, cached_claims, claims_yaml present|absent|unknown, legacy_claims[], hint); check NAME exits 1 on none/unsynced (no coverage is not ok) and names any legacy *claims.json in the checkout   |   migrate NAME --from PATH [--out claims.yaml] [--dry-run] [--agent A]: legacy JSON rows -> a claims/1 skeleton in the checkout (mapped fields; TODO markers, TODO.lean for the rest, which sync refuses); never overwrites, never writes the registry, grants nothing: commit it, then claims sync.
+  list [NAME] | check [NAME] [--file PATH]   cached claims with status and derived trust | re-validate; exit 0/1 (--file: schema-check a working-copy file, schema only: no checkout, so declarations unchecked; no registry; --json {ok, path, claims, errors[]}). With NAME both report coverage synced|empty|unsynced|none (--json: coverage, cached_claims, claims_yaml present|absent|unknown, legacy_claims[], hint); check NAME exits 1 on none/unsynced (no coverage is not ok) and names any legacy *claims.json in the checkout   |   migrate NAME --from PATH [--out claims.yaml] [--dry-run] [--agent A]: legacy JSON rows -> a claims/1 skeleton in the checkout (mapped fields; TODO markers, TODO.lean for the rest, which sync refuses); never overwrites, never writes the registry, grants nothing: commit it, then claims sync.
 formalization NAME [--write] [--no-registry] [--out PATH] [--force [--reason TEXT]] [--author A ...] [--agent A]   render formalization.yaml (mathlib-initiative
   v0.4, what Palomar reads) from the registry + the repo at HEAD. Derived every run: project.name/license (license_spdx),
   automation.notes, status.sorry_count/axioms/evidence (gate receipt), status.main_results (every tracked comparator config:

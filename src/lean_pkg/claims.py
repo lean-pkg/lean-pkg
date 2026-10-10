@@ -654,7 +654,9 @@ def add_parsers(sub, add_json) -> None:
     c.add_argument("name", nargs="?", default=None)
     c.add_argument("--file", default=None, metavar="PATH",
                    help="schema-check this claims file (e.g. claims.yaml before you commit it) instead of the "
-                        "registry cache; reads no registry; NAME, if given, must be its package")
+                        "registry cache; schema only (no checkout, so declarations are not looked up: "
+                        "`claims sync` and `gate` do that); reads no registry; NAME, if given, must be "
+                        "its package")
     add_json(c)
     c.set_defaults(fn=cmd_claims, claims_fn=run_check)
     m = csub.add_parser("migrate", help="legacy claims.json -> a claims/1 skeleton in the checkout "

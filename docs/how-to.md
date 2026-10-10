@@ -49,8 +49,10 @@ by declaration name and docstring in their checkout, and a zero now says which
 packages were searched that way and which were not searched at all.
 
 Validate `claims.yaml` with `lean-pkg claims check --file claims.yaml` before the
-commit you will gate: `gate` refuses a claims file that fails the schema at the
-receipt's commit, and the fix then costs a new receipt.
+commit you will gate: `gate` refuses a claims file that fails the schema, or
+names a declaration missing from its file, at the receipt's commit, and the fix
+then costs a new receipt. `--file` checks the schema only; `claims sync` checks
+the declarations at `HEAD`.
 
 ## Add a package
 

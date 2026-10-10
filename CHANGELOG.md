@@ -10,12 +10,16 @@ change the registry schema or receipt format, always with a migration).
 ### Added
 
 - `gate` and `gate --check` run the `claims/1` schema check (the one `claims sync` applies) on the package's claims
-  file as tracked at the receipt's commit, never the working tree. `--check` prints
-  `✓ claims.yaml at <commit12>: schema ok (N claims)`, or `✗ claims.yaml at <commit12>: <first error>` and exits 1
-  (`ok: false`); `gate` refuses a failing file before anything is copied or recorded, naming
-  `claims check --file` and the new-receipt cost of the fix. No claims file tracked there: a neutral `·` line.
-  Both add `claims_schema` {checked, commit, file, ok, claims, errors[]} to `--json`. (#58)
-- `claims check --file PATH`: schema-check a working-copy claims file before it is committed, without the registry
+  file as tracked at the receipt's commit, never the working tree, then `claims sync`'s declaration check with each
+  claim's file read at that same commit. `--check` prints
+  `✓ claims.yaml at <commit12>: schema ok (N claims), declarations found`, or
+  `✗ claims.yaml at <commit12>: <first problem> (+k more)` (schema errors first, then missing declarations in
+  `claims sync`'s wording) and exits 1 (`ok: false`); `gate` refuses either kind before anything is copied or
+  recorded, naming `claims check --file` (schema) or `claims sync` (declarations) and the new-receipt cost of the fix.
+  No claims file tracked there: a neutral `·` line. Both add `claims_schema` {checked, commit, file, ok, claims,
+  errors[], declarations {checked, ok, problems[]}} to `--json`. (#58)
+- `claims check --file PATH`: schema-check a working-copy claims file before it is committed (schema only: no
+  checkout, so declarations are not looked up), without the registry
   (`NAME` optional; if given it must be the file's `package`); exit 0/1, `--json` `{ok, path, claims, errors[]}`.
   (#58)
 

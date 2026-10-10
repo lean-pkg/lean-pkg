@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""#58: `gate` and `gate --check` run the claims/1 schema check on claims.yaml as tracked at the
-gated commit (never the working tree); `claims check --file PATH` checks a working copy."""
+"""#58: `gate` and `gate --check` run the claims/1 schema check and `claims sync`'s declaration check
+on claims.yaml as tracked at the gated commit (never the working tree); `claims check --file PATH`
+schema-checks a working copy."""
 
 from __future__ import annotations
 
@@ -22,12 +23,13 @@ def gate(lp, env, tmp_path, *extra):
 def test_gate_check_valid_claims_prints_ok_line(lp, env, tmp_path, capsys):
     head = commit_claims(env.repo_a, ALPHA_CLAIMS)
     assert gate(lp, env, tmp_path, "--check") == 0
-    assert f"✓ claims.yaml at {head[:12]}: schema ok (1 claims)" in capsys.readouterr().out
+    assert f"✓ claims.yaml at {head[:12]}: schema ok (1 claims), declarations found" in capsys.readouterr().out
     assert gate(lp, env, tmp_path, "--check", "--json") == 0
     data = json.loads(capsys.readouterr().out)
     assert data["ok"] is True and "checks" in data and "head" in data
     assert data["claims_schema"] == {"checked": True, "commit": head, "file": "claims.yaml", "ok": True,
-                                     "claims": 1, "errors": []}
+                                     "claims": 1, "errors": [],
+                                     "declarations": {"checked": True, "ok": True, "problems": []}}
 
 
 def test_gate_check_overlong_summary_fails(lp, env, tmp_path, capsys):
@@ -86,6 +88,57 @@ def test_the_gated_commit_is_judged_not_the_working_tree(lp, env, tmp_path, caps
     (env.repo_a / "claims.yaml").write_text(ALPHA_CLAIMS)  # fixed only in the working tree
     assert gate(lp, env, tmp_path, "--check") == 1
     assert "✗ claims.yaml at" in capsys.readouterr().out
+
+
+NO_DECL_LEAN = "namespace Demo\n\ntheorem other_bound : True := trivial\n\nend Demo\n"
+MISSING = "alpha/foo-le-bar: 'foo_le_bar' does not occur in Demo/Main.lean"
+
+
+def test_gate_check_missing_declaration_fails(lp, env, tmp_path, capsys):
+    head = commit_claims(env.repo_a, ALPHA_CLAIMS, lean=NO_DECL_LEAN)
+    before = env.registry.read_bytes()
+    assert gate(lp, env, tmp_path, "--check") == 1
+    out = capsys.readouterr().out
+    assert "FAILS the claims declaration check" in out
+    assert f"✗ claims.yaml at {head[:12]}: {MISSING}" in out
+    assert gate(lp, env, tmp_path, "--check", "--json") == 1
+    data = json.loads(capsys.readouterr().out)
+    cs = data["claims_schema"]
+    assert data["ok"] is False and cs["ok"] is False and cs["errors"] == []
+    assert cs["declarations"] == {"checked": True, "ok": False, "problems": [MISSING]}
+    assert env.registry.read_bytes() == before and read_events(env) == []
+
+
+def test_gate_refuses_missing_declaration_and_records_nothing(lp, env, tmp_path, capsys):
+    commit_claims(env.repo_a, ALPHA_CLAIMS, lean=NO_DECL_LEAN)
+    before = env.registry.read_bytes()
+    assert gate(lp, env, tmp_path) == 1
+    err = capsys.readouterr().err
+    assert MISSING in err and "declarations missing" in err and "claims sync alpha" in err
+    assert "Nothing copied" in err and "new receipt" in err
+    assert not (env.repo_a / ".lean-receipts").exists()
+    assert env.registry.read_bytes() == before and read_events(env) == []
+
+
+def test_declaration_removed_only_in_working_tree_still_passes(lp, env, tmp_path, capsys):
+    head = commit_claims(env.repo_a, ALPHA_CLAIMS)
+    (env.repo_a / "Demo" / "Main.lean").write_text(NO_DECL_LEAN)    # the commit is judged
+    assert gate(lp, env, tmp_path, "--check") == 0
+    assert f"✓ claims.yaml at {head[:12]}: schema ok (1 claims), declarations found" in capsys.readouterr().out
+
+
+def test_schema_error_reported_before_declaration_problem(lp, env, tmp_path, capsys):
+    head = commit_claims(env.repo_a, BAD_CLAIMS, lean=NO_DECL_LEAN)
+    assert gate(lp, env, tmp_path, "--check") == 1
+    out = capsys.readouterr().out
+    assert f"✗ claims.yaml at {head[:12]}: claims[0].summary" in out and "(+1 more)" in out
+    assert "FAILS the claims schema" in out
+    assert gate(lp, env, tmp_path, "--check", "--json") == 1
+    cs = json.loads(capsys.readouterr().out)["claims_schema"]
+    assert cs["errors"] and cs["declarations"]["problems"] == [MISSING]
+    assert gate(lp, env, tmp_path) == 1
+    err = capsys.readouterr().err
+    assert err.index("claims[0].summary") < err.index(MISSING) and "claims check --file claims.yaml" in err
 
 
 def test_claims_check_file(lp, tmp_path, capsys):
