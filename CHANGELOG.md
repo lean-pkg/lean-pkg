@@ -29,6 +29,11 @@ change the registry schema or receipt format, always with a migration).
   or an `N` that is not a positive integer is a usage error. `--json` gains `log_excerpt` {path, lines} with
   `--from-log`. (#55)
 
+### Changed
+
+- `report` now requires one of `--command`, `--body` or `--from-log` (exit 2 otherwise); a bare
+  `lean-pkg report` used to produce a host-only report. (#55)
+
 ## [0.7.21] - 2026-10-10
 
 ### Added

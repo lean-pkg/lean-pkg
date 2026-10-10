@@ -358,13 +358,17 @@ See the [`next` row](cli.md) in the CLI reference.
 ```bash
 lean-pkg report --command "status demo --fields pin"     # dry run: prints the issue body
 lean-pkg report --command "..." --package NAME --yes    # files it on GitHub with gh
+lean-pkg report --body "what happened" --from-log stage.log:80   # no re-run: free text + the last 80 log lines
 ```
 
 The body follows the repository's bug-report template (version, command, output, `doctor` and
 `host-check` lines, the package record with `--package`). Every captured text is redacted first:
 home and checkout paths, e-mail addresses, the public-safety families and the names derived from the
 registry record; a hit the redaction cannot replace refuses to file. `--enhancement` labels a feature
-request; `--json` gives `{url, title, labels, body, redactions}`. See the [`report` row](cli.md).
+request; `--json` gives `{url, title, labels, body, redactions}`. One of `--command`, `--body` or
+`--from-log` is required: friction inside a long stage (a failed `comparator-receipt` build) has no cheap
+re-run, so describe it with `--body` and attach the tail of its log with `--from-log`. See the
+[`report` row](cli.md).
 
 ## Use lean-pkg from a coding agent
 
