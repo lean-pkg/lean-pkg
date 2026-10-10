@@ -2,6 +2,8 @@
 title: lean-pkg
 ---
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23272098.svg)](https://doi.org/10.5281/zenodo.23272098)
+
 <img src="assets/logo-256.png" width="140" height="140" alt="lean-pkg logo: a secretary bird in profile with quill-like crest feathers" style="float:right;margin:0 0 1rem 1.5rem">
 
 *Prove it. Then prove you proved it.* **A registry and trust gate for Lean 4 formalization packages.** One
