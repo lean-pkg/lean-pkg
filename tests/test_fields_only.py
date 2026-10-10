@@ -145,6 +145,30 @@ def test_list_fields_dump_keeps_lease_expiry(lp, env, capsys):
     assert json.loads(cap.out)["packages"]["alpha"]["lease"]["expires_at"]
 
 
+def test_status_and_list_text_fields_reach_derived_lease_expiry(lp, env, capsys):
+    """Field report 2026-10-10: `lease.expires_at` (claimed_at + ttl_hours, ISO 8601 UTC) is queryable by
+    field in status (JSON and text) and in list's text --fields, as it already was in list --json."""
+    import datetime as dt
+    _claim(lp, env, capsys)
+    full = json.loads(_run(lp, env, capsys, "status", "alpha", "--json")[1].out)["package"]
+    lease = full["lease"]
+    want = (dt.datetime.fromisoformat(lease["claimed_at"]) + dt.timedelta(hours=lease["ttl_hours"]))
+    assert dt.datetime.fromisoformat(lease["expires_at"]) == want
+    assert lease["expires_at"].endswith("+00:00")
+    rc, cap = _run(lp, env, capsys, "status", "alpha", "--json", "--fields", "lease.expires_at")
+    assert rc == 0, cap.err
+    assert json.loads(cap.out)["package"] == {"lease": {"expires_at": lease["expires_at"]}}
+    rc, cap = _run(lp, env, capsys, "status", "alpha", "--fields", "lease.expires_at")
+    assert rc == 0, cap.err
+    assert yaml.safe_load(cap.out)["alpha"]["lease"]["expires_at"] is not None
+    rc, cap = _run(lp, env, capsys, "list", "--only", "alpha", "--fields", "lease.expires_at")
+    assert rc == 0, cap.err
+    assert yaml.safe_load(cap.out)["alpha"]["lease"]["expires_at"] is not None
+    assert "expires_at" not in (env.registry.read_text())       # derived, never stored
+    rc, cap = _run(lp, env, capsys, "status", "beta", "--json", "--fields", "lease.expires_at")
+    assert rc == 0 and json.loads(cap.out)["package"] == {"lease": {"expires_at": None}}   # no lease: null
+
+
 def test_list_and_board_fields_text_is_yaml_and_never_opens_tui(lp, env, capsys, monkeypatch):
     monkeypatch.setattr(lp, "board_interactive", lambda: True)
     monkeypatch.setattr(lp, "_Tui", lambda *a, **k: (_ for _ in ()).throw(AssertionError("TUI opened")))

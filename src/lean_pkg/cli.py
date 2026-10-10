@@ -188,7 +188,8 @@ PACKAGE_FIELDS = (
     ("owner_project", "v1", "project that owns the package"),
     ("workspace", "v1", "workspace that registered it"),
     ("agent", "v1", "agent that registered it"),
-    ("lease", "v1", "live claim {workspace, agent, claimed_at, ttl_hours, reason} or null"),
+    ("lease", "v1", "live claim {workspace, agent, claimed_at, ttl_hours, reason} or null; status/list/board "
+                     "output adds the derived expires_at (claimed_at + ttl_hours, UTC; never stored)"),
     ("lean_toolchain", "v1", "lean-toolchain detected in the checkout"),
     ("mathlib_pin", "v1", "Mathlib revision from lake-manifest.json"),
     ("upstream_target", "v1", "upstream goal: " + " | ".join(UPSTREAM_TARGETS)),
@@ -1222,16 +1223,23 @@ def leases_summary(reg: dict, now: dt.datetime) -> tuple[str, str]:
     return ("warn" if soon or gone or bad else "ok"), "; ".join(parts)
 
 
+def pkg_with_expiry(pkg: dict) -> dict:
+    """A copy of one package record whose lease mapping also carries the derived `expires_at` (claimed_at +
+    ttl_hours, ISO 8601 UTC; null when the lease fields are unparseable). Never stored in the registry."""
+    lease = pkg.get("lease") if isinstance(pkg, dict) else None
+    if not (isinstance(lease, dict) and lease):
+        return pkg
+    exp = lease_expiry_or_none(lease)
+    return {**pkg, "lease": {**lease, "expires_at": exp.isoformat() if exp is not None else None}}
+
+
 def with_expiry(reg: dict) -> dict:
-    """A copy of the registry whose live lease mappings also carry `expires_at` (ISO, UTC);
-    for --json consumers so nobody recomputes claimed_at + ttl_hours."""
+    """A copy of the registry whose lease mappings also carry `expires_at` (ISO, UTC); for --json and
+    --fields consumers so nobody recomputes claimed_at + ttl_hours."""
     import copy
     out = copy.deepcopy(reg)
-    for pkg in out.get("packages", {}).values():
-        lease = pkg.get("lease")
-        if isinstance(lease, dict) and lease:
-            exp = lease_expiry_or_none(lease)
-            lease["expires_at"] = exp.isoformat() if exp is not None else None
+    if isinstance(out.get("packages"), dict):
+        out["packages"] = {k: pkg_with_expiry(v) for k, v in out["packages"].items()}
     return out
 
 
@@ -3994,7 +4002,7 @@ def print_dump(args, reg: dict) -> int:
             view["omitted"] = list(BULK_FIELDS)
         print_json(view)
     elif names is not None:
-        picked = trim_packages(reg, names)
+        picked = trim_packages(with_expiry(reg), names)
         picked = (no_claims_view(picked) if no_claims else picked)["packages"]
         print(yaml.safe_dump(picked, sort_keys=False, default_flow_style=False, width=120).rstrip()
               if picked else "{}")
@@ -4042,7 +4050,7 @@ def package_fields_help() -> str:
 
 def cmd_status(args) -> int:
     reg = load_registry(registry_path(args))
-    pkg = get_pkg(reg, args.name)
+    pkg = pkg_with_expiry(get_pkg(reg, args.name))   # lease.expires_at: derived, as in list/board --json
     hist = pkg.get("history") or []
     names = fields_arg(args)
     no_claims = bool(getattr(args, "no_claims", False))
@@ -4530,7 +4538,7 @@ any -> archived                    `update --status archived --reason` or `audit
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path}; --registry-snapshot COMMIT (env LEAN_PKG_REGISTRY_SNAPSHOT): read-only, the registry + event log as of COMMIT of its git repo (git show into a temp copy); reads work (status/list/board/audit/dry runs/comparator config --dry-run), every write exits 2 `read-only: --registry-snapshot`; --json +registry_snapshot sha)
 board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
-status    full record + last 5 history entries; --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
+status    full record + last 5 history entries (a lease adds derived expires_at, UTC); --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent; a legacy literal ~/x local_path is rewritten $HOME-relative). ex: lean-pkg migrate --dry-run

@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `status NAME` (JSON, text and `--fields`) and `list`/`board --fields` in text mode show a lease's derived
+  `expires_at` (`claimed_at` + `ttl_hours`, ISO 8601 UTC; null when the lease fields are unparseable;
+  never stored), as `list`/`board --json` already did, so `status NAME --fields lease.expires_at` reads a
+  lease's expiry instead of exiting 2 and leaving it to be computed by hand.
+
 ## [0.7.14] - 2026-10-10
 
 ### Added
