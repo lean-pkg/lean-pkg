@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -256,7 +258,8 @@ def _race(lp, monkeypatch, b, *b_argv):
         ctx = real(args, mode)
         if not fired:
             fired.append(True)
-            assert lp.main(["--registry", str(b.registry), *b_argv, "--push"]) == 0
+            with contextlib.redirect_stdout(io.StringIO()):   # B's output is not A's (A's --json buffer)
+                assert lp.main(["--registry", str(b.registry), *b_argv, "--push"]) == 0
         return ctx
     monkeypatch.setattr(lp, "commit_preflight", preflight)
 
@@ -422,3 +425,148 @@ def test_regate_push_is_one_registry_commit(lp, env, shared, tmp_path, capsys): 
     assert _head(shared.origin, "main") == _head(a.root) and _clean(a.root)
     assert [e["event"] for e in read_events(a)][-1:] == ["regated"]
     assert read_reg(a)["packages"]["beta"]["status"] == "verified-private"
+
+
+# #68: push retry (transient transport errors) and rebase (origin moved on)
+
+def _flaky_remote(origin: Path, failures: int) -> Path:
+    """A pre-receive hook that fails the first `failures` pushes with a transport-style error, then accepts."""
+    counter = origin / "push-count"
+    hook = origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\n"
+                    f"n=$(cat '{counter}' 2>/dev/null || echo 0); n=$((n + 1)); echo $n > '{counter}'\n"
+                    f"if [ $n -le {failures} ]; then\n"
+                    "  echo 'kex_exchange_identification: read: Connection reset by peer' >&2; exit 1\n"
+                    "fi\nexit 0\n")
+    hook.chmod(0o755)
+    return counter
+
+
+def test_transient_push_failure_is_retried_then_pushed(lp, env, shared, monkeypatch, capsys):
+    a = shared.a
+    _flaky_remote(shared.origin, 2)
+    waits = []
+    monkeypatch.setattr(lp, "_sleep", waits.append)
+    rc, cap = run(lp, a, capsys, "--json", *CLAIM, "--push")
+    assert rc == 0, cap.err
+    assert cap.err.count("lean-pkg: push attempt ") == 2 and "Connection reset" in cap.err
+    short = _git(a.root, "rev-parse", "--short", "HEAD").stdout.strip()
+    assert cap.err.rstrip().endswith(f"lean-pkg: pushed origin/main ({short})")
+    commit = json.loads(cap.out)["commit"]
+    assert commit["pushed"] is True and commit["push_attempts"] == 3 and commit["rebased"] is False
+    assert _head(shared.origin, "main") == _head(a.root)
+    assert waits == [0.0, 0.0]   # LEAN_PKG_PUSH_RETRY_DELAY=0 in the suite
+
+
+def test_push_backoff_doubles_from_the_configured_delay(lp, env, shared, monkeypatch, capsys):
+    a = shared.a
+    _flaky_remote(shared.origin, 99)
+    waits = []
+    monkeypatch.setattr(lp, "_sleep", waits.append)
+    monkeypatch.setenv("LEAN_PKG_PUSH_RETRY_DELAY", "5")
+    rc, cap = run(lp, a, capsys, "--json", *CLAIM, "--push")
+    assert rc == 1
+    assert waits == [5.0, 10.0, 20.0, 40.0]   # the default 4 retries
+    commit = json.loads(cap.out)["commit"]
+    assert commit["pushed"] is False and commit["push_attempts"] == 5
+    assert "kex_exchange_identification" in commit["push_error"]
+    assert "lean-pkg: kept commit" in cap.err and _head(shared.origin, "main") != _head(a.root)
+
+
+def test_push_retries_zero_fails_at_once(lp, env, shared, monkeypatch, capsys):
+    a = shared.a
+    counter = _flaky_remote(shared.origin, 1)
+    monkeypatch.setenv("LEAN_PKG_PUSH_RETRIES", "0")
+    rc, cap = run(lp, a, capsys, *CLAIM, "--push")
+    assert rc == 1 and "push attempt" not in cap.err
+    assert counter.read_text().strip() == "1"
+
+
+def test_permanent_push_failure_is_not_retried(lp, env, shared, capsys):
+    a = shared.a
+    _deny_pushes(shared.origin)
+    rc, cap = run(lp, a, capsys, "--json", *CLAIM, "--push")
+    assert rc == 1 and "push attempt" not in cap.err
+    assert json.loads(cap.out)["commit"]["push_attempts"] == 1
+
+
+def test_racing_push_rebases_cleanly_and_reports_it(lp, env, shared, monkeypatch, capsys):
+    a, b = shared.a, shared.clone_b()
+    _race(lp, monkeypatch, b, "claim", "beta", "--workspace", "w4", "--agent", "otto")
+    rc, cap = run(lp, a, capsys, "--json", *CLAIM, "--push")
+    assert rc == 0, cap.err
+    commit = json.loads(cap.out)["commit"]
+    assert commit["pushed"] is True and commit["rebased"] is True and commit["push_attempts"] == 2
+    assert commit["sha"] == _head(a.root) == _head(shared.origin, "main")
+    assert "lean-pkg: rebased onto origin/main (" in cap.err
+    assert _git(a.root, "rev-list", "--count", "origin/main..HEAD").stdout.strip() == "0"
+
+
+def test_event_log_conflict_merges_by_union_in_timestamp_order(lp, env, shared, monkeypatch, capsys):
+    """Origin's racing event is stamped LATER than ours: the union puts our line first (timestamp order),
+    not after origin's (file order)."""
+    a, b = shared.a, shared.clone_b()
+    stamp = {"now": "2026-01-01T00:00:00+00:00"}
+    monkeypatch.setattr(lp, "now_iso", lambda: stamp["now"])
+    real, fired = lp.commit_preflight, []
+
+    def preflight(args, mode):
+        ctx = real(args, mode)
+        if not fired:
+            fired.append(True)
+            stamp["now"] = "2026-01-01T00:00:09+00:00"
+            assert lp.main(["--registry", str(b.registry), "claim", "beta", "--workspace", "w4",
+                            "--agent", "otto", "--push"]) == 0
+            stamp["now"] = "2026-01-01T00:00:01+00:00"
+        return ctx
+    monkeypatch.setattr(lp, "commit_preflight", preflight)
+    rc, cap = run(lp, a, capsys, *CLAIM, "--push")
+    assert rc == 0, cap.err
+    assert "event log conflict resolved by union (1 line(s) from origin, 1 ours, timestamp order)" in cap.err
+    claimed = [(e["name"], e["ts"]) for e in read_events(a) if e["event"] == "claimed"]
+    assert claimed == [("alpha", "2026-01-01T00:00:01+00:00"), ("beta", "2026-01-01T00:00:09+00:00")]
+    assert _head(shared.origin, "main") == _head(a.root) and _clean(a.root)
+    reg = read_reg(a)["packages"]
+    assert reg["alpha"]["lease"]["agent"] == "vera" and reg["beta"]["lease"]["agent"] == "otto"
+
+
+def test_rebase_conflict_aborts_and_leaves_the_clone_as_it_was(lp, env, shared, monkeypatch, capsys):
+    a, b = shared.a, shared.clone_b()
+    _race(lp, monkeypatch, b, "claim", "alpha", "--workspace", "w4", "--agent", "otto")
+    real_finish, seen = lp.commit_finish, {}
+
+    def finish(ctx, rc):   # the commit's sha just before the push
+        real_commit = lp.registry_git
+
+        def spy(root, *args):
+            if args[:1] == ("push",) and "head" not in seen and Path(root) == a.root:   # A's, not B's
+                seen["head"] = real_commit(root, "rev-parse", "HEAD").stdout.strip()
+            return real_commit(root, *args)
+        monkeypatch.setattr(lp, "registry_git", spy)
+        try:
+            return real_finish(ctx, rc)
+        finally:
+            monkeypatch.setattr(lp, "registry_git", real_commit)
+    monkeypatch.setattr(lp, "commit_finish", finish)
+    rc, cap = run(lp, a, capsys, "--json", *CLAIM, "--push")
+    assert rc == 1
+    assert "rebase conflict in lean-package-events.jsonl, lean-packages.yaml" in cap.err, cap.err
+    assert "lean-pkg: push failed: origin/main: " in cap.err and "; rebase conflict in lean-package-events.jsonl, lean-packages.yaml" in cap.err
+    assert "run: git push origin main" in cap.err
+    assert _head(a.root) == seen["head"] and _clean(a.root)
+    assert not (a.root / ".git" / "rebase-merge").exists() and not (a.root / ".git" / "rebase-apply").exists()
+    assert _git(a.root, "rev-list", "--count", "origin/main..HEAD").stdout.strip() == "1"
+    commit = json.loads(cap.out)["commit"]
+    assert commit["pushed"] is False and commit["rebased"] is False and commit["push_attempts"] == 1
+    assert commit["push_error"].endswith("; rebase conflict in lean-package-events.jsonl, lean-packages.yaml")
+
+
+def test_union_event_lines_unit(lp):
+    base = ['{"ts": "2026-01-01T00:00:00+00:00", "event": "a"}']
+    o = base + ['{"ts": "2026-01-01T00:00:05+00:00", "event": "o"}']
+    t = base + ['{"ts": "2026-01-01T00:00:02+00:00", "event": "t"}']
+    assert lp.union_event_lines(base, o, t) == [base[0], t[1], o[1]]
+    same = base + ['{"ts": "2026-01-01T00:00:05+00:00", "event": "t"}']
+    assert lp.union_event_lines(base, o, same) == [base[0], o[1], same[1]]   # ties: origin first
+    assert lp.union_event_lines(base, ["rewritten"], t) is None              # not append-only
+    assert lp.union_event_lines(base, o, base + ["not json"]) is None

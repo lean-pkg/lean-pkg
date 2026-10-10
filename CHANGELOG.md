@@ -15,9 +15,17 @@ change the registry schema or receipt format, always with a migration).
   commit unless `--reason` is given (recorded as `non_descendant: true`); `gate --check --regate` validates without
   writing. Plain `gate` on a `verified-private` package is still refused, and the message now names `--regate`;
   `next` recommends `gate --regate` where it recommended `update --status gate-pending` for a moved HEAD. (#67)
+- Committed mode retries a failed push (#68): a transient transport error (connection reset,
+  `kex_exchange_identification`, `Could not read from remote`, timeout, HTTP 5xx) is retried with backoff (env
+  `LEAN_PKG_PUSH_RETRIES`, default 4; `LEAN_PKG_PUSH_RETRY_DELAY`, default 5 s, doubled: 5/10/20/40 s), each retry
+  reported on stderr. The `--json` `commit` object gains `push_attempts` and `rebased`.
 
 ### Changed
 
+- A push rejected as non-fast-forward fetches and rebases the registry commit as often as the retry budget allows
+  (was: once). A conflict only in the event log is resolved as a union of both sides' lines in timestamp order (was:
+  a `merge=union` attribute, which kept file order); any other conflict aborts the rebase, leaves the clone as it
+  was (commit kept, ahead) and the #54 failure line ends `; rebase conflict in <files>`. (#68)
 - `update --append-note` prints only the line it appended (`appended note: YYYY-MM-DD (A): TEXT`) instead of the
   whole notes field before and after, which buried the result for a long-lived package. The `updated` event's
   `notes_from` and the `--json` `changes.notes` {from, to} are unchanged. (#69)

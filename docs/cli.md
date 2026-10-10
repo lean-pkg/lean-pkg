@@ -45,11 +45,19 @@ on a branch with the registry file and event log unmodified, fetches `origin`
 and fast-forwards (`pull --ff-only`; a diverged clone is refused); after a
 successful write it commits exactly those two files together with the message
 `lean-pkg: <event> <name>`. `--push` (env `LEAN_PKG_PUSH=1`) also pushes to
-`origin`; a push rejected as non-fast-forward (origin moved on since the
-pull) is retried once: fetch, rebase that one commit onto `origin/<branch>`
-(the event log merges as a union of appended lines), push again; the retry is
-skipped when other local commits are unpushed, and a rebase conflict is
-aborted. A failed push keeps the commit, prints `push failed: origin/<branch>: <git error>` and the
+`origin`. A push that fails with a transient transport error (connection
+reset, `kex_exchange_identification`, `Could not read from remote`, a timeout,
+HTTP 5xx) is retried with backoff: env `LEAN_PKG_PUSH_RETRIES` retries
+(default 4), waiting `LEAN_PKG_PUSH_RETRY_DELAY` seconds (default 5) doubled
+each time (5, 10, 20, 40 s); any other failure (authentication, a hook's
+refusal) is not retried. A push rejected as non-fast-forward (origin moved on
+since the pull) fetches, rebases that one commit onto `origin/<branch>` and
+pushes again (as often as the retry budget allows, at least once); a conflict
+only in the event log is resolved as a union (both sides' appended lines,
+stable timestamp order), any other conflict aborts the rebase, leaving the
+clone exactly as before (the commit kept, ahead), and the failure ends
+`; rebase conflict in <files>`; the rebase is skipped when other local
+commits are unpushed. Each retry and rebase step is a stderr line. A failed push keeps the commit, prints `push failed: origin/<branch>: <git error>` and the
 recovery (`git push origin <branch>`), and exits 1; a `--push` write refuses while the clone is ahead of
 `origin/<branch>` (an unpushed commit), naming the commit. `--no-commit` overrides
 both variables. Its reports go to stderr: `committed <sha> on <branch>: <message>`, ending
@@ -58,7 +66,7 @@ variable rather than a flag turned the mode on (a wrapper may set one, so `renew
 can commit and push with no flag given), and `pushed origin/<branch> (<sha>)`; every
 subcommand's `--commit`/`--push` help names its variable and says `set now` when it is set.
 A `--json` payload gains
-`"commit": {"sha", "pushed", "error", "push_error"}` (`"ok": false` when the commit or push
+`"commit": {"sha", "pushed", "error", "push_error", "push_attempts", "rebased"}` (`"ok": false` when the commit or push
 failed); a commit made with the fallback identity `lean-pkg <lean-pkg@localhost>`
 says so on stderr.
 The registry is `--registry PATH`, else env

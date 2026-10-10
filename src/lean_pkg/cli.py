@@ -4867,7 +4867,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`). gate, comparator, record, promote --yes, claims sync, search --record: pass --agent A (another agent's live lease refuses; A is the event's `actor`); without it a live lease only warns.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
-- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (rejected as non-fast-forward: one fetch + rebase of that one commit + retry; a conflict aborts, commit kept; a failed push: `push failed: origin/BRANCH: ERR`, commit kept, exit 1; a --push write refuses while the clone is ahead of origin/BRANCH); --no-commit overrides. stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error, push_error}.
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (a transient transport error such as a connection reset, timeout or HTTP 5xx is retried with backoff: LEAN_PKG_PUSH_RETRIES, default 4, delays LEAN_PKG_PUSH_RETRY_DELAY doubling from 5 s; rejected as non-fast-forward: fetch + rebase of that one commit + push again, an event-log-only conflict merges as a union in timestamp order, any other conflict aborts the rebase with the clone as before, `; rebase conflict in FILES` in the error; a failed push: `push failed: origin/BRANCH: ERR`, commit kept, exit 1; a --push write refuses while the clone is ahead of origin/BRANCH); --no-commit overrides. stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error, push_error, push_attempts, rebased}.
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -5663,35 +5663,174 @@ def _rebase_in_progress(root: pathlib.Path) -> bool:
     return False
 
 
-def _rebase_and_repush(ctx: dict, rejected: subprocess.CompletedProcess) -> subprocess.CompletedProcess:
-    """One retry after a non-fast-forward rejection (#22.9): fetch origin, rebase our one commit onto
-    origin/<branch> (the event log merges as a union: both sides only append lines), push once more.
-    Retried only when our commit is the single commit ahead of origin/<branch>; a rebase conflict is
-    aborted, so the local commit stays as it was. Returns the push (or the original rejection)."""
+PUSH_RETRIES_ENV = "LEAN_PKG_PUSH_RETRIES"
+PUSH_RETRY_DELAY_ENV = "LEAN_PKG_PUSH_RETRY_DELAY"
+# Transport failures worth a retry (#68): the remote never saw the push. A rejection (origin moved on) is
+# handled by a rebase instead; anything else (auth, a hook's refusal, a protected branch) fails at once.
+_TRANSIENT_MARKERS = ("connection reset", "kex_exchange_identification", "could not read from remote",
+                      "timed out", "timeout", "connection closed by", "connection refused",
+                      "the remote end hung up unexpectedly", "early eof", "broken pipe",
+                      "could not resolve host", "temporary failure in name resolution",
+                      "network is unreachable", "ssh: connect to host")
+_TRANSIENT_HTTP_RE = re.compile(r"(?:returned error:|HTTP|status)\s*5\d\d\b", re.I)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.environ.get(name, "").strip()))
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.environ.get(name, "").strip()))
+    except ValueError:
+        return default
+
+
+def push_retry_policy() -> tuple[int, float]:
+    """(retries, first delay in seconds) for a transient push failure: env LEAN_PKG_PUSH_RETRIES (default 4)
+    and LEAN_PKG_PUSH_RETRY_DELAY (default 5; doubled per retry: 5, 10, 20, 40 s)."""
+    return _env_int(PUSH_RETRIES_ENV, 4), _env_float(PUSH_RETRY_DELAY_ENV, 5.0)
+
+
+def _push_transient(p: subprocess.CompletedProcess) -> bool:
+    text = f"{p.stderr}\n{p.stdout}"
+    return any(m in text.lower() for m in _TRANSIENT_MARKERS) or bool(_TRANSIENT_HTTP_RE.search(text))
+
+
+def _sleep(seconds: float) -> None:   # tests monkeypatch this
+    if seconds > 0:
+        import time
+        time.sleep(seconds)
+
+
+def _identity_args(root: pathlib.Path) -> list[str]:
+    """`-c user.name=... -c user.email=...` with the fallback identity when the clone has none (a rebase
+    re-commits, so it needs a committer as `commit` does)."""
+    if registry_git(root, "var", "GIT_COMMITTER_IDENT").returncode == 0:
+        return []
+    name, email = FALLBACK_IDENTITY
+    return ["-c", f"user.name={name}", "-c", f"user.email={email}"]
+
+
+def _event_ts_key(line: str):
+    try:
+        return parse_ts(json.loads(line)["ts"])
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def union_event_lines(base: list[str], ours: list[str], theirs: list[str]) -> list[str] | None:
+    """The event log's union merge (#68): both sides only append to `base`, so the result is `base` plus
+    both sides' new lines in stable timestamp order (ties: `ours` first, which in a rebase is origin's).
+    None when a side did not just append, or a new line carries no readable `ts`."""
+    if ours[:len(base)] != base or theirs[:len(base)] != base:
+        return None
+    new = ours[len(base):] + theirs[len(base):]
+    keys = [_event_ts_key(x) for x in new]
+    if any(k is None for k in keys):
+        return None
+    order = sorted(range(len(new)), key=lambda i: (keys[i], i))
+    return base + [new[i] for i in order]
+
+
+def _resolve_event_log_conflict(ctx: dict) -> bool:
+    """During a stopped rebase whose only conflict is the event log: write the union of both sides and stage
+    it. False when the stages cannot be read or the union does not apply."""
+    root, ev_rel = ctx["root"], ctx["files"][-1]
+
+    def stage(n: int) -> list[str] | None:
+        q = registry_git(root, "show", f":{n}:{ev_rel}")
+        return q.stdout.splitlines() if q.returncode == 0 else (None if n != 1 else [])
+    base, ours, theirs = stage(1), stage(2), stage(3)
+    if ours is None or theirs is None:
+        return False
+    merged = union_event_lines(base, ours, theirs)
+    if merged is None:
+        return False
+    (root / ev_rel).write_text("".join(x + "\n" for x in merged), encoding="utf-8")
+    if registry_git(root, "add", "--", ev_rel).returncode != 0:
+        return False
+    print(f"lean-pkg: event log conflict resolved by union ({len(ours) - len(base)} line(s) from origin, "
+          f"{len(theirs) - len(base)} ours, timestamp order)", file=sys.stderr)
+    return True
+
+
+def _conflicted(root: pathlib.Path) -> list[str]:
+    q = registry_git(root, "diff", "--name-only", "--diff-filter=U")
+    return [x for x in q.stdout.splitlines() if x.strip()]
+
+
+def _rebase_onto_origin(ctx: dict) -> tuple[bool, str | None]:
+    """After a non-fast-forward rejection (#22.9, #68): fetch origin and rebase our one commit onto
+    origin/<branch>. (True, None) when the rebase finished; (False, why) otherwise, with any stopped
+    rebase aborted so the clone is exactly as before (our commit kept, ahead). Only when our commit is the
+    single commit ahead of origin/<branch>; an event-log-only conflict merges as a union of lines."""
     root, branch = ctx["root"], ctx["branch"]
     upstream = f"refs/remotes/origin/{branch}"
     ahead = registry_git(root, "rev-list", "--count", f"{upstream}..HEAD")
     if ahead.returncode != 0 or ahead.stdout.strip() != "1":
-        return rejected
-    if fetch_origin(root) is not None:
-        return rejected
-    print(f"lean-pkg: push rejected (origin/{branch} moved on); rebasing the commit and retrying once",
+        return False, None
+    print(f"lean-pkg: push rejected (origin/{branch} moved on); fetching and rebasing the commit",
           file=sys.stderr)
-    ev_rel = ctx["files"][-1]
-    with tempfile.NamedTemporaryFile("w", suffix=".gitattributes", delete=False) as fh:
-        fh.write(f"/{ev_rel} merge=union\n")
-        attrs = fh.name
-    try:
-        rb = registry_git(root, "-c", f"core.attributesFile={attrs}", "rebase", "--quiet", upstream)
-    finally:
-        os.unlink(attrs)
+    err = fetch_origin(root)
+    if err is not None:
+        return False, f"fetch failed: {err}"
+    ident = _identity_args(root)
+    rb = registry_git(root, *ident, "rebase", "--quiet", upstream)
+    while rb.returncode != 0 and _rebase_in_progress(root):
+        files = _conflicted(root)
+        if files == [ctx["files"][-1]] and _resolve_event_log_conflict(ctx):
+            rb = registry_git(root, *ident, "-c", "core.editor=true", "rebase", "--continue")
+            continue
+        registry_git(root, "rebase", "--abort")
+        why = (f"rebase conflict in {', '.join(files)}" if files
+               else f"rebase failed ({_first_line(rb, 'rebase failed')})")
+        print(f"lean-pkg: rebase onto origin/{branch} stopped: {why}; aborted, kept the local commit",
+              file=sys.stderr)
+        return False, why
     if rb.returncode != 0:
-        if _rebase_in_progress(root):
-            registry_git(root, "rebase", "--abort")
-        print(f"lean-pkg: rebase onto origin/{branch} failed ({_first_line(rb, 'rebase failed')}); "
-              f"kept the local commit", file=sys.stderr)
-        return rejected
-    return registry_git(root, "push", "--quiet", "origin", branch)
+        why = f"rebase failed ({_first_line(rb, 'rebase failed')})"
+        print(f"lean-pkg: rebase onto origin/{branch}: {why}; kept the local commit", file=sys.stderr)
+        return False, why
+    short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip()
+    print(f"lean-pkg: rebased onto origin/{branch} ({short}); pushing again", file=sys.stderr)
+    return True, None
+
+
+def push_with_recovery(ctx: dict) -> tuple[subprocess.CompletedProcess, str | None]:
+    """`git push origin <branch>` in committed mode (#68): a transient transport failure is retried with
+    backoff (push_retry_policy); a non-fast-forward rejection fetches, rebases the one registry commit and
+    pushes again (as often as the retry budget allows, at least once). Returns the last push and, when a
+    rebase stopped the recovery, why. Counts land in ctx["result"]: push_attempts, rebased."""
+    root, branch, res = ctx["root"], ctx["branch"], ctx["result"]
+    retries, delay = push_retry_policy()
+    transient_left, rebases_left = retries, max(1, retries)
+    while True:
+        res["push_attempts"] += 1
+        p = registry_git(root, "push", "--quiet", "origin", branch)
+        if p.returncode == 0:
+            return p, None
+        if _push_rejected(p):
+            if rebases_left == 0:
+                return p, None
+            rebases_left -= 1
+            ok, why = _rebase_onto_origin(ctx)
+            if not ok:
+                return p, why
+            res["rebased"] = True
+            res["sha"] = registry_git(root, "rev-parse", "HEAD").stdout.strip() or res["sha"]
+            continue
+        if _push_transient(p) and transient_left > 0:
+            wait = delay * (2 ** (retries - transient_left))
+            transient_left -= 1
+            print(f"lean-pkg: push attempt {res['push_attempts']} failed ({_push_error_line(p)}); retrying in "
+                  f"{wait:g}s ({retries - transient_left} of {retries})", file=sys.stderr)
+            _sleep(wait)
+            continue
+        return p, None
 
 
 def _push_error_line(p: subprocess.CompletedProcess) -> str:
@@ -5719,10 +5858,12 @@ def _push_failed(ctx: dict, why: str) -> int:
 def commit_finish(ctx: dict, rc: int) -> int:
     """After the subcommand in committed mode: commit the changed registry files (only those paths),
     then push when asked. Writes only to stderr; stdout stays the subcommand's. The outcome is left in
-    ctx["result"] = {"sha", "pushed", "error", "push_error"} (the `commit` key of a --json payload). A failed
-    push keeps the commit, says so (`push failed: origin/<branch>: <git error>`) and returns 1 (#54)."""
+    ctx["result"] = {"sha", "pushed", "error", "push_error", "push_attempts", "rebased"} (the `commit` key of a
+    --json payload). The push goes through push_with_recovery (#68). A failed push keeps the commit, says so
+    (`push failed: origin/<branch>: <git error>`) and returns 1 (#54)."""
     root, branch = ctx["root"], ctx["branch"]
-    res = ctx["result"] = {"sha": None, "pushed": False, "error": None, "push_error": None}
+    res = ctx["result"] = {"sha": None, "pushed": False, "error": None, "push_error": None,
+                           "push_attempts": 0, "rebased": False}
     dirty = _dirty(ctx)
     if rc != 0:
         if dirty:
@@ -5761,12 +5902,9 @@ def commit_finish(ctx: dict, rc: int) -> int:
     if ctx["push"]:
         if not ctx["origin"]:
             return _push_failed(ctx, "no origin remote")
-        p = registry_git(root, "push", "--quiet", "origin", branch)
-        if p.returncode != 0 and _push_rejected(p):
-            p = _rebase_and_repush(ctx, p)
-            res["sha"] = registry_git(root, "rev-parse", "HEAD").stdout.strip() or res["sha"]
+        p, why = push_with_recovery(ctx)
         if p.returncode != 0:
-            return _push_failed(ctx, _push_error_line(p))
+            return _push_failed(ctx, _push_error_line(p) + (f"; {why}" if why else ""))
         res["pushed"] = True
         short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or short
         print(f"lean-pkg: pushed origin/{branch} ({short})", file=sys.stderr)
@@ -6651,7 +6789,8 @@ def _oserror_fail(e: OSError) -> Fail:
 
 def _emit_with_commit(text: str, ctx: dict | None, rc_before: int, rc: int) -> None:
     """Re-emit a --json command's captured stdout; in committed mode a single JSON object gains
-    "commit": {"sha", "pushed", "error", "push_error"} (and ok: false when the commit or push failed)."""
+    "commit": {"sha", "pushed", "error", "push_error", "push_attempts", "rebased"} (and ok: false when the commit
+    or push failed)."""
     if ctx is not None and "result" in ctx:
         try:
             payload = json.loads(text)

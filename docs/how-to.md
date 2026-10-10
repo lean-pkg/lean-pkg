@@ -314,7 +314,10 @@ lean-pkg claim my-lean --workspace w3 --agent vera --commit --push
 ```
 
 A clone that has diverged from `origin`, or registry files with uncommitted
-edits, is refused before anything is written. A failed push exits 1 and keeps
+edits, is refused before anything is written. A push that hits a transient
+network error is retried with backoff (`LEAN_PKG_PUSH_RETRIES`, default 4),
+and one rejected because another writer pushed first is rebased onto
+`origin/<branch>` and pushed again. A push that still fails exits 1 and keeps
 the local commit; run the `git push origin <branch>` it prints. `--no-commit`
 turns the mode off for one command, and `lean-pkg doctor --fetch` shows how
 the clone stands against `origin`.
