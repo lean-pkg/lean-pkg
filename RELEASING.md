@@ -17,6 +17,13 @@ changes evidence.
 
 ## Checklist
 
+0. Documentation gap pass: every CHANGELOG `### Added` entry since the
+   previous tag has a home in README.md or the docs front door
+   (`docs/index.md`, `docs/how-to.md`), every new subcommand has its
+   `docs/cli.md` row, and `lean-pkg llms` (llms.txt) covers it; `make check`
+   includes the subcommand-coverage test (`tests/test_docs.py`), which is the
+   floor, not the whole pass. Numbered 0 so that references to steps 1 to 7
+   elsewhere stay valid.
 1. Move the entries under `## [Unreleased]` in `CHANGELOG.md` to a new
    `## [X.Y.Z] - YYYY-MM-DD` section.
 2. Set `version` in `pyproject.toml` and `version` plus `date-released` in
