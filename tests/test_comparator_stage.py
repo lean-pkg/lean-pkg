@@ -500,3 +500,90 @@ def test_estimate_text_output_and_refusals(project: Path):
     assert run(project, "--estimate", "--sample", "0").returncode == 2
     r = run(project, "--estimate", mechanism="legacy", extra={"COMPARATOR_FAKE_LAKE_OK": "0"})
     assert r.returncode == 1 and "legacy" in r.stderr
+
+
+# --- #41: lake and lean resolved through elan per lean-toolchain, never a bare PATH lookup -------
+
+def fake_lake(path: Path, lean_version: str, tag: str, calls_file: Path) -> None:
+    path.write_text("#!/bin/sh\n"
+                    f"echo \"{tag} ${{ELAN_TOOLCHAIN:-none}} lake $*\" >> {calls_file}\n"
+                    f"if [ \"$1\" = --version ]; then echo 'Lake version 5.0.0 (Lean version {lean_version})'; fi\n"
+                    "exit 0\n")
+    path.chmod(0o755)
+
+
+def toolchain_host(tmp_path: Path, elan: bool, system_version: str = "4.19.0"):
+    """A fake elan home (elan + a lake of the project's Lean) and a fake system lake of another Lean
+    first on PATH: the setup that made the field run use the wrong toolchain."""
+    calls_file = tmp_path / "lake-calls.txt"
+    home = tmp_path / "elan-home"
+    (home / "bin").mkdir(parents=True)
+    if elan:
+        (home / "bin" / "elan").write_text("#!/bin/sh\nexit 0\n")
+        (home / "bin" / "elan").chmod(0o755)
+        fake_lake(home / "bin" / "lake", "4.35.0-rc2", "elan", calls_file)
+    sysbin = tmp_path / "usr-bin"
+    sysbin.mkdir()
+    fake_lake(sysbin / "lake", system_version, "system", calls_file)
+    extra = {"ELAN_HOME": str(home), "PATH": f"{sysbin}:{os.environ.get('PATH', '')}"}
+    return extra, calls_file
+
+
+def lake_project(tmp_path: Path) -> Path:
+    project = make_project(tmp_path)
+    (project / "lakefile.toml").write_text('name = "proj"\n')
+    (project / "lake-manifest.json").write_text(json.dumps({"version": 7, "packages": []}) + "\n")
+    git(project, "add", "-A")
+    git(project, "commit", "-qm", "lake project")
+    return project
+
+
+def prepare(project: Path, extra: dict):
+    env = runner_env(extra)
+    env.pop("COMPARATOR_FAKE_LAKE_OK", None)
+    env.pop("COMPARATOR_LAKE", None)
+    return subprocess.run([*RECEIPT_CLI, "--prepare"], cwd=project, env=env, capture_output=True,
+                          text=True, timeout=60)
+
+
+def test_setup_uses_elans_lake_pinned_to_lean_toolchain(tmp_path: Path):
+    project = lake_project(tmp_path)
+    extra, calls_file = toolchain_host(tmp_path, elan=True)
+    r = prepare(project, extra)
+    assert r.returncode == 0, r.stderr
+    rows = calls(calls_file)
+    assert rows and all(c.startswith("elan leanprover/lean4:v4.35.0-rc2 lake ") for c in rows), rows
+    assert "elan leanprover/lean4:v4.35.0-rc2 lake build Challenge Solution" in rows
+    res = stages_json(project)["toolchain_resolution"]
+    assert res["source"] == "elan" and res["lake"].endswith("elan-home/bin/lake")
+    assert "4.35.0-rc2" in res["version"]
+
+
+def test_without_elan_a_mismatched_path_lake_is_refused(tmp_path: Path):
+    project = lake_project(tmp_path)
+    extra, calls_file = toolchain_host(tmp_path, elan=False)
+    r = prepare(project, extra)
+    assert r.returncode == 1
+    assert "elan not found" in r.stderr and "4.19.0" in r.stderr and "4.35.0-rc2" in r.stderr
+    assert not any("build" in c for c in calls(calls_file))
+    assert not stage_dir(project).exists()
+
+
+def test_without_elan_a_matching_path_lake_is_used_and_recorded(tmp_path: Path):
+    project = lake_project(tmp_path)
+    extra, _calls = toolchain_host(tmp_path, elan=False, system_version="4.35.0-rc2")
+    r = prepare(project, extra)
+    assert r.returncode == 0, r.stderr
+    assert stages_json(project)["toolchain_resolution"]["source"] == "path"
+
+
+def test_receipt_records_toolchain_resolution(tmp_path: Path):
+    project = lake_project(tmp_path)
+    extra, _calls = toolchain_host(tmp_path, elan=True)
+    env = runner_env(extra)
+    env.pop("COMPARATOR_LAKE", None)
+    r = subprocess.run([*RECEIPT_CLI, "--mechanism", "toolchain"], cwd=project, env=env,
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    res = receipt(project)["toolchain_resolution"]
+    assert res["source"] == "elan" and "4.35.0-rc2" in res["version"]

@@ -697,6 +697,20 @@ without repeating setup. The receipt gains an additive `stages` list
 (`stage`, `status`, `exit`, `wall_s`; no paths) for the stages before
 `receipt`. Validators ignore it.
 
+**Which `lake`.** The runner never takes `lake` or `lean` from a bare PATH
+lookup, since a non-login shell can find a system `lake` from an old Lean
+before elan's proxies. When elan is installed (`$ELAN_HOME/bin/elan`,
+default `~/.elan`), elan's `bin/` goes first on `PATH` for every setup
+stage, toolchain probe and judge, including the vendored scripts they run,
+and `ELAN_TOOLCHAIN` is set to the checkout's `lean-toolchain`. Without
+elan, `PATH`'s `lake` is used only when `lake --version` names the Lean
+that `lean-toolchain` names; otherwise the run is refused before anything
+is written, naming both versions. `COMPARATOR_LAKE` remains an explicit
+override for the setup stages. `stages.json` and the receipt record
+`toolchain_resolution {source: elan|path|env, lake, version}`, and
+`comparator host-check` gains a `lake-path` line that warns when `PATH`'s
+`lake` is not elan's or elan is missing.
+
 The runner removes the repository-selecting Git variables (`GIT_DIR`,
 `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`,
 `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_COMMON_DIR`, `GIT_NAMESPACE`) from

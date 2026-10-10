@@ -83,7 +83,7 @@ def toolchain_available(project: pathlib.Path) -> bool:
     # (`lake comparator --help` is not a reliable probe: older lakes exit 0 on unknown help.)
     try:
         p = subprocess.run(["lean", "--print-prefix"], cwd=project, capture_output=True,
-                           text=True, timeout=120, env=scrubbed_env())
+                           text=True, timeout=120, env=tool_env())
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
     if p.returncode != 0 or not p.stdout.strip():
@@ -207,6 +207,16 @@ def host_checks() -> dict:
     for tool in ("go", "cargo", "jq", "git", "lean", "lake", "python3"):
         where = shutil.which(tool)
         add(tool, "ok" if where else "fail", where or "not on PATH")
+    eb, path_lake = elan_bin(), shutil.which("lake")   # #41: which lake would a bare PATH lookup run?
+    if eb is None:
+        add("lake-path", "warn", f"elan not found ({elan_home() / 'bin' / 'elan'}); comparator-receipt then uses "
+            f"PATH's lake ({path_lake or 'none'}) and refuses unless its Lean version equals lean-toolchain")
+    elif path_lake is None or pathlib.Path(path_lake).resolve().parent != eb.resolve():
+        add("lake-path", "warn", f"PATH's lake is {path_lake or 'missing'}, not elan's ({eb / 'lake'}); "
+            f"comparator-receipt resolves lake through elan per lean-toolchain, but other tools you run "
+            f"here will use the PATH one")
+    else:
+        add("lake-path", "ok", f"PATH's lake is elan's ({path_lake})")
     leaked = git_env_set()   # #27: a launcher's repository-selecting Git variables (scrubbed by the runner)
     if leaked:
         add("git-env", "warn", f"{', '.join(leaked)} set in the calling environment; comparator-receipt "
@@ -250,7 +260,7 @@ def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str)
             tools[f"{tool}_sha256"] = d
         return tools
     p = subprocess.run(["lean", "--print-prefix"], cwd=project, capture_output=True, text=True,
-                       env=scrubbed_env())
+                       env=tool_env())
     if p.returncode != 0 or not p.stdout.strip():
         raise RunnerError("cannot resolve the toolchain prefix (`lean --print-prefix` failed)")
     prefix = pathlib.Path(p.stdout.strip())
@@ -261,6 +271,85 @@ def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str)
                               f"mechanism needs Lean {TOOLCHAIN_FLOOR} or later")
         tools[f"{tool}_sha256"] = sha256_file(binp)
     return tools
+
+
+
+# ---------------------------------------------------------------------------
+# Toolchain resolution (#41). `lake` and `lean` are never taken from a bare PATH lookup: a non-login
+# shell can put a system lake (an old Lean) before elan's proxies. With elan present, elan's bin/
+# goes first on PATH for every stage, probe and judge (and the vendored scripts they run), and
+# ELAN_TOOLCHAIN pins the checkout's lean-toolchain. Without elan, PATH's lake is used only when its
+# `lake --version` names the same Lean as lean-toolchain. COMPARATOR_LAKE stays an explicit override.
+
+ELAN_HOME_ENV = "ELAN_HOME"
+_TOOL_ENV: dict = {}       # what resolve_toolchain decided for this run; merged into every tool's env
+
+
+def tool_env() -> dict:
+    env = scrubbed_env()
+    for k, v in _TOOL_ENV.items():
+        env[k] = v
+    return env
+
+
+def elan_home() -> pathlib.Path:
+    return pathlib.Path(os.environ.get(ELAN_HOME_ENV) or (pathlib.Path.home() / ".elan"))
+
+
+def elan_bin() -> pathlib.Path | None:
+    """elan's bin/ directory when elan is installed there, else None."""
+    b = elan_home() / "bin"
+    e = b / "elan"
+    return b if e.is_file() and os.access(e, os.X_OK) else None
+
+
+def toolchain_lean_version(toolchain: str) -> str:
+    """'leanprover/lean4:v4.35.0-rc2' -> '4.35.0-rc2'."""
+    tail = toolchain.strip().rsplit(":", 1)[-1]
+    return tail[1:] if tail.startswith("v") else tail
+
+
+def lake_lean_version(text: str) -> str | None:
+    m = re.search(r"Lean[^0-9]*version\s+v?([0-9][0-9A-Za-z.\-]*)", text)
+    return m.group(1) if m else None
+
+
+def probe_version(lake: str, project: pathlib.Path, env: dict) -> str:
+    try:
+        p = subprocess.run([lake, "--version"], cwd=project, capture_output=True, text=True,
+                           timeout=900, env=env, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise RunnerError(f"cannot run `{lake} --version` ({e}); nothing written")
+    out = (p.stdout or p.stderr).strip().splitlines()
+    if p.returncode != 0 or not out:
+        raise RunnerError(f"`{lake} --version` exited {p.returncode}; nothing written")
+    return out[0].strip()
+
+
+def resolve_toolchain(project: pathlib.Path, toolchain: str) -> dict:
+    """{source: elan|path|env, lake, version}; sets _TOOL_ENV. Refuses when elan is missing and PATH's
+    lake is another Lean than lean-toolchain."""
+    _TOOL_ENV.clear()
+    override = os.environ.get(LAKE_CMD_ENV)
+    if override:
+        return {"source": "env", "lake": override, "version": None}
+    b = elan_bin()
+    if b is not None:
+        _TOOL_ENV.update({"PATH": os.pathsep.join([str(b), os.environ.get("PATH", "")]),
+                          "ELAN_TOOLCHAIN": toolchain})
+        lake = str(b / "lake")
+        return {"source": "elan", "lake": lake, "version": probe_version(lake, project, tool_env())}
+    lake = shutil.which("lake")
+    if lake is None:
+        raise RunnerError(f"no elan (looked for {elan_home() / 'bin' / 'elan'}; set {ELAN_HOME_ENV}) and no "
+                          f"lake on PATH; install elan; nothing written")
+    version = probe_version(lake, project, tool_env())
+    want = toolchain_lean_version(toolchain)
+    if lake_lean_version(version) != want:
+        raise RunnerError(f"elan not found and PATH's lake {lake} reports {version!r}, but lean-toolchain "
+                          f"names Lean {want}; install elan (or put the matching lake first on PATH); "
+                          f"nothing written")
+    return {"source": "path", "lake": lake, "version": version}
 
 
 # ---------------------------------------------------------------------------
@@ -413,14 +502,14 @@ def config_modules(project: pathlib.Path, configs: list[str]) -> list[str]:
     return mods
 
 
-def run_logged(cmd: list[str], cwd: pathlib.Path, log: pathlib.Path) -> int:
+def run_logged(cmd: list[str], cwd: pathlib.Path, log: pathlib.Path) -> int:  # env: tool_env() (#41)
     """Run cmd with stdout and stderr appended to log (streamed, so a hung step can be watched)."""
     with open(log, "ab") as fh:
         fh.write(("$ " + " ".join(cmd) + "\n").encode())
         fh.flush()
         try:
             return subprocess.run(cmd, cwd=cwd, stdout=fh, stderr=subprocess.STDOUT,
-                                  env=scrubbed_env()).returncode
+                                  env=tool_env()).returncode
         except OSError as e:
             fh.write(f"error: cannot run {cmd[0]}: {e}\n".encode())
             return 127
@@ -436,6 +525,7 @@ class Stages:
         self.binding, self.prepare = binding, prepare
         self.entries: dict[str, dict] = {}
         self.progress: dict | None = None   # stage 04's {done, total, failed, partial_report} (#39)
+        self.resolution: dict | None = None  # toolchain_resolution {source, lake, version} (#41)
 
     def log(self, stage: str) -> pathlib.Path:
         return self.dir / f"{STAGES.index(stage) + 1:02d}-{stage}.log"
@@ -455,6 +545,7 @@ class Stages:
                 "setup_complete": setup_done, "failed_stage": failed, "stages": entries,
                 "git_env_scrubbed": git_env_set(),   # #27: removed from every lake/git/bash it ran
                 **({"progress": self.progress} if self.progress is not None else {}),
+                **({"toolchain_resolution": self.resolution} if self.resolution is not None else {}),
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         tmp = self.json.with_name(STAGES_FILE + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -523,7 +614,7 @@ def prepared_mismatch(data: dict | None, binding: dict) -> str | None:
 
 
 def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> None:
-    lake = os.environ.get(LAKE_CMD_ENV) or "lake"
+    lake = os.environ.get(LAKE_CMD_ENV) or "lake"   # with elan, PATH starts at elan's bin/ (tool_env)
     lakefile = has_lakefile(project)
     no_lake = ("skipped", None, "no lakefile.lean or lakefile.toml")
 
@@ -611,7 +702,7 @@ class Stage04:
         return units
 
     def command(self, unit: Unit) -> tuple[list[str], dict]:
-        env = scrubbed_env()
+        env = tool_env()
         if self.mechanism == "legacy":
             env["LOG_DIR"] = str(self.log_dir)
             return ["bash", str(self.check)], env
@@ -882,6 +973,16 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         raise RunnerError(f"unknown mechanism {mechanism!r}; one of {MECHANISMS}")
     binding = {"commit": commit, "lean_toolchain": toolchain,
                "config_hash": config_hash(project, configs)}
+    _TOOL_ENV.clear()
+    prior_src = from_prepared or evidence
+    prior = read_stages(prior_src)
+    mismatch = prepared_mismatch(prior, binding)
+    runs_lake = (has_lakefile(project) and (prepare or mismatch is not None)) \
+        or (not prepare and os.environ.get(FAKE_LAKE_ENV) is None)
+    resolution = resolve_toolchain(project, toolchain) if runs_lake else None
+    if resolution is not None:
+        print(f"comparator-receipt: lake {resolution['lake']} ({resolution['source']}"
+              + (f"; {resolution['version']}" if resolution["version"] else "") + ")", file=sys.stderr)
     subset = None
     if slot_spec is not None:   # refused before any setup runs
         try:
@@ -913,13 +1014,11 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                               f"configuration in one run and cannot be sharded; use --judges 1 (or "
                               f"--mechanism toolchain); nothing written")
         print(f"mechanism: {mechanism}")
-    prior_src = from_prepared or evidence
-    prior = read_stages(prior_src)
-    mismatch = prepared_mismatch(prior, binding)
     if from_prepared is not None and mismatch:
         raise RunnerError(f"--from-prepared {from_prepared}: {mismatch}; run `comparator-receipt --prepare` "
                           f"at this commit first; nothing written")
     stages = Stages(evidence, binding, prepare)
+    stages.resolution = resolution
     if mismatch is None:
         when = str(prior.get("updated_at") or "")
         by = {e.get("stage"): e for e in prior.get("stages") or [] if isinstance(e, dict)}
@@ -961,6 +1060,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
             result["stage04"] = st
             status, code, note = st.run(stage_log)
             result["extra"] = {**({"judges": judges} if mechanism == "toolchain" else {}),
+                               **({"toolchain_resolution": resolution} if resolution else {}),
                                **({"resumed_slots": len(st.cached)} if st.cached else {})}
             result["config_extra"] = {rel: {"units": rows} for rel, rows in st.receipt_units.items()}
             result["tools"] = (parse_pins(st.legacy_output) if mechanism == "legacy"

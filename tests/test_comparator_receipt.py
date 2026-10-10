@@ -315,13 +315,16 @@ def _fake_toolchain_host(tmp_path: Path, bwrap_ok: bool) -> dict:
     body = "#!/bin/sh\nexit 0\n" if bwrap_ok else \
         "#!/bin/sh\necho 'bwrap: setting up uid map: Permission denied' >&2\nexit 1\n"
     (fakes / "bwrap").write_text(body)
-    for f in ("lean", "bwrap"):
+    # #41: no elan on this fake host, so PATH's lake is used and must name the project's Lean
+    (fakes / "lake").write_text("#!/bin/sh\necho 'Lake version 5.0.0 (Lean version 4.32.0)'\n")
+    for f in ("lean", "bwrap", "lake"):
         (fakes / f).chmod(0o755)
     env = subprocess_env({"COMPARATOR_VERIFY": str(STUB_TC), "STUB_MODE": "pass",
                           "COMPARATOR_RECEIPT_ALLOW_HOST": "1"})
     env.pop("COMPARATOR_FAKE_LAKE_OK", None)
     env.pop("SLURM_JOB_ID", None)
     env["PATH"] = f"{fakes}:{env.get('PATH', '')}"
+    env["ELAN_HOME"] = str(tmp_path / "no-elan")
     return env
 
 

@@ -30,6 +30,12 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `comparator-receipt` resolves `lake`/`lean` through elan per the checkout's `lean-toolchain`
+  (elan's `bin/` first on `PATH`, `ELAN_TOOLCHAIN` set) for every stage, probe and judge, instead of
+  a bare PATH lookup that could pick a system `lake` of another Lean; without elan, a `PATH` lake
+  whose version differs from `lean-toolchain` is refused. `stages.json` and the receipt record
+  `toolchain_resolution`; `comparator host-check` warns (`lake-path`) when `PATH`'s lake is not
+  elan's. (#41)
 - `comparator-receipt`: the stage-04 judge's output is streamed to `04-comparator.log` as it
   arrives (stdin `/dev/null`, one merged pipe drained by a thread, `stdbuf -oL -eL`,
   `PYTHONUNBUFFERED=1`, own process group killed on TERM). It was captured in memory and written

@@ -35,7 +35,7 @@ def test_capable_host_passes_with_both_mechanisms(lp, cr, monkeypatch, capsys):
     assert rc == 0 and data["ok"] is True and data["can"] is True
     assert data["mechanisms"] == {"toolchain": True, "legacy": True}
     assert {c["item"] for c in data["checks"]} == {"kernel", "landlock", "bwrap", "go", "cargo", "jq", "git",
-                                                   "lean", "lake", "python3"}
+                                                   "lean", "lake", "python3", "lake-path"}
     assert data["verdict"].startswith("this host can produce comparator receipts")
 
 
@@ -189,3 +189,41 @@ def test_package_git_is_scrubbed_registry_git_is_not(lp, monkeypatch, tmp_path):
     monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "bogus-index"))
     assert lp.git(repo, "ls-files").stdout.split() == tracked        # package checkout: own index
     assert lp.registry_git(repo, "ls-files").stdout.split() == []    # registry: caller's env as is
+
+
+# --- #41: which lake a bare PATH lookup runs --------------------------------------------------
+
+def _elan(tmp_path, with_elan=True):
+    home = tmp_path / "elan"
+    (home / "bin").mkdir(parents=True)
+    if with_elan:
+        for t in ("elan", "lake"):
+            (home / "bin" / t).write_text("#!/bin/sh\n")
+            (home / "bin" / t).chmod(0o755)
+    return home
+
+
+def lake_path(cr):
+    return next(c for c in cr.host_checks()["checks"] if c["item"] == "lake-path")
+
+
+def test_lake_path_warns_when_path_lake_is_not_elans(cr, monkeypatch, tmp_path):
+    host(cr, monkeypatch)                                  # which("lake") -> /usr/bin/lake
+    monkeypatch.setenv("ELAN_HOME", str(_elan(tmp_path)))
+    c = lake_path(cr)
+    assert c["level"] == "warn" and "/usr/bin/lake" in c["detail"] and "not elan's" in c["detail"]
+
+
+def test_lake_path_warns_without_elan(cr, monkeypatch, tmp_path):
+    host(cr, monkeypatch)
+    monkeypatch.setenv("ELAN_HOME", str(_elan(tmp_path, with_elan=False)))
+    c = lake_path(cr)
+    assert c["level"] == "warn" and "elan not found" in c["detail"] and "refuses" in c["detail"]
+
+
+def test_lake_path_ok_when_path_lake_is_elans(cr, monkeypatch, tmp_path):
+    host(cr, monkeypatch)
+    home = _elan(tmp_path)
+    monkeypatch.setenv("ELAN_HOME", str(home))
+    monkeypatch.setattr(cr.shutil, "which", lambda t: str(home / "bin" / t))
+    assert lake_path(cr)["level"] == "ok"
