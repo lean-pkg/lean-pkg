@@ -1,7 +1,8 @@
 # 0006: Public flip
 
-Date: 2026-10-08. Status: proposed (the maintainer signs each gate; the
-repository stays private until every gate below is signed).
+Date: 2026-10-08. Status: accepted 2026-10-09 (G1 waived by the maintainer; G2
+accepted with its documented residue, GitHub Support ticket pending; the flip was
+executed the same day).
 
 ## Context
 

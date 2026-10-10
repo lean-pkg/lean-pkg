@@ -11,4 +11,4 @@ reversal is a new decision that supersedes the old one.
 | [0003](0003-history-before-the-public-flip.md) | History before the public flip | 2026-10-06 | accepted |
 | [0004](0004-copyright-and-license-confirmed-by-auburn.md) | Copyright and license confirmed by Auburn University | 2026-10-08 | accepted |
 | [0005](0005-github-account-successor-until-a-deputy-is-named.md) | GitHub account successor until a deputy is named | 2026-10-08 | accepted |
-| [0006](0006-public-flip.md) | Public flip | 2026-10-08 | proposed |
+| [0006](0006-public-flip.md) | Public flip | 2026-10-08 | accepted 2026-10-09 (G1 waived, G2 with residue) |
