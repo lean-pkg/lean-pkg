@@ -55,3 +55,11 @@ contract), make one logical change per commit, use spaces and never tab
 characters, and write a test for every refusal path you add. When you change
 `LLMS_TEXT`, regenerate `llms.txt`; `tests/test_docs.py` enforces this. AI
 assistance must be disclosed in the PR description (see CONTRIBUTING.md).
+
+Documentation at milestones: before `make release`, fill the documentation
+gaps for every feature added since the previous pass: README.md, the routes in
+docs/index.md and docs/how-to.md, the docs/cli.md rows, and the agent contract
+(`lean-pkg llms`, llms.txt). A CHANGELOG `### Added` entry with no home in
+README.md or the docs blocks the release (RELEASING.md, checklist step 0).
+The subcommand-coverage test in `tests/test_docs.py`, run by `make check`, is
+the floor, not the ceiling.
