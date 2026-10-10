@@ -1930,8 +1930,11 @@ def sha256_bytes(b: bytes) -> str:
 
 
 def git_show_bytes(repo: pathlib.Path, rel: str, rev: str = "HEAD") -> bytes | None:
-    """Bytes of <rev>:<rel>, or None when the path is not tracked there."""
-    p = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{rel}"],
+    """Bytes of <rev>:<rel>, or None when the path is not tracked there. `rel` is relative to the
+    package directory `repo`, which may be a subdirectory of its git repository: a bare `rel` is read
+    as `./rel` (git resolves a bare `<rev>:<path>` from the repository root, #21.2)."""
+    spec = rel if rel.startswith(("./", "../")) else f"./{rel}"
+    p = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{spec}"],
                        capture_output=True, env=scrubbed_env())
     return p.stdout if p.returncode == 0 else None
 

@@ -29,6 +29,14 @@ change the registry schema or receipt format, always with a migration).
   anchored bare-token allow (`allow: ^user$`) now exempts only a standalone occurrence. The reported
   span and the redaction are still the token itself. (#38)
 
+### Fixed
+
+- A package in a subdirectory of its git repository had a comparator configuration (and every other
+  file read through the same helper: claims.yaml, formalization.yaml, index sources) read from the
+  repository root when the path was bare: git resolves `<rev>:<path>` from the root. Every such read
+  is now relative to the package directory (`<rev>:./<path>`), as the toolchain and config-list reads
+  already were. (#21.2)
+
 ## [0.7.13] - 2026-10-10
 
 ### Fixed

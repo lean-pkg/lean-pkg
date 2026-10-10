@@ -73,3 +73,15 @@ def test_audit_no_drift_after_a_paper_edit(lp, sub, tmp_path, fake_gh, capsys):
     assert lp.main(["--registry", str(reg_p), "audit", "--json"]) == 0
     findings = json.loads(capsys.readouterr().out)["findings"]
     assert not [f for f in findings if f["check"] == "receipt-drift"], findings
+
+
+def test_git_show_bytes_reads_relative_to_the_package_dir(lp, sub):
+    """#21.2: a bare rel is the package directory's file, never the repository root's of the same name."""
+    root, pkg, prefix, bound = sub
+    _commit(root, "comparator.json", '{"at": "root"}\n')
+    head = _commit(root, f"{prefix}/comparator.json", '{"at": "package"}\n')
+    assert lp.git_show_bytes(pkg, "comparator.json", head) == b'{"at": "package"}\n'
+    assert lp.git_show_bytes(pkg, "./comparator.json", head) == b'{"at": "package"}\n'
+    assert lp.git_show_bytes(pkg, "Foo.lean", bound) == b"theorem foo : True := trivial\n"
+    assert lp.git_show_bytes(pkg, "comparator.json", bound) is None     # not in the package dir yet
+    assert lp.git_show_bytes(root, "comparator.json", head) == b'{"at": "root"}\n'
