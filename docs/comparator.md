@@ -630,6 +630,59 @@ slot: no run that includes it can be faster. `recommended_cap` is
 `ceil_5min(1.25 * estimated_seconds + 600)`, the 600 seconds covering the
 per-invocation `lake env`, no-op builds and `lake exe cache get`.
 
+### Runtime
+
+Where the time goes. Neither judge does work per slot. One `lake comparator`
+invocation (toolchain) runs a sandboxed `lake env`, a `lake build` of the
+Challenge (a no-op after setup), then `leanexport Challenge -- <names>` with
+every theorem name, about 30 kernel primitives and the permitted axioms; it
+writes the transitive closure of those names as NDJSON, values included, so
+any statement that mentions `ℝ` pulls in the proofs inside its instances and
+with them a large part of Mathlib. `leanexport` is single-threaded. The same
+follows for the Solution, then both exports are parsed and compared in
+process, and NanoDa (4 threads), con-ron and `leanchecker` each replay the
+whole Solution export. `verify-comparator.sh` also runs `lake exe cache get`
+first. The legacy mechanism has the same shape (pinned `lean4export`, then
+`nanoda` and Lean's kernel under landrun) plus a one-time tool build, and is
+not faster. So the cost follows the size of the export closure, not the
+number of slots, and the slowest step is one CPU core. A field run of one
+242-slot configuration spent 2 h 47 min of single-threaded export writing a
+1.92 GB Challenge export; the Solution export had reached 905 MB when an
+external 3 h cap killed the run, before any kernel replay had started.
+
+What cuts runtime for a package of about 250 slots:
+
+- Judge the whole configuration in one invocation (`--judges 1`, the
+  default). The shared closure is exported and replayed once; this is the
+  least total work and is exactly what Palomar runs.
+- `--judges N` shortens the wall time only when the shards' closures are
+  largely disjoint (theorems in unrelated corners that do not share a heavy
+  vocabulary). For a Mathlib analysis package every shard exports most of
+  the same closure again: wall time barely drops while CPU, memory and temp
+  space grow N-fold. The per-slot timings of `--estimate` show which case
+  applies: if the sampled slots cost about the same (`per_slot_min_seconds`
+  close to `per_slot_max_seconds`), the closure is shared, and sharding or
+  per-slot judging multiplies the work.
+- Give the run a cap that fits. Run `comparator-receipt --estimate` after
+  `--prepare` and use its `recommended_cap`
+  (`ceil_5min(1.25 * per_slot_seconds * slots / judges + 600)`). That is the
+  safe bound; a batched run of a shared closure lands between
+  `lower_bound_seconds` and `estimated_seconds`, usually near the lower end.
+  For the field package above, a 3 h cap could not finish: plan for well
+  over twice the measured export time.
+- When no single job can hold the whole run, make progress across jobs:
+  judge `--slots 1-60`, `--slots 61-120`, and so on in successive jobs (each
+  writes a partial receipt and caches its slots), then run without `--slots`
+  to write the receipt from the cache. Each batch pays the shared closure
+  again, so use as few batches as the cap allows. An interrupted run keeps
+  only the units that completed; a single whole-configuration unit is all
+  or nothing.
+- Choose the host for one fast core and enough memory and disk: the export
+  is single-threaded, NanoDa uses four threads, and each export is a file
+  of gigabytes in the unit's `TMPDIR` under the evidence directory, so put
+  `--evidence-dir` on local disk, not a network filesystem.
+  `LEAN_NUM_THREADS` does not speed up the export.
+
 `comparator-receipt --prepare` runs only the setup stages and writes no
 receipt. It is idempotent: a second `--prepare` with a matching completed
 setup does nothing. A later `comparator-receipt` whose commit, toolchain and

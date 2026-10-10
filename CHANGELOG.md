@@ -7,6 +7,34 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `comparator-receipt` stage 04 progress: `slot i/N <name> started` / `done in Ss` / `failed` lines,
+  a `heartbeat:` line every 60 s of judge silence, `04-comparator.partial.json` (slots done, pending,
+  failed; rewritten after every unit) and `stages.json` `progress {done, total, failed,
+  partial_report}`; on TERM/INT/HUP the stage is `partial` and the runner exits 128+signal with the
+  resume command. (#39)
+- `comparator-receipt` resume: accepted slots are cached under `comparator-stages/04-slots/`, keyed
+  by commit, config hash, toolchain, mechanism, judge digest, config and slot; a rerun judges only the
+  rest. `--no-resume` judges everything again. (#39)
+- `comparator-receipt --judges N` (env `LEAN_PKG_COMPARATOR_JOBS`): contiguous shards of each
+  configuration's slots judged in parallel on partial configurations; exact merge; the receipt
+  records `judges` and per config `units[]`. Toolchain mechanism only. (#39)
+- `comparator-receipt --slots SPEC` (names, `<config>:<name>`, `i-j`, `sample:K`): a subset run
+  writes a receipt marked `partial: true` into the stage directory; every validator refuses it as
+  evidence. (#39)
+- `comparator-receipt --estimate [--sample K] [--json]`: times a stratified sample of slots, each
+  judged alone, and reports `per_slot_seconds`, `slots`, `estimated_seconds`,
+  `lower_bound_seconds` and `recommended_cap`; no receipt. docs/comparator.md gains a Runtime
+  section. (#39)
+
+### Fixed
+
+- `comparator-receipt`: the stage-04 judge's output is streamed to `04-comparator.log` as it
+  arrives (stdin `/dev/null`, one merged pipe drained by a thread, `stdbuf -oL -eL`,
+  `PYTHONUNBUFFERED=1`, own process group killed on TERM). It was captured in memory and written
+  only when the judge exited, so a run killed by an external timeout left an empty log. (#39)
+
 ## [0.7.12] - 2026-10-09
 
 ### Changed
