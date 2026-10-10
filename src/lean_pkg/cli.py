@@ -951,9 +951,48 @@ def flush_events(reg: dict) -> None:
         _write_event_lines(p, lines)
 
 
+# #21.3: the agent a gate/comparator/record/promote --yes/claims sync/search --record invocation acts as
+# (its --agent), set by lease_actor() for this invocation; record() stores it as `actor`.
+_ACTOR: dict = {"agent": None}
+
+
+def lease_actor(reg: dict, name: str | None, agent: str | None, what: str) -> str | None:
+    """The lease-holder rule for evidence writers that take an optional --agent (#21.3). With --agent:
+    another agent's live lease refuses (an unparseable lease too), and the agent is recorded as the
+    event's `actor`. Without it nothing is refused (the behaviour before #21.3); a live lease returns
+    a warning naming the holder, which the caller prints on stderr."""
+    _ACTOR["agent"] = agent or None
+    pkg = (reg.get("packages") or {}).get(name) if name else None
+    if not isinstance(pkg, dict):
+        return None
+    lease = pkg.get("lease")
+    live = lease_live_or_none(lease, dt.datetime.now(dt.timezone.utc))
+    if live is None:
+        if agent:
+            refuse_invalid_lease(name, lease)
+        return None
+    if not live:
+        return None
+    holder = lease.get("agent")
+    if not agent:
+        return (f"{name}: lease held by {holder}; {what} without --agent does not check the holder "
+                f"(pass --agent {holder} to record the actor; another agent is then refused)")
+    if agent != holder:
+        raise Fail(f"{name}: lease held by {holder}, not {agent} — {what} refused; ask {holder} to "
+                   f"release it, or run as --agent {holder}")
+    return None
+
+
+def warn_lease(msg: str | None) -> None:
+    if msg:
+        print(f"lean-pkg: warning: {msg}", file=sys.stderr)
+
+
 def record(reg: dict, events_p: pathlib.Path, pkg: dict, event: str, **fields) -> None:
     """One transition = one history[] entry + one event-log line. Append-only. The line is queued and
     written by the save_registry(reg) that persists the history entry, never before it."""
+    if _ACTOR["agent"] and "agent" not in fields and "actor" not in fields:
+        fields = {**fields, "actor": _ACTOR["agent"]}
     ts = now_iso()
     pkg.setdefault("history", []).append({"ts": ts, "event": event, **fields})
     _PENDING_EVENTS.setdefault(id(reg), (reg, []))[1].append(
@@ -4408,7 +4447,7 @@ Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ~/.lean-p
 STANDING RULES
 - NEVER hand-edit the registry yaml. Use `lean-pkg register` / `lean-pkg update`.
 - Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`; one package: `status NAME --json [--fields ...]` or `list --json --only NAME`).
-- Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`).
+- Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`). gate, comparator, record, promote --yes, claims sync, search --record: pass --agent A (another agent's live lease refuses; A is the event's `actor`); without it a live lease only warns.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
 - Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (rejected as non-fast-forward: one fetch + rebase of that one commit + retry; a conflict aborts, commit kept); --no-commit overrides. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error}.
@@ -4614,7 +4653,9 @@ def cmd_record(args) -> int:
             raise Fail(f"--field expects KEY=VALUE, got {item!r}")
         k, v = item.split("=", 1)
         fields[k.strip()] = v
-    out, payload = do_record(reg_path, load_registry(reg_path), events_p,
+    reg = load_registry(reg_path)
+    warn_lease(lease_actor(reg, args.name, args.agent, "record"))
+    out, payload = do_record(reg_path, reg, events_p,
                              args.name, args.event, fields, args.reason)
     if args.json_out:
         print_json(payload)
@@ -4808,13 +4849,14 @@ def cmd_gate(args) -> int:
         out, payload = do_gate_check(load_registry(reg_path), args.name, args.receipt, args.comparator,
                                      refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
     elif getattr(args, "refresh_formalization", False):
+        _ACTOR["agent"] = getattr(args, "agent", None) or None    # its own lease check runs in do_gate_refresh
         out, payload, warnings = do_gate_refresh(reg_path, load_registry(reg_path), events_p, args)
         for w in warnings:
             print(f"lean-pkg: warning: {w}", file=sys.stderr)
-    elif getattr(args, "agent", None) is not None:
-        raise UsageError("gate --agent is used only with --refresh-formalization")
     else:
-        out, payload = do_gate(reg_path, load_registry(reg_path), events_p,
+        reg = load_registry(reg_path)
+        warn_lease(lease_actor(reg, args.name, getattr(args, "agent", None), "gate"))
+        out, payload = do_gate(reg_path, reg, events_p,
                                args.name, args.receipt, args.comparator,
                                refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
     if args.json_out:
@@ -4871,7 +4913,10 @@ def cmd_comparator(args) -> int:
     if args.receipt is None:
         raise UsageError("comparator NAME needs --receipt PATH (or: lean-pkg comparator host-check)")
     reg_path, events_p = registry_path(args), events_path(args)
-    out, payload = do_comparator(reg_path, load_registry(reg_path), events_p,
+    reg = load_registry(reg_path)
+    if not args.check:
+        warn_lease(lease_actor(reg, args.name, args.agent, "comparator"))
+    out, payload = do_comparator(reg_path, reg, events_p,
                                  args.name, args.receipt, args.check,
                                  refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
                                  replace=args.replace)
@@ -4884,7 +4929,10 @@ def cmd_comparator(args) -> int:
 
 def cmd_promote(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
-    out, rc, payload = do_promote(reg_path, load_registry(reg_path), events_p,
+    reg = load_registry(reg_path)
+    if args.yes:
+        warn_lease(lease_actor(reg, args.name, args.agent, "promote --yes"))
+    out, rc, payload = do_promote(reg_path, reg, events_p,
                                   args.name, args.yes, args.skip_public_safety)
     if args.json_out:
         print_json(payload)
@@ -5518,6 +5566,7 @@ class _Parser(argparse.ArgumentParser):
 
 
 def main(argv: list[str] | None = None) -> int:
+    _ACTOR["agent"] = None   # #21.3: per invocation
     raw = list(sys.argv[1:] if argv is None else argv)
     _Parser.json_requested = "--json" in (raw[:raw.index("--")] if "--" in raw else raw)
     ap = _Parser(
@@ -5620,6 +5669,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--field", action="append", metavar="KEY=VALUE",
                    help="event field (repeatable); required keys per event are listed by `lean-pkg llms`")
     s.add_argument("--reason", default="", help="free-text reason stored with the event")
+    s.add_argument("--agent", default=None,
+                   help="the agent acting (recorded as the event's actor); another agent's live lease then refuses")
     add_json(s)
     s.set_defaults(fn=cmd_record)
 
@@ -5778,7 +5829,8 @@ def main(argv: list[str] | None = None) -> int:
                         "including status.evidence; kept keys survive) and set its registry pointer; "
                         "refuses when nothing would change")
     s.add_argument("--agent", default=None,
-                   help="with --refresh-formalization: the live lease holder, if any (the file write needs it)")
+                   help="the agent acting (recorded as the event's actor); another agent's live lease then "
+                        "refuses; with --refresh-formalization: the live lease holder (the file write needs it)")
     s.add_argument("--check", action="store_true",
                    help="validate only, against HEAD (with --comparator: both tiers); write nothing, record "
                         "nothing (works at any status), like `comparator --check`")
@@ -5812,7 +5864,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dry-run", action="store_true", help="with config: print the would-be JSON; write nothing")
     s.add_argument("--challenge-namespace", default=None,
                    help="with config: namespace of the new Challenge names (default <Package>Audit)")
-    s.add_argument("--agent", default=None, help="with config: lease holder, if one is live")
+    s.add_argument("--agent", default=None, help="the agent acting (recorded as the event's actor; another "
+                                                  "agent's live lease then refuses); with config: lease holder, "
+                                                  "if one is live")
     s.add_argument("--challenge-from-type", action="store_true",
                    help="with config: pre-fill each new Challenge/Solution from the declaration's elaborated "
                         "type (runs `lake env lean` in the checkout)")
@@ -5844,6 +5898,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="execute: gh repo edit --visibility public (ONE-WAY)")
     s.add_argument("--skip-public-safety", action="store_true",
                    help="do not run the public-safety scan of the tree and history (a WARN line instead)")
+    s.add_argument("--agent", default=None,
+                   help="with --yes: the agent acting (recorded as the promoted event's actor); another agent's "
+                        "live lease then refuses")
     add_json(s)
     s.set_defaults(fn=cmd_promote)
 

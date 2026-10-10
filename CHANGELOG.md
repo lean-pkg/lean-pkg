@@ -21,6 +21,10 @@ change the registry schema or receipt format, always with a migration).
   stamp>.json` (never overwritten), the new one is attached, and the event is `comparator-replaced`
   with `replaced` (the kept path) in history, the event log and `--json`. Without `--replace` the
   refusal now names the flag instead of asking for a hand move. (#21.1)
+- `--agent A` on `gate` (no longer only with `--refresh-formalization`), `comparator`, `record`,
+  `promote --yes`, `claims sync` and `search --record`: another agent's live lease refuses (exit 1,
+  nothing written) and `A` is recorded as `actor` on the history entry and the event line (additive).
+  Without `--agent` nothing new is refused; a live lease prints a warning naming the holder. (#21.3)
 
 ### Changed
 

@@ -578,7 +578,9 @@ def cmd_claims(args) -> int:
 
 def run_sync(args) -> int:
     reg_path, events_p = core.registry_path(args), core.events_path(args)
-    out, payload = do_claims_sync(reg_path, core.load_registry(reg_path), events_p, args.name)
+    reg = core.load_registry(reg_path)
+    core.warn_lease(core.lease_actor(reg, args.name, args.agent, "claims sync"))
+    out, payload = do_claims_sync(reg_path, reg, events_p, args.name)
     return _emit(args, out, payload)
 
 
@@ -609,6 +611,8 @@ def add_parsers(sub, add_json) -> None:
     csub = s.add_subparsers(dest="claims_cmd")
     a = csub.add_parser("sync", help="read claims.yaml at HEAD of the checkout; validate; cache; event")
     a.add_argument("name")
+    a.add_argument("--agent", default=None,
+                   help="the agent acting (recorded as the event's actor); another agent's live lease then refuses")
     add_json(a)
     a.set_defaults(fn=cmd_claims, claims_fn=run_sync)
     b = csub.add_parser("list", help="table of cached claims with status and trust")

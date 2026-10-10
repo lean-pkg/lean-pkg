@@ -66,6 +66,14 @@ registry is in use. Exit codes: 0 success or dry run,
 off a terminal (with `--json` a usage refusal, argparse's own errors
 included, also prints `{"ok": false, "error": ..., "usage": true}`).
 
+The evidence writers `gate`, `comparator`, `record`, `promote --yes`,
+`claims sync` and `search --record` take an optional `--agent A`. With it,
+a live lease held by another agent is a refusal (exit 1, nothing written)
+and `A` is stored as `actor` on the history entry and the event line.
+Without it nothing is refused, as before, but a live lease prints a
+warning naming the holder on stderr. `--check` and promote's dry run are
+read-only and never refused for a lease.
+
 The authoritative, machine-oriented version of this page is
 [llms.txt](llms.txt), which is the exact output of `lean-pkg llms`.
 

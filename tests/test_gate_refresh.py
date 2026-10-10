@@ -73,7 +73,9 @@ def test_invalid_kept_keys_refuse_before_the_gate(lp, env, tmp_path, capsys):
     assert read_reg(env)["packages"]["alpha"]["status"] == "gate-pending" and read_events(env) == []
 
 
-def test_agent_without_refresh_is_a_usage_error(lp, env, tmp_path, capsys):
+def test_agent_without_refresh_is_the_actor(lp, env, tmp_path, capsys):
+    """#21.3 (was a usage error before): gate --agent names the actor recorded on gate-passed."""
     p = write_receipt(tmp_path, make_receipt(env.repo_a))
     rc = lp.main(["--registry", str(env.registry), "gate", "alpha", "--receipt", str(p), "--agent", "x"])
-    assert rc == 2 and "only with --refresh-formalization" in capsys.readouterr().err
+    assert rc == 0, capsys.readouterr().err
+    assert read_reg(env)["packages"]["alpha"]["history"][-1]["actor"] == "x"

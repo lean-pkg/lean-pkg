@@ -306,6 +306,8 @@ def render_text(payload: dict) -> list[str]:
 def cmd_search(args) -> int:
     if args.repo_dir and not args.record:
         raise core.UsageError("--repo-dir is only used with --record")
+    if args.agent and not args.record:
+        raise core.UsageError("--agent is only used with --record")
     reg_path = core.registry_path(args)
     out, payload = do_search(args.term, reg_path=reg_path,
                              index_dir=idx.index_root(args), package=args.package,
@@ -316,8 +318,12 @@ def cmd_search(args) -> int:
         events_p = core.events_path(args) if (args.events or reg_path.is_file()) else None
         # the network search above runs unlocked; the record file and its event under the registry lock
         with core.registry_lock(reg_path) if reg_path.is_file() else contextlib.nullcontext():
+            if reg_path.is_file() and args.package:    # #21.3: the lease-holder rule, as for record
+                core.warn_lease(core.lease_actor(core.load_registry(reg_path), args.package, args.agent,
+                                                 "search --record"))
             lines, payload["record"] = prior_art.write_record(payload, reg_path=reg_path,
-                                                              events_p=events_p, repo_dir=args.repo_dir)
+                                                              events_p=events_p, repo_dir=args.repo_dir,
+                                                              actor=args.agent)
         out += lines
     if args.json_out:
         core.print_json(payload)
@@ -344,5 +350,8 @@ def add_parsers(sub, add_json) -> None:
                    help="write docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-dir) "
                         "and a prior-art-searched event")
     s.add_argument("--repo-dir", default=None, help="research repository for --record")
+    s.add_argument("--agent", default=None,
+                   help="with --record: the agent acting (recorded as the event's actor); another agent's live "
+                        "lease on --package then refuses")
     add_json(s)
     s.set_defaults(fn=cmd_search)

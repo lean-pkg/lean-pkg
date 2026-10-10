@@ -171,7 +171,7 @@ def _withhold(payload: dict, reg: dict | None, package: str | None, visibility: 
 
 
 def write_record(payload: dict, *, reg_path: pathlib.Path, events_p: pathlib.Path | None,
-                 repo_dir: str | None) -> tuple[list[str], dict]:
+                 repo_dir: str | None, actor: str | None = None) -> tuple[list[str], dict]:
     reg = core.load_registry(reg_path) if reg_path.is_file() else None
     package = payload.get("package")
     target, visibility = _target(reg_path, reg, package, repo_dir)
@@ -195,7 +195,7 @@ def write_record(payload: dict, *, reg_path: pathlib.Path, events_p: pathlib.Pat
     if events_p is not None:
         core.append_event(events_p, core.now_iso(), package, "prior-art-searched",
                           term=payload["term"], sources=sources, hits=hits, record=rel,
-                          decision="pending")
+                          decision="pending", **({"actor": actor} if actor else {}))
         event = "prior-art-searched"
     else:
         out.append("no event log (no registry here and no --events): prior-art-searched not recorded")
