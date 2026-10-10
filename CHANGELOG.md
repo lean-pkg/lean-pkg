@@ -23,6 +23,11 @@ change the registry schema or receipt format, always with a migration).
   (`COMPARATOR_LAKE` wrapper with `-j1`, `systemd-run --user --scope -p MemoryMax=...`; the estimate reports time, not
   memory) and hosts without user namespaces (EL7 compute nodes cannot run the toolchain mechanism; run
   `comparator host-check` on every candidate host first). (#52)
+- `search`: a registered package without synced claims is searched by declaration in its checkout at HEAD
+  (`git grep` over tracked `*.lean` files: declaration names and their docstrings), reported with
+  `hit_kind: declaration (unclaimed)`, trust `none`, `PATH:LINE`, after the claim hits; a package without a git
+  checkout is not searched. A `registry coverage:` line before `consulted:` names the blind sources, so a zero is
+  not read as absence; `--json` gains `coverage` and the `--record` page states the counts. (#49)
 
 ## [0.7.19] - 2026-10-10
 

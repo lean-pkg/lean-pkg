@@ -63,7 +63,23 @@ def not_found_line(payload: dict) -> str | None:
     return f"Not found in {', '.join(zero)} on {payload['date']} for {_q(payload['term'])}."
 
 
+def coverage_sentence(payload: dict) -> str | None:
+    """Counts only (no package names: the record may land in a public repository)."""
+    cov = payload.get("coverage")
+    if not cov:
+        return None
+    blind = cov["declaration_only"] + len(cov["not_searched"])
+    if not blind:
+        return None
+    return (f"{blind} of {blind + cov['claims']} registered packages have no synced claims: "
+            f"{cov['declaration_only']} searched by declaration only, {len(cov['not_searched'])} not searched "
+            f"(no checkout).")
+
+
 def _candidate(h: dict) -> str:
+    if h.get("hit_kind") == "declaration (unclaimed)":
+        return (f"- `{h['decl']}` in package `{h['package']}` ({h['kind']}, declaration (unclaimed), trust "
+                f"{h['trust']}, `{_cell(h['file'])}`). {_cell(h.get('summary') or '')}")
     if h.get("hit_kind") == "package":
         repo = f": {_cell(h['repo'])}" if h.get("repo") else ""
         return f"- package `{h['package']}` ({h['status']}){repo}"
@@ -94,6 +110,9 @@ def render_record(payload: dict, *, withheld: int, private_claims: bool) -> str:
     nf = not_found_line(payload)
     if nf:
         lines += [nf, ""]
+    cs = coverage_sentence(payload)
+    if cs:
+        lines += [cs, ""]
     lines += ["A skipped source was not searched: it is not a zero. Zero hits do not prove absence.", ""]
     if withheld:
         lines += [f"{withheld} registry claim(s) of other private packages matched and are not listed here.", ""]

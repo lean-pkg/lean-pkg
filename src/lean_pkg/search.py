@@ -4,9 +4,12 @@ revision and state (`ok` or `skipped: <reason>`), and a closing line naming ever
 source consulted. Local sources (the registry's packages and cached claims, the
 public index) always run and are scored deterministically: exact alias (or package
 name) 3, keyword 2, every term token present 1; no embeddings. A registry hit is a
-package (`hit_kind: package`: name, notes, owner_project, repo) or a claim. Network sources (lean_pkg.adapters) run
-unless --offline; each is reported separately and never merged into the local
-score. A skipped source is never a zero.
+package (`hit_kind: package`: name, notes, owner_project, repo) or a claim. A package with no synced
+claims is searched by declaration instead: its checkout at HEAD (`git grep` over tracked `*.lean`
+files, declaration names and their docstrings), `hit_kind: declaration (unclaimed)`, trust none,
+ranked after the claim and package hits; a package without a git checkout is reported as not
+searched (#49). Network sources (lean_pkg.adapters) run unless --offline; each is reported
+separately and never merged into the local score. A skipped source is never a zero.
 """
 
 from __future__ import annotations
@@ -38,6 +41,14 @@ LOOGLE_NL_REASON = ("natural-language query; Loogle takes declaration patterns �
                     "`?a + ?b = ?b + ?a` (--loogle forces it)")
 _SIG_MARKERS = ("→", "->", "∀", "∃", "fun ", "λ", ":", "(", "?", "_", "⊢", '"', "↔", "<->")
 _DOTTED = re.compile(r"\b[A-Z][A-Za-z0-9']*\.[A-Za-z_]")
+DECL_HIT_KIND = "declaration (unclaimed)"
+DECL_KEYWORDS = ("theorem", "lemma", "def", "structure", "class", "instance", "abbrev", "inductive")
+_DECL_LINE = re.compile(
+    r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|partial|unsafe|nonrec|scoped)\s+)*"
+    r"(" + "|".join(DECL_KEYWORDS) + r")\s+([^\s:({\[⦃]+)")
+DECL_HITS_PER_PACKAGE = 10     # declaration hits kept per package; the rest are counted, not listed
+DECL_FILES_MAX = 200           # files read per package after the git grep prefilter
+EXCERPT_MAX = 160
 
 
 def fold(text) -> str:
@@ -133,6 +144,131 @@ def block(source: str, state: str, reason: str | None = None, revision: str | No
 
 
 # --------------------------------------------------------------------------
+# declaration fallback (#49): packages without synced claims
+
+def has_synced_claims(pkg: dict) -> bool:
+    """True when the registry caches at least one synced claim for the package (`claims coverage`
+    `synced`). `empty`, `unsynced` and `none` all leave search blind to the package's claims."""
+    return bool(pkg.get("claims"))
+
+
+def lean_declarations(text: str) -> list[tuple[int, str, str, str | None, str]]:
+    """(line, keyword, name, docstring or None, stripped line) for every declaration line
+    (`theorem|lemma|def|structure|class|instance|abbrev|inductive NAME`, after attributes and
+    modifiers). A `/-- ... -/` docstring belongs to the declaration that follows it, with only blank
+    or attribute lines between."""
+    out: list[tuple[int, str, str, str | None, str]] = []
+    doc, buf, in_doc = None, [], False
+    for i, line in enumerate(text.splitlines(), 1):
+        st = line.strip()
+        if in_doc:
+            buf.append(st)
+            if "-/" in st:
+                in_doc, doc = False, " ".join(buf)
+            continue
+        if st.startswith("/--"):
+            buf = [st]
+            if "-/" in st[3:]:
+                doc = st
+            else:
+                in_doc = True
+            continue
+        m = _DECL_LINE.match(line)
+        if m and m.group(2) not in DECL_KEYWORDS:
+            out.append((i, m.group(1), m.group(2), doc, st))
+            doc = None
+        elif st and not st.startswith("@["):
+            doc = None
+    return out
+
+
+def _doc_text(doc: str | None) -> str:
+    if not doc:
+        return ""
+    d = doc.strip()
+    d = d[3:] if d.startswith("/--") else d
+    d = d[:-2] if d.endswith("-/") else d
+    return " ".join(d.split())
+
+
+def _excerpt(text: str) -> str:
+    t = scrub_paths(" ".join(str(text).split()))
+    return t if len(t) <= EXCERPT_MAX else t[:EXCERPT_MAX - 1].rstrip() + "…"
+
+
+def _decl_terms(term: str) -> list[str]:
+    toks = tokens(term)
+    long = [t for t in toks if len(t) >= 2]
+    return sorted(set(long or toks))
+
+
+def _decl_order(h: dict) -> tuple:
+    """Name matches first, then package, file and line (numeric)."""
+    rel, _, line = h["file"].rpartition(":")
+    return (h["where"] != "name", h["package"], rel, int(line) if line.isdigit() else 0)
+
+
+def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int] | None:
+    """(hits, omitted) from the package's checkout at HEAD, or None when there is no git checkout
+    at local_path (not searched). A declaration matches when every query word (case-insensitive,
+    accents folded, as a substring so camelCase names match) occurs in its name or its docstring;
+    a name match ranks before a docstring-only match."""
+    if not pkg.get("local_path"):
+        return None
+    try:
+        repo = core.repo_path(pkg)
+    except Exception:
+        return None
+    if not repo.is_dir():
+        return None
+    head = core.git_head(repo)
+    if head is None:
+        return None
+    words = _decl_terms(term)
+    args = ["grep", "-l", "-I", "-i", "-F", "--all-match"]
+    for w in words:
+        args += ["-e", w]
+    p = core.git(repo, *args, "HEAD", "--", "*.lean")
+    if p.returncode not in (0, 1):
+        return None
+    files = sorted(ln.split(":", 1)[1] for ln in p.stdout.splitlines() if ":" in ln)[:DECL_FILES_MAX]
+    found = []
+    for rel in files:
+        blob = core.git_show_bytes(repo, rel, head)
+        if blob is None:
+            continue
+        for line, kw, dname, doc, st in lean_declarations(blob.decode("utf-8", errors="replace")):
+            dtext = _doc_text(doc)
+            in_name = fold(dname)
+            if not all(w in in_name + " " + fold(dtext) for w in words):
+                continue
+            where = "name" if all(w in in_name for w in words) else "docstring"
+            found.append({"source": "registry", "id": f"{name}:{rel}:{line}", "package": name,
+                          "decl": dname, "kind": kw, "summary": _excerpt(dtext or st), "trust": "none",
+                          "status": None, "pin": head, "file": f"{rel}:{line}", "score": 1,
+                          "where": where, "hit_kind": DECL_HIT_KIND, "repo": None})
+    found.sort(key=_decl_order)
+    return found[:DECL_HITS_PER_PACKAGE], max(0, len(found) - DECL_HITS_PER_PACKAGE)
+
+
+def coverage_text(cov: dict | None) -> str | None:
+    """The blind-source line: how many packages search could only see by declaration, or not at all."""
+    if cov is None:
+        return None
+    total = cov["claims"] + cov["declaration_only"] + len(cov["not_searched"])
+    blind = total - cov["claims"]
+    if not blind:
+        return f"registry coverage: all {total} package(s) have synced claims"
+    ns = cov["not_searched"]
+    text = (f"registry coverage: {blind} of {total} packages have no synced claims: "
+            f"{cov['declaration_only']} searched by declaration only, {len(ns)} not searched (no checkout"
+            + (f": {', '.join(ns)}" if ns else "") + ")")
+    if cov.get("declaration_hits_omitted"):
+        text += f"; {cov['declaration_hits_omitted']} more declaration hit(s) not listed"
+    return text
+
+
+# --------------------------------------------------------------------------
 # local sources
 
 def registry_revision(path: pathlib.Path) -> str:
@@ -140,17 +276,37 @@ def registry_revision(path: pathlib.Path) -> str:
 
 
 def registry_block(term: str, reg_path: pathlib.Path) -> dict:
+    return registry_search(term, reg_path)[0]
+
+
+def registry_search(term: str, reg_path: pathlib.Path) -> tuple[dict, dict | None]:
+    """(registry block, coverage): coverage is {claims, declaration_only, not_searched[],
+    declaration_hits_omitted} over the registered packages, or None when the registry was skipped."""
     if not reg_path.is_file():
-        return block("registry", "skipped", "no registry file")
+        return block("registry", "skipped", "no registry file"), None
     try:
         reg = core.load_registry(reg_path)
     except core.Fail as e:
-        return block("registry", "skipped", f"unreadable: {e}")
+        return block("registry", "skipped", f"unreadable: {e}"), None
     pkgs = reg.get("packages") or {}
     bad = [n for n, p in pkgs.items() if not isinstance(p, dict)]
     if not isinstance(pkgs, dict) or bad:
-        return block("registry", "skipped", f"unreadable registry (packages.{bad[0] if bad else '?'} is not a mapping)")
-    hits = []
+        return block("registry", "skipped",
+                     f"unreadable registry (packages.{bad[0] if bad else '?'} is not a mapping)"), None
+    hits, decl_hits = [], []
+    cov = {"claims": 0, "declaration_only": 0, "not_searched": [], "declaration_hits_omitted": 0}
+    for name in sorted(pkgs):
+        if has_synced_claims(pkgs[name]):
+            cov["claims"] += 1
+            continue
+        got = declaration_hits(term, name, pkgs[name])
+        if got is None:
+            cov["not_searched"].append(name)
+        else:
+            cov["declaration_only"] += 1
+            decl_hits += got[0]
+            cov["declaration_hits_omitted"] += got[1]
+    decl_hits.sort(key=_decl_order)
     for name in sorted(pkgs):
         pkg = reg["packages"][name]
         trust, pin = cl.package_trust(pkg), pkg.get("claims_synced_commit")
@@ -162,7 +318,7 @@ def registry_block(term: str, reg_path: pathlib.Path) -> dict:
                 s, where = score_claim(term, c)
                 if s:
                     hits.append(_hit("registry", c, name, trust, pin, s, where))
-    return block("registry", "ok", None, registry_revision(reg_path), rank(hits))
+    return block("registry", "ok", None, registry_revision(reg_path), rank(hits) + decl_hits), cov
 
 
 def entry_claims(entry: dict) -> list[dict]:
@@ -240,12 +396,13 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
         raise core.UsageError("TERM needs at least one letter or digit")
     if package and reg_path.is_file() and package not in (core.load_registry(reg_path)["packages"]):
         raise core.UsageError(f"--package {package!r} is not in the registry")
-    blocks, route = [], route_of(term)
+    blocks, route, cov = [], route_of(term), None
     for src in SOURCES:
         if src not in sources:
             blocks.append(block(src, "skipped", "not selected"))
         elif src == "registry":
-            blocks.append(registry_block(term, reg_path))
+            b, cov = registry_search(term, reg_path)
+            blocks.append(b)
         elif src == "index":
             blocks.append(index_block(term, index_dir))
         elif offline:
@@ -257,7 +414,8 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
         blocks[-1]["route"] = route
     date = core.now_iso()[:10]
     payload = {"ok": True, "term": term, "date": date, "package": package, "offline": offline,
-               "route": route, "sources": blocks, "total_hits": sum(len(b["hits"]) for b in blocks)}
+               "route": route, "sources": blocks, "total_hits": sum(len(b["hits"]) for b in blocks),
+               "coverage": cov}
     return render_text(payload), payload
 
 
@@ -280,7 +438,11 @@ def render_text(payload: dict) -> list[str]:
         note = f" ({b['reason']})" if b["reason"] else ""
         lines.append(f"{b['source']}: ok{rev}, {_n(len(b['hits']))}{note}")
         for h in b["hits"]:
-            if h.get("hit_kind") == "package":
+            if h.get("hit_kind") == DECL_HIT_KIND:
+                lines.append(f"  [{h['score']} {h['where']}] {h['package']}: {h['decl']}  "
+                             f"({h['kind']}, {DECL_HIT_KIND}, trust {h['trust']}, {h['file']})")
+                lines.append(f"      {h['summary']}")
+            elif h.get("hit_kind") == "package":
                 repo = f" — {h['repo']}" if h["repo"] else ""
                 lines.append(f"  [{h['score']} {h['where']}] package: {h['package']} ({h['status']}){repo}")
                 if h["summary"]:
@@ -294,6 +456,9 @@ def render_text(payload: dict) -> list[str]:
                 lines.append(f"  {h['name']}  {h.get('url') or ''}".rstrip())
                 if h.get("summary"):
                     lines.append(f"      {h['summary']}")
+    cov_line = coverage_text(payload.get("coverage"))
+    if cov_line:
+        lines.append(cov_line)
     lines.append("consulted: " + ", ".join(
         f"{b['source']} ({'ok, ' + _n(len(b['hits'])) if b['state'] == 'ok' else state_text(b)})"
         for b in payload["sources"]))

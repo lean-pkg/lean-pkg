@@ -43,7 +43,9 @@ lean-pkg claims migrate my-proof --from old-claims.json --dry-run   # legacy JSO
 
 `claims.yaml` (schema `claims/1`) at the repository root names the results
 someone might reuse. The schema, the search order and the search record:
-[Prior-art search](prior-art.md).
+[Prior-art search](prior-art.md). Packages without synced claims are searched
+by declaration name and docstring in their checkout, and a zero now says which
+packages were searched that way and which were not searched at all.
 
 ## Add a package
 
