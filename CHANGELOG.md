@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.16] - 2026-10-10
+
 ### Added
 
 - Optional `lease.contact`: the address of the holding session (free text, typically an amsg address
@@ -41,6 +43,8 @@ change the registry schema or receipt format, always with a migration).
 - Tests: `tests/test_docs.py` checks that every subcommand, nested ones included, read from the
   parser, has a docs/cli.md row, and that every top-level subcommand appears as `lean-pkg <cmd>` in
   README.md, docs/index.md or docs/how-to.md.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.15] - 2026-10-10
 
