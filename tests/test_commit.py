@@ -295,3 +295,33 @@ def test_rejected_push_with_other_local_commits_is_not_rebased(lp, env, shared, 
     assert rc == 1 and "push rejected" not in cap.err
     assert "run: git push origin main" in cap.err
     assert _head(a.root, "HEAD~1") == tip
+
+
+def test_env_committed_mode_is_named_and_the_push_shows_its_sha(lp, env, shared, capsys, monkeypatch):
+    """Field report 2026-10-10: `renew` committed and pushed with no flag (env LEAN_PKG_PUSH=1). The commit
+    line names the env variable that turned committed mode on, the push line carries the pushed sha, and
+    the subcommand help says when the variable is set."""
+    a = shared.a
+    rc, cap = run(lp, a, capsys, *CLAIM)
+    assert rc == 0, cap.err
+    _git(a.root, "commit", "-q", "-am", "claim")
+    _git(a.root, "push", "-q", "origin", "main")
+    monkeypatch.setenv("LEAN_PKG_PUSH", "1")
+    rc, cap = run(lp, a, capsys, "renew", "alpha", "--agent", "vera")
+    assert rc == 0, cap.err
+    short = _git(a.root, "rev-parse", "--short", "HEAD").stdout.strip()
+    assert f"lean-pkg: committed {short} on main: lean-pkg: claim-refreshed alpha " \
+           f"(committed mode: env LEAN_PKG_PUSH=1)" in cap.err
+    assert f"lean-pkg: pushed origin/main ({short})" in cap.err
+    assert _head(shared.origin, "main") == _head(a.root)
+    rc, cap = run(lp, a, capsys, "renew", "alpha", "--agent", "vera", "--json")
+    assert rc == 0 and json.loads(cap.out)["commit"]["pushed"] is True
+    with pytest.raises(SystemExit):
+        lp.main(["renew", "--help"])
+    assert "set now: writes commit and push unless --no-commit" in " ".join(capsys.readouterr().out.split())
+    monkeypatch.delenv("LEAN_PKG_PUSH")
+    rc, cap = run(lp, a, capsys, "renew", "alpha", "--agent", "vera", "--push")
+    assert rc == 0 and "(committed mode" not in cap.err     # a flag the caller passed is not re-announced
+    with pytest.raises(SystemExit):
+        lp.main(["renew", "--help"])
+    assert "set now" not in capsys.readouterr().out

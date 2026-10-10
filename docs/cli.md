@@ -50,7 +50,12 @@ pull) is retried once: fetch, rebase that one commit onto `origin/<branch>`
 (the event log merges as a union of appended lines), push again; the retry is
 skipped when other local commits are unpushed, and a rebase conflict is
 aborted. A failed push exits 1 and keeps the commit. `--no-commit` overrides
-both variables. Its reports go to stderr; a `--json` payload gains
+both variables. Its reports go to stderr: `committed <sha> on <branch>: <message>`, ending
+`(committed mode: env LEAN_PKG_COMMIT=1)` or `(committed mode: env LEAN_PKG_PUSH=1)` when a
+variable rather than a flag turned the mode on (a wrapper may set one, so `renew` or `claim`
+can commit and push with no flag given), and `pushed origin/<branch> (<sha>)`; every
+subcommand's `--commit`/`--push` help names its variable and says `set now` when it is set.
+A `--json` payload gains
 `"commit": {"sha", "pushed", "error"}` (`"ok": false` when the commit or push
 failed); a commit made with the fallback identity `lean-pkg <lean-pkg@localhost>`
 says so on stderr.

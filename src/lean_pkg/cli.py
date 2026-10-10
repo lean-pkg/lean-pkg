@@ -4532,7 +4532,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`). gate, comparator, record, promote --yes, claims sync, search --record: pass --agent A (another agent's live lease refuses; A is the event's `actor`); without it a live lease only warns.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
-- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (rejected as non-fast-forward: one fetch + rebase of that one commit + retry; a conflict aborts, commit kept); --no-commit overrides. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error}.
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (rejected as non-fast-forward: one fetch + rebase of that one commit + retry; a conflict aborts, commit kept); --no-commit overrides. stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error}.
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -5146,6 +5146,17 @@ def commit_mode(args) -> str | None:
     return None
 
 
+def commit_mode_source(args) -> str:
+    """Why committed mode is on, for the stderr report: the flag, else the env variable that turned it on."""
+    if getattr(args, "push", False):
+        return "--push"
+    if _env_on(PUSH_ENV):
+        return f"env {PUSH_ENV}"
+    if getattr(args, "commit", False):
+        return "--commit"
+    return f"env {COMMIT_ENV}"
+
+
 def note_ignored_commit_flags(args) -> None:
     """--commit/--push given on an invocation that writes nothing: a stderr note, not an error."""
     flags = [f for f in ("commit", "push") if getattr(args, f, False)]
@@ -5191,7 +5202,8 @@ def commit_preflight(args, mode: str) -> dict:
     branch = br.stdout.strip() if br.returncode == 0 else ""
     if not branch:
         raise Fail(f"--commit needs a branch checked out in {root} (detached HEAD)")
-    ctx = {"root": root, "files": files, "branch": branch, "events": ev, "push": mode == "push"}
+    ctx = {"root": root, "files": files, "branch": branch, "events": ev, "push": mode == "push",
+           "source": commit_mode_source(args)}
     dirty = _dirty(ctx)
     if dirty:
         raise Fail(f"uncommitted registry changes in {', '.join(dirty)}; commit them first")
@@ -5321,7 +5333,10 @@ def commit_finish(ctx: dict, rc: int) -> int:
         return 1
     res["sha"] = registry_git(root, "rev-parse", "HEAD").stdout.strip() or None
     short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip()
-    print(f"lean-pkg: committed {short} on {branch}: {msg}", file=sys.stderr)
+    via = ctx.get("source", "")
+    # A mode the env turned on is named, so a commit nobody passed a flag for is never a surprise.
+    print(f"lean-pkg: committed {short} on {branch}: {msg}"
+          + (f" (committed mode: {via}=1)" if via.startswith("env ") else ""), file=sys.stderr)
     if ctx["push"]:
         if not ctx["origin"]:
             res["error"] = "push failed: no origin remote"
@@ -5337,7 +5352,8 @@ def commit_finish(ctx: dict, rc: int) -> int:
                   file=sys.stderr)
             return 1
         res["pushed"] = True
-        print(f"lean-pkg: pushed origin/{branch}", file=sys.stderr)
+        short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or short
+        print(f"lean-pkg: pushed origin/{branch} ({short})", file=sys.stderr)
     return rc
 
 
@@ -5707,9 +5723,11 @@ def main(argv: list[str] | None = None) -> int:
                        default=argparse.SUPPRESS,
                        help="machine-readable JSON on stdout")
         s.add_argument("--commit", action="store_true", default=argparse.SUPPRESS,
-                       help="write commands: pull --ff-only, then commit the registry files")
+                       help=f"write commands: pull --ff-only, then commit the registry files (default: "
+                            f"${COMMIT_ENV}=1{'; set now: writes commit unless --no-commit' if _env_on(COMMIT_ENV) else ''})")
         s.add_argument("--push", action="store_true", default=argparse.SUPPRESS,
-                       help="--commit, then push to origin")
+                       help=f"--commit, then push to origin (default: ${PUSH_ENV}=1"
+                            f"{'; set now: writes commit and push unless --no-commit' if _env_on(PUSH_ENV) else ''})")
         s.add_argument("--no-commit", dest="no_commit", action="store_true", default=argparse.SUPPRESS,
                        help="never commit or push (overrides the env)")
 

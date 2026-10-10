@@ -17,6 +17,11 @@ change the registry schema or receipt format, always with a migration).
   `mathlib_pin` and `lease.expires` (the `EXPIRES` column) for `lease.expires_at`. The output and the
   `--json` `fields` list carry the record key; the record keys work as before, and an unknown field's
   usage error lists the aliases.
+- Committed mode says when the environment turned it on: the stderr commit line ends `(committed mode:
+  env LEAN_PKG_PUSH=1)` (or `LEAN_PKG_COMMIT=1`) when no `--commit`/`--push` flag was given, the push line
+  carries the sha (`pushed origin/<branch> (<sha>)`), and every subcommand's `--commit`/`--push` help
+  names its variable and adds `set now` when it is set. A wrapper that exports the variable no longer
+  makes `renew` (or any write) commit and push without a word about why.
 
 ## [0.7.14] - 2026-10-10
 
