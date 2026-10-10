@@ -129,6 +129,21 @@ The authoritative, machine-oriented version of this page is
 script that produces comparator receipts; see
 [The comparator tier](comparator.md).
 
+## Lease holders
+
+A lease records only `workspace`, `agent`, `claimed_at`, `ttl_hours` and `reason`; it stores no
+session id or other address for the process that holds it, and lean-pkg cannot map a holder to a
+live session. The holder is whatever `--agent` (and `--workspace`) the claim passed, so:
+
+- Your own leases: `lean-pkg leases --agent A` with the `--agent A` you claimed with (add
+  `--expiring 2` for the ones to `renew` soon). Pass the same `A` on every claim, renew and
+  evidence write; `renew`, `release` and `--agent` checks compare it literally.
+- One package: `lean-pkg status NAME --fields lease.agent,lease.workspace,lease.reason,lease.expires_at`.
+- Reaching another holder: lean-pkg has no channel for it. If your agents need one, agree on an
+  `--agent` naming that already identifies the session (or put a contact in `--reason` at claim
+  time); both are stored in the registry and its event log, so write only what every reader of
+  the registry may see.
+
 ## Package record
 
 Each package in the registry, and the `package` object of `status NAME --json`, is a mapping
