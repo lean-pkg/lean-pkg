@@ -231,9 +231,26 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
         try:
             core.validate_receipt(pkg, repo, rec)
         except core.Fail as e:
-            return out(f"lean-pkg update {name} --status gate-pending --reason \"re-gate HEAD {head[:12]}\""
-                       f"{holder_flag}",
-                       f"the gate receipt no longer binds HEAD ({e}): re-gate the new commit")
+            # #67: one step (`gate --regate`), not `update --status gate-pending` then `gate`.
+            cand, bad = lower_receipt(pkg, repo)
+            state["receipt_candidate"] = cand
+            state["rejected_receipts"] = bad
+            prev = str(rec.get("commit") or "")
+            lineage = ""
+            if cand and prev and not core._is_ancestor(repo, prev, cand["commit"]):
+                lineage = f" --reason \"HEAD {head[:12]} does not descend from {prev[:12]}\""
+            if cand:
+                crel, cerr = comparator_on_disk(pkg, repo, cand["commit"])
+                comp_flag = f" --comparator {_q(repo / crel)}" if crel and not cerr else ""
+                return out(f"lean-pkg gate {name} --receipt {_q(repo / cand['path'])}{comp_flag} --regate"
+                           f"{lineage}{as_agent}",
+                           f"the gate receipt no longer binds HEAD ({e}): re-gate the new commit in one step; "
+                           f"validate first: `lean-pkg gate {name} --check --regate --receipt "
+                           f"{_q(repo / cand['path'])}{comp_flag}`")
+            return out(f"lean-pkg gate {name} --check --regate --receipt R",
+                       f"the gate receipt no longer binds HEAD ({e}): produce a lower-tier receipt for HEAD "
+                       f"{head[:12]} (checker job on HEAD), validate it with this command, then "
+                       f"`lean-pkg gate {name} --receipt R --regate`")
         bound = str(rec["commit"])
         if gate.get("comparator"):
             if not isinstance(comp, dict):

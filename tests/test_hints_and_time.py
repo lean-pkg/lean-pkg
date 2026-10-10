@@ -41,8 +41,7 @@ def test_gate_at_verified_private_points_to_the_regate_path(lp, env, tmp_path, c
     p = write_receipt(tmp_path, r)
     assert lp.main(["--registry", str(env.registry), "gate", "beta", "--receipt", str(p)]) == 1
     err = capsys.readouterr().err
-    assert "lean-pkg update beta --status gate-pending --reason" in err
-    assert "lean-pkg gate beta --receipt" in err
+    assert "lean-pkg gate beta --receipt R --regate" in err   # #67: one step, not update + gate
 
 
 def test_gate_at_active_has_no_regate_hint(lp, env, tmp_path, capsys):

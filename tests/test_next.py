@@ -237,7 +237,8 @@ def test_verified_private_after_a_source_change_re_gates(lp, env, capsys):
     _git(env.repo_b, "add", "New.lean")
     _git(env.repo_b, "commit", "-m", "more")
     rc, data = nxt(lp, env, capsys, "beta")
-    assert rc == 0 and data["command"].startswith("lean-pkg update beta --status gate-pending")
+    assert rc == 0 and data["command"] == "lean-pkg gate beta --check --regate --receipt R"   # #67
+    assert "gate beta --receipt R --regate" in data["reason"]
 
 
 def test_verified_private_unreadable_receipt_blocks(lp, env, capsys):

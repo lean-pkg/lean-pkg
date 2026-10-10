@@ -2548,6 +2548,7 @@ def receipt_private_strings(blobs: list[tuple[str, bytes]], refuse: bool,
 # What happened to the receipt, by outcome event, for the private-string WARN line.
 PRIVATE_WARN_OUTCOME = {
     "gate-passed": "the receipt is now in .lean-receipts/ as is",
+    "regated": "the receipt is now in .lean-receipts/ as is",
     "comparator-attached": "the receipt is now in .lean-receipts/ as is",
     "already-gated": "already recorded; nothing copied now",
     "already-attached": "already recorded; nothing copied now",
@@ -2585,22 +2586,63 @@ def recorded_json(repo: pathlib.Path, rel) -> dict | None:
         return None
 
 
+REGATE_STATUSES = ("verified-private", "public")
+
+
+def regate_status_problem(name: str, pkg: dict) -> str | None:
+    """Why `gate --regate` cannot apply to this package (#67), or None: it re-gates a gated package, so the
+    status is verified-private (or public, which `gate` already accepts) and a gate receipt is recorded."""
+    status = pkg.get("status")
+    if status not in REGATE_STATUSES:
+        return (f"{name}: --regate re-gates a gated package (verified-private or public), got {status!r}; "
+                f"use `lean-pkg gate {name} --receipt R` without --regate")
+    if not (pkg.get("gate") or {}).get("receipt"):
+        return (f"{name}: --regate: no gate receipt is recorded, so there is nothing to re-gate; "
+                f"use `lean-pkg gate {name} --receipt R` without --regate")
+    return None
+
+
+def regate_lineage(name: str, pkg: dict, repo: pathlib.Path, commit: str,
+                   reason: str | None) -> tuple[str | None, bool, str | None]:
+    """(previous_commit, non_descendant, problem) for `gate --regate` (#67): the new receipt's commit must
+    descend from the commit of the recorded gate receipt (`git merge-base --is-ancestor`); a --reason
+    accepts any other commit, recorded as non_descendant. An unreadable recorded receipt has no commit to
+    compare, which needs a --reason too."""
+    rec = recorded_json(repo, (pkg.get("gate") or {}).get("receipt"))
+    prev = str(rec["commit"]) if isinstance(rec, dict) and rec.get("commit") else None
+    if prev and _is_ancestor(repo, prev, commit):
+        return prev, False, None
+    if reason:
+        return prev, True, None
+    if prev is None:
+        return None, False, (f"{name}: --regate: the recorded gate receipt "
+                             f"{(pkg.get('gate') or {}).get('receipt')!r} is missing or has no commit, so the "
+                             f"new commit cannot be checked as its descendant; pass --reason TEXT to re-gate "
+                             f"anyway (recorded as non_descendant)")
+    return prev, False, (f"{name}: --regate: receipt commit {commit[:12]} is not a descendant of the gated "
+                         f"commit {prev[:12]}; pass --reason TEXT to re-gate it anyway (recorded as "
+                         f"non_descendant: true)")
+
+
 def do_gate(reg_path, reg, events_p, name, receipt_arg,
             comparator_arg=None, refuse_private: bool = False,
-            refuse_dirty: bool = False, formalization_path: str | None = None) -> tuple[list[str], dict]:
+            refuse_dirty: bool = False, formalization_path: str | None = None,
+            regate: bool = False, reason: str | None = None) -> tuple[list[str], dict]:
     return _with_private_warnings(_do_gate, reg_path, reg, events_p, name, receipt_arg,
                                   comparator_arg, refuse_private, refuse_dirty=refuse_dirty,
-                                  formalization_path=formalization_path)
+                                  formalization_path=formalization_path, regate=regate, reason=reason)
 
 
 def do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: bool = False,
-                  refuse_dirty: bool = False) -> tuple[list[str], dict]:
+                  refuse_dirty: bool = False, regate: bool = False,
+                  reason: str | None = None) -> tuple[list[str], dict]:
     return _with_private_warnings(_do_gate_check, reg, name, receipt_arg, comparator_arg, refuse_private,
-                                  refuse_dirty=refuse_dirty)
+                                  refuse_dirty=refuse_dirty, regate=regate, reason=reason)
 
 
 def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: bool = False,
-                   private_sink=None, refuse_dirty: bool = False) -> tuple[list[str], dict]:
+                   private_sink=None, refuse_dirty: bool = False, regate: bool = False,
+                   reason: str | None = None) -> tuple[list[str], dict]:
     """`gate NAME --receipt R --check` (#26.2): every validation `gate` makes, against HEAD; writes
     nothing, records no event, works at any status. The mirror of `comparator --check`."""
     pkg = get_pkg(reg, name)
@@ -2624,24 +2666,45 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
     cs = claims_schema_at(name, pkg, repo, commit)
     checks.append(claims_schema_line(cs))
     status = pkg.get("status")
-    if status not in ("gate-pending", "public"):
-        checks.append(f"· status {status}: `gate` itself needs gate-pending (or public)")
-    ok = cs["ok"] is not False
+    lineage_ok = True
+    regate_view = None
+    if regate:   # #67: the checks `gate --regate` adds, without writing
+        problem = regate_status_problem(name, pkg)
+        if problem is None:
+            prev, non_desc, problem = regate_lineage(name, pkg, repo, commit, reason)
+            regate_view = {"previous_commit": prev, "non_descendant": non_desc}
+            if problem is None:
+                checks.append(f"✓ regate: {commit[:12]} " + (
+                    f"is not a descendant of the gated commit {str(prev)[:12]} (accepted with --reason)"
+                    if non_desc and prev else "accepted with --reason (no readable gated commit)"
+                    if non_desc else f"descends from the gated commit {str(prev)[:12]}"))
+        if problem is not None:
+            lineage_ok = False
+            checks.append(f"✗ regate: {problem.split(': ', 1)[-1]}")
+    elif status not in ("gate-pending", "public"):
+        checks.append(f"· status {status}: `gate` itself needs gate-pending (or public)"
+                      + (f"; re-gate with `lean-pkg gate {name} --receipt R --regate`"
+                         if status == "verified-private" else ""))
+    ok = cs["ok"] is not False and lineage_ok
     msg = (f"{name}: receipt valid at commit {commit[:12]}"
            + (f" with comparator ({len(comp['configs'])} config(s))" if comp else "")
-           + ("" if ok else f"; {cs['file']} FAILS the claims "
+           + ("" if cs["ok"] is not False else f"; {cs['file']} FAILS the claims "
                   + ("schema" if cs["errors"] else "declaration check") + " (`gate` would refuse)")
+           + ("" if lineage_ok else "; `gate --regate` would refuse (see the regate line)")
            + " — not recorded (--check)")
     payload = {"ok": ok, "name": name, "event": "gate-checked", "recorded": False, "commit": commit,
                "head": git_head(repo), "status": status, "checks": checks,
                "comparator": ({"commit": comp["commit"], "configs": len(comp["configs"])} if comp else None),
                "private_strings": private, "dirty": dirty, "claims_schema": cs}
+    if regate:
+        payload["regate"] = regate_view
     return [msg] + [f"  {c}" for c in checks], payload
 
 
 def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
              refuse_private: bool = False, private_sink=None,
-             refuse_dirty: bool = False, formalization_path: str | None = None) -> tuple[list[str], dict]:
+             refuse_dirty: bool = False, formalization_path: str | None = None,
+             regate: bool = False, reason: str | None = None) -> tuple[list[str], dict]:
     """formalization_path (#26.4): the formalization.yaml `--refresh-formalization` is about to own and
     point the registry at; when no pointer is recorded yet, the evidence rule's derived-only exception
     is judged for that path (the refresh records it as the pointer right after the gate)."""
@@ -2678,18 +2741,27 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     # ever gated (for example a collaborator-owned repository registered as public)
     # may also receive evidence: the status stays public, the receipt and the
     # gate-passed event are recorded. verified-private re-certifies through the
-    # manual move back to gate-pending.
-    if pkg.get("status") not in ("gate-pending", "public"):
+    # manual move back to gate-pending, or in one step with --regate (#67).
+    if regate:
+        problem = regate_status_problem(name, pkg)
+        if problem:
+            raise Fail(problem)
+    elif pkg.get("status") not in ("gate-pending", "public"):
         raise Fail(f"{name}: gate requires status gate-pending (or public, for "
                    f"evidence on an already-public package), got {pkg.get('status')!r}"
-                   + (f"; to re-gate a new commit: `lean-pkg update {name} --status gate-pending "
-                      f"--reason TEXT`, then `lean-pkg gate {name} --receipt R`"
+                   + (f"; to re-gate a new commit in one step: `lean-pkg gate {name} --receipt R --regate` "
+                      f"(the receipt's commit must descend from the gated one, else add --reason TEXT)"
                       if pkg.get("status") == "verified-private" else ""))
     was_public = pkg.get("status") == "public"
     validate_receipt(vpkg, repo, receipt)
     commit = receipt["commit"]
     if comp is not None:
         validate_comparator(vpkg, repo, comp, commit)
+    prev_commit, non_descendant = None, False
+    if regate:
+        prev_commit, non_descendant, problem = regate_lineage(name, pkg, repo, commit, reason)
+        if problem:
+            raise Fail(problem + "; nothing copied or recorded")
     cs = claims_schema_at(name, pkg, repo, commit)
     if cs["ok"] is False:
         problems = claims_problems(cs)
@@ -2749,9 +2821,19 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     else:
         new_status = "verified-private"
     pkg["status"] = new_status
-    record(reg, events_p, pkg, "gate-passed", **fields)
+    event = "gate-passed"
+    if regate:   # #67: one transition, one event naming both commits
+        event = "regated"
+        fields = {"previous_commit": prev_commit, **fields, "reason": reason or ""}
+        if non_descendant:
+            fields["non_descendant"] = True
+    record(reg, events_p, pkg, event, **fields)
     save_registry(reg_path, reg)
-    if was_public:
+    if regate:
+        out.append(f"{name}: {new_status}, re-gated {str(prev_commit or 'unknown')[:12]} -> {commit[:12]}"
+                   + (" (not a descendant; --reason given)" if non_descendant else "")
+                   + (f" with comparator evidence {comp_rel}" if comp_rel else ""))
+    elif was_public:
         out.append(f"{name}: public, evidence recorded, status unchanged (commit {commit[:12]})"
                    + (f" with comparator evidence {comp_rel}" if comp_rel else ""))
     else:
@@ -2759,11 +2841,13 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
                    + (f" with comparator evidence {comp_rel}" if comp_rel else ""))
     out.append(RL_REMINDER.format(name=name))
     ignored = attached_ignored_evidence(pkg, repo)
-    payload = {"ok": True, "name": name, "event": "gate-passed",
+    payload = {"ok": True, "name": name, "event": event,
                "status": new_status, "gate": pkg["gate"],
                "receipt": dest_rel, "commit": commit, "rl_reminder": True,
-               "status_unchanged": was_public, "private_strings": private, "dirty": dirty,
+               "status_unchanged": was_public or regate, "private_strings": private, "dirty": dirty,
                "ignored_evidence": ignored, "claims_schema": cs}
+    if regate:
+        payload.update(previous_commit=prev_commit, non_descendant=non_descendant, reason=reason or "")
     if comp_rel:
         payload["comparator"] = comp_rel
     return out, payload
@@ -4787,7 +4871,7 @@ STANDING RULES
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
-active -> gate-pending             lower-tier check submitted (terminal executor job identity in notes); also verified-private -> gate-pending to re-gate a new commit
+active -> gate-pending             lower-tier check submitted (terminal executor job identity in notes); also verified-private -> gate-pending to re-gate a new commit (one step instead: `gate --regate`)
 gate-pending -> verified-private   `gate` accepts a receipt (schema below)
 public -> public                   `gate` on an already-public package records evidence; status unchanged
 verified-private -> public         `promote --yes` after a clean dry-run checklist; ONE-WAY flip
@@ -4824,7 +4908,7 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
-gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}).
+gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}).
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
@@ -4843,7 +4927,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
   nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once), claims-coverage-none (claims coverage none|empty|unsynced: search falls back to declarations; --json coverage; archived/upstreamed skipped); a failed gh query: check gh-OUTCOME, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); human line `LEVEL  CHECK  NAME: DETAIL`, the line "N finding(s): W warn, I info" first and last (--quiet: it alone); --json counts {warn, info}; --no-gh: gh-skipped (info); missing-path: recorded path + `update NAME --path DIR --reason .. --dry-run` (+ "found at DIR": a sibling with lakefile + same remote). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
-next      NAME [--agent A] read-only, offline (never gh, never writes): the ONE recommended next command + a one-line reason, from the record + checkout (claim / update --status / gate --check / gate / comparator-receipt / comparator config --from-claims / comparator / publish --dry-run / reservoir check / palomar prepare / record ...); without --agent a live lease is only noted; a checkout off its default branch (or detached) is noted, HEAD still judged; exit 0 command (or nothing left: command null), 1 blocked; --json {ok, name, command, reason, blockers[{kind: foreign-lease|invalid-lease|missing-checkout|no-commit|dirty-tree|invalid-receipt|unreadable-receipt, detail}], notes[], state{status, lease, gate_commit, comparator_commit, head, dirty[], receipt_candidate, ...}}. ex: lean-pkg next my-lean --agent vera --json
+next      NAME [--agent A] read-only, offline (never gh, never writes): the ONE recommended next command + a one-line reason, from the record + checkout (claim / update --status / gate --check / gate / gate --regate (verified-private, HEAD moved) / comparator-receipt / comparator config --from-claims / comparator / publish --dry-run / reservoir check / palomar prepare / record ...); without --agent a live lease is only noted; a checkout off its default branch (or detached) is noted, HEAD still judged; exit 0 command (or nothing left: command null), 1 blocked; --json {ok, name, command, reason, blockers[{kind: foreign-lease|invalid-lease|missing-checkout|no-commit|dirty-tree|invalid-receipt|unreadable-receipt, detail}], notes[], state{status, lease, gate_commit, comparator_commit, head, dirty[], receipt_candidate, ...}}. ex: lean-pkg next my-lean --agent vera --json
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed; tool comparator without bwrap: run `comparator host-check`), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
 llms      this contract (--json: {"ok": true, "text": ...}); --short: ~40 lines cut from it by section (title, PURPOSE head, STANDING RULES, the first line of each subcommand; --json adds "short": true; the rest, e.g. publish, public-safety, reservoir check, palomar prepare, comparator config/host-check, release --fresh-repo/--adopt-repo: the full text). ex: lean-pkg llms --short
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md   |   report (read-only): a bug report in the shape of .github/ISSUE_TEMPLATE/bug_report.md: version + doctor ok/warn lines + host-check verdict, --command "ARGS" re-run in a subprocess (+ --json when the subcommand has it; a writing command is not re-run), --body TEXT (no re-run) and/or --from-log FILE[:N] (last N lines, default 200, as Log excerpt) first in What happened (one of --command/--body/--from-log required, else exit 2), --package NAME record (status, lease, receipt commits); every captured text redacted (registry/checkout paths -> <registry>/<registry-dir>/<checkout>, home -> ~, public-safety built-ins + .lean-pkg-private-patterns of the checkout and registry dir + record-derived names -> […]); a blocking hit left: exit 1, nothing filed. Dry run unless --yes: gh issue create -R lean-pkg/lean-pkg (--repo OWNER/NAME) --label bug|enhancement (--enhancement), prints the URL; no gh or gh not logged in: exit 1 (gh auth login). --json {ok, filed, url, title, labels, body, redactions, log_excerpt {path, lines} with --from-log}. ex: lean-pkg report --command "status my-lean" --package my-lean
@@ -4936,7 +5020,7 @@ partial manifest, pre-terminal marker, or prior-candidate receipt is not gate ev
 EVENT LINE SCHEMA (one JSON object per line; package events also go to history[]; index-added, prior-art-searched, registry-* are log-only)
 ts      UTC ISO-8601 with offset, second precision (all written times; dates are UTC; same-second order = file order; naive = legacy UTC, doctor warns)
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
-        released, release-forced, lease-expired, gate-passed, promoted, audit-fix, relocated, status-changed,
+        released, release-forced, lease-expired, gate-passed, regated, promoted, audit-fix, relocated, status-changed,
         comparator-attached, comparator-replaced, palomar-prepared, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`
 name    package name or null
 plus event-specific fields (agent, workspace, ttl_hours, reason, contact, commit, receipt, ...)
@@ -5214,8 +5298,9 @@ def do_gate_refresh(reg_path, reg, events_p, args) -> tuple[list[str], dict, lis
     refresh_preflight(reg, args.name, args.agent)
     out, payload = do_gate(reg_path, reg, events_p, args.name, args.receipt, args.comparator,
                            refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
-                           formalization_path=fz.target_rel(get_pkg(reg, args.name)))
-    gated = payload.get("event") == "gate-passed"
+                           formalization_path=fz.target_rel(get_pkg(reg, args.name)),
+                           regate=getattr(args, "regate", False), reason=getattr(args, "reason", None))
+    gated = payload.get("event") in ("gate-passed", "regated")
     pkg = get_pkg(reg, args.name)
     if not gated:
         text, _doc, _w, existing = fz.render_for(pkg, repo_path(pkg))
@@ -5232,11 +5317,18 @@ def do_gate_refresh(reg_path, reg, events_p, args) -> tuple[list[str], dict, lis
 
 def cmd_gate(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
+    regate, reason = getattr(args, "regate", False), getattr(args, "reason", None)
+    if reason is not None:
+        if not regate:
+            raise UsageError("gate --reason goes with --regate (it accepts a non-descendant re-gate)")
+        require_nonempty("--reason", reason)
+        reason = reason.strip()
     if getattr(args, "check", False):
         if getattr(args, "refresh_formalization", False) or getattr(args, "agent", None) is not None:
             raise UsageError("gate --check writes nothing; --refresh-formalization and --agent do not apply")
         out, payload = do_gate_check(load_registry(reg_path), args.name, args.receipt, args.comparator,
-                                     refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
+                                     refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
+                                     regate=regate, reason=reason)
     elif getattr(args, "refresh_formalization", False):
         _ACTOR["agent"] = getattr(args, "agent", None) or None    # its own lease check runs in do_gate_refresh
         out, payload, warnings = do_gate_refresh(reg_path, load_registry(reg_path), events_p, args)
@@ -5247,7 +5339,8 @@ def cmd_gate(args) -> int:
         warn_lease(lease_actor(reg, args.name, getattr(args, "agent", None), "gate"))
         out, payload = do_gate(reg_path, reg, events_p,
                                args.name, args.receipt, args.comparator,
-                               refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
+                               refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
+                               regate=regate, reason=reason)
     if args.json_out:
         print_json(payload)
     else:
@@ -6313,6 +6406,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--check", action="store_true",
                    help="validate only, against HEAD (with --comparator: both tiers); write nothing, record "
                         "nothing (works at any status), like `comparator --check`")
+    s.add_argument("--regate", action="store_true",
+                   help="re-gate a verified-private (or public) package on a new receipt in one step: event "
+                        "regated {previous_commit, commit, job_id, reason}, status unchanged; the receipt's "
+                        "commit must descend from the gated commit unless --reason is given")
+    s.add_argument("--reason", default=None, metavar="TEXT",
+                   help="with --regate: accept a receipt commit that does not descend from the gated commit "
+                        "(recorded with non_descendant: true)")
     add_json(s)
     s.set_defaults(fn=cmd_gate)
 

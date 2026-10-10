@@ -183,6 +183,17 @@ Re-running `gate` with an identical receipt (pair) is a no-op success, so
 retries are safe. A different comparator receipt for an already-gated
 package goes through `comparator`, not `gate`.
 
+A `verified-private` package whose HEAD moved is re-gated in one step, one
+registry commit, with the receipt for the new commit:
+
+```bash
+lean-pkg gate my-proof --check --regate --receipt receipt.json                 # read-only
+lean-pkg gate my-proof --receipt receipt.json --regate                         # event regated, status unchanged
+```
+
+The new commit must descend from the gated one; otherwise pass `--reason TEXT`
+(recorded as `non_descendant: true`).
+
 ## Attach or re-check comparator evidence later
 
 ```bash

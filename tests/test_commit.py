@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from .conftest import _git, read_events, read_reg, set_lease
+from .conftest import _git, make_receipt, read_events, read_reg, set_lease, write_receipt
 
 REG = "lean-packages.yaml"
 EV = "lean-package-events.jsonl"
@@ -407,3 +407,18 @@ def test_rejected_push_that_cannot_be_rebased_names_origin_branch(lp, env, share
     line = next(x for x in cap.err.splitlines() if x.startswith("lean-pkg: push failed: "))
     assert line.startswith("lean-pkg: push failed: origin/main: ") and " To " not in line
     assert "rejected" in line
+
+
+def test_regate_push_is_one_registry_commit(lp, env, shared, tmp_path, capsys):   # #67
+    a = shared.a
+    (env.repo_b / "New.lean").write_text("-- more\n")
+    _git(env.repo_b, "add", "New.lean")
+    _git(env.repo_b, "commit", "-m", "more")
+    p = write_receipt(tmp_path, make_receipt(env.repo_b, job_id="slurm-2"))
+    before = _count(a.root)
+    rc, cap = run(lp, a, capsys, "gate", "beta", "--receipt", str(p), "--regate", "--push")
+    assert rc == 0, cap.err
+    assert _count(a.root) == before + 1 and _subject(a.root) == "lean-pkg: regated beta"
+    assert _head(shared.origin, "main") == _head(a.root) and _clean(a.root)
+    assert [e["event"] for e in read_events(a)][-1:] == ["regated"]
+    assert read_reg(a)["packages"]["beta"]["status"] == "verified-private"

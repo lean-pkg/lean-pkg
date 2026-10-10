@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `gate NAME --receipt R --regate [--reason TEXT]` re-gates a `verified-private` (or `public`) package in one step:
+  the same validations as `gate`, status unchanged, one `regated` event {previous_commit, commit, job_id, reason},
+  so one registry commit and push in committed mode instead of two. The receipt's commit must descend from the gated
+  commit unless `--reason` is given (recorded as `non_descendant: true`); `gate --check --regate` validates without
+  writing. Plain `gate` on a `verified-private` package is still refused, and the message now names `--regate`;
+  `next` recommends `gate --regate` where it recommended `update --status gate-pending` for a moved HEAD. (#67)
+
 ### Changed
 
 - `update --append-note` prints only the line it appended (`appended note: YYYY-MM-DD (A): TEXT`) instead of the

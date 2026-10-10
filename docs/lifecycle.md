@@ -44,6 +44,7 @@ scratch | active | gate-pending | verified-private | public | upstreamed | archi
 | gate-pending → verified-private | `gate` | a valid lower-tier receipt, optionally with comparator evidence |
 | public → public | `gate` | a package that was public before it was ever gated (for example a collaborator-owned repository): the receipt and the `gate-passed` event are recorded, the status does not change |
 | verified-private → gate-pending | `update --status` | re-certification after a content change |
+| verified-private → verified-private | `gate --regate` | re-certification in one step: a valid receipt for a commit descending from the gated one (or any commit with `--reason`); event `regated` |
 | verified-private → public | `promote --yes` | clean checklist: a byte-valid comparator PASS, both receipts and every comparator log committed at HEAD, HEAD contained in `origin/<branch>` |
 | public → upstreamed | `update --status` | a recorded `mathlib-pr-merged` or `palomar-registered` event (not retracted, not withdrawn), or a `--reason` containing the URL |
 | any status → archived | `update --status --reason`, or `audit --fix` from GitHub's archived flag | — |
@@ -76,7 +77,7 @@ expired leases; `audit --fix` clears them with a `lease-expired` event.
 Each event line is one JSON object: `ts`, `event`, `name`, plus
 event-specific fields. Event names: `registry-created`, `registered`,
 `updated`, `claimed`, `claim-refreshed`, `claim-forced`, `released`,
-`release-forced`, `lease-expired`, `gate-passed`, `comparator-attached`,
+`release-forced`, `lease-expired`, `gate-passed`, `regated`, `comparator-attached`,
 `promoted`, `audit-fix`, `registry-migrated`, `index-added` (event log only,
 not `history[]`), `evidence-retracted`, and the evidence events written
 by `record`: `consent-recorded`, `palomar-preflight-pass`, `palomar-submitted`,
