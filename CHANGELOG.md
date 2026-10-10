@@ -35,6 +35,14 @@ change the registry schema or receipt format, always with a migration).
   units with `--unit-size` keep the model valid and the run resumable). `--force-sample` accepts a sample below the
   floor with a warning. docs/comparator.md documents the floor, the weight rule, both cap models and the warning.
   (#59)
+### Fixed
+
+- `comparator --check` (and `gate --comparator`, `index add`/`index check`, which share the validation) no longer
+  refuses a receipt the runner wrote from a configuration that omits `definition_names`: a list field missing (or
+  `null`) in the committed configuration now means `[]` on the check side too, as the runner records it, so the
+  `receipt definition_names differs from the config ([] vs None)` refusal is gone; a real difference (`["a"]` vs
+  `[]`) is still refused. The runner names a missing `permitted_axioms` up front instead of calling it "not a list
+  of strings". docs/comparator.md says which list fields may be omitted. (#61)
 
 ## [0.7.22] - 2026-10-10
 

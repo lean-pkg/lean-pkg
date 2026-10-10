@@ -433,6 +433,9 @@ def lint_configs(project: pathlib.Path, configs: list[str]) -> None:
         if not isinstance(cfg, dict):
             raise RunnerError(f"{cfg_rel}: not a JSON object; nothing written")
         ax = cfg.get("permitted_axioms")
+        if ax is None:
+            raise RunnerError(f"{cfg_rel}: permitted_axioms is missing; list the axioms the solution may "
+                              f"use (at most {sorted(STANDARD_AXIOMS)}, or [] for none); nothing written")
         if not isinstance(ax, list) or not all(isinstance(a, str) for a in ax):
             raise RunnerError(f"{cfg_rel}: permitted_axioms must be a list of strings; nothing written")
         extra = sorted(set(ax) - STANDARD_AXIOMS)

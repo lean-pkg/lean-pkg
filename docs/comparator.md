@@ -69,7 +69,12 @@ reader who trusts Mathlib and nothing else.
 
 **Configuration**: `theorem_names` lists the Challenge names, fully
 qualified. One configuration per claim, or per small group of claims, keeps
-failures readable. Check the configurations alone, with no build, from the
+failures readable. `definition_names` may be omitted: a missing (or `null`)
+list field means the empty list, the runner records it as `[]` and
+`lean-pkg comparator NAME --receipt R --check` reads the committed
+configuration the same way. `permitted_axioms` must be written out (`[]`
+for none); the runner refuses a configuration without it before anything
+runs. Check the configurations alone, with no build, from the
 project directory, using the script in a clone of this repository:
 
 ```bash

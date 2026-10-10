@@ -254,6 +254,8 @@ COMPARATOR_CONFIG_FIELDS = ["path", "sha256", "challenge_module",
                             "solution_module", "theorem_names",
                             "definition_names", "permitted_axioms", "log",
                             "log_sha256", "result"]
+# the configuration's list fields: omitted (or null) in a committed config means the empty list (#61)
+COMPARATOR_LIST_FIELDS = ("theorem_names", "definition_names", "permitted_axioms")
 LICENSE_NAMES = ["LICENSE", "LICENSE.md", "LICENSE.txt",
                  "COPYING", "COPYING.md", "COPYING.txt"]
 
@@ -2306,11 +2308,16 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
             blob_cfg = None
         if not isinstance(blob_cfg, dict):
             raise Fail(f"comparator config {path} at {commit[:12]} is not a JSON object")
+        # #61: a list field the committed config omits (or sets to null) means [], exactly as the
+        # runner records it; any other difference, ["a"] vs [] included, is still a refusal.
         for f in ("challenge_module", "solution_module", "theorem_names",
                   "definition_names", "permitted_axioms"):
-            if cfg[f] != blob_cfg.get(f):
+            want = blob_cfg.get(f)
+            if want is None and f in COMPARATOR_LIST_FIELDS:
+                want = []
+            if cfg[f] != want:
                 raise Fail(f"comparator config {path}: receipt {f} differs from the "
-                           f"config at {commit[:12]} ({cfg[f]!r} vs {blob_cfg.get(f)!r})")
+                           f"config at {commit[:12]} ({cfg[f]!r} vs {want!r})")
         names = cfg["theorem_names"]
         if not isinstance(names, list) or not names \
                 or not all(isinstance(n, str) and n for n in names):
