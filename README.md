@@ -126,6 +126,10 @@ lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.j
 lean-pkg promote my-proof                      # dry run: the checklist says what is missing
 ```
 
+No Lean project yet? [Getting started, step 1](docs/getting-started.md#start-from-scratch)
+makes a minimal Challenge/Solution project with a complete `comparator.json`,
+ready for `comparator-receipt`.
+
 The registry repository is the cross-project coordination history; each research
 repository keeps its own mathematics and committed `.lean-receipts/` evidence.
 Keep the shared registry private unless you intentionally want to expose

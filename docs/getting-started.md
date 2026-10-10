@@ -120,14 +120,17 @@ Replace `you/my-proof` with your repository.
 
 ### 1. The project
 
+The finished project looks like this:
+
 ```
 ~/src/my-proof/
-  lean-toolchain        leanprover/lean4:v4.32.0
-  lakefile.toml
+  lean-toolchain        leanprover/lean4:v4.35.0-rc2
+  lakefile.toml         requires Mathlib; one library, MyProof
   lake-manifest.json    tracked; pins Mathlib
-  LICENSE               an OSI license GitHub can detect
-  Challenge.lean        trusted, Mathlib-only statements, proofs replaced by `sorry`
-  Solution.lean         the same theorem names and statements, with proofs
+  .gitignore            ignores .lake/
+  LICENSE               an OSI license GitHub can detect (needed by promote, not by the receipt)
+  MyProof/Challenge.lean  module MyProof.Challenge: trusted, Mathlib-only statements, proofs replaced by `sorry`
+  MyProof/Solution.lean   module MyProof.Solution: the same theorem names and statements, with proofs
   comparator.json
 ```
 
@@ -146,36 +149,106 @@ the manifest. A project that knowingly has no Mathlib sets
 `COMPARATOR_RECEIPT_NO_MATHLIB=1` (see
 [The comparator tier](comparator.md#mechanisms)).
 
-`lakefile.toml` must declare a library for each of the two modules, or
-`lake build Challenge` fails with `unknown target`:
+#### Start from scratch
 
-```toml
+No project yet? These commands make the one above, with one theorem. Paste
+them as they are; `my-proof`, `MyProof` and `two_mul_le` are names you may
+change later, consistently.
+
+```bash
+mkdir -p ~/src/my-proof && cd ~/src/my-proof
+git init
+echo 'leanprover/lean4:v4.35.0-rc2' > lean-toolchain
+printf '/.lake\n' > .gitignore
+
+cat > lakefile.toml <<'EOF'
+name = "my-proof"
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
+rev = "v4.35.0-rc2"
+
 [[lean_lib]]
-name = "Challenge"
+name = "MyProof"
+globs = ["MyProof.+"]
+EOF
 
-[[lean_lib]]
-name = "Solution"
-```
+mkdir -p MyProof
+cat > MyProof/Challenge.lean <<'EOF'
+import Mathlib
 
-For several challenges, keep them under one directory and declare it once,
-for example `Audit/<Name>/Challenge.lean` with
-`[[lean_lib]] name = "Audit"` and `globs = ["Audit.+"]`; the configuration
-then names the modules `Audit.<Name>.Challenge` and `Audit.<Name>.Solution`.
-[The comparator tier](comparator.md#writing-the-challenge-and-the-solution)
-explains what goes in each file.
+theorem MyProof.two_mul_le (n : ℕ) : n ≤ 2 * n := by
+  sorry
+EOF
 
-`comparator.json` uses the Palomar layout:
+cat > MyProof/Solution.lean <<'EOF'
+import Mathlib
 
-```json
+theorem MyProof.two_mul_le (n : ℕ) : n ≤ 2 * n := by
+  omega
+EOF
+
+cat > comparator.json <<'EOF'
 {
-  "challenge_module": "Challenge",
-  "solution_module": "Solution",
+  "challenge_module": "MyProof.Challenge",
+  "solution_module": "MyProof.Solution",
   "theorem_names": ["MyProof.two_mul_le"],
   "definition_names": [],
   "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
   "enable_nanoda": true
 }
+EOF
+
+lake update
+lake exe cache get
+lake build MyProof.Challenge MyProof.Solution
+git add -A && git commit -m "minimal Challenge/Solution project"
 ```
+
+`lake update` writes `lake-manifest.json` and downloads Mathlib (several
+GB with its cache); the build ends with `Build completed successfully` and
+one ``declaration uses `sorry` `` warning, from the Challenge. Add a `LICENSE`
+before you promote. `lake new MyProof math` is another start: it writes a
+Mathlib `lakefile.toml` with the library `MyProof`; put the two files in its
+`MyProof/` directory and write `comparator.json` as above.
+
+#### Module names are file paths
+
+A module's name is its path from the project root: `MyProof.Challenge` is the
+file `MyProof/Challenge.lean`. A `Challenge.lean` at the root is the module
+`Challenge`, so a configuration naming `MyProof.Challenge` while the file sits
+at the root fails at the build stage:
+
+```text
+error: no such file or directory (error code: 2)
+  file: .../my-proof/MyProof/Challenge.lean
+```
+
+Every module must also belong to a library in `lakefile.toml`, or
+`lake build MyProof.Challenge` fails with `unknown target`. One `[[lean_lib]]`
+whose `globs` cover the directory, as above, is enough. For several
+challenges, keep them under one directory, for example
+`Audit/<Name>/Challenge.lean` with `[[lean_lib]] name = "Audit"` and
+`globs = ["Audit.+"]`; the configuration then names the modules
+`Audit.<Name>.Challenge` and `Audit.<Name>.Solution`.
+[The comparator tier](comparator.md#writing-the-challenge-and-the-solution)
+explains what goes in each file.
+
+#### comparator.json
+
+`comparator.json` uses the Palomar layout. Write every field:
+
+| Field | Meaning |
+|---|---|
+| `challenge_module`, `solution_module` | the two module names, as above |
+| `theorem_names` | the theorems to compare, fully qualified; at least one |
+| `definition_names` | Challenge definitions whose body the Solution may supply (compared by name and type only); `[]` when there are none, as here. A non-empty list needs a human `judged_as` sign-off ([the comparator tier](comparator.md)) |
+| `permitted_axioms` | a subset of `["propext", "Quot.sound", "Classical.choice"]` |
+| `enable_nanoda` | `true`: also replay in the nanoda kernel |
+
+Write `"definition_names": []` even when it is empty: the receipt records
+the list, and `lean-pkg comparator --check` compares it with the file.
 
 Several configurations may be declared, as `comparator*.json` at the project
 root or as `comparator/config*.json`. Every one of them must pass. See the
