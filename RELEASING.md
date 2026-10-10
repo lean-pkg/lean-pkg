@@ -18,12 +18,16 @@ changes evidence.
 ## Checklist
 
 0. Documentation gap pass: every CHANGELOG `### Added` entry since the
-   previous tag has a home in README.md or the docs front door
-   (`docs/index.md`, `docs/how-to.md`), every new subcommand has its
-   `docs/cli.md` row, and `lean-pkg llms` (llms.txt) covers it; `make check`
-   includes the subcommand-coverage test (`tests/test_docs.py`), which is the
-   floor, not the whole pass. Numbered 0 so that references to steps 1 to 7
-   elsewhere stay valid.
+   previous tag has a documented home. A new subcommand must reach the front
+   door (README.md, `docs/index.md` or `docs/how-to.md`), have its
+   `docs/cli.md` row, and be covered by `lean-pkg llms` (llms.txt); `make
+   check` enforces the first two with the subcommand-coverage test
+   (`tests/test_docs.py`). An option-level entry (a new flag, field or
+   configuration key) is at home in the detail page the front door links:
+   its `docs/cli.md` row, `docs/comparator.md` or `docs/formalization.md`; a
+   how-to recipe is welcome but not required. The test is the floor, not the
+   whole pass. Numbered 0 so that references to steps 1 to 7 elsewhere stay
+   valid.
 1. Move the entries under `## [Unreleased]` in `CHANGELOG.md` to a new
    `## [X.Y.Z] - YYYY-MM-DD` section.
 2. Set `version` in `pyproject.toml` and `version` plus `date-released` in
