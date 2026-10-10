@@ -22,6 +22,12 @@ change the registry schema or receipt format, always with a migration).
   RULES`, and the first line of each subcommand), cut from the full contract by its section headers so it cannot
   drift; every line is a line of the full text. `--json` adds `"short": true`; plain `llms --json` is unchanged.
   (#43)
+- `lean-pkg report [--command "ARGS"] [--package NAME] [--title T] [--enhancement] [--repo OWNER/NAME]
+  [--dry-run|--yes] [--json]` (#47): a bug report in the shape of `.github/ISSUE_TEMPLATE/bug_report.md`
+  (version, doctor and host-check summaries, the command re-run with its exit code and output, the
+  package record), every captured text redacted (`<registry>`/`<checkout>` placeholders, home `~`, the
+  public-safety families, patterns files and record-derived names); a dry run unless `--yes`, which
+  files it with `gh issue create`.
 
 ## [0.7.16] - 2026-10-10
 

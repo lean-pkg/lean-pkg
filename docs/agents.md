@@ -35,6 +35,9 @@ every subcommand has `--json`, and the contract an agent needs is one file.
 6. Treat every refusal as a named fact to report, not an obstacle to work
    around. Refusals are the product.
 
+To report a problem with the tool itself, run `lean-pkg report --command "ARGS"` (add `--package NAME` when it
+concerns one package): it prints a redacted issue body in the repository's template; `--yes` files it.
+
 ## A typical agent session
 
 ```bash
