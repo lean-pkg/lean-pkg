@@ -23,6 +23,10 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 | **using the tool** | [How to](how-to.md), the [CLI reference](cli.md) and [Prior-art search](prior-art.md) |
 | **auditing a package** | [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [formalization.yaml](formalization.md), [The index](index-catalog.md), [Lifecycle](lifecycle.md) |
 | **adding the comparator tier to your package** | [Add the comparator tier to an existing package](existing-package-comparator.md), step by step |
+| **joining someone's package** | `scripts/bootstrap-collaborator.sh OWNER/PACKAGE`, then [Add the comparator tier to an existing package](existing-package-comparator.md) |
+| **about to publish** | [Scan for private strings](how-to.md#scan-for-private-strings-before-publishing), [a fresh public history for a paper-incubated package](receipts.md#publishing-a-package-incubated-beside-private-work), and [the publish checklist, Reservoir and Palomar](how-to.md#get-listed-publish-checklist-reservoir-palomar) |
+| **checking a machine** | [`comparator host-check`](how-to.md#check-that-this-machine-can-produce-comparator-receipts) before a long comparator run |
+| **declaring or searching results** | [`claims.yaml` and `lean-pkg search`](how-to.md#declare-reusable-results-and-search-before-building), and [formalization.yaml](how-to.md#render-formalizationyaml) |
 | **testing it from scratch** | [Stranger test](stranger-test.md): run it from the docs alone and record what happened |
 | **a coding agent** | [Using lean-pkg with agents](agents.md), [llms.txt](llms.txt), and the [agent skills](skills.md) |
 | **contributing** | [CONTRIBUTING](https://github.com/lean-pkg/lean-pkg/blob/main/CONTRIBUTING.md) and [MAINTAINERS](https://github.com/lean-pkg/lean-pkg/blob/main/MAINTAINERS.md) |
@@ -87,8 +91,10 @@ will automate the registry bootstrap; it is not implemented yet.
 
 ## Citation
 
-A Zenodo DOI will be minted for the first public release. Until then, cite
-the repository at a commit:
+Releases are archived on Zenodo: the concept DOI
+[10.5281/zenodo.23272098](https://doi.org/10.5281/zenodo.23272098) resolves to
+the latest release, and `CITATION.cff` lists it with the version DOIs. To cite
+a state between releases, cite the repository at a commit:
 
 ```bibtex
 @software{lean_pkg,

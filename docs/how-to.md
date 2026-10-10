@@ -18,6 +18,20 @@ lean-pkg status my-proof  # full record plus the last five history entries
 lean-pkg validate         # schema, enum and history sanity; exit 0 or 1
 ```
 
+## Declare reusable results and search before building
+
+```bash
+lean-pkg search "stochastic Fubini" --offline   # registry and index only
+lean-pkg search "stochastic Fubini"             # plus Loogle, LeanSearch, Reservoir, Palomar, GitHub
+lean-pkg claims sync my-proof                   # read claims.yaml at HEAD, validate, cache
+lean-pkg claims list my-proof
+lean-pkg claims check my-proof
+```
+
+`claims.yaml` (schema `claims/1`) at the repository root names the results
+someone might reuse. The schema, the search order and the search record:
+[Prior-art search](prior-art.md).
+
 ## Add a package
 
 ```bash
@@ -87,6 +101,16 @@ commit, the toolchain, the Mathlib rev, `sorry_count` (must be 0), the
 axioms, the SHA-256 of a frozen report, and the executor's job identity.
 Schema: [Receipts and trust](receipts.md).
 
+## Check that this machine can produce comparator receipts
+
+```bash
+lean-pkg comparator host-check          # needs no registry; exit 0 when a mechanism is usable
+```
+
+One `ok`/`warn`/`fail` line per requirement, then a verdict naming the usable
+mechanisms. Run it before a long `comparator-receipt` run. Details:
+[Checking a host first](comparator.md#checking-a-host-first).
+
 ## Produce the comparator receipt
 
 ```bash
@@ -119,6 +143,17 @@ lean-pkg comparator my-proof --receipt .lean-receipts/<c12>-comparator.json     
 lean-pkg comparator my-proof --receipt .lean-receipts/<c12>-comparator.json --check  # validate only, any status
 ```
 
+## Render formalization.yaml
+
+```bash
+lean-pkg formalization my-proof            # print to stdout
+lean-pkg formalization my-proof --write    # write it and set the registry pointer
+```
+
+The mathlib-initiative v0.4 report Palomar reads, derived from the registry,
+the comparator configurations and the receipts; `audit` reports drift. Derived
+versus kept keys: [formalization.yaml](formalization.md).
+
 ## Commit the evidence without invalidating it
 
 Commit only the `.lean-receipts/` files after the run. The new HEAD is then
@@ -130,6 +165,31 @@ is drift and must be re-certified.
 git add .lean-receipts && git commit -m "evidence: receipts for <c12>"
 ```
 
+## Scan for private strings before publishing
+
+```bash
+lean-pkg public-safety my-proof            # tree plus every reachable blob and commit message
+lean-pkg public-safety my-proof --strict   # warn-only hits block too
+```
+
+Package-specific patterns go in an untracked `.lean-pkg-private-patterns`.
+`promote` runs the same scan and refuses while blocking hits remain.
+
+## Publish a package incubated beside a paper
+
+When a hit is in the history, export a fresh-history repository instead of
+rewriting the old one:
+
+```bash
+lean-pkg release my-proof --fresh-repo ~/src/my-proof-public --dry-run
+lean-pkg release my-proof --fresh-repo ~/src/my-proof-public
+lean-pkg release my-proof --adopt-repo ~/src/my-proof-public    # or: adopt one built by hand
+```
+
+Evidence is cleared (a receipt binds one commit), so gate and run the
+comparator again on the new commit, then `publish --dry-run` and `promote`.
+The full sequence: [Publishing a package incubated beside private work](receipts.md#publishing-a-package-incubated-beside-private-work).
+
 ## Publish
 
 ```bash
@@ -139,6 +199,30 @@ lean-pkg promote my-proof --yes  # ONE-WAY: gh repo edit --visibility public
 
 Optional notification after the flip: set `LEAN_PKG_NOTIFY_CMD` to a command
 that reads the message from stdin.
+
+## Get listed: publish checklist, Reservoir, Palomar
+
+```bash
+lean-pkg publish my-proof --dry-run          # read-only checklist from verified-private to listed
+lean-pkg reservoir check my-proof            # would Reservoir list it? exit 0 eligible, 1 not
+lean-pkg palomar prepare my-proof --dry-run  # the submission bundle; nothing is sent
+lean-pkg record my-proof palomar-submitted --field KEY=VALUE   # each external step, its required fields
+```
+
+`record` takes the fields each event requires (see the
+[CLI reference](cli.md) row). Reservoir's criteria are in the
+[FAQ](faq.md#reservoir).
+
+## Add an entry to the index
+
+```bash
+lean-pkg index add my-proof --by you --headline 'NAME :: FILE :: SUMMARY' --from-registry
+lean-pkg index check --clone my-proof        # re-derive everything from bytes at the pin
+lean-pkg index render
+```
+
+Trust is computed from the evidence, never typed. Schema and review:
+[The index](index-catalog.md).
 
 ## Find drift, expired leases, and GitHub mismatches
 
@@ -188,6 +272,13 @@ shell, including non-interactive SSH, finds the registry without
 ```bash
 mkdir -p ~/.lean-pkg && ln -s /path/to/registry-repo ~/.lean-pkg/registry
 lean-pkg doctor      # registry: ... [source: user-default]
+```
+
+## Upgrade an old registry
+
+```bash
+lean-pkg migrate --dry-run
+lean-pkg migrate                             # additive and idempotent
 ```
 
 ## Render a status page
