@@ -38,6 +38,7 @@ lean-pkg search "stochastic Fubini"             # plus Loogle, LeanSearch, Reser
 lean-pkg claims sync my-proof                   # read claims.yaml at HEAD, validate, cache
 lean-pkg claims list my-proof
 lean-pkg claims check my-proof
+lean-pkg claims check --file claims.yaml        # schema-check the working copy, no registry
 lean-pkg claims migrate my-proof --from old-claims.json --dry-run   # legacy JSON to a claims/1 skeleton
 ```
 
@@ -46,6 +47,10 @@ someone might reuse. The schema, the search order and the search record:
 [Prior-art search](prior-art.md). Packages without synced claims are searched
 by declaration name and docstring in their checkout, and a zero now says which
 packages were searched that way and which were not searched at all.
+
+Validate `claims.yaml` with `lean-pkg claims check --file claims.yaml` before the
+commit you will gate: `gate` refuses a claims file that fails the schema at the
+receipt's commit, and the fix then costs a new receipt.
 
 ## Add a package
 

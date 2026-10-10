@@ -55,7 +55,17 @@ Trust is never typed into a claim: it is derived from the package's receipts.
 lean-pkg claims sync my-lean     # read claims.yaml at HEAD, check every decl, cache it (event claims-synced)
 lean-pkg claims list             # ID, KIND, STATUS, TRUST, PIN, DECL
 lean-pkg claims check            # re-validate the cached copies; exit 0 or 1
+lean-pkg claims check --file claims.yaml   # schema-check the working copy; no registry
 ```
+
+`gate` and `gate --check` run the same schema check on the claims file as
+committed at the receipt's commit (never the working tree): `--check` prints
+`✓ claims.yaml at <commit12>: schema ok (N claims)` or a `✗` with the first
+error (exit 1), and `gate` refuses a failing file before anything is copied or
+recorded. Fixing it then is a new commit, a new receipt and a re-gate, so run
+`claims check --file claims.yaml` before the commit you will gate. A package
+that tracks no claims file gets a neutral `·` line. `--json` carries
+`claims_schema` {checked, commit, file, ok, claims, errors[]}.
 
 `claims check NAME` fails (exit 1) when the package has no coverage: no cached
 claims and no `claims.yaml` at `HEAD` (`coverage: none`), or a committed

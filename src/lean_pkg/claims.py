@@ -183,6 +183,17 @@ def validate_claims(doc, package: str | None = None) -> list[str]:
     return sorted(set(errors), key=errors.index)
 
 
+def schema_check_text(text: str, where: str, package: str | None = None) -> tuple[int | None, list[str]]:
+    """(claim count, errors) for a claims file's text: YAML load plus `validate_claims`, the same
+    schema check `claims sync` and `claims check` apply. The count is None when `claims` is not a list."""
+    try:
+        doc = load_claims_text(text, where)
+    except core.Fail as e:
+        return None, [str(e)]
+    claims = doc.get("claims")
+    return (len(claims) if isinstance(claims, list) else None), validate_claims(doc, package)
+
+
 def decl_problems(read_file, claims: list[dict]) -> list[str]:
     """Each claim's declaration (its last name component) must occur in its file.
     `read_file(rel) -> str | None` reads the file at the commit being checked."""
@@ -389,6 +400,23 @@ def do_claims_check(reg: dict, name: str | None) -> tuple[list[str], dict, int]:
             lines += coverage_lines(r["name"], r)
     lines.append(f"{len(reports)} package(s) checked: " + ("all pass" if ok else "FAILED"))
     return lines, {"ok": ok, "packages": reports}, (0 if ok else 1)
+
+
+def do_claims_check_file(path: str, name: str | None = None) -> tuple[list[str], dict, int]:
+    """`claims check --file PATH`: the schema check on a working-copy file, before it is committed.
+    Reads no registry; NAME, when given, must be the file's `package`."""
+    p = pathlib.Path(str(path)).expanduser()
+    if not p.is_file():
+        raise core.Fail(f"claims file not found: {p}")
+    n, errors = schema_check_text(p.read_text(encoding="utf-8", errors="replace"), str(p), name)
+    count = "?" if n is None else n
+    if errors:
+        lines = [f"FAIL {p}: {len(errors)} schema error(s) ({count} claim(s))"]
+        lines += [f"  fail: {e}" for e in errors]
+        lines.append(f"FAIL {p}: fix the errors above before you commit the file you will gate")
+    else:
+        lines = [f"PASS {p}: schema ok ({count} claim(s))"]
+    return lines, {"ok": not errors, "path": str(p), "claims": n, "errors": errors}, (1 if errors else 0)
 
 
 # --------------------------------------------------------------------------
@@ -600,6 +628,9 @@ def run_migrate(args) -> int:
 
 
 def run_check(args) -> int:
+    if getattr(args, "file", None) is not None:
+        out, payload, rc = do_claims_check_file(args.file, args.name)
+        return _emit(args, out, payload, rc)
     out, payload, rc = do_claims_check(core.load_registry(core.registry_path(args)), args.name)
     return _emit(args, out, payload, rc)
 
@@ -619,8 +650,11 @@ def add_parsers(sub, add_json) -> None:
     b.add_argument("name", nargs="?", default=None)
     add_json(b)
     b.set_defaults(fn=cmd_claims, claims_fn=run_list)
-    c = csub.add_parser("check", help="re-validate cached claims; exit 0/1")
+    c = csub.add_parser("check", help="re-validate cached claims; exit 0/1 (--file: a working-copy file)")
     c.add_argument("name", nargs="?", default=None)
+    c.add_argument("--file", default=None, metavar="PATH",
+                   help="schema-check this claims file (e.g. claims.yaml before you commit it) instead of the "
+                        "registry cache; reads no registry; NAME, if given, must be its package")
     add_json(c)
     c.set_defaults(fn=cmd_claims, claims_fn=run_check)
     m = csub.add_parser("migrate", help="legacy claims.json -> a claims/1 skeleton in the checkout "
