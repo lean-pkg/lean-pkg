@@ -101,7 +101,7 @@ a state between releases, cite the repository at a commit:
   author  = {Chen, Le},
   title   = {lean-pkg: a registry and trust gate for Lean 4 formalization packages},
   year    = {2026},
-  version = {0.7.16},
+  version = {0.7.17},
   url     = {https://github.com/lean-pkg/lean-pkg},
   note    = {commit <sha>}
 }
