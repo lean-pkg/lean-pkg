@@ -50,6 +50,9 @@ change the registry schema or receipt format, always with a migration).
 - Rows stored before #17 with a literal `~/x` `local_path` still resolved to `$HOME/~/x`. `migrate` now
   rewrites each through the `--path` normaliser to its `$HOME`-relative form and lists it as a change
   (`--dry-run` shows it first); `~user/...` is left alone. (#21.4)
+- `audit`'s "gh query failed" detail and the promote/publish "reuse lint failed" line cut the tool's
+  message at 120 characters; both now keep its whole first line, as promote's gh visibility line has
+  since #19. (#21.7)
 - `gate`/`comparator` (and every caller of the comparator validator) read a comparator log from the
   working tree even when it was already committed, so a log edited after its commit passed until
   `promote` refused it. Once a log is tracked at HEAD, a working copy that differs from the committed

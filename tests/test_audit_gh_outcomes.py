@@ -195,3 +195,11 @@ def test_summary_counts_collapsed_findings_too(lp, env, gh_bin, capsys):
     assert lp.main(["--registry", str(env.registry), "audit", "--no-gh"]) == 0
     out = capsys.readouterr().out.splitlines()
     assert out[-1] == f"{len(data['findings'])} finding(s): {data['counts']['warn']} warn, {data['counts']['info']} info"
+
+
+def test_long_gh_error_keeps_its_whole_first_line(lp, env, gh_bin, capsys, monkeypatch):
+    """#21.7: the detail is gh's whole first line, never cut at 120 characters."""
+    long = "HTTP 502: bad gateway " + "x" * 150 + " END"
+    monkeypatch.setenv("FAKE_GH_VIEW", long)
+    f = _audit(lp, env, capsys)
+    assert f["alpha"]["detail"] == f"gh query failed: {long}"

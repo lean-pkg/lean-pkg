@@ -111,3 +111,15 @@ def test_promote_success_json_includes_rl_reminder(lp, env, fake_gh,
     data = json.loads(capsys.readouterr().out)
     assert data["rl_reminder"] is True
     assert data["event"] == "promoted"
+
+
+def test_promote_reuse_lint_failure_keeps_the_whole_first_line(lp, env, fake_gh, monkeypatch, tmp_path, capsys):
+    """#21.7: the reuse-lint ✗ line carries reuse's whole first line, never cut at 120 characters."""
+    long = "The following files have no licensing information: " + "y" * 150 + " END"
+    fake = tmp_path / "fake-reuse"
+    fake.write_text(f"#!/bin/sh\necho '{long}'\necho second line\nexit 1\n")
+    fake.chmod(0o755)
+    monkeypatch.setattr(lp, "find_reuse", lambda: str(fake))
+    lp.main(["--registry", str(env.registry), "promote", "beta"])
+    out = capsys.readouterr().out
+    assert f"reuse lint failed: {long}" in out and "second line" not in out

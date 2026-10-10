@@ -3015,7 +3015,7 @@ def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False,
             checks.append(("✓", "reuse lint passed"))
         else:
             detail = (p.stderr or p.stdout).strip().splitlines()
-            checks.append(("✗", f"reuse lint failed: {(detail or [''])[0][:120]}"))
+            checks.append(("✗", f"reuse lint failed: {(detail or [''])[0]}"))   # whole first line (#21.7)
     if any((repo / f).is_file() for f in LICENSE_NAMES):
         checks.append(("✓", "LICENSE/COPYING present at repo root"))
     else:
@@ -3381,7 +3381,7 @@ def classify_gh_failure(p, nwo: str, repo: pathlib.Path | None, auth_ok) -> tupl
             return "not-found", (f"repository {nwo} not found on GitHub, or the token lacks access to it "
                                  "(no checkout remote names it to tell which)")
         return "not-found", f"repository {nwo} not found (gh and the checkout's git remote both fail)"
-    return "error", f"gh query failed: {text[:120]}"
+    return "error", f"gh query failed: {(text.splitlines() or [''])[0]}"   # whole first line (#21.7)
 
 
 def gh_check_code(outcome: str) -> str:
