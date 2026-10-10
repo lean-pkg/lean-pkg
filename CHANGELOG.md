@@ -33,6 +33,9 @@ change the registry schema or receipt format, always with a migration).
 
 - `report` now requires one of `--command`, `--body` or `--from-log` (exit 2 otherwise); a bare
   `lean-pkg report` used to produce a host-only report. (#55)
+### Changed
+
+- The `make test` SIGINT test is deterministic: readiness wait, own `waitpid(WNOHANG)` deadline loop. (#57)
 
 ## [0.7.21] - 2026-10-10
 

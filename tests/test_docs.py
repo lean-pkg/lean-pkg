@@ -272,11 +272,15 @@ def test_make_test_uses_a_private_bytecode_cache():
 
 
 def test_make_test_removes_its_bytecode_cache_on_sigint(tmp_path):
-    """Interrupting `make test` (Ctrl-C reaches the whole process group) must not leak the temp dir."""
+    """Interrupting `make test` (Ctrl-C reaches the whole process group) must not leak the temp dir.
+
+    Reaped with our own WNOHANG loop, not `Popen.wait(timeout)`: under load that call once tripped
+    CPython's internal `assert pid == self.pid or pid == 0` (#57). A child already reaped elsewhere
+    (ECHILD) counts as gone; a group still alive at the deadline is SIGKILLed and fails the test."""
     import os, shutil, signal, subprocess, time
+    import pytest
     make = shutil.which("make")
     if make is None:
-        import pytest
         pytest.skip("make not installed")
     fakebin = tmp_path / "bin"
     fakebin.mkdir()
@@ -287,19 +291,54 @@ def test_make_test_removes_its_bytecode_cache_on_sigint(tmp_path):
     env = dict(os.environ, PATH=f"{fakebin}{os.pathsep}{os.environ['PATH']}")
     p = subprocess.Popen([make, "-s", "-C", str(ROOT), "test"], env=env, start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
-        for _ in range(100):
-            if marker.is_file() and marker.read_text():
+    gone = False   # reaped by someone else: ECHILD from our waitpid
+
+    def reap(deadline):
+        nonlocal gone
+        while p.returncode is None and not gone:
+            try:
+                pid, sts = os.waitpid(p.pid, os.WNOHANG)
+            except ChildProcessError:
+                gone = True
                 break
+            if pid == p.pid:
+                p.returncode = os.waitstatus_to_exitcode(sts)
+                break
+            if time.monotonic() >= deadline:
+                return False
             time.sleep(0.05)
-        prefix = marker.read_text()
-        assert prefix and os.path.isdir(prefix)
+        return True
+
+    try:
+        # Ready only once the fake python3 has created its subdirectory: make, the recipe's shell
+        # (traps installed before python3 starts) and the leaf are all running in the group.
+        ready = time.monotonic() + 15
+        prefix = ""
+        while time.monotonic() < ready and p.poll() is None:
+            if marker.is_file():
+                prefix = marker.read_text()
+                if prefix and os.path.isdir(os.path.join(prefix, "x")):
+                    break
+            time.sleep(0.05)
+        assert prefix and os.path.isdir(os.path.join(prefix, "x")), \
+            f"make test never reached the fake python3 (returncode {p.poll()})"
+        time.sleep(0.1)   # let the leaf finish its exec into sleep
         os.killpg(p.pid, signal.SIGINT)
-        p.wait(timeout=10)
+        if not reap(time.monotonic() + 15):
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            reap(time.monotonic() + 5)
+            pytest.fail("make test still running 15 s after SIGINT to its process group; SIGKILLed")
     finally:
-        if p.poll() is None:
-            os.killpg(p.pid, signal.SIGKILL)
-    assert p.returncode != 0
+        if p.returncode is None and not gone:
+            try:
+                os.killpg(p.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            reap(time.monotonic() + 5)
+    assert gone or p.returncode != 0, f"make test exited {p.returncode} after SIGINT"
     for _ in range(40):
         if not os.path.exists(prefix):
             break
