@@ -169,6 +169,31 @@ def test_status_and_list_text_fields_reach_derived_lease_expiry(lp, env, capsys)
     assert rc == 0 and json.loads(cap.out)["package"] == {"lease": {"expires_at": None}}   # no lease: null
 
 
+def test_fields_aliases_name_the_table_columns(lp, env, capsys):
+    """Field report 2026-10-10: `pin` (list/board's PIN column) and `lease.expires` (the EXPIRES column) are
+    --fields aliases of mathlib_pin and lease.expires_at in status, list and board; output keys and the
+    `fields` list carry the record key, and the record keys keep working."""
+    _claim(lp, env, capsys)
+    rc, cap = _run(lp, env, capsys, "status", "alpha", "--json", "--fields", "pin,lease.expires")
+    assert rc == 0, cap.err
+    data = json.loads(cap.out)
+    assert set(data["package"]) == {"mathlib_pin", "lease"} and set(data["package"]["lease"]) == {"expires_at"}
+    assert data["fields"] == ["mathlib_pin", "lease.expires_at"]
+    canon = json.loads(_run(lp, env, capsys, "status", "alpha", "--json", "--fields",
+                            "mathlib_pin,lease.expires_at")[1].out)
+    assert canon["package"] == data["package"]
+    rc, cap = _run(lp, env, capsys, "status", "alpha", "--fields", "pin,mathlib_pin")   # deduped
+    assert rc == 0 and list(yaml.safe_load(cap.out)["alpha"]) == ["mathlib_pin"]
+    for cmd in ("list", "board"):
+        rc, cap = _run(lp, env, capsys, cmd, "--json", "--only", "alpha", "--fields", "pin")
+        assert rc == 0, cap.err
+        assert list(json.loads(cap.out)["packages"]["alpha"]) == ["mathlib_pin"]
+        rc, cap = _run(lp, env, capsys, cmd, "--only", "alpha", "--fields", "lease.expires")
+        assert rc == 0 and yaml.safe_load(cap.out)["alpha"]["lease"]["expires_at"]
+    rc, cap = _run(lp, env, capsys, "status", "alpha", "--fields", "pinn")
+    assert rc == 2 and "aliases: pin = mathlib_pin, lease.expires = lease.expires_at" in cap.err
+
+
 def test_list_and_board_fields_text_is_yaml_and_never_opens_tui(lp, env, capsys, monkeypatch):
     monkeypatch.setattr(lp, "board_interactive", lambda: True)
     monkeypatch.setattr(lp, "_Tui", lambda *a, **k: (_ for _ in ()).throw(AssertionError("TUI opened")))

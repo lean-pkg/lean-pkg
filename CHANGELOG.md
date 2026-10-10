@@ -13,6 +13,10 @@ change the registry schema or receipt format, always with a migration).
   `expires_at` (`claimed_at` + `ttl_hours`, ISO 8601 UTC; null when the lease fields are unparseable;
   never stored), as `list`/`board --json` already did, so `status NAME --fields lease.expires_at` reads a
   lease's expiry instead of exiting 2 and leaving it to be computed by hand.
+- `status`/`list`/`board --fields` accept the table names as aliases: `pin` (the `PIN` column) for
+  `mathlib_pin` and `lease.expires` (the `EXPIRES` column) for `lease.expires_at`. The output and the
+  `--json` `fields` list carry the record key; the record keys work as before, and an unknown field's
+  usage error lists the aliases.
 
 ## [0.7.14] - 2026-10-10
 

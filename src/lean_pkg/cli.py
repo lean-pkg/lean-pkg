@@ -3930,7 +3930,8 @@ def select_fields(pkg: dict, fields: list[str], also_known: tuple[str, ...] = ()
         if any(not x for x in parts):
             raise UsageError(f"--fields: malformed field {path!r}")
         if parts[0] not in known:
-            raise UsageError(f"--fields: unknown field {path!r}; top-level keys: {', '.join(known)}")
+            raise UsageError(f"--fields: unknown field {path!r}; top-level keys: {', '.join(known)} (aliases: "
+                             + ", ".join(f"{a} = {k}" for a, k in FIELD_ALIASES.items()) + ")")
         value = pkg.get(parts[0])
         for i, part in enumerate(parts[1:], start=1):
             if value is None:
@@ -3957,10 +3958,17 @@ def select_fields(pkg: dict, fields: list[str], also_known: tuple[str, ...] = ()
     return out
 
 
+# `--fields` aliases: the names the tables show (list/board's PIN column, leases' EXPIRES column) mapped to the
+# record keys. Resolved before validation; output and the `fields` list carry the record key.
+FIELD_ALIASES = {"pin": "mathlib_pin", "lease.expires": "lease.expires_at"}
+
+
 def fields_arg(args) -> list[str] | None:
-    """The parsed `--fields a,b,c` of status/list/board, or None when the flag is absent."""
+    """The parsed `--fields a,b,c` of status/list/board (aliases resolved), or None when the flag is absent."""
     fields = getattr(args, "fields", None)
-    return None if fields is None else csv_names(fields, "--fields")
+    if fields is None:
+        return None
+    return list(dict.fromkeys(FIELD_ALIASES.get(f, f) for f in csv_names(fields, "--fields")))
 
 
 def trim_packages(reg: dict, names: list[str]) -> dict:
@@ -4538,7 +4546,7 @@ any -> archived                    `update --status archived --reason` or `audit
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path}; --registry-snapshot COMMIT (env LEAN_PKG_REGISTRY_SNAPSHOT): read-only, the registry + event log as of COMMIT of its git repo (git show into a temp copy); reads work (status/list/board/audit/dry runs/comparator config --dry-run), every write exits 2 `read-only: --registry-snapshot`; --json +registry_snapshot sha)
 board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
-status    full record + last 5 history entries (a lease adds derived expires_at, UTC); --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
+status    full record + last 5 history entries (a lease adds derived expires_at, UTC); --fields a,b.c: only those keys (dotted paths; aliases pin = mathlib_pin, lease.expires = lease.expires_at; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent; a legacy literal ~/x local_path is rewritten $HOME-relative). ex: lean-pkg migrate --dry-run
@@ -5709,7 +5717,8 @@ def main(argv: list[str] | None = None) -> int:
                  "full record (cached claims included: --no-claims or --fields shrink it); the same table or --json shape, restricted; an unknown "
                  "name exits 1")
     list_fields_help = ("trims FIELDS, never packages: each package record cut to these keys, comma-separated; "
-                        "the same validation and dotted paths as `status --fields` (gate.receipt, lease.agent; an "
+                        "the same validation, dotted paths and aliases as `status --fields` (gate.receipt, "
+                        "lease.agent, lease.expires_at; alias pin (=mathlib_pin); an "
                         "unknown field exits 2 listing the valid keys); --json keeps the dump's shape plus a "
                         "`fields` list, text prints the selected keys of each package as YAML")
     no_claims_help = ("drop the bulk cached arrays (" + ", ".join(BULK_FIELDS) + "; the [bulk] keys below) from "
@@ -5737,8 +5746,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("name")
     s.add_argument("--fields", metavar="a,b,c", default=None,
                    help="trims FIELDS: only these keys of the package record, comma-separated; dotted paths "
-                        "reach into mappings (gate.receipt, lease.agent); --json keeps the nesting, text prints "
-                        "YAML; an unknown field exits 2 listing the valid keys")
+                        "reach into mappings (gate.receipt, lease.agent, the derived lease.expires_at); aliases "
+                        "pin (=mathlib_pin) and lease.expires (=lease.expires_at), output keeps the record key; "
+                        "--json keeps the nesting, text prints YAML; an unknown field exits 2 listing the valid keys")
     s.add_argument("--no-claims", dest="no_claims", action="store_true", help=no_claims_help)
     add_json(s)
     s.set_defaults(fn=cmd_status)
