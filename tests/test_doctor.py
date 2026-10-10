@@ -218,7 +218,7 @@ def _exe(path):
     path.chmod(0o755)
 
 
-def _line(cap, tool):
+def _tool_line(cap, tool):
     return next(x for x in cap.out.splitlines() if f" tool {tool}:" in x)
 
 
@@ -233,7 +233,7 @@ def test_doctor_warns_when_lake_or_lean_on_path_is_not_elans(lp, env, fake_path,
     rc, cap = _doctor(lp, env, capsys)
     assert rc == 0, cap.err
     for t in ("lake", "lean"):
-        line = _line(cap, t)
+        line = _tool_line(cap, t)
         assert line.startswith(f"warn tool {t}: {distro / t} is not elan's ({fake_path / t})"), line
         assert "lean-toolchain" in line and f"put {fake_path} first on PATH" in line
 
@@ -247,17 +247,17 @@ def test_doctor_accepts_elans_proxy_directly_or_through_a_symlink(lp, env, fake_
     monkeypatch.setenv("PATH", f"{links}{os.pathsep}{fake_path}")
     rc, cap = _doctor(lp, env, capsys)
     assert rc == 0, cap.err
-    assert _line(cap, "lake") == f"ok tool lake: {links / 'lake'}"
-    assert _line(cap, "lean") == f"ok tool lean: {fake_path / 'lean'}"
+    assert _tool_line(cap, "lake") == f"ok tool lake: {links / 'lake'}"
+    assert _tool_line(cap, "lean") == f"ok tool lean: {fake_path / 'lean'}"
 
 
 def test_doctor_reports_go_cargo_jq_for_comparator_receipt(lp, env, fake_path, installed, capsys):
     _exe(fake_path / "jq")
     rc, cap = _doctor(lp, env, capsys)
     assert rc == 0, cap.err
-    assert _line(cap, "jq") == f"ok tool jq: {fake_path / 'jq'}"
+    assert _tool_line(cap, "jq") == f"ok tool jq: {fake_path / 'jq'}"
     for t in ("go", "cargo"):
-        line = _line(cap, t)
+        line = _tool_line(cap, t)
         assert line.startswith(f"n/a tool {t}: not on PATH") and "comparator-receipt" in line, line
 
 
@@ -273,11 +273,11 @@ def test_doctor_na_tool_lines_say_what_the_tool_is_for(lp, env, fake_path, insta
         if t == "bwrap":
             (fake_path / "bwrap").unlink()
             rc, cap = _doctor(lp, env, capsys)
-        line = _line(cap, t)
+        line = _tool_line(cap, t)
         assert line.startswith(f"n/a tool {t}: not on PATH (") and needle in line, line
     for t in ("comparator", "nanoda", "bwrap", "go"):
-        assert "gate/status/claims do not need it" in _line(cap, t)
-        assert "lean-pkg comparator host-check" in _line(cap, t)
+        assert "gate/status/claims do not need it" in _tool_line(cap, t)
+        assert "lean-pkg comparator host-check" in _tool_line(cap, t)
     data = json.loads(_doctor(lp, env, capsys, "--json")[1].out)
     levels = {c["item"]: c["level"] for c in data["checks"]}
     assert all(levels[f"tool {t}"] == "n/a" for t in ("comparator", "nanoda", "reuse", "go", "gh"))
@@ -300,15 +300,15 @@ def _registry_repo(tmp_path, env):
     return repo, reg, ev
 
 
-def _line(cap, item):
+def _item_line(cap, item):
     return next(x for x in cap.out.splitlines() if x.startswith(("ok ", "warn ", "n/a ")) and f" {item}:" in x)
 
 
 def test_doctor_registry_repo_is_na_outside_a_work_tree(lp, env, fake_path, installed, capsys):
     rc, cap = _doctor(lp, env, capsys)
     assert rc == 0
-    assert _line(cap, "registry-repo").startswith("n/a registry-repo:")
-    assert "not inside a git work tree" in _line(cap, "registry-repo")
+    assert _item_line(cap, "registry-repo").startswith("n/a registry-repo:")
+    assert "not inside a git work tree" in _item_line(cap, "registry-repo")
 
 
 def test_doctor_registry_repo_level_and_clean_is_ok(lp, env, fake_path, installed, tmp_path, capsys):
@@ -316,7 +316,7 @@ def test_doctor_registry_repo_level_and_clean_is_ok(lp, env, fake_path, installe
     rc = lp.main(["--registry", str(reg), "doctor"])
     cap = capsys.readouterr()
     assert rc == 0
-    line = _line(cap, "registry-repo")
+    line = _item_line(cap, "registry-repo")
     assert line.startswith("ok registry-repo:")
     assert "on main; 0 behind, 0 ahead of origin/main (local refs; --fetch to be sure); clean tree" in line
 
@@ -325,7 +325,7 @@ def test_doctor_registry_repo_warns_when_behind_or_ahead(lp, env, fake_path, ins
     repo, reg, ev = _registry_repo(tmp_path, env)
     _git(repo, "commit", "-q", "--allow-empty", "-m", "local write")       # ahead 1
     lp.main(["--registry", str(reg), "doctor"])
-    line = _line(capsys.readouterr(), "registry-repo")
+    line = _item_line(capsys.readouterr(), "registry-repo")
     assert line.startswith("warn registry-repo:") and "0 behind, 1 ahead" in line
     assert "push so other machines see it" in line
     # now origin moves on without us: behind 1, ahead 0
@@ -333,7 +333,7 @@ def test_doctor_registry_repo_warns_when_behind_or_ahead(lp, env, fake_path, ins
     _git(repo, "update-ref", "refs/remotes/origin/main", head)
     _git(repo, "reset", "-q", "--hard", "HEAD~1")
     lp.main(["--registry", str(reg), "doctor"])
-    line = _line(capsys.readouterr(), "registry-repo")
+    line = _item_line(capsys.readouterr(), "registry-repo")
     assert "1 behind, 0 ahead" in line and "pull before writing" in line
 
 
@@ -342,7 +342,7 @@ def test_doctor_registry_repo_names_uncommitted_registry_files(lp, env, fake_pat
     assert lp.main(["--registry", str(reg), "claim", "alpha", "--workspace", "w", "--agent", "a"]) == 0
     capsys.readouterr()
     lp.main(["--registry", str(reg), "doctor"])
-    line = _line(capsys.readouterr(), "registry-repo")
+    line = _item_line(capsys.readouterr(), "registry-repo")
     assert line.startswith("warn registry-repo:")
     assert "2 uncommitted tracked file(s) including" in line
     assert "lean-packages.yaml" in line and "lean-package-events.jsonl" in line
@@ -361,7 +361,7 @@ def test_doctor_fetch_fetches_both_repos_and_says_so(lp, env, fake_path, install
     cap = capsys.readouterr()
     assert rc == 0
     assert any(a[0] == "fetch" for a in calls)
-    assert "(fetched)" in _line(cap, "registry-repo")
+    assert "(fetched)" in _item_line(cap, "registry-repo")
     calls.clear()
     lp.main(["--registry", str(reg), "doctor"])
     capsys.readouterr()
@@ -374,7 +374,7 @@ def test_doctor_fetch_failure_is_reported_not_fatal(lp, env, fake_path, installe
     rc = lp.main(["--registry", str(reg), "doctor", "--fetch"])
     cap = capsys.readouterr()
     assert rc == 0
-    assert "fetch failed" in _line(cap, "registry-repo")
+    assert "fetch failed" in _item_line(cap, "registry-repo")
 
 
 def test_doctor_json_has_registry_repo_check(lp, env, fake_path, installed, tmp_path, capsys):
@@ -397,7 +397,7 @@ def _fake_gh(bindir, out: str, err: str = "", rc: int = 0):
 def test_doctor_gh_auth_na_without_gh(lp, env, fake_path, installed, capsys):
     rc, cap = _doctor(lp, env, capsys)
     assert rc == 0
-    assert _line(cap, "gh auth") == "n/a gh auth: gh not on PATH"
+    assert _item_line(cap, "gh auth") == "n/a gh auth: gh not on PATH"
 
 
 @pytest.mark.parametrize("out,err", [
@@ -408,7 +408,7 @@ def test_doctor_gh_auth_ok_names_the_account(lp, env, fake_path, installed, caps
     _fake_gh(fake_path, out, err)
     rc, cap = _doctor(lp, env, capsys)
     assert rc == 0
-    assert _line(cap, "gh auth") == "ok gh auth: octo-cat"
+    assert _item_line(cap, "gh auth") == "ok gh auth: octo-cat"
 
 
 def test_doctor_gh_auth_warns_when_not_logged_in(lp, env, fake_path, installed, capsys):
@@ -424,11 +424,11 @@ def test_doctor_registry_repo_without_origin_remote_says_so(lp, env, fake_path, 
     repo, reg, ev = _registry_repo(tmp_path, env)
     _git(repo, "update-ref", "-d", "refs/remotes/origin/main")     # no origin remote and no origin ref
     lp.main(["--registry", str(reg), "doctor"])
-    line = _line(capsys.readouterr(), "registry-repo")
+    line = _item_line(capsys.readouterr(), "registry-repo")
     assert line.startswith("warn registry-repo:") and "on main; no origin remote; clean tree" in line, line
     _git(repo, "remote", "add", "origin", str(tmp_path / "nowhere.git"))   # a remote, but no fetched ref
     lp.main(["--registry", str(reg), "doctor"])
-    line = _line(capsys.readouterr(), "registry-repo")
+    line = _item_line(capsys.readouterr(), "registry-repo")
     assert "no local origin/main ref to compare" in line and "no origin remote" not in line, line
 
 
