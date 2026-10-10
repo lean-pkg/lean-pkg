@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.17] - 2026-10-10
+
 ### Added
 
 - `next NAME [--agent A]`: read-only and offline (no `gh`, nothing written), the single recommended next command for a
@@ -28,6 +30,8 @@ change the registry schema or receipt format, always with a migration).
   package record), every captured text redacted (`<registry>`/`<checkout>` placeholders, home `~`, the
   public-safety families, patterns files and record-derived names); a dry run unless `--yes`, which
   files it with `gh issue create`.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.16] - 2026-10-10
 
