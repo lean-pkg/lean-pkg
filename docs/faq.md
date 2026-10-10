@@ -128,8 +128,8 @@ commits pure.
 
 **Can I run the comparator on my laptop?**
 Yes, if you list it: `COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)"`. The
-policy exists because the first run builds tools for about 25 minutes and a
-full comparator run can be heavy; inside a Slurm job it is always allowed.
+policy exists because a first legacy-mechanism run builds tools for about 25
+minutes and a full comparator run can be heavy; inside a Slurm job it is always allowed.
 
 **Why did `comparator-receipt` write nothing?**
 Because at least one configuration failed, the tree was dirty, or a log

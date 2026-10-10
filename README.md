@@ -123,6 +123,7 @@ lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-
 lean-pkg claim my-proof --workspace laptop --agent you --reason "first receipt"
 lean-pkg renew my-proof --agent you            # past 24 h: renew before the lease lapses (`lean-pkg leases`)
 cd ~/src/my-proof && lake exe cache get
+# on your own machine, allow this host; without it the run refuses by design
 COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
 lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.json
 lean-pkg promote my-proof                      # dry run: the checklist says what is missing
@@ -220,8 +221,13 @@ happened with the [stranger test](docs/stranger-test.md) template.
 
 Python 3.11+ and PyYAML. `git` for anything that reads a repository; `gh`,
 authenticated, for `promote` and `audit`. `comparator-receipt` needs Linux,
-`elan`, `go`, `cargo`, and `jq`; its first run builds the comparator tools
-once (about 25 minutes), later runs take seconds.
+`elan`, `go`, `cargo`, `jq` and `bwrap` (bubblewrap, the toolchain
+mechanism's sandbox); `lean-pkg comparator host-check` says whether this
+machine can produce comparator receipts, and with which mechanism. With the
+toolchain mechanism (Lean v4.35.0-rc2 or later, what Palomar runs) a first
+run takes seconds once the Mathlib cache is in place. The legacy mechanism's
+first run builds the comparator tools once (about 25 minutes); later runs
+take seconds.
 
 ## AI assistance
 

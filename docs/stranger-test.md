@@ -42,8 +42,10 @@ All four, in order:
 
 ## Before you start
 
-- Note the time. Record wall-clock time for each step; the first
-  `comparator-receipt` can take about 25 minutes while it builds its tools.
+- Note the time. Record wall-clock time for each step; with the legacy
+  mechanism the first `comparator-receipt` can take about 25 minutes while it
+  builds its tools; the toolchain mechanism (Lean v4.35.0-rc2 or later)
+  builds none.
 - Read only `README.md` and the pages it links to. Note every page you open.
 - Copy the template below into a file named `stranger-test-YYYY-MM-DD.md`.
 - The transcript may become public. Replace your user name, home path, host

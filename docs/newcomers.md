@@ -54,8 +54,9 @@ is bookkeeping that makes that check reproducible.*
 
 [Sample workflow](sample-workflow.md) walks through a real package, from
 registering it to a promotion dry run, with every command and its output.
-Do it on your own machine with your own small project. The first comparator
-run builds its tools once (about 25 minutes); every later run takes seconds.
+Do it on your own machine with your own small project. With the toolchain
+mechanism (Lean v4.35.0-rc2 or later) a comparator run takes seconds; the
+legacy mechanism's first run builds its tools once (about 25 minutes).
 
 ## 4. Pick up a workflow habit
 

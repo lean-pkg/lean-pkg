@@ -18,17 +18,10 @@ uv tool install git+https://github.com/lean-pkg/lean-pkg.git
 python3 -m pip install -e '.[test]'
 ```
 
-While the repository is private, the `https` URL above needs GitHub
-credentials. Either run `gh auth setup-git` once, or install over SSH:
-
-```bash
-pipx install git+ssh://git@github.com/lean-pkg/lean-pkg.git
-```
-
-The documentation site is offline while the repository is private; the same
-pages are the Markdown files under `docs/` on GitHub. `lean-pkg doctor`
-exits 1 until a registry exists (see below); that is expected on a fresh
-install.
+The repository is public, so the `https` URL needs no GitHub credentials.
+The documentation site is <https://lean-pkg.github.io/lean-pkg/>; the same
+pages are the Markdown files under `docs/`. `lean-pkg doctor` exits 1 until
+a registry exists (see below); that is expected on a fresh install.
 
 External tools, needed only by some commands:
 
@@ -37,7 +30,7 @@ External tools, needed only by some commands:
 | `git` | everything that reads a package repository |
 | `gh`, authenticated (`gh auth login` or `GH_TOKEN`) | `promote` and `audit`; GitHub is only the visibility mirror |
 | `reuse` (optional) | the REUSE lint line of the promotion checklist |
-| Linux, `elan` (`lean`, `lake`), `go`, `cargo`, `jq` | `comparator-receipt`. Linux only: the legacy mechanism sandboxes with landrun (Landlock) and the toolchain mechanism with `bwrap`; macOS is not supported. The first run builds the pinned comparator tools into `~/.cache/lean-ci-tools` (override with `TOOLS_DIR`): from about 2 minutes on a fast machine to about 25 minutes cold, seconds afterwards. Budget several GB of disk for the Lean toolchain and the Mathlib cache |
+| Linux, `elan` (`lean`, `lake`), `go`, `cargo`, `jq` | `comparator-receipt`. Linux only: the legacy mechanism sandboxes with landrun (Landlock) and the toolchain mechanism with `bwrap`; macOS is not supported. The toolchain mechanism (Lean v4.35.0-rc2 or later, what Palomar runs) uses the kernels bundled with the toolchain and builds nothing of its own: a first run on a one-theorem project took seconds once the Mathlib cache was in place. The legacy mechanism's first run builds the pinned comparator tools into `~/.cache/lean-ci-tools` (override with `TOOLS_DIR`): from about 2 minutes on a fast machine to about 25 minutes cold, seconds afterwards. `lean-pkg comparator host-check` says which mechanisms this machine can run. Budget several GB of disk for the Lean toolchain and the Mathlib cache |
 
 ## Configuration
 
@@ -265,7 +258,7 @@ Assume the shared registry from the setup above:
 
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git \
     --path src/my-proof --upstream-target palomar
-# my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.32.0, pin=81a5d257c8)
+# my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.35.0-rc2, pin=065356127b)
 
 lean-pkg claim my-proof --workspace laptop --agent alice --reason "comparator tier"
 lean-pkg update my-proof --agent alice --status gate-pending --reason "lower-tier check submitted"
@@ -284,7 +277,7 @@ produce it:
 ```json
 {
   "commit": "<40-hex HEAD of ~/src/my-proof>",
-  "lean_toolchain": "leanprover/lean4:v4.32.0",
+  "lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
   "mathlib_rev": "<full Mathlib rev from lake-manifest.json>",
   "sorry_count": 0,
   "axioms": ["propext", "Quot.sound", "Classical.choice"],
@@ -303,26 +296,34 @@ From the project directory, with a clean working tree and after
 ```bash
 cd ~/src/my-proof
 COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
-# == comparator @ 575674928e23...   (tool pins as checked out)
+# mechanism: toolchain
+# comparator-receipt: stage 01-checkout: ok (dependency checkout per lake-manifest.json)
+# comparator-receipt: stage 02-cache-get: ok (Mathlib build cache)
+# comparator-receipt: stage 03-build: ok (build of MyProof.Challenge, MyProof.Solution)
+# comparator-receipt: 1 slot(s) in 1 config(s), 1 judge invocation(s), 1 at a time, mechanism toolchain
 # ...
+# con-ron kernel accepts the solution
 # nanoda kernel accepts the solution
-# Running Lean default kernel on solution.
 # Lean default kernel accepts the solution
 # Your solution is okay!
-# PASS comparator.json
-# All 1 comparator configuration(s) accepted.
+# slot 1/1 MyProof.two_mul_le done in 9.4s (1/1 done)
+# comparator-receipt: stage 04-comparator: ok (1 config(s) accepted (toolchain; 1 slot(s)))
+# comparator-receipt: stage 05-receipt: ok (.lean-receipts/cb3d68a21454-comparator.json)
 # comparator receipt written: .../my-proof/.lean-receipts/cb3d68a21454-comparator.json (1 config(s), commit cb3d68a21454, host policy: host <host> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS)
 # commit .lean-receipts/ in this repo, then record it:
 #   lean-pkg comparator <name> --receipt .../my-proof/.lean-receipts/cb3d68a21454-comparator.json
 #   (or at gate time: lean-pkg gate <name> --receipt R.json --comparator .../my-proof/.lean-receipts/cb3d68a21454-comparator.json)
 ```
 
-This is the `legacy` mechanism's output. Both mechanisms print
-`Your solution is okay!` for each accepted configuration
-([mechanisms](comparator.md#mechanisms)); the `PASS` and `All ... accepted.`
-lines come from the legacy check. The line to look for is
+This is the `toolchain` mechanism's output, the default on Lean v4.35.0-rc2
+or later (shape of a real run on 2026-10-10, shortened). Both mechanisms
+print `Your solution is okay!` for each accepted configuration
+([mechanisms](comparator.md#mechanisms)); the legacy check prints
+`PASS comparator.json` and `All 1 comparator configuration(s) accepted.`
+instead of the stage lines. The line to look for is
 `comparator receipt written:`, which appears only when every configuration
-is accepted.
+is accepted. `COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)"` allows this
+host; without it, outside Slurm, the run refuses by design.
 
 Inside a Slurm job the host policy is satisfied automatically. The runner
 writes `.lean-receipts/<commit12>-comparator.json` and one
