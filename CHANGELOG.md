@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.15] - 2026-10-10
+
 ### Changed
 
 - `status NAME` (JSON, text and `--fields`) and `list`/`board --fields` in text mode show a lease's derived
@@ -29,6 +31,8 @@ change the registry schema or receipt format, always with a migration).
 - Docs: CLI reference section "Lease holders": a lease stores no session address; find your own leases
   with `leases --agent A` (the `--agent` you claimed with) and one package's holder with `status NAME
   --fields lease.agent,lease.workspace,lease.reason,lease.expires_at`.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.14] - 2026-10-10
 
