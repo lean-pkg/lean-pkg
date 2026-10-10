@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.24] - 2026-10-10
+
 ### Added
 
 - `gate NAME --receipt R --regate [--reason TEXT]` re-gates a `verified-private` (or `public`) package in one step:
@@ -54,6 +56,8 @@ change the registry schema or receipt format, always with a migration).
   entry (`--append-readme` appends it to `.lean-receipts/README.md`: state, exit, elapsed, TotalCPU, log name and
   hashes) and the `gate NAME --check --receipt` command. docs/receipts.md documents the seals and the log lines.
   (#70)
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.23] - 2026-10-10
 
