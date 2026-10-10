@@ -292,7 +292,7 @@ def test_json_payload_carries_the_commit(lp, env, shared, capsys):
     assert rc == 0
     payload = json.loads(cap.out)
     assert payload["ok"] is True and payload["event"] == "claimed"
-    assert payload["commit"] == {"sha": _head(a.root), "pushed": False, "error": None}
+    assert payload["commit"] == {"sha": _head(a.root), "pushed": False, "error": None, "push_error": None}
 
 
 def test_json_push_failure_is_not_ok(lp, env, shared, tmp_path, capsys):

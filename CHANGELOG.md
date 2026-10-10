@@ -35,6 +35,15 @@ change the registry schema or receipt format, always with a migration).
   `--fix`), one per package whose claims coverage is not `synced` (`none`, `empty` or `unsynced`), skipping
   `archived` and `upstreamed`, with detail ``claims: COVERAGE (search falls back to declarations; run `lean-pkg
   claims sync NAME`)``; `--json` findings carry `coverage`.
+### Fixed
+
+- Committed mode: a push that fails now prints `push failed: origin/<branch>: <git error>` (git's reason, not the
+  `To <url>` header a rejection prints first, and without a remote's trailing padding) and a second line naming
+  the kept commit and `git push origin <branch>`; exit 1 as before; `--json` `commit` gains `push_error` (null
+  unless the push failed). A `--push` write now refuses while the clone is ahead of `origin/<branch>` (an
+  unpushed commit, from a failed push or a commit made outside lean-pkg), naming the commit and the `git push`;
+  before, the unpushed commit was carried silently into the next write. `--commit` without push is unchanged.
+  (#54)
 
 ## [0.7.19] - 2026-10-10
 

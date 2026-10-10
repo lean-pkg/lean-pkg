@@ -287,14 +287,23 @@ def test_rejected_push_with_conflict_aborts_and_keeps_commit(lp, env, shared, mo
 
 def test_rejected_push_with_other_local_commits_is_not_rebased(lp, env, shared, monkeypatch, capsys):
     a, b = shared.a, shared.clone_b()
-    (a.root / "README.md").write_text("local only\n")
-    _git(a.root, "commit", "-q", "-am", "unpushed")
+    real = lp.commit_preflight
+
+    def preflight(args, mode):   # an unpushed commit lands after A's preflight (which refuses one before it)
+        ctx = real(args, mode)
+        if ctx["root"] == a.root:
+            (a.root / "README.md").write_text("local only\n")
+            _git(a.root, "commit", "-q", "-am", "unpushed")
+        return ctx
+    monkeypatch.setattr(lp, "commit_preflight", preflight)
     _race(lp, monkeypatch, b, "claim", "beta", "--workspace", "w4", "--agent", "otto")
-    tip = _head(a.root)
+    tip = None
     rc, cap = run(lp, a, capsys, *CLAIM, "--push")
     assert rc == 1 and "push rejected" not in cap.err
-    assert "run: git push origin main" in cap.err
-    assert _head(a.root, "HEAD~1") == tip
+    assert "lean-pkg: push failed: origin/main: " in cap.err and "run: git push origin main" in cap.err
+    assert _subject(a.root) == "lean-pkg: claimed alpha"
+    assert _git(a.root, "log", "-1", "--format=%s", "HEAD~1").stdout.strip() == "unpushed"
+    assert tip is None
 
 
 def test_env_committed_mode_is_named_and_the_push_shows_its_sha(lp, env, shared, capsys, monkeypatch):
@@ -325,3 +334,76 @@ def test_env_committed_mode_is_named_and_the_push_shows_its_sha(lp, env, shared,
     with pytest.raises(SystemExit):
         lp.main(["renew", "--help"])
     assert "set now" not in capsys.readouterr().out
+
+
+def _deny_pushes(origin: Path) -> Path:
+    hook = origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\necho 'push denied by policy' >&2\nexit 1\n")
+    hook.chmod(0o755)
+    return hook
+
+
+def test_push_failure_is_reported_on_stderr_and_in_json(lp, env, shared, capsys):   # #54
+    """Field report (0.7.19): a committed-mode write left its commit unpushed. A push that fails names the
+    remote branch and the git error on stderr, keeps the commit, says how to recover, and exits 1; --json
+    carries commit.pushed false and commit.push_error."""
+    a = shared.a
+    _deny_pushes(shared.origin)
+    tip = _head(shared.origin, "main")
+    rc, cap = run(lp, a, capsys, "update", "alpha", "--notes", "n1", "--push")
+    assert rc == 1
+    short = _git(a.root, "rev-parse", "--short", "HEAD").stdout.strip()
+    assert "lean-pkg: push failed: origin/main: remote: push denied by policy\n" in cap.err
+    assert f"lean-pkg: kept commit {short}; the clone is ahead of origin/main; run: git push origin main" in cap.err
+    assert "lean-pkg: pushed" not in cap.err
+    assert _subject(a.root) == "lean-pkg: updated alpha" and _clean(a.root)
+    assert _head(shared.origin, "main") == tip
+    _git(a.root, "reset", "-q", "--hard", "origin/main")
+    rc, cap = run(lp, a, capsys, "--json", "update", "beta", "--notes", "n2", "--push")
+    assert rc == 1
+    payload = json.loads(cap.out)
+    assert payload["ok"] is False
+    assert payload["commit"]["pushed"] is False
+    assert payload["commit"]["push_error"] == "remote: push denied by policy"
+    assert payload["commit"]["error"] == "push failed: origin/main: remote: push denied by policy"
+    assert payload["commit"]["sha"] == _head(a.root)
+
+
+def test_next_push_write_refuses_while_the_clone_is_ahead(lp, env, shared, capsys):   # #54
+    a = shared.a
+    hook = _deny_pushes(shared.origin)
+    rc, cap = run(lp, a, capsys, "update", "alpha", "--notes", "n1", "--push")
+    assert rc == 1
+    hook.unlink()   # the remote would accept now; the clone still holds the unpushed commit
+    short = _git(a.root, "rev-parse", "--short", "HEAD").stdout.strip()
+    head, n = _head(a.root), len(read_events(a))
+    rc, cap = run(lp, a, capsys, "update", "beta", "--append-note", "x", "--agent", "a", "--push")
+    assert rc == 1
+    assert (f"registry clone is 1 commit(s) ahead of origin/main: unpushed {short} lean-pkg: updated alpha; "
+            f"push it first: git -C {a.root} push origin main") in cap.err
+    assert _head(a.root) == head and len(read_events(a)) == n and _clean(a.root)
+    rc, cap = run(lp, a, capsys, "--json", "update", "beta", "--notes", "n2", "--push")
+    payload = json.loads(cap.out)
+    assert rc == 1 and payload["ok"] is False and "1 commit(s) ahead of origin/main" in payload["error"]
+    assert _head(a.root) == head and len(read_events(a)) == n
+    # --commit (no push) accumulates local commits by design: not refused
+    rc, cap = run(lp, a, capsys, "update", "beta", "--notes", "local", "--commit")
+    assert rc == 0, cap.err
+    _git(a.root, "push", "-q", "origin", "main")
+    rc, cap = run(lp, a, capsys, "update", "beta", "--append-note", "x", "--agent", "a", "--push")
+    assert rc == 0, cap.err
+    short = _git(a.root, "rev-parse", "--short", "HEAD").stdout.strip()
+    assert f"lean-pkg: pushed origin/main ({short})" in cap.err
+    assert _head(shared.origin, "main") == _head(a.root)
+
+
+def test_rejected_push_that_cannot_be_rebased_names_origin_branch(lp, env, shared, monkeypatch, capsys):
+    """The non-fast-forward race whose rebase conflicts: the failure line names origin/<branch> and git's
+    rejection, not the `To <url>` line git prints first."""
+    a, b = shared.a, shared.clone_b()
+    _race(lp, monkeypatch, b, "claim", "alpha", "--workspace", "w4", "--agent", "otto")
+    rc, cap = run(lp, a, capsys, *CLAIM, "--push")
+    assert rc == 1
+    line = next(x for x in cap.err.splitlines() if x.startswith("lean-pkg: push failed: "))
+    assert line.startswith("lean-pkg: push failed: origin/main: ") and " To " not in line
+    assert "rejected" in line

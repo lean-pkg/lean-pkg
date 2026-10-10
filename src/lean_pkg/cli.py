@@ -4677,7 +4677,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`). gate, comparator, record, promote --yes, claims sync, search --record: pass --agent A (another agent's live lease refuses; A is the event's `actor`); without it a live lease only warns.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
-- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (rejected as non-fast-forward: one fetch + rebase of that one commit + retry; a conflict aborts, commit kept); --no-commit overrides. stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error}.
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (rejected as non-fast-forward: one fetch + rebase of that one commit + retry; a conflict aborts, commit kept; a failed push: `push failed: origin/BRANCH: ERR`, commit kept, exit 1; a --push write refuses while the clone is ahead of origin/BRANCH); --no-commit overrides. stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error, push_error}.
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -5339,8 +5339,13 @@ def note_ignored_commit_flags(args) -> None:
 
 
 def _first_line(p: subprocess.CompletedProcess, default: str) -> str:
-    text = (p.stderr or p.stdout or "").strip()
-    return text.splitlines()[0] if text else default
+    """The first non-blank line of stderr (else stdout), stripped: a remote's `remote: ...` line carries
+    trailing padding, and an empty first line must not hide the message under it."""
+    for text in (p.stderr or "", p.stdout or ""):
+        for line in text.splitlines():
+            if line.strip():
+                return line.strip()
+    return default
 
 
 def _count_lines(p: pathlib.Path) -> int:
@@ -5390,11 +5395,19 @@ def commit_preflight(args, mode: str) -> dict:
         if err:
             print(f"lean-pkg: fetch origin failed: {err}; using local refs", file=sys.stderr)
         counts = registry_git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
-        if counts.returncode == 0 and int(counts.stdout.split()[0]) > 0:
+        behind, ahead = (int(x) for x in counts.stdout.split()) if counts.returncode == 0 else (0, 0)
+        if behind > 0:
             p = registry_git(root, "pull", "--ff-only", "--quiet", "origin", branch)
             if p.returncode != 0:
                 raise Fail(f"registry clone has diverged from origin/{branch}; reconcile by hand before "
                            f"writing ({_first_line(p, 'pull --ff-only failed')})")
+        elif ahead > 0 and ctx["push"]:
+            # #54: an unpushed commit (a push that failed, or a commit made outside lean-pkg) is never carried
+            # silently into the next write: the clones would diverge while every write still exits 0.
+            tip = registry_git(root, "log", "-1", "--format=%h %s").stdout.strip()
+            more = f" (+{ahead - 1} more)" if ahead > 1 else ""
+            raise Fail(f"registry clone is {ahead} commit(s) ahead of origin/{branch}: unpushed {tip}{more}; "
+                       f"push it first: git -C {root} push origin {branch}")
     ctx["lines_before"] = _count_lines(ev)
     return ctx
 
@@ -5470,12 +5483,35 @@ def _rebase_and_repush(ctx: dict, rejected: subprocess.CompletedProcess) -> subp
     return registry_git(root, "push", "--quiet", "origin", branch)
 
 
+def _push_error_line(p: subprocess.CompletedProcess) -> str:
+    """git push's reason: its first non-blank stderr line, skipping the `To <url>` header and `hint:` lines
+    (a rejection prints `To <url>` first, which says nothing about why)."""
+    lines = [x.strip() for x in f"{p.stderr or ''}\n{p.stdout or ''}".splitlines() if x.strip()]
+    useful = [x for x in lines if not x.startswith(("To ", "hint:"))]
+    return (useful or lines or [f"git push exited {p.returncode}"])[0]
+
+
+def _push_failed(ctx: dict, why: str) -> int:
+    """A push that did not land (#54): the commit is kept, the clone is ahead of origin/<branch>; stderr names
+    the remote branch, the git error and the recovery, the --json `commit` gets pushed false + push_error."""
+    root, branch, res = ctx["root"], ctx["branch"], ctx["result"]
+    res["pushed"] = False
+    res["push_error"] = why
+    res["error"] = f"push failed: origin/{branch}: {why}"
+    short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "HEAD"
+    print(f"lean-pkg: push failed: origin/{branch}: {why}", file=sys.stderr)
+    print(f"lean-pkg: kept commit {short}; the clone is ahead of origin/{branch}; run: git push origin {branch} "
+          f"(until then lean-pkg refuses the next committed-mode push)", file=sys.stderr)
+    return 1
+
+
 def commit_finish(ctx: dict, rc: int) -> int:
     """After the subcommand in committed mode: commit the changed registry files (only those paths),
     then push when asked. Writes only to stderr; stdout stays the subcommand's. The outcome is left in
-    ctx["result"] = {"sha", "pushed", "error"} (the `commit` key of a --json payload)."""
+    ctx["result"] = {"sha", "pushed", "error", "push_error"} (the `commit` key of a --json payload). A failed
+    push keeps the commit, says so (`push failed: origin/<branch>: <git error>`) and returns 1 (#54)."""
     root, branch = ctx["root"], ctx["branch"]
-    res = ctx["result"] = {"sha": None, "pushed": False, "error": None}
+    res = ctx["result"] = {"sha": None, "pushed": False, "error": None, "push_error": None}
     dirty = _dirty(ctx)
     if rc != 0:
         if dirty:
@@ -5513,18 +5549,13 @@ def commit_finish(ctx: dict, rc: int) -> int:
           + (f" (committed mode: {via}=1)" if via.startswith("env ") else ""), file=sys.stderr)
     if ctx["push"]:
         if not ctx["origin"]:
-            res["error"] = "push failed: no origin remote"
-            print(f"lean-pkg: push failed: no origin remote; run: git push origin {branch}", file=sys.stderr)
-            return 1
+            return _push_failed(ctx, "no origin remote")
         p = registry_git(root, "push", "--quiet", "origin", branch)
         if p.returncode != 0 and _push_rejected(p):
             p = _rebase_and_repush(ctx, p)
             res["sha"] = registry_git(root, "rev-parse", "HEAD").stdout.strip() or res["sha"]
         if p.returncode != 0:
-            res["error"] = f"push failed: {_first_line(p, 'git push failed')}"
-            print(f"lean-pkg: push failed: {_first_line(p, 'git push failed')}; run: git push origin {branch}",
-                  file=sys.stderr)
-            return 1
+            return _push_failed(ctx, _push_error_line(p))
         res["pushed"] = True
         short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or short
         print(f"lean-pkg: pushed origin/{branch} ({short})", file=sys.stderr)
@@ -6399,7 +6430,7 @@ def _oserror_fail(e: OSError) -> Fail:
 
 def _emit_with_commit(text: str, ctx: dict | None, rc_before: int, rc: int) -> None:
     """Re-emit a --json command's captured stdout; in committed mode a single JSON object gains
-    "commit": {"sha", "pushed", "error"} (and ok: false when the commit or push failed)."""
+    "commit": {"sha", "pushed", "error", "push_error"} (and ok: false when the commit or push failed)."""
     if ctx is not None and "result" in ctx:
         try:
             payload = json.loads(text)
