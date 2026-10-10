@@ -38,6 +38,7 @@ every subcommand has `--json`, and the contract an agent needs is one file.
 
 ```bash
 lean-pkg list --json                                   # what exists, who holds what
+lean-pkg next my-proof --agent vera --json             # the one recommended next command, and why (read-only)
 lean-pkg claim my-proof --workspace w3 --agent vera --reason "comparator evidence" --json
 cd ~/src/my-proof && git status --short                 # must be empty
 lake exe cache get && comparator-receipt                 # inside Slurm, or on an allowed host
