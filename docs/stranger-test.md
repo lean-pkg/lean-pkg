@@ -13,6 +13,8 @@ The maintainer reads the transcript, fixes what it exposes, and signs gate G1
 of the public-flip checklist ([RELEASING](../RELEASING.md)) when a run
 succeeds.
 
+Results so far: the first outsider run (2026-10-10, lean-pkg 0.7.22) met all four success criteria in 52 minutes with an AI agent's help; its findings are issues [#61](https://github.com/lean-pkg/lean-pkg/issues/61) and [#62](https://github.com/lean-pkg/lean-pkg/issues/62) (bugs) and [#63](https://github.com/lean-pkg/lean-pkg/issues/63) to [#66](https://github.com/lean-pkg/lean-pkg/issues/66) (documentation).
+
 ## Who can run it
 
 - You have not worked on lean-pkg, watched it being built, or been walked

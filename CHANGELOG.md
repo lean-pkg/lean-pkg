@@ -54,6 +54,16 @@ change the registry schema or receipt format, always with a migration).
   `comparator-check.sh`) is now reported as `the judge tool failed before judging`, with its last log line, not
   as a rejected proof. docs/getting-started.md and docs/comparator.md state the Mathlib requirement. (#62)
 
+### Changed
+
+- Documentation gaps from the first stranger test: getting-started step 1 builds a minimal Challenge/Solution
+  project from scratch (module names are file paths; every `comparator.json` field, `definition_names: []`
+  included); README marks the `register` placeholders and says `NAME` is the registered name and `--path` is
+  `$HOME`-relative; the pre-public install text is gone; the worked example pins Lean v4.35.0-rc2 with
+  toolchain-mechanism output; "about 25 minutes" is the legacy mechanism only; README lists `bwrap` and
+  explains `COMPARATOR_RECEIPT_ALLOWED_HOSTS`; commands and expected output are separate blocks.
+  Decision 0006 records the G1 transcript. (#63, #64, #65, #66)
+
 ## [0.7.22] - 2026-10-10
 
 ### Added
