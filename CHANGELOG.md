@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `public-safety`: path-scoped pattern lines. `allow: GLOB: REGEX` exempts a match only in files whose
+  package-relative path matches GLOB, and `block: GLOB: REGEX` / `warn: GLOB: REGEX` report only there
+  (`*`, `?` within a segment, `**` across directories; no `/` matches the file name at any depth; a
+  trailing `/` matches everything under the directory). Scoped lines never apply to commit messages.
+  A line keeps its old global meaning unless the text before its first `: ` looks like a path (no
+  space, colon, backslash or parenthesis; one of `/ * ? .`). `patterns_source` gains `allow_scoped`
+  and `scoped_patterns`; the summary's patterns line counts the path-scoped lines. (#38)
+
 ## [0.7.13] - 2026-10-10
 
 ### Fixed

@@ -6,8 +6,12 @@ approach of lean-pkg's own `make history`) for private patterns:
 
 - the package's `.lean-pkg-private-patterns` file: one regular expression per line, `#` comments;
   a bare line or `block: REGEX` is blocking, `warn: REGEX` is warn-only, `allow: REGEX` exempts a
-  matched string (a public URL, a declared address). The file itself lists private strings, so it
-  must stay out of the public tree: tracked (or in history) it is a hit.
+  matched string (a public URL, a declared address). Each of the three takes an optional path scope
+  (#38): `allow: GLOB: REGEX` exempts, and `block: GLOB: REGEX` / `warn: GLOB: REGEX` report, only in
+  files whose package-relative path matches GLOB (`*`, `**`, `?`; a GLOB without `/` matches the
+  file name at any depth; a trailing `/` matches everything under that directory). A scoped line
+  never applies to commit messages. The file itself lists private strings, so it must stay out of
+  the public tree: tracked (or in history) it is a hit.
 - built-in defaults: absolute home paths, a cloud-sync folder path, `approvals/`, `notes/`,
   `*.private`, `TODO-private`, and email addresses other than the declared ones (the repository's
   commit identities, `consent[]` entries, `allow:` lines, reserved example domains, `git@`
@@ -92,10 +96,57 @@ DERIVED_STOPWORDS = {"none", "null", "test", "main", "local", "default", "force"
 
 
 class Pattern:
-    __slots__ = ("label", "kind", "rx", "severity")
+    __slots__ = ("label", "kind", "rx", "severity", "glob")
 
-    def __init__(self, label: str, kind: str, rx: re.Pattern, severity: str = BLOCK):
-        self.label, self.kind, self.rx, self.severity = label, kind, rx, severity
+    def __init__(self, label: str, kind: str, rx: re.Pattern, severity: str = BLOCK,
+                 glob: re.Pattern | None = None):
+        self.label, self.kind, self.rx, self.severity, self.glob = label, kind, rx, severity, glob
+
+
+# #38: `TAG: GLOB: REGEX`. GLOB is the text before the first colon followed by whitespace; it has no
+# whitespace, colon, backslash or parenthesis, and at least one of `/ * ? .`, so `allow: https://...`
+# and `block: (?i)foo: bar` stay global regexes (write `\:` to keep a `WORD.WORD: ...` regex global).
+_SCOPE_RE = re.compile(r"^([A-Za-z0-9_.*?/!+-]+):\s+(\S.*)$")
+
+
+def split_scope(text: str) -> tuple[str | None, str]:
+    """(GLOB or None, REGEX) of the text after a pattern line's tag."""
+    m = _SCOPE_RE.match(text)
+    if m and any(c in m.group(1) for c in "/*?."):
+        return m.group(1), m.group(2)
+    return None, text
+
+
+def glob_regex(glob: str) -> re.Pattern:
+    """A package-relative path glob as a full-match regex: `**/` any directories (or none), `**` any
+    characters, `*` and `?` within one path segment; no `/` (but a trailing one): the file name at any
+    depth; a trailing `/`: everything under that directory."""
+    g, under = (glob[:-1], True) if glob.endswith("/") else (glob, False)
+    out, i = [], 0
+    while i < len(g):
+        if g.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif g.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif g[i] == "*":
+            out.append("[^/]*")
+            i += 1
+        elif g[i] == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(g[i]))
+            i += 1
+    rx = "".join(out)
+    if "/" not in g:
+        rx = "(?:.*/)?" + rx
+    if g.startswith("/"):
+        rx = rx[1:] if rx.startswith("/") else rx
+    if under:
+        rx += "/.*"
+    return re.compile(rx + r"\Z")
 
 
 def internal_path(rel: str) -> str | None:
@@ -117,13 +168,14 @@ def excluded_from_export(rel: str) -> str | None:
     return internal_path(rel)
 
 
-def read_patterns_file(root: pathlib.Path) -> tuple[list[Pattern], list[re.Pattern], list[str], bool]:
-    """(patterns, allow regexes, problems, present) from <root>/.lean-pkg-private-patterns."""
+def read_patterns_file(root: pathlib.Path) -> tuple[list[Pattern], list[tuple], list[str], bool]:
+    """(patterns, allow entries (regex, path glob regex or None), problems, present) from
+    <root>/.lean-pkg-private-patterns."""
     p = root / PATTERNS_FILE
     if not p.is_file():
         return [], [], [], False
     pats: list[Pattern] = []
-    allow: list[re.Pattern] = []
+    allow: list[tuple[re.Pattern, re.Pattern | None]] = []
     problems: list[str] = []
     for n, raw in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
         line = raw.strip()
@@ -132,16 +184,18 @@ def read_patterns_file(root: pathlib.Path) -> tuple[list[Pattern], list[re.Patte
         tag, _, rest = line.partition(":")
         tag = tag if tag in ("allow", "block", "warn") else None
         text = rest.strip() if tag else line
+        glob, text = split_scope(text) if tag else (None, text)
         is_allow = tag == "allow"
         try:
             rx = re.compile(text)
         except re.error as e:
             problems.append(f"{PATTERNS_FILE}:{n}: not a valid regular expression ({e.msg}); skipped")
             continue
+        grx = glob_regex(glob) if glob else None
         if is_allow:
-            allow.append(rx)
+            allow.append((rx, grx))
         else:
-            pats.append(Pattern(f"{PATTERNS_FILE}:{n}", "file", rx, WARN if tag == "warn" else BLOCK))
+            pats.append(Pattern(f"{PATTERNS_FILE}:{n}", "file", rx, WARN if tag == "warn" else BLOCK, grx))
     return pats, allow, problems, True
 
 
@@ -200,10 +254,23 @@ class Scanner:
         self.patterns = file_pats + builtin + self.derived
         self.n_file = len(file_pats)
         self.n_file_warn = sum(1 for p in file_pats if p.severity == WARN)
+        self.n_scoped = sum(1 for p in file_pats if p.glob is not None)
+        self.n_allow_scoped = sum(1 for _a, g in self.allow if g is not None)
         self.emails = declared_emails(pkg, repo_for_emails)
+        self._active: dict = {}
 
-    def allowed(self, pat: Pattern, text: str) -> bool:
-        if any(a.search(text) for a in self.allow):
+    def active(self, path: str | None) -> tuple[list[Pattern], list[re.Pattern]]:
+        """(patterns, allow regexes) that apply to a file at `path` (None: a commit message or a
+        location string; path-scoped lines never apply there)."""
+        if path not in self._active:
+            def hit(g):
+                return g is None or (path is not None and g.fullmatch(path) is not None)
+            self._active[path] = ([p for p in self.patterns if hit(p.glob)],
+                                  [a for a, g in self.allow if hit(g)])
+        return self._active[path]
+
+    def allowed(self, pat: Pattern, text: str, allow: list[re.Pattern] | None = None) -> bool:
+        if any(a.search(text) for a in (self.active(None)[1] if allow is None else allow)):
             return True
         if pat.label == "email":
             return text.casefold() in self.emails or bool(ALWAYS_ALLOWED_EMAIL.search(text))
@@ -211,11 +278,12 @@ class Scanner:
             return bool(_LATEX_LABEL_ALLOW_RE.match(text))
         return False
 
-    def spans(self, line: str) -> list[tuple[int, int, Pattern]]:
+    def spans(self, line: str, path: str | None = None) -> list[tuple[int, int, Pattern]]:
+        pats, allow = self.active(path)
         out = []
-        for pat in self.patterns:
+        for pat in pats:
             for m in pat.rx.finditer(line):
-                if m.end() > m.start() and not self.allowed(pat, m.group(0)):
+                if m.end() > m.start() and not self.allowed(pat, m.group(0), allow):
                     out.append((m.start(), m.end(), pat))
         return sorted(out, key=lambda s: (s[0], -s[1]))
 
@@ -229,13 +297,14 @@ class Scanner:
         spans = [s for s in self.spans(path) if s[2].label not in PATH_READABLE]
         return _redact(path, spans)[0]
 
-    def scan_text(self, text: str) -> list[tuple[int, Pattern, str]]:
-        """(line number, pattern, redacted excerpt): one hit per pattern per line."""
+    def scan_text(self, text: str, path: str | None = None) -> list[tuple[int, Pattern, str]]:
+        """(line number, pattern, redacted excerpt): one hit per pattern per line. `path`: the
+        package-relative file the text is from, for path-scoped lines (#38)."""
         hits = []
         for n, line in enumerate(text.splitlines(), 1):
             if len(line) > 20000:
                 line = line[:20000]
-            spans = self.spans(line)
+            spans = self.spans(line, path)
             if not spans:
                 continue
             red, starts = _redact(line, spans)
@@ -331,7 +400,7 @@ def scan_tree(sc: Scanner, root: pathlib.Path, git_mode: bool = True) -> tuple[l
             continue
         if text is None:
             continue
-        for n, pat, excerpt in sc.scan_text(text):
+        for n, pat, excerpt in sc.scan_text(text, rel):
             hits.append(_hit(sc, "tree", rel, n, pat.label, pat.kind, excerpt, severity=pat.severity))
     return hits, warnings, pf_tracked
 
@@ -411,7 +480,7 @@ def scan_history(sc: Scanner, root: pathlib.Path) -> list[dict]:
             text = _decode(body)
             if text is None:
                 continue
-            found = sc.scan_text(text)
+            found = sc.scan_text(text, blobs[head[0]])
             if found:
                 commit = _introducing_commit(root, head[0])
                 for n, pat, excerpt in found:
@@ -453,7 +522,8 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
     hist = scan_history(sc, root) if history else []
     hits = tree + hist
     source = {"file": PATTERNS_FILE if sc.file_present else None, "file_patterns": sc.n_file,
-              "allow": len(sc.allow), "tracked": pf_tracked,
+              "allow": len(sc.allow), "allow_scoped": sc.n_allow_scoped, "scoped_patterns": sc.n_scoped,
+              "tracked": pf_tracked,
               "builtin": [label for label, _rx in BUILTIN + BUILTIN_WARN],
               "warn_only": [label for label, _rx in BUILTIN_WARN], "file_warn_patterns": sc.n_file_warn,
               "latex_label_allow": list(LATEX_LABEL_ALLOW),
@@ -484,7 +554,8 @@ def report_lines(name: str, root, result: dict) -> list[str]:
              + f"); {nb} blocking, {nw} warning(s)" + (" (--strict: warnings block)" if result["strict"] else "")
              + f"; {result['latex_label_hits']} from latex-label",
              f"  patterns: {src['file'] or 'no ' + PATTERNS_FILE} ({src['file_patterns']} pattern(s), "
-             f"{src['allow']} allow, {src['file_warn_patterns']} warn-only) + {len(src['builtin'])} built-in + {len(src['derived'])} registry-derived "
+             f"{src['allow']} allow, {src['file_warn_patterns']} warn-only, "
+             f"{src['scoped_patterns'] + src['allow_scoped']} path-scoped) + {len(src['builtin'])} built-in + {len(src['derived'])} registry-derived "
              f"({', '.join(src['derived']) or 'none'}) + internal paths"]
     lines += [f"  WARN {w}" for w in result["warnings"]]
     lines += [hit_line(h) for h in result["hits"]]

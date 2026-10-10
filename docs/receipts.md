@@ -205,7 +205,22 @@ allow: arXiv:2401\.01234
 ```
 
 A bare line is blocking, as before; `block:` says so explicitly, and
-`warn: REGEX` adds a warn-only pattern. Theorem numbers quoted from an
+`warn: REGEX` adds a warn-only pattern.
+
+Any of the three tags takes a path scope, `TAG: GLOB: REGEX`, which applies
+the line only to files whose package-relative path matches GLOB (`*` and `?`
+within a path segment, `**` across directories; a GLOB without `/` matches
+the file name at any depth; a trailing `/` matches everything under that
+directory). Scoped lines never apply to commit messages. A package whose
+documentation quotes the built-in patterns on purpose can then allow them
+there and nowhere else:
+
+```text
+# docs/ explains the private-path rules, so it quotes them
+allow: docs/**: ^(?:approvals/|notes/|TODO-private)$
+# the test fixtures carry the working title on purpose; nothing else may
+allow: tests/fixtures/**: (?i)example working title
+``` Theorem numbers quoted from an
 unposted manuscript ("Lemma 4.1 of the paper") are a leak even without a
 label or a path; add a `block:` line for the phrasing you use, or rewrite
 those doc-comments to state the result itself.

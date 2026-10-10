@@ -348,3 +348,53 @@ def test_promote_warn_only_hits_do_not_block(lp, env, fake_gh, capsys):
     assert payload["public_safety"]["block_hits"] == 0 and payload["public_safety"]["warn_hits"] == 1
     assert any(c["status"] == "warn" and c["label"].startswith("public-safety: 0 blocking")
                for c in payload["checklist"])
+
+
+def test_path_scoped_allow_and_block_lines(lp, tmp_path, capsys):
+    """#38: `allow: GLOB: REGEX` exempts only under GLOB; `block:`/`warn: GLOB: REGEX` report only there;
+    scoped lines never apply to commit messages."""
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={
+        "docs/patterns.md": "the built-in list quotes notes/ and TODO-private\n",
+        "docs/deep/more.md": "again notes/ here\n",
+        "Main.lean": "-- see notes/ for the plan\n",
+        "tests/fixture.txt": "Nightjar\n",
+        "README.md": "Nightjar is fine at the top level\n",
+        ".gitignore": ".lean-pkg-private-patterns\n"})
+    (repo / "Main.lean").write_text("-- clean\n")
+    _git(repo, "commit", "-q", "-am", "Nightjar mention in a message, notes/ too")
+    (repo / ".lean-pkg-private-patterns").write_text(
+        "allow: docs/**: ^(?:notes/|TODO-private)$\n"
+        "block: tests/**: Nightjar\n"
+        "warn: *.md: \\bis fine\\b\n"
+        "allow: https://example\\.org/a\n")
+    reg = make_env(tmp_path, repo)
+    assert run(lp, reg, "public-safety", "pkg", "--json") == 1
+    payload = json.loads(capsys.readouterr().out)
+    got = sorted((h["where"], h["path"], h["pattern"], h["severity"]) for h in payload["hits"])
+    assert got == [
+        ("history", "Main.lean", "notes-ref", "block"),                      # docs/** does not cover it
+        ("history", "commit-message", "notes-ref", "block"),                 # scoped allow: not messages
+        ("tree", "README.md", ".lean-pkg-private-patterns:3", "warn"),       # *.md at the top level
+        ("tree", "tests/fixture.txt", ".lean-pkg-private-patterns:2", "block"),
+    ]
+    src = payload["patterns_source"]
+    assert (src["allow"], src["allow_scoped"], src["scoped_patterns"], src["file_patterns"]) == (2, 1, 2, 2)
+    assert run(lp, reg, "public-safety", "pkg") == 1
+    assert "2 allow, 1 warn-only, 3 path-scoped)" in capsys.readouterr().out
+
+
+def test_scope_parsing_keeps_plain_regexes_global(lp):
+    from lean_pkg import public_safety as ps
+    assert ps.split_scope("https://example\\.org/x") == (None, "https://example\\.org/x")
+    assert ps.split_scope("(?i)foo: bar") == (None, "(?i)foo: bar")
+    assert ps.split_scope("word: bar") == (None, "word: bar")
+    assert ps.split_scope("docs/**: ^notes/$") == ("docs/**", "^notes/$")
+    assert ps.split_scope("README.md: x") == ("README.md", "x")
+    rx = ps.glob_regex("docs/**")
+    assert rx.fullmatch("docs/a.md") and rx.fullmatch("docs/x/y.md") and not rx.fullmatch("src/docs/a.md")
+    rx = ps.glob_regex("*.md")
+    assert rx.fullmatch("a.md") and rx.fullmatch("x/y/a.md") and not rx.fullmatch("a.lean")
+    rx = ps.glob_regex("src/*.py")
+    assert rx.fullmatch("src/a.py") and not rx.fullmatch("src/x/a.py")
+    rx = ps.glob_regex("tests/")
+    assert rx.fullmatch("tests/a.py") and rx.fullmatch("tests/x/b.py") and not rx.fullmatch("tests")
