@@ -173,6 +173,9 @@ VISIBILITIES = ["private", "public"]
 # (register accepts public only for an already-public repository: --visibility public --reason).
 REGISTER_STATUSES = ["scratch", "active", "gate-pending", "public"]
 UPSTREAM_TARGETS = ["none", "mathlib", "palomar"]
+# DOI track (#51): absent = palomar (doi-minted needs a palomar-* event on the commit, rule doi-in-palomar);
+# doi-only lets a public package with no Palomar-shaped claim record its DOI without one.
+TRACKS = ("palomar", "doi-only")
 DEFAULT_AXIOMS = ["propext", "Quot.sound", "Classical.choice"]
 DEFAULT_TTL_HOURS = 24
 
@@ -217,6 +220,8 @@ PACKAGE_FIELDS = (
     ("source_paper", "optional", "{title, authors[], arxiv, doi} of the formalized paper (credited in "
                                  "formalization.yaml acknowledgements, never as project.authors)"),
     ("ai_assistance", "optional", "{tools[], roles[]}: AI tools used and for what (rendered into acknowledgements)"),
+    ("track", "optional", "DOI track: " + " | ".join(TRACKS) + " (absent = palomar); doi-only lets a public package "
+                          "record doi-minted without a palomar-* event (update --track)"),
 )
 REQUIRED_FIELDS = [k for k, tier, _ in PACKAGE_FIELDS if tier == "v1"]
 BULK_FIELDS = [k for k, _, meaning in PACKAGE_FIELDS if meaning.endswith("[bulk]")]
@@ -1049,7 +1054,8 @@ def record(reg: dict, events_p: pathlib.Path, pkg: dict, event: str, **fields) -
 # Validator rules a refusal names, keyed by a substring of the validator's message.
 RULE_HINTS = {
     "matches no palomar entry": "rule doi-in-palomar: a doi-minted commit must already be recorded by a "
-                                "palomar-* event on the package (record that first)",
+                                "palomar-* event on the package (record that first; a public package with no Palomar claim: "
+                                "update NAME --track doi-only, or record ... --track doi-only)",
 }
 
 
@@ -1486,7 +1492,7 @@ def prior_art_note(pkg: dict, events_p: pathlib.Path, now: dt.datetime | None = 
 # and `promote`, and `lease`/`workspace`/`agent` to `claim`/`release`.
 UPDATABLE = {"automation", "notes", "upstream_target", "reaudit_after",
              "owner_project", "repo", "license_spdx", "formalization_yaml", "paper", "namespace_notes",
-             "source_paper", "ai_assistance"}
+             "source_paper", "ai_assistance", "track"}
 # Paper-coupled packages (#22.10): optional `paper: {arxiv, status}`; promote refuses while the paper is
 # unpublished and no arXiv id is recorded (so a public flip cannot disclose results before the preprint).
 PAPER_STATUSES = ("unpublished", "preprint", "published")
@@ -1743,6 +1749,8 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
             merged = dict(pkg.get("namespace_notes") or {})
             merged.update({ns: text for ns in namespaces})
             sets[field] = merged
+        if field == "track" and value not in TRACKS:
+            raise Fail(f"track must be one of {', '.join(TRACKS)}, got {value!r}")
         if field == "formalization_yaml":
             pp = pathlib.PurePosixPath(str(value))
             if pp.is_absolute() or ".." in pp.parts or str(value).startswith("~"):
@@ -1775,6 +1783,8 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
     for field, value in sets.items():
         if pkg.get(field) != value:
             changes[field] = (pkg.get(field), value)
+    if "track" in changes and not reason:
+        raise Fail(f"{name}: --track requires --reason (it changes which evidence doi-minted needs)")
 
     if status is not None:
         old = pkg.get("status")
@@ -3038,9 +3048,15 @@ def warn_private_evidence(hits: list[dict]) -> None:
         print(f"WARN: {h['field']} looks like a {h['kind']}: {PRIVATE_EVIDENCE_HINT}", file=sys.stderr)
 
 
-def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -> tuple[list[str], dict]:
+def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str,
+              track: str | None = None) -> tuple[list[str], dict]:
     """Record a D5 evidence event: required fields checked, registry effect applied, the would-be registry
-    validated (a schema error this event introduces refuses; nothing is written), event appended."""
+    validated (a schema error this event introduces refuses; nothing is written), event appended.
+    track (--track, doi-minted only) overrides the record's DOI track for this event (#51)."""
+    if track is not None and event != "doi-minted":
+        raise UsageError(f"--track goes with doi-minted, not {event}")
+    if track is not None and track not in TRACKS:
+        raise UsageError(f"--track must be one of {', '.join(TRACKS)}, got {track!r}")
     if event == RETRACT_EVENT:
         return do_retract(reg_path, reg, events_p, name, fields, reason)
     if event not in EVIDENCE_EVENTS:
@@ -3059,6 +3075,14 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
         raise Fail(f"commit must be a 40-hex sha, got {fields['commit']!r}")
     current = get_pkg(reg, name)
     notes = check_evidence_fields(current, event, fields)
+    event_extra: dict = {}
+    if event == "doi-minted":
+        track = track or current.get("track") or "palomar"
+        if track == "doi-only" and current.get("status") != "public":
+            raise _rule_fail("doi-only-public",
+                             f"{name}: the DOI-only track needs status public (doi-minted without a palomar-* "
+                             f"event is allowed only for a public package), got {current.get('status')!r}")
+        event_extra["track"] = track
     from .index import private_string_hits
     private = [{"field": f, "kind": k} for f, k, _ in
                private_string_hits(json.dumps(fields).encode(), "field")]
@@ -3119,7 +3143,8 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
         if fields.get("concept"):
             d["concept"] = fields["concept"]
         d["versions"].append({"doi": fields["doi"], "tag": fields["tag"],
-                              "commit": fields["commit"], "minted_at": ts})
+                              "commit": fields["commit"], "minted_at": ts,
+                              **({"track": "doi-only"} if event_extra.get("track") == "doi-only" else {})})
         pkg["doi"] = d
     elif event == "reservoir-listed":
         m = RESERVOIR_URL_RE.match(str(fields["url"]).strip())
@@ -3140,18 +3165,18 @@ def do_record(reg_path, reg, events_p, name, event, fields: dict, reason: str) -
                              f"unreachable or unexpected); re-run `record` later to verify")
     trial = copy.deepcopy(reg)
     trial["packages"][name].setdefault("history", []).append(
-        {"ts": ts, "event": event, "reason": reason or "", **fields})
+        {"ts": ts, "event": event, "reason": reason or "", **fields, **event_extra})
     errors, preexisting = split_new_errors(before, validate_registry(trial))
     if errors:
         raise Fail(f"{name}: {event} would break the registry schema; nothing written:\n  "
                    + "\n  ".join(errors))
     report_preexisting(preexisting)
     original["packages"][name] = pkg
-    record(original, events_p, pkg, event, reason=reason or "", **fields)
+    record(original, events_p, pkg, event, reason=reason or "", **fields, **event_extra)
     save_registry(reg_path, original)
     warn_private_evidence(private)
     payload = {"ok": True, "name": name, "event": event, "fields": fields, "notes": extra_out,
-               "already_recorded": False, "private_strings": private}
+               "already_recorded": False, "private_strings": private, **event_extra}
     if preexisting:
         payload["preexisting_errors"] = preexisting
     return [f"{name}: {event} recorded", *extra_out], payload
@@ -3881,10 +3906,14 @@ def validate_registry(data) -> list[str]:
                     c = str((v or {}).get("commit") or "")
                     if isinstance(v, dict) and (str(v.get("doi")), c, str(v.get("tag"))) in retracted:
                         continue
+                    if pkg.get("track") == "doi-only" or (isinstance(v, dict) and v.get("track") == "doi-only"):
+                        continue                  # DOI-only track (#51): no palomar entry expected
                     if c and c not in pal_commits:
                         known = ", ".join(str(x)[:12] for x in pal_commits) or "none"
                         errors.append(f"{pfx}: doi {v.get('doi')} commit {c[:12]} matches no "
                                       f"palomar entry (palomar commits: {known})")
+        if "track" in pkg and pkg["track"] not in TRACKS:
+            errors.append(f"{pfx}: bad track {pkg.get('track')!r} (allowed: {', '.join(TRACKS)})")
         errors += paper_errors(pkg.get("paper"), pfx)
         errors += namespace_notes_errors(pkg.get("namespace_notes"), pfx)
         errors += source_paper_errors(pkg.get("source_paper"), pfx)
@@ -4656,7 +4685,7 @@ record    record a D5 evidence event; validated before writing (a schema error i
           consent-recorded: who role pointer (a /home, /Users, ~ path: WARN + private_strings; same who+role+pointer again: already recorded, exit 0) | palomar-preflight-pass: commit run (same commit+run again: already recorded, exit 0)
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)
           palomar-registered: commit id version(int) comparator_config (status public|upstreamed; config tracked at HEAD) | palomar-withdrawn: id version(int) (of a recorded entry) | mathlib-pr-opened, mathlib-pr-merged: url (https://github.com/...)
-          doi-minted: doi(10.NNNN/x) tag commit [concept] (rule doi-in-palomar: commit already recorded by a palomar-* event) | reservoir-listed: url (the
+          doi-minted: doi(10.NNNN/x) tag commit [concept] (rule doi-in-palomar: commit already recorded by a palomar-* event; skipped on the DOI-only track, --track doi-only or the record's track: doi-only, status public only, rule doi-only-public; the event carries track) | reservoir-listed: url (the
           package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false; a url naming neither package nor repo warns)
           retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
@@ -4666,7 +4695,7 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields (--notes replaces, prints the old value; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT`, not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
+update    set fields (--notes replaces, prints the old value; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT`, not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. --track palomar|doi-only --reason R: the optional DOI track (see record doi-minted). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
@@ -4865,7 +4894,7 @@ def cmd_record(args) -> int:
     reg = load_registry(reg_path)
     warn_lease(lease_actor(reg, args.name, args.agent, "record"))
     out, payload = do_record(reg_path, reg, events_p,
-                             args.name, args.event, fields, args.reason)
+                             args.name, args.event, fields, args.reason, track=args.track)
     if args.json_out:
         print_json(payload)
     else:
@@ -4959,7 +4988,7 @@ def cmd_update(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     sets = {}
     for field in ("automation", "notes", "upstream_target", "reaudit_after",
-                  "owner_project", "repo", "license_spdx", "formalization_yaml"):
+                  "owner_project", "repo", "license_spdx", "formalization_yaml", "track"):
         value = getattr(args, field.replace("-", "_"), None)
         if value is not None:
             sets[field] = value
@@ -5924,6 +5953,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--field", action="append", metavar="KEY=VALUE",
                    help="event field (repeatable); required keys per event are listed by `lean-pkg llms`")
     s.add_argument("--reason", default="", help="free-text reason stored with the event")
+    s.add_argument("--track", choices=TRACKS, default=None,
+                   help="doi-minted only: the DOI track for this event (default: the record's track, else palomar); "
+                        "doi-only skips rule doi-in-palomar for a public package")
     s.add_argument("--agent", default=None,
                    help="the agent acting (recorded as the event's actor); another agent's live lease then refuses")
     add_json(s)
@@ -6036,6 +6068,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--notes")
     s.add_argument("--upstream-target", dest="upstream_target",
                    choices=UPSTREAM_TARGETS)
+    s.add_argument("--track", choices=TRACKS, default=None,
+                   help="the DOI track (needs --reason): doi-only lets a public package record doi-minted "
+                        "without a palomar-* event; palomar (the default when absent) keeps rule doi-in-palomar")
     s.add_argument("--reaudit-after", dest="reaudit_after", metavar="ISO8601")
     s.add_argument("--owner-project", dest="owner_project")
     s.add_argument("--repo", help="remote URL (e.g. after publishing a private dep)")

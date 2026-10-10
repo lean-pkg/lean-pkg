@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- DOI-only track for `record doi-minted`: an optional record field `track: palomar | doi-only` (absent = palomar),
+  set by `update NAME --track doi-only|palomar --reason R`, checked by `validate`, readable with `--fields track`.
+  On the DOI-only track (the record's `track`, or `record ... doi-minted --track doi-only`) a public package records
+  its DOI without a `palomar-*` event (rule doi-in-palomar skipped); a non-public package is refused (rule
+  doi-only-public). The `doi-minted` event carries `track`. (#51)
+
 ## [0.7.19] - 2026-10-10
 
 ### Added

@@ -202,3 +202,110 @@ def test_relative_or_url_consent_pointer_does_not_warn(lp, env, capsys):
                    f"pointer={pointer}", json_out=True) == 0
         cap = capsys.readouterr()
         assert json.loads(cap.out)["private_strings"] == [] and "WARN" not in cap.err
+
+
+# ---- DOI-only track (#51) ------------------------------------------------------------------------
+
+DOI = ("doi=10.5281/zenodo.7", "tag=v1", f"commit={C}")
+
+
+def test_palomar_track_doi_without_palomar_still_refused(lp, env, capsys):
+    set_status(env, "alpha", "public")
+    before = env.registry.read_text()
+    assert rec(lp, env, "alpha", "doi-minted", *DOI) == 1
+    assert "rule doi-in-palomar" in capsys.readouterr().err
+    assert env.registry.read_text() == before and read_events(env) == []
+
+
+def test_doi_only_via_record_field(lp, env, capsys):
+    set_status(env, "alpha", "public")
+    assert lp.main(["--registry", str(env.registry), "update", "alpha", "--track", "doi-only",
+                    "--reason", "no headline theorem"]) == 0
+    hist = read_reg(env)["packages"]["alpha"]["history"][-1]
+    assert hist["event"] == "updated" and "track" in hist["fields"]
+    capsys.readouterr()
+    assert rec(lp, env, "alpha", "doi-minted", *DOI, json_out=True) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] and payload["track"] == "doi-only"
+    pkg = read_reg(env)["packages"]["alpha"]
+    assert pkg["track"] == "doi-only"
+    assert pkg["doi"]["versions"][-1]["track"] == "doi-only"
+    assert pkg["history"][-1]["event"] == "doi-minted" and pkg["history"][-1]["track"] == "doi-only"
+    assert read_events(env)[-1]["track"] == "doi-only"
+    assert lp.main(["--registry", str(env.registry), "validate"]) == 0
+    # switching back to palomar keeps the recorded doi-only version valid
+    assert lp.main(["--registry", str(env.registry), "update", "alpha", "--track", "palomar",
+                    "--reason", "back"]) == 0
+    assert lp.main(["--registry", str(env.registry), "validate"]) == 0
+
+
+def test_doi_only_via_track_flag(lp, env, capsys):
+    set_status(env, "alpha", "public")
+    argv = ["--registry", str(env.registry), "record", "alpha", "doi-minted", "--track", "doi-only"]
+    for f in DOI:
+        argv += ["--field", f]
+    assert lp.main(argv) == 0
+    pkg = read_reg(env)["packages"]["alpha"]
+    assert "track" not in pkg
+    assert pkg["history"][-1]["track"] == "doi-only"
+    assert lp.main(["--registry", str(env.registry), "validate"]) == 0
+
+
+def test_palomar_event_records_palomar_track(lp, env):
+    assert rec(lp, env, "alpha", "palomar-preflight-pass", f"commit={C}", "run=https://example.invalid/r/1") == 0
+    assert rec(lp, env, "alpha", "doi-minted", *DOI) == 0
+    pkg = read_reg(env)["packages"]["alpha"]
+    assert pkg["history"][-1]["track"] == "palomar" and "track" not in pkg["doi"]["versions"][-1]
+
+
+@pytest.mark.parametrize("via_field", [True, False])
+def test_doi_only_refused_unless_public(lp, env, capsys, via_field):
+    if via_field:
+        reg = read_reg(env)
+        reg["packages"]["alpha"]["track"] = "doi-only"
+        write_reg(env, reg)
+        err = refused(lp, env, capsys, "doi-only-public", "alpha", "doi-minted", *DOI)
+    else:
+        before = env.registry.read_text()
+        argv = ["--registry", str(env.registry), "record", "alpha", "doi-minted", "--track", "doi-only"]
+        for f in DOI:
+            argv += ["--field", f]
+        assert lp.main(argv) == 1
+        err = capsys.readouterr().err
+        assert "[rule doi-only-public]" in err and env.registry.read_text() == before
+    assert "status public" in err and "gate-pending" in err
+
+
+def test_track_flag_with_another_event_is_a_usage_error(lp, env, capsys):
+    assert lp.main(["--registry", str(env.registry), "record", "alpha", "palomar-preflight-pass",
+                    "--track", "doi-only", "--field", f"commit={C}", "--field", "run=r"]) == 2
+
+
+def test_update_track_needs_reason_and_a_known_value(lp, env, capsys):
+    before = env.registry.read_text()
+    assert lp.main(["--registry", str(env.registry), "update", "alpha", "--track", "doi-only"]) == 1
+    assert "--track requires --reason" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as e:
+        lp.main(["--registry", str(env.registry), "update", "alpha", "--track", "zenodo", "--reason", "x"])
+    assert e.value.code == 2
+    assert env.registry.read_text() == before
+
+
+def test_validate_rejects_unknown_track(lp, env, capsys):
+    reg = read_reg(env)
+    reg["packages"]["alpha"]["track"] = "zenodo"
+    write_reg(env, reg)
+    assert lp.main(["--registry", str(env.registry), "validate"]) == 1
+    assert "bad track 'zenodo'" in capsys.readouterr().out
+
+
+def test_status_fields_track(lp, env, capsys):
+    assert lp.main(["--registry", str(env.registry), "--json", "status", "alpha", "--fields", "track"]) == 0
+    assert json.loads(capsys.readouterr().out)["package"] == {"track": None}
+    assert lp.main(["--registry", str(env.registry), "update", "alpha", "--track", "doi-only",
+                    "--reason", "r"]) == 0
+    capsys.readouterr()
+    assert lp.main(["--registry", str(env.registry), "--json", "status", "alpha", "--fields", "track"]) == 0
+    assert json.loads(capsys.readouterr().out)["package"] == {"track": "doi-only"}
+    assert lp.main(["--registry", str(env.registry), "status", "alpha"]) == 0
+    assert "doi-only" in capsys.readouterr().out
