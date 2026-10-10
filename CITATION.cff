@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use lean-pkg, please cite it as below. A Zenodo DOI will be added at the first public release."
+message: "If you use lean-pkg, please cite it as below; the concept DOI covers every version and each GitHub release carries its own version DOI."
 type: software
 title: "lean-pkg: a registry and trust gate for Lean 4 formalization packages"
 authors:
