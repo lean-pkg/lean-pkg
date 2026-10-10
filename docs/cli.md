@@ -51,7 +51,8 @@ HTTP 5xx) is retried with backoff: env `LEAN_PKG_PUSH_RETRIES` retries
 (default 4), waiting `LEAN_PKG_PUSH_RETRY_DELAY` seconds (default 5) doubled
 each time (5, 10, 20, 40 s); any other failure (authentication, a hook's
 refusal) is not retried. A push rejected as non-fast-forward (origin moved on
-since the pull) fetches, rebases that one commit onto `origin/<branch>` and
+since the pull, including GitHub's `[remote rejected] … (cannot lock ref …)`
+for a concurrent update) fetches, rebases that one commit onto `origin/<branch>` and
 pushes again (as often as the retry budget allows, at least once); a conflict
 only in the event log is resolved as a union (both sides' appended lines,
 stable timestamp order), any other conflict aborts the rebase, leaving the

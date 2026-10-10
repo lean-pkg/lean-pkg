@@ -5646,13 +5646,20 @@ def commit_message(ctx: dict) -> str:
 FALLBACK_IDENTITY = ("lean-pkg", "lean-pkg@localhost")
 
 
-_REJECTED_MARKERS = ("non-fast-forward", "[rejected]", "fetch first", "Updates were rejected")
+_REJECTED_MARKERS = ("non-fast-forward", "[rejected]", "fetch first", "Updates were rejected",
+                     "cannot lock ref", "stale info")
+# `! [remote rejected] main -> main (<reason>)`: origin moved on only when the reason is a lost ref race
+# (GitHub: `cannot lock ref 'refs/heads/main': is at <sha> but expected <sha>`, #71); any other reason
+# (`pre-receive hook declined`, a protected branch) is a permanent refusal.
+_REMOTE_REJECTED_RE = re.compile(r"\[remote rejected\][^\n(]*\((.*)\)[ \t]*$", re.M)
 
 
 def _push_rejected(p: subprocess.CompletedProcess) -> bool:
     """A push refused because origin moved on (not an auth or network failure)."""
     text = f"{p.stderr}\n{p.stdout}"
-    return any(m in text for m in _REJECTED_MARKERS)
+    if any(m in text for m in _REJECTED_MARKERS):
+        return True
+    return any("cannot lock ref" in r or "but expected" in r for r in _REMOTE_REJECTED_RE.findall(text))
 
 
 def _rebase_in_progress(root: pathlib.Path) -> bool:

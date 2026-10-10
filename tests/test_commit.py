@@ -570,3 +570,67 @@ def test_union_event_lines_unit(lp):
     assert lp.union_event_lines(base, o, same) == [base[0], o[1], same[1]]   # ties: origin first
     assert lp.union_event_lines(base, ["rewritten"], t) is None              # not append-only
     assert lp.union_event_lines(base, o, base + ["not json"]) is None
+
+
+# #71: GitHub reports a lost ref race as `[remote rejected] … (cannot lock ref …)`, not `[rejected]`
+
+_GITHUB_LOCK_RACE = (
+    "To github.com:OWNER/REPO.git\n"
+    " ! [remote rejected] main -> main (cannot lock ref 'refs/heads/main': is at "
+    "106850d0000000000000000000000000000000000 but expected 057310f0000000000000000000000000000000000)\n"
+    "error: failed to push some refs to 'github.com:OWNER/REPO.git'\n")
+
+
+def _push_result(stderr: str):
+    import subprocess
+    return subprocess.CompletedProcess(["git", "push"], 1, stdout="", stderr=stderr)
+
+
+def test_remote_rejected_cannot_lock_ref_is_a_rejection(lp):
+    assert lp._push_rejected(_push_result(_GITHUB_LOCK_RACE))
+    assert not lp._push_transient(_push_result(_GITHUB_LOCK_RACE))
+    assert lp._push_rejected(_push_result(
+        " ! [remote rejected] main -> main (ref is at 106850d but expected 057310f)\n"))
+    assert lp._push_rejected(_push_result(" ! [rejected]        main -> main (stale info)\n"))
+
+
+def test_remote_rejected_hook_decline_stays_permanent(lp):
+    for reason in ("pre-receive hook declined", "protected branch hook declined", "shallow update not allowed"):
+        p = _push_result("To github.com:OWNER/REPO.git\n"
+                         f" ! [remote rejected] main -> main ({reason})\n"
+                         "error: failed to push some refs to 'github.com:OWNER/REPO.git'\n")
+        assert not lp._push_rejected(p), reason
+        assert not lp._push_transient(p), reason
+
+
+def test_cannot_lock_ref_race_fetches_rebases_and_pushes(lp, env, shared, monkeypatch, capsys):
+    """Origin moves on while A's push is in flight (the hook lands B's commit, then refuses A's push the way
+    GitHub does): A fetches, rebases its one commit cleanly and pushes again."""
+    a, b = shared.a, shared.clone_b()
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert lp.main(["--registry", str(b.registry), "claim", "beta", "--workspace", "w4",
+                        "--agent", "otto", "--commit"]) == 0
+    _git(b.root, "push", "-q", "origin", "main:refs/race/b")   # B's objects on origin, main not moved yet
+    tip = _head(shared.origin, "main")
+    counter = shared.origin / "push-count"
+    hook = shared.origin / "hooks" / "pre-receive"
+    hook.write_text("#!/bin/sh\n"
+                    f"n=$(cat '{counter}' 2>/dev/null || echo 0); n=$((n + 1)); echo $n > '{counter}'\n"
+                    "if [ $n -eq 1 ]; then\n"
+                    "  race=$(git rev-parse refs/race/b)\n"
+                    "  env -u GIT_QUARANTINE_PATH git update-ref refs/heads/main \"$race\"\n"
+                    f"  echo \"cannot lock ref 'refs/heads/main': is at $race but expected {tip}\" >&2\n"
+                    "  exit 1\n"
+                    "fi\nexit 0\n")
+    hook.chmod(0o755)
+    rc, cap = run(lp, a, capsys, "--json", *CLAIM, "--push")
+    assert rc == 0, cap.err
+    assert "push rejected (origin/main moved on)" in cap.err
+    assert counter.read_text().strip() == "2"   # the hook's refusal, then the rebased push
+    commit = json.loads(cap.out)["commit"]
+    assert commit["pushed"] is True and commit["rebased"] is True and commit["push_attempts"] == 2
+    assert commit["sha"] == _head(a.root) == _head(shared.origin, "main")
+    assert _head(shared.origin, "main~1") == _head(shared.origin, "refs/race/b")
+    assert _subject(a.root) == "lean-pkg: claimed alpha" and _clean(a.root)
+    reg = read_reg(a)["packages"]
+    assert reg["alpha"]["lease"]["agent"] == "vera" and reg["beta"]["lease"]["agent"] == "otto"

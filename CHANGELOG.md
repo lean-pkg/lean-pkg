@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- Committed mode now treats a push that lost a concurrent ref update as a rejection (origin moved on), so #68's
+  fetch, rebase and retry run: GitHub's `! [remote rejected] main -> main (cannot lock ref 'refs/heads/main': is at
+  <sha> but expected <sha>)` and the `--force-with-lease` form `(stale info)` were classified as permanent failures.
+  A `[remote rejected]` with any other reason (`pre-receive hook declined`, a protected branch) stays permanent and is
+  not retried. (#71)
+
 ## [0.7.24] - 2026-10-10
 
 ### Added
