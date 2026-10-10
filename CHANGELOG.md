@@ -17,6 +17,12 @@ change the registry schema or receipt format, always with a migration).
   space, colon, backslash or parenthesis; one of `/ * ? .`). `patterns_source` gains `allow_scoped`
   and `scoped_patterns`; the summary's patterns line counts the path-scoped lines. (#38)
 
+### Changed
+
+- `public-safety`: the human summary line names no path (`public-safety for NAME: N hit(s) ...`), so it
+  can be pasted into release notes verbatim; it used to carry the scanned checkout's absolute path in
+  parentheses. RELEASING step 3 no longer asks to strip it. (#38)
+
 ## [0.7.13] - 2026-10-10
 
 ### Fixed

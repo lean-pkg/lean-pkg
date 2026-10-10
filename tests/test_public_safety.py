@@ -398,3 +398,14 @@ def test_scope_parsing_keeps_plain_regexes_global(lp):
     assert rx.fullmatch("src/a.py") and not rx.fullmatch("src/x/a.py")
     rx = ps.glob_regex("tests/")
     assert rx.fullmatch("tests/a.py") and rx.fullmatch("tests/x/b.py") and not rx.fullmatch("tests")
+
+
+def test_summary_line_names_no_path(lp, tmp_path, capsys):
+    """#38: the human summary line can be pasted into release notes: no checkout path in it."""
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={"Main.lean": "theorem t : True := trivial\n"})
+    reg = make_env(tmp_path, repo)
+    assert run(lp, reg, "public-safety", "pkg") == 0
+    out = capsys.readouterr().out
+    first = out.splitlines()[0]
+    assert first.startswith("public-safety for pkg: 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)")
+    assert str(tmp_path) not in out and "pkg-repo" not in out

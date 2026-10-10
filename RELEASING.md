@@ -40,8 +40,7 @@ changes evidence.
    tree is otherwise dirty. A hit is fixed in the tree, or,
    for a real private string, reported before anything is tagged; never
    allowed away. Paste the summary line into the version's `CHANGELOG.md`
-   section, which becomes the release notes, without the clone path in
-   parentheses (a temporary path under the release machine's home):
+   section, which becomes the release notes, as printed (it names no path):
    `public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree,
    0 history); 0 blocking, 0 warning(s)`.
 4. Commit (`release: X.Y.Z`; the four version files by name, never

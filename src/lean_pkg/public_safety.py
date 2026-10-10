@@ -545,11 +545,13 @@ def hit_line(h: dict) -> str:
     return f"  {mark}{h['where']:<7}  {loc}  [{h['pattern']}]  {h['excerpt']}"
 
 
-def report_lines(name: str, root, result: dict) -> list[str]:
+def report_lines(name: str, result: dict) -> list[str]:
+    """The human report. The summary line names no path (#38): it is pasted into release notes
+    verbatim, and the checkout is the one the registry record names."""
     src = result["patterns_source"]
     n = len(result["hits"])
     nb, nw = result["block_hits"], result["warn_hits"]
-    lines = [f"public-safety for {name} ({root}): {n} hit(s) ({result['tree_hits']} tree, "
+    lines = [f"public-safety for {name}: {n} hit(s) ({result['tree_hits']} tree, "
              f"{result['history_hits']} history" + ("" if result["history_scanned"] else "; history not scanned")
              + f"); {nb} blocking, {nw} warning(s)" + (" (--strict: warnings block)" if result["strict"] else "")
              + f"; {result['latex_label_hits']} from latex-label",
@@ -601,7 +603,7 @@ def cmd_public_safety(args) -> int:
     if getattr(args, "json_out", False):
         core.print_json(dict(result, name=args.name))
     else:
-        print("\n".join(report_lines(args.name, repo, result)))
+        print("\n".join(report_lines(args.name, result)))
     return 0 if result["ok"] else 1
 
 
