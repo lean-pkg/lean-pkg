@@ -383,6 +383,125 @@ def test_legacy_refuses_judges(project: Path):
     assert r.returncode == 1 and "cannot be sharded" in r.stderr
 
 
+# --- --unit-size (#60) ------------------------------------------------------------------------
+
+def test_chunks_are_contiguous_units_of_at_most_k():
+    from lean_pkg.comparator_stage import chunks
+    xs = list(range(1, 12))
+    for k in range(1, 14):
+        parts = chunks(xs, k)
+        assert [x for p in parts for x in p] == xs                 # a partition, order kept
+        assert all(len(p) == k for p in parts[:-1]) and 1 <= len(parts[-1]) <= k
+    assert chunks(xs, 1) == [[x] for x in xs]
+
+
+def test_unit_size_cuts_units_and_judges_is_the_width(tmp_path: Path, lp):
+    project = make_project(tmp_path, {"comparator.json": FIVE})
+    log = tmp_path / "calls.txt"
+    r = run(project, "--unit-size", "2", extra={"STUB_CALLS": str(log)})
+    assert r.returncode == 0, r.stderr
+    assert [c.split()[1] for c in calls(log)] == ["N.a,N.b", "N.c,N.d", "N.e"]   # in order, one at a time
+    text = stage_log(project)
+    assert text.count("units: 3 of at most 2 names, width 1") == 1
+    assert "3 judge invocation(s), 1 at a time" in text
+    comp = validate(lp, project)
+    assert comp["judges"] == 1 and comp["unit_size"] == 2
+    assert [u["slots"] for u in comp["configs"][0]["units"]] == [["N.a", "N.b"], ["N.c", "N.d"], ["N.e"]]
+    assert receipt_log(project).count("== unit: slots ") == 3
+    st = stages_json(project)
+    assert st["judges"] == 1 and st["unit_size"] == 2
+
+
+def test_unit_size_with_judges_runs_units_concurrently(tmp_path: Path, lp):
+    project = make_project(tmp_path, {"comparator.json": FIVE})
+    log = tmp_path / "calls.txt"
+    r = run(project, "--unit-size", "2", "--judges", "2",
+            extra={"STUB_CALLS": str(log), "STUB_BEHAVIOUR": "slow", "STUB_SLEEP": "0.2"})
+    assert r.returncode == 0, r.stderr
+    assert sorted(c.split()[1] for c in calls(log)) == ["N.a,N.b", "N.c,N.d", "N.e"]
+    assert "units: 3 of at most 2 names, width 2" in stage_log(project)
+    assert "3 judge invocation(s), 2 at a time" in stage_log(project)
+    comp = validate(lp, project)
+    assert comp["judges"] == 2 and comp["unit_size"] == 2
+    assert len(comp["configs"][0]["units"]) == 3
+
+
+def test_unit_size_covering_the_config_is_one_whole_unit(tmp_path: Path):
+    project = make_project(tmp_path, {"comparator.json": FIVE})
+    log = tmp_path / "calls.txt"
+    r = run(project, "--unit-size", "9", extra={"STUB_CALLS": str(log)})
+    assert r.returncode == 0, r.stderr
+    assert [c.split()[0] for c in calls(log)] == ["comparator.json"]   # the configuration itself
+    assert receipt_log(project).splitlines()[0] == "== lake comparator (toolchain) comparator.json"
+    rec = receipt(project)
+    assert rec["unit_size"] == 9 and "units" not in rec["configs"][0]
+
+
+def test_default_records_unit_size_null(project: Path):
+    r = run(project)
+    assert r.returncode == 0, r.stderr
+    assert receipt(project)["unit_size"] is None and receipt(project)["judges"] == 1
+    assert stages_json(project)["unit_size"] is None
+    assert "units: " not in stage_log(project)
+
+
+def test_one_name_units_resume_exactly_where_a_kill_stopped(tmp_path: Path, lp):
+    four = ["N.a", "N.b", "N.c", "N.d"]
+    project = make_project(tmp_path, {"comparator.json": four})
+    log = tmp_path / "calls.txt"
+    p = start(project, "--unit-size", "1", "--judges", "1",
+              extra={"STUB_CALLS": str(log), "STUB_HANG_MATCH": "N.c", "STUB_SLEEP": "30"})
+    assert wait_for(lambda: "stub hanging" in stage_log(project))
+    p.send_signal(signal.SIGTERM)
+    _out, err = p.communicate(timeout=60)
+    assert p.returncode == 128 + signal.SIGTERM
+    assert "partial: 2/4 done" in err
+    assert [c.split()[1] for c in calls(log)] == ["N.a", "N.b", "N.c"]   # sequential, one name each
+    assert len(list((stage_dir(project) / "04-slots").glob("*.json"))) == 2
+    rep = json.loads((stage_dir(project) / "04-comparator.partial.json").read_text())
+    assert rep["state"] == "interrupted"
+    assert [s["name"] for s in rep["slots_done"]] == ["N.a", "N.b"]
+    assert [s["name"] for s in rep["slots_pending"]] == ["N.c", "N.d"]
+    assert "--unit-size 1" in rep["resume_command"]
+    log.unlink()
+    r = run(project, "--unit-size", "1", extra={"STUB_CALLS": str(log)})
+    assert r.returncode == 0, r.stderr
+    assert [c.split()[1] for c in calls(log)] == ["N.c", "N.d"]          # only the rest
+    assert "slot 1-2/4 comparator.json[2 names] cached" in stage_log(project)
+    assert "units: 2 of at most 1 names, width 1" in stage_log(project)
+    comp = validate(lp, project)
+    assert comp["resumed_slots"] == 2 and comp["unit_size"] == 1
+    assert [u["slots"] for u in comp["configs"][0]["units"]] == [[n] for n in four]
+    text = receipt_log(project)
+    assert text.count("== unit: slots ") == 4 and text.count("Your solution is okay!") == 4
+    assert [ln for ln in text.splitlines() if ln.startswith("== unit:")] == [
+        f"== unit: slots {i} (1 names)" for i in range(1, 5)]
+
+
+def test_unit_size_env_form(tmp_path: Path):
+    project = make_project(tmp_path, {"comparator.json": FIVE})
+    r = run(project, extra={"LEAN_PKG_COMPARATOR_UNIT_SIZE": "2"})
+    assert r.returncode == 0, r.stderr
+    assert "units: 3 of at most 2 names, width 1" in stage_log(project)
+    assert receipt(project)["unit_size"] == 2
+
+
+def test_unit_size_bad_values_exit_2_before_any_work(tmp_path: Path):
+    project = make_project(tmp_path, {"comparator.json": FIVE})
+    log = tmp_path / "calls.txt"
+    for bad in ("0", "-1", "x", "1.5", ""):
+        r = run(project, "--unit-size", bad, extra={"STUB_CALLS": str(log)})
+        assert r.returncode == 2 and "--unit-size must be a positive integer" in r.stderr, bad
+    r = run(project, extra={"LEAN_PKG_COMPARATOR_UNIT_SIZE": "0", "STUB_CALLS": str(log)})
+    assert r.returncode == 2 and "LEAN_PKG_COMPARATOR_UNIT_SIZE" in r.stderr
+    assert not log.exists() and not stage_dir(project).exists()
+
+
+def test_legacy_refuses_unit_size(project: Path):
+    r = run(project, "--unit-size", "1", mechanism="legacy", extra={"COMPARATOR_FAKE_LAKE_OK": "0"})
+    assert r.returncode == 1 and "cannot be cut into units" in r.stderr
+
+
 # --- --slots ----------------------------------------------------------------------------------
 
 def mk_slots(rows):

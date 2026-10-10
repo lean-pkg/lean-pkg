@@ -325,7 +325,7 @@ def run_pool(jobs: list, width: int, start, finish, poll_interval: float = 0.2) 
 # ---------------------------------------------------------------------------
 # Slots and units. A slot is one theorem_names entry of one configuration, numbered 1..N across
 # the configurations in order. A unit is what one judge invocation judges: a configuration (or a
-# subset of its slots). Progress lines name slots; 04-comparator.partial.json names the slots done,
+# subset of its slots: a --judges shard or a --unit-size chunk). Progress lines name slots; 04-comparator.partial.json names the slots done,
 # pending and failed, rewritten after every unit so even a SIGKILL leaves it current.
 
 PARTIAL_FILE = "04-comparator.partial.json"
@@ -506,6 +506,17 @@ def shards(slots: list, n: int) -> list[list]:
         out.append(slots[i:i + size])
         i += size
     return out
+
+
+UNIT_SIZE_ENV = "LEAN_PKG_COMPARATOR_UNIT_SIZE"
+
+
+def chunks(slots: list, k: int) -> list[list]:
+    """slots in contiguous units of at most k names, in order (--unit-size K, #60): every unit but
+    the last has exactly k. Independent of the pool width, so `--unit-size 1` judges each name alone
+    and every accepted slot is cached as soon as its unit ends."""
+    k = max(1, k)
+    return [slots[i:i + k] for i in range(0, len(slots), k)]
 
 
 # ---------------------------------------------------------------------------

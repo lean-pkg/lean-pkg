@@ -143,6 +143,12 @@ whether the `build` stage compiled anything or found the oleans prebuilt; see
 (N = 1 serializes the build on a memory-tight host; recorded as the receipt's
 `lean_threads`; any other value exits 2); see
 [Serial builds](comparator.md#stages-and---prepare).
+`--judges N` (env `LEAN_PKG_COMPARATOR_JOBS`) runs up to N judges at once;
+`--unit-size K` (env `LEAN_PKG_COMPARATOR_UNIT_SIZE`) cuts each configuration
+into units of at most K names, making `--judges` only the pool width
+(`--unit-size 1 --judges 1` judges each name alone, so a capped run resumes
+per name; recorded as the receipt's `unit_size`; a value that is not a
+positive integer exits 2); see [Unit size](comparator.md#stages-and---prepare).
 
 ## Lease holders
 

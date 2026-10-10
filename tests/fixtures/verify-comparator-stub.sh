@@ -6,7 +6,8 @@
 # stdout and stderr), silent (sleeps with no output), python (a Python child printing, then sleeping).
 # STUB_PIDFILE gets this script's pid; STUB_SLEEP sets the pause (default 1 s). STUB_CALLS gets one line
 # per call: the config argument and, for a JSON file, its theorem_names. STUB_FAIL_MATCH=<word> fails a
-# call whose config argument or theorem_names contain that word.
+# call whose config argument or theorem_names contain that word. STUB_HANG_MATCH=<word> makes such a call
+# print "stub hanging" and sleep (STUB_SLEEP, default 1 s) before its verdict, so a test can kill it.
 set -euo pipefail
 cfg="${1:-comparator.json}"
 names="$(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["theorem_names"]))' "$cfg" 2>/dev/null || true)"
@@ -16,6 +17,9 @@ if [ -n "${STUB_FAIL_MATCH:-}" ] && [[ "$cfg $names" == *"$STUB_FAIL_MATCH"* ]];
 pause="${STUB_SLEEP:-1}"
 echo "== lake comparator (toolchain) $cfg"
 echo "project $(pwd), toolchain $(tr -d '[:space:]' < lean-toolchain)"
+if [ -n "${STUB_HANG_MATCH:-}" ] && [[ "$cfg $names" == *"$STUB_HANG_MATCH"* ]]; then
+  echo "stub hanging"; sleep "$pause"
+fi
 case "${STUB_BEHAVIOUR:-}" in
   slow) for i in 1 2 3; do echo "stub progress $i"; sleep "$pause"; done ;;
   stdin) read -r _line || true; echo "stub stdin closed" ;;

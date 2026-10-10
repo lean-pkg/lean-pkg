@@ -53,8 +53,9 @@ from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
 from .comparator_stage import redact, redact_bytes, redact_json, set_redactions  # noqa: E402
 from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
-                               JOBS_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, list_slots,
-                               parse_slot_spec, ranges, run_pool, shards, stratified_sample, unit_id)
+                               JOBS_ENV, UNIT_SIZE_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit,
+                               chunks, list_slots, parse_slot_spec, ranges, run_pool, shards,
+                               stratified_sample, unit_id)
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -685,6 +686,7 @@ class Stages:
         self.progress: dict | None = None   # stage 04's {done, total, failed, partial_report} (#39)
         self.resolution: dict | None = None  # toolchain_resolution {source, lake, version} (#41)
         self.build_provenance: dict | None = None   # #56: {compiled, modules_built, prebuilt, source}
+        self.pool: dict | None = None        # #60: stage 04's {judges, unit_size} (toolchain mechanism)
 
     def log(self, stage: str) -> pathlib.Path:
         return self.dir / f"{STAGES.index(stage) + 1:02d}-{stage}.log"
@@ -706,6 +708,7 @@ class Stages:
                 **({"progress": self.progress} if self.progress is not None else {}),
                 **({"toolchain_resolution": self.resolution} if self.resolution is not None else {}),
                 **({"build_provenance": self.build_provenance} if self.build_provenance is not None else {}),
+                **(self.pool or {}),
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         tmp = self.json.with_name(STAGES_FILE + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -819,8 +822,10 @@ class Stage04:
 
     def __init__(self, project: pathlib.Path, configs: list[str], mechanism: str, check: pathlib.Path,
                  verify: pathlib.Path | None, stages: Stages, log_dir: pathlib.Path, resume_command: str,
-                 resume: bool = True, judges: int = 1, subset: list | None = None, isolate: bool = False):
+                 resume: bool = True, judges: int = 1, subset: list | None = None, isolate: bool = False,
+                 unit_size: int | None = None):
         self.judges = max(1, judges)
+        self.unit_size = unit_size if unit_size and not isolate else None   # #60: names per unit, or None
         self.isolate = isolate                       # one unit per slot, run one at a time (--estimate)
         self.project, self.configs, self.mechanism = project, configs, mechanism
         self.check, self.verify, self.stages, self.log_dir = check, verify, stages, log_dir
@@ -861,11 +866,23 @@ class Stage04:
                 pend = [s for s in mine if s.index not in self.cached]
                 if not mine:
                     units.append(Unit(len(units) + 1, rel, [], True))
-                for part in (shards(pend, len(pend) if self.isolate else self.judges) if pend else []):
+                for part in self.cut(pend):
                     units.append(Unit(len(units) + 1, rel, part, len(part) == every))
         for u in units:
             u.id = unit_id(self.stages.binding, u)
         return units
+
+    def cut(self, pend: list) -> list[list]:
+        """A configuration's pending slots as units: one per slot (--estimate); contiguous chunks of at
+        most unit_size (--unit-size K, #60; --judges is then only the pool width); else --judges
+        near-equal shards (the default --judges 1: the whole configuration in one unit)."""
+        if not pend:
+            return []
+        if self.isolate:
+            return shards(pend, len(pend))
+        if self.unit_size:
+            return chunks(pend, self.unit_size)
+        return shards(pend, self.judges)
 
     def command(self, unit: Unit) -> tuple[list[str], dict]:
         env = tool_env()
@@ -955,6 +972,9 @@ class Stage04:
                 self.say(f"comparator-receipt: --slots: {len(self.slots)} of {len(self.all_slots)} slot(s) "
                          f"({ranges(s.index for s in self.slots)}); a receipt from them is partial "
                          f"(diagnostic only)")
+            if self.unit_size:   # #60: memory/time guidance, once
+                self.say(f"comparator-receipt: units: {sum(1 for u in units if u.slots)} of at most "
+                         f"{self.unit_size} names, width {self.width}")
             self.say(f"comparator-receipt: {len(self.slots)} slot(s) in {len(self.configs)} config(s), "
                      f"{len(units)} judge invocation(s), {self.width} at a time, mechanism {self.mechanism}")
             self.announce_cached()
@@ -1005,13 +1025,14 @@ class Stage04:
     def parts(self, rel: str) -> list[tuple[list, pathlib.Path, bool]]:
         """(slots, log, whole) of every unit that accepted part of rel, this run's and cached ones."""
         out = [(u.slots, log, u.whole) for u, log in self.passed[rel]]
-        by_log: dict[pathlib.Path, list] = {}
+        by_unit: dict[tuple, list] = {}     # (log, the accepting unit's names) -> [whole, slots]
         for s in self.slots:
             e = self.cached.get(s.index)
             if s.config == rel and e is not None:
-                by_log.setdefault(e["log_path"], [e.get("whole"), []])[1].append(s)
+                key = (e["log_path"], tuple(e.get("unit_slots") or ()))
+                by_unit.setdefault(key, [e.get("whole"), []])[1].append(s)
         out += [(ss, log, bool(whole) and len(ss) == sum(1 for x in self.all_slots if x.config == rel))
-                for log, (whole, ss) in by_log.items()]
+                for (log, _names), (whole, ss) in by_unit.items()]
         return sorted(out, key=lambda p: min((s.index for s in p[0]), default=0))
 
     def assemble(self) -> None:
@@ -1117,7 +1138,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         evidence: pathlib.Path | None = None, prepare: bool = False,
         from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt",
         resume: bool = True, judges: int = 1, slot_spec: str | None = None,
-        estimate: int | None = None) -> dict:
+        estimate: int | None = None, unit_size: int | None = None) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     set_redactions(project)   # #41: no checkout/HOME/TMPDIR path reaches a log or a receipt
@@ -1181,6 +1202,10 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
             raise RunnerError(f"--judges {judges}: the legacy mechanism's comparator-check.sh judges every "
                               f"configuration in one run and cannot be sharded; use --judges 1 (or "
                               f"--mechanism toolchain); nothing written")
+        if mechanism == "legacy" and unit_size is not None:
+            raise RunnerError(f"--unit-size {unit_size}: the legacy mechanism's comparator-check.sh judges every "
+                              f"configuration in one run and cannot be cut into units; use --mechanism "
+                              f"toolchain; nothing written")
         print(f"mechanism: {mechanism}")
     if from_prepared is not None and mismatch:
         raise RunnerError(f"--from-prepared {from_prepared}: {mismatch}; run `comparator-receipt --prepare` "
@@ -1234,15 +1259,19 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         log_dir = pathlib.Path(tmp) / "logs"
         result: dict = {}
 
+        if mechanism == "toolchain":   # #60: stages.json records the pool beside the receipt
+            stages.pool = {"judges": judges, "unit_size": unit_size}
+
         def comparator_stage(stage_log: pathlib.Path):
             st = Stage04(project, configs, mechanism, check, verify, stages, log_dir, resume_command,
-                         resume=resume, judges=judges, subset=subset)
+                         resume=resume, judges=judges, subset=subset, unit_size=unit_size)
             result["stage04"] = st
             status, code, note = st.run(stage_log)
             result["extra"] = {"stack_limit": stack_limit, "lean_threads": lean_threads,
                                **({"build_provenance": stages.build_provenance}
                                   if stages.build_provenance is not None else {}),
-                               **({"judges": judges} if mechanism == "toolchain" else {}),
+                               **({"judges": judges, "unit_size": unit_size} if mechanism == "toolchain"
+                                  else {}),
                                **({"toolchain_resolution": resolution} if resolution else {}),
                                **({"resumed_slots": len(st.cached)} if st.cached else {})}
             result["config_extra"] = {rel: {"units": rows} for rel, rows in st.receipt_units.items()}
@@ -1419,8 +1448,14 @@ def main(argv: list[str] | None = None) -> int:
                          f"accepted (cached under <evidence-dir>/{STAGES_DIR}/{SLOTS_DIR}/)")
     ap.add_argument("--judges", default=None, metavar="N",
                     help=f"run up to N judge processes at once, each on a contiguous shard of every "
-                         f"configuration's theorem_names (toolchain mechanism; env {JOBS_ENV}; default 1). "
+                         f"configuration's theorem_names (toolchain mechanism; env {JOBS_ENV}; default 1); "
+                         f"with --unit-size, N is only how many units run at once. "
                          f"The merged verdict is exact; see docs/comparator.md (Runtime) for when it helps")
+    ap.add_argument("--unit-size", default=None, metavar="K",
+                    help=f"judge each configuration in contiguous units of at most K names (toolchain "
+                         f"mechanism; env {UNIT_SIZE_ENV}; default: the whole configuration, cut into "
+                         f"--judges shards). --unit-size 1 --judges 1 judges each name alone, one at a time, "
+                         f"so a capped run resumes per name")
     ap.add_argument("--slots", default=None, metavar="SPEC",
                     help="judge only these slots (theorem_names entries): comma-separated names, "
                          "<config>:<name>, 1-based indices or ranges i-j over all configurations, or "
@@ -1460,6 +1495,17 @@ def main(argv: list[str] | None = None) -> int:
         src = "--judges" if args.judges is not None else JOBS_ENV
         print(f"comparator-receipt: {src} must be a positive integer, got {raw_jobs!r}", file=sys.stderr)
         return 2
+    raw_size = args.unit_size if args.unit_size is not None else (os.environ.get(UNIT_SIZE_ENV) or None)
+    unit_size = None
+    if raw_size is not None:   # #60: refused before any work
+        try:
+            unit_size = int(raw_size)
+            if unit_size < 1:
+                raise ValueError
+        except ValueError:
+            src = "--unit-size" if args.unit_size is not None else UNIT_SIZE_ENV
+            print(f"comparator-receipt: {src} must be a positive integer, got {raw_size!r}", file=sys.stderr)
+            return 2
     if args.prepare and args.from_prepared:
         print("comparator-receipt: --prepare and --from-prepared are exclusive", file=sys.stderr)
         return 2
@@ -1502,7 +1548,7 @@ def main(argv: list[str] | None = None) -> int:
                       evidence=evidence, prepare=args.prepare, from_prepared=prepared,
                       resume_command=resume_command(argv if argv is not None else sys.argv[1:]),
                       resume=not args.no_resume, judges=judges, slot_spec=args.slots,
-                      estimate=(args.sample or 5) if args.estimate else None)
+                      estimate=(args.sample or 5) if args.estimate else None, unit_size=unit_size)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
         code = getattr(e, "code", None)

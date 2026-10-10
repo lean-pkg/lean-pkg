@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `comparator-receipt --unit-size K` (env `LEAN_PKG_COMPARATOR_UNIT_SIZE`) decouples the judge unit size from
+  concurrency: each configuration's pending slots are cut into contiguous units of at most K names, and `--judges N`
+  is then only how many units run at once (default 1). `--unit-size 1 --judges 1` judges each name alone, one at a
+  time, with every accepted slot cached at once, so a capped run resumes exactly where it stopped. Without
+  `--unit-size`, `--judges N` behaves as before. The runner prints `units: M of at most K names, width N` once; the
+  receipt and `stages.json` gain the additive `unit_size` (`K` or `null`) beside `judges`; a value that is not a
+  positive integer exits 2, and the legacy mechanism refuses the flag. (#60)
+
 ## [0.7.22] - 2026-10-10
 
 ### Added

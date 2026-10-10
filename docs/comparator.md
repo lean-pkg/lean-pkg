@@ -582,6 +582,9 @@ acceptance of a configuration is the conjunction of its acceptance of each
 name, whose export closure does not depend on the other names.
 `--no-resume` judges every slot again. The legacy mechanism judges all
 configurations in one `comparator-check.sh` run and does not resume.
+`--unit-size 1` makes a capped run resumable per name: each name is its own
+unit, cached the moment it is accepted, so a killed run loses at most the
+name being judged.
 
 **Parallel judges.** `--judges N` (or `LEAN_PKG_COMPARATOR_JOBS`; default 1)
 splits each configuration's pending slots into at most N contiguous shards
@@ -599,6 +602,21 @@ built everything, so their `lake build` steps are no-ops, but each still
 runs `lake exe cache get` (inside `verify-comparator.sh`). Whether sharding
 saves time at all depends on how much of their export closure the shards
 share (see Runtime).
+
+**Unit size.** `--unit-size K` (or `LEAN_PKG_COMPARATOR_UNIT_SIZE`; default:
+the whole configuration) cuts each configuration's pending slots into
+contiguous units of at most K names, independent of concurrency: `--judges N`
+is then only the pool width, how many units run at once (default 1). Without
+`--unit-size`, `--judges N` behaves as above (N shards, N at a time). The
+runner prints `units: M of at most K names, width N` once at the start of
+stage 04, a guide to memory (N judges at once) and time (M invocations, each
+paying its own export closure). `--unit-size 1 --judges 1` judges each name
+alone, one at a time. A unit covering the whole configuration judges the
+configuration file itself, and its log is the receipt log byte for byte;
+otherwise the receipt log is assembled from the unit logs as under Resume.
+The receipt and `stages.json` record `unit_size` (`K`, or `null`) beside
+`judges`. A value that is not a positive integer exits 2 before any work;
+the legacy mechanism refuses `--unit-size`.
 
 **A subset of the slots.** `--slots SPEC` judges only the slots SPEC names:
 comma-separated slot names, `<config>:<name>` when a name occurs in several
