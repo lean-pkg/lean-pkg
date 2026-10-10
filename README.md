@@ -147,6 +147,8 @@ the [roadmap](ROADMAP.md); it is not implemented yet.
 | publish | `lean-pkg publish --dry-run`, `promote` | one read-only checklist to listed, then the one-way flip to public |
 | index | `lean-pkg index add`, `index check --clone` | a [field index](docs/index-catalog.md) entry whose trust (`lower-tier`, `comparator`, `palomar`) is computed from the evidence, never typed |
 
+Not sure what comes next for a package? `lean-pkg next NAME` prints the single recommended command and why; agents get the same answer with `--json`.
+
 Safety nets, before anything is public:
 
 - `lean-pkg public-safety NAME` scans the tree and the whole git history for

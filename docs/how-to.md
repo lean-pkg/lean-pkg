@@ -329,8 +329,21 @@ lean-pkg migrate                             # additive and idempotent
 lean-pkg wiki --out status/index.md
 ```
 
+## Find the next command for a package
+
+```bash
+lean-pkg next NAME            # one recommended command and a one-line reason
+lean-pkg next NAME --json     # {command, reason, blockers[], state{}}
+```
+
+Read-only and offline: it decides from the registry record and the checkout, with the same checks
+`gate`, `comparator` and `publish --dry-run` use, and prints the one command to run next (`claim`,
+`gate --check`, `comparator-receipt`, `publish --dry-run`, ...). Exit 1 names what blocks the package
+(a foreign lease with `--agent`, a dirty tree while evidence is produced, a receipt `gate` would refuse).
+See the [`next` row](cli.md) in the CLI reference.
+
 ## Use lean-pkg from a coding agent
 
 See [Using lean-pkg with agents](agents.md). Short version: the agent reads
-[llms.txt](llms.txt) (the same text as `lean-pkg llms`), always passes `--json`, claims before working, and
+[llms.txt](llms.txt) (the same text as `lean-pkg llms`; `lean-pkg llms --short` is the 40-line version), always passes `--json`, asks `lean-pkg next NAME` when unsure what comes next, claims before working, and
 never calls `promote --yes` without a human reading the dry run.
