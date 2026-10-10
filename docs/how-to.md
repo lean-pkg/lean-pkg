@@ -290,5 +290,5 @@ lean-pkg wiki --out status/index.md
 ## Use lean-pkg from a coding agent
 
 See [Using lean-pkg with agents](agents.md). Short version: the agent reads
-[llms.txt](llms.txt), always passes `--json`, claims before working, and
+[llms.txt](llms.txt) (the same text as `lean-pkg llms`), always passes `--json`, claims before working, and
 never calls `promote --yes` without a human reading the dry run.

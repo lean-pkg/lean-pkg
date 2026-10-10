@@ -320,3 +320,60 @@ def test_copyright_statement_is_the_ipx_confirmed_one_everywhere():
     assert f"Copyright (c) {holder}" in (ROOT / "README.md").read_text()
     for f in ("LICENSE", "NOTICE", "REUSE.toml", "README.md"):
         assert "2026 Le Chen\"" not in (ROOT / f).read_text() and "Copyright 2026 Le Chen\n" not in (ROOT / f).read_text()
+
+
+def _subcommand_paths(lp):
+    """Every subcommand path, top-level and nested, read from the parser `main` builds.
+
+    `main` builds its parser inline; stop it at `parse_args` and walk the subparsers. The
+    `comparator` keyword forms (`comparator host-check`, `comparator config`) are values of the
+    `name` positional, not subparsers, so they come from the constants `main` dispatches on."""
+    import argparse
+
+    class _Stop(Exception):
+        pass
+
+    captured = {}
+
+    def stop(self, *args, **kwargs):
+        captured["parser"] = self
+        raise _Stop
+
+    orig = argparse.ArgumentParser.parse_args
+    argparse.ArgumentParser.parse_args = stop
+    try:
+        lp.main([])
+    except _Stop:
+        pass
+    finally:
+        argparse.ArgumentParser.parse_args = orig
+
+    def walk(parser, prefix):
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for name, sub in action.choices.items():
+                    yield prefix + (name,)
+                    yield from walk(sub, prefix + (name,))
+
+    paths = [" ".join(p) for p in walk(captured["parser"], ())]
+    assert "comparator" in paths and "index add" in paths, paths   # the walk itself works
+    paths += [f"comparator {lp.HOST_CHECK}", f"comparator {lp.CONFIG_CMD}"]
+    return paths
+
+
+def test_every_subcommand_has_a_cli_reference_row(lp):
+    """docs/cli.md has a table row for every subcommand, nested ones included."""
+    rows = [line for line in (ROOT / "docs" / "cli.md").read_text().splitlines() if line.startswith("| `")]
+    missing = [p for p in _subcommand_paths(lp)
+               if not any(re.match(r"\| `" + re.escape(p) + r"[ `]", row) for row in rows)]
+    assert missing == [], "no docs/cli.md row for: " + ", ".join(missing)
+
+
+def test_every_top_level_subcommand_has_a_front_door_home(lp):
+    """Each top-level subcommand is shown as `lean-pkg <cmd>` in README.md or the docs front door
+    (docs/index.md, docs/how-to.md): a feature without a front-door home is a documentation gap
+    (RELEASING.md, checklist step 0)."""
+    text = "\n".join((ROOT / f).read_text() for f in ("README.md", "docs/index.md", "docs/how-to.md"))
+    top = sorted({p.split()[0] for p in _subcommand_paths(lp)})
+    missing = [c for c in top if not re.search(r"lean-pkg " + re.escape(c) + r"(?![\w-])", text)]
+    assert missing == [], "not in README.md, docs/index.md or docs/how-to.md: " + ", ".join(missing)
