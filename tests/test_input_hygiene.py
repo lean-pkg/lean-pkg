@@ -313,3 +313,20 @@ def test_init_force_marks_the_second_event(lp, tmp_path, capsys):
     events = [json.loads(x) for x in (reg.parent / "lean-package-events.jsonl").read_text().splitlines()]
     assert [e["event"] for e in events] == ["registry-created", "registry-created"]
     assert events[1]["forced"] is True and "forced" not in events[0]
+
+
+def test_argparse_errors_print_usage_json_under_json(lp, env, capsys):
+    """#21.7: an argparse-level error under --json also prints the UsageError JSON; exit 2 unchanged."""
+    with pytest.raises(SystemExit) as e:
+        cli(lp, env, "status", "alpha", "--no-such-flag", "--json")
+    assert e.value.code == 2
+    cap = capsys.readouterr()
+    payload = json.loads(cap.out)
+    assert payload["ok"] is False and payload["usage"] is True and "--no-such-flag" in payload["error"]
+    assert "usage:" in cap.err
+    with pytest.raises(SystemExit) as e:
+        cli(lp, env, "--json", "register", "x", "--repo", "r", "--path", "p", "--status", "upstreamed")
+    assert e.value.code == 2 and "invalid choice" in json.loads(capsys.readouterr().out)["error"]
+    with pytest.raises(SystemExit):                                   # no --json: nothing on stdout
+        cli(lp, env, "status", "alpha", "--no-such-flag")
+    assert capsys.readouterr().out == ""

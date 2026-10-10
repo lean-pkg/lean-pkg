@@ -178,4 +178,4 @@ plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt
 EXIT CODES
 0  success, including dry-runs and the "already gated" no-op
 1  refused or validation failed (stderr has the reason; with --json stdout also gets {"ok": false, "error": ...})
-2  usage error (argparse, or an interactive prompt attempted off-tty; with --json a usage refusal also prints {"ok": false, "error": ..., "usage": true})
+2  usage error (argparse, or an interactive prompt attempted off-tty; with --json a usage refusal, argparse's included, also prints {"ok": false, "error": ..., "usage": true})

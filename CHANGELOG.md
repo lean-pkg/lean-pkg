@@ -53,6 +53,9 @@ change the registry schema or receipt format, always with a migration).
 - `audit`'s "gh query failed" detail and the promote/publish "reuse lint failed" line cut the tool's
   message at 120 characters; both now keep its whole first line, as promote's gh visibility line has
   since #19. (#21.7)
+- Under `--json`, an argparse-level error (unknown flag, invalid choice, missing argument) printed only
+  argparse's usage text on stderr. It now also prints the usage-refusal JSON `{ok: false, error,
+  usage: true}` on stdout, like every other usage error; the exit status stays 2. (#21.7)
 - `gate`/`comparator` (and every caller of the comparator validator) read a comparator log from the
   working tree even when it was already committed, so a log edited after its commit passed until
   `promote` refused it. Once a log is tracked at HEAD, a working copy that differs from the committed

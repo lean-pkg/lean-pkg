@@ -63,8 +63,8 @@ explicit `--registry`, else env `LEAN_PKG_EVENTS`, else the sibling of whichever
 registry is in use. Exit codes: 0 success or dry run,
 1 refusal or validation failure (reason on stderr; with `--json` also
 `{"ok": false, "error": ...}` on stdout), 2 usage error or a prompt attempted
-off a terminal (with `--json` a usage refusal also prints
-`{"ok": false, "error": ..., "usage": true}`).
+off a terminal (with `--json` a usage refusal, argparse's own errors
+included, also prints `{"ok": false, "error": ..., "usage": true}`).
 
 The authoritative, machine-oriented version of this page is
 [llms.txt](llms.txt), which is the exact output of `lean-pkg llms`.

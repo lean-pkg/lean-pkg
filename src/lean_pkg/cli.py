@@ -4571,7 +4571,7 @@ plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt
 EXIT CODES
 0  success, including dry-runs and the "already gated" no-op
 1  refused or validation failed (stderr has the reason; with --json stdout also gets {"ok": false, "error": ...})
-2  usage error (argparse, or an interactive prompt attempted off-tty; with --json a usage refusal also prints {"ok": false, "error": ..., "usage": true})
+2  usage error (argparse, or an interactive prompt attempted off-tty; with --json a usage refusal, argparse's included, also prints {"ok": false, "error": ..., "usage": true})
 """
 
 
@@ -5504,8 +5504,23 @@ def cmd_validate(args) -> int:
     return 1 if errors else 0
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse with the UsageError JSON contract (#21.7): when --json is on the command line, an
+    argparse-level error (unknown flag, bad choice, missing argument) also prints
+    {ok: false, error, usage: true} on stdout; the stderr usage text and exit 2 are unchanged.
+    Subparsers inherit the class."""
+    json_requested = False
+
+    def error(self, message):
+        if _Parser.json_requested:
+            print_json({"ok": False, "error": f"{self.prog}: {message}", "usage": True})
+        super().error(message)
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(
+    raw = list(sys.argv[1:] if argv is None else argv)
+    _Parser.json_requested = "--json" in (raw[:raw.index("--")] if "--" in raw else raw)
+    ap = _Parser(
         prog="lean-pkg",
         description="Lean 4 package registry: board, leases, trust gate, "
                     "promotion")
