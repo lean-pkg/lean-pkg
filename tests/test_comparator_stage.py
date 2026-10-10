@@ -581,41 +581,151 @@ def test_estimate_numbers_bounds_and_cap():
     from lean_pkg.comparator_receipt import estimate_numbers
     e = estimate_numbers([100.0, 200.0, 300.0], slots=250, judges=1)
     assert e["per_slot_seconds"] == 200.0 and e["estimated_seconds"] == 50000
-    assert e["lower_bound_seconds"] == 300
-    assert e["recommended_cap"] == 63300 and e["recommended_cap"] % 300 == 0   # ceil_5min(1.25*50000+600)
+    assert e["lower_bound_seconds"] == 300 and e["estimated_seconds_max"] == 75000
+    # 3 of 250 slots sampled: below half coverage, so the cap uses the max model
+    assert e["cap_model"] == "max" and "per_slot_max_seconds" in e["recommended_cap_formula"]
+    assert e["recommended_cap"] == 94500 and e["recommended_cap"] % 300 == 0   # ceil_5min(1.25*75000+600)
     assert estimate_numbers([100.0], slots=250, judges=4)["estimated_seconds"] == 6250
+
+
+def test_estimate_cap_model_switches_at_half_coverage():
+    from lean_pkg.comparator_receipt import estimate_numbers
+    half = estimate_numbers([100.0, 200.0, 300.0], slots=6, judges=1)     # 3 of 6: at half, mean model
+    assert half["cap_model"] == "mean" and half["recommended_cap"] == 2100    # ceil_5min(1.25*1200+600)
+    assert "per_slot_seconds" in half["recommended_cap_formula"]
+    assert "per_slot_max_seconds" not in half["recommended_cap_formula"]
+    below = estimate_numbers([100.0, 200.0, 300.0], slots=7, judges=1)    # 3 of 7: below half, max model
+    assert below["cap_model"] == "max" and below["estimated_seconds"] == 1400
+    assert below["recommended_cap"] == ceil5(1.25 * 2100 + 600)
+    # the field case (#59): 2 of 16 slots at 69.5 s and 168.7 s; the mean model capped at 3000 s
+    field = estimate_numbers([69.5, 168.7], slots=16, judges=1)
+    assert field["estimated_seconds"] == 1906 and field["estimated_seconds_max"] == 2700
+    assert ceil5(1.25 * field["estimated_seconds"] + 600) == 3000      # what the mean model gave
+    assert field["cap_model"] == "max" and field["recommended_cap"] == 4200
+
+
+def ceil5(x: float) -> int:
+    import math
+    return int(math.ceil(x / 300) * 300)
+
+
+def test_sample_floor():
+    from lean_pkg.comparator_receipt import sample_floor
+    assert [sample_floor(n) for n in (1, 3, 5, 16, 20, 21, 100)] == [1, 3, 5, 5, 5, 6, 25]
+
+
+def test_slot_weight_maps_the_longest_module_prefix(tmp_path: Path):
+    from lean_pkg.comparator_receipt import olean_sizes, slot_weight
+    lib = tmp_path / ".lake" / "build" / "lib"
+    (lib / "Pkg" / "Big").mkdir(parents=True)
+    (lib / "Pkg.olean").write_bytes(b"x" * 10)
+    (lib / "Pkg" / "Big.olean").write_bytes(b"x" * 300)
+    sizes = olean_sizes(tmp_path)
+    assert sizes == {"Pkg": 10, "Pkg.Big": 300}
+    assert slot_weight("Pkg.Big.thm", sizes) == (300, "Pkg.Big")
+    assert slot_weight("Pkg.Big.Inner.thm", sizes) == (300, "Pkg.Big")
+    assert slot_weight("Pkg.other", sizes) == (10, "Pkg")
+    assert slot_weight("Pkg.Big", sizes) == (10, "Pkg")          # a proper prefix only
+    assert slot_weight("Else.thm", sizes) == (0, None) and slot_weight("bare", sizes) == (0, None)
+
+
+def test_weighted_sample_takes_the_heaviest_then_strata():
+    from lean_pkg.comparator_stage import stratified_sample, weighted_sample
+    sl = mk_slots([("c.json", f"N{i}.t") for i in range(20)])
+    weights = {s.index: 10 * s.index for s in sl}                # N19 heaviest, then N18, ...
+    picked, heavy = weighted_sample(sl, 5, weights)
+    assert heavy == {20} and [s.index for s in picked] == [1, 2, 3, 4, 20]
+    assert [s.index for s in stratified_sample(sl, 5)] == [1, 2, 3, 4, 5]   # strata alone miss it
+    picked, heavy = weighted_sample(sl, 10, weights)             # k_heavy = ceil(0.2 * 10) = 2
+    assert heavy == {19, 20} and len(picked) == 10
+    assert weighted_sample(sl, 10, weights) == weighted_sample(sl, 10, weights)   # deterministic
+    picked, heavy = weighted_sample(sl, 5, {})                   # no weights: the stratified sample
+    assert heavy == set() and picked == stratified_sample(sl, 5)
 
 
 def test_estimate_times_a_stratified_sample_and_writes_no_receipt(tmp_path: Path):
     names = [f"A.t{i}" for i in range(6)] + [f"B.t{i}" for i in range(3)] + ["C.only"]
     project = make_project(tmp_path, {"comparator.json": names})
     log = tmp_path / "calls.txt"
-    r = run(project, "--estimate", "--sample", "3", "--json",
+    r = run(project, "--estimate", "--json",       # default sample: the floor, max(5, ceil(2.5)) = 5
             extra={"STUB_CALLS": str(log), "STUB_BEHAVIOUR": "slow", "STUB_SLEEP": "0.1"})
     assert r.returncode == 0, r.stderr
     e = json.loads(r.stdout[r.stdout.index("{"):])
-    assert e["schema"] == "comparator-estimate/1" and e["slots"] == 10
-    assert [row["name"] for row in e["sample"]] == ["A.t0", "B.t0", "C.only"]
+    assert e["schema"] == "comparator-estimate/2" and e["slots"] == 10
+    assert e["sample_floor"] == 5 and e["sample_forced"] is False
+    assert [row["name"] for row in e["sample"]] == ["A.t0", "A.t1", "B.t0", "B.t1", "C.only"]
     assert all(row["seconds"] >= 0.3 for row in e["sample"])        # three 0.1 s pauses each
+    assert all(row["weight_bytes"] == 0 and row["heavy"] is False for row in e["sample"])   # no oleans
     assert e["per_slot_seconds"] >= 0.3 and e["recommended_cap"] % 300 == 0
-    for k in ("per_slot_seconds", "slots", "estimated_seconds", "recommended_cap"):
+    assert e["cap_model"] == "mean"                                  # 5 of 10: half coverage
+    assert "--unit-size" in e["whole_unit_warning"] and "union" in e["whole_unit_warning"]
+    for k in ("per_slot_seconds", "slots", "estimated_seconds", "estimated_seconds_max",
+              "lower_bound_seconds", "recommended_cap"):
         assert k in e
-    assert [c.split()[1] for c in calls(log)] == ["A.t0", "B.t0", "C.only"]   # one judge per slot
+    assert sorted(c.split()[1] for c in calls(log)) == ["A.t0", "A.t1", "B.t0", "B.t1", "C.only"]
     assert not (project / ".lean-receipts").exists()
-    assert (stage_dir(project) / "04-comparator.estimate.json").is_file()
-    assert "--estimate: 3 sampled slot(s)" in stage_log(project)
+    assert json.loads((stage_dir(project) / "04-comparator.estimate.json").read_text())["sample_floor"] == 5
+    assert "--estimate: 5 sampled slot(s)" in stage_log(project)
     log.unlink()
     r = run(project, extra={"STUB_CALLS": str(log)})                # the real run reuses the sample
     assert r.returncode == 0, r.stderr
-    assert receipt(project)["resumed_slots"] == 3
+    assert receipt(project)["resumed_slots"] == 5
     assert len(calls(log)) == 1 and "C.only" not in calls(log)[0]
+
+
+def test_estimate_includes_the_heaviest_olean(tmp_path: Path):
+    names = [f"N{i}.t" for i in range(12)]
+    project = make_project(tmp_path, {"comparator.json": names})
+    (project / ".gitignore").write_text(".lake/\n")
+    git(project, "add", ".gitignore")
+    git(project, "commit", "-m", "ignore .lake")
+    lib = project / ".lake" / "build" / "lib"
+    lib.mkdir(parents=True)
+    for i in range(11):                                              # N11 has no olean: weight 0
+        (lib / f"N{i}.olean").write_bytes(b"x" * (100 + i))
+    (lib / "N9.olean").write_bytes(b"x" * 5000)                      # the heaviest module
+    r = run(project, "--estimate", "--json")
+    assert r.returncode == 0, r.stderr
+    e = json.loads(r.stdout[r.stdout.index("{"):])
+    rows = {row["name"]: row for row in e["sample"]}
+    assert len(rows) == 5 and "N9.t" in rows                         # strata alone pick N0..N4
+    assert rows["N9.t"]["heavy"] is True and rows["N9.t"]["weight_bytes"] == 5000
+    assert rows["N9.t"]["weight_module"] == "N9"
+    assert [n for n, row in rows.items() if row["heavy"]] == ["N9.t"]   # k_heavy = ceil(0.2 * 5) = 1
+    assert rows["N0.t"]["weight_bytes"] == 100 and rows["N0.t"]["heavy"] is False
+    assert e["cap_model"] == "max"                                   # 5 of 12: below half coverage
+    r = run(project, "--estimate")
+    assert r.returncode == 0, r.stderr
+    assert "N9.t" in r.stdout and "[heavy]" in r.stdout and "cap_model max" in r.stdout
+
+
+def test_estimate_sample_floor_and_force_sample(tmp_path: Path):
+    project = make_project(tmp_path, {"comparator.json": [f"A.t{i}" for i in range(10)]})
+    r = run(project, "--estimate", "--sample", "3")
+    assert r.returncode == 2 and "sample floor 5" in r.stderr and "--force-sample" in r.stderr
+    assert "nothing written" in r.stderr and not stage_dir(project).exists()
+    r = run(project, "--estimate", "--slots", "1-2")                 # --slots is held to the floor too
+    assert r.returncode == 2 and "sample floor 5" in r.stderr
+    r = run(project, "--estimate", "--sample", "3", "--force-sample", "--json")
+    assert r.returncode == 0, r.stderr
+    assert "warning: --force-sample" in r.stderr
+    e = json.loads(r.stdout[r.stdout.index("{"):])
+    assert e["sample_forced"] is True and len(e["sample"]) == 3 and e["sample_floor"] == 5
+    r = run(project, "--estimate", "--sample", "3", "--force-sample")
+    assert r.returncode == 0 and "WARNING: --force-sample" in r.stdout
+    r = run(project, "--estimate", "--sample", "7", "--json", "--no-resume")   # above the floor: as asked
+    assert r.returncode == 0, r.stderr
+    e = json.loads(r.stdout[r.stdout.index("{"):])
+    assert len(e["sample"]) == 7 and e["sample_forced"] is False
 
 
 def test_estimate_text_output_and_refusals(project: Path):
     r = run(project, "--estimate")
     assert r.returncode == 0, r.stderr
     assert "recommended_cap" in r.stdout and "no receipt written" in r.stdout
+    assert "whole_unit_warning:" in r.stdout and "cap_model mean" in r.stdout   # 1 of 1 slot
     assert run(project, "--sample", "3").returncode == 2
+    assert run(project, "--force-sample").returncode == 2
     assert run(project, "--estimate", "--sample", "0").returncode == 2
     r = run(project, "--estimate", mechanism="legacy", extra={"COMPARATOR_FAKE_LAKE_OK": "0"})
     assert r.returncode == 1 and "legacy" in r.stderr

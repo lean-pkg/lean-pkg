@@ -53,9 +53,7 @@ from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
 from .comparator_stage import redact, redact_bytes, redact_json, set_redactions  # noqa: E402
 from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
-                               JOBS_ENV, UNIT_SIZE_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit,
-                               chunks, list_slots, parse_slot_spec, ranges, run_pool, shards,
-                               stratified_sample, unit_id)
+                               JOBS_ENV, UNIT_SIZE_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, chunks, list_slots, parse_slot_spec, ranges, run_pool, shards, stratified_sample, unit_id, weighted_sample)
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -69,6 +67,10 @@ PIN_KEYS = {"comparator": "comparator", "lean4export": "lean4export",
 
 class RunnerError(Exception):
     pass
+
+
+class UsageError(RunnerError):
+    """A refused invocation found only once the configurations are read (exit 2, nothing written)."""
 
 
 def default_check_script():
@@ -584,17 +586,38 @@ def build_source() -> str | None:
     return redact(v) if v else None
 
 
-def olean_snapshot(project: pathlib.Path) -> dict[str, int]:
-    """{path under .lake/build/lib: mtime_ns} for the root package's oleans."""
+def root_oleans(project: pathlib.Path):
+    """(path under .lake/build/lib, stat) for each of the root package's oleans."""
     root = project / ".lake" / "build" / "lib"
-    out: dict[str, int] = {}
     if root.is_dir():
         for p in root.rglob("*.olean"):
             try:
-                out[p.relative_to(root).as_posix()] = p.stat().st_mtime_ns
+                yield p.relative_to(root).as_posix(), p.stat()
             except OSError:
                 pass
-    return out
+
+
+def olean_snapshot(project: pathlib.Path) -> dict[str, int]:
+    """{path under .lake/build/lib: mtime_ns} for the root package's oleans."""
+    return {rel: st.st_mtime_ns for rel, st in root_oleans(project)}
+
+
+def olean_sizes(project: pathlib.Path) -> dict[str, int]:
+    """{module name: olean size in bytes} for the root package's oleans (A/B/C.olean -> A.B.C)."""
+    return {rel[:-len(".olean")].replace("/", "."): st.st_size for rel, st in root_oleans(project)}
+
+
+def slot_weight(name: str, sizes: dict[str, int]) -> tuple[int, str | None]:
+    """--estimate's weight for a declaration (#59): the size of the olean of the module named by the
+    longest proper namespace prefix of the name that is one of the package's modules (A.B.C.thm tries
+    A.B.C, then A.B, then A); (0, None) when none is. A proxy: a bigger olean marks a heavier module,
+    whose declarations tend to pull a bigger closure."""
+    parts = name.split(".")
+    for n in range(len(parts) - 1, 0, -1):
+        mod = ".".join(parts[:n])
+        if mod in sizes:
+            return sizes[mod], mod
+    return 0, None
 
 
 def build_provenance(before: dict[str, int] | None, after: dict[str, int] | None, log_text: str,
@@ -1060,9 +1083,21 @@ class Stage04:
 
 
 ESTIMATE_FILE = "04-comparator.estimate.json"
-ESTIMATE_SCHEMA = "comparator-estimate/1"
-ESTIMATE_MARGIN = 1.25          # recommended_cap = ceil_5min(MARGIN * estimated_seconds + SETUP_ALLOWANCE)
+ESTIMATE_SCHEMA = "comparator-estimate/2"
+ESTIMATE_MARGIN = 1.25          # recommended_cap = ceil_5min(MARGIN * model_seconds + SETUP_ALLOWANCE)
 SETUP_ALLOWANCE = 600           # seconds: lake env, the no-op builds and `lake exe cache get` per run
+ESTIMATE_MIN_SAMPLE = 5         # the sample floor (#59): max(5, ceil(0.25 * slots)), capped at the slots
+ESTIMATE_MIN_FRACTION = 0.25
+WHOLE_UNIT_WARNING = (
+    "the per-slot model times each sampled name judged alone; the real run judges each configuration as "
+    "one unit (or one unit per --judges shard), whose single export pays the union of its names' "
+    "closures, which this model does not bound, and a unit is accepted or lost whole within a cap. "
+    "With --unit-size 1 every name is its own unit, cached on acceptance, so the model applies per name "
+    "and a capped run resumes where it stopped")
+
+
+def sample_floor(slots: int) -> int:
+    return min(slots, max(ESTIMATE_MIN_SAMPLE, math.ceil(ESTIMATE_MIN_FRACTION * slots)))
 
 
 def ceil_5min(seconds: float) -> int:
@@ -1071,26 +1106,38 @@ def ceil_5min(seconds: float) -> int:
 
 def estimate_numbers(times: list[float], slots: int, judges: int) -> dict:
     """The estimate from isolated per-slot timings. A slot judged alone pays its whole export closure;
-    a batched run pays the union once, so the run costs at most sum-of-slots (estimated_seconds, the
-    per-slot model) and at least the dearest single slot (lower_bound_seconds)."""
+    estimated_seconds is the per-slot mean model (mean * slots / judges) and lower_bound_seconds the
+    dearest single slot. The mean does not bound an unsampled heavy slot (#59), so when the sample
+    covers less than half the slots the cap uses the max model (max * slots / judges) instead."""
     mean = sum(times) / len(times)
+    top = max(times)
     est = mean * slots / max(1, judges)
-    lower = max(times)
-    return {"per_slot_seconds": round(mean, 1), "per_slot_max_seconds": round(lower, 1),
+    est_max = top * slots / max(1, judges)
+    model = "max" if 2 * len(times) < slots else "mean"
+    return {"per_slot_seconds": round(mean, 1), "per_slot_max_seconds": round(top, 1),
             "per_slot_min_seconds": round(min(times), 1), "slots": slots, "judges": judges,
-            "estimated_seconds": int(math.ceil(est)), "lower_bound_seconds": int(math.ceil(lower)),
-            "recommended_cap": ceil_5min(ESTIMATE_MARGIN * est + SETUP_ALLOWANCE),
-            "recommended_cap_formula": f"ceil_5min({ESTIMATE_MARGIN} * per_slot_seconds * slots / judges "
+            "estimated_seconds": int(math.ceil(est)), "estimated_seconds_max": int(math.ceil(est_max)),
+            "lower_bound_seconds": int(math.ceil(top)), "cap_model": model,
+            "recommended_cap": ceil_5min(ESTIMATE_MARGIN * (est_max if model == "max" else est)
+                                         + SETUP_ALLOWANCE),
+            "recommended_cap_formula": f"ceil_5min({ESTIMATE_MARGIN} * per_slot_"
+                                       f"{'max_' if model == 'max' else ''}seconds * slots / judges "
                                        f"+ {SETUP_ALLOWANCE})"}
 
 
 def run_estimate(project, configs, mechanism, check, verify, stages, commit, judges, subset, k,
-                 resume_command) -> dict:
-    """--estimate: judge a stratified sample of K slots one at a time, time each, print and record the
-    estimate. Writes no receipt; the judged slots are cached for the real run."""
+                 resume_command, forced: bool = False) -> dict:
+    """--estimate: judge a sample of K slots (the heaviest by olean weight, then namespace-stratified)
+    one at a time, time each, print and record the estimate. Writes no receipt; the judged slots are
+    cached for the real run."""
     cfgs = [(c, json.loads((project / c).read_bytes())) for c in configs]
     all_slots = list_slots(cfgs)
-    sample = subset if subset is not None else stratified_sample(all_slots, k)
+    sizes = olean_sizes(project)                  # after the build stage: the package's own oleans
+    weigh = {s.index: slot_weight(s.name, sizes) for s in all_slots}
+    if subset is not None:
+        sample, heavy = subset, set()
+    else:
+        sample, heavy = weighted_sample(all_slots, k, {i: w for i, (w, _m) in weigh.items()})
     with tempfile.TemporaryDirectory(prefix="comparator-receipt.") as tmp:
         st = Stage04(project, configs, mechanism, check, verify, stages, pathlib.Path(tmp) / "logs",
                      resume_command, resume=False, judges=1, subset=sample, isolate=True)
@@ -1104,11 +1151,15 @@ def run_estimate(project, configs, mechanism, check, verify, stages, commit, jud
     for u in st.units:
         secs = st.wall.get(u.n)
         for s in u.slots:
-            rows.append({**s.row(), "seconds": None if secs is None else round(secs, 1)})
+            w, mod = weigh[s.index]
+            rows.append({**s.row(), "seconds": None if secs is None else round(secs, 1),
+                         "weight_bytes": w, "weight_module": mod, "heavy": s.index in heavy})
         if secs is not None:
             times.append(secs)
     out = {"schema": ESTIMATE_SCHEMA, "commit": commit, "mechanism": mechanism, "sample": rows,
+           "sample_floor": sample_floor(len(all_slots)), "sample_forced": forced,
            **estimate_numbers(times, len(all_slots), judges),
+           "whole_unit_warning": WHOLE_UNIT_WARNING,
            "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
     path = stages.dir / ESTIMATE_FILE
     path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
@@ -1138,7 +1189,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         evidence: pathlib.Path | None = None, prepare: bool = False,
         from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt",
         resume: bool = True, judges: int = 1, slot_spec: str | None = None,
-        estimate: int | None = None, unit_size: int | None = None) -> dict:
+        estimate: int | None = None, unit_size: int | None = None, sample_explicit: bool = False,
+        force_sample: bool = False) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     set_redactions(project)   # #41: no checkout/HOME/TMPDIR path reaches a log or a receipt
@@ -1179,6 +1231,23 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                 [(c, json.loads((project / c).read_bytes())) for c in configs]))
         except ValueError as e:
             raise RunnerError(f"--slots {slot_spec!r}: {e}; nothing written")
+    forced = False
+    if estimate is not None:    # the sample floor (#59), refused before any setup runs
+        total = len(list_slots([(c, json.loads((project / c).read_bytes())) for c in configs]))
+        floor = sample_floor(total)
+        asked = len(subset) if subset is not None else estimate
+        what = f"--slots selects {asked}" if subset is not None else f"--sample {asked}"
+        if asked < floor and (sample_explicit or subset is not None):
+            if not force_sample:
+                raise UsageError(f"--estimate: {what} slot(s), below the sample floor {floor} "
+                                 f"(max({ESTIMATE_MIN_SAMPLE}, ceil({ESTIMATE_MIN_FRACTION} * {total} "
+                                 f"slots)), capped at the slots); a smaller sample misses heavy "
+                                 f"declarations; pass --force-sample to run it anyway; nothing written")
+            forced = True
+            print(f"comparator-receipt: warning: --force-sample: {what} slot(s), below the sample floor "
+                  f"{floor}; the estimate is recorded as sample_forced: true", file=sys.stderr)
+        elif subset is None:
+            estimate = min(total, max(estimate, floor))
     if not prepare:   # refusals that need no build come before the setup stages
         available = toolchain_available(project)
         if mechanism == "auto":
@@ -1254,7 +1323,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         return {"prepared": True, "commit": commit, "stages": str(stages.json), "reused": False}
     if estimate is not None:
         return run_estimate(project, configs, mechanism, check, verify, stages, commit, judges,
-                            subset, estimate, resume_command)
+                            subset, estimate, resume_command, forced)
     with tempfile.TemporaryDirectory(prefix="comparator-receipt.") as tmp:
         log_dir = pathlib.Path(tmp) / "logs"
         result: dict = {}
@@ -1459,14 +1528,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--slots", default=None, metavar="SPEC",
                     help="judge only these slots (theorem_names entries): comma-separated names, "
                          "<config>:<name>, 1-based indices or ranges i-j over all configurations, or "
-                         "sample:K (the stratified sample --estimate uses). Writes a PARTIAL receipt into "
+                         "sample:K (a namespace-stratified sample). Writes a PARTIAL receipt into "
                          "the stage directory, marked partial: true: diagnostic only, refused as evidence")
     ap.add_argument("--estimate", action="store_true",
-                    help="after setup, judge a stratified sample of slots one at a time and print an estimate "
-                         "{per_slot_seconds, slots, estimated_seconds, recommended_cap}; writes no receipt "
-                         "(the judged slots are cached for the real run)")
+                    help="after setup, judge a sample of slots (the heaviest by olean size, then "
+                         "namespace-stratified) one at a time and print an estimate {per_slot_seconds, "
+                         "slots, estimated_seconds, recommended_cap}; writes no receipt (the judged slots "
+                         "are cached for the real run)")
     ap.add_argument("--sample", type=int, default=None, metavar="K",
-                    help="--estimate: sample size (default 5); --slots overrides the sample")
+                    help=f"--estimate: sample size (default and floor: max({ESTIMATE_MIN_SAMPLE}, "
+                         f"ceil({ESTIMATE_MIN_FRACTION} * slots)), capped at the slots); --slots "
+                         f"overrides the sample")
+    ap.add_argument("--force-sample", action="store_true",
+                    help="--estimate: accept a --sample (or --slots) below the floor; the estimate warns "
+                         "and records sample_forced: true")
     ap.add_argument("--json", action="store_true", help="--estimate: print the estimate as JSON")
     ap.add_argument("--host-label", default=None, metavar="LABEL",
                     help=f"name the host LABEL instead of its host name in the receipt (host, host_label, "
@@ -1477,8 +1552,8 @@ def main(argv: list[str] | None = None) -> int:
             print("comparator-receipt: --host-label must not be empty", file=sys.stderr)
             return 2
         os.environ[HOST_LABEL_ENV] = args.host_label.strip()
-    if (args.sample is not None or args.json) and not args.estimate:
-        print("comparator-receipt: --sample and --json go with --estimate", file=sys.stderr)
+    if (args.sample is not None or args.json or args.force_sample) and not args.estimate:
+        print("comparator-receipt: --sample, --force-sample and --json go with --estimate", file=sys.stderr)
         return 2
     if args.sample is not None and args.sample < 1:
         print("comparator-receipt: --sample must be a positive integer", file=sys.stderr)
@@ -1548,9 +1623,13 @@ def main(argv: list[str] | None = None) -> int:
                       evidence=evidence, prepare=args.prepare, from_prepared=prepared,
                       resume_command=resume_command(argv if argv is not None else sys.argv[1:]),
                       resume=not args.no_resume, judges=judges, slot_spec=args.slots,
-                      estimate=(args.sample or 5) if args.estimate else None, unit_size=unit_size)
+                      estimate=(args.sample or ESTIMATE_MIN_SAMPLE) if args.estimate else None,
+                      unit_size=unit_size, sample_explicit=args.sample is not None,
+                      force_sample=args.force_sample)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
+        if isinstance(e, UsageError):
+            return 2
         code = getattr(e, "code", None)
         return code if isinstance(e, PartialStage) and isinstance(code, int) else 1
     if res.get("prepared"):
@@ -1561,13 +1640,23 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(e, indent=2))
             return 0
         print(f"estimate ({len(e['sample'])} sampled slot(s), each judged alone; no receipt written):")
+        if e["sample_forced"]:
+            print(f"WARNING: --force-sample: {len(e['sample'])} sampled slot(s), below the sample floor "
+                  f"{e['sample_floor']}; heavy declarations may be missed")
         for row in e["sample"]:
-            print(f"  slot {row['slot']} {row['name']}: {row['seconds']}s")
+            mark = f"; weight {row['weight_bytes']} B ({row['weight_module']})" if row["weight_module"] else ""
+            print(f"  slot {row['slot']} {row['name']}: {row['seconds']}s"
+                  f"{' [heavy]' if row['heavy'] else ''}{mark}")
         print(f"per_slot_seconds {e['per_slot_seconds']} (min {e['per_slot_min_seconds']}, max "
               f"{e['per_slot_max_seconds']}); slots {e['slots']}; judges {e['judges']}")
-        print(f"estimated_seconds {e['estimated_seconds']} (per-slot model: an upper bound for a batched run, "
-              f"which pays the shared export closure once); lower_bound_seconds {e['lower_bound_seconds']}")
-        print(f"recommended_cap {e['recommended_cap']} s = {e['recommended_cap_formula']}")
+        print(f"estimated_seconds {e['estimated_seconds']} (per-slot mean model); estimated_seconds_max "
+              f"{e['estimated_seconds_max']} (per-slot max model); lower_bound_seconds "
+              f"{e['lower_bound_seconds']}")
+        why = ("the sample covers less than half the slots" if e["cap_model"] == "max"
+               else "the sample covers at least half the slots")
+        print(f"recommended_cap {e['recommended_cap']} s = {e['recommended_cap_formula']} "
+              f"(cap_model {e['cap_model']}: {why})")
+        print(f"whole_unit_warning: {e['whole_unit_warning']}")
         print(f"estimate: {res['estimate_file']}")
         return 0
     if res.get("partial"):

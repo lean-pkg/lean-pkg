@@ -149,6 +149,13 @@ into units of at most K names, making `--judges` only the pool width
 (`--unit-size 1 --judges 1` judges each name alone, so a capped run resumes
 per name; recorded as the receipt's `unit_size`; a value that is not a
 positive integer exits 2); see [Unit size](comparator.md#stages-and---prepare).
+`--estimate [--sample K [--force-sample]] [--json]` times a sample of slots and
+writes no receipt: the sample is at least `max(5, ceil(0.25 * slots))` (capped at
+the slot count) and starts with the heaviest slots by olean size; a smaller
+`--sample` (or `--slots` subset) exits 2 unless `--force-sample`, which warns and
+records `sample_forced: true`; `recommended_cap` uses the per-slot max model below
+half coverage (`cap_model`); see
+[Estimate first](comparator.md#stages-and---prepare).
 
 ## Lease holders
 

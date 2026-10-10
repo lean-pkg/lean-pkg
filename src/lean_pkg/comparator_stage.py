@@ -21,6 +21,7 @@ import dataclasses
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -540,6 +541,21 @@ def stratified_sample(slots: list[Slot], k: int) -> list[Slot]:
             if q and len(out) < k:
                 out.append(q.pop(0))
     return sorted(out, key=lambda s: s.index)
+
+
+def weighted_sample(slots: list[Slot], k: int, weights: dict[int, int]) -> tuple[list[Slot], set[int]]:
+    """k slots for --estimate (#59): first the k_heavy = max(1, ceil(0.2 * k)) heaviest slots by weight
+    (weights: slot index -> bytes; only slots of positive weight count, ties to the lower index), then
+    the rest by stratified_sample over the remaining slots. Deterministic; returns (the sample in slot
+    order, the indices picked as heavy)."""
+    k = min(k, len(slots))
+    k_heavy = min(k, max(1, math.ceil(0.2 * k)))
+    ranked = sorted((s for s in slots if weights.get(s.index, 0) > 0),
+                    key=lambda s: (-weights[s.index], s.index))
+    heavy = ranked[:k_heavy]
+    taken = {s.index for s in heavy}
+    rest = stratified_sample([s for s in slots if s.index not in taken], k - len(heavy))
+    return sorted(heavy + rest, key=lambda s: s.index), taken
 
 
 def parse_slot_spec(spec: str, slots: list[Slot]) -> list[Slot]:

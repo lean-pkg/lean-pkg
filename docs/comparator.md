@@ -621,9 +621,10 @@ the legacy mechanism refuses `--unit-size`.
 **A subset of the slots.** `--slots SPEC` judges only the slots SPEC names:
 comma-separated slot names, `<config>:<name>` when a name occurs in several
 configurations, 1-based indices or ranges `i-j` over all configurations in
-order, or `sample:K`, the stratified sample `--estimate` uses (round-robin
-over the strata configuration plus namespace of the name, the closest proxy
-for the module that a configuration carries). A SPEC that matches nothing is
+order, or `sample:K`, a stratified sample (round-robin over the strata
+configuration plus namespace of the name, the closest proxy for the module
+that a configuration carries; `--estimate` fills its sample this way after
+the heaviest slots). A SPEC that matches nothing is
 refused before any setup runs. A subset run writes a PARTIAL receipt,
 `<commit12>-comparator.partial.json` with its logs, into the stage
 directory, never into the repository; it is marked `partial: true` and lists
@@ -633,22 +634,65 @@ so. The slots it judged are cached, so the full run that follows skips them.
 A SPEC that selects every slot is a full run. The legacy mechanism refuses
 `--slots`.
 
-**Estimate first.** `comparator-receipt --estimate [--sample K] [--json]`
-runs (or reuses) the setup stages, then judges the stratified sample
-`sample:K` (default 5; `--slots` replaces it) one slot per judge invocation,
-one at a time, and prints the timings, `per_slot_seconds`, `slots`,
-`estimated_seconds`, `lower_bound_seconds` and `recommended_cap` (also written to
+**Estimate first.**
+`comparator-receipt --estimate [--sample K [--force-sample]] [--json]`
+runs (or reuses) the setup stages, then judges a sample of the slots one slot per judge invocation, one at a time, and prints
+the timings, `per_slot_seconds`, `slots`, `estimated_seconds`,
+`estimated_seconds_max`, `lower_bound_seconds`, `recommended_cap` with its
+`cap_model`, and a `whole_unit_warning` (also written to
 `comparator-stages/04-comparator.estimate.json`, schema
-`comparator-estimate/1`). It writes no receipt; the slots it judged are
-cached, so the real run skips them. `estimated_seconds` is the per-slot
-model, `per_slot_seconds * slots / judges`: what a run costs when every slot
-pays its own export closure, hence an upper bound for a batched run, which
-pays the shared closure once. `lower_bound_seconds` is the dearest sampled
-slot: no run that includes it can be faster. `recommended_cap` is
-`ceil_5min(1.25 * estimated_seconds + 600)`, the 600 seconds covering the
-per-invocation `lake env`, no-op builds and `lake exe cache get`. The
-estimate reports time per slot, not memory: it says nothing about whether
-the build or the judges fit in the host's RAM.
+`comparator-estimate/2`). It writes no receipt; the slots it judged are
+cached, so the real run skips them. The estimate reports time per slot, not
+memory: it says nothing about whether the build or the judges fit in the
+host's RAM.
+
+The sample. Its size has a floor, `max(5, ceil(0.25 * slots))` capped at the
+slot count, recorded as `sample_floor`; the default `--sample` is that
+floor, and a larger `--sample K` is taken as given. A `--sample` (or an
+explicit `--slots` subset) below the floor is refused (exit 2, nothing
+written) unless `--force-sample` is given; then the runner warns and the
+estimate records `sample_forced: true`. The sample first takes the
+`max(1, ceil(0.2 * K))` heaviest slots, then fills the rest with the
+namespace-stratified round-robin of `sample:K` over the remaining slots;
+both steps are deterministic. A slot's weight is the size in bytes of the
+olean, under the package's own `.lake/build/lib/` (built by the setup
+stages), of the module named by the longest proper namespace prefix of the
+slot's name that is one of the package's modules: `Pkg.Big.thm` tries
+`Pkg/Big.olean`, then `Pkg.olean`. A name whose namespace matches no module
+weighs 0 and is never picked as heavy, so a package whose declarations live
+in namespaces unrelated to their module paths gets the stratified sample
+alone. Each sampled row records `weight_bytes`, `weight_module` and
+`heavy`. The olean size is a proxy: a bigger olean marks a heavier module,
+whose declarations tend to pull in a bigger closure.
+
+The models. `estimated_seconds` is the per-slot mean model,
+`per_slot_seconds * slots / judges`: what a run costs when every slot pays
+its own export closure at the sampled mean. `estimated_seconds_max` is the
+per-slot max model, `per_slot_max_seconds * slots / judges`.
+`lower_bound_seconds` is the dearest sampled slot: no run that includes it
+can be faster. `recommended_cap` is `ceil_5min(1.25 * M + 600)`, the 600
+seconds covering the per-invocation `lake env`, no-op builds and
+`lake exe cache get`, where M is `estimated_seconds_max` when the sample
+covers less than half the slots (`cap_model: "max"`) and
+`estimated_seconds` otherwise (`cap_model: "mean"`): a small sample's mean
+says nothing about the unsampled slots, which may be heavier than any it
+timed. A field run motivated these rules: two isolated slots of a 16-slot
+configuration (69.5 s and 168.7 s) gave a 3000 s cap under the mean model,
+and the other 14 names, judged as one unit, were still in their single
+export after 46 minutes when the cap stopped the run with nothing written.
+The max model would have asked for 4200 s; the warning below says why even
+that is not a bound.
+
+The whole-unit warning. Every model above times names judged alone. The
+real run judges each configuration as one unit (or, under `--judges N`, one
+unit per shard; each shard pays its own export of its names' closure, so
+shards run in parallel but do not shorten an export), and a unit's single
+export pays the union of its names' closures, which the isolated per-slot
+timings do not bound. The unit cache (`04-slots/`) is per unit, so within a
+cap a 14-name unit is accepted or lost whole. With `--unit-size 1` every
+name is its own unit, cached on acceptance: the per-slot model then applies
+name by name, and a run that hits its cap resumes where it stopped. When
+the cap matters, prefer that shape.
 
 **Serial builds on a memory-tight host.** Lake 5 has no `-j`/`--jobs`
 option; it schedules build jobs on the Lean task pool, whose size is
@@ -753,9 +797,12 @@ What cuts runtime for a package of about 250 slots:
   per-slot judging multiplies the work.
 - Give the run a cap that fits. Run `comparator-receipt --estimate` after
   `--prepare` and use its `recommended_cap`
-  (`ceil_5min(1.25 * per_slot_seconds * slots / judges + 600)`). That is the
-  safe bound; a batched run of a shared closure lands between
-  `lower_bound_seconds` and `estimated_seconds`, usually near the lower end.
+  (`ceil_5min(1.25 * per_slot_seconds * slots / judges + 600)`, with
+  `per_slot_max_seconds` in place of the mean when the sample covers less
+  than half the slots). A batched run of a shared closure usually lands
+  between `lower_bound_seconds` and `estimated_seconds`, near the lower end,
+  but a unit's union closure is not bounded by isolated timings (see the
+  `whole_unit_warning` above).
   For the field package above, a 3 h cap could not finish: plan for well
   over twice the measured export time.
 - When no single job can hold the whole run, make progress across jobs:

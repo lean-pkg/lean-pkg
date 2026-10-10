@@ -16,6 +16,25 @@ change the registry schema or receipt format, always with a migration).
   `--unit-size`, `--judges N` behaves as before. The runner prints `units: M of at most K names, width N` once; the
   receipt and `stages.json` gain the additive `unit_size` (`K` or `null`) beside `judges`; a value that is not a
   positive integer exits 2, and the legacy mechanism refuses the flag. (#60)
+### Changed
+
+- `comparator-receipt --estimate`: the sample has a floor of `max(5, ceil(0.25 * slots))` (capped at the slot
+  count), which is also the default `--sample`; a smaller `--sample` or `--slots` subset is refused (exit 2,
+  nothing written) unless `--force-sample`. `recommended_cap` uses the per-slot max model
+  (`per_slot_max_seconds * slots / judges`) instead of the mean when the sample covers less than half the slots.
+  The estimate JSON is schema `comparator-estimate/2`. A field run had capped a 16-slot configuration at 3000 s from
+  a sample of 2; the unsampled 14-name unit outran it. (#59)
+
+### Added
+
+- `comparator-receipt --estimate` samples the heaviest slots first: each slot is weighted by the size of the olean
+  of the module its name's longest namespace prefix names (0 when none matches), and the `max(1, ceil(0.2 * K))`
+  heaviest are taken before the namespace-stratified fill. The estimate gains `estimated_seconds_max`, `cap_model`
+  (`max` or `mean`), `sample_floor`, `sample_forced`, per-row `weight_bytes`, `weight_module` and `heavy`, and a
+  `whole_unit_warning` (a unit's export pays its names' union closure, which isolated timings do not bound; per-name
+  units with `--unit-size` keep the model valid and the run resumable). `--force-sample` accepts a sample below the
+  floor with a warning. docs/comparator.md documents the floor, the weight rule, both cap models and the warning.
+  (#59)
 
 ## [0.7.22] - 2026-10-10
 
