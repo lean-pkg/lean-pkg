@@ -118,11 +118,25 @@ event lists what was cleared. Without `--redetect`, `lean_toolchain` and
 
 ## Produce the lower-tier receipt
 
-`lean-pkg` validates this receipt but does not produce it. Any executor
-works: a Slurm job, a CI run, a workstation. The receipt must bind the
-commit, the toolchain, the Mathlib rev, `sorry_count` (must be 0), the
-axioms, the SHA-256 of a frozen report, and the executor's job identity.
+Any executor works: a Slurm job, a CI run, a workstation. The receipt must
+bind the commit, the toolchain, the Mathlib rev, `sorry_count` (must be 0),
+the axioms, the SHA-256 of a frozen report, and the executor's job identity.
 Schema: [Receipts and trust](receipts.md).
+
+From a finished Slurm job whose verify log is sealed with a
+`verify-log-sha256:` line, `lean-pkg receipt` writes it for you:
+
+```bash
+lean-pkg receipt slurm --job 123 --log verify.log --commit "$(git rev-parse HEAD)"
+lean-pkg receipt slurm --job 123 --log verify.log --commit SHA --sacct-file sacct.txt   # a host without Slurm
+```
+
+It checks the job finished `COMPLETED` with `0:0`, the log's self-hash, the
+fields and the toolchain, redacts the per-job temporary paths, refuses while
+a private string remains, and writes the receipt and the redacted log under
+`.lean-receipts/`; then run the `gate NAME --check --receipt` command it
+prints. The log lines it reads:
+[A lower-tier receipt from a Slurm job](receipts.md#a-lower-tier-receipt-from-a-slurm-job).
 
 ## Check that this machine can produce comparator receipts
 

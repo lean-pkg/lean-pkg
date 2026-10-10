@@ -47,6 +47,70 @@ commit or tree, the toolchain and dependency pins, complete checker
 coverage, the terminal state, and executor identity. A pilot run, a partial
 manifest, or a receipt for a previous candidate is not gate evidence.
 
+## A lower-tier receipt from a Slurm job
+
+`lean-pkg receipt slurm --job J --log PATH --commit SHA` writes the receipt
+above from a finished Slurm job and the log its verify script printed. It
+reads and writes no registry.
+
+**The verify log.** One `key: value` line per field, the key at the start of
+the line, each key exactly once (a second occurrence is refused, not
+guessed):
+
+| Log line | Receipt field | Rule |
+|---|---|---|
+| `lean-toolchain: leanprover/lean4:v4.32.0` | `lean_toolchain` | must equal `lean-toolchain` committed at `--commit` |
+| `mathlib-rev: <rev>` | `mathlib_rev` | nonempty |
+| `checker: <mode>` | `checker` | nonempty: the exact checker command or mode |
+| `sorry-count: 0` | `sorry_count` | a non-negative integer; anything but 0 is refused |
+| `axioms: propext, Quot.sound, Classical.choice` | `axioms` | separated by commas and/or spaces, brackets optional; `none` or empty is `[]` |
+| `verify-log-sha256: <64 hex>` | (seal) | see below |
+| `commit: <sha>` (optional) | | at least 7 hex, a prefix of `--commit` |
+| `job-id: <J>` (optional) | | equal to `--job` |
+| `generated-at: <ISO-8601>` (optional) | `generated_at` | must parse; without it, the time the receipt is written |
+
+`job_id` is `--job` and `commit` is `--commit` resolved to 40 hex in
+`--repo` (default the current directory). Other lines (build output, paths)
+are kept in the log but not read.
+
+**The seal.** The raw log must hold exactly one line
+`verify-log-sha256: <64 hex>` (case-insensitive hex, spaces or tabs around
+the value allowed), and that value must equal the SHA-256 of the raw log
+bytes with that one line and its newline removed, everything else byte for
+byte. A script that writes its log and then runs
+
+```bash
+echo "verify-log-sha256: $(sha256sum < verify.log | cut -d' ' -f1)" >> verify.log
+```
+
+satisfies it; the line may also sit anywhere else in the log. A log edited
+after sealing is refused.
+
+**The job.** `sacct -j J --format=JobID,State,ExitCode -P -n` runs on this
+host; its main job line (JobID exactly `J`, not the `.batch` or `.extern`
+step) must say `COMPLETED` and `0:0`. On a host without Slurm, save that
+command's output on the cluster and pass it with `--sacct-file`.
+
+**Redaction and the public-safety check.** The log text is redacted before
+any field is read: a per-job prefix such as `/tmp/user-job123/` (regex
+`/tmp/[^/\s]+-job\d+/`) becomes `/tmp/<job-tmp>/`, `/scratch/user/` (regex
+`/scratch/[^/\s]+/`) becomes `/scratch/<user>/`, and every `--redact REGEX`
+match becomes `<redacted>`. The public-safety scanner (the built-in families, plus the checkout's
+`.lean-pkg-private-patterns` when it has one; every e-mail address is a hit)
+then runs over the redacted log and the receipt JSON. A blocking hit refuses
+and names the families, never the string: add a `--redact` for it.
+
+**What is written.** Nothing, unless every check passes (all failures are
+listed together, exit 1). Then the redacted log
+`<commit12>-<job>.verify.log` and the receipt `<commit12>-<job>.json` go to
+`<repo>/.lean-receipts/` (or the receipt to `--out PATH` and the log beside
+it). `report_sha256` is the SHA-256 of the redacted log file as written, so
+the frozen report travels with the receipt and can be re-hashed; the seal
+line inside it describes the raw log, which stays with the job. A differing
+file already at either path is refused; an identical one is left alone. The
+command prints the README line to add and the next step,
+`lean-pkg gate NAME --check --receipt .lean-receipts/<commit12>-<job>.json`.
+
 ## Comparator receipt schema (`comparator-receipt/2`; `/1` still validates)
 
 | Field | Rule |

@@ -29,6 +29,16 @@ change the registry schema or receipt format, always with a migration).
 - `update --append-note` prints only the line it appended (`appended note: YYYY-MM-DD (A): TEXT`) instead of the
   whole notes field before and after, which buried the result for a long-lived package. The `updated` event's
   `notes_from` and the `--json` `changes.notes` {from, to} are unchanged. (#69)
+- `lean-pkg receipt slurm --job J --log PATH --commit SHA [--repo DIR] [--redact REGEX ...] [--sacct-file F]
+  [--out PATH] [--json]` writes a lower-tier receipt from a finished Slurm job: the main `sacct` line must say
+  `COMPLETED` and `0:0` (`--sacct-file` reads saved output on a host without Slurm); the verify log's single
+  `verify-log-sha256:` line must equal the SHA-256 of the log without that line; `lean-toolchain:`, `mathlib-rev:`,
+  `checker:`, `sorry-count:` (0) and `axioms:` are read from it, and the toolchain must match the one committed at
+  `--commit`; per-job `/tmp/<name>-job<N>/` and `/scratch/<user>/` prefixes and `--redact` matches are redacted, and
+  any public-safety blocking hit left in the log or the receipt refuses. Every refusal writes nothing. On success it
+  writes `<c12>-<job>.verify.log` (redacted; its SHA-256 is `report_sha256`) and `<c12>-<job>.json` under
+  `.lean-receipts/`, and prints the README line and the `gate NAME --check --receipt` command. docs/receipts.md
+  documents the log lines and the seal rule. (#70)
 
 ## [0.7.23] - 2026-10-10
 
