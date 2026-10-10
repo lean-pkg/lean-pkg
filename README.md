@@ -116,6 +116,8 @@ git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 
 # ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23272098.svg)](https://doi.org/10.5281/zenodo.23272098)
+
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
 lean-pkg claim my-proof --workspace laptop --agent you --reason "first receipt"
 lean-pkg renew my-proof --agent you            # past 24 h: renew before the lease lapses (`lean-pkg leases`)
