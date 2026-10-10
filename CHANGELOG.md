@@ -11,6 +11,12 @@ change the registry schema or receipt format, always with a migration).
 
 - AGENTS.md and docs/agents.md state that `import lean_pkg` is not a supported interface: the CLI and its `--json`
   outputs are; internal function signatures may change in any release, and a change gets a CHANGELOG line. (#46)
+- `--fields` (`status`, `list`, `board`) accepts every table column as an alias, beside 0.7.15's `pin` and
+  `lease.expires`: `vis` (= `visibility`), `reaudit` (= `reaudit_after`), `expires` (= `lease.expires_at`, the
+  `EXPIRES` column of `list`/`board`) and `lease.claimed` (= `lease.claimed_at`, the `CLAIMED` column of `leases`);
+  output and the `fields` list carry the record key. `tests/test_columns.py` reads the headers of `list`, `board`,
+  `leases` and the labels of the text `status` record from the rendered output and fails when a column has no
+  `--fields` key or `--json` does not emit it (`leases`' derived `STATE` column maps to `live`/`invalid`). (#45)
 
 ## [0.7.18] - 2026-10-10
 
