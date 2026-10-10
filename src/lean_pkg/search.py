@@ -489,6 +489,7 @@ def cmd_search(args) -> int:
             lines, payload["record"] = prior_art.write_record(payload, reg_path=reg_path,
                                                               events_p=events_p, repo_dir=args.repo_dir,
                                                               actor=args.agent)
+        payload["nav_hint"] = prior_art.nav_hint(payload["record"]["path"])
         out += lines
     if args.json_out:
         core.print_json(payload)

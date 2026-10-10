@@ -169,3 +169,25 @@ def test_record_slug_truncation_keeps_distinct_terms_distinct():
     assert a != b and len(a) <= 70 and len(b) <= 70
     assert record_slug("stochastic fubini") == "stochastic-fubini"   # short terms are unchanged
     assert record_slug(base + " alpha") == a                          # deterministic
+
+
+# ---- #50: the record names the docs nav obligation it creates ----------------------------------
+
+def test_record_prints_the_nav_hint_and_json_carries_it(lp, searchable, capsys):
+    s = searchable
+    rel = f"docs/prior-art/{today(lp)}-foo-bound.md"
+    (s.env.repo_b / "mkdocs.yml").write_text("site_name: demo\nnav:\n  - index.md\n")
+    assert run_search(lp, s, "foo bound", "--offline", "--package", "beta", "--record") == 0
+    out = capsys.readouterr().out.splitlines()
+    assert (f"note: {rel} is new; a strict MkDocs build needs a nav entry (or a literate-nav glob) "
+            "for it") in out
+    assert (s.env.repo_b / "mkdocs.yml").read_text() == "site_name: demo\nnav:\n  - index.md\n"
+    assert run_search(lp, s, "trivial bound", "--offline", "--package", "beta", "--record", "--json") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["nav_hint"] == {"path": f"docs/prior-art/{today(lp)}-trivial-bound.md",
+                             "reason": "a strict MkDocs build needs a nav entry (or a literate-nav glob) for it"}
+
+
+def test_no_record_no_nav_hint(lp, searchable, capsys):
+    assert run_search(lp, searchable, "foo bound", "--offline", "--json") == 0
+    assert "nav_hint" not in json.loads(capsys.readouterr().out)

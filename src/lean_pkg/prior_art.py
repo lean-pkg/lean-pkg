@@ -26,6 +26,13 @@ DECISIONS = ("require", "reuse", "vendor", "contribute", "build")
 
 
 SLUG_MAX = 60
+NAV_REASON = "a strict MkDocs build needs a nav entry (or a literate-nav glob) for it"
+
+
+def nav_hint(rel: str) -> dict:
+    """#50: the new page is an error under `mkdocs build --strict` until nav lists it. A hint only:
+    lean-pkg never edits the consumer's mkdocs.yml."""
+    return {"path": rel, "reason": NAV_REASON}
 
 
 def record_slug(term: str) -> str:
@@ -207,7 +214,8 @@ def write_record(payload: dict, *, reg_path: pathlib.Path, events_p: pathlib.Pat
             f.write(text)
     except FileExistsError:
         raise core.Fail(f"{rel} appeared in {target} during the write; nothing overwritten")
-    out = [f"record written: {dest} (decision: pending; edit it, then commit it in that repository)"]
+    out = [f"record written: {dest} (decision: pending; edit it, then commit it in that repository)",
+           f"note: {rel} is new; {NAV_REASON}"]
     sources = {b["source"]: (b["state"] if b["state"] == "ok" else f"skipped: {b['reason']}")
                for b in payload["sources"]}
     hits = {b["source"]: (len(b["hits"]) if b["state"] == "ok" else None) for b in payload["sources"]}

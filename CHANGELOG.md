@@ -28,6 +28,9 @@ change the registry schema or receipt format, always with a migration).
   `hit_kind: declaration (unclaimed)`, trust `none`, `PATH:LINE`, after the claim hits; a package without a git
   checkout is not searched. A `registry coverage:` line before `consulted:` names the blind sources, so a zero is
   not read as absence; `--json` gains `coverage` and the `--record` page states the counts. (#49)
+- `search --record`: after writing the prior-art page it prints `note: <path> is new; a strict MkDocs build needs a
+  nav entry (or a literate-nav glob) for it`, and `--json` carries `nav_hint` (`path`, `reason`). The consumer's
+  `mkdocs.yml` is not edited. (#50)
 
 ## [0.7.19] - 2026-10-10
 
