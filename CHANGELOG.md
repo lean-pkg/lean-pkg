@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.14] - 2026-10-10
+
 ### Added
 
 - `public-safety`: path-scoped pattern lines. `allow: GLOB: REGEX` exempts a match only in files whose
