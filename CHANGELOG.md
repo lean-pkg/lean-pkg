@@ -31,6 +31,10 @@ change the registry schema or receipt format, always with a migration).
 - `search --record`: after writing the prior-art page it prints `note: <path> is new; a strict MkDocs build needs a
   nav entry (or a literate-nav glob) for it`, and `--json` carries `nav_hint` (`path`, `reason`). The consumer's
   `mkdocs.yml` is not edited. (#50)
+- `audit`: informational finding `claims-coverage-none` (level `info`, also under `--promotion`; never fixed by
+  `--fix`), one per package whose claims coverage is not `synced` (`none`, `empty` or `unsynced`), skipping
+  `archived` and `upstreamed`, with detail ``claims: COVERAGE (search falls back to declarations; run `lean-pkg
+  claims sync NAME`)``; `--json` findings carry `coverage`.
 
 ## [0.7.19] - 2026-10-10
 
