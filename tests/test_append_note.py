@@ -111,3 +111,21 @@ def test_notes_on_empty_notes_and_append_note_are_unchanged(lp, env, capsys):   
     assert "nothing written" in capsys.readouterr().out
     assert _update(lp, env, "alpha", "--append-note", "second", "--agent", "a") == 0
     assert read_reg(env)["packages"]["alpha"]["notes"] == f"first\n{_today()} (a): second"
+
+
+def test_append_note_echoes_only_the_appended_line(lp, env, capsys):   # #69
+    """Field report (2026-10-10): the text output printed the whole notes field before and after, burying the
+    result. It now names only the appended line; the event and --json keep the full before/after."""
+    long_notes = "\n".join(f"history line {i}: " + "x" * 80 for i in range(60))
+    _set_notes(env, long_notes)
+    assert _update(lp, env, "alpha", "--append-note", "re-gated at abc123", "--agent", "a") == 0
+    out = capsys.readouterr().out
+    assert out == f"alpha: updated 1 field(s)\n  appended note: {_today()} (a): re-gated at abc123\n"
+    assert "history line" not in out
+    ev = [e for e in read_events(env) if e["event"] == "updated"][-1]
+    assert ev["notes_from"] == long_notes
+    _set_notes(env, long_notes)
+    assert _update(lp, env, "alpha", "--append-note", "second", "--agent", "a", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["changes"]["notes"] == {"from": long_notes, "to": f"{long_notes}\n{_today()} (a): second"}
+    assert set(payload) == {"ok", "name", "event", "changes", "reason", "forced"}

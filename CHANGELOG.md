@@ -7,6 +7,12 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `update --append-note` prints only the line it appended (`appended note: YYYY-MM-DD (A): TEXT`) instead of the
+  whole notes field before and after, which buried the result for a long-lived package. The `updated` event's
+  `notes_from` and the `--json` `changes.notes` {from, to} are unchanged. (#69)
+
 ## [0.7.23] - 2026-10-10
 
 ### Added
