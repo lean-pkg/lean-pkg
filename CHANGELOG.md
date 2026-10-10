@@ -31,6 +31,16 @@ change the registry schema or receipt format, always with a migration).
   dropped its `root` argument in 0.7.14 ("summary line names no path", `52142de`); the old
   three-argument call raises `TypeError`. The module is not a supported API, but the change was
   unannounced.
+- Docs: a documentation gap pass for the features added since 0.5.0. README.md gains "What it does"
+  (register, claim, gate, comparator, publish, index; the safety nets `public-safety`, `release
+  --fresh-repo`/`--adopt-repo` and `comparator host-check`; `claims.yaml`, `formalization.yaml`,
+  Reservoir, Palomar, Zenodo) and "For collaborators"; docs/index.md and docs/how-to.md gain the
+  matching routes and recipes; both citation paragraphs name the concept DOI; RELEASING.md gains
+  checklist step 0 (the gap pass) and AGENTS.md the rule; the index-entry issue template is on
+  `index-entry/2` and the bug report asks for `lean-pkg --version`.
+- Tests: `tests/test_docs.py` checks that every subcommand, nested ones included, read from the
+  parser, has a docs/cli.md row, and that every top-level subcommand appears as `lean-pkg <cmd>` in
+  README.md, docs/index.md or docs/how-to.md.
 
 ## [0.7.15] - 2026-10-10
 
