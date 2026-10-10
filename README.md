@@ -117,6 +117,8 @@ git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 
 # ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
 
+# placeholders: replace you/my-proof with your repository and src/my-proof with
+# the path of your checkout under $HOME (here ~/src/my-proof)
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
 lean-pkg claim my-proof --workspace laptop --agent you --reason "first receipt"
 lean-pkg renew my-proof --agent you            # past 24 h: renew before the lease lapses (`lean-pkg leases`)
@@ -129,6 +131,12 @@ lean-pkg promote my-proof                      # dry run: the checklist says wha
 No Lean project yet? [Getting started, step 1](docs/getting-started.md#start-from-scratch)
 makes a minimal Challenge/Solution project with a complete `comparator.json`,
 ready for `comparator-receipt`.
+
+`my-proof` is the package name given to `register`: every later command that
+takes `NAME` (`claim`, `comparator`, `next`, `promote`, ...) takes that name,
+never a path. `--path` is relative to `$HOME`; if the checkout is somewhere
+else, `lean-pkg update my-proof --path DIR --reason "checkout moved"` records
+the real one.
 
 The registry repository is the cross-project coordination history; each research
 repository keeps its own mathematics and committed `.lean-receipts/` evidence.

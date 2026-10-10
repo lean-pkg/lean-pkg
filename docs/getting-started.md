@@ -116,7 +116,9 @@ the [roadmap](../ROADMAP.md) and is not implemented yet.
 ## Worked example, end to end
 
 This takes a small Lake project from registration to a promotion dry run.
-Replace `you/my-proof` with your repository.
+Replace `you/my-proof` with your repository and `src/my-proof` with the
+path of your checkout under `$HOME`. `my-proof` is the package name given
+to `register`; every later `NAME` is that name, not a path.
 
 ### 1. The project
 
