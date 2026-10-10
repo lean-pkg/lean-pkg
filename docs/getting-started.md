@@ -131,6 +131,21 @@ Replace `you/my-proof` with your repository.
   comparator.json
 ```
 
+The project must depend on Mathlib (a `mathlib` entry in
+`lake-manifest.json`; a bare `lake new` project has none). The Challenge is
+written in Mathlib's vocabulary, and `comparator-receipt`'s toolchain
+mechanism, what Palomar runs, fetches Mathlib's build cache, so the runner
+refuses a project without it before judging:
+
+```
+the toolchain mechanism needs a Mathlib dependency (lake-manifest.json has none); add it and run lake update
+```
+
+Add `mathlib` to the lakefile's requirements, run `lake update` and commit
+the manifest. A project that knowingly has no Mathlib sets
+`COMPARATOR_RECEIPT_NO_MATHLIB=1` (see
+[The comparator tier](comparator.md#mechanisms)).
+
 `lakefile.toml` must declare a library for each of the two modules, or
 `lake build Challenge` fails with `unknown target`:
 

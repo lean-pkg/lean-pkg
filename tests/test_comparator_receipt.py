@@ -607,7 +607,7 @@ def test_from_prepared_reuses_a_matching_state_elsewhere(project: Path, tmp_path
 
 def test_cache_get_skipped_without_mathlib(project: Path):
     _lake_project(project, mathlib=False)
-    r, calls = run_staged(project)
+    r, calls = run_staged(project, extra_env={"COMPARATOR_RECEIPT_NO_MATHLIB": "1"})   # #62: declared
     assert r.returncode == 0, r.stderr
     assert calls == ["lake env true", "lake build Challenge Solution"]
     assert _stages(project)["stages"][1]["status"] == "skipped"

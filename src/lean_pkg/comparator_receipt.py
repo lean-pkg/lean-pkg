@@ -22,7 +22,8 @@ inside the lean_pkg package), COMPARATOR_LAKE (the lake the setup stages run), S
 COMPARATOR_RECEIPT_STACK (unlimited | a size in kB: the soft stack limit for the lake/lean children),
 COMPARATOR_RECEIPT_BUILD_SOURCE (free text naming where the package's oleans were built; recorded in
 build_provenance), COMPARATOR_RECEIPT_LEAN_THREADS (a positive integer: LEAN_NUM_THREADS for the lake/lean
-children).
+children), COMPARATOR_RECEIPT_NO_MATHLIB (1: the project knowingly has no Mathlib; the toolchain mechanism
+refuses such a project otherwise, and with it verify-comparator.sh skips `lake exe cache get`).
 """
 from __future__ import annotations
 
@@ -59,6 +60,14 @@ TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain 
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
 FAKE_LAKE_ENV = "COMPARATOR_FAKE_LAKE_OK"  # test-only: "1"/"0" overrides the toolchain probe
 VERIFY_ENV = "COMPARATOR_VERIFY"           # path of verify-comparator.sh (default: the vendored copy)
+# #62: the toolchain mechanism needs a Mathlib dependency; this declares a project knowingly has none.
+NO_MATHLIB_ENV = "COMPARATOR_RECEIPT_NO_MATHLIB"
+# ...and then the runner tells the vendored verify-comparator.sh to skip `lake exe cache get` through this.
+SKIP_CACHE_GET_ENV = "VERIFY_COMPARATOR_SKIP_CACHE_GET"
+# The line verify-comparator.sh prints right before `lake comparator` (the stub prints it too): a judge
+# that exits non-zero without it failed before judging, which is not a verdict on the proof.
+JUDGING_MARK = "== lake comparator"
+LEGACY_REJECT_MARK = "::error::comparator did not accept"   # comparator-check.sh's rejection line
 PIN_RE = re.compile(r"^== (comparator|lean4export|nanoda_lib|landrun) @ ([0-9a-f]{40})",
                     re.MULTILINE)
 PIN_KEYS = {"comparator": "comparator", "lean4export": "lean4export",
@@ -837,6 +846,27 @@ def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> N
     print(f"comparator-receipt: {build_provenance_line(stages.build_provenance)}", file=sys.stderr)
 
 
+def judged(log_text: str, mechanism: str, returncode: int | None) -> bool:
+    """Whether a failed judge got as far as judging (#62): verify-comparator.sh prints JUDGING_MARK right
+    before `lake comparator`, comparator-check.sh prints LEGACY_REJECT_MARK on a rejection. Exit 0 without
+    the acceptance line (a judge that ran and said nothing usable) counts as judged."""
+    if returncode == 0:
+        return True
+    lines = log_text.splitlines()
+    if mechanism == "legacy":
+        return any(LEGACY_REJECT_MARK in ln for ln in lines)
+    return any(ln.startswith(JUDGING_MARK) for ln in lines)
+
+
+def last_line(log_text: str, limit: int = 200) -> str:
+    """The judge log's last non-empty line, shortened, for a failure message."""
+    for ln in reversed(log_text.splitlines()):
+        if ln.strip():
+            ln = ln.strip()
+            return ln if len(ln) <= limit else ln[:limit] + "..."
+    return ""
+
+
 class PartialStage(StageError):
     """Stage 04 stopped part-way (a signal): its stage status is `partial`, not `failed`."""
 
@@ -915,6 +945,8 @@ class Stage04:
         if self.mechanism == "legacy":
             env["LOG_DIR"] = str(self.log_dir)
             return ["bash", str(self.check)], env
+        if not manifest_has_mathlib(self.project):   # reached only with NO_MATHLIB_ENV=1 (or no lakefile)
+            env[SKIP_CACHE_GET_ENV] = "1"
         if unit.whole:
             return ["bash", str(self.verify), unit.config], env
         # a partial copy: the configuration with theorem_names cut to this unit's slots, all else equal
@@ -965,7 +997,7 @@ class Stage04:
         ok = j.returncode == 0 and (self.mechanism == "legacy" or comparator_pass(out, "toolchain"))
         if not ok:
             self.progress.mark(unit.slots, "failed")
-            self.failure = (unit, j.returncode)
+            self.failure = (unit, j.returncode, judged(out, self.mechanism, j.returncode), last_line(out))
             self.say(f"{self.tag(unit)} failed (exit {j.returncode}) in {secs:.1f}s")
             self.publish()
             return False
@@ -1018,12 +1050,18 @@ class Stage04:
                 self.say(f"comparator-receipt: {msg}")
                 raise PartialStage(msg, 128 + e.signum)
             if self.failure is not None:
-                unit, rc = self.failure
+                unit, rc, was_judged, last = self.failure
                 self.progress.state = "failed"
                 self.publish()
                 what = "comparator-check" if self.mechanism == "legacy" else f"{unit.config}: lake comparator"
-                raise StageError(f"{what} did not accept the solution ({self.tag(unit)}, exit {rc}); "
-                                 f"{self.progress.summary()}; nothing written; partial report "
+                if was_judged:
+                    verdict = f"{what} did not accept the solution ({self.tag(unit)}, exit {rc})"
+                else:
+                    judge = "comparator-check" if self.mechanism == "legacy" else f"{unit.config}: verify-comparator"
+                    verdict = (f"{judge}: the judge tool failed before judging ({self.tag(unit)}, exit {rc}"
+                               + (f"; last line: {last}" if last else "") + "); this is not a verdict on the "
+                               f"proof, fix the tool or the project setup and rerun")
+                raise StageError(f"{verdict}; {self.progress.summary()}; nothing written; partial report "
                                  f"{self.progress.path}", rc)
             self.assemble()
             self.progress.state = "complete"
@@ -1262,6 +1300,11 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         if mechanism == "toolchain":
             if verify is None or not verify.is_file():
                 raise RunnerError(f"verify-comparator script not found: {verify}")
+            if has_lakefile(project) and not manifest_has_mathlib(project) \
+                    and os.environ.get(NO_MATHLIB_ENV) != "1":
+                raise RunnerError("the toolchain mechanism needs a Mathlib dependency (lake-manifest.json has "
+                                  "none); add it and run lake update (or, if the project knowingly has no "
+                                  f"Mathlib, set {NO_MATHLIB_ENV}=1); nothing written")
             if os.environ.get(FAKE_LAKE_ENV) is None:   # real host: check the sandbox first
                 bwrap_preflight()
         if mechanism == "legacy" and estimate is not None:

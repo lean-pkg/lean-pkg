@@ -895,6 +895,30 @@ line per kernel (con-ron, NanoDa, Lean's default kernel) and finally
 `Your solution is okay!`, and the runner wrote a schema-2 receipt that
 `lean-pkg comparator --check` accepted.
 
+The toolchain mechanism needs a Mathlib dependency: a `mathlib` package in
+`lake-manifest.json`. `verify-comparator.sh` runs `lake exe cache get`
+before judging, and a project without Mathlib has no `cache` executable
+(`error: unknown executable cache`). The runner therefore refuses such a
+project before any stage runs:
+
+```
+the toolchain mechanism needs a Mathlib dependency (lake-manifest.json has none); add it and run lake update
+```
+
+`COMPARATOR_RECEIPT_NO_MATHLIB=1` declares that the project knowingly has no
+Mathlib; the run then goes ahead, stage `cache-get` is skipped, and the
+runner sets `VERIFY_COMPARATOR_SKIP_CACHE_GET=1` so the vendored script
+skips its own `lake exe cache get` (a local change to the vendored script,
+listed in its header with the others).
+
+A judge that exits non-zero is reported in one of two ways.
+`did not accept the solution` means the judge got as far as judging
+(`verify-comparator.sh` printed its `== lake comparator (toolchain) <config>`
+line, or `comparator-check.sh` printed its rejection line) and the proof or
+statement is at fault. `the judge tool failed before judging`, with the
+judge's last log line, means a tool or setup step failed first; it is not a
+verdict on the proof.
+
 `--mechanism toolchain` on a toolchain below the floor refuses with a message
 that names the floor and writes nothing. A `legacy` pass is evidence of a
 second-kernel replay, not of what Palomar will say; only the `toolchain`

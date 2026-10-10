@@ -156,6 +156,10 @@ the slot count) and starts with the heaviest slots by olean size; a smaller
 records `sample_forced: true`; `recommended_cap` uses the per-slot max model below
 half coverage (`cap_model`); see
 [Estimate first](comparator.md#stages-and---prepare).
+`COMPARATOR_RECEIPT_NO_MATHLIB=1` declares a project that knowingly has no Mathlib
+dependency; without it the toolchain mechanism refuses such a project before any
+stage, and with it `verify-comparator.sh` skips `lake exe cache get`; see
+[Mechanisms](comparator.md#mechanisms).
 
 ## Lease holders
 

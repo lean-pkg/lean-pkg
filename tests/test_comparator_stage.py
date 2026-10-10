@@ -811,6 +811,7 @@ def test_receipt_records_toolchain_resolution(tmp_path: Path):
     extra, _calls = toolchain_host(tmp_path, elan=True)
     env = runner_env(extra)
     env.pop("COMPARATOR_LAKE", None)
+    env["COMPARATOR_RECEIPT_NO_MATHLIB"] = "1"     # #62: the fixture's manifest has no Mathlib
     r = subprocess.run([*RECEIPT_CLI, "--mechanism", "toolchain"], cwd=project, env=env,
                        capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stderr

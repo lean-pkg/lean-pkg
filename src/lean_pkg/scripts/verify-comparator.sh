@@ -4,7 +4,12 @@
 # Local changes (lean-pkg): (1) the config path is taken from $1 (default
 # comparator.json); (2) the script runs in the current directory (the runner
 # sets cwd to the project) instead of cd'ing to its own parent, because it is
-# shipped as package data, not inside the project. Everything else is upstream.
+# shipped as package data, not inside the project; (3) `lake exe cache get` is
+# skipped when VERIFY_COMPARATOR_SKIP_CACHE_GET=1 (the runner sets it for a project
+# declared to have no Mathlib, where Lake has no `cache` executable), and the
+# line "== lake comparator (toolchain) <config>" is printed right before `lake
+# comparator`, so a failure before it is reported as a tool failure, not as a
+# rejected proof. Everything else is upstream.
 set -euo pipefail
 
 # Judge Solution against Challenge the way Palomar does: with the `lake
@@ -63,5 +68,10 @@ config["external_kernels"] = {
 pathlib.Path(destination).write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 PY
 
-lake exe cache get
+if [ "${VERIFY_COMPARATOR_SKIP_CACHE_GET:-}" = 1 ]; then
+  echo "skipping lake exe cache get (VERIFY_COMPARATOR_SKIP_CACHE_GET=1: no Mathlib dependency)"
+else
+  lake exe cache get
+fi
+echo "== lake comparator (toolchain) $config_path"
 lake comparator --config "$config"

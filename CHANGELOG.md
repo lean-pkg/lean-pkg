@@ -43,6 +43,16 @@ change the registry schema or receipt format, always with a migration).
   `receipt definition_names differs from the config ([] vs None)` refusal is gone; a real difference (`["a"]` vs
   `[]`) is still refused. The runner names a missing `permitted_axioms` up front instead of calling it "not a list
   of strings". docs/comparator.md says which list fields may be omitted. (#61)
+- `comparator-receipt` (toolchain mechanism) on a project without Mathlib no longer fails as
+  `lake comparator did not accept the solution`: the vendored `verify-comparator.sh` ran `lake exe cache get`,
+  which fails there with `unknown executable cache`. The runner refuses such a project before any stage with
+  `the toolchain mechanism needs a Mathlib dependency (lake-manifest.json has none); add it and run lake update`.
+  `COMPARATOR_RECEIPT_NO_MATHLIB=1` declares a project that knowingly has none; the runner then sets
+  `VERIFY_COMPARATOR_SKIP_CACHE_GET=1`, which the vendored script reads to skip its `lake exe cache get` (a local
+  change recorded in its header; the slot cache, bound to the script's sha256, is invalidated once). A judge that
+  exits non-zero before judging (no `== lake comparator` line from `verify-comparator.sh`, no rejection line from
+  `comparator-check.sh`) is now reported as `the judge tool failed before judging`, with its last log line, not
+  as a rejected proof. docs/getting-started.md and docs/comparator.md state the Mathlib requirement. (#62)
 
 ## [0.7.22] - 2026-10-10
 
