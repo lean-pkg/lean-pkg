@@ -149,6 +149,8 @@ the [roadmap](ROADMAP.md); it is not implemented yet.
 
 Not sure what comes next for a package? `lean-pkg next NAME` prints the single recommended command and why; agents get the same answer with `--json`.
 
+Something went wrong? `lean-pkg report --command "..."` drafts a bug report in this repository's issue format with every private path and address redacted; `--yes` files it.
+
 Safety nets, before anything is public:
 
 - `lean-pkg public-safety NAME` scans the tree and the whole git history for

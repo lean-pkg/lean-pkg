@@ -342,6 +342,19 @@ Read-only and offline: it decides from the registry record and the checkout, wit
 (a foreign lease with `--agent`, a dirty tree while evidence is produced, a receipt `gate` would refuse).
 See the [`next` row](cli.md) in the CLI reference.
 
+## Report a problem
+
+```bash
+lean-pkg report --command "status demo --fields pin"     # dry run: prints the issue body
+lean-pkg report --command "..." --package NAME --yes    # files it on GitHub with gh
+```
+
+The body follows the repository's bug-report template (version, command, output, `doctor` and
+`host-check` lines, the package record with `--package`). Every captured text is redacted first:
+home and checkout paths, e-mail addresses, the public-safety families and the names derived from the
+registry record; a hit the redaction cannot replace refuses to file. `--enhancement` labels a feature
+request; `--json` gives `{url, title, labels, body, redactions}`. See the [`report` row](cli.md).
+
 ## Use lean-pkg from a coding agent
 
 See [Using lean-pkg with agents](agents.md). Short version: the agent reads
