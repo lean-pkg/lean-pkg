@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.23] - 2026-10-10
+
 ### Added
 
 - `comparator-receipt --unit-size K` (env `LEAN_PKG_COMPARATOR_UNIT_SIZE`) decouples the judge unit size from
@@ -63,6 +65,8 @@ change the registry schema or receipt format, always with a migration).
   toolchain-mechanism output; "about 25 minutes" is the legacy mechanism only; README lists `bwrap` and
   explains `COMPARATOR_RECEIPT_ALLOWED_HOSTS`; commands and expected output are separate blocks.
   Decision 0006 records the G1 transcript. (#63, #64, #65, #66)
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.22] - 2026-10-10
 
