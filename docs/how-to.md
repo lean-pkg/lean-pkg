@@ -18,6 +18,18 @@ lean-pkg status my-proof  # full record plus the last five history entries
 lean-pkg validate         # schema, enum and history sanity; exit 0 or 1
 ```
 
+## Read one field, or the registry as it was
+
+```bash
+lean-pkg status my-proof --fields gate.receipt,lease.agent      # only those keys; dotted paths reach in
+lean-pkg list --no-claims --json                                  # drop the bulk cached claims
+lean-pkg --registry-snapshot HEAD~3 status my-proof               # read-only, the registry at a commit
+lean-pkg --version                                                # which build runs
+```
+
+`lean-pkg status --help` lists every key of the package record; so does the
+[CLI reference](cli.md#package-record).
+
 ## Declare reusable results and search before building
 
 ```bash
@@ -26,6 +38,7 @@ lean-pkg search "stochastic Fubini"             # plus Loogle, LeanSearch, Reser
 lean-pkg claims sync my-proof                   # read claims.yaml at HEAD, validate, cache
 lean-pkg claims list my-proof
 lean-pkg claims check my-proof
+lean-pkg claims migrate my-proof --from old-claims.json --dry-run   # legacy JSON to a claims/1 skeleton
 ```
 
 `claims.yaml` (schema `claims/1`) at the repository root names the results
@@ -126,6 +139,30 @@ Details and the host policy: [The comparator tier](comparator.md). Adding
 the comparator tier to a package that already builds, step by step:
 [Add the comparator tier to an existing package](existing-package-comparator.md).
 
+## Scaffold comparator configurations from the claims
+
+```bash
+lean-pkg comparator config --from-claims my-proof --dry-run              # one entry per uncovered theorem claim
+lean-pkg comparator config --from-claims my-proof --challenge-from-type  # pre-fill the elaborated statements
+lean-pkg comparator config --coverage my-proof                           # covered / not covered at the gate-bound commit
+```
+
+Review every pre-filled statement by hand. Details, including `--checkout`
+and the scratch mode under another agent's lease:
+[Scaffolding entries from claims.yaml](comparator.md#scaffolding-entries-from-claimsyaml).
+
+## Plan a long comparator run
+
+```bash
+comparator-receipt --estimate           # time a sample of slots; no receipt
+comparator-receipt --judges 4           # shard the slots (helps only for disjoint closures)
+comparator-receipt --slots sample:5     # a partial run: never accepted as evidence
+```
+
+A rerun resumes from the slots already accepted (`--no-resume` judges every
+slot again); each stage logs under `comparator-stages/`. When the flags pay
+off: [Runtime](comparator.md#runtime).
+
 ## Gate, with or without comparator evidence
 
 ```bash
@@ -174,6 +211,9 @@ lean-pkg public-safety my-proof --strict   # warn-only hits block too
 ```
 
 Package-specific patterns go in an untracked `.lean-pkg-private-patterns`.
+Each line is a regular expression: bare or `block:` blocks, `warn:` warns,
+`allow:` exempts, each optionally scoped to a path glob; the built-in
+`latex-label` family is warn-only.
 `promote` runs the same scan and refuses while blocking hits remain.
 
 ## Publish a package incubated beside a paper
@@ -185,6 +225,7 @@ rewriting the old one:
 lean-pkg release my-proof --fresh-repo ~/src/my-proof-public --dry-run
 lean-pkg release my-proof --fresh-repo ~/src/my-proof-public
 lean-pkg release my-proof --adopt-repo ~/src/my-proof-public    # or: adopt one built by hand
+lean-pkg release my-proof --fresh-repo ~/src/my-proof-public --from-tree ~/src/my-proof-cleaned   # or: a hand-cleaned tree
 ```
 
 Evidence is cleared (a receipt binds one commit), so gate and run the
