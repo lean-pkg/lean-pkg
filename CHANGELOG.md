@@ -33,6 +33,14 @@ change the registry schema or receipt format, always with a migration).
   `AI assistance: TOOLS for ROLES.` lines after any hand-written text, refreshed on every run and never
   duplicated; they count as derived for the evidence-only rule. `project.authors` stays the formalizers
   (consent[] owners/authors), so a paper coauthor is credited without a consent row. (#22.6)
+- `lean-pkg palomar prepare NAME [--out DIR] [--dry-run] [--json]`: builds a Palomar submission bundle,
+  bundle only, with no network request: `formalization.yaml` (rendered, schema-valid), every comparator
+  configuration tracked at HEAD, the gate and comparator receipts validated against HEAD, a
+  `README.txt` with the manual submission steps and the Palomar URL, and `MANIFEST.sha256`. Default
+  directory `<checkout>/.lean-receipts/palomar-<HEAD12>/`, never overwritten. Refused (nothing
+  written) without receipts bound to HEAD or an evidence-only ancestor, without consent, when the
+  render fails the schema, or on blocking public-safety hits in the bundle. Records the additive
+  event `palomar-prepared` {commit, bundle, bundle_sha256}; `--dry-run` prints the plan. (#22.3)
 
 ### Changed
 
