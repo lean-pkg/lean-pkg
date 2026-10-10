@@ -4,12 +4,14 @@
 # A repository-selecting Git variable that reaches it is recorded as a `leaked NAME` line (#27).
 # `lake build M...` with LAKE_STUB_OLEANS="M..." writes .lake/build/lib/lean/<M>.olean for each listed
 # module and prints lake's `✔ [i/n] Built M` line (#56); without it the build is a no-op.
+# LAKE_STUB_ENV=<file> gets one `LEAN_NUM_THREADS=<value|unset>` line per call (#55).
 set -euo pipefail
 echo "lake $*" >> "${LAKE_STUB_CALLS:-/dev/null}"
 for v in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
          GIT_COMMON_DIR GIT_NAMESPACE; do
   if [ -n "${!v+x}" ]; then echo "leaked $v" >> "${LAKE_STUB_CALLS:-/dev/null}"; fi
 done
+if [ -n "${LAKE_STUB_ENV:-}" ]; then echo "LEAN_NUM_THREADS=${LEAN_NUM_THREADS-unset}" >> "$LAKE_STUB_ENV"; fi
 echo "stub lake $*"
 if [ -n "${LAKE_STUB_FAIL:-}" ] && [[ " $* " == *" ${LAKE_STUB_FAIL} "* ]]; then
   echo "error: could not clone mathlib (stub)" >&2

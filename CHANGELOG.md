@@ -16,6 +16,11 @@ change the registry schema or receipt format, always with a migration).
   or `--from-prepared` setup carries the provenance recorded when it was built. The runner, `comparator --check` and
   `gate --check` print `build: compiled N module(s)` or `build: prebuilt (source: ...)`; validators ignore the key.
   docs/comparator.md says when oleans built elsewhere are acceptable. (#56)
+- `COMPARATOR_RECEIPT_LEAN_THREADS=N` sets `LEAN_NUM_THREADS=N` for the `lake`/`lean` children of the setup and
+  comparator stages (the children `COMPARATOR_RECEIPT_STACK` reaches), so a memory-tight host serializes the build
+  without a `COMPARATOR_LAKE` wrapper (Lake 5 has no `-j`; the wrapper stays documented as the fallback). The runner
+  prints the applied value and the receipt records it as the additive `lean_threads` (`N` or `null`); a value that
+  is not a positive integer exits 2. (#55)
 
 ## [0.7.21] - 2026-10-10
 

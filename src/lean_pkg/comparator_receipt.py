@@ -21,7 +21,8 @@ Env: COMPARATOR_CHECK (script path; default: the comparator-check.sh shipped
 inside the lean_pkg package), COMPARATOR_LAKE (the lake the setup stages run), SLURM_JOB_ID (job identity when under Slurm),
 COMPARATOR_RECEIPT_STACK (unlimited | a size in kB: the soft stack limit for the lake/lean children),
 COMPARATOR_RECEIPT_BUILD_SOURCE (free text naming where the package's oleans were built; recorded in
-build_provenance).
+build_provenance), COMPARATOR_RECEIPT_LEAN_THREADS (a positive integer: LEAN_NUM_THREADS for the lake/lean
+children).
 """
 from __future__ import annotations
 
@@ -288,11 +289,14 @@ def toolchain_tools(project: pathlib.Path, verify: pathlib.Path, toolchain: str)
 
 ELAN_HOME_ENV = "ELAN_HOME"
 _TOOL_ENV: dict = {}       # what resolve_toolchain decided for this run; merged into every tool's env
+_THREADS_ENV: dict = {}    # #55: {"LEAN_NUM_THREADS": N} when COMPARATOR_RECEIPT_LEAN_THREADS is set
 
 
 def tool_env() -> dict:
     env = scrubbed_env()
     for k, v in _TOOL_ENV.items():
+        env[k] = v
+    for k, v in _THREADS_ENV.items():
         env[k] = v
     return env
 
@@ -523,6 +527,31 @@ def plan_stack(value: str | None) -> tuple[dict, list[str]]:
     if soft != resource.RLIM_INFINITY and soft <= STACK_WARN_BYTES:
         lines.append(STACK_WARNING)
     return {"soft_kb": stack_kb(soft), "hard_kb": stack_kb(hard), "source": source}, lines
+
+
+# Lean threads (#55). Lake 5 has no -j; it schedules build jobs on the Lean task pool, whose size is
+# LEAN_NUM_THREADS. COMPARATOR_RECEIPT_LEAN_THREADS=N puts LEAN_NUM_THREADS=N in the environment of every
+# lake/lean child of the setup and comparator stages (the same children COMPARATOR_RECEIPT_STACK reaches),
+# so a memory-tight host can serialize the build without a COMPARATOR_LAKE wrapper.
+LEAN_THREADS_ENV = "COMPARATOR_RECEIPT_LEAN_THREADS"
+
+
+def parse_lean_threads(value: str) -> int:
+    v = value.strip()
+    if not re.fullmatch(r"[0-9]+", v) or int(v) <= 0:
+        raise ValueError(f"{LEAN_THREADS_ENV} must be a positive integer, got {value!r}")
+    return int(v)
+
+
+def plan_lean_threads(value: str | None) -> tuple[int | None, list[str]]:
+    """(the receipt's lean_threads, lines to print); sets what tool_env() adds for the children."""
+    _THREADS_ENV.clear()
+    if value is None or not value.strip():
+        return None, []
+    n = parse_lean_threads(value)
+    _THREADS_ENV["LEAN_NUM_THREADS"] = str(n)
+    return n, [f"comparator-receipt: lean threads: {LEAN_THREADS_ENV}={n}: LEAN_NUM_THREADS={n} for the "
+               f"lake/lean children of the setup and comparator stages"]
 
 
 def stack_preexec():
@@ -1112,6 +1141,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
     binding = {"commit": commit, "lean_toolchain": toolchain,
                "config_hash": config_hash(project, configs)}
     _TOOL_ENV.clear()
+    _THREADS_ENV.clear()
     prior_src = from_prepared or evidence
     prior = read_stages(prior_src)
     mismatch = prepared_mismatch(prior, binding)
@@ -1157,8 +1187,10 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                           f"at this commit first; nothing written")
     try:
         stack_limit, stack_lines = plan_stack(os.environ.get(STACK_ENV))
+        lean_threads, thread_lines = plan_lean_threads(os.environ.get(LEAN_THREADS_ENV))
     except ValueError as e:
         raise RunnerError(f"{e}; nothing written")
+    stack_lines += thread_lines
     stages = Stages(evidence, binding, prepare)
     stages.resolution = resolution
     if mismatch is None:
@@ -1207,7 +1239,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                          resume=resume, judges=judges, subset=subset)
             result["stage04"] = st
             status, code, note = st.run(stage_log)
-            result["extra"] = {"stack_limit": stack_limit,
+            result["extra"] = {"stack_limit": stack_limit, "lean_threads": lean_threads,
                                **({"build_provenance": stages.build_provenance}
                                   if stages.build_provenance is not None else {}),
                                **({"judges": judges} if mechanism == "toolchain" else {}),
@@ -1434,6 +1466,12 @@ def main(argv: list[str] | None = None) -> int:
     if (os.environ.get(STACK_ENV) or "").strip():
         try:
             parse_stack(os.environ[STACK_ENV])
+        except ValueError as e:
+            print(f"comparator-receipt: {e}", file=sys.stderr)
+            return 2
+    if (os.environ.get(LEAN_THREADS_ENV) or "").strip():
+        try:
+            parse_lean_threads(os.environ[LEAN_THREADS_ENV])
         except ValueError as e:
             print(f"comparator-receipt: {e}", file=sys.stderr)
             return 2

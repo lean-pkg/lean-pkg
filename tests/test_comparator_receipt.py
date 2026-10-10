@@ -804,3 +804,40 @@ def test_build_provenance_of_an_older_prepared_state_is_unknown(cr):
     assert "not recorded" in build_provenance_line(cr.carried_provenance(None))
     assert build_provenance_line({"compiled": False, "modules_built": 0, "prebuilt": True,
                                   "source": None}) == "build: prebuilt (source: not declared)"
+
+
+# --- lean threads (#55) ----------------------------------------------------
+
+@pytest.mark.parametrize("bad", ["0", "-2", "two", "1.5", "4 cores"])
+def test_lean_threads_invalid_value_is_a_usage_error(cr, project: Path, bad):
+    with pytest.raises(ValueError):
+        cr.parse_lean_threads(bad)
+    r = run_runner(project, extra_env={"COMPARATOR_RECEIPT_LEAN_THREADS": bad})
+    assert r.returncode == 2 and "COMPARATOR_RECEIPT_LEAN_THREADS must be a positive integer" in r.stderr
+    assert not (project / ".lean-receipts").exists()
+
+
+def test_lean_threads_reach_the_lake_children_the_judges_and_the_receipt(project: Path, tmp_path: Path):
+    _lake_project(project)
+    seen = tmp_path / "env.txt"
+    judge_seen = tmp_path / "judge-env.txt"
+    judge = tmp_path / "verify-wrapper.sh"
+    judge.write_text(f'#!/usr/bin/env bash\necho "LEAN_NUM_THREADS=${{LEAN_NUM_THREADS-unset}}" >> "{judge_seen}"\n'
+                     f'exec "{STUB_TC}" "$@"\n')
+    judge.chmod(0o755)
+    r, _ = run_staged(project, extra_env={"LAKE_STUB_ENV": str(seen), "COMPARATOR_VERIFY": str(judge),
+                                          "LEAN_NUM_THREADS": "16", "COMPARATOR_RECEIPT_LEAN_THREADS": "1"})
+    assert r.returncode == 0, r.stderr
+    assert seen.read_text().split() == ["LEAN_NUM_THREADS=1"] * 3     # every setup child
+    assert judge_seen.read_text().split() == ["LEAN_NUM_THREADS=1"]   # the comparator stage's judge
+    assert "COMPARATOR_RECEIPT_LEAN_THREADS=1: LEAN_NUM_THREADS=1 for the lake/lean children" in r.stderr
+    assert _receipt(project)["lean_threads"] == 1
+
+
+def test_lean_threads_unset_leaves_the_environment_alone(project: Path, tmp_path: Path):
+    _lake_project(project)
+    seen = tmp_path / "env.txt"
+    r, _ = run_staged(project, extra_env={"LAKE_STUB_ENV": str(seen), "LEAN_NUM_THREADS": "16"})
+    assert r.returncode == 0, r.stderr
+    assert seen.read_text().split() == ["LEAN_NUM_THREADS=16"] * 3     # inherited, untouched
+    assert _receipt(project)["lean_threads"] is None and "lean threads:" not in r.stderr

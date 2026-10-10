@@ -139,6 +139,10 @@ limit; recorded as the receipt's `stack_limit`); it warns when the soft limit is
 built (a job id or host label; redacted); the receipt's `build_provenance` records
 whether the `build` stage compiled anything or found the oleans prebuilt; see
 [Build provenance](comparator.md#stages-and---prepare).
+`COMPARATOR_RECEIPT_LEAN_THREADS=N` sets `LEAN_NUM_THREADS=N` for those children
+(N = 1 serializes the build on a memory-tight host; recorded as the receipt's
+`lean_threads`; any other value exits 2); see
+[Serial builds](comparator.md#stages-and---prepare).
 
 ## Lease holders
 

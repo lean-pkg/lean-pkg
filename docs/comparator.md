@@ -633,10 +633,18 @@ estimate reports time per slot, not memory: it says nothing about whether
 the build or the judges fit in the host's RAM.
 
 **Serial builds on a memory-tight host.** Lake 5 has no `-j`/`--jobs`
-option; it schedules build jobs on the Lean task pool. `COMPARATOR_LAKE` may
-name a wrapper script that exports `LEAN_NUM_THREADS=1` and then runs the
-real `lake`, so the `build` stage compiles one module at a time (with
-single-threaded elaboration). That caps the number of modules in memory at
+option; it schedules build jobs on the Lean task pool, whose size is
+`LEAN_NUM_THREADS`. `COMPARATOR_RECEIPT_LEAN_THREADS=1` sets
+`LEAN_NUM_THREADS=1` in the environment of every `lake`/`lean` child of the
+setup and comparator stages (the children `COMPARATOR_RECEIPT_STACK`
+reaches, the judges included), so the `build` stage compiles one module at a
+time (with single-threaded elaboration); any positive integer N works the
+same way. The runner prints the value it applied and records it in the
+receipt as the additive `lean_threads` (`N`, or `null` when the variable is
+unset and the children inherit the runner's environment); any other value
+is a usage error (exit 2). As a fallback (for example around a runner
+without this variable), `COMPARATOR_LAKE` may name a wrapper script that
+exports `LEAN_NUM_THREADS=1` and then runs the real `lake`. That caps the number of modules in memory at
 once; it does not lower a single module's peak, so a module that alone
 exceeds the host's memory still fails. Put the run under a memory cap, for example
 `systemd-run --user --scope -p MemoryMax=48G comparator-receipt --prepare`,
