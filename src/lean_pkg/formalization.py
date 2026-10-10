@@ -22,7 +22,10 @@ Two kinds of keys:
   (``project.description``, ``project.authors``, ``sources``,
   ``related_formalizations``, ``classification``, ``automation.methods``,
   ``status.scope``, ``fidelity``, ``review``, ``acknowledgements``,
-  ``repository`` and any extra key). On a first render they are seeded from
+  ``repository`` and any extra key). Inside ``acknowledgements`` the lines
+  starting ``Formalizes results of `` / ``AI assistance: `` are the
+  renderer's own, rebuilt from the registry's ``source_paper`` and
+  ``ai_assistance`` on every run (#22.6); every other line is kept. On a first render they are seeded from
   registry data where it exists (authors from ``consent[]`` entries with role
   owner or author, a Mathlib ``builds-on`` row from ``mathlib_pin``) and
   otherwise with a value starting ``[PLACEHOLDER]``, each reported on stderr.
@@ -70,8 +73,58 @@ DERIVED_PATHS = (("version",), ("project", "name"), ("project", "license"), ("au
                  ("status", "main_results"), ("alignment",))
 
 
+# #22.6: the renderer's own sentences inside the kept `acknowledgements` string, one per line, each
+# starting with one of these markers. A re-render replaces exactly these lines and keeps every other
+# line (hand-written credits) as it is.
+ACK_MARKERS = ("Formalizes results of ", "AI assistance: ")
+
+
+def _join_names(names: list[str]) -> str:
+    names = [n for n in names if n]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1] if names else ""
+
+
+def own_ack_sentences(pkg: dict) -> list[str]:
+    """The acknowledgements lines derived from the registry's source_paper and ai_assistance."""
+    out = []
+    sp = pkg.get("source_paper") if isinstance(pkg.get("source_paper"), dict) else None
+    if sp and any(sp.get(k) for k in ("title", "arxiv", "doi")):
+        ids = ([f"arXiv:{sp['arxiv']}"] if sp.get("arxiv") else []) + ([f"doi:{sp['doi']}"] if sp.get("doi") else [])
+        subject = sp.get("title") or ids[0]
+        by = _join_names([a for a in sp.get("authors") or [] if isinstance(a, str)])
+        line = ACK_MARKERS[0] + subject + (f" by {by}" if by else "")
+        if sp.get("title") and ids:
+            line += f" ({' / '.join(ids)})"
+        out.append(line + ".")
+    ai = pkg.get("ai_assistance") if isinstance(pkg.get("ai_assistance"), dict) else None
+    if ai and ai.get("tools"):
+        roles = _join_names([r for r in ai.get("roles") or [] if isinstance(r, str)])
+        out.append(ACK_MARKERS[1] + _join_names(list(ai["tools"])) + (f" for {roles}" if roles else "") + ".")
+    return out
+
+
+def strip_own_ack(text) -> str:
+    """The hand-written part of an acknowledgements string: every line not starting with a marker."""
+    lines = str(text).split("\n")
+    return "\n".join(x for x in lines if not x.startswith(ACK_MARKERS)).strip("\n")
+
+
+def render_acknowledgements(existing, pkg: dict):
+    """The acknowledgements value: the kept hand-written text, then the renderer's sentences (each on
+    its own line, refreshed on every run, never duplicated). None: leave the key as it is."""
+    own = own_ack_sentences(pkg)
+    if existing is not None and not isinstance(existing, str):
+        return None                       # not a string: a schema problem the validator reports
+    had_own = isinstance(existing, str) and any(x.startswith(ACK_MARKERS) for x in existing.split("\n"))
+    if not own and not had_own:
+        return None
+    manual = strip_own_ack(existing) if existing else ""
+    return "\n".join(([manual] if manual.strip() else []) + own)
+
+
 def kept_view(doc) -> dict:
-    """The document with every derived key removed: what a hand edit can change."""
+    """The document with every derived key removed: what a hand edit can change. The renderer's own
+    acknowledgements lines (#22.6) count as derived."""
     import copy
     out = copy.deepcopy(doc) if isinstance(doc, dict) else {}
     for path in DERIVED_PATHS:
@@ -80,6 +133,12 @@ def kept_view(doc) -> dict:
             node = node.get(k) if isinstance(node, dict) else None
         if isinstance(node, dict):
             node.pop(path[-1], None)
+    if isinstance(out.get("acknowledgements"), str):
+        manual = strip_own_ack(out["acknowledgements"])
+        if manual.strip():
+            out["acknowledgements"] = manual
+        else:
+            out.pop("acknowledgements")
     return out
 
 
@@ -338,6 +397,13 @@ def render_doc(pkg: dict, repo: pathlib.Path, existing: dict | None,
     alignment = alignment_from_claims(pkg, repo)
     if alignment is not None:
         doc["alignment"] = alignment
+
+    ack = render_acknowledgements(doc.get("acknowledgements"), pkg)
+    if ack is not None:
+        if ack:
+            doc["acknowledgements"] = ack
+        else:
+            doc.pop("acknowledgements", None)
 
     return _ordered(doc, TOP_ORDER), warnings
 

@@ -25,6 +25,14 @@ change the registry schema or receipt format, always with a migration).
   `promote --yes`, `claims sync` and `search --record`: another agent's live lease refuses (exit 1,
   nothing written) and `A` is recorded as `actor` on the history entry and the event line (additive).
   Without `--agent` nothing new is refused; a live lease prints a warning naming the holder. (#21.3)
+- Authorship (option A, schema-conformant): optional registry fields `source_paper` {title, authors[],
+  arxiv, doi} and `ai_assistance` {tools[], roles[]} (validated by `validate`, listed in the package
+  record), set with `update NAME --source-paper-title T --source-paper-author A... --source-paper-arxiv
+  ID --source-paper-doi DOI --ai-tool T... --ai-role R...`. `formalization` renders them into the v0.4
+  `acknowledgements` string only, as `Formalizes results of TITLE by AUTHORS (arXiv:ID / doi:DOI).` and
+  `AI assistance: TOOLS for ROLES.` lines after any hand-written text, refreshed on every run and never
+  duplicated; they count as derived for the evidence-only rule. `project.authors` stays the formalizers
+  (consent[] owners/authors), so a paper coauthor is credited without a consent row. (#22.6)
 
 ### Changed
 

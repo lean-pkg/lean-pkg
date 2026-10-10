@@ -210,6 +210,9 @@ PACKAGE_FIELDS = (
     ("claims_synced_commit", "v3", "40-hex commit the cached claims were read at, or null"),
     ("paper", "optional", "{arxiv, status} of the paper behind a paper-coupled package"),
     ("namespace_notes", "optional", "{Lean root namespace: why sharing it with another package is intended}"),
+    ("source_paper", "optional", "{title, authors[], arxiv, doi} of the formalized paper (credited in "
+                                 "formalization.yaml acknowledgements, never as project.authors)"),
+    ("ai_assistance", "optional", "{tools[], roles[]}: AI tools used and for what (rendered into acknowledgements)"),
 )
 REQUIRED_FIELDS = [k for k, tier, _ in PACKAGE_FIELDS if tier == "v1"]
 BULK_FIELDS = [k for k, _, meaning in PACKAGE_FIELDS if meaning.endswith("[bulk]")]
@@ -1396,7 +1399,8 @@ def prior_art_note(pkg: dict, events_p: pathlib.Path, now: dt.datetime | None = 
 # gate: `gate`/`promoted_at`/`promoted_commit`/`visibility` belong to `gate`
 # and `promote`, and `lease`/`workspace`/`agent` to `claim`/`release`.
 UPDATABLE = {"automation", "notes", "upstream_target", "reaudit_after",
-             "owner_project", "repo", "license_spdx", "formalization_yaml", "paper", "namespace_notes"}
+             "owner_project", "repo", "license_spdx", "formalization_yaml", "paper", "namespace_notes",
+             "source_paper", "ai_assistance"}
 # Paper-coupled packages (#22.10): optional `paper: {arxiv, status}`; promote refuses while the paper is
 # unpublished and no arXiv id is recorded (so a public flip cannot disclose results before the preprint).
 PAPER_STATUSES = ("unpublished", "preprint", "published")
@@ -1428,6 +1432,56 @@ def paper_errors(paper, pfx: str) -> list[str]:
     if ax is not None and not (isinstance(ax, str) and ARXIV_ID_RE.match(ax)):
         errors.append(f"{pfx}.paper.arxiv: must be an arXiv id such as 2410.01234 or math/0601001, "
                       f"got {ax!r}")
+    return errors
+
+
+# #22.6 (option A): the formalized paper and the AI assistance, as registry data. formalization.yaml stays
+# v0.4-conformant: both are rendered into its `acknowledgements` string; project.authors stays the
+# formalizers (seeded from consent[] owners/authors only), so a paper coauthor needs no consent row.
+SOURCE_PAPER_KEYS = ("title", "authors", "arxiv", "doi")
+AI_ASSISTANCE_KEYS = ("tools", "roles")
+
+
+def _str_list_ok(v) -> bool:
+    return isinstance(v, list) and all(isinstance(x, str) and x.strip() for x in v)
+
+
+def source_paper_errors(sp, pfx: str) -> list[str]:
+    """source_paper: absent, null, or {title, authors[], arxiv, doi} with a title, an arXiv id or a DOI."""
+    if sp is None:
+        return []
+    if not isinstance(sp, dict):
+        return [f"{pfx}.source_paper: must be a mapping {{title, authors, arxiv, doi}} or null"]
+    errors = [f"{pfx}.source_paper: unknown key {k!r} (allowed: {', '.join(SOURCE_PAPER_KEYS)})"
+              for k in sp if k not in SOURCE_PAPER_KEYS]
+    t = sp.get("title")
+    if t is not None and not (isinstance(t, str) and t.strip()):
+        errors.append(f"{pfx}.source_paper.title: must be a non-empty string or null")
+    if sp.get("authors") is not None and not _str_list_ok(sp.get("authors")):
+        errors.append(f"{pfx}.source_paper.authors: must be a list of non-empty strings")
+    ax = sp.get("arxiv")
+    if ax is not None and not (isinstance(ax, str) and ARXIV_ID_RE.match(ax)):
+        errors.append(f"{pfx}.source_paper.arxiv: must be an arXiv id such as 2410.01234, got {ax!r}")
+    doi = sp.get("doi")
+    if doi is not None and not (isinstance(doi, str) and DOI_RE.fullmatch(doi)):
+        errors.append(f"{pfx}.source_paper.doi: must be a DOI such as 10.1000/xyz123, got {doi!r}")
+    if not any(sp.get(k) for k in ("title", "arxiv", "doi")):
+        errors.append(f"{pfx}.source_paper: needs a title, an arXiv id or a DOI")
+    return errors
+
+
+def ai_assistance_errors(ai, pfx: str) -> list[str]:
+    """ai_assistance: absent, null, or {tools[] (non-empty), roles[]}."""
+    if ai is None:
+        return []
+    if not isinstance(ai, dict):
+        return [f"{pfx}.ai_assistance: must be a mapping {{tools, roles}} or null"]
+    errors = [f"{pfx}.ai_assistance: unknown key {k!r} (allowed: {', '.join(AI_ASSISTANCE_KEYS)})"
+              for k in ai if k not in AI_ASSISTANCE_KEYS]
+    if not (_str_list_ok(ai.get("tools")) and ai.get("tools")):
+        errors.append(f"{pfx}.ai_assistance.tools: must be a non-empty list of non-empty strings")
+    if ai.get("roles") is not None and not _str_list_ok(ai.get("roles")):
+        errors.append(f"{pfx}.ai_assistance.roles: must be a list of non-empty strings")
     return errors
 
 
@@ -1572,6 +1626,16 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
             if errs:
                 raise Fail("; ".join(errs))
             sets[field] = {k: merged[k] for k in PAPER_KEYS}
+        if field in ("source_paper", "ai_assistance"):   # partial: given keys replace, the rest kept (#22.6)
+            keys = SOURCE_PAPER_KEYS if field == "source_paper" else AI_ASSISTANCE_KEYS
+            merged = dict(pkg.get(field) or {})
+            merged.update(value)
+            merged = {k: merged.get(k) for k in keys if merged.get(k) not in (None, [], "")}
+            check = source_paper_errors if field == "source_paper" else ai_assistance_errors
+            errs = check(merged, name)
+            if errs:
+                raise Fail("; ".join(errs))
+            sets[field] = merged
         if field == "notes" and isinstance(value, dict):   # --append-note: a dated, signed line (#32)
             line = f"{dt.datetime.now(dt.timezone.utc).date().isoformat()} ({value['agent']}): {value['text']}"
             prev = str(pkg.get("notes") or "").rstrip("\n")
@@ -3730,6 +3794,8 @@ def validate_registry(data) -> list[str]:
                                       f"palomar entry (palomar commits: {known})")
         errors += paper_errors(pkg.get("paper"), pfx)
         errors += namespace_notes_errors(pkg.get("namespace_notes"), pfx)
+        errors += source_paper_errors(pkg.get("source_paper"), pfx)
+        errors += ai_assistance_errors(pkg.get("ai_assistance"), pfx)
         if pkg.get("status") not in STATUSES:
             errors.append(f"{pfx}: bad status {pkg.get('status')!r} "
                           f"(allowed: {', '.join(STATUSES)})")
@@ -4482,7 +4548,7 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields (--notes replaces, prints the old value; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT`, not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
+update    set fields (--notes replaces, prints the old value; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT`, not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
@@ -4759,6 +4825,24 @@ def cmd_update(args) -> int:
             require_nonempty("--paper-arxiv", paper["arxiv"])
             paper["arxiv"] = paper["arxiv"].strip().removeprefix("arXiv:").removeprefix("arxiv:")
         sets["paper"] = paper
+    sp = {k: v for k, v in (("title", args.source_paper_title), ("authors", args.source_paper_author),
+                            ("arxiv", args.source_paper_arxiv), ("doi", args.source_paper_doi)) if v is not None}
+    if sp:
+        for k, flag in (("title", "--source-paper-title"), ("arxiv", "--source-paper-arxiv"),
+                        ("doi", "--source-paper-doi")):
+            if k in sp:
+                require_nonempty(flag, sp[k])
+                sp[k] = sp[k].strip()
+        if "arxiv" in sp:
+            sp["arxiv"] = sp["arxiv"].removeprefix("arXiv:").removeprefix("arxiv:")
+        if "doi" in sp:
+            sp["doi"] = re.sub(r"^(?:https?://(?:dx\.)?doi\.org/|doi:)", "", sp["doi"], flags=re.I)
+        if "authors" in sp:
+            sp["authors"] = [a.strip() for a in sp["authors"]]
+        sets["source_paper"] = sp
+    ai = {k: [x.strip() for x in v] for k, v in (("tools", args.ai_tool), ("roles", args.ai_role)) if v is not None}
+    if ai:
+        sets["ai_assistance"] = ai
     if args.append_note is not None:
         if args.notes is not None:
             raise UsageError("--append-note and --notes are mutually exclusive (--notes replaces the notes)")
@@ -5784,6 +5868,20 @@ def main(argv: list[str] | None = None) -> int:
                         "preprint)")
     s.add_argument("--paper-status", dest="paper_status", choices=PAPER_STATUSES,
                    help="the verified paper's status; promote refuses while unpublished without an arXiv id")
+    s.add_argument("--source-paper-title", dest="source_paper_title", metavar="TITLE",
+                   help="title of the formalized paper (source_paper.title; rendered into formalization.yaml "
+                        "acknowledgements, #22.6)")
+    s.add_argument("--source-paper-author", dest="source_paper_author", action="append", metavar="NAME",
+                   help="an author of the formalized paper (repeatable; the list replaces the recorded one). "
+                        "Credited in acknowledgements, never in project.authors; no consent needed")
+    s.add_argument("--source-paper-arxiv", dest="source_paper_arxiv", metavar="ID",
+                   help="arXiv id of the formalized paper (source_paper.arxiv)")
+    s.add_argument("--source-paper-doi", dest="source_paper_doi", metavar="DOI",
+                   help="DOI of the formalized paper (source_paper.doi)")
+    s.add_argument("--ai-tool", dest="ai_tool", action="append", metavar="TOOL",
+                   help="an AI tool used (repeatable; the list replaces the recorded one; ai_assistance.tools)")
+    s.add_argument("--ai-role", dest="ai_role", action="append", metavar="ROLE",
+                   help="what the AI tools did (repeatable; replaces; ai_assistance.roles)")
     s.add_argument("--append-note", dest="append_note", metavar="TEXT",
                    help="append a line `YYYY-MM-DD (AGENT): TEXT` (UTC date, --agent) to notes, keeping what is "
                         "there; --notes replaces instead")

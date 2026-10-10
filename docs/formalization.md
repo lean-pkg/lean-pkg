@@ -50,12 +50,47 @@ value that starts with `[PLACEHOLDER]`:
 |---|---|
 | `project.description` | placeholder |
 | `project.authors` | `--author NAME` (repeatable); else the file's non-placeholder authors; else `consent[]` entries with role `owner` or `author`, in record order; else placeholder. Never guessed from a name, a path or a Git identity |
-| `sources` | one placeholder entry (`relationship: formalizes`, `note` naming `owner_project` when set). The registry holds **no paper metadata** (its `doi` is the package's own DOI), so titles, authors and identifiers are never invented |
+| `sources` | one placeholder entry (`relationship: formalizes`, `note` naming `owner_project` when set). Titles, authors and identifiers are never invented (the registry's `doi` is the package's own DOI; the optional `source_paper` feeds `acknowledgements`, not this key) |
 | `related_formalizations` | a Mathlib `builds-on` row when `mathlib_pin` is set |
 | `status.scope` | placeholder |
 | `automation.methods` | `[{method: other}]`; refine by hand (`manual`, `copilot`, `agent`, `autonomous`, models, framework, cost) |
 | `review` | `status: unchecked` with a note that no human review status is recorded in the registry |
-| `classification`, `fidelity`, `acknowledgements`, `repository`, `responsible_maintainers`, `alignment` without a `claims.yaml`, any extra key | nothing; add by hand |
+| `acknowledgements` | hand-written text is kept; the renderer adds (and refreshes on every run) one line per registry field: `Formalizes results of TITLE by AUTHORS (arXiv:ID / doi:DOI).` from `source_paper`, `AI assistance: TOOLS for ROLES.` from `ai_assistance` (see [Authorship](#authorship)) |
+| `classification`, `fidelity`, `repository`, `responsible_maintainers`, `alignment` without a `claims.yaml`, any extra key | nothing; add by hand |
+
+### Authorship
+
+`project.authors` is who did the formalization, and only that: formalizers
+are seeded from `consent[]` entries with role `owner` or `author`, and
+consent applies to them alone. The authors of the formalized paper are
+bibliographic credit, not formalizers, and need no consent row. Record the
+paper and any AI assistance in the registry:
+
+```bash
+lean-pkg update my-lean --source-paper-title "On Widgets" \
+  --source-paper-author "Ada Coauthor" --source-paper-author "Bo Coauthor" \
+  --source-paper-arxiv 2410.01234 --ai-tool ToolA --ai-role "proof search"
+```
+
+The renderer writes them into schema fields only, as lines of the
+`acknowledgements` string:
+
+```yaml
+acknowledgements: |-
+  Thanks to the Mathlib community.
+  Formalizes results of On Widgets by Ada Coauthor and Bo Coauthor (arXiv:2410.01234).
+  AI assistance: ToolA for proof search.
+```
+
+Lines starting `Formalizes results of ` or `AI assistance: ` belong to the
+renderer and are replaced on every run, so a re-render never duplicates
+them (edit the registry fields, not those lines); every other line is kept
+verbatim. They count as derived for the evidence-only rule. The rationale is
+schema conformance first: v0.4 has no `formalizers`, `source_paper` or
+`ai_assistance` keys, and the file must validate for Palomar. A split of
+those roles into their own keys is proposed upstream; until the schema has
+them, `sources[]` (also kept, filled by hand) and `acknowledgements` carry
+the credit.
 
 Every placeholder is reported on stderr as
 `lean-pkg: warning: placeholder at sources[0].title …` and listed under
