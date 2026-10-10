@@ -1018,15 +1018,16 @@ def do_index_check(root: pathlib.Path, names: list[str], repo_dir: str | None,
             continue
         reports.append(check_entry(root, n, repo_dir, clone_it, seen))
     ok = all(r["ok"] for r in reports)
-    lines = []
+    summary = (f"{len(reports)} entr{'y' if len(reports) == 1 else 'ies'} checked: "
+               + ("all pass" if ok else "FAILED"))
+    lines = [summary]           # #44: the verdict before the per-entry lines, and again last
     for r in reports:
         tag = "PASS" if r["ok"] else "FAIL"
         what = r.get("trust_computed") or r.get("trust_stated") or "?"
         mech = f", {r['mechanism']}" if r.get("mechanism") else ""
         lines.append(f"{tag} {r['name']} ({what}{mech})")
         lines += [f"  fail: {x}" for x in r["failures"]] + [f"  note: {x}" for x in r["notes"]]
-    lines.append(f"{len(reports)} entr{'y' if len(reports) == 1 else 'ies'} checked: "
-                 + ("all pass" if ok else "FAILED"))
+    lines.append(summary)
     mode = "bytes" if (repo_dir or clone_it) else "static"
     return lines, {"ok": ok, "mode": mode, "index": str(root), "entries": reports}, (0 if ok else 1)
 

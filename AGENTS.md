@@ -61,6 +61,11 @@ characters, and write a test for every refusal path you add. When you change
 `LLMS_TEXT`, regenerate `llms.txt`; `tests/test_docs.py` enforces this. AI
 assistance must be disclosed in the PR description (see CONTRIBUTING.md).
 
+Verdict first: every command that lists findings (`public-safety`, `audit`,
+`index check`, `validate`, and any new scanner) prints its verdict and counts
+before the list, and again last when the list can be long, because tool output
+windows truncate. `tests/test_verdict_first.py` checks the first line.
+
 Documentation at milestones: before `make release`, fill the documentation
 gaps for every feature added since the previous pass: README.md, the routes in
 docs/index.md and docs/how-to.md, the docs/cli.md rows, and the agent contract

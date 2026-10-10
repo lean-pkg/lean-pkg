@@ -3428,22 +3428,27 @@ def audit_counts(findings: list[dict]) -> dict[str, int]:
 NO_GITHUB_MIRROR_DETAIL = "repo is not on GitHub; visibility not mirrored"
 
 
+def audit_count_line(findings: list[dict]) -> str:
+    c = audit_counts(findings)
+    return f"{len(findings)} finding(s): {c['warn']} warn, {c['info']} info"
+
+
 def render_findings(findings: list[dict]) -> list[str]:
     """Human audit output: no-github-mirror and gh-skipped findings collapse into one summary line
-    each; a last line counts every finding by level ("N finding(s): W warn, I info")."""
+    each; the count line ("N finding(s): W warn, I info") comes first (#44: verdict first, so a truncated
+    window still shows it) and again last, where scripts read it."""
     mirror = [f["name"] for f in findings if f["check"] == "no-github-mirror"]
     skipped = [f["name"] for f in findings if f["check"] == "gh-skipped"]
     shown = [f for f in findings if f["check"] not in ("no-github-mirror", "gh-skipped")]
     width = max([0] + [len(f["check"]) + 2 for f in shown])   # check column: longest code + 2
-    lines = [render_finding(f, width) for f in shown]
+    lines = ([audit_count_line(findings)] if findings else []) + [render_finding(f, width) for f in shown]
     if mirror:
         lines.append(f"{len(mirror)} package(s) without a GitHub mirror (visibility not checked): "
                      + ", ".join(mirror))
     if skipped:
         lines.append(f"{len(skipped)} package(s): gh checks skipped (--no-gh): " + ", ".join(skipped))
     if findings:
-        c = audit_counts(findings)
-        lines.append(f"{len(findings)} finding(s): {c['warn']} warn, {c['info']} info")
+        lines.append(audit_count_line(findings))
     return lines
 
 
@@ -4683,11 +4688,11 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), (paper field) a paper unpublished with no arXiv id, and blocking public-safety hits (warn-only hits: a WARN line; skip: --skip-public-safety, a WARN). Evidence on disk that git ignores (receipts, comparator logs, comparator-stages/ files) is a WARN naming each path + rule (.gitignore:3:*.log) and the remedy (!.lean-receipts/ + !**/.lean-receipts/** after it, or git add -f); a not-committed ✗ names the rule; JSON ignored_evidence[{path, rule}] (also publish, and gate/comparator after attaching: stderr WARN).
-  ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, lakefile package name, tag at HEAD (--public-safety: + the scan below, implies --dry-run); prints the next promote/tag/record commands (the tag push names the GitHub remote, found by URL); exit 0 ready / 1 not   |   public-safety NAME [--history|--no-history] [--strict] (read-only): tree git would ship + (default) every blob/commit message on any ref under the package dir, for .lean-pkg-private-patterns regexes (# comments; bare or `block: RE` blocks, `warn: RE` warns, `allow: RE` exempts; `TAG: GLOB: RE` scopes any of the three to files whose package-relative path matches GLOB (* ** ?; no / = file name at any depth; trailing / = under that dir; never commit messages); tracked = a hit), built-ins (/home/<u>/, /Users/<u>/, ~/Dropbox/, approvals/, notes/, *.private, TODO-private, emails not declared), names from the record's local_path/agent/workspace and its lease's agent/workspace/contact (an allow line exempts one only where its match in the token's non-space run covers it), internal paths (approvals/ notes/ drafts/ scratch/ *.priv), warn-only latex-label (lem:/thm:/eq:/sec:... keys, main.tex, \\ref{ \\cite{ \\label{, Overleaf, arXiv ids; Lean-calibrated: never inside a name like foo_eq_bar, eq/def/ex only with `:`, key- only with a digit/capital/inner `.`, built-in allow def-eq defeq eq-of eq-iff ex-falso; the summary counts its warnings); hit = location (path:line, history: commit + path) + pattern label + severity (block|warn; warn printed as WARN) + excerpt with each match as […] (raw strings never printed); --json {ok, hits[], tree_hits, history_hits, block_hits, warn_hits, latex_label_hits, strict, patterns_source, warnings[]}; exit 1 on blocking hits (--strict: on any hit)   |   reservoir check NAME [--offline] (read-only): public, not a fork, >=2 stars (gh), lake-manifest.json + lean-toolchain tracked, LICENSE vs license_spdx, lakefile package + no `reservoir := false` (+ WARN without description/keywords/versionTags), lean-toolchain a release (rc/nightly: WARN), tag at HEAD; not yet public: GitHub items `pending promote: ...` (still ✗) + a `pre-promote:` line; then the Reservoir API (200: prints the `record ... reservoir-listed` command; never records itself); exit 0 eligible / 1 not   |   palomar prepare NAME [--out DIR] [--dry-run] (no network; submits nothing): bundle at <checkout>/.lean-receipts/palomar-<HEAD12>/ (never overwritten): formalization.yaml (rendered, schema-valid), configs/<every comparator config at HEAD>, receipts/<gate + comparator receipts, validated against HEAD>, README.txt (manual steps + Palomar URL + the record palomar-submitted command), MANIFEST.sha256; refused without receipts bound to HEAD, without consent, on blocking public-safety hits in the bundle; event palomar-prepared {commit, bundle, bundle_sha256}
+  ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, lakefile package name, tag at HEAD (--public-safety: + the scan below, implies --dry-run); prints the next promote/tag/record commands (the tag push names the GitHub remote, found by URL); exit 0 ready / 1 not   |   public-safety NAME [--history|--no-history] [--strict] [--quiet] (read-only; --quiet: summary + verdict, no hit lines): tree git would ship + (default) every blob/commit message on any ref under the package dir, for .lean-pkg-private-patterns regexes (# comments; bare or `block: RE` blocks, `warn: RE` warns, `allow: RE` exempts; `TAG: GLOB: RE` scopes any of the three to files whose package-relative path matches GLOB (* ** ?; no / = file name at any depth; trailing / = under that dir; never commit messages); tracked = a hit), built-ins (/home/<u>/, /Users/<u>/, ~/Dropbox/, approvals/, notes/, *.private, TODO-private, emails not declared), names from the record's local_path/agent/workspace and its lease's agent/workspace/contact (an allow line exempts one only where its match in the token's non-space run covers it), internal paths (approvals/ notes/ drafts/ scratch/ *.priv), warn-only latex-label (lem:/thm:/eq:/sec:... keys, main.tex, \\ref{ \\cite{ \\label{, Overleaf, arXiv ids; Lean-calibrated: never inside a name like foo_eq_bar, eq/def/ex only with `:`, key- only with a digit/capital/inner `.`, built-in allow def-eq defeq eq-of eq-iff ex-falso; the summary counts its warnings); hit = location (path:line, history: commit + path) + pattern label + severity (block|warn; warn printed as WARN) + excerpt with each match as […] (raw strings never printed); --json {ok, hits[], tree_hits, history_hits, block_hits, warn_hits, latex_label_hits, strict, patterns_source, warnings[]}; exit 1 on blocking hits (--strict: on any hit)   |   reservoir check NAME [--offline] (read-only): public, not a fork, >=2 stars (gh), lake-manifest.json + lean-toolchain tracked, LICENSE vs license_spdx, lakefile package + no `reservoir := false` (+ WARN without description/keywords/versionTags), lean-toolchain a release (rc/nightly: WARN), tag at HEAD; not yet public: GitHub items `pending promote: ...` (still ✗) + a `pre-promote:` line; then the Reservoir API (200: prints the `record ... reservoir-listed` command; never records itself); exit 0 eligible / 1 not   |   palomar prepare NAME [--out DIR] [--dry-run] (no network; submits nothing): bundle at <checkout>/.lean-receipts/palomar-<HEAD12>/ (never overwritten): formalization.yaml (rendered, schema-valid), configs/<every comparator config at HEAD>, receipts/<gate + comparator receipts, validated against HEAD>, README.txt (manual steps + Palomar URL + the record palomar-submitted command), MANIFEST.sha256; refused without receipts bound to HEAD, without consent, on blocking public-safety hits in the bundle; event palomar-prepared {commit, bundle, bundle_sha256}
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
-  nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once); a failed gh query: check gh-OUTCOME, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); human line `LEVEL  CHECK  NAME: DETAIL` + last line "N finding(s): W warn, I info"; --json counts {warn, info}; --no-gh: gh-skipped (info); missing-path: recorded path + `update NAME --path DIR --reason .. --dry-run` (+ "found at DIR": a sibling with lakefile + same remote). ex: lean-pkg audit --json
+  nightly -> toolchain-unparsed, scratch/archived exempt; floor is warn only for public/comparator-evidence packages or --promotion, else level info; --json findings carry level warn|info; repo not on GitHub -> no-github-mirror (human: one line); informational: receipt-untracked (receipt file not tracked at the tip), duplicate-path (two packages, one checkout), duplicate-namespace (two checkouts, one Lean root namespace), consent-duplicate (one who+role recorded twice; shown once); a failed gh query: check gh-OUTCOME, gh = gh-missing|not-authenticated|no-access|not-found|error, detail names the remedy (archived + not-found: info); human line `LEVEL  CHECK  NAME: DETAIL`, the line "N finding(s): W warn, I info" first and last (--quiet: it alone); --json counts {warn, info}; --no-gh: gh-skipped (info); missing-path: recorded path + `update NAME --path DIR --reason .. --dry-run` (+ "found at DIR": a sibling with lakefile + same remote). ex: lean-pkg audit --json
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 next      NAME [--agent A] read-only, offline (never gh, never writes): the ONE recommended next command + a one-line reason, from the record + checkout (claim / update --status / gate --check / gate / comparator-receipt / comparator config --from-claims / comparator / publish --dry-run / reservoir check / palomar prepare / record ...); without --agent a live lease is only noted; a checkout off its default branch (or detached) is noted, HEAD still judged; exit 0 command (or nothing left: command null), 1 blocked; --json {ok, name, command, reason, blockers[{kind: foreign-lease|invalid-lease|missing-checkout|no-commit|dirty-tree|invalid-receipt|unreadable-receipt, detail}], notes[], state{status, lease, gate_commit, comparator_commit, head, dirty[], receipt_candidate, ...}}. ex: lean-pkg next my-lean --agent vera --json
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed; tool comparator without bwrap: run `comparator host-check`), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
@@ -5175,7 +5180,10 @@ def cmd_audit(args) -> int:
         print_json({"ok": True, "fix": args.fix, "findings": findings, "fixed": len(fixed),
                     "counts": audit_counts(findings)})
     else:
-        print("\n".join(render_findings(findings)) if findings else "no findings")
+        if not findings:
+            print("no findings")
+        else:   # --quiet (#44): the count line only
+            print(audit_count_line(findings) if args.quiet else "\n".join(render_findings(findings)))
     if fixed:
         print(f"audit --fix wrote {len(fixed)} change(s): commit {reg_path.name} and {events_p.name} together",
               file=sys.stderr)
@@ -5784,10 +5792,13 @@ def cmd_validate(args) -> int:
     if args.json_out:
         print_json({"ok": not errors, "valid": not errors, "errors": errors,
                     "registry": str(reg_path)})
-    else:
+    elif not errors:
+        print("\nVALID")
+    else:   # #44: the verdict before the list and again last
+        print(f"INVALID ({len(errors)} error(s))")
         for e in errors:
             print(f"  FAIL {e}")
-        print("\nVALID" if not errors else f"\nINVALID ({len(errors)} error(s))")
+        print(f"\nINVALID ({len(errors)} error(s))")
     return 1 if errors else 0
 
 
@@ -6181,6 +6192,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="judge every package against the toolchain floor as for promote (warn, not info)")
     s.add_argument("--no-gh", action="store_true",
                    help="skip the GitHub (gh) checks: visibility and archived state are not compared")
+    s.add_argument("--quiet", action="store_true",
+                   help="only the count line (\"N finding(s): W warn, I info\", or \"no findings\"); no "
+                        "per-finding line (--json is unchanged)")
     add_json(s)
     s.set_defaults(fn=cmd_audit)
 

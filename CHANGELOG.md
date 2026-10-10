@@ -7,6 +7,11 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `public-safety --quiet` and `audit --quiet`: only the summary and verdict lines with their counts, no per-hit or
+  per-finding line; exit codes and `--json` unchanged. (#44)
+
 ### Changed
 
 - AGENTS.md and docs/agents.md state that `import lean_pkg` is not a supported interface: the CLI and its `--json`
@@ -17,6 +22,12 @@ change the registry schema or receipt format, always with a migration).
   output and the `fields` list carry the record key. `tests/test_columns.py` reads the headers of `list`, `board`,
   `leases` and the labels of the text `status` record from the rendered output and fails when a column has no
   `--fields` key or `--json` does not emit it (`leases`' derived `STATE` column maps to `live`/`invalid`). (#45)
+- Verdict first (#44), now an AGENTS.md rule tested by `tests/test_verdict_first.py`: `audit` prints its count line
+  "N finding(s): W warn, I info" before the findings as well as last; `index check` prints "N entries checked: all
+  pass|FAILED" before the per-entry lines as well as last; `validate` prints `INVALID (N error(s))` before the
+  `FAIL` lines as well as last. The last line of each is unchanged. `public-safety` already led with its summary.
+- For callers of the Python module (not a supported API): `public_safety.report_lines(name, result, quiet=False)`
+  gains the keyword `quiet`; existing two-argument calls are unaffected.
 
 ## [0.7.18] - 2026-10-10
 

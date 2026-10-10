@@ -129,7 +129,7 @@ def test_doctor_time_ok_when_every_timestamp_has_an_offset(lp, env, capsys):
 def test_audit_findings_align_to_the_longest_check(lp):
     findings = [{"check": "x", "name": "a", "detail": "d"},
                 {"check": "a-very-long-check-name-here", "name": "b", "detail": "e"}]
-    lines = lp.render_findings(findings)
+    lines = lp.render_findings(findings)[1:]      # [0] is the count line (#44: verdict first)
     assert lines[0].index("a: d") == lines[1].index("b: e")
 
 

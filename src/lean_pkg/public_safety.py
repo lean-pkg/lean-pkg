@@ -572,11 +572,12 @@ def hit_line(h: dict) -> str:
     return f"  {mark}{h['where']:<7}  {loc}  [{h['pattern']}]  {h['excerpt']}"
 
 
-def report_lines(name: str, result: dict) -> list[str]:
+def report_lines(name: str, result: dict, quiet: bool = False) -> list[str]:
     """The human report. The summary line names no path (#38): it is pasted into release notes
     verbatim, and the checkout is the one the registry record names. With hits, the verdict line comes
     right after the summary and patterns lines and again last; blocking hits are listed before the
-    warn-only ones, which follow under a count line. --json is not affected."""
+    warn-only ones, which follow under a count line. quiet (#44): the summary, patterns, warn-only count
+    and verdict lines only, the verdict once; no WARN or hit line. --json is not affected."""
     src = result["patterns_source"]
     n = len(result["hits"])
     nb, nw = result["block_hits"], result["warn_hits"]
@@ -598,6 +599,10 @@ def report_lines(name: str, result: dict) -> list[str]:
     else:
         verdict = (f"{len(fail)} blocking hit(s): fix the tree (and rewrite history), or publish a fresh-history "
                    f"tree with `lean-pkg release {name} --fresh-repo DIR`")
+    if quiet:
+        if rest:
+            lines.append(f"  warn-only hit(s): {len(rest)} ({warn_families(rest)}); they do not block")
+        return lines + [verdict]
     if n:
         lines.append(verdict)   # also up front: dozens of warn lines must not push the verdict out of view
     lines += [f"  WARN {w}" for w in result["warnings"]]
@@ -639,7 +644,7 @@ def cmd_public_safety(args) -> int:
     if getattr(args, "json_out", False):
         core.print_json(dict(result, name=args.name))
     else:
-        print("\n".join(report_lines(args.name, result)))
+        print("\n".join(report_lines(args.name, result, quiet=getattr(args, "quiet", False))))
     return 0 if result["ok"] else 1
 
 
@@ -651,5 +656,8 @@ def add_parsers(sub, add_json) -> None:
                    help="also scan every blob and commit message reachable from any ref (default: on)")
     s.add_argument("--strict", action="store_true",
                    help="warn-only hits (latex-label, `warn:` lines) fail the scan too (exit 1)")
+    s.add_argument("--quiet", action="store_true",
+                   help="only the summary, patterns, warn-only count and verdict lines; no per-hit line "
+                        "(--json is unchanged)")
     add_json(s)
     s.set_defaults(fn=cmd_public_safety)
