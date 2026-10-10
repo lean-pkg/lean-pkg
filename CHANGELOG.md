@@ -7,6 +7,11 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- AGENTS.md and docs/agents.md state that `import lean_pkg` is not a supported interface: the CLI and its `--json`
+  outputs are; internal function signatures may change in any release, and a change gets a CHANGELOG line. (#46)
+
 ## [0.7.18] - 2026-10-10
 
 ### Added

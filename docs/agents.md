@@ -35,6 +35,12 @@ every subcommand has `--json`, and the contract an agent needs is one file.
 6. Treat every refusal as a named fact to report, not an obstacle to work
    around. Refusals are the product.
 
+The CLI and its `--json` outputs are the interface. `import lean_pkg` is not a
+supported API: internal function signatures may change in any release, without
+a deprecation period. A changed signature gets a CHANGELOG line (as
+`public_safety.report_lines(name, result)` did for 0.7.14), so call the CLI,
+not the module.
+
 To report a problem with the tool itself, run `lean-pkg report --command "ARGS"` (add `--package NAME` when it
 concerns one package): it prints a redacted issue body in the repository's template; `--yes` files it.
 

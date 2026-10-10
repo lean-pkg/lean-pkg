@@ -21,6 +21,11 @@ The rules that matter most:
   a host in `COMPARATOR_RECEIPT_ALLOWED_HOSTS`, or an explicit
   `COMPARATOR_RECEIPT_ALLOW_HOST=1`).
 
+The supported interface is the CLI and its `--json` outputs. `import lean_pkg`
+is not: internal function signatures may change in any release. When one
+changes, the CHANGELOG says so (as it did for `public_safety.report_lines` in
+0.7.14), but script against the CLI, not the module.
+
 ## Skills
 
 [skills/README.md](skills/README.md) indexes agent skills for LLM-assisted
