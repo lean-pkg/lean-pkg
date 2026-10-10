@@ -134,17 +134,71 @@ pre-publication project names, paths, notes, and status history.
 A future one-command bootstrap such as `lean-pkg init --global` is proposed in
 the [roadmap](ROADMAP.md); it is not implemented yet.
 
+## What it does
+
+*register → claim → gate → comparator → publish → index*
+
+| Step | Commands | What it gives you |
+|---|---|---|
+| register | `lean-pkg register`, `update` | one record per package; `register` is the only way in |
+| claim | `lean-pkg claim`, `renew`, `release`, `leases` | a lease (24 h by default), so two people or agents never work on one package unknowingly |
+| gate | `lean-pkg gate` | the lower-tier receipt (build, no `sorry`, axioms) moves the package to `verified-private` |
+| comparator | `comparator-receipt`, `lean-pkg comparator` | the comparator receipt: trusted statements against untrusted proofs, replayed in a second kernel |
+| publish | `lean-pkg publish --dry-run`, `promote` | one read-only checklist to listed, then the one-way flip to public |
+| index | `lean-pkg index add`, `index check --clone` | a [field index](docs/index-catalog.md) entry whose trust (`lower-tier`, `comparator`, `palomar`) is computed from the evidence, never typed |
+
+Safety nets, before anything is public:
+
+- `lean-pkg public-safety NAME` scans the tree and the whole git history for
+  private strings; `promote` refuses while blocking hits remain.
+- `lean-pkg release NAME --fresh-repo DIR` (or `--adopt-repo DIR`) gives a
+  package incubated beside a paper a fresh public history; see
+  [Publishing a package incubated beside private work](docs/receipts.md#publishing-a-package-incubated-beside-private-work).
+- `lean-pkg comparator host-check` says whether this machine can produce
+  comparator receipts at all, before a long run.
+- `lean-pkg audit` reports expired leases, receipt drift and GitHub
+  visibility mismatches.
+
+Two files live in each package repository. `claims.yaml` (schema `claims/1`)
+names the results someone might reuse; `lean-pkg claims sync`, `claims list`
+and `claims check` cache and validate them, and `lean-pkg search` searches them
+with the index and public sources ([Prior-art search](docs/prior-art.md)).
+`formalization.yaml` is the mathlib-initiative self-report Palomar reads;
+`lean-pkg formalization NAME` renders it from the registry and the receipts
+([formalization.yaml](docs/formalization.md)).
+
+After the flip:
+
+- **Reservoir:** `lean-pkg reservoir check NAME` checks the listing criteria
+  before you wait for Reservoir to list the package.
+- **Palomar:** `lean-pkg palomar prepare NAME` builds the submission bundle
+  locally; nothing is sent.
+- **Zenodo:** archive each GitHub release for a DOI and record it with
+  `lean-pkg record NAME doi-minted`; lean-pkg itself is archived under
+  [10.5281/zenodo.23272098](https://doi.org/10.5281/zenodo.23272098).
+
 ## Learn the workflow
 
 | If you are | Start with |
 |---|---|
 | new to Lean | [Start here](docs/newcomers.md): a one-to-two-week reading path (Functional Programming in Lean, Chapter 1, and the Math 7800 lectures), then the sample |
 | ready to try it | [Sample workflow](docs/sample-workflow.md): a real package, register to promotion dry run, every command and output |
-| looking something up | [How to](docs/how-to.md) · [CLI reference](docs/cli.md) · [Receipts and trust](docs/receipts.md) · [The comparator tier](docs/comparator.md) · [The index](docs/index-catalog.md) · [Prior-art search](docs/prior-art.md) · [Lifecycle](docs/lifecycle.md) |
+| looking something up | [How to](docs/how-to.md) · [CLI reference](docs/cli.md) · [Receipts and trust](docs/receipts.md) · [The comparator tier](docs/comparator.md) · [formalization.yaml](docs/formalization.md) · [The index](docs/index-catalog.md) · [Prior-art search](docs/prior-art.md) · [Lifecycle](docs/lifecycle.md) |
 | an agent | [llms.txt](llms.txt) · [AGENTS.md](AGENTS.md) · [Using lean-pkg with agents](docs/agents.md) · [Agent skills](skills/README.md) |
 | stuck | [FAQ](docs/faq.md) |
 
 Documentation site: <https://lean-pkg.github.io/lean-pkg/>.
+
+## For collaborators
+
+Joining someone else's package? Accept the GitHub invitations, log in with
+`gh auth login`, clone this repository, and run
+`bash scripts/bootstrap-collaborator.sh OWNER/PACKAGE`: it checks the machine
+and your access, installs lean-pkg, clones the package and sets up your own
+committed registry. Then follow
+[Add the comparator tier to an existing package](docs/existing-package-comparator.md)
+step by step. Trying the tool cold, from the documentation alone? Record what
+happened with the [stranger test](docs/stranger-test.md) template.
 
 ## Requirements
 
@@ -163,8 +217,10 @@ assistance; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Citation
 
-A Zenodo DOI will be minted for the first public release. Until then, cite
-the repository at a commit:
+Releases are archived on Zenodo: the concept DOI
+[10.5281/zenodo.23272098](https://doi.org/10.5281/zenodo.23272098) resolves to
+the latest release, and [CITATION.cff](CITATION.cff) lists it with the version
+DOIs. To cite a state between releases, cite the repository at a commit:
 
 ```bibtex
 @software{lean_pkg,
