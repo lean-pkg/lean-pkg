@@ -2672,6 +2672,17 @@ def migrate_registry(data: dict) -> tuple[dict, list[str]]:
             if k not in pkg:
                 pkg[k] = copy.deepcopy(default)
                 changes.append(f"{name}: + {k}")
+        # #21.4: a row stored before #17 as a literal `~/x` resolves to $HOME/~/x; rewrite it through the
+        # one normaliser. `~user` and a bare `~` are not rewritten (normalize_local_path refuses them).
+        lp_ = pkg.get("local_path")
+        if isinstance(lp_, str) and lp_.strip().startswith("~/"):
+            try:
+                stored, _key = normalize_local_path(lp_)
+            except Fail:
+                stored = None
+            if stored is not None and stored != lp_:
+                pkg["local_path"] = stored
+                changes.append(f"{name}: local_path {lp_!r} -> {stored!r} (legacy literal ~/, #17)")
     return out, changes
 
 
@@ -4417,7 +4428,7 @@ list      static table; --only NAME[,NAME] filters packages (full records, shape
 status    full record + last 5 history entries; --fields a,b.c: only those keys (dotted paths; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
-          v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent). ex: lean-pkg migrate --dry-run
+          v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent; a legacy literal ~/x local_path is rewritten $HOME-relative). ex: lean-pkg migrate --dry-run
 record    record a D5 evidence event; validated before writing (a schema error it introduces refuses, rule named, nothing written); --field keys (all required, others refused; commit 40-hex, version integer):
           consent-recorded: who role pointer (a /home, /Users, ~ path: WARN + private_strings; same who+role+pointer again: already recorded, exit 0) | palomar-preflight-pass: commit run (same commit+run again: already recorded, exit 0)
           palomar-submitted: commit submission_id comparator_config | palomar-review: commit outcome(neutral|revision_required|rejected)

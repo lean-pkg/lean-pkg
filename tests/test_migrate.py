@@ -102,3 +102,31 @@ def test_validate_checks_doi_binding_on_v1_registry(lp, tmp_path, capsys):
     assert lp.main(["--registry", str(reg), "validate"]) == 1
     out = capsys.readouterr().out
     assert c[:12] in out and "palomar" in out
+
+
+def test_migrate_rewrites_legacy_tilde_local_paths(lp, tmp_path, monkeypatch, capsys):
+    """#21.4: rows stored before #17 as a literal `~/x` resolved to $HOME/~/x; migrate rewrites them
+    through the normaliser ($HOME-relative), leaves other paths alone, and is idempotent."""
+    reg = copy_v1(tmp_path)
+    assert lp.main(["--registry", str(reg), "migrate"]) == 0
+    data = yaml.safe_load(reg.read_text())
+    names = list(data["packages"])
+    data["packages"][names[0]]["local_path"] = "~/src/legacy-pkg/"
+    if len(names) > 1:
+        data["packages"][names[1]]["local_path"] = "~other/pkg"
+    reg.write_text(yaml.safe_dump(data, sort_keys=False))
+    keep = data["packages"][names[1]]["local_path"] if len(names) > 1 else None
+    capsys.readouterr()
+    assert lp.main(["--registry", str(reg), "migrate", "--dry-run", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert any("legacy literal ~/" in c for c in payload["changes"])
+    assert yaml.safe_load(reg.read_text())["packages"][names[0]]["local_path"] == "~/src/legacy-pkg/"
+    assert lp.main(["--registry", str(reg), "migrate"]) == 0
+    after = yaml.safe_load(reg.read_text())["packages"]
+    assert after[names[0]]["local_path"] == "src/legacy-pkg"
+    assert lp.repo_path(after[names[0]]) == lp.HOME / "src" / "legacy-pkg"
+    if keep is not None:
+        assert after[names[1]]["local_path"] == keep                # ~user is never guessed
+    capsys.readouterr()
+    assert lp.main(["--registry", str(reg), "migrate"]) == 0
+    assert "nothing to do" in capsys.readouterr().out
