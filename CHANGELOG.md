@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.13] - 2026-10-10
+
 ### Fixed
 
 - Git-ignored evidence is reported before promote time. A default `.gitignore` with `*.log` silently hid the
