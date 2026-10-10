@@ -381,3 +381,76 @@ def test_jobs_env_and_bad_values(tmp_path: Path):
 def test_legacy_refuses_judges(project: Path):
     r = run(project, "--judges", "2", mechanism="legacy", extra={"COMPARATOR_FAKE_LAKE_OK": "0"})
     assert r.returncode == 1 and "cannot be sharded" in r.stderr
+
+
+# --- --slots ----------------------------------------------------------------------------------
+
+def mk_slots(rows):
+    from lean_pkg.comparator_stage import Slot
+    return [Slot(i, c, n) for i, (c, n) in enumerate(rows, 1)]
+
+
+def test_parse_slot_spec_forms_and_refusals():
+    from lean_pkg.comparator_stage import parse_slot_spec
+    sl = mk_slots([("a.json", "X.p"), ("a.json", "X.q"), ("a.json", "Y.r"), ("b.json", "X.p"),
+                   ("b.json", "Z.s")])
+    names = lambda spec: [(s.config, s.name) for s in parse_slot_spec(spec, sl)]   # noqa: E731
+    assert names("2-3") == [("a.json", "X.q"), ("a.json", "Y.r")]
+    assert names("Z.s,1") == [("a.json", "X.p"), ("b.json", "Z.s")]
+    assert names("b.json:X.p") == [("b.json", "X.p")]
+    assert names("4, 4,5") == [("b.json", "X.p"), ("b.json", "Z.s")]
+    for bad, needle in (("X.p", "several configurations"), ("Nope", "no such slot"),
+                        ("0", "1..5"), ("4-9", "1..5"), ("sample:0", "positive"), (" , ", "no slot")):
+        with pytest.raises(ValueError, match=needle):
+            parse_slot_spec(bad, sl)
+
+
+def test_stratified_sample_spreads_across_namespaces():
+    from lean_pkg.comparator_stage import stratified_sample
+    rows = [("c.json", f"A.t{i}") for i in range(6)] + [("c.json", f"B.t{i}") for i in range(3)] \
+        + [("c.json", "C.only")]
+    picked = stratified_sample(mk_slots(rows), 3)
+    assert sorted({s.name.split(".")[0] for s in picked}) == ["A", "B", "C"]
+    assert [s.index for s in picked] == sorted(s.index for s in picked)
+    assert len(stratified_sample(mk_slots(rows), 99)) == len(rows)
+    assert stratified_sample(mk_slots(rows), 4) == stratified_sample(mk_slots(rows), 4)  # deterministic
+
+
+def test_slots_subset_writes_a_partial_receipt_outside_the_repo(tmp_path: Path, lp):
+    project = two_configs(tmp_path)
+    log = tmp_path / "calls.txt"
+    r = run(project, "--slots", "2,B.three", extra={"STUB_CALLS": str(log)})
+    assert r.returncode == 0, r.stderr
+    assert "PARTIAL comparator receipt" in r.stdout and "diagnostic only" in r.stdout
+    assert "refused as evidence" in r.stdout
+    assert not (project / ".lean-receipts").exists()
+    assert sorted(c.split()[1] for c in calls(log)) == ["A.two", "B.three"]
+    head = git(project, "rev-parse", "HEAD")
+    pr = stage_dir(project) / f"{head[:12]}-comparator.partial.json"
+    comp = json.loads(pr.read_text())
+    assert comp["partial"] is True and comp["slots_total"] == 3
+    assert [s["name"] for s in comp["slots"]] == ["A.two", "B.three"]
+    assert "--slots: 2 of 3 slot(s) (2-3)" in stage_log(project)
+    comp.pop("test_only", None)
+    with pytest.raises(lp.Fail, match="partial"):
+        lp.validate_comparator({}, project, comp, None)
+    log.unlink()
+    r = run(project, extra={"STUB_CALLS": str(log)})          # the full run reuses what --slots judged
+    assert r.returncode == 0, r.stderr
+    assert [c.split()[1] for c in calls(log)] == ["A.one"]
+    assert receipt(project)["resumed_slots"] == 2
+
+
+def test_slots_refusals_write_nothing(project: Path):
+    r = run(project, "--slots", "nope")
+    assert r.returncode == 1 and "no such slot" in r.stderr and "nothing written" in r.stderr
+    assert not stage_dir(project).exists()
+    r = run(project, "--slots", "1", mechanism="legacy", extra={"COMPARATOR_FAKE_LAKE_OK": "0"})
+    assert r.returncode == 1 and "cannot judge a subset" in r.stderr
+
+
+def test_slots_selecting_everything_is_a_full_run(tmp_path: Path):
+    project = two_configs(tmp_path)
+    r = run(project, "--slots", "1-3")
+    assert r.returncode == 0, r.stderr
+    assert "partial" not in receipt(project)

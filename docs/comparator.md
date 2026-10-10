@@ -600,6 +600,21 @@ runs `lake exe cache get` (inside `verify-comparator.sh`). Whether sharding
 saves time at all depends on how much of their export closure the shards
 share (see Runtime).
 
+**A subset of the slots.** `--slots SPEC` judges only the slots SPEC names:
+comma-separated slot names, `<config>:<name>` when a name occurs in several
+configurations, 1-based indices or ranges `i-j` over all configurations in
+order, or `sample:K`, the stratified sample `--estimate` uses (round-robin
+over the strata configuration plus namespace of the name, the closest proxy
+for the module that a configuration carries). A SPEC that matches nothing is
+refused before any setup runs. A subset run writes a PARTIAL receipt,
+`<commit12>-comparator.partial.json` with its logs, into the stage
+directory, never into the repository; it is marked `partial: true` and lists
+`slots` and `slots_total`. It is diagnostic only: `lean-pkg comparator`,
+`gate --comparator` and `promote` refuse it as evidence, and the runner says
+so. The slots it judged are cached, so the full run that follows skips them.
+A SPEC that selects every slot is a full run. The legacy mechanism refuses
+`--slots`.
+
 `comparator-receipt --prepare` runs only the setup stages and writes no
 receipt. It is idempotent: a second `--prepare` with a matching completed
 setup does nothing. A later `comparator-receipt` whose commit, toolchain and

@@ -47,7 +47,7 @@ from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
 from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
                                JOBS_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, list_slots,
-                               ranges, run_pool, shards, unit_id)
+                               parse_slot_spec, ranges, run_pool, shards, unit_id)
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -561,17 +561,22 @@ class Stage04:
 
     def __init__(self, project: pathlib.Path, configs: list[str], mechanism: str, check: pathlib.Path,
                  verify: pathlib.Path | None, stages: Stages, log_dir: pathlib.Path, resume_command: str,
-                 resume: bool = True, judges: int = 1):
+                 resume: bool = True, judges: int = 1, subset: list | None = None):
         self.judges = max(1, judges)
         self.project, self.configs, self.mechanism = project, configs, mechanism
         self.check, self.verify, self.stages, self.log_dir = check, verify, stages, log_dir
         self.cfgs = [(c, json.loads((project / c).read_bytes())) for c in configs]
-        self.slots = list_slots(self.cfgs)
+        self.all_slots = list_slots(self.cfgs)
+        self.slots = list(subset) if subset is not None else list(self.all_slots)   # the slots in play
+        self.partial = len(self.slots) != len(self.all_slots)
+        if self.partial:
+            self.configs = [c for c in configs if any(s.config == c for s in self.slots)]
+            self.cfgs = [(c, d) for c, d in self.cfgs if c in self.configs]
         self.units_dir = stages.dir / UNITS_DIR
         self.resume_command = resume_command
         self.progress = Progress(stages.dir / PARTIAL_FILE, self.slots, {
             **stages.binding, "mechanism": mechanism, "resume_command": resume_command})
-        self.passed: dict[str, list[tuple[Unit, pathlib.Path]]] = {c: [] for c in configs}
+        self.passed: dict[str, list[tuple[Unit, pathlib.Path]]] = {c: [] for c in self.configs}
         self.legacy_output = ""
         self.slog: StageLog | None = None
         self.resume = resume
@@ -593,11 +598,12 @@ class Stage04:
             units = []
             for rel, _cfg in self.cfgs:
                 mine = [s for s in self.slots if s.config == rel]
+                every = sum(1 for s in self.all_slots if s.config == rel)
                 pend = [s for s in mine if s.index not in self.cached]
                 if not mine:
                     units.append(Unit(len(units) + 1, rel, [], True))
                 for part in (shards(pend, self.judges) if pend else []):
-                    units.append(Unit(len(units) + 1, rel, part, len(part) == len(mine)))
+                    units.append(Unit(len(units) + 1, rel, part, len(part) == every))
         for u in units:
             u.id = unit_id(self.stages.binding, u)
         return units
@@ -623,7 +629,7 @@ class Stage04:
 
     def tag(self, unit: Unit) -> str:
         idx = ranges(s.index for s in unit.slots) if unit.slots else "-"
-        return f"slot {idx}/{len(self.slots)} {unit.label()}"
+        return f"slot {idx}/{len(self.all_slots)} {unit.label()}"
 
     def publish(self) -> None:
         self.progress.write()
@@ -669,6 +675,7 @@ class Stage04:
                 self.cache.put(unit.slots, j.log, unit.whole, secs)
         self.progress.mark(unit.slots, "judged")
         self.say(f"{self.tag(unit)} done in {secs:.1f}s ({self.progress.counts()['done']}/{len(self.slots)} done)")
+        self.wall[unit.n] = secs
         self.publish()
         return True
 
@@ -677,8 +684,13 @@ class Stage04:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         units = self.plan()
         self.n_units, self.width, self.failure = len(units), self.judges, None
+        self.units, self.wall = units, {}
         self.slog = StageLog(stage_log, echo=sys.stdout)
         try:
+            if self.partial:
+                self.say(f"comparator-receipt: --slots: {len(self.slots)} of {len(self.all_slots)} slot(s) "
+                         f"({ranges(s.index for s in self.slots)}); a receipt from them is partial "
+                         f"(diagnostic only)")
             self.say(f"comparator-receipt: {len(self.slots)} slot(s) in {len(self.configs)} config(s), "
                      f"{len(units)} judge invocation(s), {self.width} at a time, mechanism {self.mechanism}")
             self.announce_cached()
@@ -723,7 +735,7 @@ class Stage04:
             if hit:
                 self.progress.mark(hit, "cached")
                 label = hit[0].name if len(hit) == 1 else f"{rel}[{len(hit)} names]"
-                self.say(f"slot {ranges(s.index for s in hit)}/{len(self.slots)} {label} cached "
+                self.say(f"slot {ranges(s.index for s in hit)}/{len(self.all_slots)} {label} cached "
                          f"(accepted earlier at this commit and config hash; --no-resume judges again)")
 
     def parts(self, rel: str) -> list[tuple[list, pathlib.Path, bool]]:
@@ -734,7 +746,7 @@ class Stage04:
             e = self.cached.get(s.index)
             if s.config == rel and e is not None:
                 by_log.setdefault(e["log_path"], [e.get("whole"), []])[1].append(s)
-        out += [(ss, log, bool(whole) and len(ss) == sum(1 for x in self.slots if x.config == rel))
+        out += [(ss, log, bool(whole) and len(ss) == sum(1 for x in self.all_slots if x.config == rel))
                 for log, (whole, ss) in by_log.items()]
         return sorted(out, key=lambda p: min((s.index for s in p[0]), default=0))
 
@@ -784,7 +796,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         mechanism: str = "auto", verify: pathlib.Path | None = None,
         evidence: pathlib.Path | None = None, prepare: bool = False,
         from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt",
-        resume: bool = True, judges: int = 1) -> dict:
+        resume: bool = True, judges: int = 1, slot_spec: str | None = None) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     if not prepare and not check.is_file():
@@ -806,6 +818,13 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         raise RunnerError(f"unknown mechanism {mechanism!r}; one of {MECHANISMS}")
     binding = {"commit": commit, "lean_toolchain": toolchain,
                "config_hash": config_hash(project, configs)}
+    subset = None
+    if slot_spec is not None:   # refused before any setup runs
+        try:
+            subset = parse_slot_spec(slot_spec, list_slots(
+                [(c, json.loads((project / c).read_bytes())) for c in configs]))
+        except ValueError as e:
+            raise RunnerError(f"--slots {slot_spec!r}: {e}; nothing written")
     if not prepare:   # refusals that need no build come before the setup stages
         available = toolchain_available(project)
         if mechanism == "auto":
@@ -819,6 +838,9 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                 raise RunnerError(f"verify-comparator script not found: {verify}")
             if os.environ.get(FAKE_LAKE_ENV) is None:   # real host: check the sandbox first
                 bwrap_preflight()
+        if mechanism == "legacy" and slot_spec:
+            raise RunnerError("--slots: the legacy mechanism's comparator-check.sh judges every configuration "
+                              "in one run and cannot judge a subset; use --mechanism toolchain; nothing written")
         if mechanism == "legacy" and judges > 1:
             raise RunnerError(f"--judges {judges}: the legacy mechanism's comparator-check.sh judges every "
                               f"configuration in one run and cannot be sharded; use --judges 1 (or "
@@ -865,7 +887,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
 
         def comparator_stage(stage_log: pathlib.Path):
             st = Stage04(project, configs, mechanism, check, verify, stages, log_dir, resume_command,
-                         resume=resume, judges=judges)
+                         resume=resume, judges=judges, subset=subset)
+            result["stage04"] = st
             status, code, note = st.run(stage_log)
             result["extra"] = {**({"judges": judges} if mechanism == "toolchain" else {}),
                                **({"resumed_slots": len(st.cached)} if st.cached else {})}
@@ -876,6 +899,23 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
 
         stages.run("comparator", comparator_stage)
         tools = result["tools"]
+        st = result["stage04"]
+        if st.partial:
+            def partial_receipt_stage(stage_log: pathlib.Path):
+                result.update(write_receipt(project, st.configs, log_dir, commit, mechanism, toolchain, tools,
+                                            host_policy, pathlib.Path(tmp), stages.summary(),
+                                            extra={**result["extra"], "partial": True,
+                                                   "slots": [s.row() for s in st.slots],
+                                                   "slots_total": len(st.all_slots)},
+                                            config_extra=result["config_extra"], dest=stages.dir))
+                stage_log.write_text(f"wrote the PARTIAL receipt {result['receipt']} (diagnostic only)\n",
+                                     encoding="utf-8")
+                return "ok", 0, f"partial receipt in {stages.dir.name}/ (diagnostic only)"
+
+            stages.run("receipt", partial_receipt_stage)
+            return {"receipt": result["receipt"], "commit": commit, "configs": len(st.configs),
+                    "mechanism": mechanism, "stages": str(stages.json), "partial": True,
+                    "slots": len(st.slots), "slots_total": len(st.all_slots)}
 
         def receipt_stage(stage_log: pathlib.Path):
             result.update(write_receipt(project, configs, log_dir, commit, mechanism, toolchain, tools,
@@ -892,7 +932,11 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
 def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Path, commit: str,
                   mechanism: str, toolchain: str, tools: dict, host_policy: str, tmp: pathlib.Path,
                   stage_summary: list[dict], extra: dict | None = None,
-                  config_extra: dict | None = None) -> dict:
+                  config_extra: dict | None = None, dest: pathlib.Path | None = None) -> dict:
+    """The receipt and its logs, all or nothing, into <project>/.lean-receipts/ -- or, for a partial
+    (--slots) run, into dest (the stage directory, never the repository), suffixed `.partial`."""
+    partial = dest is not None
+    sfx = ".partial" if partial else ""
     entries = []
     staged: list[tuple[pathlib.Path, pathlib.Path]] = []
     for cfg_rel in configs:
@@ -906,7 +950,9 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
             raise RunnerError(f"{cfg_rel}: log lacks the PASS line; nothing written")
         cfg = json.loads((project / cfg_rel).read_bytes())
         log_rel = f".lean-receipts/{commit[:12]}-comparator-{name}.log"
-        staged.append((src_log, project / log_rel))
+        if partial:
+            log_rel = f"{commit[:12]}-comparator-{name}{sfx}.log"
+        staged.append((src_log, (dest / log_rel) if partial else (project / log_rel)))
         entries.append({
             "path": cfg_rel,
             "sha256": sha256_file(project / cfg_rel),
@@ -934,8 +980,8 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
     }
     rec_tmp = tmp / "receipt.json"
     rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-    rec_dir = project / ".lean-receipts"
-    rec_path = rec_dir / f"{commit[:12]}-comparator.json"
+    rec_dir = dest if partial else project / ".lean-receipts"
+    rec_path = rec_dir / f"{commit[:12]}-comparator{sfx}.json"
     staged.append((rec_tmp, rec_path))
     # Everything passed: now, and only now, write into the repo — all or nothing.
     created_dir = not rec_dir.exists()
@@ -1008,6 +1054,11 @@ def main(argv: list[str] | None = None) -> int:
                     help=f"run up to N judge processes at once, each on a contiguous shard of every "
                          f"configuration's theorem_names (toolchain mechanism; env {JOBS_ENV}; default 1). "
                          f"The merged verdict is exact; see docs/comparator.md (Runtime) for when it helps")
+    ap.add_argument("--slots", default=None, metavar="SPEC",
+                    help="judge only these slots (theorem_names entries): comma-separated names, "
+                         "<config>:<name>, 1-based indices or ranges i-j over all configurations, or "
+                         "sample:K (the stratified sample --estimate uses). Writes a PARTIAL receipt into "
+                         "the stage directory, marked partial: true: diagnostic only, refused as evidence")
     args = ap.parse_args(argv)
     raw_jobs = args.judges if args.judges is not None else (os.environ.get(JOBS_ENV) or "1")
     try:
@@ -1047,12 +1098,19 @@ def main(argv: list[str] | None = None) -> int:
             res = run(project, check, host_policy=why, mechanism=args.mechanism, verify=verify,
                       evidence=evidence, prepare=args.prepare, from_prepared=prepared,
                       resume_command=resume_command(argv if argv is not None else sys.argv[1:]),
-                      resume=not args.no_resume, judges=judges)
+                      resume=not args.no_resume, judges=judges, slot_spec=args.slots)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
         code = getattr(e, "code", None)
         return code if isinstance(e, PartialStage) and isinstance(code, int) else 1
     if res.get("prepared"):
+        return 0
+    if res.get("partial"):
+        print(f"PARTIAL comparator receipt written: {res['receipt']} ({res['slots']} of "
+              f"{res['slots_total']} slot(s), commit {res['commit'][:12]})")
+        print("it is diagnostic only: marked partial: true, kept out of the repository, and refused as "
+              "evidence by `lean-pkg comparator`, `gate --comparator` and `promote`")
+        print(f"the judged slots are cached: a full run at this commit skips them (stage logs: {res['stages']})")
         return 0
     print(f"comparator receipt written: {res['receipt']} ({res['configs']} config(s), "
           f"commit {res['commit'][:12]}, host policy: {why})")

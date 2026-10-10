@@ -26,6 +26,15 @@ def test_valid_comparator_receipt_passes(lp, env):
     validate(lp, env, env.repo_a, comp)  # no exception
 
 
+def test_partial_receipt_is_refused_as_evidence(lp, env):
+    """#39: comparator-receipt --slots writes partial: true; never evidence."""
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a)
+    comp["partial"] = True
+    with pytest.raises(lp.Fail, match="partial"):
+        validate(lp, env, env.repo_a, comp)
+
+
 def test_valid_against_matching_lower_receipt_commit(lp, env):
     add_comparator_config(env.repo_a)
     comp = make_comparator_receipt(env.repo_a)

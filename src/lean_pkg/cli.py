@@ -2015,6 +2015,9 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
     if comp.get("test_only"):
         raise Fail("comparator receipt is marked test_only (produced under the test-only digest "
                    "override); it is not evidence")
+    if comp.get("partial"):
+        raise Fail("comparator receipt is marked partial (comparator-receipt --slots judged only a subset of "
+                   "the slots); it is diagnostic, not evidence: run comparator-receipt without --slots")
     schema = comp["schema"]
     if schema not in COMPARATOR_SCHEMAS:
         raise Fail(f"comparator schema must be one of {COMPARATOR_SCHEMAS}, got {schema!r}")
@@ -4444,7 +4447,7 @@ tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commi
                 64-hex sha256 of the judging binaries under `lean --print-prefix`/bin
 host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>); generated_at MUST parse as ISO-8601
 host_policy     optional; the runner's host-policy reason (an override run is visible here)
-test_only       if present and true the receipt was produced under a test-only override and is REFUSED
+test_only, partial  if present and true (a test-only override; a --slots subset run) the receipt is REFUSED
 result          "pass" (the runner writes a receipt only on PASS)
 configs[]       MUST list exactly the comparator*.json / comparator/config*.json files tracked at HEAD
                 (no omissions, no extras). Per config: path, sha256 of its HEAD bytes; challenge_module,

@@ -449,3 +449,66 @@ def shards(slots: list, n: int) -> list[list]:
         out.append(slots[i:i + size])
         i += size
     return out
+
+
+# ---------------------------------------------------------------------------
+# Slot subsets (--slots SPEC) and the stratified sample that --estimate and `sample:K` share.
+
+def namespace(name: str) -> str:
+    return name.rsplit(".", 1)[0] if "." in name else ""
+
+
+def stratified_sample(slots: list[Slot], k: int) -> list[Slot]:
+    """k slots spread across strata (configuration, namespace of the name: the closest proxy for the
+    module that the configuration itself carries): round-robin over the strata in order of first
+    appearance, each stratum yielding its slots in order. Deterministic; returned in slot order."""
+    strata: dict[tuple[str, str], list[Slot]] = {}
+    for s in slots:
+        strata.setdefault((s.config, namespace(s.name)), []).append(s)
+    queues = [list(v) for v in strata.values()]
+    out: list[Slot] = []
+    while len(out) < min(k, len(slots)):
+        for q in queues:
+            if q and len(out) < k:
+                out.append(q.pop(0))
+    return sorted(out, key=lambda s: s.index)
+
+
+def parse_slot_spec(spec: str, slots: list[Slot]) -> list[Slot]:
+    """SPEC: comma-separated tokens, each `sample:K`, an index `i` or range `i-j` (1-based, over all
+    configurations in order), a slot name, or `<config>:<name>`. Raises ValueError naming the token."""
+    picked: dict[int, Slot] = {}
+    by_name: dict[str, list[Slot]] = {}
+    for s in slots:
+        by_name.setdefault(s.name, []).append(s)
+    for tok in [t.strip() for t in spec.split(",")]:
+        if not tok:
+            continue
+        if tok.startswith("sample:"):
+            try:
+                k = int(tok[7:])
+            except ValueError:
+                k = 0
+            if k < 1:
+                raise ValueError(f"{tok!r}: sample:K needs a positive integer K")
+            for s in stratified_sample(slots, k):
+                picked[s.index] = s
+        elif tok.replace("-", "").isdigit() and tok.count("-") <= 1 and not tok.startswith("-"):
+            a, _, b = tok.partition("-")
+            lo, hi = int(a), int(b or a)
+            if not (1 <= lo <= hi <= len(slots)):
+                raise ValueError(f"{tok!r}: slot indices run 1..{len(slots)}")
+            for s in slots[lo - 1:hi]:
+                picked[s.index] = s
+        else:
+            cfg, sep, name = tok.rpartition(":") if ":" in tok else ("", "", tok)
+            hits = [s for s in by_name.get(name, []) if not sep or s.config == cfg]
+            if not hits:
+                raise ValueError(f"{tok!r}: no such slot (theorem_names entry)")
+            if len(hits) > 1:
+                raise ValueError(f"{tok!r} names a slot in several configurations "
+                                 f"({', '.join(s.config for s in hits)}); write <config>:{name}")
+            picked[hits[0].index] = hits[0]
+    if not picked:
+        raise ValueError("selects no slot")
+    return [picked[i] for i in sorted(picked)]
