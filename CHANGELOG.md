@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.21] - 2026-10-10
+
 ### Added
 
 - `gate` and `gate --check` run the `claims/1` schema check (the one `claims sync` applies) on the package's claims
@@ -22,6 +24,8 @@ change the registry schema or receipt format, always with a migration).
   checkout, so declarations are not looked up), without the registry
   (`NAME` optional; if given it must be the file's `package`); exit 0/1, `--json` `{ok, path, claims, errors[]}`.
   (#58)
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.20] - 2026-10-10
 
