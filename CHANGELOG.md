@@ -35,6 +35,16 @@ change the registry schema or receipt format, always with a migration).
   `--fix`), one per package whose claims coverage is not `synced` (`none`, `empty` or `unsynced`), skipping
   `archived` and `upstreamed`, with detail ``claims: COVERAGE (search falls back to declarations; run `lean-pkg
   claims sync NAME`)``; `--json` findings carry `coverage`.
+### Changed
+
+- **Breaking for scripts that relied on silent replacement:** `update NAME --notes TEXT` over non-empty notes is
+  refused (exit 2, nothing written, no event; `--json` `{"ok": false, "usage": true, ...}`) unless the new
+  `--replace-notes` is given. The refusal names `--append-note` (the ordinary way to add a line),
+  `--replace-notes`, and that replaced text stays recoverable from history (the `updated` event's `notes_from`).
+  A replacement made with `--replace-notes` records `notes_replaced: true` on its `updated` event. `--notes` on
+  empty notes, the same text again, and `--append-note` are unchanged; clearing non-empty notes (`--notes ''`)
+  is a replacement and needs the flag. (#53)
+
 ### Fixed
 
 - Committed mode: a push that fails now prints `push failed: origin/<branch>: <git error>` (git's reason, not the

@@ -1687,7 +1687,7 @@ def upstream_evidence(pkg: dict) -> list[str]:
 
 
 def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
-              redetect, agent, force, dry_run=False):
+              redetect, agent, force, dry_run=False, replace_notes=False):
     """Set fields of a registered package. dry_run runs every check (lease, transitions, schema) on a copy
     and writes nothing: callers that touch other files first (formalization --write) refuse before them."""
     if dry_run:
@@ -1828,8 +1828,11 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
                  "changes": {f: {"from": o, "to": n} for f, (o, n) in changes.items()}})
     report_preexisting(preexisting)
 
+    # --replace-notes over non-empty notes is recorded as such (#53); notes_from keeps the old text.
+    notes_replaced = replace_notes and bool(str((changes.get("notes") or ("", ""))[0] or "").strip())
     record(reg, events_p, pkg, "updated",
            fields=sorted(changes), reason=reason or "", forced=bool(force),
+           **({"notes_replaced": True} if notes_replaced else {}),
            **{f"{f}_from": o for f, (o, _n) in changes.items()})
     save_registry(reg_path, reg)
 
@@ -4709,7 +4712,7 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields (--notes replaces, prints the old value; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT`, not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. --track palomar|doi-only --reason R: the optional DOI track (see record doi-minted). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
+update    set fields (--notes over non-empty notes: exit 2, nothing written, unless --replace-notes, which replaces, prints the old value, event notes_replaced + notes_from; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT`, not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. --track palomar|doi-only --reason R: the optional DOI track (see record doi-minted). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
@@ -5056,10 +5059,22 @@ def cmd_update(args) -> int:
         return 0
     if args.dry_run:
         raise UsageError("update --dry-run is supported only with --path")
-    out, payload = do_update(reg_path, load_registry(reg_path), events_p,
+    replace_notes = bool(getattr(args, "replace_notes", False))
+    if replace_notes and args.notes is None:
+        raise UsageError("--replace-notes goes with --notes TEXT")
+    reg = load_registry(reg_path)
+    if args.notes is not None and not replace_notes:
+        old = str(get_pkg(reg, args.name).get("notes") or "")
+        if old.strip() and args.notes != old:   # #53: refuse before the write, not a hint after it
+            n = len(old.strip().splitlines())
+            raise UsageError(f"{args.name}: --notes would replace the existing notes ({n} line(s)); nothing "
+                             f"written. Add a line with --append-note TEXT --agent A, or pass --replace-notes "
+                             f"to replace them (the previous text stays recoverable from history: the "
+                             f"`updated` event's notes_from)")
+    out, payload = do_update(reg_path, reg, events_p,
                              args.name, sets=sets, status=args.status,
                              reason=args.reason, redetect=args.redetect,
-                             agent=args.agent, force=args.force)
+                             agent=args.agent, force=args.force, replace_notes=replace_notes)
     if args.json_out:
         print_json(payload)
     else:
@@ -6110,7 +6125,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("name")
     s.add_argument("--automation", help="AI-disclosure note; required by mathlib "
                                         "when upstream_target is mathlib")
-    s.add_argument("--notes")
+    s.add_argument("--notes", metavar="TEXT",
+                   help="set the notes; refused when notes exist unless --replace-notes (use --append-note)")
+    s.add_argument("--replace-notes", dest="replace_notes", action="store_true",
+                   help="with --notes: replace non-empty notes (the old text stays in history as notes_from)")
     s.add_argument("--upstream-target", dest="upstream_target",
                    choices=UPSTREAM_TARGETS)
     s.add_argument("--track", choices=TRACKS, default=None,

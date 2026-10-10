@@ -58,7 +58,8 @@ def test_parallel_claims_have_exactly_one_winner(env):
 
 def test_parallel_updates_lose_nothing(env):
     n = 20
-    procs = [_spawn(env, "update", "alpha", "--notes", f"n{i}", "--reason", "race") for i in range(n)]
+    procs = [_spawn(env, "update", "alpha", "--notes", f"n{i}", "--replace-notes",
+                    "--reason", "race") for i in range(n)]
     results = _wait_all(procs)
     for rc, _out, err in results:
         assert rc == 0, err

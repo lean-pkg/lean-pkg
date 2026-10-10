@@ -148,7 +148,7 @@ def test_update_refuses_empty_repo_and_owner_project(lp, env, capsys, flag):
 
 def test_update_empty_notes_clears(lp, env):
     assert cli(lp, env, "update", "beta", "--notes", "something") == 0
-    assert cli(lp, env, "update", "beta", "--notes", "") == 0
+    assert cli(lp, env, "update", "beta", "--notes", "", "--replace-notes") == 0   # clearing replaces (#53)
     assert read_reg(env)["packages"]["beta"]["notes"] == ""
 
 

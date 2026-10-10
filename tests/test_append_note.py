@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""update --append-note TEXT keeps the existing notes; --notes says what it replaced (#32)."""
+"""update --append-note TEXT keeps the existing notes (#32); --notes over existing notes is refused unless
+--replace-notes, which says what it replaced (#53)."""
 
 from __future__ import annotations
 
 import datetime as dt
 import json
 
-from .conftest import read_reg, write_reg
+from .conftest import read_events, read_reg, write_reg
 
 
 def _update(lp, env, *argv) -> int:
@@ -52,13 +53,61 @@ def test_append_note_refusals(lp, env, capsys):
 
 def test_notes_replacement_shows_the_previous_value_and_the_hint(lp, env, capsys):
     _set_notes(env, "prior note")
-    assert _update(lp, env, "alpha", "--notes", "new note") == 0
+    assert _update(lp, env, "alpha", "--notes", "new note", "--replace-notes") == 0
     out = capsys.readouterr().out
     assert "notes: 'prior note' -> 'new note'" in out
     assert "replaced notes were: 'prior note'" in out
     assert "use --append-note to keep the previous note" in out
     _set_notes(env, "prior note")
-    assert _update(lp, env, "alpha", "--notes", "other", "--json") == 0
+    assert _update(lp, env, "alpha", "--notes", "other", "--replace-notes", "--json") == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["changes"]["notes"]["from"] == "prior note"
     assert payload["hint"] == "use --append-note to keep the previous note"
+
+
+def test_notes_over_existing_notes_is_refused_without_a_write(lp, env, capsys):   # #53
+    """Field report (0.7.19): `update --notes` destroyed a multi-line note and only warned afterwards. Over
+    non-empty notes it is now refused (exit 2, nothing written, no event) unless --replace-notes."""
+    _set_notes(env, "line one\nline two")
+    before = env.registry.read_text()
+    n = len(read_events(env))
+    assert _update(lp, env, "alpha", "--notes", "new note") == 2
+    err = capsys.readouterr().err
+    assert "alpha: --notes would replace the existing notes (2 line(s)); nothing written" in err
+    assert "--append-note TEXT --agent A" in err and "--replace-notes" in err and "notes_from" in err
+    assert env.registry.read_text() == before and len(read_events(env)) == n
+    assert _update(lp, env, "alpha", "--notes", "", "--json") == 2   # clearing is a replacement too
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False and payload["usage"] is True
+    assert "--replace-notes" in payload["error"] and "notes_from" in payload["error"]
+    assert env.registry.read_text() == before and len(read_events(env)) == n
+
+
+def test_replace_notes_replaces_and_the_event_records_it(lp, env, capsys):   # #53
+    _set_notes(env, "line one\nline two")
+    assert _update(lp, env, "alpha", "--notes", "new note", "--replace-notes") == 0
+    assert read_reg(env)["packages"]["alpha"]["notes"] == "new note"
+    ev = [e for e in read_events(env) if e["event"] == "updated"][-1]
+    assert ev["fields"] == ["notes"] and ev["notes_replaced"] is True
+    assert ev["notes_from"] == "line one\nline two"   # the recovery path the refusal names
+    assert lp.main(["--registry", str(env.registry), "validate"]) == 0
+
+
+def test_replace_notes_needs_notes(lp, env, capsys):
+    before = env.registry.read_text()
+    assert _update(lp, env, "alpha", "--replace-notes") == 2
+    assert "--replace-notes goes with --notes TEXT" in capsys.readouterr().err
+    assert _update(lp, env, "alpha", "--replace-notes", "--append-note", "x", "--agent", "a") == 2
+    assert env.registry.read_text() == before
+
+
+def test_notes_on_empty_notes_and_append_note_are_unchanged(lp, env, capsys):   # #53
+    _set_notes(env, "")
+    assert _update(lp, env, "alpha", "--notes", "first") == 0
+    assert read_reg(env)["packages"]["alpha"]["notes"] == "first"
+    ev = [e for e in read_events(env) if e["event"] == "updated"][-1]
+    assert "notes_replaced" not in ev
+    assert _update(lp, env, "alpha", "--notes", "first") == 0   # the same text: a no-op, not a refusal
+    assert "nothing written" in capsys.readouterr().out
+    assert _update(lp, env, "alpha", "--append-note", "second", "--agent", "a") == 0
+    assert read_reg(env)["packages"]["alpha"]["notes"] == f"first\n{_today()} (a): second"
