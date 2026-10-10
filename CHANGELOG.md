@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.20] - 2026-10-10
+
 ### Added
 
 - DOI-only track for `record doi-minted`: an optional record field `track: palomar | doi-only` (absent = palomar),
@@ -54,6 +56,8 @@ change the registry schema or receipt format, always with a migration).
   unpushed commit, from a failed push or a commit made outside lean-pkg), naming the commit and the `git push`;
   before, the unpushed commit was carried silently into the next write. `--commit` without push is unchanged.
   (#54)
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.19] - 2026-10-10
 
