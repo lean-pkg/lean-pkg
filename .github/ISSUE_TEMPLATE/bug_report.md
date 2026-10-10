@@ -5,7 +5,7 @@ title: ""
 labels: bug
 ---
 
-**Version**: output of `pip show lean-pkg` or the tag, and your Python version.
+**Version**: output of `lean-pkg --version` (the release and the build that runs: commit for an editable install, install path otherwise), and your Python version.
 
 **Command** (exact, with flags; redact private paths):
 
