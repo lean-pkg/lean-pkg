@@ -340,6 +340,8 @@ Read-only and offline: it decides from the registry record and the checkout, wit
 `gate`, `comparator` and `publish --dry-run` use, and prints the one command to run next (`claim`,
 `gate --check`, `comparator-receipt`, `publish --dry-run`, ...). Exit 1 names what blocks the package
 (a foreign lease with `--agent`, a dirty tree while evidence is produced, a receipt `gate` would refuse).
+A `note:` line (and `--json` `notes[]`) says when the checkout is on a branch other than the
+default, or detached; the current HEAD is still what is evaluated.
 See the [`next` row](cli.md) in the CLI reference.
 
 ## Report a problem
