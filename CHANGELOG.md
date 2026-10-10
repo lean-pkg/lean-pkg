@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.22] - 2026-10-10
+
 ### Added
 
 - `comparator-receipt` records whether the `build` stage compiled anything: the receipt and `stages.json` gain the
@@ -36,6 +38,8 @@ change the registry schema or receipt format, always with a migration).
 ### Changed
 
 - The `make test` SIGINT test is deterministic: readiness wait, own `waitpid(WNOHANG)` deadline loop. (#57)
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.21] - 2026-10-10
 
