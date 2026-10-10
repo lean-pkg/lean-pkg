@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.19] - 2026-10-10
+
 ### Added
 
 - `public-safety --quiet` and `audit --quiet`: only the summary and verdict lines with their counts, no per-hit or
@@ -28,6 +30,8 @@ change the registry schema or receipt format, always with a migration).
   `FAIL` lines as well as last. The last line of each is unchanged. `public-safety` already led with its summary.
 - For callers of the Python module (not a supported API): `public_safety.report_lines(name, result, quiet=False)`
   gains the keyword `quiet`; existing two-argument calls are unaffected.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.18] - 2026-10-10
 
