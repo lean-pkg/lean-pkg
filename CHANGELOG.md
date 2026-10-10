@@ -7,6 +7,21 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- Optional `lease.contact`: the address of the holding session (free text, typically an amsg address
+  such as `lab-desk/n14-paper` or `@lean-ops`), so a reader of `leases` can tell who is live behind a
+  lease. `claim NAME --contact TEXT` stores it; `renew NAME --contact TEXT` sets or replaces it, and
+  `renew` (or the holder's re-claim) without `--contact` keeps it; `release` drops it with the lease.
+  One line of at most 200 characters (empty, a newline or another control character, or longer: exit 2,
+  nothing written). `leases` gains a last `CONTACT` column (blank when unset) and `--json` rows a
+  `contact` (null when unset); `status NAME` shows it in text and `--json`, and `status`/`list`/`board
+  --fields lease.contact` select it (null for a lease without one, not a usage error). The events
+  `claimed`, `claim-forced` and `claim-refreshed` carry `contact` when the lease has one. Additive:
+  schema version unchanged, no `migrate` step; `validate` accepts leases with or without `contact` and
+  rejects a non-string. `public-safety` derives patterns from the contact's tokens as it does from
+  `agent` and `workspace`. The CLI reference's "Lease holders" section now points at `--contact`.
+
 ### Changed
 
 - Note for callers of the Python module (not the CLI): `public_safety.report_lines(name, result)`

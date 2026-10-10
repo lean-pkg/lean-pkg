@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 
-from .conftest import read_events, read_reg, set_lease
+from .conftest import read_events, read_reg, set_lease, write_reg
 
 
 def test_claim_cas_refusal_names_holder_and_expiry(lp, env, capsys):
@@ -215,7 +215,7 @@ def test_leases_lists_soonest_first_with_state_and_filters(lp, env, capsys):
     set_lease(env, "beta", agent="max", hours_ago=25, ttl=24)       # lapsed ~1h ago
     assert lp.main(["--registry", str(env.registry), "leases"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0].split() == ["NAME", "AGENT", "WORKSPACE", "CLAIMED", "EXPIRES", "STATE"]
+    assert lines[0].split() == ["NAME", "AGENT", "WORKSPACE", "CLAIMED", "EXPIRES", "STATE", "CONTACT"]
     assert lines[1].startswith("beta") and "EXPIRED" in lines[1] and "ago" in lines[1]
     assert lines[2].startswith("alpha") and "live" in lines[2] and "in 22h" in lines[2]
     assert lp.main(["--registry", str(env.registry), "leases", "--agent", "vera"]) == 0
@@ -253,3 +253,142 @@ def test_doctor_leases_line_ok_when_nothing_is_due(lp, env, capsys):
     assert lp.main(["--registry", str(env.registry), "doctor"]) == 0
     line = next(x for x in capsys.readouterr().out.splitlines() if " leases:" in x)
     assert line == "ok leases: 1 live"
+
+
+# lease.contact: the holding session's address (claim/renew --contact)
+
+def test_claim_stores_contact_and_events_carry_it(lp, env, capsys):
+    rc = lp.main(["--registry", str(env.registry), "--json", "claim", "alpha", "--workspace", "w3",
+                  "--agent", "vera", "--contact", "  lab-desk/n14-paper  "])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["lease"]["contact"] == "lab-desk/n14-paper"   # stripped
+    assert read_reg(env)["packages"]["alpha"]["lease"]["contact"] == "lab-desk/n14-paper"
+    ev = read_events(env)[-1]
+    assert ev["event"] == "claimed" and ev["contact"] == "lab-desk/n14-paper"
+    # the holder's re-claim without --contact keeps it, and the refresh event carries it
+    assert lp.main(["--registry", str(env.registry), "claim", "alpha", "--workspace", "w3",
+                    "--agent", "vera"]) == 0
+    assert read_reg(env)["packages"]["alpha"]["lease"]["contact"] == "lab-desk/n14-paper"
+    ev = read_events(env)[-1]
+    assert ev["event"] == "claim-refreshed" and ev["contact"] == "lab-desk/n14-paper"
+    # release drops it with the lease
+    assert lp.main(["--registry", str(env.registry), "release", "alpha", "--agent", "vera"]) == 0
+    assert read_reg(env)["packages"]["alpha"]["lease"] is None
+
+
+def test_claim_without_contact_stores_no_key_and_event_has_none(lp, env):
+    assert lp.main(["--registry", str(env.registry), "claim", "alpha", "--workspace", "w3",
+                    "--agent", "vera"]) == 0
+    assert "contact" not in read_reg(env)["packages"]["alpha"]["lease"]
+    assert "contact" not in read_events(env)[-1]
+
+
+def test_forced_claim_takes_its_own_contact_not_the_previous_holders(lp, env):
+    assert lp.main(["--registry", str(env.registry), "claim", "alpha", "--workspace", "w3",
+                    "--agent", "vera", "--contact", "@vera-desk"]) == 0
+    assert lp.main(["--registry", str(env.registry), "claim", "alpha", "--workspace", "w4", "--agent", "max",
+                    "--force", "--reason", "vera went offline"]) == 0
+    assert "contact" not in read_reg(env)["packages"]["alpha"]["lease"]
+    assert lp.main(["--registry", str(env.registry), "claim", "alpha", "--workspace", "w4", "--agent", "max",
+                    "--force", "--reason", "again", "--contact", "@lean-ops"]) == 0
+    assert read_reg(env)["packages"]["alpha"]["lease"]["contact"] == "@lean-ops"
+    ev = read_events(env)[-1]
+    assert ev["event"] == "claim-forced" and ev["contact"] == "@lean-ops"
+
+
+def test_renew_keeps_or_replaces_the_contact(lp, env):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    assert lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera"]) == 0
+    assert "contact" not in read_reg(env)["packages"]["alpha"]["lease"]
+    assert "contact" not in read_events(env)[-1]
+    assert lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera",
+                    "--contact", "lab-desk/n14-paper"]) == 0
+    assert read_reg(env)["packages"]["alpha"]["lease"]["contact"] == "lab-desk/n14-paper"
+    assert read_events(env)[-1]["contact"] == "lab-desk/n14-paper"
+    assert lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera"]) == 0
+    assert read_reg(env)["packages"]["alpha"]["lease"]["contact"] == "lab-desk/n14-paper"
+    assert read_events(env)[-1]["contact"] == "lab-desk/n14-paper"
+    assert lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera",
+                    "--contact", "@lean-ops"]) == 0
+    assert read_reg(env)["packages"]["alpha"]["lease"]["contact"] == "@lean-ops"
+
+
+def test_bad_contact_is_a_usage_error_and_writes_nothing(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    before = env.registry.read_bytes()
+    n = len(read_events(env))
+    for bad, why in (("a\nb", "one line"), ("a\tb", "one line"), ("a b", "one line"),
+                     ("x" * 201, "at most 200"), ("   ", "must not be empty")):
+        for argv in (["claim", "alpha", "--workspace", "w3", "--agent", "vera"],
+                     ["renew", "alpha", "--agent", "vera"]):
+            rc = lp.main(["--registry", str(env.registry), "--json", *argv, "--contact", bad])
+            assert rc == 2, (argv[0], bad)
+            payload = json.loads(capsys.readouterr().out)
+            assert payload["ok"] is False and payload["usage"] is True and why in payload["error"]
+    assert env.registry.read_bytes() == before and len(read_events(env)) == n
+    # exactly the cap is accepted
+    assert lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera",
+                    "--contact", "x" * 200]) == 0
+
+
+def test_leases_shows_a_contact_column(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    set_lease(env, "beta", agent="max", hours_ago=2, ttl=24)
+    assert lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera",
+                    "--contact", "lab-desk/n14-paper"]) == 0
+    capsys.readouterr()
+    assert lp.main(["--registry", str(env.registry), "leases"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].split()[-1] == "CONTACT"
+    beta = next(x for x in lines if x.startswith("beta"))
+    alpha = next(x for x in lines if x.startswith("alpha"))
+    assert beta.endswith("live")                                   # blank contact: nothing trailing
+    assert alpha.endswith("lab-desk/n14-paper")
+    assert alpha.index("lab-desk/n14-paper") == lines[0].index("CONTACT")
+    assert lp.main(["--registry", str(env.registry), "--json", "leases"]) == 0
+    rows = {r["name"]: r for r in json.loads(capsys.readouterr().out)["leases"]}
+    assert rows["alpha"]["contact"] == "lab-desk/n14-paper" and rows["beta"]["contact"] is None
+
+
+def test_status_shows_and_selects_lease_contact(lp, env, capsys):
+    # a package without a lease: null through the null lease, as for lease.agent
+    assert lp.main(["--registry", str(env.registry), "--json", "status", "beta", "--fields", "lease.contact"]) == 0
+    assert json.loads(capsys.readouterr().out)["package"] == {"lease": {"contact": None}}
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    set_lease(env, "beta", agent="max", hours_ago=1, ttl=24)
+    assert lp.main(["--registry", str(env.registry), "renew", "alpha", "--agent", "vera",
+                    "--contact", "@lean-ops"]) == 0
+    capsys.readouterr()
+    assert lp.main(["--registry", str(env.registry), "status", "alpha"]) == 0
+    assert "contact: '@lean-ops'" in capsys.readouterr().out
+    assert lp.main(["--registry", str(env.registry), "--json", "status", "alpha"]) == 0
+    assert json.loads(capsys.readouterr().out)["package"]["lease"]["contact"] == "@lean-ops"
+    assert lp.main(["--registry", str(env.registry), "status", "alpha", "--fields", "lease.contact"]) == 0
+    assert capsys.readouterr().out.strip() == "alpha:\n  lease:\n    contact: '@lean-ops'"
+    assert lp.main(["--registry", str(env.registry), "--json", "status", "alpha",
+                    "--fields", "lease.agent,lease.contact"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["package"] == {"lease": {"agent": "vera", "contact": "@lean-ops"}}
+    # a lease without a contact: null, not a usage error
+    assert lp.main(["--registry", str(env.registry), "--json", "status", "beta", "--fields", "lease.contact"]) == 0
+    assert json.loads(capsys.readouterr().out)["package"] == {"lease": {"contact": None}}
+    # list --fields across packages with and without a contact
+    assert lp.main(["--registry", str(env.registry), "--json", "list", "--fields", "lease.contact"]) == 0
+    pkgs = json.loads(capsys.readouterr().out)["packages"]
+    assert pkgs["alpha"] == {"lease": {"contact": "@lean-ops"}} and pkgs["beta"] == {"lease": {"contact": None}}
+    # another unknown lease key is still a usage error
+    assert lp.main(["--registry", str(env.registry), "status", "alpha", "--fields", "lease.nope"]) == 2
+
+
+def test_validate_accepts_leases_with_and_without_contact_rejects_a_non_string(lp, env, capsys):
+    set_lease(env, "alpha", agent="vera", hours_ago=1, ttl=24)
+    set_lease(env, "beta", agent="max", hours_ago=1, ttl=24)
+    reg = read_reg(env)
+    reg["packages"]["alpha"]["lease"]["contact"] = "lab-desk/n14-paper"
+    write_reg(env, reg)
+    assert lp.main(["--registry", str(env.registry), "validate"]) == 0
+    reg["packages"]["alpha"]["lease"]["contact"] = 42
+    write_reg(env, reg)
+    capsys.readouterr()
+    assert lp.main(["--registry", str(env.registry), "validate"]) == 1
+    assert "packages.alpha.lease: contact must be a string, got int" in capsys.readouterr().out

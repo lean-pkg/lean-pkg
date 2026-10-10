@@ -31,9 +31,10 @@ touch the outside world are dry-run by default.
                                             toolchain + mathlib pin
     update    <name> [--notes ...] [--status S --reason T]
                                             fields of a registered package
-    claim     <name> --workspace W --agent A [--ttl H] [--reason T] [--force]
+    claim     <name> --workspace W --agent A [--ttl H] [--reason T] [--contact C] [--force]
     release   <name> [--agent A] [--force]
-    renew     <name> --agent A [--ttl H]    restart your live lease; refuses once lapsed
+    renew     <name> --agent A [--ttl H] [--contact C]
+                                            restart your live lease; refuses once lapsed
     leases    [--agent A] [--expiring H]    held leases, soonest expiry first
     gate      <name> --receipt PATH         validate a lower-tier receipt, then
               [--comparator PATH]           gate-pending -> verified-private;
@@ -98,6 +99,7 @@ import subprocess
 import sys
 import tempfile
 import traceback
+import unicodedata
 import urllib.error
 import urllib.request
 
@@ -188,7 +190,8 @@ PACKAGE_FIELDS = (
     ("owner_project", "v1", "project that owns the package"),
     ("workspace", "v1", "workspace that registered it"),
     ("agent", "v1", "agent that registered it"),
-    ("lease", "v1", "live claim {workspace, agent, claimed_at, ttl_hours, reason} or null; status/list/board "
+    ("lease", "v1", "live claim {workspace, agent, claimed_at, ttl_hours, reason, contact?} or null; contact: "
+                     "optional address of the holding session (claim/renew --contact); status/list/board "
                      "output adds the derived expires_at (claimed_at + ttl_hours, UTC; never stored)"),
     ("lean_toolchain", "v1", "lean-toolchain detected in the checkout"),
     ("mathlib_pin", "v1", "Mathlib revision from lake-manifest.json"),
@@ -218,6 +221,8 @@ PACKAGE_FIELDS = (
 REQUIRED_FIELDS = [k for k, tier, _ in PACKAGE_FIELDS if tier == "v1"]
 BULK_FIELDS = [k for k, _, meaning in PACKAGE_FIELDS if meaning.endswith("[bulk]")]
 LEASE_FIELDS = ["workspace", "agent", "claimed_at", "ttl_hours", "reason"]
+LEASE_OPTIONAL_FIELDS = ["contact"]     # absent unless set; `--fields lease.contact` yields null then
+LEASE_CONTACT_MAX = 200                 # characters
 RECEIPT_FIELDS = ["commit", "lean_toolchain", "mathlib_rev", "sorry_count",
                   "axioms", "report_sha256", "job_id", "checker",
                   "generated_at"]
@@ -1154,8 +1159,8 @@ def nonneg_hours(v: str) -> float:
 
 def lease_rows(reg: dict, now: dt.datetime, agent: str | None = None,
                expiring_hours: float | None = None) -> list[dict]:
-    """Every held lease as a dict (name, agent, workspace, claimed_at, ttl_hours, expires_at, live,
-    remaining_seconds, invalid), soonest expiry first; filtered by holder and by `expires within N hours
+    """Every held lease as a dict (name, agent, workspace, contact, claimed_at, ttl_hours, expires_at, live,
+    remaining_seconds, invalid; contact null when unset), soonest expiry first; filtered by holder and by `expires within N hours
     or already lapsed`. A lease whose fields cannot be parsed is listed first with invalid: true,
     expires_at and remaining_seconds null, live false (it always passes the --expiring filter)."""
     rows = []
@@ -1171,7 +1176,7 @@ def lease_rows(reg: dict, now: dt.datetime, agent: str | None = None,
         if remaining is not None and expiring_hours is not None and remaining > expiring_hours * 3600:
             continue
         rows.append({"name": name, "agent": get("agent"), "workspace": get("workspace"),
-                     "claimed_at": get("claimed_at"), "ttl_hours": get("ttl_hours"),
+                     "contact": get("contact"), "claimed_at": get("claimed_at"), "ttl_hours": get("ttl_hours"),
                      "expires_at": exp.isoformat() if exp is not None else None,
                      "live": remaining is not None and remaining > 0,
                      "remaining_seconds": int(remaining) if remaining is not None else None,
@@ -1180,7 +1185,7 @@ def lease_rows(reg: dict, now: dt.datetime, agent: str | None = None,
     return rows
 
 
-LEASES_HEADER = ("NAME", "AGENT", "WORKSPACE", "CLAIMED", "EXPIRES", "STATE")
+LEASES_HEADER = ("NAME", "AGENT", "WORKSPACE", "CLAIMED", "EXPIRES", "STATE", "CONTACT")
 
 
 def leases_lines(rows: list[dict], now: dt.datetime) -> list[str]:
@@ -1196,7 +1201,7 @@ def leases_lines(rows: list[dict], now: dt.datetime) -> list[str]:
         return "live" if r["live"] else "EXPIRED (audit --fix sweeps)"
 
     table = [(r["name"], str(r["agent"]), str(r["workspace"] or "-"), str(r["claimed_at"])[:16],
-              expires(r), state(r)) for r in rows]
+              expires(r), state(r), str(r.get("contact") or "")) for r in rows]   # CONTACT last: blank when unset
     widths = [max([len(LEASES_HEADER[i])] + [len(t[i]) for t in table]) for i in range(len(LEASES_HEADER))]
     fmt = lambda t: "  ".join(t[i].ljust(widths[i]) for i in range(len(LEASES_HEADER))).rstrip()
     return [fmt(LEASES_HEADER)] + [fmt(t) for t in table]
@@ -1243,9 +1248,31 @@ def with_expiry(reg: dict) -> dict:
     return out
 
 
-def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason):
+def check_contact(contact: str | None) -> str | None:
+    """`claim/renew --contact TEXT`: the holding session's address (free text, e.g. `lab-desk/n14-paper` or
+    `@lean-ops`), stripped. None when the flag is absent; empty, a control character (newline, tab, ...) or
+    more than LEASE_CONTACT_MAX characters is a usage error (exit 2), checked before anything is read."""
+    if contact is None:
+        return None
+    text = contact.strip()
+    if not text:
+        raise UsageError("--contact must not be empty")
+    if any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in text):
+        raise UsageError("--contact must be one line: no newline, tab or other control character")
+    if len(text) > LEASE_CONTACT_MAX:
+        raise UsageError(f"--contact is {len(text)} characters; at most {LEASE_CONTACT_MAX}")
+    return text
+
+
+def contact_field(lease: dict) -> dict:
+    """The `contact` event field: the lease's contact when it has one, else nothing."""
+    return {"contact": lease["contact"]} if lease.get("contact") else {}
+
+
+def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason, contact=None):
     """Restart a live lease held by `agent` from now with `ttl` hours; event claim-refreshed (with the
-    reason when one is given). Callers pass the lease's own ttl_hours when no --ttl was given."""
+    reason when one is given, and the lease's contact when it has one). Callers pass the lease's own
+    ttl_hours when no --ttl was given; a contact replaces the lease's, None keeps it."""
     name = pkg["name"]
     lease["claimed_at"] = now_iso()
     lease["ttl_hours"] = ttl
@@ -1253,9 +1280,12 @@ def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, re
         lease["workspace"] = workspace
     if reason:
         lease["reason"] = reason
+    if contact:
+        lease["contact"] = contact
     pkg["workspace"] = lease.get("workspace")
     record(reg, events_p, pkg, "claim-refreshed", agent=agent,
-           workspace=lease.get("workspace"), ttl_hours=ttl, **({"reason": reason} if reason else {}))
+           workspace=lease.get("workspace"), ttl_hours=ttl, **({"reason": reason} if reason else {}),
+           **contact_field(lease))
     save_registry(reg_path, reg)
     payload = {"ok": True, "name": name, "event": "claim-refreshed",
                "lease": dict(lease),
@@ -1264,9 +1294,11 @@ def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, re
              f"until {lease_expiry(lease).isoformat()}"], payload)
 
 
-def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason):
+def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason, contact=None):
     """Holder-only refresh that refuses when there is nothing to renew: no lease, another
-    holder, or a lease that has already lapsed (claim again instead; `audit --fix` sweeps it)."""
+    holder, or a lease that has already lapsed (claim again instead; `audit --fix` sweeps it).
+    A contact sets or replaces the lease's; None keeps it."""
+    contact = check_contact(contact)
     if ttl is not None and ttl <= 0:
         raise Fail("--ttl must be a positive number of hours")
     pkg = get_pkg(reg, name)
@@ -1283,12 +1315,14 @@ def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason):
                    f"({human_delta((now - lease_expiry(lease)).total_seconds())} ago) — not renewable; "
                    f"claim it again (audit --fix sweeps the expired lease)")
     ttl = ttl or int(lease.get("ttl_hours") or DEFAULT_TTL_HOURS)
-    return refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason)
+    return refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason, contact)
 
 
-def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force):
+def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force, contact=None):
     """`ttl` None: a fresh claim gets DEFAULT_TTL_HOURS and the holder's re-claim (a refresh) keeps the
-    lease's current ttl_hours, as renew does."""
+    lease's current ttl_hours, as renew does. `contact` is stored in a new lease; on a refresh it
+    replaces the lease's, and None keeps it."""
+    contact = check_contact(contact)
     if ttl is not None and ttl <= 0:
         raise Fail("--ttl must be a positive number of hours")
     if force and not reason:
@@ -1300,7 +1334,7 @@ def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force
     if lease and lease_live(lease, now):
         if lease.get("agent") == agent and not force:
             ttl = ttl or int(lease.get("ttl_hours") or DEFAULT_TTL_HOURS)
-            return refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason)
+            return refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason, contact)
         if not force:
             raise Fail(f"{name}: lease held by {lease.get('agent')} "
                        f"(workspace {lease.get('workspace')}) until "
@@ -1312,11 +1346,11 @@ def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force
     ttl = ttl or DEFAULT_TTL_HOURS
     pkg["lease"] = {"workspace": workspace, "agent": agent,
                     "claimed_at": now_iso(), "ttl_hours": ttl,
-                    "reason": reason or ""}
+                    "reason": reason or "", **({"contact": contact} if contact else {})}
     pkg["workspace"] = workspace
     pkg["agent"] = agent
     record(reg, events_p, pkg, event, agent=agent, workspace=workspace,
-           ttl_hours=ttl, reason=reason or "")
+           ttl_hours=ttl, reason=reason or "", **contact_field(pkg["lease"]))
     save_registry(reg_path, reg)
     payload = {"ok": True, "name": name, "event": event,
                "lease": dict(pkg["lease"]),
@@ -3829,6 +3863,9 @@ def validate_registry(data) -> list[str]:
                 if not isinstance(lease.get("ttl_hours"), int) \
                         or lease.get("ttl_hours", 0) <= 0:
                     errors.append(f"{pfx}.lease: ttl_hours must be a positive int")
+                if "contact" in lease and not isinstance(lease["contact"], str):
+                    errors.append(f"{pfx}.lease: contact must be a string, got "
+                                  f"{type(lease['contact']).__name__}")
         gate = pkg.get("gate")
         if not isinstance(gate, dict):
             errors.append(f"{pfx}.gate: not a mapping")
@@ -3918,7 +3955,7 @@ def only_packages(reg: dict, only: str | None) -> dict:
 def select_fields(pkg: dict, fields: list[str], also_known: tuple[str, ...] = ()) -> dict:
     """`status/list/board --fields`: the sub-tree of the package record holding just these keys, same nesting
     as the full record. A dotted path walks mappings (gate.receipt, lease.agent); through a null it yields
-    null. A top-level key outside PACKAGE_FIELDS (and absent from the record and also_known), or a missing
+    null, as does an optional lease key the lease does not set (lease.contact). A top-level key outside PACKAGE_FIELDS (and absent from the record and also_known), or a missing
     key inside a mapping, is a usage error listing the valid keys at that level."""
     table = [k for k, _, _ in PACKAGE_FIELDS]
     extra = [k for k in [*pkg, *also_known] if k not in table]   # plus any additive key a record already has
@@ -3941,6 +3978,9 @@ def select_fields(pkg: dict, fields: list[str], also_known: tuple[str, ...] = ()
                 raise UsageError(f"--fields: unknown field {path!r}: {here} is a "
                                  f"{type(value).__name__}, not a mapping")
             if part not in value:
+                if here == "lease" and part in LEASE_OPTIONAL_FIELDS:
+                    value = None    # an optional lease key that this lease does not set
+                    break
                 raise UsageError(f"--fields: unknown field {path!r}; keys of {here}: "
                                  f"{', '.join(map(str, value)) or '(none)'}")
             value = value[part]
@@ -4546,7 +4586,7 @@ any -> archived                    `update --status archived --reason` or `audit
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path}; --registry-snapshot COMMIT (env LEAN_PKG_REGISTRY_SNAPSHOT): read-only, the registry + event log as of COMMIT of its git repo (git show into a temp copy); reads work (status/list/board/audit/dry runs/comparator config --dry-run), every write exits 2 `read-only: --registry-snapshot`; --json +registry_snapshot sha)
 board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
-status    full record + last 5 history entries (a lease adds derived expires_at, UTC); --fields a,b.c: only those keys (dotted paths; aliases pin = mathlib_pin, lease.expires = lease.expires_at; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
+status    full record + last 5 history entries (a lease adds derived expires_at, UTC); --fields a,b.c: only those keys (dotted paths; lease.contact: null when unset; aliases pin = mathlib_pin, lease.expires = lease.expires_at; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent; a legacy literal ~/x local_path is rewritten $HOME-relative). ex: lean-pkg migrate --dry-run
@@ -4569,10 +4609,10 @@ update    set fields (--notes replaces, prints the old value; --append-note TEXT
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
 claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
-  flags: --workspace W --agent A (required) [--ttl HOURS: 24 new; a holder's re-claim keeps its TTL] [--reason TEXT] [--force (needs --reason)]
+  flags: --workspace W --agent A (required) [--ttl HOURS: 24 new; a holder's re-claim keeps its TTL] [--reason TEXT] [--contact TEXT: address of the holding session (e.g. lab-desk/n14-paper, @lean-ops), stored as lease.contact; one line, <= 200 chars, else exit 2; a re-claim without it keeps it] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
-renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. leases [--agent A] [--expiring H]: held leases, soonest first; doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
+renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it. leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated".
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; no write, no event; exit 0/1; JSON event gate-checked, checks[]; comparator --check prints the same binding ✓ lines)
@@ -4586,7 +4626,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs), (paper field) a paper unpublished with no arXiv id, and blocking public-safety hits (warn-only hits: a WARN line; skip: --skip-public-safety, a WARN). Evidence on disk that git ignores (receipts, comparator logs, comparator-stages/ files) is a WARN naming each path + rule (.gitignore:3:*.log) and the remedy (!.lean-receipts/ + !**/.lean-receipts/** after it, or git add -f); a not-committed ✗ names the rule; JSON ignored_evidence[{path, rule}] (also publish, and gate/comparator after attaching: stderr WARN).
-  ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, lakefile package name, tag at HEAD (--public-safety: + the scan below, implies --dry-run); prints the next promote/tag/record commands (the tag push names the GitHub remote, found by URL); exit 0 ready / 1 not   |   public-safety NAME [--history|--no-history] [--strict] (read-only): tree git would ship + (default) every blob/commit message on any ref under the package dir, for .lean-pkg-private-patterns regexes (# comments; bare or `block: RE` blocks, `warn: RE` warns, `allow: RE` exempts; `TAG: GLOB: RE` scopes any of the three to files whose package-relative path matches GLOB (* ** ?; no / = file name at any depth; trailing / = under that dir; never commit messages); tracked = a hit), built-ins (/home/<u>/, /Users/<u>/, ~/Dropbox/, approvals/, notes/, *.private, TODO-private, emails not declared), names from the record's local_path/agent/workspace (an allow line exempts one only where its match in the token's non-space run covers it), internal paths (approvals/ notes/ drafts/ scratch/ *.priv), warn-only latex-label (lem:/thm:/eq:/sec:... keys, main.tex, \\ref{ \\cite{ \\label{, Overleaf, arXiv ids; Lean-calibrated: never inside a name like foo_eq_bar, eq/def/ex only with `:`, key- only with a digit/capital/inner `.`, built-in allow def-eq defeq eq-of eq-iff ex-falso; the summary counts its warnings); hit = location (path:line, history: commit + path) + pattern label + severity (block|warn; warn printed as WARN) + excerpt with each match as […] (raw strings never printed); --json {ok, hits[], tree_hits, history_hits, block_hits, warn_hits, latex_label_hits, strict, patterns_source, warnings[]}; exit 1 on blocking hits (--strict: on any hit)   |   reservoir check NAME [--offline] (read-only): public, not a fork, >=2 stars (gh), lake-manifest.json + lean-toolchain tracked, LICENSE vs license_spdx, lakefile package + no `reservoir := false` (+ WARN without description/keywords/versionTags), lean-toolchain a release (rc/nightly: WARN), tag at HEAD; not yet public: GitHub items `pending promote: ...` (still ✗) + a `pre-promote:` line; then the Reservoir API (200: prints the `record ... reservoir-listed` command; never records itself); exit 0 eligible / 1 not   |   palomar prepare NAME [--out DIR] [--dry-run] (no network; submits nothing): bundle at <checkout>/.lean-receipts/palomar-<HEAD12>/ (never overwritten): formalization.yaml (rendered, schema-valid), configs/<every comparator config at HEAD>, receipts/<gate + comparator receipts, validated against HEAD>, README.txt (manual steps + Palomar URL + the record palomar-submitted command), MANIFEST.sha256; refused without receipts bound to HEAD, without consent, on blocking public-safety hits in the bundle; event palomar-prepared {commit, bundle, bundle_sha256}
+  ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, lakefile package name, tag at HEAD (--public-safety: + the scan below, implies --dry-run); prints the next promote/tag/record commands (the tag push names the GitHub remote, found by URL); exit 0 ready / 1 not   |   public-safety NAME [--history|--no-history] [--strict] (read-only): tree git would ship + (default) every blob/commit message on any ref under the package dir, for .lean-pkg-private-patterns regexes (# comments; bare or `block: RE` blocks, `warn: RE` warns, `allow: RE` exempts; `TAG: GLOB: RE` scopes any of the three to files whose package-relative path matches GLOB (* ** ?; no / = file name at any depth; trailing / = under that dir; never commit messages); tracked = a hit), built-ins (/home/<u>/, /Users/<u>/, ~/Dropbox/, approvals/, notes/, *.private, TODO-private, emails not declared), names from the record's local_path/agent/workspace and its lease's agent/workspace/contact (an allow line exempts one only where its match in the token's non-space run covers it), internal paths (approvals/ notes/ drafts/ scratch/ *.priv), warn-only latex-label (lem:/thm:/eq:/sec:... keys, main.tex, \\ref{ \\cite{ \\label{, Overleaf, arXiv ids; Lean-calibrated: never inside a name like foo_eq_bar, eq/def/ex only with `:`, key- only with a digit/capital/inner `.`, built-in allow def-eq defeq eq-of eq-iff ex-falso; the summary counts its warnings); hit = location (path:line, history: commit + path) + pattern label + severity (block|warn; warn printed as WARN) + excerpt with each match as […] (raw strings never printed); --json {ok, hits[], tree_hits, history_hits, block_hits, warn_hits, latex_label_hits, strict, patterns_source, warnings[]}; exit 1 on blocking hits (--strict: on any hit)   |   reservoir check NAME [--offline] (read-only): public, not a fork, >=2 stars (gh), lake-manifest.json + lean-toolchain tracked, LICENSE vs license_spdx, lakefile package + no `reservoir := false` (+ WARN without description/keywords/versionTags), lean-toolchain a release (rc/nightly: WARN), tag at HEAD; not yet public: GitHub items `pending promote: ...` (still ✗) + a `pre-promote:` line; then the Reservoir API (200: prints the `record ... reservoir-listed` command; never records itself); exit 0 eligible / 1 not   |   palomar prepare NAME [--out DIR] [--dry-run] (no network; submits nothing): bundle at <checkout>/.lean-receipts/palomar-<HEAD12>/ (never overwritten): formalization.yaml (rendered, schema-valid), configs/<every comparator config at HEAD>, receipts/<gate + comparator receipts, validated against HEAD>, README.txt (manual steps + Palomar URL + the record palomar-submitted command), MANIFEST.sha256; refused without receipts bound to HEAD, without consent, on blocking public-safety hits in the bundle; event palomar-prepared {commit, bundle, bundle_sha256}
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
@@ -4687,7 +4727,7 @@ event   one of: registry-created, registry-migrated, registered, updated, claime
         released, release-forced, lease-expired, gate-passed, promoted, audit-fix, relocated, status-changed,
         comparator-attached, comparator-replaced, palomar-prepared, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`
 name    package name or null
-plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt, ...)
+plus event-specific fields (agent, workspace, ttl_hours, reason, contact, commit, receipt, ...)
 
 EXIT CODES
 0  success, including dry-runs and the "already gated" no-op
@@ -4767,7 +4807,7 @@ def cmd_claim(args) -> int:
     reg = load_registry(reg_path)
     out, payload = do_claim(reg_path, reg, events_p,
                             args.name, args.workspace, args.agent, args.ttl,
-                            args.reason, args.force)
+                            args.reason, args.force, args.contact)
     note = prior_art_note(get_pkg(reg, args.name), events_p)
     payload["notes"] = [note] if note else []
     if args.json_out:
@@ -4805,7 +4845,7 @@ def cmd_release(args) -> int:
 def cmd_renew(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_renew(reg_path, load_registry(reg_path), events_p,
-                            args.name, args.agent, args.ttl, args.workspace, args.reason)
+                            args.name, args.agent, args.ttl, args.workspace, args.reason, args.contact)
     if args.json_out:
         print_json(payload)
     else:
@@ -5827,6 +5867,10 @@ def main(argv: list[str] | None = None) -> int:
                    help=f"lease TTL (default: {DEFAULT_TTL_HOURS} for a new claim; a holder's re-claim keeps "
                         f"the lease's current ttl_hours)")
     s.add_argument("--reason", default="")
+    s.add_argument("--contact", default=None, metavar="TEXT",
+                   help=f"address of the holding session (e.g. an amsg address such as lab-desk/n14-paper or "
+                        f"@lean-ops), stored in the lease and shown by leases/status; one line, at most "
+                        f"{LEASE_CONTACT_MAX} characters; a holder's re-claim without it keeps the lease's")
     s.add_argument("--force", action="store_true",
                    help="override a live lease; requires --reason")
     add_json(s)
@@ -5874,6 +5918,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="new TTL (default: the lease's current ttl_hours)")
     s.add_argument("--workspace", default=None, help="move the lease to this workspace")
     s.add_argument("--reason", default="")
+    s.add_argument("--contact", default=None, metavar="TEXT",
+                   help=f"set or replace the lease's contact (address of the holding session; one line, at most "
+                        f"{LEASE_CONTACT_MAX} characters); without it the lease keeps its contact")
     add_json(s)
     s.set_defaults(fn=cmd_renew)
 

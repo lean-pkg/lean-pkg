@@ -17,7 +17,7 @@ approach of lean-pkg's own `make history`) for private patterns:
   commit identities, `consent[]` entries, `allow:` lines, reserved example domains, `git@`
   SSH remotes).
 - user and host names derived at scan time from the registry record's own `local_path`, `agent`
-  and `workspace` fields (never stored). `allow:` lines see a derived token's whole non-space run
+  and `workspace` fields and its lease (`agent`, `workspace`, `contact`; never stored). `allow:` lines see a derived token's whole non-space run
   (#38) and exempt it only where one of their matches covers the token, so allowing a public URL
   that contains the token does not exempt the bare token elsewhere.
 - internal files by path: `approvals/`, `notes/`, `drafts/`, `scratch/`, `*.priv`, `*.private`.
@@ -212,8 +212,9 @@ def _tokens(value) -> list[str]:
 
 
 def derived_patterns(pkg: dict) -> list[Pattern]:
-    """User and host names from the record's own local_path, agent and workspace fields, derived now
-    (never stored). Labels name the field, never the value."""
+    """User and host names from the record's own local_path, agent and workspace fields and its lease's
+    agent, workspace and contact (a session address such as `lab-desk/n14-paper` names a machine), derived
+    now (never stored). Labels name the field, never the value."""
     found: dict[str, str] = {}
     try:
         absolute = str(core.repo_path(pkg))
@@ -224,7 +225,8 @@ def derived_patterns(pkg: dict) -> list[Pattern]:
         found.setdefault(m.group(1), "registry local_path (user)")
     lease = pkg.get("lease") if isinstance(pkg.get("lease"), dict) else {}
     for field, value in (("agent", pkg.get("agent")), ("workspace", pkg.get("workspace")),
-                         ("lease.agent", lease.get("agent")), ("lease.workspace", lease.get("workspace"))):
+                         ("lease.agent", lease.get("agent")), ("lease.workspace", lease.get("workspace")),
+                         ("lease.contact", lease.get("contact"))):
         for tok in _tokens(value):
             found.setdefault(tok, f"registry {field}")
     pats = []

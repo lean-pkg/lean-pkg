@@ -117,6 +117,25 @@ def test_registry_derived_names_are_patterns_and_never_printed(lp, tmp_path, cap
     assert "nodeheron" not in json.dumps(payload["hits"]) and "vera-bot" not in json.dumps(payload["hits"])
 
 
+def test_lease_contact_tokens_are_derived_patterns_and_never_printed(lp, tmp_path, capsys):
+    """A lease's contact names the holding session's machine (lab-desk/n14-paper): its tokens are derived
+    patterns like agent and workspace; short tokens and stopwords are not."""
+    from lean_pkg import public_safety as ps
+    lease = {"workspace": "w3", "agent": "w3", "claimed_at": "2026-01-01T00:00:00+00:00", "ttl_hours": 24,
+             "reason": "", "contact": "@lab-desk/n14-paper main"}
+    pats = ps.derived_patterns({"local_path": "/srv/pkg", "agent": "w3", "workspace": None, "lease": lease})
+    assert {p.label for p in pats} == {"registry lease.contact"}
+    assert sorted(p.rx.pattern for p in pats) == sorted(
+        r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])" for t in ("lab-desk", "n14-paper"))
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={"Main.lean": "-- built on lab-desk\n"})
+    reg = make_env(tmp_path, repo, workspace="w3", agent="w3", lease=lease)
+    assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert {h["pattern"] for h in payload["hits"]} == {"registry lease.contact"}
+    assert "lab-desk" not in json.dumps(payload["hits"])
+    assert "registry lease.contact" in payload["patterns_source"]["derived"]
+
+
 def test_derived_user_from_home_local_path(lp):
     from lean_pkg import public_safety as ps
     pats = ps.derived_patterns({"local_path": "/home/jdoe/src/pkg", "agent": "w3", "workspace": None})
