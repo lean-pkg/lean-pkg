@@ -135,6 +135,10 @@ script that produces comparator receipts; see
 raises the soft stack limit of its `lake`/`lean` children (never above the hard
 limit; recorded as the receipt's `stack_limit`); it warns when the soft limit is
 8 MiB or less; see [Stack limit](comparator.md#stages-and---prepare).
+`COMPARATOR_RECEIPT_BUILD_SOURCE=TEXT` declares where the package's oleans were
+built (a job id or host label; redacted); the receipt's `build_provenance` records
+whether the `build` stage compiled anything or found the oleans prebuilt; see
+[Build provenance](comparator.md#stages-and---prepare).
 
 ## Lease holders
 

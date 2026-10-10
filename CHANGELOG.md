@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `comparator-receipt` records whether the `build` stage compiled anything: the receipt and `stages.json` gain the
+  additive `build_provenance` `{compiled, modules_built, prebuilt, source}`, decided from the mtimes of the package's
+  own oleans under `.lake/build/lib/` before and after the stage, with Lake's `[i/n] Built` lines as a second witness.
+  `COMPARATOR_RECEIPT_BUILD_SOURCE` declares where a prebuilt `.lake/build` came from (free text, redacted). A reused
+  or `--from-prepared` setup carries the provenance recorded when it was built. The runner, `comparator --check` and
+  `gate --check` print `build: compiled N module(s)` or `build: prebuilt (source: ...)`; validators ignore the key.
+  docs/comparator.md says when oleans built elsewhere are acceptable. (#56)
+
 ## [0.7.21] - 2026-10-10
 
 ### Added

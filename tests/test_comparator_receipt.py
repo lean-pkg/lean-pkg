@@ -727,3 +727,80 @@ def test_stack_warning_printed_before_the_build_stage(project: Path):
                        preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_STACK, (8 * MIB, hard)))
     assert r.returncode == 0, r.stderr
     assert "WARN: soft stack limit is 8 MiB" in r.stderr
+
+
+# --- build provenance (#56) ------------------------------------------------
+
+def _ignored_lake(project: Path) -> Path:
+    """A lake project whose .lake/ is gitignored (as in a real package), so built oleans keep the tree clean."""
+    (project / ".gitignore").write_text(".lake/\n")
+    return _lake_project(project)
+
+
+def _receipt(project: Path) -> dict:
+    head = git(project, "rev-parse", "HEAD")
+    return json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
+
+
+def test_build_provenance_rule(cr):
+    bp = cr.build_provenance({}, {"lean/A.olean": 1, "lean/B.olean": 2}, "", None)
+    assert bp == {"compiled": True, "modules_built": 2, "prebuilt": False, "source": None}
+    same = {"lean/A.olean": 1}
+    assert cr.build_provenance(same, dict(same), "Build completed successfully.\n", "job 7") == \
+        {"compiled": False, "modules_built": 0, "prebuilt": True, "source": "job 7"}
+    touched = cr.build_provenance(same, {"lean/A.olean": 5}, "", None)
+    assert touched["compiled"] is True and touched["modules_built"] == 1        # rewritten in place
+    lines = "✔ [1/3] Built Challenge (0.4s)\n✔ [2/3] Built Solution\n✔ [3/3] Built Solution\n"
+    assert cr.build_provenance({}, {}, lines, None)["modules_built"] == 2       # lake's lines, no olean tree
+    assert cr.build_provenance(None, None, "", None) == \
+        {"compiled": False, "modules_built": None, "prebuilt": False, "source": None}
+
+
+def test_build_provenance_compiled_is_recorded(project: Path):
+    _ignored_lake(project)
+    r, _ = run_staged(project, extra_env={"LAKE_STUB_OLEANS": "Challenge Solution"})
+    assert r.returncode == 0, r.stderr
+    assert "comparator-receipt: build: compiled 2 module(s)" in r.stderr
+    want = {"compiled": True, "modules_built": 2, "prebuilt": False, "source": None}
+    assert _receipt(project)["build_provenance"] == want
+    assert _stages(project)["build_provenance"] == want
+
+
+def test_build_provenance_prebuilt_records_the_redacted_source(project: Path):
+    _ignored_lake(project)
+    for m in ("Challenge", "Solution"):                     # oleans built elsewhere, copied in
+        f = project / ".lake" / "build" / "lib" / "lean" / f"{m}.olean"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(f"olean {m}\n")
+    src = f"cluster job 4711 ({project}/.lake)"
+    r, _ = run_staged(project, extra_env={"COMPARATOR_RECEIPT_BUILD_SOURCE": src})
+    assert r.returncode == 0, r.stderr
+    bp = _receipt(project)["build_provenance"]
+    assert bp == {"compiled": False, "modules_built": 0, "prebuilt": True,
+                  "source": "cluster job 4711 (<checkout>/.lake)"}
+    assert str(project) not in json.dumps(_stages(project)["build_provenance"])
+    assert "build: prebuilt (source: cluster job 4711 (<checkout>/.lake))" in r.stderr
+
+
+def test_build_provenance_is_carried_through_from_prepared(project: Path, tmp_path: Path):
+    _ignored_lake(project)
+    other = tmp_path / "elsewhere"
+    r, _ = run_staged(project, "--prepare", "--evidence-dir", str(other),
+                      extra_env={"LAKE_STUB_OLEANS": "Challenge Solution",
+                                 "COMPARATOR_RECEIPT_BUILD_SOURCE": "prepare job 1"})
+    assert r.returncode == 0, r.stderr
+    r, calls = run_staged(project, "--from-prepared", str(other))
+    assert r.returncode == 0, r.stderr
+    assert len(calls) == 3                                  # no new build
+    assert _receipt(project)["build_provenance"] == \
+        {"compiled": True, "modules_built": 2, "prebuilt": False, "source": "prepare job 1"}
+    assert "build: compiled 2 module(s) (source: prepare job 1)" in r.stderr
+
+
+def test_build_provenance_of_an_older_prepared_state_is_unknown(cr):
+    assert cr.carried_provenance({"stages": []}) == \
+        {"compiled": None, "modules_built": None, "prebuilt": None, "source": None}
+    from lean_pkg.cli import build_provenance_line
+    assert "not recorded" in build_provenance_line(cr.carried_provenance(None))
+    assert build_provenance_line({"compiled": False, "modules_built": 0, "prebuilt": True,
+                                  "source": None}) == "build: prebuilt (source: not declared)"

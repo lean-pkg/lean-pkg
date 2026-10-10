@@ -661,6 +661,37 @@ additive `stack_limit` `{soft_kb, hard_kb, source}` (`soft_kb`/`hard_kb` an
 integer or `unlimited`; `source` `inherited` or `COMPARATOR_RECEIPT_STACK`);
 validators ignore it.
 
+**Build provenance.** The `build` stage runs
+`lake build <Challenge> <Solution>`; when `.lake/build` already holds the package's oleans for this
+commit, toolchain and manifest it compiles nothing, and the receipt says so
+in the additive `build_provenance`
+`{compiled, modules_built, prebuilt, source}`. The rule: the runner records
+the mtime of every olean under the package's own `.lake/build/lib/` (not the
+dependencies under `.lake/packages/`) before and after the stage; an olean
+that is new or whose mtime changed was written by the stage. Lake's
+`[i/n] Built <target>` lines in the stage log are a second witness.
+`compiled` is true when either shows a build; `modules_built` counts the
+oleans written (or, when none changed, the distinct `Built` targets);
+`prebuilt` is true when the stage ran, passed and compiled nothing; a
+skipped stage records
+`compiled: false, modules_built: null, prebuilt: false`. `COMPARATOR_RECEIPT_BUILD_SOURCE` declares where a
+prebuilt tree came from (free text such as a job id or a host label,
+redacted like every receipt string; `null` when unset). The runner prints
+`build: compiled N module(s)` or `build: prebuilt (source: ...)` after the
+stage; a reused or `--from-prepared` setup carries the provenance recorded
+in its `stages.json` when it was built (a state prepared before this field
+existed records nulls, printed as `provenance not recorded`).
+`comparator --check` and `gate --check` print the same line; validators
+ignore the key. Oleans built on another host are acceptable when that host
+built the same commit with the same `lean-toolchain` and `lake-manifest.json`
+(copy the whole `.lake/build` of the checkout): Lake's traces bind each olean
+to its sources and dependencies, so a mismatch makes Lake rebuild it (and
+the receipt then says `compiled`), and the comparator replays the Solution's
+export with the kernel, so a prebuilt olean cannot carry an unchecked proof
+into the verdict. Declare the source so a reader of the receipt knows where
+the build happened, for example
+`COMPARATOR_RECEIPT_BUILD_SOURCE="cluster job 4711" comparator-receipt`.
+
 ### Runtime
 
 Where the time goes. Neither judge does work per slot. One `lake comparator`

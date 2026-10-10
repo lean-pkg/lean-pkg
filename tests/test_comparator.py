@@ -484,6 +484,20 @@ def test_comparator_check_validates_without_recording(lp, env, tmp_path, capsys)
     assert not (env.repo_a / ".lean-receipts" / f"{comp['commit'][:12]}-comparator.json").exists()
 
 
+
+def test_comparator_check_prints_build_provenance(lp, env, tmp_path, capsys):
+    """#56: the additive build_provenance is printed in one line and never validated."""
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a, build_provenance={
+        "compiled": False, "modules_built": 0, "prebuilt": True, "source": "cluster job 4711"})
+    cp = write_receipt(tmp_path, comp, name="comparator-receipt.json")
+    assert lp.main(["--registry", str(env.registry), "comparator", "alpha", "--receipt", str(cp), "--check"]) == 0
+    assert "  · build: prebuilt (source: cluster job 4711)" in capsys.readouterr().out.splitlines()
+    comp["build_provenance"] = {"compiled": True, "modules_built": 3, "prebuilt": False, "source": None}
+    cp = write_receipt(tmp_path, comp, name="comparator-receipt.json")
+    assert lp.main(["--registry", str(env.registry), "comparator", "alpha", "--receipt", str(cp), "--check"]) == 0
+    assert "  · build: compiled 3 module(s)" in capsys.readouterr().out.splitlines()
+
 def test_comparator_check_reports_invalid(lp, env, tmp_path, capsys):
     add_comparator_config(env.repo_a)
     comp = make_comparator_receipt(env.repo_a, result="fail")

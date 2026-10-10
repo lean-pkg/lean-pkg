@@ -2386,6 +2386,20 @@ def receipt_check_lines(pkg: dict, repo: pathlib.Path, receipt: dict) -> list[st
         f"✓ mathlib_rev, report_sha256, job_id {receipt['job_id']}, checker, generated_at well-formed"]
 
 
+def build_provenance_line(bp: dict) -> str:
+    """One line for a comparator receipt's additive build_provenance (#56); never validated."""
+    src = bp.get("source")
+    tail = f" (source: {src})" if src else ""
+    if bp.get("compiled") is True:
+        n = bp.get("modules_built")
+        return (f"build: compiled {n} module(s)" if isinstance(n, int) else "build: compiled") + tail
+    if bp.get("prebuilt") is True:
+        return f"build: prebuilt (source: {src or 'not declared'})"
+    if bp.get("compiled") is False:
+        return "build: no build stage ran (skipped)" + tail
+    return "build: provenance not recorded (the setup was prepared before build_provenance)" + tail
+
+
 def comparator_check_lines(pkg: dict, repo: pathlib.Path, comp: dict, lower_commit: str | None,
                            with_binding: bool = True) -> list[str]:
     mech = "legacy" if comp.get("schema") == "comparator-receipt/1" else comp.get("mechanism")
@@ -2394,6 +2408,8 @@ def comparator_check_lines(pkg: dict, repo: pathlib.Path, comp: dict, lower_comm
                f"each log PASS ({mech} mechanism)")
     out.append(f"✓ comparator commit = lower-tier receipt commit {lower_commit[:12]}" if lower_commit
                else "· no lower-tier receipt to pair with (commit equality not checked)")
+    if isinstance(comp.get("build_provenance"), dict):   # #56: printed, never validated
+        out.append(f"· {build_provenance_line(comp['build_provenance'])}")
     return out
 
 
@@ -4866,7 +4882,7 @@ tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commi
                 toolchain: {lean_toolchain, lake_sha256, leanexport_sha256, leanchecker_sha256, nanoda_bin_sha256, con-ron_sha256}:
                 64-hex sha256 of the judging binaries under `lean --print-prefix`/bin
 host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>); generated_at MUST parse as ISO-8601
-host_policy     optional; the runner's host-policy reason (an override run is visible here); stack_limit optional, not validated: {soft_kb, hard_kb, source} the lake/lean children ran under (COMPARATOR_RECEIPT_STACK=unlimited|<kB> raises it; WARN at <= 8 MiB)
+host_policy     optional; the runner's host-policy reason (an override run is visible here); stack_limit optional, not validated: {soft_kb, hard_kb, source} the lake/lean children ran under (COMPARATOR_RECEIPT_STACK=unlimited|<kB> raises it; WARN at <= 8 MiB); build_provenance optional, not validated: {compiled, modules_built, prebuilt, source} whether the build stage compiled any of the package's oleans or found them prebuilt (source: COMPARATOR_RECEIPT_BUILD_SOURCE, redacted); comparator --check and gate --check print it
 test_only, partial  if present and true (a test-only override; a --slots subset run) the receipt is REFUSED
 result          "pass" (the runner writes a receipt only on PASS)
 configs[]       MUST list exactly the comparator*.json / comparator/config*.json files tracked at HEAD

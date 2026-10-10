@@ -19,7 +19,9 @@ in the receipt's host_policy field.
 
 Env: COMPARATOR_CHECK (script path; default: the comparator-check.sh shipped
 inside the lean_pkg package), COMPARATOR_LAKE (the lake the setup stages run), SLURM_JOB_ID (job identity when under Slurm),
-COMPARATOR_RECEIPT_STACK (unlimited | a size in kB: the soft stack limit for the lake/lean children).
+COMPARATOR_RECEIPT_STACK (unlimited | a size in kB: the soft stack limit for the lake/lean children),
+COMPARATOR_RECEIPT_BUILD_SOURCE (free text naming where the package's oleans were built; recorded in
+build_provenance).
 """
 from __future__ import annotations
 
@@ -44,7 +46,7 @@ import time
 SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
 # Acceptance is decided by the same predicate the validator uses (one source of truth).
-from .cli import comparator_pass  # noqa: E402
+from .cli import build_provenance_line, comparator_pass  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
@@ -535,6 +537,60 @@ def stack_preexec():
     return apply
 
 
+# Build provenance (#56). The build stage runs `lake build <Challenge> <Solution>`; with a .lake/build that
+# another host populated at the same commit, toolchain and manifest it is a no-op, and the receipt says so.
+# The rule: snapshot the mtimes of the root package's own oleans (<project>/.lake/build/lib/**/*.olean;
+# dependencies under .lake/packages/ are not the package's modules) before and after the stage. An olean
+# that is new or whose mtime changed was written by this stage. Lake's own `[i/n] Built <target>` lines in
+# the stage log are a second witness. compiled = either witness; modules_built = the oleans written (or,
+# when none changed, the distinct `Built` targets); prebuilt = the stage ran, passed and compiled
+# nothing. COMPARATOR_RECEIPT_BUILD_SOURCE declares where a prebuilt tree came from (free text, redacted).
+BUILD_SOURCE_ENV = "COMPARATOR_RECEIPT_BUILD_SOURCE"
+BUILT_LINE_RE = re.compile(r"\[\d+/\d+\]\s+Built\s+([^\s(]+)")
+
+
+def build_source() -> str | None:
+    v = (os.environ.get(BUILD_SOURCE_ENV) or "").strip()
+    return redact(v) if v else None
+
+
+def olean_snapshot(project: pathlib.Path) -> dict[str, int]:
+    """{path under .lake/build/lib: mtime_ns} for the root package's oleans."""
+    root = project / ".lake" / "build" / "lib"
+    out: dict[str, int] = {}
+    if root.is_dir():
+        for p in root.rglob("*.olean"):
+            try:
+                out[p.relative_to(root).as_posix()] = p.stat().st_mtime_ns
+            except OSError:
+                pass
+    return out
+
+
+def build_provenance(before: dict[str, int] | None, after: dict[str, int] | None, log_text: str,
+                     source: str | None) -> dict:
+    """The receipt's build_provenance for a build stage that ran and passed (before/after: olean
+    snapshots), or for one that did not run (before is None)."""
+    if before is None or after is None:
+        return {"compiled": False, "modules_built": None, "prebuilt": False, "source": source}
+    written = [k for k, m in after.items() if before.get(k) != m]
+    built = {m.group(1) for m in BUILT_LINE_RE.finditer(log_text)}
+    n = len(written) if written else len(built)
+    compiled = bool(written or built)
+    return {"compiled": compiled, "modules_built": n, "prebuilt": not compiled, "source": source}
+
+
+def carried_provenance(prior: dict | None) -> dict:
+    """The provenance a reused setup recorded; all-null when it predates build_provenance. The
+    declared source of this run fills a recorded null source."""
+    bp = (prior or {}).get("build_provenance")
+    bp = dict(bp) if isinstance(bp, dict) else {"compiled": None, "modules_built": None, "prebuilt": None,
+                                                 "source": None}
+    if bp.get("source") is None:
+        bp["source"] = build_source()
+    return bp
+
+
 class StageError(RunnerError):
     def __init__(self, msg: str, code: int | None = None):
         super().__init__(msg)
@@ -599,6 +655,7 @@ class Stages:
         self.entries: dict[str, dict] = {}
         self.progress: dict | None = None   # stage 04's {done, total, failed, partial_report} (#39)
         self.resolution: dict | None = None  # toolchain_resolution {source, lake, version} (#41)
+        self.build_provenance: dict | None = None   # #56: {compiled, modules_built, prebuilt, source}
 
     def log(self, stage: str) -> pathlib.Path:
         return self.dir / f"{STAGES.index(stage) + 1:02d}-{stage}.log"
@@ -619,6 +676,7 @@ class Stages:
                 "git_env_scrubbed": git_env_set(),   # #27: removed from every lake/git/bash it ran
                 **({"progress": self.progress} if self.progress is not None else {}),
                 **({"toolchain_resolution": self.resolution} if self.resolution is not None else {}),
+                **({"build_provenance": self.build_provenance} if self.build_provenance is not None else {}),
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         tmp = self.json.with_name(STAGES_FILE + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -709,10 +767,16 @@ def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> N
         stages.run("cache-get", lambda log: ("skipped", None, "no mathlib package in lake-manifest.json"))
     mods = config_modules(project, configs)
     if lakefile and mods:
+        before = olean_snapshot(project)
         stages.run("build", step([lake, "build", *mods], "build of " + ", ".join(mods)))
+        log_text = stages.log("build").read_text(encoding="utf-8", errors="replace")
+        stages.build_provenance = build_provenance(before, olean_snapshot(project), log_text, build_source())
     else:
         stages.run("build", lambda log: no_lake if not lakefile else
                    ("skipped", None, "no challenge/solution module configured"))
+        stages.build_provenance = build_provenance(None, None, "", build_source())
+    stages.save()
+    print(f"comparator-receipt: {build_provenance_line(stages.build_provenance)}", file=sys.stderr)
 
 
 class PartialStage(StageError):
@@ -1104,6 +1168,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
             e = by[s]
             stages.entries[s] = {**e, "status": "prepared",
                                  "note": f"setup done {when} ({e.get('status')}) in {prior_src}"}
+        stages.build_provenance = carried_provenance(prior)   # #56: as recorded when it was built
         stages.clear(STAGES[3:])
         stages.save()
         if prepare:
@@ -1111,6 +1176,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
             return {"prepared": True, "commit": commit, "stages": str(stages.json), "reused": True}
         print(f"comparator-receipt: setup reused from {prior_src} (prepared {when}); "
               f"running the comparison only", file=sys.stderr)
+        print(f"comparator-receipt: {build_provenance_line(stages.build_provenance)}", file=sys.stderr)
         for line in stack_lines:              # before the comparator stage's lean children
             print(line, file=sys.stderr)
     else:
@@ -1142,6 +1208,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
             result["stage04"] = st
             status, code, note = st.run(stage_log)
             result["extra"] = {"stack_limit": stack_limit,
+                               **({"build_provenance": stages.build_provenance}
+                                  if stages.build_provenance is not None else {}),
                                **({"judges": judges} if mechanism == "toolchain" else {}),
                                **({"toolchain_resolution": resolution} if resolution else {}),
                                **({"resumed_slots": len(st.cached)} if st.cached else {})}
