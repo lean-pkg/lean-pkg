@@ -18,6 +18,19 @@ change the registry schema or receipt format, always with a migration).
   (with `--agent`), an unparseable lease, a missing checkout, a dirty tree while evidence is produced, a receipt
   `gate` would refuse or a recorded receipt that cannot be read. `--json`: `{ok, name, command, reason, blockers[],
   notes[], state{}}`. (#42)
+- `next NAME [--agent A]`: read-only and offline (no `gh`, nothing written), the single recommended next command for a
+  package and a one-line reason, decided from the registry record and the checkout with the validators the writers
+  use (`gate`'s receipt check, the comparator check) and the existing next-command producers (`comparator config
+  --coverage`, `publish --dry-run`): `claim`, `update --status ...`, `gate --check` / `gate`, `comparator-receipt`,
+  `comparator config --from-claims`, `comparator`, `publish --dry-run`, `reservoir check`, `palomar prepare`,
+  `record ...`, or nothing for `upstreamed`/`archived`. Exit 1 when blocked: a live lease held by another agent
+  (with `--agent`), an unparseable lease, a missing checkout, a dirty tree while evidence is produced, a receipt
+  `gate` would refuse or a recorded receipt that cannot be read. `--json`: `{ok, name, command, reason, blockers[],
+  notes[], state{}}`. (#42)
+- `llms --short`: a compact agent contract of about 40 lines (the title, the first lines of `PURPOSE`, `STANDING
+  RULES`, and the first line of each subcommand), cut from the full contract by its section headers so it cannot
+  drift; every line is a line of the full text. `--json` adds `"short": true`; plain `llms --json` is unchanged.
+  (#43)
 
 ## [0.7.16] - 2026-10-10
 

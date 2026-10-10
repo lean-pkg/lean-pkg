@@ -15,6 +15,7 @@ every subcommand has `--json`, and the contract an agent needs is one file.
 |---|---|
 | [llms.txt](llms.txt) | the exact output of `lean-pkg llms`: standing rules, transitions with required evidence, every subcommand with an example, both receipt schemas, the event schema, exit codes. Fetch this first. |
 | `lean-pkg llms` | the same text from the installed tool, always current |
+| `lean-pkg llms --short` | about 40 lines cut from it: purpose, standing rules, the first line of each subcommand. Enough to start a session; read the full text before writing evidence |
 | [AGENTS.md](https://github.com/lean-pkg/lean-pkg/blob/main/AGENTS.md) | the modification contract for agents working **on** the tool (layout, tests, conventions) |
 
 ## The rules an agent must follow

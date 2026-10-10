@@ -4640,7 +4640,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 next      NAME [--agent A] read-only, offline (never gh, never writes): the ONE recommended next command + a one-line reason, from the record + checkout (claim / update --status / gate --check / gate / comparator-receipt / comparator config --from-claims / comparator / publish --dry-run / reservoir check / palomar prepare / record ...); without --agent a live lease is only noted; exit 0 command (or nothing left: command null), 1 blocked; --json {ok, name, command, reason, blockers[{kind: foreign-lease|invalid-lease|missing-checkout|no-commit|dirty-tree|invalid-receipt|unreadable-receipt, detail}], notes[], state{status, lease, gate_commit, comparator_commit, head, dirty[], receipt_candidate, ...}}. ex: lean-pkg next my-lean --agent vera --json
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed; tool comparator without bwrap: run `comparator host-check`), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
-llms      this contract (--json: {"ok": true, "text": ...}). ex: lean-pkg llms
+llms      this contract (--json: {"ok": true, "text": ...}); --short: ~40 lines cut from it by section (title, PURPOSE head, STANDING RULES, the first line of each subcommand; --json adds "short": true; the rest, e.g. publish, public-safety, reservoir check, palomar prepare, comparator config/host-check, release --fresh-repo/--adopt-repo: the full text). ex: lean-pkg llms --short
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, index/ beside the registry if present, ./index; check/render/migrate exit 1 when it is missing).
   add NAME --by HANDLE --headline 'Name :: File.lean :: One sentence.[ :: ChallengeTheorem]' [--from-registry] [--repo URL]
@@ -4746,11 +4746,35 @@ EXIT CODES
 # --------------------------------------------------------------------------
 # CLI
 
+def llms_short(text: str = LLMS_TEXT) -> str:
+    """`llms --short` (#43): a compact contract cut from LLMS_TEXT by its section headers, never a second
+    hand-kept text: the title line, PURPOSE's header and first three lines, STANDING RULES whole, and the
+    SUBCOMMANDS header with the first line (the column-0 line) of each subcommand; no flag continuations,
+    examples, schemas or exit codes. Every line is a line of the full text. A missing header raises."""
+    lines = text.splitlines()
+
+    def section(is_header) -> list[str]:
+        start = next((k for k, line in enumerate(lines) if is_header(line)), None)
+        if start is None:
+            raise ValueError("llms_short: section header not found in LLMS_TEXT")
+        end = next((k for k in range(start + 1, len(lines)) if not lines[k].strip()), len(lines))
+        return lines[start:end]
+
+    purpose = section(lambda line: line == "PURPOSE")
+    rules = section(lambda line: line == "STANDING RULES")
+    commands = section(lambda line: line.startswith("SUBCOMMANDS "))
+    out = [lines[0], "", *purpose[:4], "", *rules, "",
+           commands[0], *(line for line in commands[1:] if not line[:1].isspace())]
+    return "\n".join(out) + "\n"
+
+
 def cmd_llms(args) -> int:
+    short = getattr(args, "short", False)
+    text = llms_short() if short else LLMS_TEXT
     if getattr(args, "json_out", False):
-        print_json({"ok": True, "text": LLMS_TEXT})
+        print_json({"ok": True, "text": text, "short": True} if short else {"ok": True, "text": text})
         return 0
-    print(LLMS_TEXT, end="")
+    print(text, end="")
     return 0
 
 
@@ -6122,6 +6146,9 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_doctor)
 
     s = sub.add_parser("llms", help="print the agent-oriented usage contract")
+    s.add_argument("--short", action="store_true",
+                   help="a compact contract (~40 lines) cut from the full one: PURPOSE, STANDING RULES and the first "
+                        "line of each subcommand; no flag details, schemas or examples")
     add_json(s)
     s.set_defaults(fn=cmd_llms)
 

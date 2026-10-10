@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 
 def test_llms_exits_zero_and_covers_contract(lp, capsys):
     rc = lp.main(["llms"])
@@ -68,3 +72,54 @@ def test_llms_documents_audit_reference_branch(lp, capsys):
     for needle in ("reference branch", "origin/HEAD", "master", "checkout-branch", "--version",
                    "below-toolchain-floor", "no-github-mirror", "toolchain-unparsed"):
         assert needle in out, needle
+
+
+def _full_table_commands(text: str) -> list[str]:
+    """The command names the full SUBCOMMANDS table lists: the first word of each column-0 line."""
+    lines = text.splitlines()
+    start = next(k for k, line in enumerate(lines) if line.startswith("SUBCOMMANDS "))
+    end = next(k for k in range(start + 1, len(lines)) if not lines[k].strip())
+    return [line.split()[0] for line in lines[start + 1:end] if line[:1].strip()]
+
+
+def test_llms_short_is_a_compact_subset_of_the_full_contract(lp, capsys):
+    assert lp.main(["llms", "--short"]) == 0
+    short = capsys.readouterr().out
+    full = lp.LLMS_TEXT.splitlines()
+    lines = short.splitlines()
+    assert short == lp.llms_short()
+    assert [line for line in lines if line not in full] == []          # line by line, nothing hand-written
+    assert len(lines) < 60
+    for header in ("PURPOSE", "STANDING RULES"):
+        assert header in lines
+    assert any(line.startswith("SUBCOMMANDS ") for line in lines)
+    for absent in ("RECEIPT SCHEMA", "COMPARATOR RECEIPT SCHEMA", "EVENT LINE SCHEMA", "EXIT CODES"):
+        assert not any(line.startswith(absent) for line in lines), absent
+    assert not any(line.lstrip().startswith("ex: ") for line in lines)  # no example-only lines
+    table = _full_table_commands(lp.LLMS_TEXT)
+    assert "next" in table and "gate" in table
+    for cmd in table:
+        assert any(line.split()[:1] == [cmd] for line in lines), cmd
+
+
+def test_llms_short_names_every_subcommand(lp, capsys):
+    """Every subcommand argparse knows is at least named in the short text (a pointer to the full one)."""
+    import re
+    with pytest.raises(SystemExit):
+        lp.main(["--help"])
+    names = re.search(r"\{([a-z,-]+)\}", capsys.readouterr().out).group(1).split(",")
+    short = lp.llms_short()
+    for name in names:
+        assert re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", short), name
+
+
+def test_llms_short_json(lp, capsys):
+    assert lp.main(["llms", "--short", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"ok": True, "text": lp.llms_short(), "short": True}
+    assert lp.main(["llms", "--json"]) == 0                              # the full form keeps its shape
+    assert json.loads(capsys.readouterr().out) == {"ok": True, "text": lp.LLMS_TEXT}
+
+
+def test_llms_short_fails_loud_without_its_section_markers(lp):
+    with pytest.raises(ValueError):
+        lp.llms_short("title\n\nPURPOSE\na\n")
