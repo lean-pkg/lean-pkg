@@ -258,10 +258,14 @@ Assume the shared registry from the setup above:
 
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git \
     --path src/my-proof --upstream-target palomar
-# my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.35.0-rc2, pin=065356127b)
-
 lean-pkg claim my-proof --workspace laptop --agent alice --reason "comparator tier"
 lean-pkg update my-proof --agent alice --status gate-pending --reason "lower-tier check submitted"
+```
+
+`register` prints:
+
+```text
+my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.35.0-rc2, pin=065356127b)
 ```
 
 After this bootstrap, change the registry only through `lean-pkg`. Never
@@ -290,29 +294,33 @@ produce it:
 
 ### 4. The comparator receipt
 
-From the project directory, with a clean working tree and after
-`lake exe cache get`:
+From your checkout (here `~/src/my-proof`), with a clean working tree and
+after `lake exe cache get`:
 
 ```bash
-cd ~/src/my-proof
 COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
-# mechanism: toolchain
-# comparator-receipt: stage 01-checkout: ok (dependency checkout per lake-manifest.json)
-# comparator-receipt: stage 02-cache-get: ok (Mathlib build cache)
-# comparator-receipt: stage 03-build: ok (build of MyProof.Challenge, MyProof.Solution)
-# comparator-receipt: 1 slot(s) in 1 config(s), 1 judge invocation(s), 1 at a time, mechanism toolchain
-# ...
-# con-ron kernel accepts the solution
-# nanoda kernel accepts the solution
-# Lean default kernel accepts the solution
-# Your solution is okay!
-# slot 1/1 MyProof.two_mul_le done in 9.4s (1/1 done)
-# comparator-receipt: stage 04-comparator: ok (1 config(s) accepted (toolchain; 1 slot(s)))
-# comparator-receipt: stage 05-receipt: ok (.lean-receipts/cb3d68a21454-comparator.json)
-# comparator receipt written: .../my-proof/.lean-receipts/cb3d68a21454-comparator.json (1 config(s), commit cb3d68a21454, host policy: host <host> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS)
-# commit .lean-receipts/ in this repo, then record it:
-#   lean-pkg comparator <name> --receipt .../my-proof/.lean-receipts/cb3d68a21454-comparator.json
-#   (or at gate time: lean-pkg gate <name> --receipt R.json --comparator .../my-proof/.lean-receipts/cb3d68a21454-comparator.json)
+```
+
+Expected output:
+
+```text
+mechanism: toolchain
+comparator-receipt: stage 01-checkout: ok (dependency checkout per lake-manifest.json)
+comparator-receipt: stage 02-cache-get: ok (Mathlib build cache)
+comparator-receipt: stage 03-build: ok (build of MyProof.Challenge, MyProof.Solution)
+comparator-receipt: 1 slot(s) in 1 config(s), 1 judge invocation(s), 1 at a time, mechanism toolchain
+...
+con-ron kernel accepts the solution
+nanoda kernel accepts the solution
+Lean default kernel accepts the solution
+Your solution is okay!
+slot 1/1 MyProof.two_mul_le done in 9.4s (1/1 done)
+comparator-receipt: stage 04-comparator: ok (1 config(s) accepted (toolchain; 1 slot(s)))
+comparator-receipt: stage 05-receipt: ok (.lean-receipts/cb3d68a21454-comparator.json)
+comparator receipt written: .../my-proof/.lean-receipts/cb3d68a21454-comparator.json (1 config(s), commit cb3d68a21454, host policy: host <host> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS)
+commit .lean-receipts/ in this repo, then record it:
+  lean-pkg comparator <name> --receipt .../my-proof/.lean-receipts/cb3d68a21454-comparator.json
+  (or at gate time: lean-pkg gate <name> --receipt R.json --comparator .../my-proof/.lean-receipts/cb3d68a21454-comparator.json)
 ```
 
 This is the `toolchain` mechanism's output, the default on Lean v4.35.0-rc2
@@ -323,7 +331,9 @@ print `Your solution is okay!` for each accepted configuration
 instead of the stage lines. The line to look for is
 `comparator receipt written:`, which appears only when every configuration
 is accepted. `COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)"` allows this
-host; without it, outside Slurm, the run refuses by design.
+host; without it, outside Slurm, the run refuses by design. A
+`WARN: soft stack limit is 8 MiB` line near the start is advice for large
+modules; a small project can ignore it.
 
 Inside a Slurm job the host policy is satisfied automatically. The runner
 writes `.lean-receipts/<commit12>-comparator.json` and one
@@ -335,9 +345,14 @@ any configuration fails, it writes nothing.
 ```bash
 lean-pkg gate my-proof --receipt /path/to/receipt.json \
     --comparator .lean-receipts/cb3d68a21454-comparator.json
-# receipt copied to .../my-proof/.lean-receipts/cb3d68a21454-slurm-123456.json — NOT committed there; commit it in the verified repo yourself
-# comparator receipt already present at .lean-receipts/cb3d68a21454-comparator.json (not re-copied)
-# my-proof: gate-pending -> verified-private (commit cb3d68a21454) with comparator evidence .lean-receipts/cb3d68a21454-comparator.json
+```
+
+Expected output:
+
+```text
+receipt copied to .../my-proof/.lean-receipts/cb3d68a21454-slurm-123456.json — NOT committed there; commit it in the verified repo yourself
+comparator receipt already present at .lean-receipts/cb3d68a21454-comparator.json (not re-copied)
+my-proof: gate-pending -> verified-private (commit cb3d68a21454) with comparator evidence .lean-receipts/cb3d68a21454-comparator.json
 ```
 
 Now commit the evidence in the package repository:
@@ -354,7 +369,12 @@ descendant* of the certified commit, and both receipts stay valid. See
 
 ```bash
 lean-pkg comparator my-proof --check --receipt .lean-receipts/cb3d68a21454-comparator.json
-# my-proof: comparator receipt valid at commit cb3d68a21454 (1 config(s)) — not recorded (--check)
+```
+
+Expected output:
+
+```text
+my-proof: comparator receipt valid at commit cb3d68a21454 (1 config(s)) — not recorded (--check)
 ```
 
 `--check` re-derives the PASS from bytes and records nothing. It works at any
@@ -364,19 +384,24 @@ status, so you can validate a receipt the moment the runner wrote it.
 
 ```bash
 lean-pkg promote my-proof
-# promotion checklist for my-proof (~/src/my-proof):
-#   ✓  reuse lint passed
-#   ✓  LICENSE/COPYING present at repo root
-#   ✓  lake-manifest.json tracked at HEAD
-#   ✓  gate receipt bound to HEAD 148818d4c635 (evidence-only descendant of cb3d68a21454 (+3 evidence file(s)))
-#   ✓  gate receipt .lean-receipts/cb3d68a21454-<job>.json tracked at HEAD (1 file(s))
-#   ✓  comparator PASS bound to HEAD 148818d4c635 (1 config(s): config and log bytes match the receipt, PASS line present; not re-run)
-#   ✓  comparator receipt .lean-receipts/cb3d68a21454-comparator.json and its 1 log(s) tracked at HEAD (2 file(s))
-#   ✓  HEAD 148818d4c635 contained in origin/main (local refs; nothing fetched)
-#   ✓  gh visibility matches registry (private)
-#   ✓  automation disclosure not required (upstream_target=palomar)
-# WARNING: a GitHub private→public flip is effectively ONE-WAY — ...
-# DRY RUN — nothing changed. Re-run with --yes to execute.
+```
+
+Expected output:
+
+```text
+promotion checklist for my-proof (~/src/my-proof):
+  ✓  reuse lint passed
+  ✓  LICENSE/COPYING present at repo root
+  ✓  lake-manifest.json tracked at HEAD
+  ✓  gate receipt bound to HEAD 148818d4c635 (evidence-only descendant of cb3d68a21454 (+3 evidence file(s)))
+  ✓  gate receipt .lean-receipts/cb3d68a21454-<job>.json tracked at HEAD (1 file(s))
+  ✓  comparator PASS bound to HEAD 148818d4c635 (1 config(s): config and log bytes match the receipt, PASS line present; not re-run)
+  ✓  comparator receipt .lean-receipts/cb3d68a21454-comparator.json and its 1 log(s) tracked at HEAD (2 file(s))
+  ✓  HEAD 148818d4c635 contained in origin/main (local refs; nothing fetched)
+  ✓  gh visibility matches registry (private)
+  ✓  automation disclosure not required (upstream_target=palomar)
+WARNING: a GitHub private→public flip is effectively ONE-WAY — ...
+DRY RUN — nothing changed. Re-run with --yes to execute.
 ```
 
 `lean-pkg promote my-proof --yes` performs the flip
