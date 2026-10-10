@@ -583,6 +583,23 @@ name, whose export closure does not depend on the other names.
 `--no-resume` judges every slot again. The legacy mechanism judges all
 configurations in one `comparator-check.sh` run and does not resume.
 
+**Parallel judges.** `--judges N` (or `LEAN_PKG_COMPARATOR_JOBS`; default 1)
+splits each configuration's pending slots into at most N contiguous shards
+of near-equal size, each judged by its own `lake comparator` on a partial
+copy of the configuration, at most N at a time (judge lines in the stage log
+are prefixed `[unit]`). `lake comparator` takes a whole configuration per
+invocation, so this is the only way to shard it; the merge is exact for the
+reason given under Resume, and every shard's log must carry the PASS line.
+A rejected shard rejects the configuration: the other shards are killed,
+no receipt is written, and the partial report names the failed slots. The
+receipt records `judges` and, per configuration, `units[]`; its
+`theorem_names` stay the configuration's. The legacy mechanism refuses
+`--judges` above 1. Shards run in the same checkout: the setup stages have
+built everything, so their `lake build` steps are no-ops, but each still
+runs `lake exe cache get` (inside `verify-comparator.sh`). Whether sharding
+saves time at all depends on how much of their export closure the shards
+share (see Runtime).
+
 `comparator-receipt --prepare` runs only the setup stages and writes no
 receipt. It is idempotent: a second `--prepare` with a matching completed
 setup does nothing. A later `comparator-receipt` whose commit, toolchain and

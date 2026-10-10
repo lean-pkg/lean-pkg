@@ -433,3 +433,19 @@ class SlotCache:
             tmp = p.with_name(p.name + ".tmp")
             tmp.write_text(json.dumps(entry, indent=2) + "\n", encoding="utf-8")
             os.replace(tmp, p)
+
+
+JOBS_ENV = "LEAN_PKG_COMPARATOR_JOBS"
+
+
+def shards(slots: list, n: int) -> list[list]:
+    """slots in min(n, len) contiguous chunks whose sizes differ by at most one (neighbouring
+    theorems usually share most of their export closure, so contiguity keeps shards cheaper)."""
+    k = max(1, min(n, len(slots)))
+    q, r = divmod(len(slots), k)
+    out, i = [], 0
+    for c in range(k):
+        size = q + (1 if c < r else 0)
+        out.append(slots[i:i + size])
+        i += size
+    return out

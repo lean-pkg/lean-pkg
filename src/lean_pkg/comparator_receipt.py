@@ -46,8 +46,8 @@ from .cli import comparator_pass  # noqa: E402
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
 from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
-                               Progress, SignalGuard, SlotCache, StageLog, Unit, list_slots, ranges,
-                               run_pool, unit_id)
+                               JOBS_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, list_slots,
+                               ranges, run_pool, shards, unit_id)
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -561,7 +561,8 @@ class Stage04:
 
     def __init__(self, project: pathlib.Path, configs: list[str], mechanism: str, check: pathlib.Path,
                  verify: pathlib.Path | None, stages: Stages, log_dir: pathlib.Path, resume_command: str,
-                 resume: bool = True):
+                 resume: bool = True, judges: int = 1):
+        self.judges = max(1, judges)
         self.project, self.configs, self.mechanism = project, configs, mechanism
         self.check, self.verify, self.stages, self.log_dir = check, verify, stages, log_dir
         self.cfgs = [(c, json.loads((project / c).read_bytes())) for c in configs]
@@ -593,8 +594,10 @@ class Stage04:
             for rel, _cfg in self.cfgs:
                 mine = [s for s in self.slots if s.config == rel]
                 pend = [s for s in mine if s.index not in self.cached]
-                if pend or not mine:
-                    units.append(Unit(len(units) + 1, rel, pend, len(pend) == len(mine)))
+                if not mine:
+                    units.append(Unit(len(units) + 1, rel, [], True))
+                for part in (shards(pend, self.judges) if pend else []):
+                    units.append(Unit(len(units) + 1, rel, part, len(part) == len(mine)))
         for u in units:
             u.id = unit_id(self.stages.binding, u)
         return units
@@ -673,11 +676,11 @@ class Stage04:
         self.units_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         units = self.plan()
-        self.n_units, self.width, self.failure = len(units), 1, None
+        self.n_units, self.width, self.failure = len(units), self.judges, None
         self.slog = StageLog(stage_log, echo=sys.stdout)
         try:
             self.say(f"comparator-receipt: {len(self.slots)} slot(s) in {len(self.configs)} config(s), "
-                     f"{len(units)} judge invocation(s), mechanism {self.mechanism}")
+                     f"{len(units)} judge invocation(s), {self.width} at a time, mechanism {self.mechanism}")
             self.announce_cached()
             self.publish()
             try:
@@ -781,7 +784,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         mechanism: str = "auto", verify: pathlib.Path | None = None,
         evidence: pathlib.Path | None = None, prepare: bool = False,
         from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt",
-        resume: bool = True) -> dict:
+        resume: bool = True, judges: int = 1) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     if not prepare and not check.is_file():
@@ -816,6 +819,10 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                 raise RunnerError(f"verify-comparator script not found: {verify}")
             if os.environ.get(FAKE_LAKE_ENV) is None:   # real host: check the sandbox first
                 bwrap_preflight()
+        if mechanism == "legacy" and judges > 1:
+            raise RunnerError(f"--judges {judges}: the legacy mechanism's comparator-check.sh judges every "
+                              f"configuration in one run and cannot be sharded; use --judges 1 (or "
+                              f"--mechanism toolchain); nothing written")
         print(f"mechanism: {mechanism}")
     prior_src = from_prepared or evidence
     prior = read_stages(prior_src)
@@ -858,9 +865,10 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
 
         def comparator_stage(stage_log: pathlib.Path):
             st = Stage04(project, configs, mechanism, check, verify, stages, log_dir, resume_command,
-                         resume=resume)
+                         resume=resume, judges=judges)
             status, code, note = st.run(stage_log)
-            result["extra"] = {"resumed_slots": len(st.cached)} if st.cached else {}
+            result["extra"] = {**({"judges": judges} if mechanism == "toolchain" else {}),
+                               **({"resumed_slots": len(st.cached)} if st.cached else {})}
             result["config_extra"] = {rel: {"units": rows} for rel, rows in st.receipt_units.items()}
             result["tools"] = (parse_pins(st.legacy_output) if mechanism == "legacy"
                                else toolchain_tools(project, verify, toolchain))
@@ -996,7 +1004,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-resume", action="store_true",
                     help="judge every slot again, ignoring the slots this commit and config hash already "
                          f"accepted (cached under <evidence-dir>/{STAGES_DIR}/{SLOTS_DIR}/)")
+    ap.add_argument("--judges", default=None, metavar="N",
+                    help=f"run up to N judge processes at once, each on a contiguous shard of every "
+                         f"configuration's theorem_names (toolchain mechanism; env {JOBS_ENV}; default 1). "
+                         f"The merged verdict is exact; see docs/comparator.md (Runtime) for when it helps")
     args = ap.parse_args(argv)
+    raw_jobs = args.judges if args.judges is not None else (os.environ.get(JOBS_ENV) or "1")
+    try:
+        judges = int(raw_jobs)
+        if judges < 1:
+            raise ValueError
+    except ValueError:
+        src = "--judges" if args.judges is not None else JOBS_ENV
+        print(f"comparator-receipt: {src} must be a positive integer, got {raw_jobs!r}", file=sys.stderr)
+        return 2
     if args.prepare and args.from_prepared:
         print("comparator-receipt: --prepare and --from-prepared are exclusive", file=sys.stderr)
         return 2
@@ -1026,7 +1047,7 @@ def main(argv: list[str] | None = None) -> int:
             res = run(project, check, host_policy=why, mechanism=args.mechanism, verify=verify,
                       evidence=evidence, prepare=args.prepare, from_prepared=prepared,
                       resume_command=resume_command(argv if argv is not None else sys.argv[1:]),
-                      resume=not args.no_resume)
+                      resume=not args.no_resume, judges=judges)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
         code = getattr(e, "code", None)

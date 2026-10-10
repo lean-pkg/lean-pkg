@@ -52,11 +52,12 @@ def project(tmp_path: Path) -> Path:
 def runner_env(extra: dict | None = None) -> dict:
     env = subprocess_env({"COMPARATOR_CHECK": str(STUB), "COMPARATOR_VERIFY": str(STUB_TC),
                           "STUB_MODE": "pass", "COMPARATOR_RECEIPT_ALLOW_HOST": "1",
-                          "COMPARATOR_FAKE_LAKE_OK": "1", **(extra or {})})
+                          "COMPARATOR_FAKE_LAKE_OK": "1"})
     for k in ("SLURM_JOB_ID", "COMPARATOR_RECEIPT_ALLOWED_HOSTS"):
         env.pop(k, None)
     for k in [k for k in env if k.startswith("LEAN_PKG_")]:
         env.pop(k)
+    env.update(extra or {})
     return env
 
 
@@ -264,6 +265,7 @@ def test_resume_skips_accepted_slots_and_judges_the_rest(tmp_path: Path):
     assert len(list((stage_dir(project) / "04-slots").glob("*.json"))) == 2
     first_log = (stage_dir(project) / "04-slots" / "logs")
     assert len(list(first_log.glob("*.log"))) == 1
+    kept = next(first_log.glob("*.log")).read_bytes()
     log.unlink()
     r = run(project, extra={"STUB_CALLS": str(log)})
     assert r.returncode == 0, r.stderr
@@ -272,7 +274,6 @@ def test_resume_skips_accepted_slots_and_judges_the_rest(tmp_path: Path):
     rec = receipt(project)
     assert rec["resumed_slots"] == 2
     head = git(project, "rev-parse", "HEAD")
-    kept = next(first_log.glob("*.log")).read_bytes()
     assert (project / ".lean-receipts" / f"{head[:12]}-comparator-comparator.log").read_bytes() == kept
     assert "Your solution is okay!" in (project / ".lean-receipts"
                                         / f"{head[:12]}-comparator-comparator_config-b.log").read_text()
@@ -310,3 +311,73 @@ def test_cache_does_not_cross_a_config_change(tmp_path: Path):
     r = run(project, extra={"STUB_CALLS": str(log)})
     assert r.returncode == 0, r.stderr
     assert len(calls(log)) == 2          # new commit and config hash: nothing reused
+
+
+# --- sharding (--judges) ----------------------------------------------------------------------
+
+FIVE = ["N.a", "N.b", "N.c", "N.d", "N.e"]
+
+
+def validate(lp, project: Path) -> dict:
+    """The receipt through the real validator (test_only stripped: it marks the fake digests)."""
+    comp = receipt(project)
+    comp.pop("test_only", None)
+    lp.validate_comparator({}, project, comp, None)
+    return comp
+
+
+def test_shards_are_contiguous_balanced_and_exact():
+    from lean_pkg.comparator_stage import shards
+    xs = list(range(1, 12))
+    for n in range(1, 14):
+        parts = shards(xs, n)
+        assert [x for p in parts for x in p] == xs                 # a partition, order kept
+        assert len(parts) == min(n, len(xs)) and all(parts)
+        assert max(map(len, parts)) - min(map(len, parts)) <= 1
+
+
+def test_judges_shard_a_config_and_the_merge_validates(tmp_path: Path, lp):
+    project = make_project(tmp_path, {"comparator.json": FIVE})
+    log = tmp_path / "calls.txt"
+    r = run(project, "--judges", "2", extra={"STUB_CALLS": str(log), "STUB_BEHAVIOUR": "slow",
+                                             "STUB_SLEEP": "0.2"})
+    assert r.returncode == 0, r.stderr
+    judged = [c.split()[1].split(",") for c in calls(log)]
+    assert sorted(judged) == [["N.a", "N.b", "N.c"], ["N.d", "N.e"]]   # exact partition
+    assert all(c.split()[0].endswith(".json") and "04-units" in c for c in calls(log))
+    assert "2 judge invocation(s), 2 at a time" in stage_log(project)
+    assert "[1] stub progress 1" in stage_log(project) and "[2] stub progress 1" in stage_log(project)
+    comp = validate(lp, project)
+    assert comp["judges"] == 2
+    units = comp["configs"][0]["units"]
+    assert [u["slots"] for u in units] == [["N.a", "N.b", "N.c"], ["N.d", "N.e"]]
+    text = receipt_log(project)
+    assert text.count("Your solution is okay!") == 2 and text.count("== unit: slots ") == 2
+    assert comp["configs"][0]["theorem_names"] == FIVE          # the configuration, not a shard
+
+
+def test_one_rejecting_shard_rejects_the_config(tmp_path: Path):
+    project = make_project(tmp_path, {"comparator.json": FIVE})
+    r = run(project, "--judges", "2", extra={"STUB_FAIL_MATCH": "N.d"})
+    assert r.returncode == 1
+    assert not (project / ".lean-receipts").exists()
+    rep = json.loads((stage_dir(project) / "04-comparator.partial.json").read_text())
+    assert [s["name"] for s in rep["slots_failed"]] == ["N.d", "N.e"]
+
+
+def test_jobs_env_and_bad_values(tmp_path: Path):
+    project = make_project(tmp_path, {"comparator.json": FIVE})
+    r = run(project, extra={"LEAN_PKG_COMPARATOR_JOBS": "5"})
+    assert r.returncode == 0, r.stderr
+    assert "5 judge invocation(s), 5 at a time" in stage_log(project)
+    assert receipt(project)["judges"] == 5
+    for bad in ("0", "x"):
+        r = run(project, "--judges", bad)
+        assert r.returncode == 2 and "positive integer" in r.stderr
+    r = run(project, extra={"LEAN_PKG_COMPARATOR_JOBS": "-1"})
+    assert r.returncode == 2 and "LEAN_PKG_COMPARATOR_JOBS" in r.stderr
+
+
+def test_legacy_refuses_judges(project: Path):
+    r = run(project, "--judges", "2", mechanism="legacy", extra={"COMPARATOR_FAKE_LAKE_OK": "0"})
+    assert r.returncode == 1 and "cannot be sharded" in r.stderr
