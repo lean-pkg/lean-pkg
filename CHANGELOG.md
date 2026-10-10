@@ -16,6 +16,11 @@ change the registry schema or receipt format, always with a migration).
   A line keeps its old global meaning unless the text before its first `: ` looks like a path (no
   space, colon, backslash or parenthesis; one of `/ * ? .`). `patterns_source` gains `allow_scoped`
   and `scoped_patterns`; the summary's patterns line counts the path-scoped lines. (#38)
+- `comparator NAME --receipt NEW --replace`: when `.lean-receipts/` already holds a different comparator
+  receipt for the same commit, the older file is kept as `<commit12>-comparator.replaced-<UTC
+  stamp>.json` (never overwritten), the new one is attached, and the event is `comparator-replaced`
+  with `replaced` (the kept path) in history, the event log and `--json`. Without `--replace` the
+  refusal now names the flag instead of asking for a hand move. (#21.1)
 
 ### Changed
 

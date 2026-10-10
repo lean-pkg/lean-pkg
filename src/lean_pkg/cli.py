@@ -2204,21 +2204,42 @@ def load_json_object(path_arg, what: str) -> tuple[pathlib.Path, dict]:
     return p, obj
 
 
-def copy_comparator(repo: pathlib.Path, commit: str,
-                    src: pathlib.Path) -> tuple[str, str]:
+def replaced_comparator_rel(repo: pathlib.Path, commit: str) -> str:
+    """Where `comparator --replace` keeps the older receipt for `commit` (#21.1): beside it, never
+    overwritten: .lean-receipts/<c12>-comparator.replaced-<UTC stamp>[-N].json."""
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    base = f".lean-receipts/{commit[:12]}-comparator.replaced-{stamp}"
+    rel, n = f"{base}.json", 1
+    while (repo / rel).exists() or (repo / rel).is_symlink():
+        n += 1
+        rel = f"{base}-{n}.json"
+    return rel
+
+
+def copy_comparator(repo: pathlib.Path, commit: str, src: pathlib.Path,
+                    replace: bool = False) -> tuple[str, str, str | None]:
+    """(path of the receipt in the repo, note, where the replaced older receipt now lives or None)."""
     dest_rel = f".lean-receipts/{commit[:12]}-comparator.json"
     dest = repo / dest_rel
+    moved = None
     if dest.exists():
-        if recorded_json(repo, dest_rel) != json.loads(src.read_text()):
+        if recorded_json(repo, dest_rel) == json.loads(src.read_text()):
+            return dest_rel, f"comparator receipt already present at {dest_rel} (not re-copied)", None
+        if not replace:
             raise Fail(f"{dest} already holds a different comparator receipt for commit {commit[:12]}; "
-                       f"to keep it, pass that file (--receipt {dest}); to record the newer one, move that "
-                       f"file out of .lean-receipts/ yourself and re-run (a --replace that records "
-                       f"comparator-replaced is planned)")
-        return dest_rel, f"comparator receipt already present at {dest_rel} (not re-copied)"
+                       f"to keep it, pass that file (--receipt {dest}); to record the newer one, re-run "
+                       f"with --replace (the older file is kept beside it as "
+                       f".lean-receipts/{commit[:12]}-comparator.replaced-<UTC stamp>.json and the event "
+                       f"is comparator-replaced)")
+        moved = replaced_comparator_rel(repo, commit)
+        os.replace(dest, repo / moved)
     dest.parent.mkdir(exist_ok=True)
     shutil.copy2(src, dest)
-    return dest_rel, (f"comparator receipt copied to {dest} — NOT committed there; "
-                      f"commit it with its logs in the verified repo yourself")
+    note = (f"comparator receipt copied to {dest} — NOT committed there; "
+            f"commit it with its logs in the verified repo yourself")
+    if moved:
+        note += f"; the older receipt for this commit is kept at {moved} (commit that too)"
+    return dest_rel, note, moved
 
 
 def receipt_private_strings(blobs: list[tuple[str, bytes]], refuse: bool,
@@ -2399,7 +2420,7 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
                   checker=str(receipt["checker"]), receipt=dest_rel)
     comp_rel = None
     if comp is not None:
-        comp_rel, note = copy_comparator(repo, commit, cp)
+        comp_rel, note, _moved = copy_comparator(repo, commit, cp)
         out.append(note)
         pkg["gate"]["comparator"] = comp_rel
         fields["comparator"] = comp_rel
@@ -2450,14 +2471,14 @@ def attached_ignored_evidence(pkg: dict, repo: pathlib.Path) -> list[dict]:
 
 def do_comparator(reg_path, reg, events_p, name, receipt_arg,
                   check_only: bool = False, refuse_private: bool = False,
-                  refuse_dirty: bool = False) -> tuple[list[str], dict]:
+                  refuse_dirty: bool = False, replace: bool = False) -> tuple[list[str], dict]:
     return _with_private_warnings(_do_comparator, reg_path, reg, events_p, name, receipt_arg,
-                                  check_only, refuse_private, refuse_dirty=refuse_dirty)
+                                  check_only, refuse_private, refuse_dirty=refuse_dirty, replace=replace)
 
 
 def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool = False,
                    refuse_private: bool = False, private_sink=None,
-                   refuse_dirty: bool = False) -> tuple[list[str], dict]:
+                   refuse_dirty: bool = False, replace: bool = False) -> tuple[list[str], dict]:
     pkg = get_pkg(reg, name)
     repo = repo_path(pkg)
     if not repo.is_dir():
@@ -2497,14 +2518,16 @@ def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool 
                    f"run `lean-pkg gate` first")
     validate_comparator(pkg, repo, comp, str(lower.get("commit") or ""))
     commit = comp["commit"]
-    comp_rel, note = copy_comparator(repo, commit, cp)
+    comp_rel, note, moved = copy_comparator(repo, commit, cp, replace=replace)
     pkg.setdefault("gate", {})["comparator"] = comp_rel
-    record(reg, events_p, pkg, "comparator-attached", commit=commit,
-           comparator=comp_rel, host=str(comp["host"]), job_id=str(comp["job_id"]))
+    event = "comparator-replaced" if moved else "comparator-attached"
+    extra = {"replaced": moved} if moved else {}
+    record(reg, events_p, pkg, event, commit=commit,
+           comparator=comp_rel, host=str(comp["host"]), job_id=str(comp["job_id"]), **extra)
     save_registry(reg_path, reg)
-    out = [note, f"{name}: comparator-attached ({comp_rel}, commit {commit[:12]}, "
-                 f"{len(comp['configs'])} config(s))"]
-    payload = {"ok": True, "name": name, "event": "comparator-attached",
+    out = [note, f"{name}: {event} ({comp_rel}, commit {commit[:12]}, "
+                 f"{len(comp['configs'])} config(s))" + (f"; older receipt kept at {moved}" if moved else "")]
+    payload = {"ok": True, "name": name, "event": event, **extra,
                "status": pkg.get("status"), "gate": pkg["gate"],
                "comparator": comp_rel, "commit": commit, "private_strings": private,
                "dirty": dirty, "ignored_evidence": attached_ignored_evidence(pkg, repo)}
@@ -4420,7 +4443,7 @@ gate      validate receipt; gate-pending -> verified-private; identical re-gate 
   nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; no write, no event; exit 0/1; JSON event gate-checked, checks[]; comparator --check prints the same binding ✓ lines)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
-  no status change; event comparator-attached; identical re-attach = no-op. It is required by promote.
+  no status change; event comparator-attached; identical re-attach = no-op; another receipt for the same commit: --replace keeps the old one as <c12>-comparator.replaced-<stamp>.json, event comparator-replaced {replaced}. It is required by promote.
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1). Stages checkout, cache-get, build, comparator, receipt log to <evidence-dir>/comparator-stages/NN-<stage>.log + stages.json (kept on failure; the error names the stage and log; --evidence-dir DIR, default .lake/comparator-receipt); --prepare runs only the setup stages (idempotent); a later run at the same commit/toolchain/config hash skips them (--from-prepared DIR: reuse DIR's, refuse a mismatch); receipt gains an additive stages[] summary.
   flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private, --refuse-dirty
@@ -4527,7 +4550,7 @@ EVENT LINE SCHEMA (one JSON object per line; package events also go to history[]
 ts      UTC ISO-8601 with offset, second precision (all written times; dates are UTC; same-second order = file order; naive = legacy UTC, doctor warns)
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
         released, release-forced, lease-expired, gate-passed, promoted, audit-fix, relocated, status-changed,
-        comparator-attached, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`
+        comparator-attached, comparator-replaced, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`
 name    package name or null
 plus event-specific fields (agent, workspace, ttl_hours, reason, commit, receipt, ...)
 
@@ -4836,7 +4859,8 @@ def cmd_comparator(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     out, payload = do_comparator(reg_path, load_registry(reg_path), events_p,
                                  args.name, args.receipt, args.check,
-                                 refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty)
+                                 refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
+                                 replace=args.replace)
     if args.json_out:
         print_json(payload)
     else:
@@ -5744,6 +5768,10 @@ def main(argv: list[str] | None = None) -> int:
                         "default is a WARN line")
     s.add_argument("--refuse-dirty", action="store_true",
                    help="refuse when tracked files are modified in the checkout; default is a WARN line")
+    s.add_argument("--replace", action="store_true",
+                   help="when .lean-receipts/ already holds a different comparator receipt for the same commit: "
+                        "keep it as <c12>-comparator.replaced-<UTC stamp>.json, attach the new one, record "
+                        "comparator-replaced")
     s.add_argument("--from-claims", default=None, metavar="NAME",
                    help="`comparator config --from-claims NAME`: add a TODO theorem_names entry per synced "
                         "claim (theorem/lemma) no comparator configuration covers yet; never overwrites")
