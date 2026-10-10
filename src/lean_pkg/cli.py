@@ -2138,6 +2138,14 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
         if not log_p.is_file():
             raise Fail(f"comparator log missing: {log_rel}")
         log_bytes = log_p.read_bytes()
+        # #21.2: a log produced after the bound commit cannot be read at that commit; once committed
+        # (at HEAD, an evidence-only descendant), the committed bytes are the evidence, so a working
+        # copy that differs from them is refused here rather than first at promote.
+        committed_log = git_show_bytes(repo, log_rel, "HEAD")
+        if committed_log is not None and committed_log != log_bytes:
+            raise Fail(f"comparator log {log_rel} differs from its copy committed at HEAD {head[:12]}; "
+                       f"the committed bytes are the evidence: restore them (git checkout -- {log_rel}) "
+                       f"or commit the new log with a receipt that names it")
         if sha256_bytes(log_bytes) != str(cfg["log_sha256"]).lower():
             raise Fail(f"comparator log_sha256 mismatch for {log_rel}")
         lines = log_bytes.decode("utf-8", "replace").splitlines()

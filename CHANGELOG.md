@@ -36,6 +36,11 @@ change the registry schema or receipt format, always with a migration).
   repository root when the path was bare: git resolves `<rev>:<path>` from the root. Every such read
   is now relative to the package directory (`<rev>:./<path>`), as the toolchain and config-list reads
   already were. (#21.2)
+- `gate`/`comparator` (and every caller of the comparator validator) read a comparator log from the
+  working tree even when it was already committed, so a log edited after its commit passed until
+  `promote` refused it. Once a log is tracked at HEAD, a working copy that differs from the committed
+  bytes is refused, naming the file and `git checkout -- PATH`. An uncommitted log is read as
+  before: it is written after the bound commit, so it cannot be read at that commit. (#21.2)
 
 ## [0.7.13] - 2026-10-10
 

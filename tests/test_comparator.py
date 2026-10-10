@@ -180,6 +180,20 @@ def test_rejects_log_sha_mismatch(lp, env):
     assert "log_sha256" in str(e.value)
 
 
+def test_rejects_log_modified_after_it_was_committed(lp, env):
+    """#21.2: once the log is committed (HEAD, an evidence-only descendant), the committed bytes are the
+    evidence; a differing working copy is refused by gate/comparator, not first by promote."""
+    add_comparator_config(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a)
+    commit_evidence(env.repo_a)
+    validate(lp, env, env.repo_a, comp)                       # committed and unmodified: accepted
+    log = env.repo_a / comp["configs"][0]["log"]
+    log.write_text(log.read_text() + "edited after commit\n")
+    comp["configs"][0]["log_sha256"] = sha256(log.read_bytes())   # even a receipt naming the new bytes
+    with pytest.raises(lp.Fail, match="differs from its copy committed at HEAD"):
+        validate(lp, env, env.repo_a, comp)
+
+
 def test_comparator_rejects_pass_line_substring(lp, env):
     add_comparator_config(env.repo_a)
     comp = make_comparator_receipt(env.repo_a)
