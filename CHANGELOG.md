@@ -20,7 +20,7 @@ change the registry schema or receipt format, always with a migration).
   `COMPARATOR_RECEIPT_STACK=unlimited|<kB>` raises the soft limit for the `lake`/`lean` children of the setup and
   comparator stages (never above the hard limit; an invalid value exits 2), and the receipt records it as the additive
   `stack_limit` `{soft_kb, hard_kb, source}`. docs/comparator.md adds serial builds on a memory-tight host
-  (`COMPARATOR_LAKE` wrapper with `-j1`, `systemd-run --user --scope -p MemoryMax=...`; the estimate reports time, not
+  (`COMPARATOR_LAKE` wrapper exporting `LEAN_NUM_THREADS=1`, since Lake 5 has no `-j`; `systemd-run --user --scope -p MemoryMax=...`; the estimate reports time, not
   memory) and hosts without user namespaces (EL7 compute nodes cannot run the toolchain mechanism; run
   `comparator host-check` on every candidate host first). (#52)
 - `search`: a registered package without synced claims is searched by declaration in its checkout at HEAD

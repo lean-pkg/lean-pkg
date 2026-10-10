@@ -632,12 +632,13 @@ per-invocation `lake env`, no-op builds and `lake exe cache get`. The
 estimate reports time per slot, not memory: it says nothing about whether
 the build or the judges fit in the host's RAM.
 
-**Serial builds on a memory-tight host.** `COMPARATOR_LAKE` may name a
-wrapper script that runs the real `lake` and appends `-j1` when the
-subcommand is `build`, so the `build` stage compiles one module at a time.
-That caps the number of modules in memory at once; it does not lower a
-single module's peak, so a module that alone exceeds the host's memory still
-fails. Put the run under a memory cap, for example
+**Serial builds on a memory-tight host.** Lake 5 has no `-j`/`--jobs`
+option; it schedules build jobs on the Lean task pool. `COMPARATOR_LAKE` may
+name a wrapper script that exports `LEAN_NUM_THREADS=1` and then runs the
+real `lake`, so the `build` stage compiles one module at a time (with
+single-threaded elaboration). That caps the number of modules in memory at
+once; it does not lower a single module's peak, so a module that alone
+exceeds the host's memory still fails. Put the run under a memory cap, for example
 `systemd-run --user --scope -p MemoryMax=48G comparator-receipt --prepare`,
 so an overrun is a clean kill of that scope (the stage log and
 `stages.json` say which stage died) rather than the kernel's OOM killer
