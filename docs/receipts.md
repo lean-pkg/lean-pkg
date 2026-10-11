@@ -80,7 +80,10 @@ its Slurm `.out` file, one line each of
 
 A line is `KEY VALUE` or `KEY: VALUE`, the key first on the line; a missing
 or repeated key refuses. A log edited after the job, or a manifest that
-changed during it or is not the committed one, is refused.
+changed during it or is not the committed one, is refused. The evidence is
+kept: the receipt gains the additive keys `job_stdout_sha256` (SHA-256 of the
+`.out` file) and `manifest_sha256` (of `lake-manifest.json` at the commit),
+which `gate` ignores, and the README entry a `- Seal:` line naming both.
 
 **Fallback seal, without `--stdout`.** The verify log itself must then hold
 exactly one line `verify-log-sha256: <64 hex>`, equal to the SHA-256 of the

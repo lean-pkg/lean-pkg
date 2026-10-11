@@ -32,7 +32,9 @@ Output: `job_id` is `slurm-<J>`; the redacted log `<c12>-slurm-<J>-verify.redact
 `<c12>-slurm-<J>.json` (the name `gate` stores it under) go to `<repo>/.lean-receipts/` (`--out PATH` names
 the receipt, the log goes beside it). `report_sha256` is the SHA-256 of the redacted log as written. A
 differing file already at either path is refused. The README entry block is printed, and with
-`--append-readme` appended to `README.md` beside the receipt.
+`--append-readme` appended to `README.md` beside the receipt. With `--stdout` the seal evidence is persisted
+(#72): the receipt gains the additive keys `job_stdout_sha256` (the job stdout file) and `manifest_sha256`
+(`lake-manifest.json` at the commit), which `gate` ignores, and the README block a `- Seal:` line naming both.
 """
 
 from __future__ import annotations
@@ -334,8 +336,9 @@ def _write(path: pathlib.Path, data: bytes) -> None:
 
 def readme_block(*, commit: str, job: str, receipt_name: str, log_name: str, sacct: dict | None,
                  receipt: dict, raw_sha: str, n_diff: int, heading: str | None, tar_sha: str | None,
-                 extra: list[str]) -> str:
-    """The `.lean-receipts/README.md` entry, in the field operator's block shape."""
+                 extra: list[str], seal: dict | None = None) -> str:
+    """The `.lean-receipts/README.md` entry, in the field operator's block shape. `seal` ({job_stdout_sha256,
+    manifest_sha256}, only with --stdout) adds the line naming what the seal was checked against."""
     s = sacct or {}
     axioms = ", ".join(receipt["axioms"]) or "none"
     tar = f"; tar SHA-256 `{tar_sha}`" if tar_sha else ""
@@ -345,6 +348,9 @@ def readme_block(*, commit: str, job: str, receipt_name: str, log_name: str, sac
              f"- Checker: {receipt['checker']}; sorry_count 0; axioms {axioms}.",
              f"- Log: `{log_name}`, SHA-256 `{receipt['report_sha256']}` (= `report_sha256`);",
              f"  raw log SHA-256 `{raw_sha}` ({n_diff} line(s) differ: per-job paths redacted)."]
+    if seal:
+        lines.append(f"- Seal: job stdout SHA-256 `{seal['job_stdout_sha256']}` carries {SHA_KEY} = raw log "
+                     f"SHA-256 `{raw_sha}`; lake-manifest.json SHA-256 `{seal['manifest_sha256']}` (pre = post).")
     return "\n".join(lines + [x for x in extra if x.strip()]) + "\n"
 
 
@@ -406,9 +412,13 @@ def cmd_receipt_slurm(args) -> int:
 
     raw = paths["--log"].read_bytes()
     raw_sha = hashlib.sha256(raw).hexdigest()
+    seal = None
     if "--stdout" in paths:
-        check_stdout(paths["--stdout"].read_text(encoding="utf-8", errors="replace"), raw_sha, manifest, c12,
-                     refusals, checks)
+        out_raw = paths["--stdout"].read_bytes()
+        check_stdout(out_raw.decode("utf-8", errors="replace"), raw_sha, manifest, c12, refusals, checks)
+        # the seal evidence, persisted (#72): what the checks above compared against
+        seal = {"job_stdout_sha256": hashlib.sha256(out_raw).hexdigest(),
+                "manifest_sha256": hashlib.sha256(manifest).hexdigest() if manifest is not None else None}
     else:
         why = check_self_hash(raw)
         if why:
@@ -470,11 +480,14 @@ def cmd_receipt_slurm(args) -> int:
         "checker": checker,
         "generated_at": fields.get("generated-at") or core.now_iso(),
     }
+    if seal:
+        receipt.update(seal)       # additive keys: validate_receipt and gate ignore keys beyond RECEIPT_FIELDS
     receipt_bytes = (json.dumps(receipt, indent=2) + "\n").encode("utf-8")
     rel_r, rel_l = _shown(out, repo), _shown(log_out, repo)
     block = readme_block(commit=commit or name12, job=job, receipt_name=out.name, log_name=log_out.name,
                          sacct=sacct, receipt=receipt, raw_sha=raw_sha, n_diff=n_diff,
-                         heading=args.readme_heading, tar_sha=args.tar_sha256, extra=args.readme_line or [])
+                         heading=args.readme_heading, tar_sha=args.tar_sha256, extra=args.readme_line or [],
+                         seal=seal)
 
     sc = _scanner(repo)
     for what, blob_text in (("redacted verify log", redacted), ("receipt JSON", receipt_bytes.decode()),
@@ -513,7 +526,7 @@ def cmd_receipt_slurm(args) -> int:
         core.print_json({"ok": not refusals, "receipt": None if refusals else str(out),
                          "log": None if refusals else str(log_out),
                          "report_sha256": None if refusals else report_sha, "raw_log_sha256": raw_sha,
-                         "job_id": job_id, "sacct": sacct, "redactions": n_redacted, "lines_redacted": n_diff,
+                         "job_id": job_id, "seal": seal, "sacct": sacct, "redactions": n_redacted, "lines_redacted": n_diff,
                          "checks": checks, "readme_block": None if refusals else block,
                          "readme_appended": appended, "next": next_cmd, "refusals": refusals})
     if refusals:
@@ -551,7 +564,8 @@ def add_parsers(sub, add_json) -> None:
     s = rsub.add_parser("slurm", help="a lower-tier receipt from a finished Slurm job, its verify log and "
                                       "its stdout seal")
     s.add_argument("--job", required=True, metavar="J", help="the Slurm job id (job_id becomes slurm-J)")
-    s.add_argument("--log", required=True, metavar="PATH", help="the job's raw verify log")
+    s.add_argument("--log", required=True, metavar="PATH",
+                   help="the job's raw verify log; when it has no `checker:` line, --checker TEXT is required")
     s.add_argument("--commit", dest="commit_sha", required=True, metavar="SHA",
                    help="the verified commit; must exist in --repo")
     s.add_argument("--stdout", default=None, metavar="PATH",
@@ -562,8 +576,8 @@ def add_parsers(sub, add_json) -> None:
                    help="the exact checker command or mode (default: the log's `checker:` line)")
     s.add_argument("--repo", default=None, metavar="DIR", help="the package checkout (default: the current directory)")
     s.add_argument("--redact", action="append", default=[], metavar="REGEX",
-                   help=f"also replace matches with {REDACT_TOKEN} (repeatable); the per-job /tmp/<account>-job "
-                        "prefix and /scratch/<user>/ are always redacted")
+                   help=f"also replace matches with {REDACT_TOKEN} (repeatable); the built-in prefixes are always "
+                        f"redacted to {USER_TOKEN} instead (/tmp/{USER_TOKEN}-job, /scratch/{USER_TOKEN}/)")
     s.add_argument("--sacct-file", default=None, metavar="F",
                    help=f"saved output of `sacct -j J --format={SACCT_FORMAT} -P -n` (a host without Slurm)")
     s.add_argument("--out", default=None, metavar="PATH",

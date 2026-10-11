@@ -107,12 +107,15 @@ def test_happy_path_receipt_passes_gate_check(lp, env, repo, tmp_path, fake_sacc
     assert "elapsed 00:12:05, TotalCPU 01:10:22." in out
     assert f"next: lean-pkg gate NAME --check --receipt .lean-receipts/{c12}-slurm-123.json" in out
     receipt = json.loads(rp.read_text())
-    assert list(receipt) == list(lp.RECEIPT_FIELDS)
+    assert list(receipt) == list(lp.RECEIPT_FIELDS) + ["job_stdout_sha256", "manifest_sha256"]
     assert receipt["report_sha256"] == sha(lg.read_bytes())
     assert receipt["job_id"] == "slurm-123" and receipt["sorry_count"] == 0
     assert receipt["lean_toolchain"] == TOOLCHAIN and receipt["mathlib_rev"] == MATHLIB_REV
     assert receipt["axioms"] == STD_AXIOMS and receipt["checker"] == CHECKER
     text = lg.read_text()
+    job_out = tmp_path / "job-123.out"
+    assert receipt["job_stdout_sha256"] == sha(job_out.read_bytes())
+    assert receipt["manifest_sha256"] == sha(MATHLIB_MANIFEST.encode())
     assert "/tmp/user-job" not in text and "/scratch/user/" not in text
     assert "/tmp/<USER>-job-123/src" in text and "/scratch/<USER>/lake-cache" in text
     argv = (fake_sacct.parent / "argv.txt").read_text().split()
@@ -390,3 +393,46 @@ def test_report_does_not_rerun_receipt_slurm(lp):
     lp.main(["llms"])   # builds the parser, so report knows the subcommands
     plan = report.plan_rerun(["receipt", "slurm", "--job", "1", "--log", "x", "--commit", "abc"])
     assert plan["argv"] is None and "receipt slurm writes" in plan["skip"]
+
+
+def test_seal_evidence_is_persisted_with_stdout(lp, env, repo, tmp_path, fake_sacct, capsys):
+    """#72: with --stdout the README block names the job stdout and manifest SHA-256 and the receipt carries
+    them as additive keys, which gate ignores (check and a real gate on the scratch registry both pass)."""
+    job = Job(tmp_path)
+    assert run(lp, repo, job, "--append-readme", "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    out_sha, man_sha, raw_sha = sha(job.out.read_bytes()), sha(MATHLIB_MANIFEST.encode()), sha(job.log.read_bytes())
+    assert data["seal"] == {"job_stdout_sha256": out_sha, "manifest_sha256": man_sha}
+    line = (f"- Seal: job stdout SHA-256 `{out_sha}` carries verify-log-sha256 = raw log SHA-256 `{raw_sha}`; "
+            f"lake-manifest.json SHA-256 `{man_sha}` (pre = post).")
+    assert line in data["readme_block"].splitlines()
+    assert line in (rdir(repo) / "README.md").read_text().splitlines()
+    receipt = json.loads(Path(data["receipt"]).read_text())
+    assert receipt["job_stdout_sha256"] == out_sha and receipt["manifest_sha256"] == man_sha
+    reg = ["--registry", str(env.registry)]
+    assert lp.main(reg + ["gate", "alpha", "--check", "--receipt", data["receipt"]]) == 0
+    assert "receipt valid at commit" in capsys.readouterr().out
+    assert lp.main(reg + ["gate", "alpha", "--receipt", data["receipt"]]) == 0
+
+
+def test_no_seal_evidence_without_stdout(lp, repo, tmp_path, fake_sacct, capsys):
+    raw = LOG.encode()
+    sealed = (raw + f"verify-log-sha256: {sha(raw)}\n".encode()).decode()
+    job = Job(tmp_path, sealed)
+    assert run(lp, repo, job, "--json", stdout=False) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["seal"] is None
+    assert "- Seal:" not in data["readme_block"]
+    assert sha(job.out.read_bytes()) not in data["readme_block"]
+    assert sha(MATHLIB_MANIFEST.encode()) not in data["readme_block"]
+    receipt = json.loads(Path(data["receipt"]).read_text())
+    assert list(receipt) == list(lp.RECEIPT_FIELDS)
+
+
+def test_help_names_checker_requirement_and_redaction_tokens(lp, capsys):
+    with pytest.raises(SystemExit):
+        lp.main(["receipt", "slurm", "--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "when it has no `checker:` line, --checker TEXT is required" in out
+    assert "replace matches with <redacted>" in out
+    assert "redacted to <USER> instead (/tmp/<USER>-job, /scratch/<USER>/)" in out
