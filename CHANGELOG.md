@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.26] - 2026-10-11
+
 ### Changed
 
 - `receipt slurm --stdout` now persists the seal evidence it checked: the receipt gains the additive keys
@@ -14,6 +16,8 @@ change the registry schema or receipt format, always with a migration).
   `validate_receipt` and `gate` ignore, the README block a `- Seal:` line naming both, and `--json` a `seal` object
   (null without `--stdout`). `--log` help now says `--checker TEXT` is required when the log has no `checker:` line;
   `--redact` help says the built-in prefixes become `<USER>` while `--redact` matches become `<redacted>`. (#72)
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.25] - 2026-10-11
 
