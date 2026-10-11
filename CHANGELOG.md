@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.25] - 2026-10-11
+
 ### Fixed
 
 - Committed mode now treats a push that lost a concurrent ref update as a rejection (origin moved on), so #68's
@@ -14,6 +16,8 @@ change the registry schema or receipt format, always with a migration).
   <sha> but expected <sha>)` and the `--force-with-lease` form `(stale info)` were classified as permanent failures.
   A `[remote rejected]` with any other reason (`pre-receive hook declined`, a protected branch) stays permanent and is
   not retried. (#71)
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.24] - 2026-10-10
 
