@@ -11,7 +11,8 @@ Idempotent: when both files already carry the DOI it changes nothing. --wait pol
 Zenodo (every 30 s) until the record appears or the time is spent; the archive usually
 lands within minutes of the GitHub release. LEAN_PKG_ZENODO_API overrides the API base
 (default https://zenodo.org/api); LEAN_PKG_ZENODO_RECORDS_FILE reads the search pages
-from JSON files instead (tests).
+from JSON files instead (tests). LEAN_PKG_COMMIT_TRAILER adds `Key: value` trailers
+(one per line, e.g. `Co-Authored-By: Name <email>`) to the commit.
 """
 from __future__ import annotations
 
@@ -38,6 +39,20 @@ def die(msg: str, code: int = 1) -> None:
 
 def git(*args: str) -> str:
     return subprocess.run(["git", *args], cwd=ROOT, check=True, capture_output=True, text=True).stdout.rstrip("\n")  # never lstrip: porcelain starts with a space
+
+TRAILER_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]*: \S.*")
+
+
+def trailer_args() -> list[str]:
+    """`git commit --trailer` arguments from LEAN_PKG_COMMIT_TRAILER: one `Key: value` per
+    line, e.g. `Co-Authored-By: Name <email>`. Checked before anything is written, so a
+    malformed value refuses the run instead of landing in a commit message on main.
+    (The same function is in scripts/cut-release.py and scripts/record-doi.py.)"""
+    lines = [x.strip() for x in os.environ.get("LEAN_PKG_COMMIT_TRAILER", "").splitlines() if x.strip()]
+    bad = [x for x in lines if not TRAILER_RE.fullmatch(x)]
+    if bad:
+        die(f"LEAN_PKG_COMMIT_TRAILER: not a `Key: value` trailer line: {bad[0]!r}", 2)
+    return [a for x in lines for a in ("--trailer", x)]
 
 
 def concept_doi(cff: str) -> str:
@@ -121,6 +136,7 @@ def main() -> int:
     v = a.version
     if not re.fullmatch(r"\d+\.\d+\.\d+", v):
         die("usage: scripts/record-doi.py X.Y.Z [--wait SECONDS]", 2)
+    trailers = trailer_args()
 
     if git("rev-parse", "--abbrev-ref", "HEAD") != "main":
         die("not on main")
@@ -160,7 +176,7 @@ def main() -> int:
     chg_path.write_text(new_chg)
     git("add", "CITATION.cff", "CHANGELOG.md")
     git("commit", "-q", "-m", f"citation: Zenodo version DOI for {v}",
-        "-m", f"RELEASING.md step 7: Zenodo archived v{v} as {doi} (concept {concept}).")
+        "-m", f"RELEASING.md step 7: Zenodo archived v{v} as {doi} (concept {concept}).", *trailers)
     git("push", "-q", "origin", "main")
     print(f"record-doi: {v} -> {doi}; committed {git('rev-parse', '--short', 'HEAD')} and pushed main")
     return 0
