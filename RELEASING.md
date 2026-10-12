@@ -32,6 +32,14 @@ changes evidence.
    `## [X.Y.Z] - YYYY-MM-DD` section.
 2. Set `version` in `pyproject.toml` and `version` plus `date-released` in
    `CITATION.cff`.
+
+   **2a.** Point the BibTeX examples at the new version: the
+   `version = {X.Y.Z},` line of the citation block in `README.md` and in
+   `docs/index.md`. Commit the two files on their own (`citation: bibtex
+   examples cite X.Y.Z`) and push before the release commit, so the tagged
+   commit already cites its own version and the release commit stays the
+   four version files. Labelled 2a so that references to steps 3 to 7
+   elsewhere stay valid.
 3. Public-safety self-scan: `make public-safety` must report 0 blocking
    and 0 warnings under `--strict`. It clones this repository with every
    ref into a temporary directory, registers the clone as `lean-pkg-self`
