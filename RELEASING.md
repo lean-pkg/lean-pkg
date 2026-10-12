@@ -61,10 +61,21 @@ changes evidence.
    refuses unless: on `main`, clean tree, `main == origin/main`, the three
    files agree (`scripts/check-versions.py`), the changelog section exists
    and is non-empty, and `make check` is green. Then it creates the annotated
-   tag, pushes it, and opens the GitHub release with the changelog section as
-   notes.
-6. Request a Pages build if docs changed:
-   `gh api -X POST repos/lean-pkg/lean-pkg/pages/builds`.
+   tag, pushes it, opens the GitHub release with the changelog section as
+   notes, and requests a Pages build. The tag push, the release and the Pages
+   request are retried on transient network errors (connection resets,
+   timeouts, HTTP 5xx), waiting 10, 20, then 40 s; a permanent refusal (auth
+   failure, `[rejected]`, HTTP 401/403/404/422) stops at once with the exact
+   error. `LEAN_PKG_RELEASE_RETRIES` (attempts per step, default 4) and
+   `LEAN_PKG_RELEASE_RETRY_DELAY` (first delay in seconds, default 10) tune
+   this. Every step is idempotent: if the run stops part way, fix the cause
+   and run the same command again. It reuses an annotated tag that already
+   exists at `HEAD`, skips the push when origin holds the same tag object,
+   and skips the release when it already exists. It refuses, and never
+   forces, when the tag exists at another commit or origin has a different
+   tag object.
+6. If the script warned that the Pages build request failed, request it by
+   hand: `gh api -X POST repos/lean-pkg/lean-pkg/pages/builds`.
 7. Once the repository is public: Zenodo archives the GitHub release
    automatically; paste the version DOI into `CITATION.cff` (`doi:`) and
    the changelog entry in the next patch.
