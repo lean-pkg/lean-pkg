@@ -19,6 +19,48 @@ identifiers:
     value: 10.5281/zenodo.23272099
     description: Version DOI for 0.7.12
   - type: doi
+    value: 10.5281/zenodo.23272332
+    description: Version DOI for 0.7.13
+  - type: doi
+    value: 10.5281/zenodo.23272910
+    description: Version DOI for 0.7.14
+  - type: doi
+    value: 10.5281/zenodo.23273258
+    description: Version DOI for 0.7.15
+  - type: doi
+    value: 10.5281/zenodo.23273938
+    description: Version DOI for 0.7.16
+  - type: doi
+    value: 10.5281/zenodo.23278906
+    description: Version DOI for 0.7.17
+  - type: doi
+    value: 10.5281/zenodo.23279442
+    description: Version DOI for 0.7.18
+  - type: doi
+    value: 10.5281/zenodo.23280169
+    description: Version DOI for 0.7.19
+  - type: doi
+    value: 10.5281/zenodo.23281638
+    description: Version DOI for 0.7.20
+  - type: doi
+    value: 10.5281/zenodo.23282388
+    description: Version DOI for 0.7.21
+  - type: doi
+    value: 10.5281/zenodo.23283225
+    description: Version DOI for 0.7.22
+  - type: doi
+    value: 10.5281/zenodo.23287981
+    description: Version DOI for 0.7.23
+  - type: doi
+    value: 10.5281/zenodo.23289295
+    description: Version DOI for 0.7.24
+  - type: doi
+    value: 10.5281/zenodo.23289837
+    description: Version DOI for 0.7.25
+  - type: doi
+    value: 10.5281/zenodo.23290206
+    description: Version DOI for 0.7.26
+  - type: doi
     value: 10.5281/zenodo.23320040
     description: Version DOI for 0.7.27
 url: "https://lean-pkg.github.io/lean-pkg/"

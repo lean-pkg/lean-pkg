@@ -45,6 +45,8 @@ Zenodo version DOI: [10.5281/zenodo.23320040](https://doi.org/10.5281/zenodo.233
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
+Zenodo version DOI: [10.5281/zenodo.23290206](https://doi.org/10.5281/zenodo.23290206)
+
 ## [0.7.25] - 2026-10-11
 
 ### Fixed
@@ -56,6 +58,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
   not retried. (#71)
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
+
+Zenodo version DOI: [10.5281/zenodo.23289837](https://doi.org/10.5281/zenodo.23289837)
 
 ## [0.7.24] - 2026-10-10
 
@@ -108,6 +112,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
   (#70)
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
+
+Zenodo version DOI: [10.5281/zenodo.23289295](https://doi.org/10.5281/zenodo.23289295)
 
 ## [0.7.23] - 2026-10-10
 
@@ -170,6 +176,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
+Zenodo version DOI: [10.5281/zenodo.23287981](https://doi.org/10.5281/zenodo.23287981)
+
 ## [0.7.22] - 2026-10-10
 
 ### Added
@@ -204,6 +212,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
+Zenodo version DOI: [10.5281/zenodo.23283225](https://doi.org/10.5281/zenodo.23283225)
+
 ## [0.7.21] - 2026-10-10
 
 ### Added
@@ -223,6 +233,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
   (#58)
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
+
+Zenodo version DOI: [10.5281/zenodo.23282388](https://doi.org/10.5281/zenodo.23282388)
 
 ## [0.7.20] - 2026-10-10
 
@@ -276,6 +288,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
+Zenodo version DOI: [10.5281/zenodo.23281638](https://doi.org/10.5281/zenodo.23281638)
+
 ## [0.7.19] - 2026-10-10
 
 ### Added
@@ -302,6 +316,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
+Zenodo version DOI: [10.5281/zenodo.23280169](https://doi.org/10.5281/zenodo.23280169)
+
 ## [0.7.18] - 2026-10-10
 
 ### Added
@@ -313,6 +329,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
   dirty-tree one in `gate`/`comparator`. Never a refusal: HEAD is still what is evaluated. (#48)
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
+
+Zenodo version DOI: [10.5281/zenodo.23279442](https://doi.org/10.5281/zenodo.23279442)
 
 ## [0.7.17] - 2026-10-10
 
@@ -339,6 +357,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
   files it with `gh issue create`.
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
+
+Zenodo version DOI: [10.5281/zenodo.23278906](https://doi.org/10.5281/zenodo.23278906)
 
 ## [0.7.16] - 2026-10-10
 
@@ -379,6 +399,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
+Zenodo version DOI: [10.5281/zenodo.23273938](https://doi.org/10.5281/zenodo.23273938)
+
 ## [0.7.15] - 2026-10-10
 
 ### Changed
@@ -405,6 +427,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
   --fields lease.agent,lease.workspace,lease.reason,lease.expires_at`.
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
+
+Zenodo version DOI: [10.5281/zenodo.23273258](https://doi.org/10.5281/zenodo.23273258)
 
 ## [0.7.14] - 2026-10-10
 
@@ -483,6 +507,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
   bytes is refused, naming the file and `git checkout -- PATH`. An uncommitted log is read as
   before: it is written after the bound commit, so it cannot be read at that commit. (#21.2)
 
+Zenodo version DOI: [10.5281/zenodo.23272910](https://doi.org/10.5281/zenodo.23272910)
+
 ## [0.7.13] - 2026-10-10
 
 ### Fixed
@@ -533,6 +559,8 @@ public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 histo
   arrives (stdin `/dev/null`, one merged pipe drained by a thread, `stdbuf -oL -eL`,
   `PYTHONUNBUFFERED=1`, own process group killed on TERM). It was captured in memory and written
   only when the judge exited, so a run killed by an external timeout left an empty log. (#39)
+
+Zenodo version DOI: [10.5281/zenodo.23272332](https://doi.org/10.5281/zenodo.23272332)
 
 ## [0.7.12] - 2026-10-09
 
