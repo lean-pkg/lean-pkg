@@ -7,6 +7,11 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- RELEASING.md gains checklist step 2a: point the BibTeX examples in `README.md` and `docs/index.md` at the new
+  version in their own `citation:` commit before the release commit. Existing step numbers are unchanged.
+
 ## [0.7.27] - 2026-10-12
 
 ### Changed
