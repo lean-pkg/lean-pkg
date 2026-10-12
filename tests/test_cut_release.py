@@ -1,0 +1,321 @@
+#!/usr/bin/env python3
+"""scripts/cut-release.py runs the RELEASING.md checklist end to end and resumes after a failure;
+scripts/record-doi.py records the Zenodo version DOI (step 7) once and only once. A tmp repository
+with a bare remote stands in for origin; `make public-safety` is a fake whose counts the test sets,
+scripts/release.sh is a stub that logs its call, and Zenodo is a JSON file. Nothing reaches GitHub
+or Zenodo."""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import shutil
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+OLD, V = "1.2.2", "1.2.3"
+REAL_GIT = shutil.which("git")
+CONCEPT = "10.5281/zenodo.100"
+DOI = "10.5281/zenodo.123"
+TODAY = dt.date.today().isoformat()
+
+FAKE_MAKE = r'''#!/usr/bin/env python3
+import os, sys
+if sys.argv[1:] != ["public-safety"]:
+    sys.stderr.write("fake make: unexpected " + " ".join(sys.argv[1:]) + "\n"); sys.exit(2)
+h, b, w = (int(os.environ.get(k, "0")) for k in ("FAKE_HITS", "FAKE_BLOCKING", "FAKE_WARNINGS"))
+print(f"public-safety for lean-pkg-self: {h} hit(s) ({h} tree, 0 history); {b} blocking, {w} warning(s)"
+      " (--strict: warnings block); 0 from latex-label")
+sys.exit(1 if b or w else 0)
+'''
+
+RELEASE_STUB = r'''#!/usr/bin/env bash
+echo "$1" >> "$FAKE_STATE/release.log"
+[[ -z "${FAKE_RELEASE_FAIL:-}" ]] || { echo "release: tag push failed (fake)" >&2; exit 1; }
+echo "release: v$1 (fake)"
+'''
+
+CITATION = f'''cff-version: 1.2.0
+title: "lean-pkg"
+version: "{OLD}"
+date-released: "2026-01-01"
+doi: {CONCEPT}
+identifiers:
+  - type: doi
+    value: {CONCEPT}
+    description: Concept DOI (resolves to the latest version)
+url: "https://example.org/"
+'''
+
+CHANGELOG = f"""# Changelog
+
+## [Unreleased]
+
+### Added
+
+- `lean-pkg frob` frobs a package. (#9)
+
+### Fixed
+
+- A thing that was broken. (#8)
+
+## [{OLD}] - 2026-01-01
+
+### Fixed
+
+- An older thing.
+"""
+
+BIBTEX = f"""# Citing
+
+```bibtex
+@software{{lean_pkg,
+  title   = {{lean-pkg}},
+  version = {{{OLD}}},
+  note    = {{commit <sha>}}
+}}
+```
+"""
+
+
+def _exe(path: Path, text: str) -> None:
+    path.write_text(text)
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _env(tmp: Path, **extra: str) -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "LEAN_PKG_", "FAKE_"))}
+    env.update({
+        "PATH": f"{tmp / 'bin'}{os.pathsep}{env.get('PATH', '')}", "FAKE_STATE": str(tmp / "state"),
+        "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.org",
+        "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.org",
+        "LEAN_PKG_ZENODO_RECORDS_FILE": str(tmp / "state" / "zenodo.json"),
+    })
+    env.update(extra)
+    return env
+
+
+def _g(tmp: Path, *args: str, repo: str = "work") -> str:
+    return subprocess.run([REAL_GIT, "-C", str(tmp / repo), *args], check=True, capture_output=True,
+                          text=True, env=_env(tmp)).stdout.strip()
+
+
+def _setup(tmp: Path) -> Path:
+    (tmp / "bin").mkdir()
+    (tmp / "state").mkdir()
+    _exe(tmp / "bin" / "make", FAKE_MAKE)
+    _zenodo(tmp, [])
+    env = _env(tmp)
+    work = tmp / "work"
+    subprocess.run([REAL_GIT, "init", "-q", "--bare", "-b", "main", str(tmp / "origin.git")], check=True, env=env)
+    subprocess.run([REAL_GIT, "init", "-q", "-b", "main", str(work)], check=True, env=env)
+    for d in ("scripts", "docs", "src/lean_pkg"):
+        (work / d).mkdir(parents=True)
+    for s in ("cut-release.py", "record-doi.py", "check-versions.py"):
+        shutil.copy(ROOT / "scripts" / s, work / "scripts" / s)
+    _exe(work / "scripts" / "release.sh", RELEASE_STUB)
+    (work / "pyproject.toml").write_text(f'[project]\nname = "lean-pkg"\nversion = "{OLD}"\n')
+    (work / "CITATION.cff").write_text(CITATION)
+    (work / "CHANGELOG.md").write_text(CHANGELOG)
+    (work / "README.md").write_text(BIBTEX)
+    (work / "docs" / "index.md").write_text(BIBTEX)
+    (work / "src" / "lean_pkg" / "__init__.py").write_text(f'"""lean-pkg."""\n\n__version__ = "{OLD}"\n')
+    _g(tmp, "add", "-A")
+    _g(tmp, "commit", "-q", "-m", f"release: {OLD}")
+    _g(tmp, "remote", "add", "origin", str(tmp / "origin.git"))
+    _g(tmp, "push", "-q", "-u", "origin", "main")
+    return work
+
+
+def _zenodo(tmp: Path, versions: list[tuple[str, str, str, str]]) -> None:
+    """versions: (version, doi, concept doi, tree url)."""
+    hits = [{"doi": doi, "conceptdoi": concept,
+             "metadata": {"version": f"v{ver}", "related_identifiers": [{"identifier": tree}]}}
+            for ver, doi, concept, tree in versions]
+    (tmp / "state" / "zenodo.json").write_text(json.dumps({"hits": {"hits": hits}}))
+
+
+def _archived(tmp: Path, ver: str = V, doi: str = DOI, concept: str = CONCEPT, tree: str | None = None) -> None:
+    _zenodo(tmp, [(ver, doi, concept, tree or f"https://github.com/lean-pkg/lean-pkg/tree/v{ver}")])
+
+
+def _cut(tmp: Path, *args: str, **extra: str) -> subprocess.CompletedProcess:
+    work = tmp / "work"
+    return subprocess.run([sys.executable, str(work / "scripts" / "cut-release.py"), *args],
+                          capture_output=True, text=True, env=_env(tmp, **extra), cwd=work)
+
+
+def _doi(tmp: Path, *args: str) -> subprocess.CompletedProcess:
+    work = tmp / "work"
+    return subprocess.run([sys.executable, str(work / "scripts" / "record-doi.py"), *args],
+                          capture_output=True, text=True, env=_env(tmp), cwd=work)
+
+
+def _subjects(tmp: Path) -> list[str]:
+    return _g(tmp, "log", "--format=%s").splitlines()
+
+
+def _origin_head(tmp: Path) -> str:
+    return _g(tmp, "rev-parse", "main", repo="origin.git")
+
+
+def _releases(tmp: Path) -> list[str]:
+    p = tmp / "state" / "release.log"
+    return p.read_text().split() if p.exists() else []
+
+
+def test_cut_release_runs_every_step_in_order(tmp_path):
+    work = _setup(tmp_path)
+    r = _cut(tmp_path, V, "--no-doi")
+    assert r.returncode == 0, r.stderr
+    assert _subjects(tmp_path)[:2] == [f"release: {V}", f"citation: bibtex examples cite {V}"]
+    assert _origin_head(tmp_path) == _g(tmp_path, "rev-parse", "HEAD")
+    assert _releases(tmp_path) == [V]
+    # step 0 shows what needs a documented home
+    assert "`lean-pkg frob` frobs a package" in r.stdout
+    # steps 1-3: the Unreleased body moves under the new heading, followed by the safety line
+    chg = (work / "CHANGELOG.md").read_text()
+    assert chg.startswith(f"# Changelog\n\n## [Unreleased]\n\n## [{V}] - {TODAY}\n\n### Added\n")
+    section = chg.split(f"## [{V}]")[1].split(f"## [{OLD}]")[0]
+    assert "A thing that was broken. (#8)" in section
+    assert section.rstrip().endswith("public-safety (make public-safety, --strict, history): "
+                                     "0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)")
+    assert f'version = "{V}"' in (work / "pyproject.toml").read_text()
+    cff = (work / "CITATION.cff").read_text()
+    assert f'version: "{V}"' in cff and f'date-released: "{TODAY}"' in cff
+    assert f'__version__ = "{V}"' in (work / "src" / "lean_pkg" / "__init__.py").read_text()
+    # step 2a, in its own commit; the release commit carries exactly the four version files
+    for f in ("README.md", "docs/index.md"):
+        assert f"  version = {{{V}}}," in (work / f).read_text()
+    assert sorted(_g(tmp_path, "show", "--format=", "--name-only", "HEAD~1").split()) == ["README.md", "docs/index.md"]
+    assert sorted(_g(tmp_path, "show", "--format=", "--name-only", "HEAD").split()) == sorted(
+        ["CHANGELOG.md", "CITATION.cff", "pyproject.toml", "src/lean_pkg/__init__.py"])
+
+
+def test_cut_release_records_the_doi_when_zenodo_has_it(tmp_path):
+    work = _setup(tmp_path)
+    _archived(tmp_path)
+    r = _cut(tmp_path, V, "--doi-wait", "0")
+    assert r.returncode == 0, r.stderr
+    assert _subjects(tmp_path)[0] == f"citation: Zenodo version DOI for {V}"
+    assert _origin_head(tmp_path) == _g(tmp_path, "rev-parse", "HEAD")
+    assert f"    value: {DOI}\n    description: Version DOI for {V}\n" in (work / "CITATION.cff").read_text()
+    section = (work / "CHANGELOG.md").read_text().split(f"## [{V}]")[1].split(f"## [{OLD}]")[0]
+    assert section.rstrip().endswith(f"Zenodo version DOI: [{DOI}](https://doi.org/{DOI})")
+
+
+def test_doi_not_yet_archived_is_a_warning_and_the_release_stands(tmp_path):
+    _setup(tmp_path)
+    r = _cut(tmp_path, V, "--doi-wait", "0")
+    assert r.returncode == 0, r.stderr
+    assert "WARN: step 7 did not finish" in r.stdout and f"make record-doi VERSION={V}" in r.stdout
+    assert _subjects(tmp_path)[0] == f"release: {V}"
+    assert _releases(tmp_path) == [V]
+
+
+def test_public_safety_hit_stops_before_the_release_commit_and_a_rerun_resumes(tmp_path):
+    _setup(tmp_path)
+    before = _origin_head(tmp_path)
+    r = _cut(tmp_path, V, "--no-doi", FAKE_HITS="1", FAKE_BLOCKING="1")
+    assert r.returncode == 1 and "public-safety is not clean" in r.stderr
+    assert _subjects(tmp_path)[0] == f"citation: bibtex examples cite {V}"      # local only
+    assert _origin_head(tmp_path) == before and _releases(tmp_path) == []
+    assert _g(tmp_path, "status", "--porcelain") == ""
+    r = _cut(tmp_path, V, "--no-doi")
+    assert r.returncode == 0, r.stderr
+    assert "BibTeX examples already cite" in r.stdout
+    assert _subjects(tmp_path)[:3] == [f"release: {V}", f"citation: bibtex examples cite {V}", f"release: {OLD}"]
+
+
+def test_public_safety_warning_also_blocks(tmp_path):
+    _setup(tmp_path)
+    r = _cut(tmp_path, V, "--no-doi", FAKE_HITS="1", FAKE_WARNINGS="1")
+    assert r.returncode == 1 and "public-safety is not clean" in r.stderr
+    assert f"release: {V}" not in _subjects(tmp_path)
+
+
+def test_release_script_failure_resumes_at_the_push_without_new_commits(tmp_path):
+    _setup(tmp_path)
+    r = _cut(tmp_path, V, "--no-doi", FAKE_RELEASE_FAIL="1")
+    assert r.returncode == 1 and "scripts/release.sh failed" in r.stderr
+    subjects = _subjects(tmp_path)
+    r = _cut(tmp_path, V, "--no-doi")
+    assert r.returncode == 0, r.stderr
+    assert "resuming at the push" in r.stdout
+    assert _subjects(tmp_path) == subjects
+    assert _releases(tmp_path) == [V, V]
+
+
+def test_refuses_a_version_not_above_the_current_one(tmp_path):
+    _setup(tmp_path)
+    r = _cut(tmp_path, "1.2.1", "--no-doi")     # OLD itself at HEAD would be a resume, not a new release
+    assert r.returncode == 1 and "is not above the current version" in r.stderr
+    assert _subjects(tmp_path) == [f"release: {OLD}"]
+
+
+def test_refuses_an_empty_unreleased_section(tmp_path):
+    work = _setup(tmp_path)
+    (work / "CHANGELOG.md").write_text(CHANGELOG.split("### Added")[0] + f"## [{OLD}] - 2026-01-01\n")
+    _g(tmp_path, "commit", "-qam", "empty")
+    _g(tmp_path, "push", "-q")
+    r = _cut(tmp_path, V, "--no-doi")
+    assert r.returncode == 1 and "`## [Unreleased]` is empty" in r.stderr
+
+
+def test_refuses_a_dirty_tree_and_unrelated_local_commits(tmp_path):
+    work = _setup(tmp_path)
+    (work / "stray.txt").write_text("x\n")
+    r = _cut(tmp_path, V, "--no-doi")
+    assert r.returncode == 1 and "working tree not clean" in r.stderr
+    _g(tmp_path, "add", "stray.txt")
+    _g(tmp_path, "commit", "-qm", "unrelated work")
+    r = _cut(tmp_path, V, "--no-doi")
+    assert r.returncode == 1 and "more than this release's own commits" in r.stderr
+
+
+def test_record_doi_is_idempotent(tmp_path):
+    _setup(tmp_path)
+    assert _cut(tmp_path, V, "--no-doi").returncode == 0
+    _archived(tmp_path)
+    r = _doi(tmp_path, V)
+    assert r.returncode == 0, r.stderr
+    head = _g(tmp_path, "rev-parse", "HEAD")
+    r = _doi(tmp_path, V)
+    assert r.returncode == 0 and "nothing to do" in r.stdout
+    assert _g(tmp_path, "rev-parse", "HEAD") == head == _origin_head(tmp_path)
+
+
+def test_record_doi_refuses_a_record_of_another_concept_or_tag(tmp_path):
+    _setup(tmp_path)
+    assert _cut(tmp_path, V, "--no-doi").returncode == 0
+    head = _g(tmp_path, "rev-parse", "HEAD")
+    _archived(tmp_path, concept="10.5281/zenodo.999")
+    r = _doi(tmp_path, V)
+    assert r.returncode == 1 and "belongs to 10.5281/zenodo.999" in r.stderr
+    _archived(tmp_path, tree="https://github.com/lean-pkg/lean-pkg/tree/v9.9.9")
+    r = _doi(tmp_path, V)
+    assert r.returncode == 1 and "does not point at" in r.stderr
+    assert _g(tmp_path, "rev-parse", "HEAD") == head
+
+
+def test_record_doi_follows_every_page_to_the_newest_version(tmp_path):
+    """Zenodo serves at most 25 records per anonymous page, oldest first: the newest is on the last page."""
+    _setup(tmp_path)
+    assert _cut(tmp_path, V, "--no-doi").returncode == 0
+    tree = "https://github.com/lean-pkg/lean-pkg/tree/v"
+    records = [(f"0.0.{i}", f"10.5281/zenodo.{1000 + i}", CONCEPT, f"{tree}0.0.{i}") for i in range(30)]
+    records.append((V, DOI, CONCEPT, f"{tree}{V}"))
+    _zenodo(tmp_path, records[25:])
+    last = tmp_path / "state" / "zenodo-page2.json"
+    (tmp_path / "state" / "zenodo.json").rename(last)
+    _zenodo(tmp_path, records[:25])
+    first = tmp_path / "state" / "zenodo.json"
+    first.write_text(json.dumps({**json.loads(first.read_text()), "links": {"next": str(last)}}))
+    r = _doi(tmp_path, V)
+    assert r.returncode == 0, r.stderr
+    assert f"value: {DOI}" in (tmp_path / "work" / "CITATION.cff").read_text()

@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `make cut-release VERSION=X.Y.Z` (`scripts/cut-release.py`) runs the RELEASING.md checklist end to end:
+  citation bump, public-safety scan, version files, release commit and push, `scripts/release.sh`, and the
+  Zenodo version DOI. Re-running after a failure resumes where it stopped. `make record-doi VERSION=X.Y.Z`
+  (`scripts/record-doi.py`) is step 7 on its own: it follows every page of Zenodo's search (anonymous pages
+  hold 25 records, oldest first), checks the record's concept and tag, and is idempotent.
+
 ### Changed
 
 - RELEASING.md gains checklist step 2a: point the BibTeX examples in `README.md` and `docs/index.md` at the new
