@@ -1,7 +1,7 @@
 # lean-pkg: local gates. No tab characters: recipes use '>' as the prefix.
 # `make check` is the release gate; hosted CI runs the same targets once the repository is public.
 .RECIPEPREFIX := >
-.PHONY: check test boundary tabs versions reuse history public-safety release
+.PHONY: check test boundary tabs versions reuse history public-safety release cut-release record-doi
 
 check: test boundary tabs versions reuse
 > @echo "check: all gates green"
@@ -46,3 +46,12 @@ public-safety:
 # make release VERSION=0.1.0  (runs scripts/release.sh; see RELEASING.md)
 release:
 > bash scripts/release.sh "$(VERSION)"
+
+# make cut-release VERSION=0.1.0  (the whole RELEASING.md checklist, steps 0 to 7, resumable;
+# DOI_WAIT=seconds to poll Zenodo, default 900; see scripts/cut-release.py)
+cut-release:
+> python3 scripts/cut-release.py "$(VERSION)" --doi-wait "$(or $(DOI_WAIT),900)"
+
+# make record-doi VERSION=0.1.0  (step 7 alone: the Zenodo version DOI into CITATION.cff and CHANGELOG.md)
+record-doi:
+> python3 scripts/record-doi.py "$(VERSION)" --wait "$(or $(DOI_WAIT),0)"

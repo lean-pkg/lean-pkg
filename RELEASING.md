@@ -17,6 +17,16 @@ changes evidence.
 
 ## Checklist
 
+`make cut-release VERSION=X.Y.Z` runs the whole checklist below from a clean
+`main` (`scripts/cut-release.py`). It lists the `### Added` entries for step 0,
+which stays a judgment, so read them, then: commits the citation bump (2a),
+refuses unless the public-safety scan (3) is clean, writes the version files
+and the summary line (1, 2), commits and pushes them (4), runs
+`scripts/release.sh` (5), and waits up to `DOI_WAIT` seconds (default 900)
+for Zenodo to record the version DOI (7). Re-running it after a failure
+resumes where it stopped; a step 7 timeout only warns, and
+`make record-doi VERSION=X.Y.Z` finishes it later. The steps by hand:
+
 0. Documentation gap pass: every CHANGELOG `### Added` entry since the
    previous tag has a documented home. A new subcommand must reach the front
    door (README.md, `docs/index.md` or `docs/how-to.md`), have its
@@ -84,9 +94,14 @@ changes evidence.
    tag object.
 6. If the script warned that the Pages build request failed, request it by
    hand: `gh api -X POST repos/lean-pkg/lean-pkg/pages/builds`.
-7. Once the repository is public: Zenodo archives the GitHub release
-   automatically; paste the version DOI into `CITATION.cff` (`doi:`) and
-   the changelog entry in the next patch.
+7. Record the Zenodo version DOI: `make record-doi VERSION=X.Y.Z`
+   (`scripts/record-doi.py`; `DOI_WAIT=600` polls while Zenodo archives the
+   release, usually minutes). It finds the version record under the concept
+   DOI in `CITATION.cff` (`doi:`, which stays the concept DOI), checks that it
+   points at `tree/vX.Y.Z`, lists the version DOI under `identifiers:`, adds a
+   `Zenodo version DOI:` line to the version's `CHANGELOG.md` section, and
+   commits (`citation: Zenodo version DOI for X.Y.Z`) and pushes `main`. It
+   changes nothing when both files already carry the DOI.
 
 ## Gates
 
