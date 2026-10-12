@@ -14,6 +14,8 @@ change the registry schema or receipt format, always with a migration).
   Zenodo version DOI. Re-running after a failure resumes where it stopped. `make record-doi VERSION=X.Y.Z`
   (`scripts/record-doi.py`) is step 7 on its own: it follows every page of Zenodo's search (anonymous pages
   hold 25 records, oldest first), checks the record's concept and tag, and is idempotent.
+- `LEAN_PKG_COMMIT_TRAILER` adds `Key: value` trailers (one per line, e.g. `Co-Authored-By: Name <email>`) to every
+  commit `make cut-release` and `make record-doi` make; a malformed value is refused before anything is written.
 
 ### Changed
 

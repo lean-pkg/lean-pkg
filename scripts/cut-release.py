@@ -19,11 +19,15 @@ Resumable: re-running after a failure skips what is done. A citation commit alre
 X.Y.Z is kept; a `release: X.Y.Z` commit at HEAD skips straight to the push and step 5,
 which is idempotent itself. Step 7 timing out is a warning, not a failure: the release
 exists; `make record-doi VERSION=X.Y.Z` finishes it later.
+
+LEAN_PKG_COMMIT_TRAILER adds `Key: value` trailers (one per line, e.g.
+`Co-Authored-By: Name <email>`) to every commit it makes, step 7's included.
 """
 from __future__ import annotations
 
 import argparse
 import datetime as dt
+import os
 import re
 import subprocess
 import sys
@@ -49,6 +53,20 @@ def die(msg: str, code: int = 1) -> None:
 
 def git(*args: str) -> str:
     return subprocess.run(["git", *args], cwd=ROOT, check=True, capture_output=True, text=True).stdout.rstrip("\n")  # never lstrip: porcelain starts with a space
+
+TRAILER_RE = re.compile(r"[A-Za-z][A-Za-z0-9-]*: \S.*")
+
+
+def trailer_args() -> list[str]:
+    """`git commit --trailer` arguments from LEAN_PKG_COMMIT_TRAILER: one `Key: value` per
+    line, e.g. `Co-Authored-By: Name <email>`. Checked before anything is written, so a
+    malformed value refuses the run instead of landing in a commit message on main.
+    (The same function is in scripts/cut-release.py and scripts/record-doi.py.)"""
+    lines = [x.strip() for x in os.environ.get("LEAN_PKG_COMMIT_TRAILER", "").splitlines() if x.strip()]
+    bad = [x for x in lines if not TRAILER_RE.fullmatch(x)]
+    if bad:
+        die(f"LEAN_PKG_COMMIT_TRAILER: not a `Key: value` trailer line: {bad[0]!r}", 2)
+    return [a for x in lines for a in ("--trailer", x)]
 
 
 def vtuple(v: str) -> tuple[int, ...]:
@@ -89,7 +107,7 @@ def step2a_citation(v: str) -> None:
         say(f"step 2a: BibTeX examples already cite {v}")
         return
     git("add", *changed)
-    git("commit", "-q", "-m", f"citation: bibtex examples cite {v}")
+    git("commit", "-q", "-m", f"citation: bibtex examples cite {v}", *trailer_args())
     say(f"step 2a: committed {git('rev-parse', '--short', 'HEAD')} citation: bibtex examples cite {v}")
 
 
@@ -138,7 +156,7 @@ def step4_commit(v: str) -> None:
     if dirty != sorted(VERSION_FILES):
         die(f"step 4: expected exactly {', '.join(VERSION_FILES)} modified, found {dirty}; not committing")
     git("add", *VERSION_FILES)
-    git("commit", "-q", "-m", f"release: {v}")
+    git("commit", "-q", "-m", f"release: {v}", *trailer_args())
     say(f"step 4: committed {git('rev-parse', '--short', 'HEAD')} release: {v}")
 
 
@@ -152,6 +170,7 @@ def main() -> int:
     v = a.version
     if not re.fullmatch(r"\d+\.\d+\.\d+", v):
         die("usage: scripts/cut-release.py X.Y.Z [--doi-wait SECONDS | --no-doi]", 2)
+    trailer_args()                    # refuse a malformed LEAN_PKG_COMMIT_TRAILER before anything is written
 
     if git("rev-parse", "--abbrev-ref", "HEAD") != "main":
         die("not on main")

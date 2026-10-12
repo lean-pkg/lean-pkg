@@ -150,10 +150,10 @@ def _cut(tmp: Path, *args: str, **extra: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, env=_env(tmp, **extra), cwd=work)
 
 
-def _doi(tmp: Path, *args: str) -> subprocess.CompletedProcess:
+def _doi(tmp: Path, *args: str, **extra: str) -> subprocess.CompletedProcess:
     work = tmp / "work"
     return subprocess.run([sys.executable, str(work / "scripts" / "record-doi.py"), *args],
-                          capture_output=True, text=True, env=_env(tmp), cwd=work)
+                          capture_output=True, text=True, env=_env(tmp, **extra), cwd=work)
 
 
 def _subjects(tmp: Path) -> list[str]:
@@ -319,3 +319,40 @@ def test_record_doi_follows_every_page_to_the_newest_version(tmp_path):
     r = _doi(tmp_path, V)
     assert r.returncode == 0, r.stderr
     assert f"value: {DOI}" in (tmp_path / "work" / "CITATION.cff").read_text()
+
+
+TRAILERS = ["Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>", "Signed-off-by: Test <test@example.org>"]
+
+
+def _trailers(tmp: Path, rev: str) -> list[str]:
+    return _g(tmp, "log", "-1", "--format=%(trailers:only,unfold)", rev).splitlines()
+
+
+def test_commit_trailer_lands_on_every_commit_the_release_makes(tmp_path):
+    _setup(tmp_path)
+    _archived(tmp_path)
+    r = _cut(tmp_path, V, "--doi-wait", "0", LEAN_PKG_COMMIT_TRAILER="\n".join(TRAILERS) + "\n")
+    assert r.returncode == 0, r.stderr
+    assert _subjects(tmp_path)[:3] == [f"citation: Zenodo version DOI for {V}", f"release: {V}",
+                                       f"citation: bibtex examples cite {V}"]
+    for rev in ("HEAD", "HEAD~1", "HEAD~2"):          # step 7 (record-doi), step 4, step 2a
+        assert _trailers(tmp_path, rev) == TRAILERS, rev
+
+
+def test_no_trailer_unless_asked(tmp_path):
+    _setup(tmp_path)
+    _archived(tmp_path)
+    assert _cut(tmp_path, V, "--doi-wait", "0").returncode == 0
+    assert [_trailers(tmp_path, rev) for rev in ("HEAD", "HEAD~1", "HEAD~2")] == [[], [], []]
+
+
+def test_malformed_trailer_refuses_before_anything_is_written(tmp_path):
+    _setup(tmp_path)
+    before, origin = _subjects(tmp_path), _origin_head(tmp_path)
+    for bad in ("Co-Authored-By Claude <noreply@anthropic.com>", "Co-Authored-By:", "just a sentence",
+                TRAILERS[0] + "\nnot a trailer"):
+        for run in (_cut, _doi):
+            r = run(tmp_path, V, LEAN_PKG_COMMIT_TRAILER=bad)
+            assert r.returncode == 2 and "LEAN_PKG_COMMIT_TRAILER" in r.stderr, (run.__name__, bad, r.stderr)
+    assert _subjects(tmp_path) == before and _origin_head(tmp_path) == origin
+    assert _g(tmp_path, "status", "--porcelain") == "" and _releases(tmp_path) == []

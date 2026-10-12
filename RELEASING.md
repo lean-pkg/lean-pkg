@@ -25,7 +25,11 @@ and the summary line (1, 2), commits and pushes them (4), runs
 `scripts/release.sh` (5), and waits up to `DOI_WAIT` seconds (default 900)
 for Zenodo to record the version DOI (7). Re-running it after a failure
 resumes where it stopped; a step 7 timeout only warns, and
-`make record-doi VERSION=X.Y.Z` finishes it later. The steps by hand:
+`make record-doi VERSION=X.Y.Z` finishes it later. Set
+`LEAN_PKG_COMMIT_TRAILER` to add trailers to every commit both scripts make,
+one `Key: value` per line (for an assistant-run release:
+`LEAN_PKG_COMMIT_TRAILER='Co-Authored-By: Name <email>'`); a malformed value
+is refused before anything is written. The steps by hand:
 
 0. Documentation gap pass: every CHANGELOG `### Added` entry since the
    previous tag has a documented home. A new subcommand must reach the front
