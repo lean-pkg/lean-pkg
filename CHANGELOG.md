@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `scripts/release.sh` (`make release`) retries the tag push, the GitHub release and the Pages build request on
+  transient network errors (10, 20, 40 s; tune with `LEAN_PKG_RELEASE_RETRIES` and `LEAN_PKG_RELEASE_RETRY_DELAY`)
+  and stops at once on a permanent refusal. Re-running after a partial failure completes only the missing steps;
+  a tag at another commit or object is refused, never forced. It now requests the Pages build itself. (#73)
+
 ## [0.7.26] - 2026-10-11
 
 ### Changed
