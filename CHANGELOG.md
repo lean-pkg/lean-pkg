@@ -571,6 +571,8 @@ Zenodo version DOI: [10.5281/zenodo.23272332](https://doi.org/10.5281/zenodo.232
   names a deputy (operations, releases). No code change since 0.7.11; this is the release
   that matches the public documentation.
 
+Zenodo version DOI: [10.5281/zenodo.23272099](https://doi.org/10.5281/zenodo.23272099)
+
 ## [0.7.11] - 2026-10-09
 
 ### Added
