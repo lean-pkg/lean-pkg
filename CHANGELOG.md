@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.28] - 2026-10-13
+
 ### Added
 
 - `make cut-release VERSION=X.Y.Z` (`scripts/cut-release.py`) runs the RELEASING.md checklist end to end:
@@ -21,6 +23,8 @@ change the registry schema or receipt format, always with a migration).
 
 - RELEASING.md gains checklist step 2a: point the BibTeX examples in `README.md` and `docs/index.md` at the new
   version in their own `citation:` commit before the release commit. Existing step numbers are unchanged.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.27] - 2026-10-12
 
