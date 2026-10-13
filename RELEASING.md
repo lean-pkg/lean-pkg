@@ -22,7 +22,7 @@ changes evidence.
 which stays a judgment, so read them, then: commits the citation bump (2a),
 refuses unless the public-safety scan (3) is clean, writes the version files
 and the summary line (1, 2), commits and pushes them (4), runs
-`scripts/release.sh` (5), and waits up to `DOI_WAIT` seconds (default 900)
+`scripts/release.sh` (5), and waits up to `DOI_WAIT` seconds (default 300)
 for Zenodo to record the version DOI (7). Re-running it after a failure
 resumes where it stopped; a step 7 timeout only warns, and
 `make record-doi VERSION=X.Y.Z` finishes it later. Set

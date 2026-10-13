@@ -7,6 +7,12 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `make cut-release` now waits up to 300 s (was 900 s) for the Zenodo version DOI by default; Zenodo listed
+  0.7.28 about a minute after its tag. `DOI_WAIT=seconds` still overrides it, and a timeout still only warns, so
+  `make record-doi VERSION=X.Y.Z` can finish step 7 later.
+
 ## [0.7.28] - 2026-10-13
 
 ### Added

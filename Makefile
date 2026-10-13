@@ -48,9 +48,9 @@ release:
 > bash scripts/release.sh "$(VERSION)"
 
 # make cut-release VERSION=0.1.0  (the whole RELEASING.md checklist, steps 0 to 7, resumable;
-# DOI_WAIT=seconds to poll Zenodo, default 900; see scripts/cut-release.py)
+# DOI_WAIT=seconds to poll Zenodo, default 300; see scripts/cut-release.py)
 cut-release:
-> python3 scripts/cut-release.py "$(VERSION)" --doi-wait "$(or $(DOI_WAIT),900)"
+> python3 scripts/cut-release.py "$(VERSION)" --doi-wait "$(or $(DOI_WAIT),300)"
 
 # make record-doi VERSION=0.1.0  (step 7 alone: the Zenodo version DOI into CITATION.cff and CHANGELOG.md)
 record-doi:

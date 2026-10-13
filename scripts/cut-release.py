@@ -13,7 +13,7 @@ Runs the RELEASING.md checklist from `## [Unreleased]` to the recorded Zenodo DO
       (with date-released) and src/lean_pkg/__init__.py
   4   commits exactly those four files (`release: X.Y.Z`) and pushes main
   5   runs scripts/release.sh X.Y.Z (gates, tag, GitHub release, Pages build)
-  7   runs scripts/record-doi.py X.Y.Z --wait SECONDS (default 900)
+  7   runs scripts/record-doi.py X.Y.Z --wait SECONDS (default 300)
 
 Resumable: re-running after a failure skips what is done. A citation commit already at
 X.Y.Z is kept; a `release: X.Y.Z` commit at HEAD skips straight to the push and step 5,
@@ -163,8 +163,8 @@ def step4_commit(v: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("version")
-    ap.add_argument("--doi-wait", type=int, default=900, metavar="SECONDS",
-                    help="how long step 7 polls Zenodo for the version DOI (default 900)")
+    ap.add_argument("--doi-wait", type=int, default=300, metavar="SECONDS",
+                    help="how long step 7 polls Zenodo for the version DOI (default 300)")
     ap.add_argument("--no-doi", action="store_true", help="stop after step 5; record the DOI later")
     a = ap.parse_args()
     v = a.version
