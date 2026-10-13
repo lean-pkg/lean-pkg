@@ -322,6 +322,41 @@ def test_sorry_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
     assert_nothing_written(repo)
 
 
+# #82: the fixture's `lake build: ok` line is the only completion evidence it has
+UNFINISHED = "".join(x for x in LOG.splitlines(keepends=True) if not x.startswith("lake build: ok"))
+
+
+def test_unknown_sorry_count_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    """#82: no `sorry-count:` line and no sign the build finished (a cut-short or wrong log) is not a 0."""
+    assert "lake build" not in UNFINISHED and "sorry" not in UNFINISHED
+    assert run(lp, repo, Job(tmp_path, UNFINISHED)) == 1
+    err = capsys.readouterr().err
+    assert "no `sorry-count:` line and no build-completion line" in err and "the sorry count is unknown" in err
+    assert_nothing_written(repo)
+    # the gap is the missing count, so a `lake build: ok` buried mid-line is not completion evidence either
+    assert run(lp, repo, Job(tmp_path, UNFINISHED + "note: lake build: ok was never printed\n")) == 1
+    assert "the sorry count is unknown" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+@pytest.mark.parametrize("evidence", ["sorry-count: 0\n", "Build completed successfully (3427 jobs).\n",
+                                      "lake build: ok\n"])
+def test_count_or_completion_line_settles_the_sorry_count(lp, repo, tmp_path, fake_sacct, capsys, evidence):
+    """#82: an explicit count, Lake's summary line or the verify script's `lake build: ok` each make 0 a
+    measured value, and the receipt is written."""
+    assert run(lp, repo, Job(tmp_path, UNFINISHED + evidence)) == 0
+    c12 = repo_head(repo)[:12]
+    assert json.loads((rdir(repo) / f"{c12}-slurm-123.json").read_text())["sorry_count"] == 0
+
+
+def test_sorry_warning_without_completion_line_still_reports_the_count(lp, repo, tmp_path, fake_sacct, capsys):
+    """A sorry warning in an unfinished log is refused by its count, the more useful message."""
+    assert run(lp, repo, Job(tmp_path, UNFINISHED + "warning: Demo.lean:3:8: declaration uses 'sorry'\n")) == 1
+    err = capsys.readouterr().err
+    assert "sorry count is 1; gate requires 0" in err and "the sorry count is unknown" not in err
+    assert_nothing_written(repo)
+
+
 def test_unknown_commit_and_disagreeing_log_lines_are_refused(lp, repo, tmp_path, fake_sacct, capsys):
     job = Job(tmp_path)
     assert lp.main(["receipt", "slurm", "--job", "123", "--log", str(job.log), "--commit", "f" * 40,

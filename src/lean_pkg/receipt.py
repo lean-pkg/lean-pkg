@@ -20,7 +20,8 @@ Checks, all run before anything is written (every failed check is listed; any on
 4. Fields: `lean_toolchain` is `lean-toolchain` committed at the commit and `mathlib_rev` the `mathlib`
    package's rev in `lake-manifest.json` committed there (else the log's `mathlib-rev:`); a log
    `lean-toolchain:` / `mathlib-rev:` line that disagrees refuses. `sorry_count` is the log's
-   `sorry-count:` line, else the number of `declaration uses 'sorry'` lines; it must be 0. `axioms` is the
+   `sorry-count:` line, else the number of `declaration uses 'sorry'` lines, counted only when the log shows the
+   build finished (`Build completed successfully` or `lake build: ok`; neither refuses); it must be 0. `axioms` is the
    log's `axioms:` line, else the union of its `#print axioms` output (`depends on axioms: [...]`, `does not
    depend on any axioms`); none of either refuses. `checker` is `--checker`, else the log's `checker:`.
    Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse.
@@ -70,6 +71,9 @@ _KEY_LINE = re.compile(r"^([a-z0-9-]+):[ \t]*(.*?)[ \t]*$")
 _SHA_LINE = re.compile(rb"^" + SHA_KEY.encode() + rb":[ \t]*([0-9A-Fa-f]{64})[ \t]*\r?$")
 _HEX64 = re.compile(r"[0-9a-fA-F]{64}")
 _SORRY_RE = re.compile(r"declaration uses 'sorry'")
+# Evidence that the build ran to the end, so the absence of sorry warnings is a measured 0 (#82): Lake's own
+# summary line, or the `lake build: ok` line the lab's verify script prints.
+_BUILD_DONE_RE = re.compile(r"Build completed successfully|^lake build: ok\b", re.M)
 _DEPENDS_RE = re.compile(r"depends on axioms:\s*\[([^\]]*)\]")
 _NO_AXIOMS_RE = re.compile(r"does not depend on any axioms")
 
@@ -239,8 +243,13 @@ def parse_log(text: str) -> tuple[dict, list[str]]:
             out["sorry-count"] = None
         else:
             out["sorry-count"] = int(out["sorry-count"])
-    else:
+    elif _SORRY_RE.search(text) or _BUILD_DONE_RE.search(text):
         out["sorry-count"] = len(_SORRY_RE.findall(text))
+    else:
+        # no count and no sign the build finished: a cut-short or wrong log would read as 0 (#82)
+        refusals.append("verify log: no `sorry-count:` line and no build-completion line (`Build completed "
+                        "successfully` or `lake build: ok`); the sorry count is unknown")
+        out["sorry-count"] = None
     if out.get("sorry-count"):
         refusals.append(f"verify log: sorry count is {out['sorry-count']}; gate requires 0")
     if "axioms" in out:

@@ -13,6 +13,13 @@ change the registry schema or receipt format, always with a migration).
   0.7.28 about a minute after its tag. `DOI_WAIT=seconds` still overrides it, and a timeout still only warns, so
   `make record-doi VERSION=X.Y.Z` can finish step 7 later.
 
+### Fixed
+
+- `receipt slurm` no longer reads a log without a `sorry-count:` line as `sorry_count 0` unless the log shows
+  the build finished (Lake's `Build completed successfully`, or a line starting `lake build: ok`). A cut-short or
+  wrong log is now refused as "the sorry count is unknown", matching how a log without axioms output is refused
+  (#82).
+
 ## [0.7.28] - 2026-10-13
 
 ### Added
