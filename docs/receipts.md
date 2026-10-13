@@ -106,7 +106,7 @@ flag the check is skipped, and the output says so.
 | `commit` | `--commit`, resolved to 40 hex in `--repo` (default the current directory) |
 | `lean_toolchain` | `lean-toolchain` committed at the commit |
 | `mathlib_rev` | the `mathlib` package's `rev` in `lake-manifest.json` committed at the commit, else the log's `mathlib-rev:` line |
-| `sorry_count` | the log's `sorry-count:` line, else the number of `declaration uses 'sorry'` lines; anything but 0 is refused |
+| `sorry_count` | the log's `sorry-count:` line, else the number of `declaration uses 'sorry'` lines, counted only when the log shows the build finished (Lake's `Build completed successfully`, or a line starting `lake build: ok`); neither a count nor a completion line is refused, since a cut-short log would otherwise read as 0; anything but 0 is refused |
 | `axioms` | the log's `axioms:` line (commas and/or spaces, brackets optional, `none` = `[]`), else the union of the log's `#print axioms` output (`... depends on axioms: [...]`, `... does not depend on any axioms`); neither present is refused |
 | `checker` | `--checker TEXT`, else the log's `checker:` line; neither is refused |
 | `job_id` | `slurm-<J>` |
