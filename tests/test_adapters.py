@@ -147,8 +147,14 @@ def test_leansearch_posts_the_query_and_parses_hits(monkeypatch):
     assert r["hits"][0]["extra"]["module"] == "Mathlib.MeasureTheory.Integral.Prod"
 
 
-@pytest.mark.parametrize("got,reason", [((404, b""), "HTTP 404"), (None, "unreachable"),
-                                        ((200, b'{"not": "a list"}'), "unexpected answer")])
+@pytest.mark.parametrize("got,reason", [
+    ((404, b""), "HTTP 404: API moved (https://leansearch.net/search not found); the leansearch adapter needs "
+                 "updating"),
+    ((500, b"Internal Server Error"), "HTTP 500: service error at leansearch.net; retry later"),
+    ((503, b""), "HTTP 503: service error at leansearch.net; retry later"),
+    ((429, b""), "HTTP 429"),
+    (None, "unreachable"),
+    ((200, b'{"not": "a list"}'), "unexpected answer")])
 def test_leansearch_moved_or_unreachable_is_skipped(monkeypatch, got, reason):
     ls = mod("leansearch")
     monkeypatch.setattr(ls, "fetch", lambda url, body, timeout=10: got)

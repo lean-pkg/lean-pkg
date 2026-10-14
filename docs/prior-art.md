@@ -123,6 +123,13 @@ patterns — try e.g. `?a + ?b = ?b + ?a`", and the sources that take prose
 `--loogle` sends the term to Loogle anyway. `--json` carries `route`
 (`signature` or `natural-language`) at the top and on every source block.
 
+A LeanSearch answer other than 200 skips the source with a reason that says
+what to do:
+`HTTP 5xx: service error at leansearch.net; retry later` when the service is
+failing (the query is fine; run it again later),
+`HTTP 404: API moved (...)` when the endpoint changed and lean-pkg's adapter
+needs updating, and a bare `HTTP <status>` otherwise.
+
 ```bash
 lean-pkg search '?a + ?b = ?b + ?a'              # signature: Loogle runs
 lean-pkg search 'law of large numbers'           # natural-language: Loogle skipped
