@@ -13,6 +13,11 @@ change the registry schema or receipt format, always with a migration).
   a private string in a commit message (or in any blob of the pull request's history) fails the pull request
   before it reaches `main`. The tree scan alone let one through in #94's commit messages.
 
+### Fixed
+
+- `claims check FILE`, with FILE an existing `.yaml`, `.yml` or `.json` file, is a usage error naming
+  `claims check --file FILE` (exit 2) instead of "unknown package" (field report from a lean-dev wave).
+
 ## [0.7.31] - 2026-10-14
 
 ### Added
