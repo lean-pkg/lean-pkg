@@ -345,7 +345,8 @@ not a symlink, not a submodule (gitlink), not untracked such as `.lake/`;
 and nothing under it may be a gitlink. Independently of path dependencies,
 any committed symlink whose target is absolute or has a `..` component is
 refused, since the build follows it out of the package. A symlink whose
-target only descends stays inside, and so does any chain of them.
+target only descends stays inside, and so does any chain of them. Reading
+the tree fails closed: a git error is a refusal, never an empty tree.
 
 ## Sibling packages in one repository
 

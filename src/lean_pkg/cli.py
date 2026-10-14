@@ -2191,21 +2191,28 @@ def outside_path_deps(manifest: bytes) -> list[str]:
 
 def bound_tree(repo: pathlib.Path, commit: str) -> dict[str, str]:
     """{package-relative path: git mode} of every entry (trees included) under the package directory at
-    `commit`; symlink entries map to "120000:<target>" so their committed targets can be judged."""
-    p = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-t", "-z", commit, "."],
-                       capture_output=True, env=scrubbed_env())
+    `commit`; symlink entries map to "120000:<target>" so their committed targets can be judged. Fails
+    closed: a git error (or output it cannot parse) is a refusal, never an empty or a safe tree."""
+    def run_git(*args: str) -> bytes:
+        p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, env=scrubbed_env())
+        if p.returncode != 0:
+            err = p.stderr.decode("utf-8", "replace").strip().splitlines()
+            raise Fail(f"cannot read the tree at {commit[:12]} (git {args[0]} exited {p.returncode}"
+                       + (f": {err[0]}" if err else "") + "); refusing rather than judging it safe")
+        return p.stdout
     out: dict[str, str] = {}
-    for rec in p.stdout.decode("utf-8", "replace").split("\0"):
-        if "\t" not in rec:
+    for rec in run_git("ls-tree", "-r", "-t", "-z", commit, ".").decode("utf-8", "replace").split("\0"):
+        if not rec:
             continue
-        meta, path = rec.split("\t", 1)
-        mode, _kind, sha = meta.split()
+        meta, sep, path = rec.partition("\t")
+        fields = meta.split()
+        if not sep or len(fields) != 3:
+            raise Fail(f"cannot read the tree at {commit[:12]}: unexpected git ls-tree record {rec[:80]!r}")
+        mode, _kind, sha = fields
         if path in ("./", "."):
             continue
         if mode == "120000":
-            target = subprocess.run(["git", "-C", str(repo), "cat-file", "blob", sha],
-                                    capture_output=True, env=scrubbed_env()).stdout.decode("utf-8", "replace")
-            mode = f"120000:{target}"
+            mode = "120000:" + run_git("cat-file", "blob", sha).decode("utf-8", "replace")
         out[path.rstrip("/")] = mode
     return out
 

@@ -242,3 +242,44 @@ def test_register_warns_about_a_path_dependency_outside(lp, env, tmp_path, capsy
     assert "path dependencies outside the package directory: R1 (../lean); `gate` refuses" in \
         capsys.readouterr().out
     assert repo_head(root)   # the registration itself is unaffected
+
+
+# bound_tree fails closed (#4's review of a3bc0d7) ---------------------------------------------------
+
+def test_bound_tree_refuses_when_ls_tree_fails(lp, env):
+    """An unknown commit makes git ls-tree exit non-zero: a refusal, never an empty (so safe) tree."""
+    import pytest
+    with pytest.raises(lp.Fail, match=r"git ls-tree exited \d+"):
+        lp.bound_tree(env.repo_a, "0" * 40)
+    with pytest.raises(lp.Fail, match="cannot read the tree"):
+        lp.check_path_deps_at(env.repo_a, "0" * 40)
+
+
+def test_bound_tree_refuses_when_cat_file_fails(lp, env, monkeypatch):
+    """A symlink target that cannot be read is a refusal, not an empty (so descending) target."""
+    import pytest
+    import subprocess
+    commit_files(env.repo_a, {}, links={"Ok.lean": "Demo/Bar.lean"})
+    real = subprocess.run
+
+    def fake(cmd, *a, **kw):
+        if "cat-file" in cmd:
+            return subprocess.CompletedProcess(cmd, 128, b"", b"fatal: unable to read blob")
+        return real(cmd, *a, **kw)
+    monkeypatch.setattr(lp.subprocess, "run", fake)
+    with pytest.raises(lp.Fail, match="git cat-file exited 128: fatal: unable to read blob"):
+        lp.check_path_deps_at(env.repo_a, repo_head(env.repo_a))
+
+
+def test_bound_tree_refuses_an_unparseable_record(lp, env, monkeypatch):
+    import pytest
+    import subprocess
+    real = subprocess.run
+
+    def fake(cmd, *a, **kw):
+        if "ls-tree" in cmd:
+            return subprocess.CompletedProcess(cmd, 0, b"garbage without a tab\0", b"")
+        return real(cmd, *a, **kw)
+    monkeypatch.setattr(lp.subprocess, "run", fake)
+    with pytest.raises(lp.Fail, match="unexpected git ls-tree record"):
+        lp.bound_tree(env.repo_a, repo_head(env.repo_a))
