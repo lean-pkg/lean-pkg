@@ -600,7 +600,7 @@ def _emit(args, out: list[str], payload: dict, rc: int = 0) -> int:
 def cmd_claims(args) -> int:
     fn = getattr(args, "claims_fn", None)
     if fn is None:
-        raise core.UsageError("claims needs an action: sync | list | check | migrate")
+        raise core.UsageError("claims needs an action: sync | list | check | migrate | ledger")
     return fn(args)
 
 
@@ -635,8 +635,14 @@ def run_check(args) -> int:
     return _emit(args, out, payload, rc)
 
 
+def run_ledger(args) -> int:
+    from . import ledger
+    led = ledger.compute_ledger(core.load_registry(core.registry_path(args)), args.name, args.stage)
+    return _emit(args, ledger.ledger_lines(led), led, 0 if led["ok"] else 1)
+
+
 def add_parsers(sub, add_json) -> None:
-    s = sub.add_parser("claims", help="claims.yaml: sync | list | check | migrate (named reusable results)")
+    s = sub.add_parser("claims", help="claims.yaml: sync | list | check | migrate | ledger (named reusable results)")
     add_json(s)
     s.set_defaults(fn=cmd_claims, claims_fn=None)
     csub = s.add_subparsers(dest="claims_cmd")
@@ -669,3 +675,11 @@ def add_parsers(sub, add_json) -> None:
     m.add_argument("--agent", default=None, help="your lease agent, when the package is leased")
     add_json(m)
     m.set_defaults(fn=cmd_claims, claims_fn=run_migrate)
+    led = csub.add_parser("ledger", help="per-claim closure from the recorded evidence: verified only with zero "
+                                         "diagnostics; read-only; exit 0 only when the package is ready")
+    led.add_argument("name")
+    led.add_argument("--stage", choices=("gate", "promote"), default="promote",
+                     help="the authority required: gate (lower tier) or promote (also the comparator tier for "
+                          "every reusable theorem and lemma; the default)")
+    add_json(led)
+    led.set_defaults(fn=cmd_claims, claims_fn=run_ledger)

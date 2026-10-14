@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg claims ledger NAME [--stage gate|promote]`: per claim, named diagnostics from the recorded
+  receipts, re-checked with `gate`'s and `promote`'s validators; a claim is `verified` only with zero
+  diagnostics. The package status fails closed (`unknown` with no claims or no `reusable` claim; `failed` when
+  evidence contradicts a required claim; `ready` only when every required claim is verified), and at the
+  promote stage a lower-tier receipt alone never closes a reusable theorem or lemma. Read-only; exit 0 only
+  when ready; `--json` carries a `ledger_digest`. Codes in `docs/lifecycle.md` (#80).
+
 ### Changed
 
 - `llms.txt` is now generated whole: `make docs` writes it and `docs/llms.txt` from `LLMS_TXT_HEADER` plus the
