@@ -270,3 +270,17 @@ def test_relocate_dry_run_kept_key_change_proposes_a_regate_with_refresh(lp, env
     payload = json.loads(capsys.readouterr().out)
     assert "project.description" in payload["binding"]["formalization"]["verdict"]
     assert payload["next_commands"][0].startswith("lean-pkg gate beta --receipt R --refresh-formalization")
+
+
+def test_fixture_repositories_start_no_background_maintenance(tmp_path):
+    """make_repo's repositories are copied with shutil.copytree mid-test; a commit must not leave a
+    detached `git maintenance run` behind that could repack objects during the copy (CI flake on #94)."""
+    import os
+    import subprocess
+    repo = make_repo(tmp_path / "r")
+    (repo / "a.txt").write_text("a\n")
+    _git(repo, "add", "a.txt")
+    env = dict(os.environ, GIT_TRACE="1")
+    p = subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@example.com", "-c", "user.name=T",
+                        "commit", "-q", "-m", "a"], capture_output=True, text=True, env=env, check=True)
+    assert "maintenance run" not in p.stderr and "gc --auto" not in p.stderr
