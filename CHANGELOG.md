@@ -21,6 +21,10 @@ change the registry schema or receipt format, always with a migration).
 
 - `claims check FILE`, with FILE an existing `.yaml`, `.yml` or `.json` file, is a usage error naming
   `claims check --file FILE` (exit 2) instead of "unknown package" (field report from a lean-dev wave).
+- `receipt slurm --sacct-file` saved with other columns was read by position, so `JobID|JobName|Partition|...`
+  reported the job name as the State and the partition as the ExitCode ("not a clean finish"). A header line
+  naming `JobID`, `State` and `ExitCode` (sacct `-P` without `-n`) now locates them in any order; without one, a
+  second column that is not a Slurm state or a third that is not `N:N` is refused as `unexpected sacct format`.
 
 ## [0.7.31] - 2026-10-14
 

@@ -8,7 +8,8 @@ validates. It never reads or writes a registry.
 Checks, all run before anything is written (every failed check is listed; any one refuses, exit 1):
 
 1. Job state: `sacct -j J --format=JobID,State,ExitCode,Elapsed,TotalCPU -P -n` (or that output saved to
-   `--sacct-file`, for a host without Slurm; the first three columns suffice). The main job line (JobID
+   `--sacct-file`, for a host without Slurm; the first three columns suffice, other columns need sacct's
+   header line, else `unexpected sacct format`). The main job line (JobID
    equal to J, not a `.batch` or `.extern` step) must say State `COMPLETED` and ExitCode `0:0`.
 2. Seal. With `--stdout` (the job's `.out` file): its one `verify-log-sha256` line must equal the SHA-256
    of the raw verify log, and its `pre-manifest-sha256` and `post-manifest-sha256` lines must be equal and
@@ -107,27 +108,56 @@ def sacct_text(job: str, sacct_file: str | None) -> tuple[str | None, str | None
     return p.stdout, None
 
 
+# The states `sacct` reports (Slurm job_state_reason names aside); a second column that is none of them
+# means the file was saved with another --format, so positions cannot be trusted.
+SACCT_STATES = frozenset({
+    "BOOT_FAIL", "CANCELLED", "COMPLETED", "COMPLETING", "CONFIGURING", "DEADLINE", "FAILED", "NODE_FAIL",
+    "OUT_OF_MEMORY", "PENDING", "PREEMPTED", "REQUEUED", "REQUEUE_FED", "REQUEUE_HOLD", "RESIZING", "REVOKED",
+    "RUNNING", "SIGNALING", "SPECIAL_EXIT", "STAGE_OUT", "STOPPED", "SUSPENDED", "TIMEOUT"})
+_EXIT_RE = re.compile(r"\d+:\d+")
+
+
 def check_job(job: str, text: str) -> tuple[dict | None, str | None]:
-    """({job_id, state, exit_code, elapsed, total_cpu}, refusal) from `JobID|State|ExitCode[|Elapsed|TotalCPU]`."""
+    """({job_id, state, exit_code, elapsed, total_cpu}, refusal) from `JobID|State|ExitCode[|Elapsed|TotalCPU]`.
+    A header line (sacct without -n) naming JobID, State and ExitCode locates the columns by name, in any
+    order. Without one the positions are checked: a second column that is not a Slurm state or a third that
+    is not N:N is refused as an unexpected format, never read as an unclean finish."""
+    want = {"jobid": "job_id", "state": "state", "exitcode": "exit_code", "elapsed": "elapsed",
+            "totalcpu": "total_cpu"}
+    index = {"job_id": 0, "state": 1, "exit_code": 2, "elapsed": 3, "total_cpu": 4}
+    header = False
+    expected = (f"`{SACCT_FORMAT}` with -P -n, or any --format with a header line naming JobID, State and "
+                f"ExitCode (sacct -P without -n)")
     for raw in text.splitlines():
         cols = [c.strip() for c in raw.split("|")]
-        if len(cols) < 3 or cols[0] != job:
+        names = [c.replace(" ", "").lower() for c in cols]
+        if {"jobid", "state", "exitcode"} <= set(names):
+            index = {want[n]: i for i, n in enumerate(names) if n in want}
+            header = True
             continue
-        cols += [""] * (5 - len(cols))
-        state = cols[1].split()[0] if cols[1] else ""
-        seen = {"job_id": cols[0], "state": cols[1], "exit_code": cols[2], "elapsed": cols[3] or None,
-                "total_cpu": cols[4] or None}
+        if len(cols) < 3 or cols[index["job_id"]] != job:
+            continue
+        cols += [""] * (max(index.values()) + 1 - len(cols))
+        seen = {k: (cols[i] or None) if k in ("elapsed", "total_cpu") else cols[i]
+                for k, i in index.items()}
+        for k in ("elapsed", "total_cpu"):
+            seen.setdefault(k, None)
+        state = seen["state"].split()[0] if seen["state"] else ""
+        if not header and (state not in SACCT_STATES or not _EXIT_RE.fullmatch(seen["exit_code"])):
+            return None, (f"sacct: unexpected sacct format: the job {job} line reads State={seen['state']!r}, "
+                          f"ExitCode={seen['exit_code']!r}, which are not a Slurm state and an N:N exit code; "
+                          f"expected {expected}")
         bad = []
         if state != "COMPLETED":
-            bad.append(f"State={cols[1] or '(empty)'}")
-        if cols[2] != "0:0":
-            bad.append(f"ExitCode={cols[2] or '(empty)'}")
+            bad.append(f"State={seen['state'] or '(empty)'}")
+        if seen["exit_code"] != "0:0":
+            bad.append(f"ExitCode={seen['exit_code'] or '(empty)'}")
         if bad:
             return seen, (f"sacct: job {job} is not a clean finish ({', '.join(bad)}); "
                           f"a receipt needs State=COMPLETED and ExitCode=0:0")
         return seen, None
     return None, (f"sacct: no main job line for job {job} (expected `{job}|COMPLETED|0:0|...` among the "
-                  f"`{SACCT_FORMAT}` lines)")
+                  f"`{SACCT_FORMAT}` lines, or a header line naming JobID, State and ExitCode)")
 
 
 # --------------------------------------------------------------------------
