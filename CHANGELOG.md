@@ -22,8 +22,11 @@ change the registry schema or receipt format, always with a migration).
 - `gate` (and every reader that re-validates a receipt: `gate --check`, `--regate`, `claims ledger`, `next`,
   `palomar`, `index check`) refuses a receipt whose `lake-manifest.json` at the bound commit has a `path` package
   whose `dir` is absolute or leaves the package directory: the receipt does not bind those sources, so an edit to
-  them was never drift. A path dependency inside the package directory is accepted; a manifest that is not valid
-  JSON is refused. `gate --check` adds a `✓ lake-manifest.json` line.
+  them was never drift. Judged on the bound commit's tree, a path dependency is also refused when it is, or passes
+  through, a symlink, a submodule or an untracked directory (`.lake/`), or contains a submodule; and any committed
+  symlink whose target is absolute or has a `..` component is refused, path dependency or not. A tracked
+  directory inside the package is accepted; a manifest that is not valid JSON is refused. `gate --check` adds
+  `✓ lake-manifest.json` and `✓ no symlink` lines.
 
 ## [0.7.30] - 2026-10-14
 

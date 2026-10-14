@@ -2189,15 +2189,90 @@ def outside_path_deps(manifest: bytes) -> list[str]:
     return out
 
 
+def bound_tree(repo: pathlib.Path, commit: str) -> dict[str, str]:
+    """{package-relative path: git mode} of every entry (trees included) under the package directory at
+    `commit`; symlink entries map to "120000:<target>" so their committed targets can be judged."""
+    p = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-t", "-z", commit, "."],
+                       capture_output=True, env=scrubbed_env())
+    out: dict[str, str] = {}
+    for rec in p.stdout.decode("utf-8", "replace").split("\0"):
+        if "\t" not in rec:
+            continue
+        meta, path = rec.split("\t", 1)
+        mode, _kind, sha = meta.split()
+        if path in ("./", "."):
+            continue
+        if mode == "120000":
+            target = subprocess.run(["git", "-C", str(repo), "cat-file", "blob", sha],
+                                    capture_output=True, env=scrubbed_env()).stdout.decode("utf-8", "replace")
+            mode = f"120000:{target}"
+        out[path.rstrip("/")] = mode
+    return out
+
+
+def escaping_symlinks(tree: dict[str, str]) -> list[str]:
+    """`path -> target` for each committed symlink whose target is absolute or has a `..` component. A
+    target that only descends cannot leave the directory holding the symlink, so no chain of the
+    remaining symlinks can leave the package directory either."""
+    out = []
+    for path, mode in sorted(tree.items()):
+        if mode.startswith("120000:"):
+            target = mode.split(":", 1)[1]
+            t = target.replace("\\", "/")
+            if posixpath.isabs(t) or ".." in t.split("/"):
+                out.append(f"{path} -> {target}")
+    return out
+
+
+def path_dep_tree_problems(tree: dict[str, str], manifest: bytes) -> list[str]:
+    """For each in-package `path` dependency: its dir, and every directory on the way to it, must be a
+    tracked directory at the bound commit (not a symlink, a submodule gitlink, or untracked such as
+    .lake/), and nothing under it may be a gitlink. Lexically escaping ones are outside_path_deps'."""
+    data = json.loads(manifest.decode("utf-8", "replace"))
+    out = []
+    for p in (data.get("packages") or []) if isinstance(data, dict) else []:
+        if not isinstance(p, dict) or p.get("type") != "path":
+            continue
+        d = str(p.get("dir") or "")
+        norm = posixpath.normpath(d.replace("\\", "/")) if d else "."
+        if posixpath.isabs(norm) or norm == ".." or norm.startswith("../") or norm == ".":
+            continue
+        parts = norm.split("/")
+        for i in range(1, len(parts) + 1):
+            prefix = "/".join(parts[:i])
+            mode = tree.get(prefix)
+            if mode != "040000":
+                what = ("a symlink" if mode and mode.startswith("120000") else
+                        "a submodule (gitlink)" if mode == "160000" else
+                        "a file" if mode else "not tracked")
+                out.append(f"{p.get('name')} ({d}): {prefix} is {what} at the bound commit")
+                break
+        else:
+            links = [q for q, m in tree.items() if m == "160000" and q.startswith(norm + "/")]
+            if links:
+                out.append(f"{p.get('name')} ({d}): contains a submodule (gitlink) {links[0]}")
+    return out
+
+
 def check_path_deps_at(repo: pathlib.Path, commit: str) -> None:
-    """Refuse a receipt whose lake-manifest.json (committed at the bound commit) has a path dependency
-    outside the package directory: the receipt would certify sources it does not bind. A manifest that
-    is absent is left to the other checks; one that is not valid JSON is refused."""
+    """Refuse a receipt whose bound commit lets the build read sources outside the package directory:
+    a `path` dependency in lake-manifest.json (committed at the bound commit) that leaves the directory
+    lexically, or that reaches through a symlink, a submodule or an untracked directory; and any
+    committed symlink whose target is absolute or climbs with `..`. Judged on the commit's tree, never
+    the working tree. A manifest that is absent is left to the other checks; one that is not valid JSON
+    is refused."""
+    tree = bound_tree(repo, commit)
+    links = escaping_symlinks(tree)
+    if links:
+        raise Fail(f"symlinks at {commit[:12]} can leave the package directory: {', '.join(links)}. The "
+                   f"receipt does not bind what they point to; replace them with the files (or a target "
+                   f"that only descends, with no `..`), then a new commit and a new receipt")
     blob = git_show_bytes(repo, "./lake-manifest.json", commit)
     if blob is None:
         return
     try:
         outside = outside_path_deps(blob)
+        problems = path_dep_tree_problems(tree, blob)
     except ValueError:
         raise Fail(f"lake-manifest.json at {commit[:12]} is not valid JSON; cannot check its path "
                    f"dependencies") from None
@@ -2206,6 +2281,10 @@ def check_path_deps_at(repo: pathlib.Path, commit: str) -> None:
                    f"{', '.join(outside)}. The receipt does not bind their sources, so an edit to them would "
                    f"never count as drift. Require them from git pinned to a rev (lake-manifest.json then "
                    f"pins it) or move them inside the package directory; then a new commit and a new receipt")
+    if problems:
+        raise Fail(f"lake-manifest.json at {commit[:12]} has path dependencies the receipt does not bind: "
+                   f"{'; '.join(problems)}. A path dependency must be a directory tracked in the package "
+                   f"itself; require it from git pinned to a rev instead; then a new commit and a new receipt")
 
 
 def dirty_tracked(repo: pathlib.Path) -> list[str]:
@@ -2428,6 +2507,7 @@ def binding_lines(pkg: dict, repo: pathlib.Path, commit: str, toolchain) -> list
     out.append(f"✓ lean_toolchain {str(toolchain).strip()} = lean-toolchain committed at {commit[:12]}")
     if git_show_bytes(repo, "./lake-manifest.json", commit) is not None:
         out.append(f"✓ lake-manifest.json at {commit[:12]}: no path dependency outside the package directory")
+    out.append(f"✓ no symlink at {commit[:12]} leaves the package directory")
     return out
 
 
@@ -5003,7 +5083,7 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
-gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). lake-manifest.json at the receipt commit with a `path` package whose dir leaves the package dir (absolute or ..): refused (its sources are not bound); a path dependency inside the dir is fine.
+gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine.
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json   |   receipt slurm --job J --log PATH --commit SHA [--stdout JOB.out] [--stderr JOB.err] [--checker TEXT] [--repo DIR] [--redact REGEX]... [--sacct-file F] [--out PATH] [--append-readme] (no registry): writes the lower-tier receipt from a finished Slurm job; refuses (exit 1, nothing written) unless sacct's main job line is COMPLETED 0:0, the stdout's verify-log-sha256 = sha256(raw log) and pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at SHA) (no --stdout: the log's own `verify-log-sha256:` line = sha256 of the log minus that line), stderr is empty, lean_toolchain/mathlib_rev from SHA agree with any log line, sorry 0 and axioms from the log (sorry-count:/axioms: lines, else 'sorry' warnings/#print axioms output), a checker (--checker or checker:), and no public-safety blocking hit is left after redacting /tmp/<account>-job, /scratch/<user>/ and --redact; job_id slurm-<J>; writes .lean-receipts/<c12>-slurm-<J>.json + <c12>-slurm-<J>-verify.redacted.log (report_sha256; with --stdout also job_stdout_sha256 + manifest_sha256, additive keys gate ignores), prints the README entry (with --stdout a `- Seal:` line naming both; --append-readme: appended to .lean-receipts/README.md) and `gate NAME --check --receipt PATH`; --json {ok, receipt, log, report_sha256, job_id, checks[], refusals[], ...}   |   receipt systemd (alias local) --unit U --log PATH --commit SHA [--properties-file F | --run [--memory-max 8G] [--memory-swap-max 0] [--cpu-quota 400%] [--runtime-max 4h] [--setenv K=V]... [--properties-out PATH] -- CMD...] + the same --stdout/--stderr/--checker/--repo/--redact/--out/--append-readme/--json: the same receipt from a finished systemd --user service unit; the unit state comes from --run (lean-pkg runs CMD bounded via systemd-run --user -p RemainAfterExit=yes, WorkingDirectory=--repo, so the finished unit stays loaded: properties are captured to <log>.unit.properties before it is stopped and reset; the checkout must be at SHA with no tracked change under the package dir before and after), --properties-file (saved `systemctl --user show U -p ...` + a Hostname= line) or live `systemctl --user show U`; refuses unless LoadState=loaded, Id=U, terminal (failed/inactive or active+exited), Result=success (oom-kill, timeout, signal named), ExecMainCode exited with ExecMainStatus 0, NRestarts 0, plus every receipt slurm seal/field/redaction check (optional stdout invocation-id = InvocationID); job_id systemd-user:<U>:<InvocationID>@<host> (host from the running system); also writes <c12>-<slug>-unit.properties (additive unit_properties_sha256); built-in redaction <repo>, <HOME>, /run/user/<UID>/

@@ -335,8 +335,17 @@ So `gate` (and every reader that re-validates a receipt) refuses a receipt
 whose `lake-manifest.json`, as committed at the bound commit, has a `path`
 package whose `dir` is absolute or leaves the package directory. Require the
 dependency from git pinned to a rev (the manifest then pins the exact
-commit), or move it inside the package directory. A path dependency inside
-the directory, such as a vendored helper, is bound with everything else.
+commit), or move it inside the package directory.
+
+A `dir` that looks inside can still lead outside, so the check reads the
+tree of the bound commit, never the working tree (the receipt binds a
+historical commit). A path dependency is accepted only when its directory,
+and every directory on the way to it, is a tracked directory at that commit:
+not a symlink, not a submodule (gitlink), not untracked such as `.lake/`;
+and nothing under it may be a gitlink. Independently of path dependencies,
+any committed symlink whose target is absolute or has a `..` component is
+refused, since the build follows it out of the package. A symlink whose
+target only descends stays inside, and so does any chain of them.
 
 ## Sibling packages in one repository
 

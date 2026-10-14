@@ -48,10 +48,82 @@ def test_gate_refuses_an_absolute_or_escaping_path_dependency(lp, env, tmp_path,
     assert "Abs (/srv/lean/R1)" in err and "Esc (vendor/../../R1)" in err
 
 
-def test_gate_accepts_path_dependencies_inside_the_package_dir(lp, env, tmp_path, capsys):
-    commit_manifest(env.repo_a, manifest(("Vendored", "./vendor/Helper"), ("Lake", ".lake/packages/x/sub")))
+def commit_files(repo, files: dict[str, str], links: dict[str, str] | None = None):
+    """Commit files and symlinks (path -> target) in one commit."""
+    for rel, text in files.items():
+        f = repo / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+    for rel, target in (links or {}).items():
+        f = repo / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.symlink_to(target)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "files")
+
+
+def test_gate_accepts_a_tracked_in_package_path_dependency(lp, env, tmp_path, capsys):
+    commit_files(env.repo_a, {"vendor/Helper/lakefile.lean": "-- helper\n",
+                              "lake-manifest.json": manifest(("Helper", "./vendor/Helper"))})
     assert gate(lp, env, tmp_path) == 0
     assert read_reg(env)["packages"]["alpha"]["status"] == "verified-private"
+
+
+def test_gate_refuses_an_untracked_path_dependency(lp, env, tmp_path, capsys):
+    """.lake/ is not committed: what the build reads there is not in the bound tree."""
+    commit_manifest(env.repo_a, manifest(("Lake", ".lake/packages/x/sub")))
+    assert gate(lp, env, tmp_path) == 1
+    assert "Lake (.lake/packages/x/sub): .lake is not tracked at the bound commit" in capsys.readouterr().err
+
+
+def test_gate_refuses_a_path_dependency_that_is_a_tracked_symlink(lp, env, tmp_path, capsys):
+    """#4's review: dir vendor/dep looks in-package, but the committed vendor/dep is a symlink out."""
+    commit_files(env.repo_a, {"lake-manifest.json": manifest(("Dep", "vendor/dep"))},
+                 links={"vendor/dep": "../../external"})
+    assert gate(lp, env, tmp_path) == 1
+    err = capsys.readouterr().err
+    assert "symlinks at" in err and "vendor/dep -> ../../external" in err
+    assert read_events(env) == []
+
+
+def test_gate_refuses_a_path_dependency_under_a_descending_symlink(lp, env, tmp_path, capsys):
+    """Even a symlink that stays inside may not stand on a path dependency's way: the dir must be real."""
+    commit_files(env.repo_a, {"real/dep/lakefile.lean": "-- dep\n",
+                              "lake-manifest.json": manifest(("Dep", "vendor/dep"))},
+                 links={"vendor": "real"})
+    assert gate(lp, env, tmp_path) == 1
+    assert "Dep (vendor/dep): vendor is a symlink at the bound commit" in capsys.readouterr().err
+
+
+def test_gate_refuses_any_committed_symlink_that_climbs(lp, env, tmp_path, capsys):
+    """No path dependency at all: a source file symlinked to ../paper is read by the build all the same."""
+    commit_files(env.repo_a, {}, links={"Demo/Foo.lean": "../../paper/foo.lean", "Ok.lean": "Demo/Bar.lean"})
+    assert gate(lp, env, tmp_path) == 1
+    err = capsys.readouterr().err
+    assert "Demo/Foo.lean -> ../../paper/foo.lean" in err and "Ok.lean" not in err
+
+
+def test_gate_accepts_a_descending_symlink(lp, env, tmp_path, capsys):
+    commit_files(env.repo_a, {"Demo/Bar.lean": "-- bar\n"}, links={"Ok.lean": "Demo/Bar.lean"})
+    assert gate(lp, env, tmp_path, "--check") == 0
+    assert "no symlink at" in capsys.readouterr().out
+
+
+def gitlink(repo, rel):
+    """A submodule entry, not checked out (its empty directory keeps `git add -A` from dropping it)."""
+    (repo / rel).mkdir(parents=True)
+    _git(repo, "update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},{rel}")
+
+
+def test_gate_refuses_a_path_dependency_into_or_containing_a_submodule(lp, env, tmp_path, capsys):
+    gitlink(env.repo_a, "vendor/sub")
+    commit_files(env.repo_a, {"vendor/lakefile.lean": "-- v\n",
+                              "lake-manifest.json": manifest(("Sub", "vendor/sub"))})
+    assert gate(lp, env, tmp_path) == 1
+    assert "Sub (vendor/sub): vendor/sub is a submodule (gitlink)" in capsys.readouterr().err
+    commit_manifest(env.repo_a, manifest(("Vendor", "vendor")))
+    assert gate(lp, env, tmp_path) == 1
+    assert "Vendor (vendor): contains a submodule (gitlink) vendor/sub" in capsys.readouterr().err
 
 
 def test_gate_check_refuses_and_names_the_dependency_writing_nothing(lp, env, tmp_path, capsys):
