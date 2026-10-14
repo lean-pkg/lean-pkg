@@ -115,6 +115,11 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
 def make_repo(path: Path, toolchain: str = TOOLCHAIN, extra_files=None) -> Path:
     path.mkdir(parents=True)
     _git(path, "init")
+    # Git >= 2.4x starts `git maintenance run --auto --detach` after each commit; a background repack
+    # can delete .git/objects/XX while a test copies the repository (shutil.copytree, ENOENT; seen in
+    # CI on PR #94). Off for fixture repositories only, never for the caller's own config.
+    _git(path, "config", "maintenance.auto", "false")
+    _git(path, "config", "gc.auto", "0")
     (path / "lean-toolchain").write_text(toolchain + "\n")
     for rel, content in (extra_files or {}).items():
         f = path / rel
