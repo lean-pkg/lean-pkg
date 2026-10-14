@@ -38,6 +38,9 @@ differing file already at either path is refused. The README entry block is prin
 `--append-readme` appended to `README.md` beside the receipt. With `--stdout` the seal evidence is persisted
 (#72): the receipt gains the additive keys `job_stdout_sha256` (the job stdout file) and `manifest_sha256`
 (`lake-manifest.json` at the commit), which `gate` ignores, and the README block a `- Seal:` line naming both.
+Everything after the executor's own terminal-state check (2. to 5. and the output) is `produce`, shared with
+`receipt systemd` (receipt_systemd.py), which hands it an `Evidence` with its job identity, check lines, README
+lines and extra evidence files.
 """
 
 from __future__ import annotations
@@ -203,10 +206,11 @@ def check_stdout(text: str, raw_sha: str, manifest: bytes | None, c12: str | Non
 # --------------------------------------------------------------------------
 # the verify log
 
-def redact(text: str, extra: list[re.Pattern]) -> tuple[str, int]:
-    """(text with the default per-job prefixes and every --redact match replaced, replacements made)."""
+def redact(text: str, extra: list[re.Pattern], defaults=DEFAULT_REDACTIONS) -> tuple[str, int]:
+    """(text with the executor's built-in redactions (default: the Slurm per-job prefixes) and every --redact
+    match replaced, replacements made)."""
     n_total = 0
-    for rx, repl in DEFAULT_REDACTIONS:
+    for rx, repl in defaults:
         text, n = re.subn(rx, repl, text)
         n_total += n
     for rx in extra:
@@ -366,42 +370,27 @@ def _write(path: pathlib.Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
-def readme_block(*, commit: str, job: str, receipt_name: str, log_name: str, sacct: dict | None,
-                 receipt: dict, raw_sha: str, n_diff: int, heading: str | None, tar_sha: str | None,
-                 extra: list[str], seal: dict | None = None) -> str:
-    """The `.lean-receipts/README.md` entry, in the field operator's block shape. `seal` ({job_stdout_sha256,
-    manifest_sha256}, only with --stdout) adds the line naming what the seal was checked against."""
-    s = sacct or {}
+def readme_block(*, commit: str, heading: str, executor_lines: list[str], receipt: dict, log_name: str,
+                 raw_sha: str, n_diff: int, redaction_note: str, extra: list[str], seal: dict | None = None,
+                 evidence_lines: list[str] | None = None) -> str:
+    """The `.lean-receipts/README.md` entry, in the field operator's block shape: the executor's own lines
+    (job or unit state), then checker, log, any further evidence lines, and the seal. `seal`
+    ({job_stdout_sha256, manifest_sha256}, only with --stdout) adds the line naming what the seal was checked
+    against."""
     axioms = ", ".join(receipt["axioms"]) or "none"
-    tar = f"; tar SHA-256 `{tar_sha}`" if tar_sha else ""
-    lines = [f"## `{commit[:7]}`: {heading or f'lower-tier receipt, Slurm job {job}'}", "",
-             f"- Receipt: `{receipt_name}`. Slurm job `{job}`: COMPLETED, exit `0:0`,",
-             f"  elapsed {s.get('elapsed') or 'unknown'}, TotalCPU {s.get('total_cpu') or 'unknown'}{tar}.",
+    lines = [f"## `{commit[:7]}`: {heading}", "", *executor_lines,
              f"- Checker: {receipt['checker']}; sorry_count 0; axioms {axioms}.",
              f"- Log: `{log_name}`, SHA-256 `{receipt['report_sha256']}` (= `report_sha256`);",
-             f"  raw log SHA-256 `{raw_sha}` ({n_diff} line(s) differ: per-job paths redacted)."]
+             f"  raw log SHA-256 `{raw_sha}` ({n_diff} line(s) differ: {redaction_note})."]
+    lines += evidence_lines or []
     if seal:
         lines.append(f"- Seal: job stdout SHA-256 `{seal['job_stdout_sha256']}` carries {SHA_KEY} = raw log "
                      f"SHA-256 `{raw_sha}`; lake-manifest.json SHA-256 `{seal['manifest_sha256']}` (pre = post).")
     return "\n".join(lines + [x for x in extra if x.strip()]) + "\n"
 
 
-def cmd_receipt_slurm(args) -> int:
-    job = (args.job or "").strip().removeprefix("slurm-")
-    if not job:
-        raise core.UsageError("--job must not be empty")
-    job_id = f"slurm-{job}"
-    slug = core.receipt_job_slug(job_id)
-    repo = pathlib.Path(args.repo or ".").expanduser()
-    if not repo.is_dir():
-        raise core.UsageError(f"--repo {repo}: not a directory")
-    paths = {}
-    for flag, value in (("--log", args.log), ("--stdout", args.stdout), ("--stderr", args.stderr)):
-        if value is not None:
-            p = pathlib.Path(value).expanduser()
-            if not p.is_file():
-                raise core.UsageError(f"{flag} {value}: no such file")
-            paths[flag] = p
+def common_usage(args) -> list[re.Pattern]:
+    """The usage checks every `receipt` form shares (exit 2); returns the compiled --redact patterns."""
     if not args.commit_sha.strip() or args.commit_sha.startswith("-"):
         raise core.UsageError(f"--commit must name a commit, got {args.commit_sha!r}")
     if args.tar_sha256 is not None and not _HEX64.fullmatch(args.tar_sha256):
@@ -414,20 +403,45 @@ def cmd_receipt_slurm(args) -> int:
             extra.append(re.compile(r))
         except re.error as e:
             raise core.UsageError(f"--redact {r!r} is not a valid regular expression ({e.msg})") from None
+    return extra
 
-    refusals: list[str] = []
-    checks: list[str] = []
-    text, why = sacct_text(job, args.sacct_file)
-    sacct = None
-    if why:
-        refusals.append(why)
-    else:
-        sacct, why = check_job(job, text)
-        if why:
-            refusals.append(why)
-        else:
-            checks.append(f"✓ sacct: job {job} COMPLETED, exit 0:0")
 
+def repo_dir(args) -> pathlib.Path:
+    repo = pathlib.Path(args.repo or ".").expanduser()
+    if not repo.is_dir():
+        raise core.UsageError(f"--repo {repo}: not a directory")
+    return repo
+
+
+class Evidence:
+    """What an executor (`receipt slurm`, `receipt systemd`) hands the shared pipeline in `produce`: its job
+    identity, the refusals and check lines of its own terminal-state checks (listed first), its README lines,
+    and the extra evidence files and receipt keys it persists."""
+
+    def __init__(self, *, verb: str, job_id: str, refusals: list[str], checks: list[str],
+                 executor_lines, default_heading: str, check_log_job_id, json_extra: dict,
+                 redactions=DEFAULT_REDACTIONS, redaction_note: str = "per-job paths redacted",
+                 stdout_check=None, evidence_files=(), redact_help: str = "add a --redact REGEX for it"):
+        self.verb, self.job_id = verb, job_id
+        self.refusals, self.checks = refusals, checks
+        self.executor_lines = executor_lines          # (receipt file name, tar clause) -> list[str]
+        self.default_heading = default_heading
+        self.check_log_job_id = check_log_job_id      # the log's `job-id:` value -> refusal or None
+        self.json_extra = json_extra
+        self.redactions, self.redaction_note = redactions, redaction_note
+        self.stdout_check = stdout_check              # (job stdout text, refusals, checks) -> None
+        # (suffix, bytes, receipt key, README line template with {name} and {sha}): written beside the receipt
+        # as `<c12>-<slug>-<suffix>`, its SHA-256 stored under the receipt key
+        self.evidence_files = list(evidence_files)
+        self.redact_help = redact_help
+
+
+def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.Pattern]) -> int:
+    """The shared second half of every `receipt` form: commit facts, the seal, the verify log's fields, redaction,
+    the public-safety scan, and (when nothing refused) the receipt, the redacted log, the executor's evidence
+    files and the README entry. Every check runs before anything is written."""
+    refusals, checks = ev.refusals, ev.checks
+    slug = core.receipt_job_slug(ev.job_id)
     commit = resolve_commit(repo, args.commit_sha)
     c12 = commit[:12] if commit else None
     toolchain = manifest = None
@@ -447,7 +461,10 @@ def cmd_receipt_slurm(args) -> int:
     seal = None
     if "--stdout" in paths:
         out_raw = paths["--stdout"].read_bytes()
-        check_stdout(out_raw.decode("utf-8", errors="replace"), raw_sha, manifest, c12, refusals, checks)
+        out_text = out_raw.decode("utf-8", errors="replace")
+        check_stdout(out_text, raw_sha, manifest, c12, refusals, checks)
+        if ev.stdout_check:
+            ev.stdout_check(out_text, refusals, checks)
         # the seal evidence, persisted (#72): what the checks above compared against
         seal = {"job_stdout_sha256": hashlib.sha256(out_raw).hexdigest(),
                 "manifest_sha256": hashlib.sha256(manifest).hexdigest() if manifest is not None else None}
@@ -468,7 +485,7 @@ def cmd_receipt_slurm(args) -> int:
         checks.append("· stderr: not checked (no --stderr)")
 
     raw_text = raw.decode("utf-8", errors="replace")
-    redacted, n_redacted = redact(raw_text, extra)
+    redacted, n_redacted = redact(raw_text, extra, ev.redactions)
     n_diff = lines_differing(raw_text, redacted)
     fields, problems = parse_log(redacted)
     refusals += problems
@@ -492,8 +509,10 @@ def cmd_receipt_slurm(args) -> int:
         claimed = fields["commit"].lower()
         if len(claimed) < 7 or not commit.startswith(claimed):
             refusals.append(f"verify log: `commit:` {fields['commit']!r} is not --commit {c12}")
-    if "job-id" in fields and fields["job-id"].removeprefix("slurm-") != job:
-        refusals.append(f"verify log: `job-id:` {fields['job-id']!r} is not --job {job!r}")
+    if "job-id" in fields:
+        why = ev.check_log_job_id(fields["job-id"])
+        if why:
+            refusals.append(why)
 
     name12 = c12 or "0" * 12
     out = (pathlib.Path(args.out).expanduser() if args.out
@@ -508,12 +527,20 @@ def cmd_receipt_slurm(args) -> int:
         "sorry_count": fields.get("sorry-count"),
         "axioms": fields.get("axioms", []),
         "report_sha256": report_sha,
-        "job_id": job_id,
+        "job_id": ev.job_id,
         "checker": checker,
         "generated_at": fields.get("generated-at") or core.now_iso(),
     }
     if seal:
         receipt.update(seal)       # additive keys: validate_receipt and gate ignore keys beyond RECEIPT_FIELDS
+    files = []                     # (path, bytes) of the executor's evidence files
+    evidence_lines = []
+    for suffix, data, key, line in ev.evidence_files:
+        path = out.with_name(f"{name12}-{slug}-{suffix}")
+        digest = hashlib.sha256(data).hexdigest()
+        receipt[key] = digest      # additive, like the seal keys
+        files.append((path, data))
+        evidence_lines.append(line.format(name=path.name, sha=digest))
     if not fields.get("generated-at"):
         kept = _kept_fallback_time(out, receipt)
         if kept and kept != receipt["generated_at"]:
@@ -522,21 +549,24 @@ def cmd_receipt_slurm(args) -> int:
                           f"generated_at {kept}")
     receipt_bytes = (json.dumps(receipt, indent=2) + "\n").encode("utf-8")
     rel_r, rel_l = _shown(out, repo), _shown(log_out, repo)
-    block = readme_block(commit=commit or name12, job=job, receipt_name=out.name, log_name=log_out.name,
-                         sacct=sacct, receipt=receipt, raw_sha=raw_sha, n_diff=n_diff,
-                         heading=args.readme_heading, tar_sha=args.tar_sha256, extra=args.readme_line or [],
-                         seal=seal)
+    tar = f"; tar SHA-256 `{args.tar_sha256}`" if args.tar_sha256 else ""
+    block = readme_block(commit=commit or name12, heading=args.readme_heading or ev.default_heading,
+                         executor_lines=ev.executor_lines(out.name, tar), receipt=receipt, log_name=log_out.name,
+                         raw_sha=raw_sha, n_diff=n_diff, redaction_note=ev.redaction_note,
+                         extra=args.readme_line or [], seal=seal, evidence_lines=evidence_lines)
 
     sc = _scanner(repo)
-    for what, blob_text in (("redacted verify log", redacted), ("receipt JSON", receipt_bytes.decode()),
-                            ("README block", block)):
+    scanned = [("redacted verify log", redacted)]
+    scanned += [(path.name, data.decode("utf-8", "replace")) for path, data in files]
+    scanned += [("receipt JSON", receipt_bytes.decode()), ("README block", block)]
+    for what, blob_text in scanned:
         fams = blocking_families(sc, blob_text)
         if fams:
             refusals.append(f"public-safety: a private string remains in the {what} ({', '.join(fams)}); "
-                            + ("add a --redact REGEX for it" if what != "README block"
+                            + (ev.redact_help if what != "README block"
                                else "fix --readme-heading / --readme-line"))
     if not refusals:
-        for path, data in ((log_out, log_bytes), (out, receipt_bytes)):
+        for path, data in ((log_out, log_bytes), *files, (out, receipt_bytes)):
             why = _same_or_absent(path, data)
             if why:
                 refusals.append(why)
@@ -550,6 +580,8 @@ def cmd_receipt_slurm(args) -> int:
         checks.append(f"✓ public-safety: no blocking hit after {n_redacted} redaction(s)")
         out.parent.mkdir(parents=True, exist_ok=True)
         _write(log_out, log_bytes)
+        for path, data in files:
+            _write(path, data)
         _write(out, receipt_bytes)
         if args.append_readme:
             old = readme.read_text(encoding="utf-8") if readme.is_file() else "# Receipts\n"
@@ -561,25 +593,30 @@ def cmd_receipt_slurm(args) -> int:
         next_cmd = f"lean-pkg gate NAME --check --receipt {rel_r}"
 
     if args.json_out:
-        core.print_json({"ok": not refusals, "receipt": None if refusals else str(out),
-                         "log": None if refusals else str(log_out),
-                         "report_sha256": None if refusals else report_sha, "raw_log_sha256": raw_sha,
-                         "job_id": job_id, "seal": seal, "sacct": sacct, "redactions": n_redacted, "lines_redacted": n_diff,
-                         "checks": checks, "readme_block": None if refusals else block,
-                         "readme_appended": appended, "next": next_cmd, "refusals": refusals})
+        payload = {"ok": not refusals, "receipt": None if refusals else str(out),
+                   "log": None if refusals else str(log_out),
+                   "report_sha256": None if refusals else report_sha, "raw_log_sha256": raw_sha,
+                   "job_id": ev.job_id, "seal": seal}
+        payload.update(ev.json_extra)
+        payload.update({"redactions": n_redacted, "lines_redacted": n_diff, "checks": checks,
+                        "readme_block": None if refusals else block, "readme_appended": appended,
+                        "next": next_cmd, "refusals": refusals})
+        core.print_json(payload)
     if refusals:
-        verdict = f"receipt slurm: refused, {len(refusals)} problem(s); nothing written"
+        verdict = f"{ev.verb}: refused, {len(refusals)} problem(s); nothing written"
         print(f"lean-pkg: {verdict}", file=sys.stderr)
         for r in refusals:
             print(f"  ✗ {r}", file=sys.stderr)
         print(f"lean-pkg: {verdict}", file=sys.stderr)
         return 1
     if not args.json_out:
-        print(f"receipt slurm: ok, job {job_id} at commit {c12}; {n_redacted} redaction(s)")
+        print(f"{ev.verb}: ok, job {ev.job_id} at commit {c12}; {n_redacted} redaction(s)")
         for c in checks:
             print(f"  {c}")
         print(f"  receipt     {rel_r}")
         print(f"  verify log  {rel_l} (redacted; report_sha256 {report_sha})")
+        for path, _data in files:
+            print(f"  evidence    {_shown(path, repo)}")
         if appended:
             print(f"README entry appended to {_shown(readme, repo)}:")
         else:
@@ -594,11 +631,78 @@ def cmd_receipt_slurm(args) -> int:
     return 0
 
 
+def cmd_receipt_slurm(args) -> int:
+    job = (args.job or "").strip().removeprefix("slurm-")
+    if not job:
+        raise core.UsageError("--job must not be empty")
+    job_id = f"slurm-{job}"
+    core.receipt_job_slug(job_id)
+    repo = repo_dir(args)
+    paths = {}
+    for flag, value in (("--log", args.log), ("--stdout", args.stdout), ("--stderr", args.stderr)):
+        if value is not None:
+            p = pathlib.Path(value).expanduser()
+            if not p.is_file():
+                raise core.UsageError(f"{flag} {value}: no such file")
+            paths[flag] = p
+    extra = common_usage(args)
+
+    refusals: list[str] = []
+    checks: list[str] = []
+    text, why = sacct_text(job, args.sacct_file)
+    sacct = None
+    if why:
+        refusals.append(why)
+    else:
+        sacct, why = check_job(job, text)
+        if why:
+            refusals.append(why)
+        else:
+            checks.append(f"✓ sacct: job {job} COMPLETED, exit 0:0")
+    s = sacct or {}
+
+    def lines(receipt_name: str, tar: str) -> list[str]:
+        return [f"- Receipt: `{receipt_name}`. Slurm job `{job}`: COMPLETED, exit `0:0`,",
+                f"  elapsed {s.get('elapsed') or 'unknown'}, TotalCPU {s.get('total_cpu') or 'unknown'}{tar}."]
+
+    def log_job_id(value: str) -> str | None:
+        if value.removeprefix("slurm-") != job:
+            return f"verify log: `job-id:` {value!r} is not --job {job!r}"
+        return None
+
+    ev = Evidence(verb="receipt slurm", job_id=job_id, refusals=refusals, checks=checks, executor_lines=lines,
+                  default_heading=f"lower-tier receipt, Slurm job {job}", check_log_job_id=log_job_id,
+                  json_extra={"sacct": sacct})
+    return produce(args, ev, repo, paths, extra)
+
+
+def add_common_flags(s, kind: str, name_hint: str) -> None:
+    """The flags every `receipt` form shares, after its executor's own."""
+    s.add_argument("--checker", default=None, metavar="TEXT",
+                   help="the exact checker command or mode (default: the log's `checker:` line)")
+    s.add_argument("--repo", default=None, metavar="DIR", help="the package checkout (default: the current directory)")
+    s.add_argument("--out", default=None, metavar="PATH",
+                   help=f"receipt path (default <repo>/.lean-receipts/<commit12>-{name_hint}.json); the redacted log "
+                        f"is written beside it as <commit12>-{name_hint}-verify.redacted.log")
+    s.add_argument("--append-readme", action="store_true",
+                   help="append the entry block to README.md beside the receipt (created if absent; an entry "
+                        "already naming the receipt is not repeated)")
+    s.add_argument("--readme-heading", default=None, metavar="TEXT",
+                   help=f"the entry heading after the short commit (default: lower-tier receipt, {kind})")
+    s.add_argument("--readme-line", action="append", default=[], metavar="TEXT",
+                   help="an extra line at the end of the entry block (repeatable)")
+    s.add_argument("--tar-sha256", default=None, metavar="HEX",
+                   help="the frozen source tarball's SHA-256, named in the entry block")
+    s.add_argument("--json", dest="json_out", action="store_true", default=argparse.SUPPRESS,
+                   help="machine-readable JSON on stdout")
+
+
 def add_parsers(sub, add_json) -> None:
     del add_json   # its --commit flag (committed mode) would collide with `receipt slurm --commit SHA`
+    from . import receipt_systemd
     r = sub.add_parser("receipt", help="produce lower-tier receipts (writes files in the package checkout, "
                                        "never the registry)")
-    rsub = r.add_subparsers(dest="receipt_cmd", metavar="{slurm}", required=True)
+    rsub = r.add_subparsers(dest="receipt_cmd", metavar="{slurm,systemd}", required=True)
     s = rsub.add_parser("slurm", help="a lower-tier receipt from a finished Slurm job, its verify log and "
                                       "its stdout seal")
     s.add_argument("--job", required=True, metavar="J", help="the Slurm job id (job_id becomes slurm-J)")
@@ -610,26 +714,11 @@ def add_parsers(sub, add_json) -> None:
                    help=f"the job's stdout (.out): {SHA_KEY} = sha256(raw log), {PRE_KEY} = {POST_KEY} = "
                         "sha256(lake-manifest.json at the commit); without it the log must carry its own seal")
     s.add_argument("--stderr", default=None, metavar="PATH", help="the job's stderr (.err); must be empty")
-    s.add_argument("--checker", default=None, metavar="TEXT",
-                   help="the exact checker command or mode (default: the log's `checker:` line)")
-    s.add_argument("--repo", default=None, metavar="DIR", help="the package checkout (default: the current directory)")
     s.add_argument("--redact", action="append", default=[], metavar="REGEX",
                    help=f"also replace matches with {REDACT_TOKEN} (repeatable); the built-in prefixes are always "
                         f"redacted to {USER_TOKEN} instead (/tmp/{USER_TOKEN}-job, /scratch/{USER_TOKEN}/)")
     s.add_argument("--sacct-file", default=None, metavar="F",
                    help=f"saved output of `sacct -j J --format={SACCT_FORMAT} -P -n` (a host without Slurm)")
-    s.add_argument("--out", default=None, metavar="PATH",
-                   help="receipt path (default <repo>/.lean-receipts/<commit12>-slurm-<J>.json); the redacted log "
-                        "is written beside it as <commit12>-slurm-<J>-verify.redacted.log")
-    s.add_argument("--append-readme", action="store_true",
-                   help="append the entry block to README.md beside the receipt (created if absent; an entry "
-                        "already naming the receipt is not repeated)")
-    s.add_argument("--readme-heading", default=None, metavar="TEXT",
-                   help="the entry heading after the short commit (default: lower-tier receipt, Slurm job J)")
-    s.add_argument("--readme-line", action="append", default=[], metavar="TEXT",
-                   help="an extra line at the end of the entry block (repeatable)")
-    s.add_argument("--tar-sha256", default=None, metavar="HEX",
-                   help="the frozen source tarball's SHA-256, named in the entry block")
-    s.add_argument("--json", dest="json_out", action="store_true", default=argparse.SUPPRESS,
-                   help="machine-readable JSON on stdout")
+    add_common_flags(s, "Slurm job J", "slurm-<J>")
     s.set_defaults(fn=cmd_receipt_slurm)
+    receipt_systemd.add_parser(rsub)

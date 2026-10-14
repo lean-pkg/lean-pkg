@@ -141,6 +141,22 @@ remains, and writes `<c12>-slurm-<J>.json`, the redacted log and (with
 `gate NAME --check --receipt` command it prints. The lines it reads:
 [A lower-tier receipt from a Slurm job](receipts.md#a-lower-tier-receipt-from-a-slurm-job).
 
+Light checks run locally in a capped systemd unit instead: `receipt systemd`
+runs the verify script bounded (`systemd-run --user`, `MemoryMax`,
+`CPUQuota`, `RuntimeMaxSec`), captures the unit's exit and resource
+accounting before the unit is collected, and writes the same receipt:
+
+```bash
+lean-pkg receipt systemd --unit audit-gate --commit "$(git rev-parse HEAD)" --log /tmp/gate/verify.log \
+  --stdout /tmp/gate/unit.out --stderr /tmp/gate/unit.err --checker "gate.sh" --run -- bash gate.sh /tmp/gate/verify.log
+lean-pkg receipt systemd --unit audit-gate ... --properties-file unit.properties   # a unit that already ran
+```
+
+It refuses a unit that is not found, not finished, killed by the OOM
+killer, a signal or the runtime cap, or that exited non-zero, and a
+checkout that changed during the run:
+[A lower-tier receipt from a systemd unit](receipts.md#a-lower-tier-receipt-from-a-systemd-unit).
+
 ## Check that this machine can produce comparator receipts
 
 ```bash

@@ -19,6 +19,19 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `lean-pkg receipt systemd` (alias `receipt local`): the lower-tier receipt from a finished systemd `--user`
+  service unit, for light checks run locally in a capped unit, through the same seal, field, redaction and
+  public-safety pipeline as `receipt slurm` (now shared, `receipt.produce`). `--run -- CMD ...` starts the command
+  bounded (`systemd-run --user`, `MemoryMax=8G`, `MemorySwapMax=0`, `CPUQuota=400%`, `RuntimeMaxSec=4h` by default,
+  `OOMPolicy=stop`) with `RemainAfterExit=yes`, so the finished unit is not collected before its properties are
+  captured to `<log>.unit.properties`; then it is stopped and reset. The checkout must be at `--commit` with no
+  tracked change before and after the run. `--properties-file` reads saved `systemctl --user show` output plus a
+  `Hostname=` line; without either the unit is read live. Refused: a unit not found, not terminal, `Result` other
+  than `success` (`oom-kill`, `timeout`, `signal` named), a non-zero exit or a signal, restarts, a stdout
+  `invocation-id` from another run, and every `receipt slurm` refusal. `job_id` is
+  `systemd-user:<unit>:<InvocationID>@<host>`, the host taken from the running system; the normalised properties
+  are written beside the receipt (additive key `unit_properties_sha256`). The checkout's path, `$HOME` and
+  `/run/user/N/` are redacted to `<repo>`, `<HOME>`, `/run/user/<UID>/` before the scan.
 - `lean-pkg claims ledger NAME [--stage gate|promote]`: per claim, named diagnostics from the recorded
   receipts, re-checked with `gate`'s and `promote`'s validators; a claim is `verified` only with zero
   diagnostics. The package status fails closed (`unknown` with no claims or no `reusable` claim; `failed` when

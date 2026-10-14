@@ -211,7 +211,8 @@ def _writes(cmd: str, ns) -> str | None:
     if cmd == "index" and fn("index_fn") in ("run_render", "run_migrate") and not getattr(ns, "check", False):
         return "it writes index files"
     if cmd == "receipt":
-        return "receipt slurm writes a receipt and a redacted verify log"
+        form = {"local": "systemd"}.get(getattr(ns, "receipt_cmd", None), getattr(ns, "receipt_cmd", None))
+        return f"receipt {form or 'slurm'} writes a receipt and a redacted verify log"
     if cmd == "claims" and fn("claims_fn") == "run_migrate" and not getattr(ns, "dry_run", False):
         return "it writes a claims file"
     return None
