@@ -17,6 +17,11 @@ change the registry schema or receipt format, always with a migration).
   needs updating`, instead of a bare `HTTP <status>` (other statuses unchanged). On 2026-10-14 every query
   answered 500 while the request matched the site's own page, and the bare status left open which side was at fault.
 
+### Fixed
+
+- `claims check FILE`, with FILE an existing `.yaml`, `.yml` or `.json` file, is a usage error naming
+  `claims check --file FILE` (exit 2) instead of "unknown package" (field report from a lean-dev wave).
+
 ## [0.7.31] - 2026-10-14
 
 ### Added

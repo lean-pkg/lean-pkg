@@ -269,6 +269,19 @@ Each line is a regular expression: bare or `block:` blocks, `warn:` warns,
 `latex-label` family is warn-only.
 `promote` runs the same scan and refuses while blocking hits remain.
 
+The scan also blocks names taken from the package's own record: its agent,
+workspace and lease holder. A progress file that records who holds the lease
+is therefore a hit. Write the line in its redacted form, which never goes
+stale either:
+
+```text
+- lease: see `lean-pkg status my-proof --fields lease`
+```
+
+or keep the name and exempt it in that one file with a scoped allow of the
+exact name, `allow: PROGRESS.md: ^<agent-name>$` (escape `.` as `\.`); the
+same name anywhere else is still a hit.
+
 ## Publish a package incubated beside a paper
 
 When a hit is in the history, export a fresh-history repository instead of

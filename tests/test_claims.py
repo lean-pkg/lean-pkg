@@ -459,3 +459,13 @@ def test_migrate_drops_local_paths(cl):
     doc, todos, _, _ = cl.migrate_rows("alpha", [{"id": "a", "statement": "see /home/someone/notes.txt"}])
     assert doc["claims"][0]["summary"] == "TODO: one sentence."
     assert cl.validate_claims(doc, "alpha") == []
+
+
+def test_claims_check_with_a_file_path_names_the_file_flag(lp, tmp_path, monkeypatch, capsys):
+    """Field report (a lean-dev wave agent): `claims check claims.yaml` failed as an unknown package. A positional
+    that is an existing claims-like file now gets a usage error naming --file; nothing is read."""
+    (tmp_path / "claims.yaml").write_text("version: claims/1\nclaims: []\n")
+    monkeypatch.chdir(tmp_path)
+    assert lp.main(["--registry", str(tmp_path / "absent.yaml"), "claims", "check", "claims.yaml"]) == 2
+    err = capsys.readouterr().err
+    assert "is a file" in err and "lean-pkg claims check --file claims.yaml" in err

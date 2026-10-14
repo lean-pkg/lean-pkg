@@ -484,3 +484,25 @@ def test_report_puts_the_verdict_up_front_and_groups_warn_hits_after_blocking(lp
     assert run(lp, reg, "public-safety", "pkg", "--no-history") == 0
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 3 and lines[-1] == "ok: no private pattern found"
+
+
+def test_lease_holder_in_a_progress_file_and_its_scoped_allow(lp, tmp_path, capsys):
+    """Field report (a lean-dev wave agent): a progress template records the lease holder, and the scan derives that
+    name from the record. Documented ways out: the redacted line (pointing at `status --fields lease`) or a
+    path-scoped allow of the exact name, which exempts that file only."""
+    lease = {"workspace": "wsx", "agent": "agentx-wave21", "claimed_at": "2026-01-01T00:00:00+00:00",
+             "ttl_hours": 24, "reason": ""}
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={
+        "PROGRESS.md": "- lease: agentx-wave21 (expires 2026-01-02)\n",
+        "Main.lean": "-- by agentx-wave21\n",
+        ".gitignore": ".lean-pkg-private-patterns\n"})
+    reg = make_env(tmp_path, repo, agent="agentx-wave21", lease=lease)
+    assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 1
+    assert {h["path"] for h in json.loads(capsys.readouterr().out)["hits"]} == {"PROGRESS.md", "Main.lean"}
+    (repo / ".lean-pkg-private-patterns").write_text("allow: PROGRESS.md: ^agentx-wave21$\n")
+    assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 1
+    assert {h["path"] for h in json.loads(capsys.readouterr().out)["hits"]} == {"Main.lean"}
+    (repo / "PROGRESS.md").write_text("- lease: see `lean-pkg status pkg --fields lease`\n")
+    (repo / ".lean-pkg-private-patterns").write_text("")
+    assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 1
+    assert {h["path"] for h in json.loads(capsys.readouterr().out)["hits"]} == {"Main.lean"}

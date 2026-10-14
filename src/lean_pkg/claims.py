@@ -628,6 +628,11 @@ def run_migrate(args) -> int:
 
 
 def run_check(args) -> int:
+    name = args.name
+    if getattr(args, "file", None) is None and name and name.endswith((".yaml", ".yml", ".json")) \
+            and pathlib.Path(name).is_file():
+        raise core.UsageError(f"claims check takes a package NAME, and {name!r} is a file: to schema-check it, "
+                              f"run `lean-pkg claims check --file {name}`")
     if getattr(args, "file", None) is not None:
         out, payload, rc = do_claims_check_file(args.file, args.name)
         return _emit(args, out, payload, rc)
