@@ -5,14 +5,14 @@ One logical change. What it does and why, in two or three sentences.
 ## Checks run
 
 - [ ] `make check` is green (tests, private-boundary check, tab scan, version agreement)
-- [ ] `llms.txt` regenerated if the CLI contract changed
+- [ ] `make docs` run if the CLI contract or an index entry changed (CI fails on a stale generated file)
 - [ ] docs updated for any user-visible change; CHANGELOG `Unreleased` entry added
 
 ## Index entry (only for a pull request that adds or changes `index/<name>/`)
 
 - [ ] the entry was written by `lean-pkg index add` (trust is computed, receipts are verbatim copies; nothing typed by hand)
 - [ ] `lean-pkg index check --clone <name>` passes; its output is pasted below
-- [ ] `index/README.md` re-rendered with `lean-pkg index render`
+- [ ] `index/README.md` re-rendered (`make docs` or `lean-pkg index render`)
 - [ ] `consent.recorded` is true, or the entry is marked not for publication in `notes`
 
 ## Trust boundary

@@ -5032,6 +5032,23 @@ EXIT CODES
 """
 
 
+# llms.txt (and its site copy docs/llms.txt) is this header plus LLMS_TEXT, byte for byte (#81):
+# `make docs` writes it, tests/test_docs.py compares it, CI fails on any diff after `make docs`.
+LLMS_TXT_HEADER = """\
+# lean-pkg — llms.txt
+
+> Registry and trust gate for Lean 4 formalization packages. Install: `pipx install git+https://github.com/lean-pkg/lean-pkg.git`.
+> Human docs: https://lean-pkg.github.io/lean-pkg/ (source: docs/), README.md, DESIGN.md. Tests: `python3 -m pip install -e '.[test]' && python3 -m pytest -q`.
+> The block below is the exact output of `lean-pkg llms` (written by `make docs`; tests/test_docs.py checks it byte for byte).
+
+"""
+
+
+def llms_txt() -> str:
+    """The whole of llms.txt: LLMS_TXT_HEADER then the `lean-pkg llms` text, nothing after it."""
+    return LLMS_TXT_HEADER + LLMS_TEXT
+
+
 # --------------------------------------------------------------------------
 # CLI
 

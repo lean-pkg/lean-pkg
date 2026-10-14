@@ -58,7 +58,7 @@ Layout:
 Conventions: keep behavior and JSON output shapes stable (they are a
 contract), make one logical change per commit, use spaces and never tab
 characters, and write a test for every refusal path you add. When you change
-`LLMS_TEXT`, regenerate `llms.txt`; `tests/test_docs.py` enforces this. AI
+`LLMS_TEXT`, run `make docs` to regenerate `llms.txt`; `tests/test_docs.py` enforces this. AI
 assistance must be disclosed in the PR description (see CONTRIBUTING.md).
 
 Verdict first: every command that lists findings (`public-safety`, `audit`,

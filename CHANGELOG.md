@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `llms.txt` is now generated whole: `make docs` writes it and `docs/llms.txt` from `LLMS_TXT_HEADER` plus the
+  `lean-pkg llms` text, and re-renders `index/README.md`. The test now requires byte equality (it only checked
+  that the contract appeared somewhere in the file), and CI runs `make docs` then `git diff --exit-code`, so a
+  stale generated file fails CI (#81).
+
 ## [0.7.29] - 2026-10-14
 
 ### Changed
