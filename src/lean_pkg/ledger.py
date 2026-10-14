@@ -150,11 +150,16 @@ def _claims_source(pkg: dict, repo: pathlib.Path, bound: str | None) -> tuple[li
 
 
 def compute_ledger(reg: dict, name: str, stage: str = "promote") -> dict:
+    return ledger_for(core.get_pkg(reg, name), stage)
+
+
+def ledger_for(pkg: dict, stage: str = "promote") -> dict:
+    """The ledger of one registry record (what `promote`, `publish --dry-run` and `next` read)."""
     from . import claims as claims_mod
     from . import comparator_config as cc
     if stage not in STAGES:
         raise core.UsageError(f"--stage must be one of {', '.join(STAGES)}")
-    pkg = core.get_pkg(reg, name)
+    name = pkg["name"]
     repo = core.repo_path(pkg) if pkg.get("local_path") else None
     limitations: list[str] = []
     hashes: dict = {"receipt_sha256": None, "comparator_sha256": None}
@@ -275,3 +280,20 @@ def ledger_lines(led: dict) -> list[str]:
     if led["claims"]:
         out.append(verdict)
     return out
+
+
+def first_open(led: dict) -> str | None:
+    """`<claim id>: <code>` of the first required claim that is not verified, for a one-line reason."""
+    for r in led["claims"]:
+        if r["required"] and r["status"] != "verified":
+            return f"{r['id']}: {r['diagnostics'][0]['code']}" if r["diagnostics"] else r["id"]
+    return None
+
+
+def summary(led: dict) -> str:
+    """One line: the package status and why (the first reason, else the first open claim)."""
+    if led["package_status"] == "ready":
+        return f"claims ledger ready: {led['required']} required claim(s) verified ({led['ledger_digest'][:19]}…)"
+    why = led["reasons"][0] if led["reasons"] else "not ready"
+    fo = first_open(led)
+    return f"claims ledger {led['package_status']}: {why}" + (f"; first: {fo}" if fo else "")

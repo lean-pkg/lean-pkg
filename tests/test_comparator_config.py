@@ -7,7 +7,7 @@ import json
 
 import yaml
 
-from .conftest import _git, commit_claims, read_events, read_reg, set_lease
+from .conftest import _git, commit_claims, drop_claims, read_events, read_reg, set_lease
 
 LEAN = ("theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ndef qux := 1\n"
         "theorem old_one : True := trivial\ntheorem zap : True := trivial\n")
@@ -81,6 +81,7 @@ def test_new_out_file_and_namespace(lp, env, capsys):
 
 
 def test_refuses_without_a_tracked_claims_file(lp, env, capsys):
+    drop_claims(env.repo_b)
     rc, cap = cc(lp, env, capsys)
     assert rc == 1 and "claims.yaml is not tracked at HEAD" in cap.err
 

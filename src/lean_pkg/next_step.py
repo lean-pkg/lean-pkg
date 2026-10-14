@@ -103,7 +103,8 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
     lease = pkg.get("lease")
     state: dict = {"status": status, "visibility": pkg.get("visibility"), "lease": _lease_view(lease, now),
                    "gate_commit": None, "comparator_commit": None, "head": None, "checkout": None,
-                   "dirty": [], "receipt_candidate": None, "rejected_receipts": [], "comparator_configs": []}
+                   "dirty": [], "receipt_candidate": None, "rejected_receipts": [], "comparator_configs": [],
+                   "claims_ledger": None}
     notes: list[str] = []
     ag = agent or "A"
     as_agent = f" --agent {_q(agent)}" if agent else ""
@@ -262,10 +263,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
             except core.Fail as e:
                 notes.append(f"recorded comparator receipt is not valid at HEAD: {e}")
             else:
-                return out(f"lean-pkg publish {name} --dry-run",
-                           f"verified-private with comparator evidence bound to HEAD: run the read-only "
-                           f"publish checklist, then `lean-pkg promote {name}` (a dry run; a human reads it "
-                           f"before --yes)")
+                return _ledger_step(reg, pkg, name, state, notes, out)
         crel, cerr = comparator_on_disk(pkg, repo, bound)
         if crel and not cerr:
             return out(f"lean-pkg comparator {name} --receipt {_q(repo / crel)}{as_agent}",
@@ -298,6 +296,41 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
         return _public(pkg, repo, head, out)
 
     return out(None, f"status {status!r}: no rule for it")
+
+
+def _ledger_step(reg: dict, pkg: dict, name: str, state: dict, notes: list[str], out):
+    """Both tiers bind HEAD: `promote` still refuses unless the claims ledger is ready (#80), so
+    recommend `publish --dry-run` only then; otherwise the ledger's first fix."""
+    from . import ledger
+    led = ledger.ledger_for(pkg, "promote")
+    state["claims_ledger"] = {"package_status": led["package_status"], "counts": led["counts"],
+                              "required": led["required"], "ledger_digest": led["ledger_digest"]}
+    if led["package_status"] == "ready":
+        return out(f"lean-pkg publish {name} --dry-run",
+                   f"verified-private with comparator evidence bound to HEAD and the claims ledger ready: run "
+                   f"the read-only publish checklist, then `lean-pkg promote {name}` (a dry run; a human reads "
+                   f"it before --yes)")
+    why = ledger.summary(led)
+    codes = {d["code"] for r in led["claims"] if r["required"] for d in r["diagnostics"]}
+    if codes & {"no-comparator-config", "comparator-todo"}:
+        try:   # the coverage producer names the scaffold step and the re-gate tail
+            from . import comparator_config as cc
+            nxt = cc.do_coverage(reg, name)[1].get("next_commands") or []
+        except core.Fail as e:
+            nxt = []
+            notes.append(f"comparator config --coverage: {e}")
+        if nxt:
+            return out(nxt[0].split("   #")[0],
+                       f"promote would refuse: {why}; extend the comparator configuration to the uncovered claims "
+                       f"(committing it moves HEAD, so re-gate afterwards: "
+                       + "; ".join(c.split("   #")[0] for c in nxt[1:3]) + ")")
+    hint = ""
+    if not led["claims"]:          # nothing to verify: say how to get claims (write, migrate or sync them)
+        from . import claims as claims_mod
+        h = claims_mod.coverage(name, pkg).get("hint")
+        hint = f"; {h}, then re-gate the commit that tracks it" if h else ""
+    return out(f"lean-pkg claims ledger {name}",
+               f"promote would refuse: {why}{hint}; the ledger lists each open claim and why")
 
 
 def _dirty(name, repo, state, out):

@@ -9,7 +9,7 @@ import json
 import pytest
 import yaml
 
-from .conftest import (CLAIMS_YAML, ROOT, _git, commit_claims, read_events, read_reg,
+from .conftest import (CLAIMS_YAML, ROOT, _git, commit_claims, drop_claims, read_events, read_reg,
                        repo_head, write_reg)
 
 FIXTURE = ROOT / "tests" / "fixtures" / "schemas" / "claims-1.yaml"
@@ -188,6 +188,7 @@ def test_sync_refuses_decl_missing_from_its_file(lp, env, capsys):
 
 
 def test_sync_refuses_an_uncommitted_file(lp, env, capsys):
+    drop_claims(env.repo_b)
     (env.repo_b / "claims.yaml").write_text(CLAIMS_YAML)       # on disk, never committed
     assert sync(lp, env) == 1
     assert "not committed at HEAD" in capsys.readouterr().err

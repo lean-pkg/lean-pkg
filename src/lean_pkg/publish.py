@@ -236,9 +236,11 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
     status = pkg.get("status")
     items: list[tuple] = []
     ignored: list[dict] = []
+    led: dict | None = None
     if status in PROMOTABLE:
         items.append(("✓", f"status {status}"))
-        items += core.promote_checklist(pkg, repo, ignored_sink=ignored)
+        led = {}
+        items += core.promote_checklist(pkg, repo, ignored_sink=ignored, ledger_sink=led)
     elif status in ALREADY_PUBLIC:
         items.append(("✓", f"status {status} (promoted at {pkg.get('promoted_at') or '?'}); promote not needed"))
         items.append(core.head_pushed_item(repo))
@@ -275,7 +277,7 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
     payload = {"ok": ready, "name": name, "dry_run": True, "ready": ready, "head": head,
                "checklist": [dict({"status": core._MARK_TO_STATUS[i[0]], "label": i[1]},
                                   **({"reason": i[2]} if len(i) > 2 else {})) for i in items],
-               "next": cmds, "ignored_evidence": ignored}
+               "next": cmds, "ignored_evidence": ignored, "claims_ledger": led}
     if safety is not None:
         payload["public_safety"] = safety
     return lines, 0 if ready else 1, payload

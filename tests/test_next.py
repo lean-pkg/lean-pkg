@@ -13,7 +13,7 @@ from .conftest import (_git, base_pkg, commit_claims, make_receipt, make_repo, r
 
 PAYLOAD_KEYS = {"ok", "name", "command", "reason", "blockers", "notes", "state"}
 STATE_KEYS = {"status", "visibility", "lease", "gate_commit", "comparator_commit", "head", "checkout",
-              "dirty", "receipt_candidate", "rejected_receipts", "comparator_configs"}
+              "dirty", "receipt_candidate", "rejected_receipts", "comparator_configs", "claims_ledger"}
 
 
 def nxt(lp, env, capsys, name, *extra):

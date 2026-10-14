@@ -284,11 +284,14 @@ class Env(SimpleNamespace):
 @pytest.fixture()
 def env(tmp_path: Path) -> Env:
     """Two packages: alpha (gate-pending, bare repo), beta (verified-private,
-    repo carries LICENSE + lake-manifest.json + a HEAD-bound gate receipt)."""
+    repo carries LICENSE + lake-manifest.json + a HEAD-bound gate receipt, and a claims.yaml whose one
+    reusable theorem comparator.json covers, so its claims ledger is ready and promote can pass, #80)."""
     repo_a = make_repo(tmp_path / "alpha-repo")
     repo_b = make_repo(tmp_path / "beta-repo",
                        extra_files={"LICENSE": "MIT\n",
-                                    "lake-manifest.json": "{}\n"})
+                                    "lake-manifest.json": "{}\n",
+                                    "claims.yaml": CLAIMS_YAML,
+                                    "Demo/Main.lean": DEMO_LEAN})
     cfg_b = add_comparator_config(repo_b)          # commits comparator.json
     receipt_b = make_receipt(repo_b)               # bound to the new HEAD
     dest = repo_b / ".lean-receipts" / "seed.json"
@@ -499,6 +502,13 @@ claims:
   citation: Demo 2026, Theorem 1
   depends_on: []
 """
+
+
+def drop_claims(repo: Path) -> str:
+    """Remove the env fixture's claims.yaml in a new commit (for tests of a package without one)."""
+    _git(repo, "rm", "-q", "claims.yaml")
+    _git(repo, "commit", "-m", "no claims")
+    return repo_head(repo)
 
 
 def commit_claims(repo: Path, text: str = CLAIMS_YAML, rel: str = "claims.yaml",

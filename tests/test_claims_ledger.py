@@ -10,8 +10,8 @@ import json
 import pytest
 import yaml
 
-from .conftest import (ROOT, _git, commit_claims, make_comparator_receipt, make_receipt, read_events, read_reg,
-                       repo_head, write_reg)
+from .conftest import (ROOT, _git, commit_claims, drop_claims, make_comparator_receipt, make_receipt,
+                       publish_evidence, read_events, read_reg, repo_head, write_reg)
 
 LEAN = ("theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ndef qux := 1\n"
         "theorem old_one : True := trivial\ntheorem zap : True := trivial\n")
@@ -125,7 +125,10 @@ def test_an_empty_claims_set_is_unknown_not_ready(lp, env, capsys):
 
 
 def test_no_claims_file_and_no_cache_is_unknown(lp, env, capsys):
-    rc, data = ledger(lp, env, capsys)                   # the fixture's beta: receipts, no claims anywhere
+    drop_claims(env.repo_b)                              # then gate the commit without claims.yaml
+    (env.repo_b / ".lean-receipts" / "g.json").write_text(json.dumps(make_receipt(env.repo_b)))
+    set_gate(env, receipt=".lean-receipts/g.json", comparator=None)
+    rc, data = ledger(lp, env, capsys)
     assert rc == 1 and data["package_status"] == "unknown" and data["claims"] == []
 
 
@@ -323,3 +326,85 @@ def test_unknown_package_and_bad_stage(lp, env, capsys):
     with pytest.raises(SystemExit) as e:
         lp.main(["--registry", str(env.registry), "claims", "ledger", "beta", "--stage", "public"])
     assert e.value.code == 2
+
+
+# --- wiring (#80): promote refuses unless ready; publish --dry-run and next read the ledger ---------
+
+def run_json(lp, env, capsys, *argv):
+    rc = lp.main(["--registry", str(env.registry), *argv, "--json"])
+    return rc, json.loads(capsys.readouterr().out)
+
+
+def ledger_items(data):
+    return [c for c in data["checklist"] if c["label"].startswith("claims ledger")]
+
+
+def failing(data):
+    return [c["label"] for c in data["checklist"] if c["status"] == "fail"]
+
+
+def test_promote_passes_the_ledger_item_when_ready(lp, env, fake_gh, capsys):
+    gated(env)
+    publish_evidence(env.repo_b)
+    rc, data = run_json(lp, env, capsys, "promote", "beta")
+    assert rc == 0 and failing(data) == [], failing(data)
+    [item] = ledger_items(data)
+    assert item["status"] == "pass" and item["label"].startswith("claims ledger ready: 4 required claim(s) verified")
+    assert data["claims_ledger"]["package_status"] == "ready"
+    assert data["claims_ledger"]["ledger_digest"].startswith("sha256:")
+
+
+def test_promote_refuses_when_a_reusable_theorem_is_not_compared(lp, env, fake_gh, capsys):
+    gated(env, names=("foo_le_bar", "zap"))                 # baz: comparator PASS, but not for baz
+    publish_evidence(env.repo_b)
+    rc, data = run_json(lp, env, capsys, "promote", "beta", "--yes")
+    assert rc == 1 and data["refused"] is True
+    assert failing(data) == [ledger_items(data)[0]["label"]]          # the ledger is the only failure
+    assert "claims ledger open" in failing(data)[0] and "beta/baz: no-comparator-config" in failing(data)[0]
+    assert "lean-pkg claims ledger beta" in failing(data)[0]
+    assert data["claims_ledger"]["package_status"] == "open"
+    assert fake_gh.visibility == "PRIVATE" and read_events(env) == []   # nothing flipped, nothing recorded
+
+
+def test_promote_refuses_a_package_without_claims(lp, env, fake_gh, capsys):
+    gated(env, claims=[])
+    publish_evidence(env.repo_b)
+    rc, data = run_json(lp, env, capsys, "promote", "beta")
+    assert rc == 1 and failing(data) == [ledger_items(data)[0]["label"]]
+    assert failing(data)[0].startswith("claims ledger unknown: no claims")
+
+
+def test_publish_dry_run_carries_the_ledger(lp, env, fake_gh, capsys):
+    gated(env, names=("foo_le_bar", "zap"))
+    publish_evidence(env.repo_b)
+    rc, data = run_json(lp, env, capsys, "publish", "beta", "--dry-run")
+    assert rc == 1 and data["ready"] is False
+    assert any(lbl.startswith("claims ledger open") for lbl in failing(data))
+    assert data["claims_ledger"]["package_status"] == "open"
+
+
+def test_next_recommends_publish_only_when_the_ledger_is_ready(lp, env, capsys):
+    gated(env)
+    publish_evidence(env.repo_b)
+    rc, data = run_json(lp, env, capsys, "next", "beta")
+    assert rc == 0 and data["command"] == "lean-pkg publish beta --dry-run", data
+    assert "claims ledger ready" in data["reason"]
+    assert data["state"]["claims_ledger"]["package_status"] == "ready"
+
+
+def test_next_names_the_coverage_fix_when_a_claim_is_not_compared(lp, env, capsys):
+    gated(env, names=("foo_le_bar", "zap"))
+    publish_evidence(env.repo_b)
+    rc, data = run_json(lp, env, capsys, "next", "beta")
+    assert rc == 0 and data["command"] == "lean-pkg comparator config --from-claims beta", data
+    assert data["reason"].startswith("promote would refuse: claims ledger open")
+    assert data["state"]["claims_ledger"]["package_status"] == "open"
+
+
+def test_next_points_at_the_ledger_for_other_open_claims(lp, env, capsys):
+    gated(env, claims=[])
+    publish_evidence(env.repo_b)
+    rc, data = run_json(lp, env, capsys, "next", "beta")
+    assert rc == 0 and data["command"] == "lean-pkg claims ledger beta", data
+    assert "promote would refuse: claims ledger unknown: no claims" in data["reason"]
+    assert "claims.yaml is committed at HEAD but not synced: lean-pkg claims sync beta" in data["reason"]
