@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `promote` now refuses unless `claims ledger NAME` at the promote stage is `ready`: every `reusable` claim
+  verified, each theorem and lemma among the declarations the comparator PASS compared. A comparator PASS
+  alone no longer suffices, and a package without claims, or with none `reusable`, is refused as `unknown`.
+  `publish --dry-run` shows the same checklist line; `promote --json` and `publish --json` gain
+  `claims_ledger`. `next` recommends `publish --dry-run` only once the ledger is ready, otherwise the
+  ledger's first fix (`comparator config --from-claims` for an uncompared claim, else `claims ledger NAME`);
+  its `--json` state gains `claims_ledger` (#80).
+
 ### Added
 
 - `lean-pkg claims ledger NAME [--stage gate|promote]`: per claim, named diagnostics from the recorded

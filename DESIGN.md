@@ -39,7 +39,7 @@ scratch | active | gate-pending | verified-private | public | upstreamed | archi
 | gate-pending -> active | `update --status` | check abandoned |
 | gate-pending -> verified-private | `gate` | a valid lower-tier receipt, optionally with comparator evidence |
 | verified-private -> gate-pending | `update --status` | re-certification after a content change |
-| verified-private -> public | `promote --yes` | clean checklist, including a comparator PASS |
+| verified-private -> public | `promote --yes` | clean checklist, including a comparator PASS and a `ready` claims ledger |
 | public -> upstreamed | `update --status` | a recorded `mathlib-pr-merged` or `palomar-registered` event (not retracted, not withdrawn), or a `--reason` containing the URL |
 | any status -> archived | `update --status --reason`, or `audit --fix` from GitHub's archived flag | — |
 
@@ -142,6 +142,9 @@ X, not at H.
 - `lake-manifest.json` tracked at HEAD;
 - the lower-tier receipt bound to HEAD (or an evidence-only ancestor);
 - a byte-valid comparator PASS;
+- the claims ledger `ready`: every `reusable` claim verified, each theorem and
+  lemma by a comparator configuration at the gate-bound commit, and at least
+  one reusable claim (no claims is `unknown`; see `docs/lifecycle.md`);
 - GitHub visibility matching the registry;
 - a nonempty `automation` disclosure when `upstream_target` is `mathlib`.
 

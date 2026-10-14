@@ -32,6 +32,7 @@ def make_ready(lp, env, capsys):
     assert lp.main(["--registry", str(env.registry), "formalization", "beta", "--write",
                     "--author", "Ada"]) == 0
     _git(env.repo_b, "tag", "v1.0.0")
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 0
     capsys.readouterr()
     return head
 

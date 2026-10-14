@@ -8,7 +8,7 @@ import re
 
 import pytest
 
-from .conftest import (make_receipt, read_reg, repo_head, set_lease, write_receipt,
+from .conftest import (drop_claims, make_receipt, read_reg, repo_head, set_lease, write_receipt,
                        write_reg)
 
 
@@ -66,6 +66,7 @@ def test_differing_comparator_receipt_names_the_file_to_pass(lp, env, tmp_path, 
 
 
 def test_claims_sync_missing_file_says_missing(lp, env, capsys):
+    drop_claims(env.repo_b)
     assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 1
     err = capsys.readouterr().err
     assert "claims.yaml is missing in" in err and str(env.repo_b) in err
