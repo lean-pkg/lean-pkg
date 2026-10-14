@@ -24,7 +24,9 @@ Checks, all run before anything is written (every failed check is listed; any on
    build finished (`Build completed successfully` or `lake build: ok`; neither refuses); it must be 0. `axioms` is the
    log's `axioms:` line, else the union of its `#print axioms` output (`depends on axioms: [...]`, `does not
    depend on any axioms`); none of either refuses. `checker` is `--checker`, else the log's `checker:`.
-   Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse.
+   Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse. Without `generated-at:` the
+   receipt is stamped with the time of writing; a re-run whose receipt matches the one already written in
+   every other field keeps that file's `generated_at` (#85), anything else differing is refused.
 5. Redaction: the per-job temporary prefixes (DEFAULT_REDACTIONS) and every `--redact REGEX` are replaced
    in the log text; the public-safety scanner then runs over the redacted log, the receipt JSON and the
    README block. Any blocking hit refuses, naming the families only.
@@ -337,6 +339,27 @@ def _same_or_absent(path: pathlib.Path, data: bytes) -> str | None:
     return None
 
 
+def _kept_fallback_time(path: pathlib.Path, receipt: dict) -> str | None:
+    """#85: the `generated_at` of the receipt already at `path` when it is identical to `receipt` but for that
+    field (same keys, same order, same values) and that field is a valid timestamp, else None. Only used when the
+    new `generated_at` came from the clock, so an identical re-run in a later second is not refused."""
+    if path.is_symlink() or not path.is_file():
+        return None
+    try:
+        old = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(old, dict) or list(old) != list(receipt) or not isinstance(old.get("generated_at"), str):
+        return None
+    try:
+        core.parse_ts(old["generated_at"])
+    except (ValueError, TypeError):
+        return None
+    if any(old[k] != v for k, v in receipt.items() if k != "generated_at"):
+        return None
+    return old["generated_at"]
+
+
 def _write(path: pathlib.Path, data: bytes) -> None:
     tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
     tmp.write_bytes(data)
@@ -491,6 +514,12 @@ def cmd_receipt_slurm(args) -> int:
     }
     if seal:
         receipt.update(seal)       # additive keys: validate_receipt and gate ignore keys beyond RECEIPT_FIELDS
+    if not fields.get("generated-at"):
+        kept = _kept_fallback_time(out, receipt)
+        if kept and kept != receipt["generated_at"]:
+            receipt["generated_at"] = kept
+            checks.append(f"· {out.name} already present, identical but for its clock time; kept "
+                          f"generated_at {kept}")
     receipt_bytes = (json.dumps(receipt, indent=2) + "\n").encode("utf-8")
     rel_r, rel_l = _shown(out, repo), _shown(log_out, repo)
     block = readme_block(commit=commit or name12, job=job, receipt_name=out.name, log_name=log_out.name,

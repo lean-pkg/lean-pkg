@@ -55,6 +55,17 @@ def no_sacct(monkeypatch):
     monkeypatch.setattr(receipt.shutil, "which", lambda name, *a, **k: None if name == "sacct" else real(name, *a, **k))
 
 
+T1, T2 = "2026-10-13T18:00:00+00:00", "2026-10-13T18:01:00+00:00"
+
+
+def frozen_clock(monkeypatch, start: str = T1) -> list[str]:
+    """#85: receipt slurm's fallback `generated_at` reads this clock; set `clock[0]` to move it."""
+    from lean_pkg import receipt
+    clock = [start]
+    monkeypatch.setattr(receipt.core, "now_iso", lambda: clock[0])
+    return clock
+
+
 class Job:
     """The files a Slurm verify job leaves: the raw verify log, its stdout (.out) and stderr (.err)."""
 
@@ -140,7 +151,8 @@ def test_json_payload(lp, repo, tmp_path, fake_sacct, capsys):
     assert data["readme_appended"] is False and data["readme_block"].startswith("## `")
 
 
-def test_append_readme_writes_the_block_once(lp, repo, tmp_path, fake_sacct, capsys):
+def test_append_readme_writes_the_block_once(lp, repo, tmp_path, fake_sacct, capsys, monkeypatch):
+    clock = frozen_clock(monkeypatch)       # #85: the re-run below was flaky across a second boundary
     job = Job(tmp_path)
     rdir(repo).mkdir()
     (rdir(repo) / "README.md").write_text("# Receipts\n\nEarlier entries.\n")
@@ -155,7 +167,9 @@ def test_append_readme_writes_the_block_once(lp, repo, tmp_path, fake_sacct, cap
     assert f"tar SHA-256 `{'b' * 64}`." in text
     assert f"raw log SHA-256 `{sha(job.log.read_bytes())}` (3 line(s) differ" in text
     assert text.rstrip().endswith("- Note: rerun of the v2 wave.")
+    clock[0] = T2                                             # a minute later: still the identical receipt
     assert run(lp, repo, job, *extra) == 0                    # identical re-run: no second entry
+    assert json.loads((rdir(repo) / f"{c12}-slurm-123.json").read_text())["generated_at"] == T1
     assert (rdir(repo) / "README.md").read_text().count(f"`{c12}-slurm-123.json`") == 1
     assert "not appended again" in capsys.readouterr().out
 
@@ -179,6 +193,55 @@ def test_differing_receipt_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
     capsys.readouterr()
     assert run(lp, repo, Job(tmp_path, log)) == 1
     assert "already exists with different content" in capsys.readouterr().err
+
+
+def receipt_json(repo) -> dict:
+    return json.loads(next(rdir(repo).glob("*-slurm-123.json")).read_text())
+
+
+def test_rerun_in_a_later_second_keeps_the_stored_generated_at(lp, repo, tmp_path, fake_sacct, capsys, monkeypatch):
+    """#85: without a `generated-at:` log line the receipt is clock-stamped; re-running the same job later is
+    the identical receipt, not a refusal, and keeps the first time."""
+    clock = frozen_clock(monkeypatch)
+    assert run(lp, repo, Job(tmp_path)) == 0
+    first = next(rdir(repo).glob("*-slurm-123.json")).read_bytes()
+    capsys.readouterr()
+    clock[0] = T2
+    assert run(lp, repo, Job(tmp_path)) == 0
+    assert "identical but for its clock time; kept generated_at " + T1 in capsys.readouterr().out
+    assert next(rdir(repo).glob("*-slurm-123.json")).read_bytes() == first
+    # a same-second re-run needs no kept time and says nothing about it
+    clock[0] = T1
+    assert run(lp, repo, Job(tmp_path)) == 0
+    assert "kept generated_at" not in capsys.readouterr().out
+
+
+def test_rerun_differing_beyond_the_clock_time_is_still_refused(lp, repo, tmp_path, fake_sacct, capsys,
+                                                                monkeypatch):
+    """#85: only a clock-stamped generated_at is forgiven; any other change, or a stored time that does not
+    parse, still refuses with nothing written."""
+    clock = frozen_clock(monkeypatch)
+    assert run(lp, repo, Job(tmp_path)) == 0
+    first = next(rdir(repo).glob("*-slurm-123.json")).read_bytes()
+    clock[0] = T2
+    capsys.readouterr()
+    assert run(lp, repo, Job(tmp_path), "--checker", "a different checker") == 1
+    assert "already exists with different content" in capsys.readouterr().err
+    assert next(rdir(repo).glob("*-slurm-123.json")).read_bytes() == first
+    path = next(rdir(repo).glob("*-slurm-123.json"))
+    path.write_text(first.decode().replace(T1, "yesterday"))
+    assert run(lp, repo, Job(tmp_path)) == 1
+    assert "already exists with different content" in capsys.readouterr().err
+    assert receipt_json(repo)["generated_at"] == "yesterday"
+
+
+def test_explicit_generated_at_that_disagrees_is_still_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    """#85: a log that states its own `generated-at:` is never overridden by the stored receipt."""
+    assert run(lp, repo, Job(tmp_path, LOG + f"generated-at: {T1}\n")) == 0
+    capsys.readouterr()
+    assert run(lp, repo, Job(tmp_path, LOG + f"generated-at: {T2}\n")) == 1
+    assert "already exists with different content" in capsys.readouterr().err
+    assert receipt_json(repo)["generated_at"] == T1
 
 
 @pytest.mark.parametrize("sacct, needle", [

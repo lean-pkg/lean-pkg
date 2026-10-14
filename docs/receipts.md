@@ -111,7 +111,7 @@ flag the check is skipped, and the output says so.
 | `checker` | `--checker TEXT`, else the log's `checker:` line; neither is refused |
 | `job_id` | `slurm-<J>` |
 | `report_sha256` | SHA-256 of the redacted log as written (below) |
-| `generated_at` | the log's `generated-at:` line when present (must parse), else the time of writing |
+| `generated_at` | the log's `generated-at:` line when present (must parse), else the time of writing; a re-run whose receipt already exists and matches it in every other field (same keys, order and values) keeps the stored `generated_at`, so it is an identical no-op rather than a refusal |
 
 Log key lines are `key: value` with the key at the start of the line, each
 at most once. A log `lean-toolchain:` or `mathlib-rev:` line that disagrees

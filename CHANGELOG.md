@@ -19,6 +19,10 @@ change the registry schema or receipt format, always with a migration).
   the build finished (Lake's `Build completed successfully`, or a line starting `lake build: ok`). A cut-short or
   wrong log is now refused as "the sorry count is unknown", matching how a log without axioms output is refused
   (#82).
+- `receipt slurm` re-run for the same job and log is no longer refused once the clock has moved: when the log
+  has no `generated-at:` line and the receipt already written matches in every other field, its `generated_at` is
+  kept and the re-run is an identical no-op. Any other difference is still refused. This also fixes the flaky
+  `test_append_readme_writes_the_block_once`, whose clock is now frozen (#85).
 
 ## [0.7.28] - 2026-10-13
 
