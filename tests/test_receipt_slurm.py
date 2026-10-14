@@ -534,3 +534,36 @@ def test_help_names_checker_requirement_and_redaction_tokens(lp, capsys):
     assert "when it has no `checker:` line, --checker TEXT is required" in out
     assert "replace matches with <redacted>" in out
     assert "redacted to <USER> instead (/tmp/<USER>-job, /scratch/<USER>/)" in out
+
+
+@pytest.mark.parametrize("sacct", [
+    # field report: saved with --format=JobID,JobName,Partition,... -P -n, so State/ExitCode were misread
+    "123|replay-v3-gate|std_queue|COMPLETED|0:0\n123.batch|batch|std_queue|COMPLETED|0:0\n",
+    "123|COMPLETED|00:01:00|0:0\n",                               # columns swapped: ExitCode not N:N
+])
+def test_other_sacct_columns_without_a_header_are_an_unexpected_format(lp, repo, tmp_path, fake_sacct, capsys,
+                                                                       sacct):
+    fake_sacct.write_text(sacct)
+    assert run(lp, repo, Job(tmp_path)) == 1
+    err = capsys.readouterr().err
+    assert "unexpected sacct format" in err and "not a clean finish" not in err
+    assert "header line naming JobID, State and ExitCode" in err
+    assert_nothing_written(repo)
+
+
+def test_a_header_line_locates_the_columns_in_any_order(lp, repo, tmp_path, fake_sacct, capsys):
+    fake_sacct.write_text("JobID|JobName|Partition|ExitCode|State|Elapsed\n"
+                          "123|replay-v3-gate|std_queue|0:0|COMPLETED|00:02:00\n"
+                          "123.batch|batch|std_queue|0:0|COMPLETED|00:02:00\n")
+    assert run(lp, repo, Job(tmp_path), "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["sacct"]["state"] == "COMPLETED" and payload["sacct"]["exit_code"] == "0:0"
+    assert payload["sacct"]["elapsed"] == "00:02:00" and payload["sacct"]["total_cpu"] is None
+
+
+def test_a_header_line_still_refuses_an_unclean_finish(lp, repo, tmp_path, fake_sacct, capsys):
+    fake_sacct.write_text("JobID|JobName|State|ExitCode\n123|replay|FAILED|1:0\n")
+    assert run(lp, repo, Job(tmp_path)) == 1
+    err = capsys.readouterr().err
+    assert "not a clean finish (State=FAILED, ExitCode=1:0)" in err
+    assert_nothing_written(repo)

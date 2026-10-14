@@ -67,7 +67,12 @@ runs on this host; its main job line (JobID exactly `J`, not the `.batch`
 or `.extern` step) must say `COMPLETED` and `0:0`. Elapsed and TotalCPU go
 into the README entry. On a host without Slurm, save that command's output
 on the cluster and pass it with `--sacct-file` (the first three columns
-suffice; the entry then says `unknown`). `--job` takes `123` or `slurm-123`.
+suffice; the entry then says `unknown`). Output saved with other columns
+needs its header line (run `sacct` with `-P` but without `-n`): a line
+naming `JobID`, `State` and `ExitCode` locates them in any order. Without a
+header, a second column that is not a Slurm state or a third that is not an
+`N:N` exit code is refused as `unexpected sacct format`, never misread as an
+unclean finish. `--job` takes `123` or `slurm-123`.
 
 **The seal, from the job's stdout (`--stdout`).** The verify job prints, in
 its Slurm `.out` file, one line each of
