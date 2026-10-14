@@ -37,8 +37,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the history scan needs every commit, the PR's own included
       - name: Forbidden-string scan
         run: bash scripts/private-boundary-check.sh
+      # Commit messages and old blobs escape the tree scan: #94's squash message named a private
+      # host, passed CI, and needed a history rewrite of main before 0.7.31 could be released.
+      - name: Forbidden-string scan, history and commit messages
+        run: bash scripts/private-boundary-check.sh --history
       - name: No tab characters
         run: |
           if grep -rnP '\t' --include='*.py' --include='*.sh' --include='*.md' \

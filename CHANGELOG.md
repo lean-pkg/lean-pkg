@@ -7,6 +7,12 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- CI's private-boundary job also runs `scripts/private-boundary-check.sh --history` on a full-depth checkout, so
+  a private string in a commit message (or in any blob of the pull request's history) fails the pull request
+  before it reaches `main`. The tree scan alone let one through in #94's commit messages.
+
 ## [0.7.31] - 2026-10-14
 
 ### Added
