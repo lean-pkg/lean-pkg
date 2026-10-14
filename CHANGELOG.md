@@ -7,6 +7,24 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `register NAME --path DIR --like OTHER`: register a sibling of a registered package (for example `lean-r2/`
+  beside `lean/` in one manuscript repository). `repo`, `owner_project`, `upstream_target` and `automation` come
+  from OTHER unless given; visibility is never copied. Copying OTHER's repo is refused when the two checkouts are
+  in different git repositories. A note says whether the toolchain and Mathlib pin match OTHER's; `--json` gains
+  `like`, the `registered` event `like`. `--repo` is now optional when `--like` gives it.
+- `register` warns when the checkout is inside, or contains, another registered package's directory, and when its
+  `lake-manifest.json` has a path dependency outside the package directory.
+
+### Changed
+
+- `gate` (and every reader that re-validates a receipt: `gate --check`, `--regate`, `claims ledger`, `next`,
+  `palomar`, `index check`) refuses a receipt whose `lake-manifest.json` at the bound commit has a `path` package
+  whose `dir` is absolute or leaves the package directory: the receipt does not bind those sources, so an edit to
+  them was never drift. A path dependency inside the package directory is accepted; a manifest that is not valid
+  JSON is refused. `gate --check` adds a `✓ lake-manifest.json` line.
+
 ## [0.7.30] - 2026-10-14
 
 ### Changed

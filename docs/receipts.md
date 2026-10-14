@@ -326,6 +326,31 @@ at X, not at H, and never from the working tree. Modified tracked files in
 the checkout print a WARN at `gate` and `comparator`; `--refuse-dirty` turns
 the WARN into a refusal.
 
+### Path dependencies
+
+A receipt binds the package directory at one commit. A Lake
+`require ... from "../lean"` makes the build read sources outside that directory: they appear in
+`lake-manifest.json` as a `path` package, and an edit to them is never drift.
+So `gate` (and every reader that re-validates a receipt) refuses a receipt
+whose `lake-manifest.json`, as committed at the bound commit, has a `path`
+package whose `dir` is absolute or leaves the package directory. Require the
+dependency from git pinned to a rev (the manifest then pins the exact
+commit), or move it inside the package directory. A path dependency inside
+the directory, such as a vendored helper, is bound with everything else.
+
+## Sibling packages in one repository
+
+A manuscript repository can hold several packages side by side, for example
+`lean/` for a first round and `lean-r2/` for the next. Each is registered on
+its own and gated on its own receipt, and because the binding is scoped to
+the package directory, commits to `lean-r2/` are never drift for `lean/`.
+Register the second with `register NAME --path DIR --like OTHER`: it takes
+the repository and project fields from OTHER and notes whether the toolchain
+and Mathlib pin match. Keep them siblings, not nested: a package directory
+inside another makes every commit to the inner one drift for the outer one
+(`register` warns). To reuse the first package's results, depend on it from
+git at a pinned rev, not by path (see above).
+
 ## Where evidence lives
 
 Receipts and logs are copied into `<repo>/.lean-receipts/` by `gate` and

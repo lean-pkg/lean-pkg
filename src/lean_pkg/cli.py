@@ -91,6 +91,7 @@ import io
 import json
 import os
 import pathlib
+import posixpath
 import re
 import shlex
 import shutil
@@ -2094,6 +2095,7 @@ def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
                    f"the receipt must bind to HEAD or an evidence-only descendant "
                    f"({note})")
     check_toolchain_at(repo, commit, receipt["lean_toolchain"], "toolchain mismatch")
+    check_path_deps_at(repo, commit)
     if not str(receipt["mathlib_rev"]).strip():
         raise Fail("receipt mathlib_rev is empty")
     sc = receipt["sorry_count"]
@@ -2169,6 +2171,41 @@ def check_toolchain_at(repo: pathlib.Path, commit: str, claimed, label: str) -> 
                    f"{committed!r}"
                    + (f" (the working-tree file says {work!r}; uncommitted files do not count)"
                       if work is not None and work != committed else ""))
+
+
+def outside_path_deps(manifest: bytes) -> list[str]:
+    """`name (dir)` for each `path` package in lake-manifest.json bytes whose dir leaves the package
+    directory (absolute, or `..` after normalising). Its sources are outside what a receipt binds, so an
+    edit to them is never drift. Judged lexically on the committed text; ValueError on bad JSON."""
+    data = json.loads(manifest.decode("utf-8", "replace"))
+    out = []
+    for p in (data.get("packages") or []) if isinstance(data, dict) else []:
+        if not isinstance(p, dict) or p.get("type") != "path":
+            continue
+        d = str(p.get("dir") or "")
+        norm = posixpath.normpath(d.replace("\\", "/")) if d else "."
+        if posixpath.isabs(norm) or norm == ".." or norm.startswith("../"):
+            out.append(f"{p.get('name')} ({d})")
+    return out
+
+
+def check_path_deps_at(repo: pathlib.Path, commit: str) -> None:
+    """Refuse a receipt whose lake-manifest.json (committed at the bound commit) has a path dependency
+    outside the package directory: the receipt would certify sources it does not bind. A manifest that
+    is absent is left to the other checks; one that is not valid JSON is refused."""
+    blob = git_show_bytes(repo, "./lake-manifest.json", commit)
+    if blob is None:
+        return
+    try:
+        outside = outside_path_deps(blob)
+    except ValueError:
+        raise Fail(f"lake-manifest.json at {commit[:12]} is not valid JSON; cannot check its path "
+                   f"dependencies") from None
+    if outside:
+        raise Fail(f"lake-manifest.json at {commit[:12]} has path dependencies outside the package directory: "
+                   f"{', '.join(outside)}. The receipt does not bind their sources, so an edit to them would "
+                   f"never count as drift. Require them from git pinned to a rev (lake-manifest.json then "
+                   f"pins it) or move them inside the package directory; then a new commit and a new receipt")
 
 
 def dirty_tracked(repo: pathlib.Path) -> list[str]:
@@ -2389,6 +2426,8 @@ def binding_lines(pkg: dict, repo: pathlib.Path, commit: str, toolchain) -> list
     elif not rel:
         out.append("✓ formalization.yaml: no registry pointer, so no exception was applied")
     out.append(f"✓ lean_toolchain {str(toolchain).strip()} = lean-toolchain committed at {commit[:12]}")
+    if git_show_bytes(repo, "./lake-manifest.json", commit) is not None:
+        out.append(f"✓ lake-manifest.json at {commit[:12]}: no path dependency outside the package directory")
     return out
 
 
@@ -2932,7 +2971,8 @@ def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool 
 
 def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
                 visibility, status, upstream_target, automation, notes,
-                workspace, agent, dry_run, reason: str = "") -> tuple[list[str], dict]:
+                workspace, agent, dry_run, reason: str = "", like: str | None = None,
+                like_copied: list[str] | None = None) -> tuple[list[str], dict]:
     if status not in REGISTER_STATUSES:
         raise Fail(f"register cannot set status {status!r} (allowed: "
                    f"{', '.join(REGISTER_STATUSES)}); verified-private is reached through "
@@ -2973,6 +3013,39 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
         if w:
             warnings.append(w)
     notes_out = namespace_notes(namespace_clashes(reg, repo_abs)) if repo_abs.is_dir() else []
+    sep = os.sep
+    for other, opkg in sorted(pkgs.items()):
+        if not (opkg or {}).get("local_path"):
+            continue
+        key = local_path_key(opkg["local_path"])
+        if new_key.startswith(key + sep):
+            warnings.append(f"{local_path} is inside {other}'s package directory: every commit to it is "
+                            f"drift for {other}'s receipt (use a sibling directory instead)")
+        elif key.startswith(new_key + sep):
+            warnings.append(f"{local_path} contains {other}'s package directory: every commit to {other} is "
+                            f"drift for this package's receipt")
+    mf = repo_abs / "lake-manifest.json"
+    if mf.is_file():
+        try:
+            outside = outside_path_deps(mf.read_bytes())
+        except ValueError:
+            outside = []
+        if outside:
+            warnings.append(f"lake-manifest.json has path dependencies outside the package directory: "
+                            f"{', '.join(outside)}; `gate` refuses such a receipt (require them from git "
+                            f"pinned to a rev, or move them inside)")
+    like_info = None
+    if like is not None:
+        base = get_pkg(reg, like)
+        like_info = {"name": like, "copied": list(like_copied or []),
+                     "toolchain": {"this": toolchain, "like": base.get("lean_toolchain"),
+                                   "match": toolchain == base.get("lean_toolchain")},
+                     "mathlib_pin": {"this": mathlib_pin, "like": base.get("mathlib_pin"),
+                                     "match": mathlib_pin == base.get("mathlib_pin")}}
+        for k, label in (("toolchain", "toolchain"), ("mathlib_pin", "Mathlib pin")):
+            v = like_info[k]
+            notes_out.append(f"note: {label} {v['this'] or '?'} " + ("matches" if v["match"] else "differs from")
+                             + f" {like}'s ({v['like'] or '?'})")
     entry = {
         "name": name, "repo": repo, "local_path": local_path,
         "visibility": visibility, "status": status,
@@ -2988,6 +3061,8 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
     }
     payload = {"name": name, "dry_run": dry_run, "package": entry,
                "warnings": warnings, "notes": notes_out}
+    if like_info is not None:
+        payload["like"] = like_info
     if dry_run:
         lines = [f"warn: {w}" for w in warnings]
         lines.append(yaml.safe_dump({name: entry}, sort_keys=False,
@@ -3011,7 +3086,8 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
            local_path=local_path, status=status, visibility=visibility,
            lean_toolchain=toolchain, mathlib_pin=mathlib_pin,
            workspace=workspace, agent=agent,
-           **({"reason": reason} if str(reason or "").strip() else {}))
+           **({"reason": reason} if str(reason or "").strip() else {}),
+           **({"like": like} if like is not None else {}))
     save_registry(reg_path, reg)
     payload["event"] = "registered"
     lines = [f"warn: {w}" for w in warnings]
@@ -4912,7 +4988,7 @@ record    record a D5 evidence event; validated before writing (a schema error i
           package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false; a url naming neither package nor repo warns)
           retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
-register  add a package; dedupes by name AND resolved local_path (~/ expanded, stored $HOME-relative; empty --path/--repo refused); auto-detects toolchain + mathlib pin; a Lean root namespace (lakefile lean_lib, else top-level *.lean) another package's checkout also uses: stderr note + `notes`, never a refusal.
+register  add a package; dedupes by name AND resolved local_path (~/ expanded, stored $HOME-relative; empty --path/--repo refused); auto-detects toolchain + mathlib pin; a Lean root namespace (lakefile lean_lib, else top-level *.lean) another package's checkout also uses: stderr note + `notes`, never a refusal. --like OTHER: a sibling package; copies repo/owner-project/upstream-target/automation from OTHER (flags win; never visibility), refused when DIR is in another git repo and --repo is absent; notes whether toolchain/Mathlib pin match OTHER's (JSON like {name, copied[], toolchain, mathlib_pin}). warn: DIR inside or containing another package's dir; a lake path dependency outside DIR.
   flags: --repo URL (required) --path HOME-RELATIVE (required) [--owner-project N]
          [--visibility private|public] [--status scratch|active|gate-pending|public (public: --visibility public --reason R)]
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
@@ -4927,7 +5003,7 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
-gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}).
+gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). lake-manifest.json at the receipt commit with a `path` package whose dir leaves the package dir (absolute or ..): refused (its sources are not bound); a path dependency inside the dir is fine.
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json   |   receipt slurm --job J --log PATH --commit SHA [--stdout JOB.out] [--stderr JOB.err] [--checker TEXT] [--repo DIR] [--redact REGEX]... [--sacct-file F] [--out PATH] [--append-readme] (no registry): writes the lower-tier receipt from a finished Slurm job; refuses (exit 1, nothing written) unless sacct's main job line is COMPLETED 0:0, the stdout's verify-log-sha256 = sha256(raw log) and pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at SHA) (no --stdout: the log's own `verify-log-sha256:` line = sha256 of the log minus that line), stderr is empty, lean_toolchain/mathlib_rev from SHA agree with any log line, sorry 0 and axioms from the log (sorry-count:/axioms: lines, else 'sorry' warnings/#print axioms output), a checker (--checker or checker:), and no public-safety blocking hit is left after redacting /tmp/<account>-job, /scratch/<user>/ and --redact; job_id slurm-<J>; writes .lean-receipts/<c12>-slurm-<J>.json + <c12>-slurm-<J>-verify.redacted.log (report_sha256; with --stdout also job_stdout_sha256 + manifest_sha256, additive keys gate ignores), prints the README entry (with --stdout a `- Seal:` line naming both; --append-readme: appended to .lean-receipts/README.md) and `gate NAME --check --receipt PATH`; --json {ok, receipt, log, report_sha256, job_id, checks[], refusals[], ...}   |   receipt systemd (alias local) --unit U --log PATH --commit SHA [--properties-file F | --run [--memory-max 8G] [--memory-swap-max 0] [--cpu-quota 400%] [--runtime-max 4h] [--setenv K=V]... [--properties-out PATH] -- CMD...] + the same --stdout/--stderr/--checker/--repo/--redact/--out/--append-readme/--json: the same receipt from a finished systemd --user service unit; the unit state comes from --run (lean-pkg runs CMD bounded via systemd-run --user -p RemainAfterExit=yes, WorkingDirectory=--repo, so the finished unit stays loaded: properties are captured to <log>.unit.properties before it is stopped and reset; the checkout must be at SHA with no tracked change under the package dir before and after), --properties-file (saved `systemctl --user show U -p ...` + a Hostname= line) or live `systemctl --user show U`; refuses unless LoadState=loaded, Id=U, terminal (failed/inactive or active+exited), Result=success (oom-kill, timeout, signal named), ExecMainCode exited with ExecMainStatus 0, NRestarts 0, plus every receipt slurm seal/field/redaction check (optional stdout invocation-id = InvocationID); job_id systemd-user:<U>:<InvocationID>@<host> (host from the running system); also writes <c12>-<slug>-unit.properties (additive unit_properties_sha256); built-in redaction <repo>, <HOME>, /run/user/<UID>/
@@ -5142,13 +5218,43 @@ def cmd_record(args) -> int:
     return 0
 
 
+def like_fields(reg: dict, like: str, path, given: dict) -> tuple[dict, list[str]]:
+    """`register --like OTHER`: the fields `given` leaves unset (None) taken from OTHER's record, and the
+    names copied. Copying OTHER's repo is refused when the new checkout and OTHER's are both on this host
+    and in different git repositories (a sibling shares the repository; pass --repo otherwise)."""
+    base = get_pkg(reg, like)
+    out, copied = dict(given), []
+    for field in ("repo", "owner_project", "upstream_target", "automation"):
+        if out.get(field) is None and base.get(field) is not None:
+            out[field] = base[field]
+            copied.append(field)
+    if "repo" in copied:
+        _stored, key = normalize_local_path(path)
+        mine, theirs = pathlib.Path(key), repo_path(base)
+        if mine.is_dir() and theirs.is_dir():
+            top = [git(d, "rev-parse", "--show-toplevel").stdout.strip() for d in (mine, theirs)]
+            if top[0] != top[1]:
+                raise Fail(f"--like {like}: {path} is not in {like}'s git repository ({top[1] or '?'}), so its "
+                           f"repo {base.get('repo')} is not this package's; pass --repo; nothing written")
+    return out, copied
+
+
 def cmd_register(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
-    out, payload = do_register(reg_path, load_registry(reg_path), events_p,
-                               args.name, args.repo, args.path,
-                               args.owner_project, args.visibility, args.status,
-                               args.upstream_target, args.automation, args.notes,
-                               args.workspace, args.agent, args.dry_run, reason=args.reason)
+    reg = load_registry(reg_path)
+    f = {"repo": args.repo, "owner_project": args.owner_project, "upstream_target": args.upstream_target,
+         "automation": args.automation}
+    copied: list[str] = []
+    if args.like is not None:
+        f, copied = like_fields(reg, args.like, args.path, f)
+    if f["repo"] is None:
+        raise UsageError("register needs --repo URL (or --like OTHER to take a sibling's)")
+    out, payload = do_register(reg_path, reg, events_p,
+                               args.name, f["repo"], args.path,
+                               f["owner_project"], args.visibility, args.status,
+                               f["upstream_target"] or "none", f["automation"] or "", args.notes,
+                               args.workspace, args.agent, args.dry_run, reason=args.reason,
+                               like=args.like, like_copied=copied)
     if args.json_out:
         print_json(payload)
     else:
@@ -6401,15 +6507,19 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("register", help="the ONLY write path for new packages: "
                                         "validated, deduping, auto-detecting")
     s.add_argument("name")
-    s.add_argument("--repo", required=True, help="git URL (or local bare path)")
+    s.add_argument("--repo", default=None, help="git URL (or local bare path); required unless --like gives it")
     s.add_argument("--path", required=True,
                    help="local checkout path, $HOME-relative")
+    s.add_argument("--like", default=None, metavar="OTHER",
+                   help="a sibling of registered package OTHER: copy its repo, owner-project, upstream-target "
+                        "and automation (flags given here win; visibility is never copied, default private), "
+                        "and report whether the toolchain and Mathlib pin match OTHER's")
     s.add_argument("--owner-project", default=None)
     s.add_argument("--visibility", choices=VISIBILITIES, default="private")
     s.add_argument("--status", choices=REGISTER_STATUSES, default="active",
                    help="public only with --visibility public and --reason (an already-public repo)")
-    s.add_argument("--upstream-target", choices=UPSTREAM_TARGETS, default="none")
-    s.add_argument("--automation", default="")
+    s.add_argument("--upstream-target", choices=UPSTREAM_TARGETS, default=None, help="default none")
+    s.add_argument("--automation", default=None)
     s.add_argument("--notes", default="")
     s.add_argument("--reason", default="", help="required with --status public")
     s.add_argument("--workspace", default=None,
