@@ -162,6 +162,21 @@ def test_governance_files_exist_and_agree():
     assert "AI assistance" in (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text()
 
 
+def test_pr_template_asks_for_evidence_not_only_checkboxes():
+    """The template asks what ran, how a fix fails on the base revision, and what is left open (#83)."""
+    text = (ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").read_text()
+    headings = [line for line in text.splitlines() if line.startswith("#")]
+    for h in ("### Commands that actually ran", "### Regression evidence (fixes only)",
+              "## Remaining proof gaps", "## Trust boundary"):
+        assert h in headings, h
+    flat = " ".join(text.split())                                   # immune to re-wrapping
+    assert '"not run, because ...", never left out' in flat
+    assert 'written "unknown", never "no"' in flat                  # Trust boundary
+    assert 'if unsure, write "unknown"' in flat                     # Remaining proof gaps
+    contributing = " ".join((ROOT / "CONTRIBUTING.md").read_text().split())
+    assert "commands that actually ran" in contributing and "remaining proof gaps" in contributing
+
+
 def test_site_code_blocks_get_a_copy_button():
     js = (ROOT / "docs" / "assets" / "site.js").read_text()
     css = (ROOT / "docs" / "assets" / "site.css").read_text()
