@@ -16,7 +16,8 @@ Where the unit's terminal state comes from (one of three, like sacct / --sacct-f
   terminal, captures UNIT_PROPS (plus `Hostname=` of this system) to --properties-out (default
   `<log>.unit.properties`, written even when the receipt is later refused), and only then stops and
   resets the unit. `--wait --collect` is not used: with --collect the unit and its properties vanish the moment
-  it finishes. The checkout must be at --commit with no tracked change before the run, and still be after it.
+  it finishes. The checkout must be at --commit with no tracked change under the package
+  directory before the run, and still be after it.
 - `--properties-file F`: the output of `systemctl --user show U -p <UNIT_PROPS>` saved before the unit was
   collected, plus a `Hostname=` line naming the host it ran on (the host is part of job_id).
 - neither: `systemctl --user show U` now, on this host (the unit must still be loaded, i.e. not --collect).
@@ -262,9 +263,11 @@ def redactions(repo: pathlib.Path) -> list[tuple[str, str]]:
 # --run
 
 def tree_state(repo: pathlib.Path) -> tuple[str | None, str]:
-    """(HEAD, porcelain status of tracked files) of the checkout."""
+    """(HEAD, porcelain status of tracked files) of the package directory `repo`. The pathspec `.` scopes
+    the status to it: a package incubated in a subdirectory of a manuscript repository is not made dirty
+    by an edit outside it, as the evidence-only rule ignores those paths too."""
     head = core.git_head(repo)
-    p = core.git(repo, "status", "--porcelain", "--untracked-files=no")
+    p = core.git(repo, "status", "--porcelain", "--untracked-files=no", "--", ".")
     return head, (p.stdout if p.returncode == 0 else f"git status failed: {p.stderr.strip()}")
 
 
