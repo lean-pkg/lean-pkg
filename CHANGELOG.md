@@ -13,6 +13,10 @@ change the registry schema or receipt format, always with a migration).
   `lean-pkg llms` text, and re-renders `index/README.md`. The test now requires byte equality (it only checked
   that the contract appeared somewhere in the file), and CI runs `make docs` then `git diff --exit-code`, so a
   stale generated file fails CI (#81).
+- The pull request template asks for evidence as well as checkboxes: the commands that actually ran with
+  their observed results (a gate that could not run is listed as not run, with the reason), regression
+  evidence for a fix, and a new "Remaining proof gaps" section. An unknown effect is written "unknown", never
+  "no" or "none". `CONTRIBUTING.md` points to them (#83).
 
 ## [0.7.29] - 2026-10-14
 

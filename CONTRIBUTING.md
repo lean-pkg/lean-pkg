@@ -28,7 +28,12 @@ Contributions are pull requests against `main`.
   scan, version agreement). The maintainer runs it locally before merging
   and a clone can enforce it on push by opting into the hook directory
   (see `RELEASING.md`); the same targets run as hosted CI once the
-  repository is public (GitHub Actions is free there).
+  repository is public (GitHub Actions is free there). The pull request
+  template asks for evidence, not only ticked boxes: the commands that
+  actually ran with their observed results (a gate that could not run is
+  listed as not run, with the reason), how a fix's new test fails on the base
+  revision, and the remaining proof gaps. Anything not established is written
+  "unknown", never "none" or "no".
 - **Index entries**: a PR adds `index/<name>/` (an `entry.yaml` of schema
   `index-entry/1` and the verbatim receipt copies under `receipts/`) written
   by `lean-pkg index add`, plus the re-rendered `index/README.md`. Code and
