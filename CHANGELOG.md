@@ -25,7 +25,8 @@ change the registry schema or receipt format, always with a migration).
   bounded (`systemd-run --user`, `MemoryMax=8G`, `MemorySwapMax=0`, `CPUQuota=400%`, `RuntimeMaxSec=4h` by default,
   `OOMPolicy=stop`) with `RemainAfterExit=yes`, so the finished unit is not collected before its properties are
   captured to `<log>.unit.properties`; then it is stopped and reset. The checkout must be at `--commit` with no
-  tracked change before and after the run. `--properties-file` reads saved `systemctl --user show` output plus a
+  tracked change under the package directory before and after the run (edits elsewhere in a manuscript
+  repository that holds the package in a subdirectory do not count). `--properties-file` reads saved `systemctl --user show` output plus a
   `Hostname=` line; without either the unit is read live. Refused: a unit not found, not terminal, `Result` other
   than `success` (`oom-kill`, `timeout`, `signal` named), a non-zero exit or a signal, restarts, a stdout
   `invocation-id` from another run, and every `receipt slurm` refusal. `job_id` is

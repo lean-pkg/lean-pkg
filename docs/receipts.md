@@ -193,8 +193,11 @@ until the unit is terminal, writes its properties and this host's name to
 receipt is refused, so the run's evidence is never lost), and only then
 stops and resets the unit. `--log`, `--stdout`, `--stderr` and that file
 must not exist before the run. A local run verifies the working tree, so
-the checkout must be at `--commit` with no change to a tracked file before
-the run (else nothing is run) and still after it. Over ssh, when the
+the checkout must be at `--commit` with no change to a tracked file under
+the package directory (`--repo`) before the run (else nothing is run) and
+still after it. For a package in a subdirectory of a manuscript repository,
+edits elsewhere in that repository do not count, as for the evidence-only
+rule below. Over ssh, when the
 session lacks them, `XDG_RUNTIME_DIR=/run/user/$UID` and
 `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$UID/bus` are set for
 `systemd-run` and `systemctl`.

@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import MATHLIB_MANIFEST, MATHLIB_REV, TOOLCHAIN, _git, repo_head
+from .conftest import MATHLIB_MANIFEST, MATHLIB_REV, TOOLCHAIN, _git, make_repo, repo_head
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "slurm"
 LOG = (FIXTURES / "verify.log").read_text()
@@ -417,6 +417,35 @@ def test_run_refuses_source_changed_during_the_run(lp, repo, tmp_path, fake_syst
     assert rc == 1
     assert "source changed during the run: 1 tracked file(s) differ" in capsys.readouterr().err
     assert_nothing_written(repo)
+
+
+@pytest.fixture()
+def nested(tmp_path) -> Path:
+    """A package incubated beside a manuscript: the git repository is the article, the package is lean/."""
+    article = make_repo(tmp_path / "article", extra_files={
+        "paper.tex": "\\documentclass{article}\n", "lean/lean-toolchain": TOOLCHAIN + "\n",
+        "lean/lake-manifest.json": MATHLIB_MANIFEST})
+    return article / "lean"
+
+
+def test_run_in_a_nested_package_ignores_tracked_changes_outside_it(lp, nested, tmp_path, fake_systemd, capsys):
+    # An uncommitted manuscript edit (before the run) and one made during it are outside the package
+    # directory, which is all the receipt binds (the evidence-only rule is package-scoped as well).
+    (nested.parent / "paper.tex").write_text("\\documentclass{amsart}\n")
+    rc, _d = run_live(lp, nested, tmp_path, touch="open('../paper.tex', 'a').write('% during')")
+    assert rc == 0, capsys.readouterr().err
+    assert next(rdir(nested).glob("*.json"))
+    assert not rdir(nested.parent).exists()
+
+
+def test_run_in_a_nested_package_still_refuses_a_change_inside_it(lp, nested, tmp_path, fake_systemd, capsys):
+    _props, calls_made = fake_systemd
+    (nested / "lean-toolchain").write_text("leanprover/lean4:v4.99.0\n")
+    rc, _d = run_live(lp, nested, tmp_path)
+    assert rc == 1
+    assert "source changed before the run: 1 tracked file(s) differ" in capsys.readouterr().err
+    assert calls_made() == []
+    assert_nothing_written(nested)
 
 
 @pytest.mark.parametrize("extra, needle", [
