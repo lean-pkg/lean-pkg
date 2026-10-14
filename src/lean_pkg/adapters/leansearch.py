@@ -3,7 +3,10 @@
 Checked 2026-10-06: `POST https://leansearch.net/search` with
 {"query": [term], "num_results": N} answers a list (one per query) of
 {"result": {...}, "distance": x}; `GET /api/search` answers 404. A 404 or any
-other non-200 answer is `skipped`, so a moved API never reads as zero hits.
+other non-200 answer is `skipped`, so a moved API never reads as zero hits. The
+reason says what to do: a 5xx is the service failing (2026-10-14: every query
+answered 500 while the site's own page sent this exact request), a 404 means the
+endpoint moved and this adapter needs updating.
 """
 
 from __future__ import annotations
@@ -25,6 +28,15 @@ def revision() -> str:
     return "live"
 
 
+def status_reason(status: int) -> str:
+    """The skip reason for a non-200 answer, keeping `HTTP <status>` first for anything matching on it."""
+    if 500 <= status <= 599:
+        return f"HTTP {status}: service error at leansearch.net; retry later"
+    if status == 404:
+        return f"HTTP {status}: API moved ({URL} not found); the leansearch adapter needs updating"
+    return f"HTTP {status}"
+
+
 def _name(v) -> str:
     return ".".join(str(x) for x in v) if isinstance(v, list) else str(v or "")
 
@@ -36,7 +48,7 @@ def search(term: str, timeout: float = 10) -> dict:
         return skipped("unreachable")
     status, raw = got
     if status != 200:
-        return skipped(f"HTTP {status}")
+        return skipped(status_reason(status))
     try:
         data = json.loads(raw)
         rows = data[0] if isinstance(data, list) and data and isinstance(data[0], list) else None
