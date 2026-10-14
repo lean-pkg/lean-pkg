@@ -26,7 +26,8 @@ change the registry schema or receipt format, always with a migration).
   through, a symlink, a submodule or an untracked directory (`.lake/`), or contains a submodule; and any committed
   symlink whose target is absolute or has a `..` component is refused, path dependency or not. A tracked
   directory inside the package is accepted; a manifest that is not valid JSON is refused. `gate --check` adds
-  `✓ lake-manifest.json` and `✓ no symlink` lines.
+  `✓ lake-manifest.json` and `✓ no symlink` lines. The tree read fails closed: a `git ls-tree` or `git cat-file`
+  error, or a record it cannot parse, is a refusal, never an empty or a safe tree.
 
 ## [0.7.30] - 2026-10-14
 
