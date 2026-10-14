@@ -4886,7 +4886,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`). gate, comparator, record, promote --yes, claims sync, search --record: pass --agent A (another agent's live lease refuses; A is the event's `actor`); without it a live lease only warns.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
-- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (a transient transport error such as a connection reset, timeout or HTTP 5xx is retried with backoff: LEAN_PKG_PUSH_RETRIES, default 4, delays LEAN_PKG_PUSH_RETRY_DELAY doubling from 5 s; rejected as non-fast-forward: fetch + rebase of that one commit + push again, an event-log-only conflict merges as a union in timestamp order, any other conflict aborts the rebase with the clone as before, `; rebase conflict in FILES` in the error; a failed push: `push failed: origin/BRANCH: ERR`, commit kept, exit 1; a --push write refuses while the clone is ahead of origin/BRANCH); --no-commit overrides. stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "commit": {sha, pushed, error, push_error, push_attempts, rebased}.
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (a transient transport error such as a connection reset, timeout or HTTP 5xx is retried with backoff: LEAN_PKG_PUSH_RETRIES, default 4, delays LEAN_PKG_PUSH_RETRY_DELAY doubling from 5 s; rejected as non-fast-forward: fetch + rebase of that one commit + push again, an event-log-only conflict merges as a union in timestamp order, any other conflict aborts the rebase with the clone as before, `; rebase conflict in FILES` in the error; a failed push: `push failed: origin/BRANCH: ERR`, commit kept, exit 1; a --push write refuses while the clone is ahead of origin/BRANCH); --no-commit overrides. stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "registry_commit": {sha, pushed, error, push_error, push_attempts, rebased} (also as "commit" unless the payload has its own, e.g. gate's source commit).
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -6834,15 +6834,18 @@ def _oserror_fail(e: OSError) -> Fail:
 
 def _emit_with_commit(text: str, ctx: dict | None, rc_before: int, rc: int) -> None:
     """Re-emit a --json command's captured stdout; in committed mode a single JSON object gains
-    "commit": {"sha", "pushed", "error", "push_error", "push_attempts", "rebased"} (and ok: false when the commit
-    or push failed)."""
+    "registry_commit": {"sha", "pushed", "error", "push_error", "push_attempts", "rebased"} (and ok: false when the
+    commit or push failed). The same object also goes under "commit" when the payload has no "commit" of its
+    own (the pre-0.7.30 key, kept for compatibility); a command's own "commit" (gate's source commit) is never
+    overwritten."""
     if ctx is not None and "result" in ctx:
         try:
             payload = json.loads(text)
         except ValueError:
             payload = None
         if isinstance(payload, dict):
-            payload["commit"] = dict(ctx["result"])
+            payload["registry_commit"] = dict(ctx["result"])
+            payload.setdefault("commit", dict(ctx["result"]))
             if rc_before == 0 and rc != 0:
                 payload["ok"] = False
             print_json(payload)

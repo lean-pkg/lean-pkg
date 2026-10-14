@@ -67,8 +67,10 @@ variable rather than a flag turned the mode on (a wrapper may set one, so `renew
 can commit and push with no flag given), and `pushed origin/<branch> (<sha>)`; every
 subcommand's `--commit`/`--push` help names its variable and says `set now` when it is set.
 A `--json` payload gains
-`"commit": {"sha", "pushed", "error", "push_error", "push_attempts", "rebased"}` (`"ok": false` when the commit or push
-failed); a commit made with the fallback identity `lean-pkg <lean-pkg@localhost>`
+`"registry_commit": {"sha", "pushed", "error", "push_error", "push_attempts", "rebased"}` (`"ok": false` when the commit or push
+failed). The same object also appears as `"commit"` when the payload has no `"commit"` of its own (the
+older key, kept for compatibility); a command's own `"commit"`, such as the source commit `gate` and
+`comparator` report, is never replaced, so read `registry_commit`; a commit made with the fallback identity `lean-pkg <lean-pkg@localhost>`
 says so on stderr.
 The registry is `--registry PATH`, else env
 `LEAN_PKG_REGISTRY`, else the user-level default `~/.lean-pkg/registry` (base
