@@ -72,6 +72,68 @@ once it has lapsed, so work longer than the TTL renews before then;
 `leases --agent A --expiring 2` lists what is about to lapse. `audit` reports
 expired leases; `audit --fix` clears them with a `lease-expired` event.
 
+## Claims ledger
+
+`lean-pkg claims ledger NAME [--stage gate|promote]` says, per claim in
+`claims.yaml`, whether the recorded evidence closes it. It is computed on
+every call and never stored: the claims come from the claims file as tracked
+at the gate-bound commit (else the registry cache, else the file committed at
+`HEAD`), and the receipts are re-checked with the validators `gate` and
+`promote` use, so the ledger never accepts less than they do. It writes
+nothing.
+
+Each claim gets a list of named diagnostics, and it is `verified` only when
+that list is empty. Its status is the first that applies: `out-of-scope`
+(claims.yaml status `internal` or `superseded`), `blocked` (a `depends_on`
+claim in the same package is not verified, transitively), `unknown`
+(evidence that cannot be read), `verified`, else `open`.
+
+Required claims are those with status `reusable`. At `--stage gate` they need
+the lower tier. At `--stage promote` (the default) a reusable `theorem` or
+`lemma` also needs the comparator tier, so a lower-tier receipt alone never
+closes a claim that promotion needs; definitions, constructions and libraries
+need only the lower tier. `experimental` claims are reported but not
+required.
+
+The package status fails closed:
+
+- `unknown`: no claims, no `reusable` claim, no checkout, an unreadable
+  claims file, or a required claim whose evidence cannot be read. An empty
+  claims set is never clean.
+- `failed`: recorded evidence contradicts a required claim (a code of class
+  failed below).
+- `ready`: every required claim is verified.
+- `open`: anything else.
+
+The exit code is 0 only when the package is `ready`. `--json` carries the
+claims with their diagnostics, the gate-bound commit, the SHA-256 of both
+recorded receipts, and `ledger_digest`: a SHA-256 over the canonical claims,
+their codes, the stage and those receipt hashes (not the detail text or the
+checkout's path). A caller compares a fresh digest; it never trusts a stored
+one.
+
+| Code | Class | Meaning |
+|---|---|---|
+| `no-checkout` | unknown | no git checkout at `local_path` on this host |
+| `no-gate-receipt` | open | no lower-tier gate receipt is recorded |
+| `receipt-unreadable` | unknown | the recorded gate receipt is missing or not JSON |
+| `bound-commit-missing` | unknown | the gate receipt's commit is not in the checkout |
+| `receipt-commit-mismatch` | open | the gate receipt binds neither `HEAD` nor an evidence-only ancestor: re-gate |
+| `receipt-invalid` | failed | the gate receipt fails `gate`'s validator (toolchain, sorry count, fields) |
+| `axiom-not-allowed` | failed | the gate receipt lists an axiom outside `gate.axioms_allowed` |
+| `decl-missing` | failed | the declaration does not occur in its file at the gate-bound commit |
+| `no-comparator-receipt` | open | promote stage: no comparator receipt is recorded |
+| `comparator-unreadable` | unknown | the recorded comparator receipt is missing or not JSON |
+| `comparator-commit-mismatch` | open | the comparator receipt binds another commit than the gate receipt, or neither `HEAD` nor an evidence-only ancestor |
+| `comparator-invalid` | failed | the comparator receipt fails the comparator validator (config or log bytes, PASS line, tools) |
+| `no-comparator-config` | open | no comparator configuration at the gate-bound commit names the declaration |
+| `comparator-todo` | open | the declaration is only a scaffold `TODO` entry (`comparator config --from-claims`) |
+| `depends-on-open` | blocked | a `depends_on` claim in this package is not verified |
+| `depends-on-unknown` | unknown | a `depends_on` claim is in another package or not in this claims file |
+
+Receipt-level codes apply to every claim, and comparator codes to every
+required theorem and lemma: one stale receipt opens them all.
+
 ## Events
 
 Each event line is one JSON object: `ts`, `event`, `name`, plus
