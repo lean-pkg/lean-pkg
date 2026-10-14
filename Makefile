@@ -1,7 +1,7 @@
 # lean-pkg: local gates. No tab characters: recipes use '>' as the prefix.
 # `make check` is the release gate; hosted CI runs the same targets once the repository is public.
 .RECIPEPREFIX := >
-.PHONY: check test boundary tabs versions reuse history public-safety release cut-release record-doi
+.PHONY: check test boundary tabs versions reuse history public-safety release cut-release record-doi docs
 
 check: test boundary tabs versions reuse
 > @echo "check: all gates green"
@@ -42,6 +42,13 @@ public-safety:
 >  python3 -m lean_pkg.cli init >/dev/null && \
 >  python3 -m lean_pkg.cli register lean-pkg-self --repo https://github.com/lean-pkg/lean-pkg --path "$$d/lean-pkg" --owner-project lean-pkg --status scratch >/dev/null && \
 >  python3 -m lean_pkg.cli public-safety lean-pkg-self --history --strict
+
+# Every generated file, rewritten from its source: llms.txt and docs/llms.txt (cli.llms_txt) and
+# index/README.md (index/*/entry.yaml). tests/test_docs.py and tests/test_index_render.py compare the
+# committed files to the same output; CI runs `make docs` then `git diff --exit-code` (#81).
+docs:
+> PYTHONPATH=src python3 -c 'import pathlib; from lean_pkg.cli import llms_txt; t = llms_txt(); [pathlib.Path(p).write_text(t) for p in ("llms.txt", "docs/llms.txt")]'
+> PYTHONPATH=src python3 -m lean_pkg.cli index render --index index
 
 # make release VERSION=0.1.0  (runs scripts/release.sh; see RELEASING.md)
 release:

@@ -6,9 +6,10 @@ from __future__ import annotations
 from .conftest import ROOT
 
 
-def test_llms_txt_contains_current_contract(lp):
+def test_llms_txt_is_exactly_the_generated_text(lp):
+    """Byte equality, not containment: stale text around the contract fails too (#81)."""
     text = (ROOT / "llms.txt").read_text()
-    assert lp.LLMS_TEXT in text, "llms.txt is stale: regenerate from `lean-pkg llms`"
+    assert text == lp.llms_txt(), "llms.txt is stale: run `make docs`"
 
 
 def test_agents_md_points_to_contract():
@@ -416,3 +417,31 @@ def test_every_top_level_subcommand_has_a_front_door_home(lp):
     top = sorted({p.split()[0] for p in _subcommand_paths(lp)})
     missing = [c for c in top if not re.search(r"lean-pkg " + re.escape(c) + r"(?![\w-])", text)]
     assert missing == [], "not in README.md, docs/index.md or docs/how-to.md: " + ", ".join(missing)
+
+
+# Every file `make docs` writes. A new generator joins this list (and the Makefile target) so that CI's
+# `make docs` + `git diff --exit-code` covers it; the test below fails when the two disagree (#81).
+GENERATED = ("llms.txt", "docs/llms.txt", "index/README.md")
+
+
+def test_make_docs_rewrites_exactly_the_generated_files(tmp_path):
+    import os
+    import shutil
+    import subprocess
+    (tmp_path / "docs").mkdir()
+    shutil.copy(ROOT / "Makefile", tmp_path / "Makefile")
+    (tmp_path / "src").symlink_to(ROOT / "src")
+    shutil.copytree(ROOT / "index", tmp_path / "index")
+    for rel in GENERATED:
+        (tmp_path / rel).write_text("stale\n")
+    before = {p.relative_to(tmp_path).as_posix(): p.read_bytes()
+              for p in tmp_path.rglob("*") if p.is_file() and "src" not in p.parts}
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+    p = subprocess.run(["make", "-s", "docs"], cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert p.returncode == 0, p.stdout + p.stderr
+    after = {p.relative_to(tmp_path).as_posix(): p.read_bytes()
+             for p in tmp_path.rglob("*") if p.is_file() and "src" not in p.parts}
+    assert after.keys() == before.keys(), "make docs created or removed files"
+    assert sorted(k for k in after if after[k] != before[k]) == sorted(GENERATED)
+    for rel in GENERATED:
+        assert after[rel] == (ROOT / rel).read_bytes(), f"{rel} is stale: run `make docs`"

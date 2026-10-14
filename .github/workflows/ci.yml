@@ -28,6 +28,10 @@ jobs:
           comparator-receipt --help >/dev/null
       - name: Test
         run: python -m pytest -q
+      - name: Generated files are current
+        run: |
+          make docs
+          git diff --exit-code || { echo "generated files are stale: run \`make docs\` and commit the result" >&2; exit 1; }
 
   private-boundary:
     runs-on: ubuntu-latest
