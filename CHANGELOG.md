@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.29] - 2026-10-14
+
 ### Changed
 
 - `make cut-release` now waits up to 300 s (was 900 s) for the Zenodo version DOI by default; Zenodo listed
@@ -23,6 +25,8 @@ change the registry schema or receipt format, always with a migration).
   has no `generated-at:` line and the receipt already written matches in every other field, its `generated_at` is
   kept and the re-run is an identical no-op. Any other difference is still refused. This also fixes the flaky
   `test_append_readme_writes_the_block_once`, whose clock is now frozen (#85).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.28] - 2026-10-13
 
