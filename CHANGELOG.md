@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.30] - 2026-10-14
+
 ### Changed
 
 - `promote` now refuses unless `claims ledger NAME` at the promote stage is `ready`: every `reusable` claim
@@ -58,6 +60,8 @@ change the registry schema or receipt format, always with a migration).
   transaction object, so the key was a string without the mode and an object with it, and the source commit
   was lost. The transaction is now always under `"registry_commit"` {sha, pushed, error, push_error,
   push_attempts, rebased}, and still also under `"commit"` when the payload has no `"commit"` of its own.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.29] - 2026-10-14
 
