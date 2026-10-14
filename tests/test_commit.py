@@ -232,6 +232,32 @@ def test_json_stdout_is_still_one_object(lp, env, shared, capsys):
     assert "committed" in cap.err
 
 
+def test_gate_json_in_committed_mode_keeps_the_source_commit(lp, env, shared, tmp_path, capsys):
+    """`gate --json` reports the certified source commit under "commit". Committed mode used to overwrite it
+    with the registry transaction object, so a consumer saw a string without the mode and an object with it,
+    and lost the source commit (2026-10-14). The transaction now goes under "registry_commit"."""
+    a = shared.a
+    rp = write_receipt(tmp_path, make_receipt(env.repo_a))
+    rc, cap = run(lp, a, capsys, "gate", "alpha", "--receipt", str(rp), "--json", "--commit")
+    assert rc == 0, cap.err
+    payload = json.loads(cap.out)
+    assert payload["commit"] == _head(env.repo_a)                      # the source commit, kept
+    tx = payload["registry_commit"]
+    assert tx["sha"] == _head(a.root) and tx["pushed"] is False and tx["error"] is None
+    assert _subject(a.root) == "lean-pkg: gate-passed alpha"
+
+
+def test_registry_commit_key_on_a_command_without_its_own_commit(lp, env, shared, capsys):
+    """Without a "commit" field of its own, a payload keeps the transaction under "commit" as before (backward
+    compatible) and also under "registry_commit", the key to read."""
+    a = shared.a
+    rc, cap = run(lp, a, capsys, "--json", *CLAIM, "--commit")
+    assert rc == 0, cap.err
+    payload = json.loads(cap.out)
+    assert payload["registry_commit"]["sha"] == _head(a.root)
+    assert payload["commit"] == payload["registry_commit"]
+
+
 def test_failed_command_commits_nothing(lp, env, shared, capsys):
     a = shared.a
     before = _count(a.root)

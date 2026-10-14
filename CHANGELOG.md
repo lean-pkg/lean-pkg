@@ -51,6 +51,14 @@ change the registry schema or receipt format, always with a migration).
   evidence for a fix, and a new "Remaining proof gaps" section. An unknown effect is written "unknown", never
   "no" or "none". `CONTRIBUTING.md` points to them (#83).
 
+### Fixed
+
+- Committed mode no longer overwrites a `--json` payload's own `"commit"`. `gate`, `comparator` and other
+  writes report the certified source commit under `"commit"`; committed mode replaced it with the registry
+  transaction object, so the key was a string without the mode and an object with it, and the source commit
+  was lost. The transaction is now always under `"registry_commit"` {sha, pushed, error, push_error,
+  push_attempts, rebased}, and still also under `"commit"` when the payload has no `"commit"` of its own.
+
 ## [0.7.29] - 2026-10-14
 
 ### Changed
