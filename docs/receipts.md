@@ -157,6 +157,103 @@ absent; an entry already naming the receipt is not repeated):
 `--tar-sha256 HEX` adds the frozen source tarball's hash (the clause is
 left out without it), and each `--readme-line TEXT` adds a line at the end.
 
+## A lower-tier receipt from a systemd unit
+
+`lean-pkg receipt systemd` (alias `receipt local`) writes the same receipt
+from a verify script run locally in a capped systemd `--user` service unit,
+for the light checks that do not go to a cluster. Everything after the
+unit's terminal state is the Slurm pipeline above: the seal, the fields,
+redaction, the public-safety scan, what is written and the README entry.
+It reads and writes no registry.
+
+```bash
+lean-pkg receipt systemd --unit audit-gate --commit "$(git rev-parse HEAD)" \
+  --log /tmp/gate/verify.log --stdout /tmp/gate/unit.out --stderr /tmp/gate/unit.err \
+  --checker "gate.sh (lake build; #print axioms)" --run -- bash gate.sh /tmp/gate/verify.log
+```
+
+**Running the unit (`--run`).** lean-pkg starts the command after `--`
+itself, as the transient unit `audit-gate.service`:
+
+```bash
+systemd-run --user --unit=audit-gate.service -p RemainAfterExit=yes \
+  -p WorkingDirectory=<repo> -p OOMPolicy=stop -p MemoryMax=8G -p MemorySwapMax=0 \
+  -p CPUQuota=400% -p RuntimeMaxSec=4h \
+  -p StandardOutput=truncate:<stdout> -p StandardError=truncate:<stderr> --setenv=PATH=... -- CMD ...
+```
+
+The caps are the defaults; `--memory-max`, `--memory-swap-max`,
+`--cpu-quota` and `--runtime-max` change them, and each must be finite.
+`--setenv NAME=VALUE` adds a variable (`PATH` is always passed). A unit
+started with `--wait --collect` vanishes the moment it finishes, and its
+exit status and resource accounting with it; `RemainAfterExit=yes` keeps
+the finished unit loaded instead. lean-pkg polls `systemctl --user show`
+until the unit is terminal, writes its properties and this host's name to
+`--properties-out` (default `<log>.unit.properties`, kept even when the
+receipt is refused, so the run's evidence is never lost), and only then
+stops and resets the unit. `--log`, `--stdout`, `--stderr` and that file
+must not exist before the run. A local run verifies the working tree, so
+the checkout must be at `--commit` with no change to a tracked file before
+the run (else nothing is run) and still after it. Over ssh, when the
+session lacks them, `XDG_RUNTIME_DIR=/run/user/$UID` and
+`DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$UID/bus` are set for
+`systemd-run` and `systemctl`.
+
+**A unit that has already run.** `--properties-file F` reads saved
+properties, captured before the unit was collected:
+
+```bash
+{ systemctl --user show audit-gate.service -p Id,LoadState,ActiveState,SubState,Result,InvocationID,\
+ExecMainCode,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp,ExecMainStartTimestampMonotonic,\
+ExecMainExitTimestampMonotonic,NRestarts,MemoryPeak,CPUUsageNSec,MemoryMax,MemorySwapMax,CPUQuotaPerSecUSec,\
+RuntimeMaxUSec,OOMPolicy; echo "Hostname=$(hostname)"; } > unit.properties
+```
+
+The `Hostname=` line names the host the unit ran on; it is part of
+`job_id`. Without either flag the unit is read now with
+`systemctl --user show`, and the host is this system's name, never a
+configured one.
+
+**The unit.** Every failure is listed and any one refuses (exit 1,
+nothing written to `.lean-receipts/`):
+
+| Property | Must be |
+|---|---|
+| `LoadState` | `loaded`; `not-found` means the unit is gone (collected) |
+| `Id` | `--unit`, with `.service` added when absent |
+| `InvocationID` | 32 hex characters |
+| `ActiveState`, `SubState` | terminal: `failed`, `inactive`, or `active` with `exited`; `activating`, `running`, `deactivating` refuse |
+| `Result` | `success`; `oom-kill` (the memory cap), `timeout` (the runtime cap), `signal`, `core-dump`, `exit-code` are named |
+| `ExecMainCode`, `ExecMainStatus` | exited (`1`) with status `0`; killed (`2`) or dumped (`3`) names the signal |
+| `ExecMainExitTimestampMonotonic` | nonzero: the main process exited |
+| `NRestarts` | `0`: the receipt binds one run |
+| `Hostname` | a host name |
+
+`MemoryPeak`, `CPUUsageNSec`, the runtime (exit minus start, monotonic)
+and the caps `MemoryMax`, `MemorySwapMax`, `CPUQuotaPerSecUSec`,
+`RuntimeMaxUSec` are recorded, not judged. The job's stdout may also carry
+`invocation-id $INVOCATION_ID` (systemd sets the variable in the unit);
+when present it must equal the unit's InvocationID, so a stdout from
+another run is refused. A log `job-id:` line must name the job_id or the
+InvocationID.
+
+**Redaction.** A local run prints absolute paths. Before the scan the
+checkout's absolute path becomes `<repo>`, `$HOME` becomes `<HOME>`,
+`/run/user/N/` becomes `/run/user/<UID>/`, and every `--redact REGEX`
+match `<redacted>`; a home path left over refuses until a `--redact`
+clears it.
+
+**What is written.** `job_id` is
+`systemd-user:<unit>:<InvocationID>@<host>`; the receipt, the redacted log
+and `<commit12>-<slug>-unit.properties` (the recognised properties only,
+in a fixed order, the host last) go to `.lean-receipts/`, where `<slug>`
+is the job_id as `gate` names the stored file (`:` and `@` become `-`).
+The receipt gains the additive key `unit_properties_sha256`, which `gate`
+ignores, beside the seal keys. The README entry's first lines name the
+unit, the invocation, the host, the result, the runtime, CPU time, memory
+peak and the caps, and a `- Unit properties:` line names the file and its
+SHA-256.
+
 ## Comparator receipt schema (`comparator-receipt/2`; `/1` still validates)
 
 | Field | Rule |
