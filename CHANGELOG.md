@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.31] - 2026-10-14
+
 ### Added
 
 - `register NAME --path DIR --like OTHER`: register a sibling of a registered package (for example `lean-r2/`
@@ -28,6 +30,8 @@ change the registry schema or receipt format, always with a migration).
   directory inside the package is accepted; a manifest that is not valid JSON is refused. `gate --check` adds
   `✓ lake-manifest.json` and `✓ no symlink` lines. The tree read fails closed: a `git ls-tree` or `git cat-file`
   error, or a record it cannot parse, is a refusal, never an empty or a safe tree.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.30] - 2026-10-14
 
