@@ -567,3 +567,15 @@ def test_a_header_line_still_refuses_an_unclean_finish(lp, repo, tmp_path, fake_
     err = capsys.readouterr().err
     assert "not a clean finish (State=FAILED, ExitCode=1:0)" in err
     assert_nothing_written(repo)
+
+
+def test_json_sealed_lists_the_receipt_and_the_redacted_log(lp, repo, tmp_path, fake_sacct, capsys):
+    import hashlib
+    assert run(lp, repo, Job(tmp_path), "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert [e["role"] for e in data["sealed"]] == ["receipt", "redacted-log"]
+    receipt = json.loads(Path(data["sealed"][0]["path"]).read_text())
+    for e in data["sealed"]:
+        assert hashlib.sha256(Path(e["path"]).read_bytes()).hexdigest() == e["sha256"]
+    assert data["sealed"][1]["receipt_key"] == "report_sha256" and receipt["report_sha256"] == data["sealed"][1]["sha256"]
+    assert data["sealed"][1]["path"] == data["log"] and data["sealed"][0]["path"] == data["receipt"]

@@ -564,12 +564,14 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     if seal:
         receipt.update(seal)       # additive keys: validate_receipt and gate ignore keys beyond RECEIPT_FIELDS
     files = []                     # (path, bytes) of the executor's evidence files
+    sealed_files = []              # {role, path, sha256, receipt_key} of each evidence file, for --json
     evidence_lines = []
     for suffix, data, key, line in ev.evidence_files:
         path = out.with_name(f"{name12}-{slug}-{suffix}")
         digest = hashlib.sha256(data).hexdigest()
         receipt[key] = digest      # additive, like the seal keys
         files.append((path, data))
+        sealed_files.append({"role": suffix, "path": str(path), "sha256": digest, "receipt_key": key})
         evidence_lines.append(line.format(name=path.name, sha=digest))
     if not fields.get("generated-at"):
         kept = _kept_fallback_time(out, receipt)
@@ -628,6 +630,14 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
                    "report_sha256": None if refusals else report_sha, "raw_log_sha256": raw_sha,
                    "job_id": ev.job_id, "seal": seal}
         payload.update(ev.json_extra)
+        # The exact files this run wrote and bound, so a caller never guesses a sidecar by its name: the
+        # receipt itself, the redacted log (report_sha256) and each evidence file with the receipt key that
+        # holds its SHA-256. Empty on a refusal (nothing written).
+        payload["sealed"] = [] if refusals else (
+            [{"role": "receipt", "path": str(out), "sha256": hashlib.sha256(receipt_bytes).hexdigest(),
+              "receipt_key": None},
+             {"role": "redacted-log", "path": str(log_out), "sha256": report_sha, "receipt_key": "report_sha256"}]
+            + sealed_files)
         payload.update({"redactions": n_redacted, "lines_redacted": n_diff, "checks": checks,
                         "readme_block": None if refusals else block, "readme_appended": appended,
                         "next": next_cmd, "refusals": refusals})

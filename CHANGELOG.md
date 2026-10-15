@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `receipt slurm|systemd --json` gains `sealed[]` {role, path, sha256, receipt_key}: every file the run wrote and
+  bound (the receipt, the redacted log with `report_sha256`, and for `receipt systemd` the normalised unit
+  properties with `unit_properties_sha256`), empty on a refusal. A caller takes a sidecar from it instead of
+  guessing by file name; `receipt systemd`'s `properties` key stays the raw, unsealed capture, whose bytes can
+  differ in order from the sealed file (field report, SWE round 3). Additive; no receipt bytes change.
+
 ### Changed
 
 - Documented the layout for workflows that edit progress files after every replay: those files live outside
