@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `receipt slurm|systemd` refuses a verify log whose `sorry-count:` line declares fewer than the log's own
+  `declaration uses 'sorry'` warnings. A script's count often comes from an inventory of declarations; one that
+  lists only `theorem`s printed `sorry-count: 0` while Lean warned about a `sorry` in a `lemma` (field report, G7).
+  None of the 20 committed verify logs checked (every registered package with a checkout on the maintainer's
+  host) has such a warning.
+
 ## [0.7.33] - 2026-10-15
 
 ### Added

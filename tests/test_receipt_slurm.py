@@ -594,3 +594,20 @@ def test_readme_heading_never_repeats_the_commit_prefix(lp, repo, tmp_path, fake
     assert run(lp, repo, Job(tmp_path), "--append-readme", "--readme-heading", heading) == 0
     text = (repo / ".lean-receipts" / "README.md").read_text()
     assert f"## `{c[:7]}`: {kept}\n" in text
+
+
+def test_a_declared_sorry_count_may_not_hide_lean_warnings(lp, repo, tmp_path, fake_sacct, capsys):
+    """Field report (G7): an inventory that lists only `theorem`s made a script print `sorry-count: 0`
+    while Lean warned about a `sorry` in an unlisted `lemma`. The declared count must be at least the number
+    of `declaration uses 'sorry'` warnings in the same log."""
+    warn = "warning: Demo/Helper.lean:7:6: declaration uses 'sorry'\n"
+    assert run(lp, repo, Job(tmp_path, LOG + "sorry-count: 0\n" + warn)) == 1
+    err = capsys.readouterr().err
+    assert "`sorry-count: 0` but the log has 1 `declaration uses 'sorry'` warning(s)" in err
+    assert_nothing_written(repo)
+    # a declared count that covers the warnings is not this refusal (it is refused as a nonzero count)
+    assert run(lp, repo, Job(tmp_path, LOG + "sorry-count: 1\n" + warn)) == 1
+    err = capsys.readouterr().err
+    assert "sorry count is 1; gate requires 0" in err and "may not hide" not in err
+    # a clean declared 0 still passes
+    assert run(lp, repo, Job(tmp_path, LOG + "sorry-count: 0\n")) == 0

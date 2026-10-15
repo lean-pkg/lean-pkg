@@ -21,7 +21,8 @@ Checks, all run before anything is written (every failed check is listed; any on
 4. Fields: `lean_toolchain` is `lean-toolchain` committed at the commit and `mathlib_rev` the `mathlib`
    package's rev in `lake-manifest.json` committed there (else the log's `mathlib-rev:`); a log
    `lean-toolchain:` / `mathlib-rev:` line that disagrees refuses. `sorry_count` is the log's
-   `sorry-count:` line, else the number of `declaration uses 'sorry'` lines, counted only when the log shows the
+   `sorry-count:` line (refused when the log has more `declaration uses 'sorry'` lines than it declares), else
+   the number of `declaration uses 'sorry'` lines, counted only when the log shows the
    build finished (`Build completed successfully` or `lake build: ok`; neither refuses); it must be 0. `axioms` is the
    log's `axioms:` line, else the union of its `#print axioms` output (`depends on axioms: [...]`, `does not
    depend on any axioms`); none of either refuses. `checker` is `--checker`, else the log's `checker:`.
@@ -279,6 +280,14 @@ def parse_log(text: str) -> tuple[dict, list[str]]:
             out["sorry-count"] = None
         else:
             out["sorry-count"] = int(out["sorry-count"])
+            # A declared count comes from the job's own script (often an inventory of declarations); Lean's
+            # warnings in the same log are the ground truth, and the script may have missed a declaration
+            # (a `lemma` outside a theorem-only inventory, field report). Never accept fewer than Lean printed.
+            warned = len(_SORRY_RE.findall(text))
+            if warned > out["sorry-count"]:
+                refusals.append(f"verify log: `sorry-count: {out['sorry-count']}` but the log has {warned} "
+                                f"`declaration uses 'sorry'` warning(s); a declared count may not hide Lean's own "
+                                f"warnings (check what the script's inventory leaves out)")
     elif _SORRY_RE.search(text) or _BUILD_DONE_RE.search(text):
         out["sorry-count"] = len(_SORRY_RE.findall(text))
     else:
