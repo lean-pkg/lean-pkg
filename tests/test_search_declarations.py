@@ -96,6 +96,9 @@ def test_json_coverage_and_not_searched(lp, unclaimed, capsys):
     search_json(lp, unclaimed, "gumbel")
     p = json.loads(capsys.readouterr().out)
     assert p["coverage"] == {"claims": 1, "declaration_only": 1, "not_searched": ["demo-c"],
+                             "not_searched_reasons": [{"package": "demo-c", "code": "no-checkout", "remedy":
+                                 "local_path is not a directory on this host; see `lean-pkg status demo-c "
+                                 "--fields local_path,repo` and clone the repository there"}],
                              "declaration_hits_omitted": 0, "declaration_files_capped": []}
     assert p["sources"][0]["hits"] == []
 
@@ -205,3 +208,60 @@ def test_the_display_cap_is_not_a_file_cap(lp, srch, unclaimed, capsys):
     search_json(lp, unclaimed, "chaos moments")
     p = json.loads(capsys.readouterr().out)
     assert p["coverage"]["declaration_hits_omitted"] == 2 and p["coverage"]["declaration_files_capped"] == []
+
+
+def test_each_not_searched_package_carries_a_redacted_reason_and_remedy(lp, srch, unclaimed, tmp_path,
+                                                                         monkeypatch, capsys):
+    """Field report (R2): `not_searched` listed names only, so a missing checkout, a missing path, a checkout
+    without a commit and a failed scan all looked alike. Each now has a code and a read-only remedy keyed by
+    the package name; no host path appears, and the name list itself is unchanged."""
+    from .conftest import base_pkg
+    plain = tmp_path / "plain-dir"                               # a directory that is not a git checkout
+    plain.mkdir()
+    (plain / "X.lean").write_text("def gumbelThing : Nat := 0\n")
+    broken = tmp_path / "broken-repo"                             # a git checkout where the scan will fail
+    broken.mkdir()
+    _git(broken, "init", "-q")
+    (broken / "Y.lean").write_text("def gumbelY : Nat := 0\n")
+    _git(broken, "add", "-A")
+    _git(broken, "commit", "-qm", "y")
+    reg = read_reg(unclaimed.env)
+    reg["packages"]["demo-d"] = base_pkg("demo-d", plain, "gate-pending")
+    reg["packages"]["demo-e"] = base_pkg("demo-e", tmp_path, "gate-pending", local_path="")
+    reg["packages"]["demo-f"] = base_pkg("demo-f", broken, "gate-pending")
+    write_reg(unclaimed.env, reg)
+    real_git = srch.core.git
+
+    def git(repo, *args, **kw):
+        if args and args[0] == "grep" and str(repo).endswith("broken-repo"):
+            import subprocess
+            return subprocess.CompletedProcess(["git", *args], 128, "", "fatal: something broke")
+        return real_git(repo, *args, **kw)
+    monkeypatch.setattr(srch.core, "git", git)
+    search_json(lp, unclaimed, "gumbel")
+    out = capsys.readouterr().out
+    p = json.loads(out)
+    assert p["coverage"]["not_searched"] == ["demo-c", "demo-d", "demo-e", "demo-f"]   # unchanged shape
+    codes = {r["package"]: r["code"] for r in p["coverage"]["not_searched_reasons"]}
+    assert codes == {"demo-c": "no-checkout", "demo-d": "no-git-head", "demo-e": "no-path", "demo-f": "scan-error"}
+    remedies = {r["package"]: r["remedy"] for r in p["coverage"]["not_searched_reasons"]}
+    assert "`lean-pkg status demo-e --fields local_path,repo`" in remedies["demo-e"]
+    assert str(tmp_path) not in json.dumps(p["coverage"]["not_searched_reasons"])
+    assert "fatal: something broke" not in out
+    assert run_search(lp, unclaimed, "gumbel", "--offline") == 0
+    text = capsys.readouterr().out
+    assert ("4 not searched (no path: demo-e; no checkout: demo-c; no git HEAD: demo-d; scan error: demo-f)"
+            in text)
+
+
+def test_the_record_groups_reasons_without_names(lp, unclaimed, tmp_path):
+    from .conftest import base_pkg
+    plain = tmp_path / "plain-dir"
+    plain.mkdir()
+    reg = read_reg(unclaimed.env)
+    reg["packages"]["demo-d"] = base_pkg("demo-d", plain, "gate-pending")
+    write_reg(unclaimed.env, reg)
+    assert run_search(lp, unclaimed, "gaussian damped mass", "--offline", "--package", "alpha", "--record") == 0
+    date = lp.now_iso()[:10]
+    text = (unclaimed.env.repo_a / "docs" / "prior-art" / f"{date}-gaussian-damped-mass.md").read_text()
+    assert "2 not searched (no checkout: 1, no git HEAD: 1)." in text and "demo-d" not in text

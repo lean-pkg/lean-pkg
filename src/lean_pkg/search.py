@@ -231,32 +231,49 @@ def _read_blobs(repo: pathlib.Path, rev: str, rels: list[str]) -> dict[str, byte
     return out
 
 
-def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int, dict | None] | None:
-    """(hits, omitted, capped) from the package's checkout at HEAD, or None when there is no git checkout
-    at local_path (not searched). A declaration matches when every query word (case-insensitive,
+# Why a package was not searched by declaration: (label for the text line, read-only remedy). The remedy names
+# commands keyed by the package name, never a host path, so the output can be shared (field report R2).
+NOT_SEARCHED = {
+    "no-path": ("no path", "no local_path is recorded; see `lean-pkg status {name} --fields local_path,repo`"),
+    "no-checkout": ("no checkout", "local_path is not a directory on this host; see "
+                    "`lean-pkg status {name} --fields local_path,repo` and clone the repository there"),
+    "no-git-head": ("no git HEAD", "the checkout has no commit or is not a git work tree; see "
+                    "`lean-pkg status {name} --fields local_path` and `lean-pkg doctor`"),
+    "scan-error": ("scan error", "git grep failed in the checkout; see `lean-pkg doctor` and check the checkout "
+                   "with `git status`"),
+}
+
+
+class NotSearched(str):
+    """The code a declaration search returns instead of hits (a key of NOT_SEARCHED)."""
+
+
+def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int, dict | None] | NotSearched:
+    """(hits, omitted, capped) from the package's checkout at HEAD, or a NotSearched code (no-path,
+    no-checkout, no-git-head, scan-error) when it could not be searched. A declaration matches when every query word (case-insensitive,
     accents folded, as a substring so camelCase names match) occurs in its name or its docstring;
     a name match ranks before a docstring-only match. `omitted` counts matching declarations beyond the
     DECL_HITS_PER_PACKAGE shown; `capped` is {"candidates", "inspected"} when more candidate files matched the
     git grep prefilter than DECL_FILES_MAX allows reading (else None): those files were never examined, so a
     zero is not an absence (field report: a theorem in the 201st file was silently missed)."""
     if not pkg.get("local_path"):
-        return None
+        return NotSearched("no-path")
     try:
         repo = core.repo_path(pkg)
     except Exception:
-        return None
+        return NotSearched("no-path")
     if not repo.is_dir():
-        return None
+        return NotSearched("no-checkout")
     head = core.git_head(repo)
     if head is None:
-        return None
+        return NotSearched("no-git-head")
     words = _decl_terms(term)
     args = ["grep", "-l", "-I", "-i", "-F", "--all-match"]
     for w in words:
         args += ["-e", w]
     p = core.git(repo, *args, "HEAD", "--", "*.lean")
     if p.returncode not in (0, 1):
-        return None
+        return NotSearched("scan-error")
     candidates = sorted(ln.split(":", 1)[1] for ln in p.stdout.splitlines() if ":" in ln)
     files = candidates[:DECL_FILES_MAX]
     capped = ({"candidates": len(candidates), "inspected": len(files)}
@@ -281,6 +298,24 @@ def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int, 
     return found[:DECL_HITS_PER_PACKAGE], max(0, len(found) - DECL_HITS_PER_PACKAGE), capped
 
 
+def not_searched_groups(cov: dict, names: bool) -> str:
+    """`no checkout: a, b; no git HEAD: c` (or with names=False `no checkout`, `no checkout: 2, no git HEAD: 1`)
+    in NOT_SEARCHED order; `no checkout` alone when nothing was skipped, as before."""
+    by: dict[str, list[str]] = {}
+    for r in cov.get("not_searched_reasons") or []:
+        by.setdefault(r["code"], []).append(r["package"])
+    if not by:
+        return "no checkout"
+    if not names and list(by) == ["no-checkout"]:
+        return "no checkout"
+    parts = []
+    for code in NOT_SEARCHED:
+        if code in by:
+            label = NOT_SEARCHED[code][0]
+            parts.append(f"{label}: {', '.join(by[code])}" if names else f"{label}: {len(by[code])}")
+    return ("; " if names else ", ").join(parts)
+
+
 def coverage_text(cov: dict | None) -> str | None:
     """The blind-source line: how many packages search could only see by declaration, or not at all."""
     if cov is None:
@@ -291,8 +326,8 @@ def coverage_text(cov: dict | None) -> str | None:
         return f"registry coverage: all {total} package(s) have synced claims"
     ns = cov["not_searched"]
     text = (f"registry coverage: {blind} of {total} packages have no synced claims: "
-            f"{cov['declaration_only']} searched by declaration only, {len(ns)} not searched (no checkout"
-            + (f": {', '.join(ns)}" if ns else "") + ")")
+            f"{cov['declaration_only']} searched by declaration only, {len(ns)} not searched ("
+            + not_searched_groups(cov, names=True) + ")")
     if cov.get("declaration_hits_omitted"):
         text += f"; {cov['declaration_hits_omitted']} more declaration hit(s) not listed"
     for c in cov.get("declaration_files_capped") or []:
@@ -327,15 +362,17 @@ def registry_search(term: str, reg_path: pathlib.Path) -> tuple[dict, dict | Non
         return block("registry", "skipped",
                      f"unreadable registry (packages.{bad[0] if bad else '?'} is not a mapping)"), None
     hits, decl_hits = [], []
-    cov = {"claims": 0, "declaration_only": 0, "not_searched": [], "declaration_hits_omitted": 0,
-           "declaration_files_capped": []}
+    cov = {"claims": 0, "declaration_only": 0, "not_searched": [], "not_searched_reasons": [],
+           "declaration_hits_omitted": 0, "declaration_files_capped": []}
     for name in sorted(pkgs):
         if has_synced_claims(pkgs[name]):
             cov["claims"] += 1
             continue
         got = declaration_hits(term, name, pkgs[name])
-        if got is None:
+        if isinstance(got, NotSearched):
             cov["not_searched"].append(name)
+            cov["not_searched_reasons"].append({"package": name, "code": str(got),
+                                                "remedy": NOT_SEARCHED[got][1].format(name=name)})
         else:
             cov["declaration_only"] += 1
             decl_hits += got[0]

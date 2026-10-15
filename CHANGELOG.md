@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `search` says why a package was not searched by declaration: `--json` `coverage.not_searched_reasons[]`
+  {package, code, remedy} with codes `no-path` (no local_path recorded), `no-checkout` (not a directory on this
+  host), `no-git-head` (no commit, or not a git work tree) and `scan-error` (git grep failed). The remedy names only
+  read-only commands keyed by the package name, never a host path or git's stderr. `coverage.not_searched` stays
+  the list of names. The coverage line groups by reason when several apply (`no checkout: a, b; no git HEAD: c`),
+  and a `--record` page counts them (`no checkout: 1, no git HEAD: 1`) (field report).
+
 ## [0.7.37] - 2026-10-15
 
 ### Fixed
