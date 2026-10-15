@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.36] - 2026-10-15
+
 ### Added
 
 - Documentation: [Develop a paper with its Lean companion](docs/paper-companion.md), a workflow guide with a synthetic
@@ -14,6 +16,8 @@ change the registry schema or receipt format, always with a migration).
   and its limits, a coverage map, the final deliverable). It separates what Lean, `lean-pkg` and an external
   manuscript workflow each do, and states that a certificate covers its exact formal statements, not the paper.
   README gains the use case; the llms rules gain one sentence.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.35] - 2026-10-15
 
