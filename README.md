@@ -57,6 +57,15 @@ progression as certificate lineage rather than overwriting history.
 
 **Develop privately. Discover freely. Verify explicitly. Publish reproducibly.**
 
+### Develop papers with a Lean companion
+
+The companion does not have to start after the manuscript is finished. Check
+selected intermediate results while the argument evolves, keep each checkpoint
+bound to an exact commit, reuse unchanged results, and keep a map of which
+statements in the paper are formal, conditional or not formalized. A
+certificate covers its exact formal statements, not the surrounding paper.
+Walkthrough: [Develop a paper with its Lean companion](docs/paper-companion.md).
+
 ## Who is this for
 
 - **A research group** formalizing its own papers: run the private lifecycle

@@ -20,6 +20,7 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 |---|---|
 | **new here** | [Start here](newcomers.md): the reading path, then the [sample workflow](sample-workflow.md) |
 | **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
+| **writing a paper with a Lean companion** | [Develop a paper with its Lean companion](paper-companion.md): intermediate checkpoints, reuse, a coverage map |
 | **using the tool** | [How to](how-to.md), the [CLI reference](cli.md) and [Prior-art search](prior-art.md) |
 | **auditing a package** | [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [formalization.yaml](formalization.md), [The index](index-catalog.md), [Lifecycle](lifecycle.md) |
 | **adding the comparator tier to your package** | [Add the comparator tier to an existing package](existing-package-comparator.md), step by step |
@@ -67,6 +68,7 @@ will automate the registry bootstrap; it is not implemented yet.
 
 - [Start here](newcomers.md): the newcomer path, including the Lean reading list.
 - [Sample workflow](sample-workflow.md): a real package from registration to a promotion dry run, with the seven-step diagram.
+- [Develop a paper with its Lean companion](paper-companion.md): check intermediate results while the paper evolves, record checkpoints, reuse unchanged results, keep a coverage map.
 - [FAQ](faq.md): common questions, including how this differs from Palomar and Mathlib.
 - [Motivation](motivation.md): the problem this solves and where it is going.
 - [Getting started](getting-started.md): install and a complete worked example.

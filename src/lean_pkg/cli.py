@@ -5055,7 +5055,7 @@ Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else ~/.lean-p
 
 STANDING RULES
 - NEVER hand-edit the registry yaml. Use `lean-pkg register` / `lean-pkg update`.
-- Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`; one package: `status NAME --json [--fields ...]` or `list --json --only NAME`).
+- Before starting Lean work on a package: `lean-pkg board --json` (or `list --json`; one package: `status NAME --json [--fields ...]` or `list --json --only NAME`). Writing a paper alongside: check selected intermediate results as they stabilise (docs/paper-companion.md); never assume the target theorem to gain coverage; a certificate covers its exact formal statements, not the whole paper.
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`). gate, comparator, record, promote --yes, claims sync, search --record: pass --agent A (another agent's live lease refuses; A is the event's `actor`); without it a live lease only warns.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
