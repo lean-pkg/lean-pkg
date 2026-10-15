@@ -84,6 +84,9 @@ identifiers:
   - type: doi
     value: 10.5281/zenodo.23384932
     description: Version DOI for 0.7.34
+  - type: doi
+    value: 10.5281/zenodo.23393868
+    description: Version DOI for 0.7.35
 url: "https://lean-pkg.github.io/lean-pkg/"
 keywords:
   - Lean 4
