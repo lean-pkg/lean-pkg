@@ -5059,7 +5059,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`). gate, comparator, record, promote --yes, claims sync, search --record: pass --agent A (another agent's live lease refuses; A is the event's `actor`); without it a live lease only warns.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
-- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (a transient transport error such as a connection reset, timeout or HTTP 5xx is retried with backoff: LEAN_PKG_PUSH_RETRIES, default 4, delays LEAN_PKG_PUSH_RETRY_DELAY doubling from 5 s; rejected as non-fast-forward: fetch + rebase of that one commit + push again, an event-log-only conflict merges as a union in timestamp order, any other conflict aborts the rebase with the clone as before, `; rebase conflict in FILES` in the error; a failed push: `push failed: origin/BRANCH: ERR`, commit kept, exit 1; a --push write refuses while the clone is ahead of origin/BRANCH); --no-commit overrides. stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "registry_commit": {sha, pushed, error, push_error, push_attempts, rebased} (also as "commit" unless the payload has its own, e.g. gate's source commit).
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (a transient transport error such as a connection reset, timeout or HTTP 5xx is retried with backoff: LEAN_PKG_PUSH_RETRIES, default 4, delays LEAN_PKG_PUSH_RETRY_DELAY doubling from 5 s; rejected as non-fast-forward: fetch + rebase of that one commit + push again, an event-log-only conflict merges as a union in timestamp order, any other conflict aborts the rebase with the clone as before, `; rebase conflict in FILES` in the error; a failed push: `push failed: origin/BRANCH: ERR`, commit kept, exit 1; a --push write refuses while the clone is ahead of origin/BRANCH); --no-commit overrides; a committed-mode write refuses over modified registry files, naming the uncommitted event (event, package, agent, time), the package's lease holder and the git commit that clears it; a write without committed mode that leaves the registry files in a git clone modified ends with stderr `NOT COMMITTED: FILES modified in CLONE; every --commit/--push write to this registry refuses until they are committed: ...` (--json + registry_uncommitted [files]). stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "registry_commit": {sha, pushed, error, push_error, push_attempts, rebased} (also as "commit" unless the payload has its own, e.g. gate's source commit).
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -5810,6 +5810,90 @@ def _dirty(ctx: dict) -> list[str]:
     return [line[3:] for line in porcelain if line.strip()]
 
 
+def registry_work_tree(args) -> tuple[pathlib.Path, list[str]] | None:
+    """(git top level, the registry yaml and event log relative to it) when both sit in one git work tree;
+    None otherwise (no git, not a repository, a file outside it). Never raises."""
+    if shutil.which("git") is None:
+        return None
+    reg_p, ev = registry_path(args), events_path(args)
+    if not reg_p.parent.is_dir():
+        return None
+    top = registry_git(reg_p.parent, "rev-parse", "--show-toplevel")
+    if top is None or top.returncode != 0 or not top.stdout.strip():
+        return None
+    root = pathlib.Path(top.stdout.strip())
+    try:
+        files = [str(f.resolve().relative_to(root.resolve())) for f in (reg_p, ev)]
+    except ValueError:
+        return None
+    return root, files
+
+
+def pending_events(root: pathlib.Path, events_rel: str) -> list[dict]:
+    """Event lines in the working-tree log that HEAD's log does not have, oldest first (unparseable lines
+    skipped)."""
+    try:
+        work = (root / events_rel).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    head = registry_git(root, "show", f"HEAD:{events_rel}")
+    committed = set(head.stdout.splitlines()) if head.returncode == 0 else set()
+    out = []
+    for line in work:
+        if line.strip() and line not in committed:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(e, dict):
+                out.append(e)
+    return out
+
+
+def pending_summary(root: pathlib.Path, files: list[str], reg_p: pathlib.Path) -> str:
+    """` (pending: claimed foo by vera at 2026-10-12T15:12; lease on foo: vera, live)` for a refusal over an
+    uncommitted registry (#53's report): who left it, without reading git diff. Empty when nothing parses."""
+    evs = pending_events(root, files[1]) if len(files) > 1 else []
+    if not evs:
+        return ""
+    last = evs[-1]
+    who = last.get("agent") or last.get("released_by") or "unknown agent"
+    parts = [f"pending: {last.get('event', 'event')} {last.get('name') or ''} by {who} at "
+             f"{str(last.get('ts') or '?')[:16]}".replace("  ", " ")
+             + (f" (+{len(evs) - 1} more)" if len(evs) > 1 else "")]
+    name = last.get("name")
+    try:
+        pkg = (load_registry(reg_p, check_version=False).get("packages") or {}).get(name) if name else None
+    except Exception:   # noqa: BLE001 -- a summary for a refusal; the refusal itself must still be raised
+        pkg = None
+    lease = (pkg or {}).get("lease")
+    if lease:
+        exp = lease_expiry_or_none(lease)
+        state = ("live" if exp is not None and dt.datetime.now(dt.timezone.utc) < exp
+                 else "expired" if exp is not None else "unreadable")
+        parts.append(f"lease on {name}: {lease.get('agent', '?')}, {state}")
+    elif name:
+        parts.append(f"no lease on {name}")
+    return " (" + "; ".join(parts) + ")"
+
+
+def uncommitted_notice(args) -> list[str] | None:
+    """After a write that ran without committed mode: the registry files left modified in their git work tree
+    (None when the registry is not in git or nothing is modified). They block every committed-mode writer
+    until someone commits them, so the write must not end quietly (#53's report)."""
+    wt = registry_work_tree(args)
+    if wt is None:
+        return None
+    root, files = wt
+    dirty = _dirty({"root": root, "files": files})
+    if not dirty:
+        return None
+    print(f"lean-pkg: NOT COMMITTED: {', '.join(dirty)} modified in {root}; every --commit/--push write to this "
+          f"registry refuses until they are committed: git -C {root} commit -m 'lean-pkg: ...' -- "
+          f"{' '.join(dirty)} (or run writes with --commit)", file=sys.stderr)
+    return dirty
+
+
 def commit_preflight(args, mode: str) -> dict:
     """Before a write in committed mode: the registry sits in a git work tree on a branch, its two
     files carry no uncommitted changes, and the branch is fast-forwarded to origin/<branch> when
@@ -5835,7 +5919,9 @@ def commit_preflight(args, mode: str) -> dict:
            "source": commit_mode_source(args)}
     dirty = _dirty(ctx)
     if dirty:
-        raise Fail(f"uncommitted registry changes in {', '.join(dirty)}; commit them first")
+        who = pending_summary(root, ctx["files"], reg_p)
+        raise Fail(f"uncommitted registry changes in {', '.join(dirty)}{who}; the writer that made them commits "
+                   f"them: git -C {root} commit -m 'lean-pkg: ...' -- {' '.join(dirty)}")
     if registry_git(root, "remote", "get-url", "origin").returncode != 0:
         print(f"lean-pkg: no origin remote in {root}; committing locally without a pull", file=sys.stderr)
         ctx["origin"] = False
@@ -7039,12 +7125,22 @@ def _oserror_fail(e: OSError) -> Fail:
     return Fail(f"cannot access{where}: {e.strerror or e}")
 
 
-def _emit_with_commit(text: str, ctx: dict | None, rc_before: int, rc: int) -> None:
+def _emit_with_commit(text: str, ctx: dict | None, rc_before: int, rc: int,
+                      uncommitted: list[str] | None = None) -> None:
     """Re-emit a --json command's captured stdout; in committed mode a single JSON object gains
     "registry_commit": {"sha", "pushed", "error", "push_error", "push_attempts", "rebased"} (and ok: false when the
     commit or push failed). The same object also goes under "commit" when the payload has no "commit" of its
     own (the pre-0.7.30 key, kept for compatibility); a command's own "commit" (gate's source commit) is never
     overwritten."""
+    if uncommitted:
+        try:
+            payload = json.loads(text)
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            payload["registry_uncommitted"] = list(uncommitted)
+            print_json(payload)
+            return
     if ctx is not None and "result" in ctx:
         try:
             payload = json.loads(text)
@@ -7070,7 +7166,8 @@ def run_command(args) -> int:
     mode = commit_mode(args)
     ctx = None
     crash = None
-    buf = io.StringIO() if (mode and getattr(args, "json_out", False)) else None
+    writes = is_write_invocation(args)
+    buf = io.StringIO() if ((mode or writes) and getattr(args, "json_out", False)) else None
     with contextlib.redirect_stdout(buf) if buf is not None else contextlib.nullcontext():
         try:
             if mode:
@@ -7096,8 +7193,9 @@ def run_command(args) -> int:
     if ctx is not None:
         with _registry_lock_if_present(args):
             rc = commit_finish(ctx, rc)
+    uncommitted = uncommitted_notice(args) if (mode is None and writes and not registry_snapshot_arg(args)) else None
     if buf is not None:
-        _emit_with_commit(buf.getvalue(), ctx, rc_before, rc)
+        _emit_with_commit(buf.getvalue(), ctx, rc_before, rc, uncommitted)
     if crash is not None:
         if _env_on(DEBUG_ENV):
             traceback.print_exception(type(crash), crash, crash.__traceback__)

@@ -7,6 +7,17 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- A write that runs without committed mode no longer leaves a shared registry clone dirty in silence. When the
+  registry sits in a git work tree and the write leaves its file or event log modified, stderr ends with
+  `NOT COMMITTED: <files> modified in <clone>; every --commit/--push write to this registry refuses until they are
+  committed: git -C <clone> commit ...`, and a `--json` payload gains `registry_uncommitted`. A regate run that
+  way was reported done while other agents' committed writes were refused for about four hours (field report).
+- The committed-mode refusal over modified registry files names who left them: the last uncommitted event
+  (event, package, agent, time, `+N more`), the package's lease holder and whether that lease is live, and the
+  `git commit` that clears it, so the blocked writer need not read `git diff`.
+
 ### Fixed
 
 - `search` no longer reports a complete search when GitHub answered only in part. When `gh search code` failed
