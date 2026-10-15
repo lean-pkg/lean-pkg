@@ -96,7 +96,7 @@ def test_json_coverage_and_not_searched(lp, unclaimed, capsys):
     search_json(lp, unclaimed, "gumbel")
     p = json.loads(capsys.readouterr().out)
     assert p["coverage"] == {"claims": 1, "declaration_only": 1, "not_searched": ["demo-c"],
-                             "declaration_hits_omitted": 0}
+                             "declaration_hits_omitted": 0, "declaration_files_capped": []}
     assert p["sources"][0]["hits"] == []
 
 
@@ -157,3 +157,51 @@ def test_declaration_hits_past_the_cap_are_counted_not_listed(lp, srch, unclaime
     p = json.loads(capsys.readouterr().out)
     assert [h["decl"] for h in p["sources"][0]["hits"]] == ["IsHeatAdmissible"]
     assert p["coverage"]["declaration_hits_omitted"] == 1
+
+
+def _decoys_and_target(repo, n_decoys):
+    """`n_decoys` files that mention the query only in a comment, then ZTarget.lean with the one matching
+    theorem (sorted last), as in the field report's synthetic fixture."""
+    d = repo / "Decoy"
+    d.mkdir()
+    for i in range(n_decoys):
+        (d / f"D{i:04d}.lean").write_text(f"-- talks about chaos moments in passing ({i})\ndef d{i} : Nat := {i}\n")
+    (repo / "ZTarget.lean").write_text("/-- The chaos moments bound. -/\ntheorem chaosMoments_bound : True := trivial\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "decoys and target")
+
+
+def test_a_match_past_200_candidate_files_is_found(lp, srch, unclaimed, capsys):
+    """Field report: 200 files with the words in comments sorted before the target; the old 200-file slice
+    returned ([], 0) and said nothing. The target in the 201st candidate file must be found."""
+    _decoys_and_target(unclaimed.env.repo_a, 200)
+    search_json(lp, unclaimed, "chaos moments")
+    p = json.loads(capsys.readouterr().out)
+    decls = [h["decl"] for h in p["sources"][0]["hits"] if h.get("hit_kind") == srch.DECL_HIT_KIND]
+    assert decls == ["chaosMoments_bound"]
+    assert p["coverage"]["declaration_files_capped"] == [] and "registry" not in p["truncated_sources"]
+
+
+def test_a_file_cap_that_is_reached_is_reported_and_makes_the_search_incomplete(lp, srch, unclaimed,
+                                                                                 monkeypatch, capsys):
+    monkeypatch.setattr(srch, "DECL_FILES_MAX", 3)
+    _decoys_and_target(unclaimed.env.repo_a, 4)
+    search_json(lp, unclaimed, "chaos moments")
+    p = json.loads(capsys.readouterr().out)
+    assert p["coverage"]["declaration_files_capped"] == [{"package": "alpha", "candidates": 5, "inspected": 3}]
+    assert p["truncated_sources"] == ["registry"] and p["complete"] is False
+    assert run_search(lp, unclaimed, "chaos moments", "--offline") == 0
+    out = capsys.readouterr().out
+    assert "alpha: only 3 of 5 candidate file(s) inspected (file cap), so a zero there is not an absence" in out
+    assert "registry hit a file cap" in out
+
+
+def test_the_display_cap_is_not_a_file_cap(lp, srch, unclaimed, capsys):
+    """More matching declarations than are listed: counted as not listed, never reported as a file cap."""
+    body = "".join(f"theorem chaosMoments_{i} : True := trivial\n" for i in range(12))
+    (unclaimed.env.repo_a / "Many.lean").write_text(body)
+    _git(unclaimed.env.repo_a, "add", "-A")
+    _git(unclaimed.env.repo_a, "commit", "-qm", "many")
+    search_json(lp, unclaimed, "chaos moments")
+    p = json.loads(capsys.readouterr().out)
+    assert p["coverage"]["declaration_hits_omitted"] == 2 and p["coverage"]["declaration_files_capped"] == []

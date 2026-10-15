@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `search` no longer misses a declaration silently when a package has many candidate files. The declaration search
+  read only the first 200 files that matched the `git grep` prefilter and reported nothing about the rest, so a
+  theorem in the 201st file returned zero hits (field report with a synthetic 201-file fixture). Files are now read
+  through one `git cat-file --batch`, the cap is 2000, and a package past it is reported: `--json`
+  `coverage.declaration_files_capped[]` {package, candidates, inspected}, `truncated_sources: ["registry"]` and
+  `complete: false`; the coverage line names the package and the `incomplete:` line says a file cap was hit. The
+  10-per-package display cap is separate and still counted as `declaration_hits_omitted`.
+
 ## [0.7.36] - 2026-10-15
 
 ### Added
