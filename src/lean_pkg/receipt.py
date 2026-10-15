@@ -24,8 +24,10 @@ Checks, all run before anything is written (every failed check is listed; any on
    `sorry-count:` line (refused when the log has more `declaration uses 'sorry'` lines than it declares), else
    the number of `declaration uses 'sorry'` lines, counted only when the log shows the
    build finished (`Build completed successfully` or `lake build: ok`; neither refuses); it must be 0. `axioms` is the
-   log's `axioms:` line, else the union of its `#print axioms` output (`depends on axioms: [...]`, `does not
-   depend on any axioms`); none of either refuses. `checker` is `--checker`, else the log's `checker:`.
+   log's `axioms:` line (refused when it omits an axiom the log's own `#print axioms` output reports), else the
+   union of its `#print axioms` output (`depends on axioms: [...]`, `does not depend on any axioms`); none of
+   either refuses. Names are compared without a universe suffix (`Classical.choice.{u}` is `Classical.choice`).
+   `checker` is `--checker`, else the log's `checker:`.
    Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse. Without `generated-at:` the
    receipt is stamped with the time of writing; a re-run whose receipt matches the one already written in
    every other field keeps that file's `generated_at` (#85), anything else differing is refused.
@@ -297,10 +299,18 @@ def parse_log(text: str) -> tuple[dict, list[str]]:
         out["sorry-count"] = None
     if out.get("sorry-count"):
         refusals.append(f"verify log: sorry count is {out['sorry-count']}; gate requires 0")
+    printed = [[_no_universe(a) for a in parse_axioms(m)] for m in _DEPENDS_RE.findall(text)]
     if "axioms" in out:
-        out["axioms"] = parse_axioms(out["axioms"])
+        out["axioms"] = [_no_universe(a) for a in parse_axioms(out["axioms"])]
+        # Like sorry-count: a declared list comes from the job's script; Lean's own `#print axioms` output in
+        # the same log may not name an axiom the list leaves out.
+        missing = sorted({a for lst in printed for a in lst} - set(out["axioms"]))
+        if missing:
+            refusals.append(f"verify log: `axioms:` omits {', '.join(missing)}, which the log's own `#print axioms` "
+                            f"output reports; a declared list may not hide Lean's output (check what the script's "
+                            f"inventory leaves out)")
     else:
-        found = [parse_axioms(m) for m in _DEPENDS_RE.findall(text)]
+        found = printed
         if not found and not _NO_AXIOMS_RE.search(text):
             refusals.append("verify log: no `axioms:` line and no `#print axioms` output "
                             "(`depends on axioms: [...]` / `does not depend on any axioms`)")
@@ -316,6 +326,12 @@ def parse_log(text: str) -> tuple[dict, list[str]]:
             refusals.append(f"verify log: `generated-at:` is not an ISO-8601 timestamp: {out['generated-at']!r}")
             del out["generated-at"]
     return out, refusals
+
+
+def _no_universe(name: str) -> str:
+    """`Classical.choice.{u}` -> `Classical.choice`: Lean may print an axiom with its universe parameters; it is
+    the same axiom, so lists are compared by the bare name."""
+    return re.sub(r"\.\{[^{}]*\}$", "", name)
 
 
 def parse_axioms(value: str) -> list[str]:
