@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `test_make_test_removes_its_bytecode_cache_on_sigint` gives its `make test` child the default SIGINT disposition.
+  A suite started as `( make test ) &` from a script, or under nohup, runs with SIGINT ignored, which is inherited;
+  the recipe's trap then never ran and the test failed with "make test still running 15 s after SIGINT". A new
+  test runs it in a pytest that starts with SIGINT ignored.
+
 ## [0.7.32] - 2026-10-14
 
 ### Added
