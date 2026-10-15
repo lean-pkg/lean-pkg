@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `search` says when it was incomplete: `--json` gains `complete` (no source skipped), `searched` and
+  `skipped_sources[]`, and the text output adds `incomplete: searched N of M sources; skipped: ...; a zero here is
+  not a negative result` before the `consulted:` line. A LeanSearch outage left only `skipped: HTTP 500` on one
+  source line, and a copied record said "0 hits" (field report).
+
 ### Fixed
 
 - `test_make_test_removes_its_bytecode_cache_on_sigint` gives its `make test` child the default SIGINT disposition.
