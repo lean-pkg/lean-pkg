@@ -347,10 +347,10 @@ def test_in_log_seal_is_the_fallback_without_stdout(lp, repo, tmp_path, fake_sac
 
 def test_log_key_lines_are_used_and_must_agree_with_the_commit(lp, repo, tmp_path, fake_sacct, capsys):
     keyed = (LOG + f"lean-toolchain: {TOOLCHAIN}\nmathlib-rev: {MATHLIB_REV}\nchecker: serial leanchecker\n"
-             "sorry-count: 0\naxioms: propext\n")
+             "sorry-count: 0\naxioms: propext, Classical.choice, Quot.sound\n")
     assert run(lp, repo, Job(tmp_path, keyed), checker=False) == 0
     r = json.loads(next(rdir(repo).glob("*.json")).read_text())
-    assert r["checker"] == "serial leanchecker" and r["axioms"] == ["propext"]
+    assert r["checker"] == "serial leanchecker" and r["axioms"] == ["propext", "Classical.choice", "Quot.sound"]
     for p in rdir(repo).iterdir():
         p.unlink()
     capsys.readouterr()
@@ -611,3 +611,26 @@ def test_a_declared_sorry_count_may_not_hide_lean_warnings(lp, repo, tmp_path, f
     assert "sorry count is 1; gate requires 0" in err and "may not hide" not in err
     # a clean declared 0 still passes
     assert run(lp, repo, Job(tmp_path, LOG + "sorry-count: 0\n")) == 0
+
+
+def test_a_declared_axioms_list_may_not_omit_what_lean_printed(lp, repo, tmp_path, fake_sacct, capsys):
+    """Like sorry-count (#108): an `axioms:` line comes from the job's script; the fixture's own `#print axioms`
+    output reports Classical.choice and Quot.sound, so a list of just propext would hide them."""
+    keyed = LOG + "sorry-count: 0\naxioms: propext\n"
+    assert run(lp, repo, Job(tmp_path, keyed)) == 1
+    err = capsys.readouterr().err
+    assert "`axioms:` omits Classical.choice, Quot.sound, which the log's own `#print axioms` output reports" in err
+    assert_nothing_written(repo)
+
+
+def test_universe_suffixes_name_the_same_axiom(lp, repo, tmp_path, fake_sacct, capsys):
+    """Real logs print `Classical.choice.{u}`; the declared `Classical.choice` covers it, and a derived list
+    records the bare name (so the gate's allowed set matches)."""
+    printed = "'Demo.x' depends on axioms: [propext,\n Classical.choice.{u}, Quot.sound.{u}]\n"
+    assert run(lp, repo, Job(tmp_path, LOG + printed + "sorry-count: 0\naxioms: propext, Classical.choice, "
+                             "Quot.sound\n")) == 0
+    for p in rdir(repo).iterdir():
+        p.unlink()
+    assert run(lp, repo, Job(tmp_path, LOG + printed)) == 0
+    r = json.loads(next(rdir(repo).glob("*.json")).read_text())
+    assert sorted(r["axioms"]) == ["Classical.choice", "Quot.sound", "propext"]

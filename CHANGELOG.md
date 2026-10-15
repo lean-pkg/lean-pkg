@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Changed
+
+- `receipt slurm|systemd` refuses a verify log whose `axioms:` line omits an axiom that the log's own
+  `#print axioms` output reports, the axioms counterpart of #108's `sorry-count:` check. Axiom names are compared
+  without a universe suffix (`Classical.choice.{u}` is `Classical.choice`), also in the list derived when the log
+  has no `axioms:` line. None of the 20 committed verify logs checked is affected, including five whose output
+  prints universe suffixes.
+
 ## [0.7.34] - 2026-10-15
 
 ### Changed
