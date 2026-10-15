@@ -16,6 +16,12 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- `receipt --append-readme --readme-heading` no longer prints the commit twice: a heading that already starts with
+  this receipt's commit (`4095a30: ...`, backquoted or not) has that prefix dropped, since the entry adds it
+  itself; any other SHA is kept (field report).
+- `gate` and `gate --check` on an `active` package now print the exact move it needs first,
+  `lean-pkg update NAME --status gate-pending --reason "receipt for <c12> ready"`. The receipt's `next:` hint led
+  to a refusal that did not say how to reach gate-pending (field report).
 - `test_make_test_removes_its_bytecode_cache_on_sigint` gives its `make test` child the default SIGINT disposition.
   A suite started as `( make test ) &` from a script, or under nohup, runs with SIGINT ignored, which is inherited;
   the recipe's trap then never ran and the test failed with "make test still running 15 s after SIGINT". A new

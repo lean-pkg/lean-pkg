@@ -579,3 +579,18 @@ def test_json_sealed_lists_the_receipt_and_the_redacted_log(lp, repo, tmp_path, 
         assert hashlib.sha256(Path(e["path"]).read_bytes()).hexdigest() == e["sha256"]
     assert data["sealed"][1]["receipt_key"] == "report_sha256" and receipt["report_sha256"] == data["sealed"][1]["sha256"]
     assert data["sealed"][1]["path"] == data["log"] and data["sealed"][0]["path"] == data["receipt"]
+
+
+@pytest.mark.parametrize("given, kept", [
+    ("`{c7}`: Wave 23a, walsh", "Wave 23a, walsh"),           # field report: printed the SHA twice
+    ("{c7}: Wave 23a", "Wave 23a"),
+    ("`{c12}`: Wave 23a", "Wave 23a"),
+    ("`abcdef1`: another commit's note", "`abcdef1`: another commit's note"),   # not this commit: kept
+    ("Wave 23a", "Wave 23a"),
+])
+def test_readme_heading_never_repeats_the_commit_prefix(lp, repo, tmp_path, fake_sacct, given, kept):
+    c = repo_head(repo)
+    heading = given.format(c7=c[:7], c12=c[:12])
+    assert run(lp, repo, Job(tmp_path), "--append-readme", "--readme-heading", heading) == 0
+    text = (repo / ".lean-receipts" / "README.md").read_text()
+    assert f"## `{c[:7]}`: {kept}\n" in text
