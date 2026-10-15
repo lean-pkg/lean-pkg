@@ -408,6 +408,11 @@ def readme_block(*, commit: str, heading: str, executor_lines: list[str], receip
     ({job_stdout_sha256, manifest_sha256}, only with --stdout) adds the line naming what the seal was checked
     against."""
     axioms = ", ".join(receipt["axioms"]) or "none"
+    # The heading gets the commit prefix itself; a --readme-heading that already starts with this commit
+    # (`4095a30`: ... or 4095a30: ...) would print it twice (field report). Any other SHA is kept.
+    m = re.match(r"`?([0-9a-f]{7,40})`?:\s*", heading)
+    if m and commit.startswith(m.group(1)):
+        heading = heading[m.end():]
     lines = [f"## `{commit[:7]}`: {heading}", "", *executor_lines,
              f"- Checker: {receipt['checker']}; sorry_count 0; axioms {axioms}.",
              f"- Log: `{log_name}`, SHA-256 `{receipt['report_sha256']}` (= `report_sha256`);",

@@ -221,3 +221,20 @@ def test_regating_public_package_clears_a_comparator_bound_elsewhere(lp, env, tm
     assert pkg["status"] == "public"
     assert pkg["gate"]["comparator"] is None
     assert "comparator" in out and "cleared" in out
+
+
+def test_gate_on_an_active_package_names_the_move_to_gate_pending(lp, env, tmp_path, capsys):
+    """Field report: the receipt's `next:` hint led to `gate`, which refused an `active` package without
+    saying how to reach gate-pending. Both `gate` and `gate --check` now print the exact update command."""
+    reg = read_reg(env)
+    reg["packages"]["alpha"]["status"] = "active"
+    from .conftest import write_reg
+    write_reg(env, reg)
+    r = make_receipt(env.repo_a)
+    p = write_receipt(tmp_path, r)
+    cmd = f'lean-pkg update alpha --status gate-pending --reason "receipt for {r["commit"][:12]} ready"'
+    assert lp.main(["--registry", str(env.registry), "gate", "alpha", "--receipt", str(p)]) == 1
+    assert cmd in capsys.readouterr().err
+    assert lp.main(["--registry", str(env.registry), "gate", "alpha", "--receipt", str(p), "--check"]) == 0
+    assert cmd in capsys.readouterr().out
+    assert read_events(env) == []

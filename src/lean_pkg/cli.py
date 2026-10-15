@@ -2715,6 +2715,13 @@ def recorded_json(repo: pathlib.Path, rel) -> dict | None:
 REGATE_STATUSES = ("verified-private", "public")
 
 
+def to_gate_pending_cmd(name: str, commit: str) -> str:
+    """The exact move an `active` package needs before its first gate (field report: the receipt's
+    `next:` hint led to a gate refusal that did not say how to get to gate-pending)."""
+    what = f"receipt for {commit[:12]} ready" if commit else "receipt ready"
+    return f'`lean-pkg update {name} --status gate-pending --reason "{what}"`'
+
+
 def regate_status_problem(name: str, pkg: dict) -> str | None:
     """Why `gate --regate` cannot apply to this package (#67), or None: it re-gates a gated package, so the
     status is verified-private (or public, which `gate` already accepts) and a gate receipt is recorded."""
@@ -2810,7 +2817,8 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
     elif status not in ("gate-pending", "public"):
         checks.append(f"· status {status}: `gate` itself needs gate-pending (or public)"
                       + (f"; re-gate with `lean-pkg gate {name} --receipt R --regate`"
-                         if status == "verified-private" else ""))
+                         if status == "verified-private" else "")
+                      + (f"; first: {to_gate_pending_cmd(name, commit)}" if status == "active" else ""))
     ok = cs["ok"] is not False and lineage_ok
     msg = (f"{name}: receipt valid at commit {commit[:12]}"
            + (f" with comparator ({len(comp['configs'])} config(s))" if comp else "")
@@ -2877,7 +2885,9 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
                    f"evidence on an already-public package), got {pkg.get('status')!r}"
                    + (f"; to re-gate a new commit in one step: `lean-pkg gate {name} --receipt R --regate` "
                       f"(the receipt's commit must descend from the gated one, else add --reason TEXT)"
-                      if pkg.get("status") == "verified-private" else ""))
+                      if pkg.get("status") == "verified-private" else "")
+                   + (f"; first: {to_gate_pending_cmd(name, str(receipt.get('commit') or ''))}, then gate again"
+                      if pkg.get("status") == "active" and isinstance(receipt, dict) else ""))
     was_public = pkg.get("status") == "public"
     validate_receipt(vpkg, repo, receipt)
     commit = receipt["commit"]
