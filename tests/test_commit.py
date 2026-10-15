@@ -107,7 +107,8 @@ def _claim_commit_one_commit_both_files(lp, shared, capsys, monkeypatch):
     # stdout is the same as without --commit
     _git(a.root, "reset", "-q", "--hard", "HEAD~1")
     rc, plain = run(lp, a, capsys, *CLAIM)
-    assert rc == 0 and "committed" not in plain.err
+    assert rc == 0 and "lean-pkg: committed " not in plain.err
+    assert f"NOT COMMITTED: {EV}, {REG} modified in " in plain.err
     assert plain.out == cap.out
 
 
@@ -142,7 +143,8 @@ def test_dirty_registry_files_refuse_before_writing(lp, env, shared, capsys):
     before = _count(a.root)
     rc, cap = run(lp, a, capsys, *CLAIM, "--commit")
     assert rc == 1
-    assert "uncommitted registry changes in lean-packages.yaml; commit them first" in cap.err
+    assert "uncommitted registry changes in lean-packages.yaml; the writer that made them commits them: git -C " in cap.err
+    assert "NOT COMMITTED" not in cap.err   # the refusal says it once; the notice is for writes without commit mode
     assert len(read_events(a)) == n and _count(a.root) == before
 
 
@@ -660,3 +662,48 @@ def test_cannot_lock_ref_race_fetches_rebases_and_pushes(lp, env, shared, monkey
     assert _subject(a.root) == "lean-pkg: claimed alpha" and _clean(a.root)
     reg = read_reg(a)["packages"]
     assert reg["alpha"]["lease"]["agent"] == "vera" and reg["beta"]["lease"]["agent"] == "otto"
+
+
+
+# #53's report: a write without commit mode left the shared clone dirty and said nothing, and every committed-mode
+# writer then refused for hours with a message that did not say whose change was pending.
+
+def test_a_write_without_commit_mode_says_it_left_the_registry_uncommitted(lp, env, shared, capsys):
+    a = shared.a
+    rc, cap = run(lp, a, capsys, *CLAIM)
+    assert rc == 0 and not _clean(a.root)
+    last = cap.err.strip().splitlines()[-1]
+    assert last.startswith(f"lean-pkg: NOT COMMITTED: {EV}, {REG} modified in {a.root}; every --commit/--push "
+                           f"write to this registry refuses until they are committed: git -C {a.root} commit ")
+
+
+def test_a_json_write_without_commit_mode_carries_registry_uncommitted(lp, env, shared, capsys):
+    a = shared.a
+    rc, cap = run(lp, a, capsys, "--json", *CLAIM)
+    assert rc == 0
+    p = json.loads(cap.out)
+    assert p["registry_uncommitted"] == [EV, REG] and "registry_commit" not in p
+
+
+def test_a_committed_write_and_a_read_say_nothing_about_uncommitted_files(lp, env, shared, capsys):
+    a = shared.a
+    rc, cap = run(lp, a, capsys, "--json", *CLAIM, "--commit")
+    assert rc == 0 and "registry_uncommitted" not in json.loads(cap.out) and "NOT COMMITTED" not in cap.err
+    a.registry.write_text(a.registry.read_text() + "# hand edit\n")
+    rc, cap = run(lp, a, capsys, "status", "alpha")
+    assert rc == 0 and "NOT COMMITTED" not in cap.err
+
+
+def test_a_registry_outside_git_gets_no_notice(lp, env, capsys):
+    rc = lp.main(["--registry", str(env.registry), *CLAIM])
+    assert rc == 0 and "NOT COMMITTED" not in capsys.readouterr().err
+
+
+def test_the_refusal_names_the_pending_event_and_the_lease_holder(lp, env, shared, capsys):
+    a = shared.a
+    assert run(lp, a, capsys, *CLAIM)[0] == 0               # vera claims alpha without committing
+    rc, cap = run(lp, a, capsys, "claim", "beta", "--workspace", "w4", "--agent", "otto", "--commit")
+    assert rc == 1
+    assert "(pending: claimed alpha by vera at " in cap.err
+    assert "; lease on alpha: vera, live)" in cap.err
+    assert read_reg(a)["packages"]["beta"].get("lease") is None

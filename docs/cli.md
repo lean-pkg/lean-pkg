@@ -41,7 +41,9 @@ that write, decided from the parsed arguments: every write command, `index add`,
 (committed after each write); dry runs and read-only commands never fetch, and
 an explicit `--commit`/`--push` there prints `ignored: read-only command` on
 stderr. Before writing it requires the registry inside a git work tree
-on a branch with the registry file and event log unmodified, fetches `origin`
+on a branch with the registry file and event log unmodified (the refusal names the
+uncommitted event, its agent and time, the package's lease holder, and the `git commit`
+that clears it), fetches `origin`
 and fast-forwards (`pull --ff-only`; a diverged clone is refused); after a
 successful write it commits exactly those two files together with the message
 `lean-pkg: <event> <name>`. `--push` (env `LEAN_PKG_PUSH=1`) also pushes to
@@ -66,6 +68,11 @@ both variables. Its reports go to stderr: `committed <sha> on <branch>: <message
 variable rather than a flag turned the mode on (a wrapper may set one, so `renew` or `claim`
 can commit and push with no flag given), and `pushed origin/<branch> (<sha>)`; every
 subcommand's `--commit`/`--push` help names its variable and says `set now` when it is set.
+A write that runs without committed mode on a registry inside a git work tree and leaves its
+registry file or event log modified ends with a stderr line
+`NOT COMMITTED: <files> modified in <clone>; every --commit/--push write to this registry refuses until they are committed: git -C <clone> commit ...`,
+and a `--json` payload gains `"registry_uncommitted": [<files>]`; a registry outside git gets no
+notice.
 A `--json` payload gains
 `"registry_commit": {"sha", "pushed", "error", "push_error", "push_attempts", "rebased"}` (`"ok": false` when the commit or push
 failed). The same object also appears as `"commit"` when the payload has no `"commit"` of its own (the
