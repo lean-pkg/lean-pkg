@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.33] - 2026-10-15
+
 ### Added
 
 - `search` says when it was incomplete: `--json` gains `complete` (no source skipped), `searched` and
@@ -26,6 +28,8 @@ change the registry schema or receipt format, always with a migration).
   A suite started as `( make test ) &` from a script, or under nohup, runs with SIGINT ignored, which is inherited;
   the recipe's trap then never ran and the test failed with "make test still running 15 s after SIGINT". A new
   test runs it in a pytest that starts with SIGINT ignored.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.32] - 2026-10-14
 
