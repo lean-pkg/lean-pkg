@@ -139,9 +139,9 @@ def _package_hit(name: str, pkg: dict, score: int, where: str) -> dict:
 
 
 def block(source: str, state: str, reason: str | None = None, revision: str | None = None,
-          hits: list | None = None, route: str | None = None) -> dict:
+          hits: list | None = None, route: str | None = None, partial: list | None = None) -> dict:
     return {"source": source, "state": state, "reason": scrub_paths(reason) if reason else reason,
-            "revision": revision, "hits": hits or [], "route": route}
+            "revision": revision, "hits": hits or [], "route": route, "partial": list(partial or [])}
 
 
 # --------------------------------------------------------------------------
@@ -445,7 +445,9 @@ def adapter_block(source: str, term: str, timeout: float = 10) -> dict:
         return block(source, "skipped", "adapter returned an unexpected result")
     if r["state"] == "skipped":
         return block(source, "skipped", str(r.get("reason") or "unavailable"), r.get("revision"))
-    return block(source, "ok", r.get("reason"), r.get("revision"), r["hits"])
+    partial = r.get("partial") if isinstance(r.get("partial"), list) else []
+    return block(source, "ok", r.get("reason"), r.get("revision"), r["hits"],
+                 partial=[str(x) for x in partial])
 
 
 # --------------------------------------------------------------------------
@@ -493,6 +495,9 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
     # is not a negative result; callers that copy "0 hits" into a record must see that here.
     skipped = [b["source"] for b in blocks if b["state"] != "ok"]
     truncated = ["registry"] if (cov or {}).get("declaration_files_capped") else []
+    # A source that answered with one of its parts failed (GitHub code search rate-limited while the
+    # repository search worked) is incomplete too, or its zero reads as an absence (field report).
+    truncated += [b["source"] for b in blocks if b["state"] == "ok" and b.get("partial")]
     payload.update({"complete": not skipped and not truncated, "searched": len(blocks) - len(skipped),
                     "skipped_sources": skipped, "truncated_sources": truncated})
     return render_text(payload), payload
@@ -504,6 +509,26 @@ def _n(k: int) -> str:
 
 def state_text(b: dict) -> str:
     return "ok" if b["state"] == "ok" else f"skipped: {b['reason']}"
+
+
+def consulted_state(b: dict) -> str:
+    """`ok, 3 hits`; `partial, 0 hits` when a part of the source failed; else `skipped: <reason>`."""
+    if b["state"] != "ok":
+        return state_text(b)
+    return ("partial, " if b.get("partial") else "ok, ") + _n(len(b["hits"]))
+
+
+def truncation_text(payload: dict) -> str:
+    """Why each source in `truncated_sources` answered only in part, e.g. `registry hit a file cap (see the
+    coverage line); github: code search failed`."""
+    parts = {b["source"]: b.get("partial") or [] for b in payload["sources"]}
+    out = []
+    for src in payload.get("truncated_sources") or []:
+        if parts.get(src):
+            out.append(f"{src}: {', '.join(parts[src])} search failed")
+        else:
+            out.append(f"{src} hit a file cap (see the coverage line)")
+    return "; ".join(out)
 
 
 def render_text(payload: dict) -> list[str]:
@@ -538,17 +563,16 @@ def render_text(payload: dict) -> list[str]:
     cov_line = coverage_text(payload.get("coverage"))
     if cov_line:
         lines.append(cov_line)
-    if payload.get("truncated_sources") and not payload.get("skipped_sources"):
-        lines.append(f"incomplete: {', '.join(payload['truncated_sources'])} hit a file cap (see the coverage line); "
-                     f"a zero here is not a negative result")
+    why = truncation_text(payload)
+    if why and not payload.get("skipped_sources"):
+        lines.append(f"incomplete: {why}; a zero here is not a negative result")
     if payload.get("skipped_sources"):
         n, k = len(payload["sources"]), len(payload["skipped_sources"])
-        cap = (f"; {', '.join(payload['truncated_sources'])} hit a file cap"
-               if payload.get("truncated_sources") else "")
+        cap = f"; {why}" if why else ""
         lines.append(f"incomplete: searched {n - k} of {n} sources; skipped: {', '.join(payload['skipped_sources'])}"
                      f"{cap}; a zero here is not a negative result")
     lines.append("consulted: " + ", ".join(
-        f"{b['source']} ({'ok, ' + _n(len(b['hits'])) if b['state'] == 'ok' else state_text(b)})"
+        f"{b['source']} ({consulted_state(b)})"
         for b in payload["sources"]))
     return lines
 

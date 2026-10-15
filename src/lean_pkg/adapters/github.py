@@ -54,9 +54,9 @@ def search(term: str, timeout: float = 30) -> dict:
         if repo and c.get("path"):
             hits.append(hit(f"{repo}:{c['path']}", "", c.get("url") or f"https://github.com/{repo}",
                             kind="code"))
-    note = None
+    note, partial = None, []
     if repos is None:
-        note = f"repository search failed: {repos_err}"
+        note, partial = f"repository search failed: {repos_err}", ["repository"]
     elif code is None:
-        note = f"code search failed: {code_err}"
-    return ok(revision(), hits, note)
+        note, partial = f"code search failed: {code_err}", ["code"]
+    return ok(revision(), hits, note, partial)
