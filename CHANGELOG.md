@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.32] - 2026-10-14
+
 ### Added
 
 - `receipt slurm|systemd --json` gains `sealed[]` {role, path, sha256, receipt_key}: every file the run wrote and
@@ -40,6 +42,8 @@ change the registry schema or receipt format, always with a migration).
   reported the job name as the State and the partition as the ExitCode ("not a clean finish"). A header line
   naming `JobID`, `State` and `ExitCode` (sacct `-P` without `-n`) now locates them in any order; without one, a
   second column that is not a Slurm state or a third that is not `N:N` is refused as `unexpected sacct format`.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.31] - 2026-10-14
 
