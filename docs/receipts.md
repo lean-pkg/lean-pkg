@@ -331,33 +331,6 @@ at X, not at H, and never from the working tree. Modified tracked files in
 the checkout print a WARN at `gate` and `comparator`; `--refuse-dirty` turns
 the WARN into a refusal.
 
-### Opt-in evidence paths
-
-Some workflows edit progress files after every replay (a progress log, a
-state file, a ledger under `verification/`), and under the rule above each
-such edit costs a new receipt. A package can name those files as evidence:
-
-```bash
-lean-pkg update my-proof --evidence-paths 'PROGRESS.md,verification/**,.lean-dev-state.json' \
-  --reason "wave-close files"
-```
-
-The globs use the public-safety syntax and are package-relative. Paths that
-match them may then differ between the receipt's commit and HEAD, like
-`.lean-receipts/`. Three limits keep the binding honest:
-
-- build inputs are never evidence, whatever a glob says: `*.lean`,
-  `lakefile.*`, `lake-manifest.json`, `lean-toolchain`, and the package's
-  claims file (`gate` checks it at the receipt's commit). `update` refuses a
-  glob that would match one, such as `*`, `**` or `*.yaml`;
-- if any Lean file at HEAD reads files while it builds (`include_str`,
-  `IO.FS`, `readFile`), the globs are not applied, since an "evidence" file
-  could then be a source;
-- the setting needs `--reason` and is recorded as an `updated` event;
-  `--evidence-paths ''` returns the package to the strict rule.
-
-A Lean change, even to a docstring, still needs a new receipt.
-
 ### Path dependencies
 
 A receipt binds the package directory at one commit. A Lake
@@ -392,6 +365,34 @@ and Mathlib pin match. Keep them siblings, not nested: a package directory
 inside another makes every commit to the inner one drift for the outer one
 (`register` warns). To reuse the first package's results, depend on it from
 git at a pinned rev, not by path (see above).
+
+## Progress files live outside the package directory
+
+Any change inside the package directory, other than `.lean-receipts/`, needs
+a new receipt and a replay. That is deliberate and has no opt-out. So files
+that change after every replay (a progress log, a state file, a statement
+ledger, a roadmap, wave notes) belong outside the package directory, where
+they are never drift:
+
+```text
+Article-X/                      manuscript repository
+  PROGRESS.md                   progress log, state file, ledgers, roadmap
+  .lean-dev-state.json
+  STATEMENT_LEDGER.md  BOUNDARIES.md  ROADMAP.md
+  verification/<wave>/          wave notes and replay transcripts
+  lean/                         the package: registered local_path
+    lakefile.toml  lean-toolchain  lake-manifest.json  claims.yaml
+    Pkg/ ...
+    .lean-receipts/             receipts (`receipt slurm` writes here)
+```
+
+When the package is its own repository checked out inside the manuscript
+repository (as `lean/` above), the progress files go in the manuscript
+repository beside it. A companion repository that holds both keeps the Lake
+package in a subdirectory, registers that subdirectory as `local_path`, and
+keeps the progress files at its root. `claims.yaml` stays inside the package:
+`gate` reads it at the receipt's commit. A change to a `.lean` file, even to a
+docstring, always needs a new receipt.
 
 ## Where evidence lives
 

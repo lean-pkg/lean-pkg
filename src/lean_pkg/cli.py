@@ -221,8 +221,6 @@ PACKAGE_FIELDS = (
     ("source_paper", "optional", "{title, authors[], arxiv, doi} of the formalized paper (credited in "
                                  "formalization.yaml acknowledgements, never as project.authors)"),
     ("ai_assistance", "optional", "{tools[], roles[]}: AI tools used and for what (rendered into acknowledgements)"),
-    ("evidence_paths", "optional", "opt-in path globs that may change after a receipt's commit without a new "
-                                   "receipt (never build inputs or the claims file; update --evidence-paths)"),
     ("track", "optional", "DOI track: " + " | ".join(TRACKS) + " (absent = palomar); doi-only lets a public package "
                           "record doi-minted without a palomar-* event (update --track)"),
 )
@@ -500,61 +498,6 @@ def formalization_rel(pkg: dict | None) -> str | None:
     return rel or None
 
 
-# Build inputs: never evidence, whatever a package's evidence_paths say. The claims file is added per
-# package (gate checks it at the receipt's commit, so it stays bound).
-_BUILD_INPUT_SAMPLES = ("Main.lean", "Pkg/Sub/File.lean", "lakefile.lean", "lakefile.toml", "sub/lakefile.lean",
-                        "lake-manifest.json", "sub/lake-manifest.json", "lean-toolchain", "sub/lean-toolchain")
-# A Lean file that reads files while it builds could read an "evidence" file; then evidence_paths are off.
-_LEAN_READS_FILES = r"include_str|IO\.FS|readFile|readBinFile"
-
-
-def claims_file_rel(pkg: dict | None) -> str:
-    rel = str((pkg or {}).get("claims_file") or "claims.yaml").strip()
-    while rel.startswith("./"):
-        rel = rel[2:]
-    return rel
-
-
-def build_input(rel: str, claims_file: str = "claims.yaml") -> bool:
-    """True for a package-relative path the build or the gate reads: *.lean, lakefile.*,
-    lake-manifest.json, lean-toolchain, and the package's claims file."""
-    name = rel.rsplit("/", 1)[-1]
-    return (rel.endswith(".lean") or name.startswith("lakefile.") or name in ("lake-manifest.json", "lean-toolchain")
-            or rel == claims_file)
-
-
-def evidence_path_errors(globs, claims_file: str = "claims.yaml") -> list[str]:
-    """Problems with an evidence_paths list: each entry a package-relative glob (public-safety syntax) that
-    matches no build input. A glob such as `*` or `**` that would cover sources is refused, not narrowed."""
-    from .public_safety import glob_regex
-    if not isinstance(globs, list):
-        return ["evidence_paths must be a list of path globs"]
-    errors = []
-    for g in globs:
-        if not isinstance(g, str) or not g.strip():
-            errors.append(f"evidence_paths: {g!r} is not a non-empty glob")
-            continue
-        pp = pathlib.PurePosixPath(g.rstrip("/") or "/")
-        if g.startswith(("/", "~")) or ".." in pp.parts:
-            errors.append(f"evidence_paths: {g!r} must be package-relative, without `..`")
-            continue
-        rx = glob_regex(g)
-        hit = [x for x in (*_BUILD_INPUT_SAMPLES, claims_file) if rx.fullmatch(x)]
-        if hit:
-            errors.append(f"evidence_paths: {g!r} would match build inputs such as {hit[0]} (never evidence: "
-                          f"*.lean, lakefile.*, lake-manifest.json, lean-toolchain, {claims_file})")
-    return errors
-
-
-def binding_rule(pkg: dict | None) -> dict:
-    """The keyword arguments of evidence_only_descendant for a registered package: its formalization.yaml
-    pointer, its opt-in evidence_paths and its claims file."""
-    globs = (pkg or {}).get("evidence_paths") or []
-    return {"formalization": formalization_rel(pkg),
-            "evidence_globs": tuple(g for g in globs if isinstance(g, str) and g.strip()),
-            "claims_file": claims_file_rel(pkg)}
-
-
 def formalization_derived_only(repo: pathlib.Path, bound: str, head: str, rel: str) -> str | None:
     """None when <rel> differs between bound and head only in keys the formalization renderer derives
     (status.evidence and the rest of formalization.DERIVED_PATHS), compared as YAML data; else the
@@ -580,8 +523,7 @@ def formalization_derived_only(repo: pathlib.Path, bound: str, head: str, rel: s
 
 
 def evidence_only_descendant(repo: pathlib.Path, bound: str,
-                             head: str, formalization: str | None = None,
-                             evidence_globs: tuple = (), claims_file: str = "claims.yaml") -> tuple[bool, str]:
+                             head: str, formalization: str | None = None) -> tuple[bool, str]:
     """Evidence-only descendant rule (see DESIGN.md): a receipt bound to commit `bound` is
     accepted at `head` when head == bound, or when head descends from bound and
     the only paths that differ live under .lean-receipts/ (the evidence itself).
@@ -591,9 +533,6 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     `formalization` (the package's recorded formalization.yaml path, see formalization_rel):
     that file may also differ when only its derived keys changed, since it must cite the
     receipt and so cannot be inside the bound commit (#23.5). claims.yaml never may.
-    `evidence_globs` (the package's opt-in evidence_paths, see binding_rule): paths matching one also
-    count as evidence, except build inputs (build_input), and only while no Lean file at `head` reads
-    files during the build (include_str, IO.FS ...), which could make such a file a source.
     Returns (ok, note)."""
     if bound == head:
         return True, ""
@@ -613,27 +552,10 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
         if problem:
             return False, f"HEAD {head[:12]} differs from {bound[:12]}: {problem}"
         foreign.remove(formalization)
-    extra = 0
-    if foreign and evidence_globs:
-        from .public_safety import glob_regex
-        rxs = [glob_regex(g) for g in evidence_globs]
-        exempt = [x for x in foreign if any(rx.fullmatch(x) for rx in rxs) and not build_input(x, claims_file)]
-        if exempt:
-            reader = git(repo, "grep", "-l", "-E", _LEAN_READS_FILES, head, "--", "*.lean")
-            if reader.returncode not in (0, 1):
-                return False, (f"HEAD {head[:12]} differs from {bound[:12]}; evidence_paths not applied: "
-                               f"cannot check the Lean files for file reads (git grep exited {reader.returncode})")
-            if reader.stdout.strip():
-                first = reader.stdout.split()[0].split(":", 1)[-1]
-                return False, (f"HEAD {head[:12]} differs from {bound[:12]} outside .lean-receipts/: {foreign[:5]} "
-                               f"(evidence_paths not applied: {first} reads files at build time)")
-            foreign = [x for x in foreign if x not in exempt]
-            extra = len(exempt)
     if foreign or not paths:
         return False, (f"HEAD {head[:12]} differs from {bound[:12]} outside "
                        f".lean-receipts/: {foreign[:5]}")
-    return True, (f"evidence-only descendant of {bound[:12]} (+{len(paths)} evidence file(s)"
-                  + (f", {extra} under evidence_paths" if extra else "") + ")")
+    return True, f"evidence-only descendant of {bound[:12]} (+{len(paths)} evidence file(s))"
 
 
 def ensure_interactive() -> None:
@@ -1573,7 +1495,7 @@ def prior_art_note(pkg: dict, events_p: pathlib.Path, now: dt.datetime | None = 
 # and `promote`, and `lease`/`workspace`/`agent` to `claim`/`release`.
 UPDATABLE = {"automation", "notes", "upstream_target", "reaudit_after",
              "owner_project", "repo", "license_spdx", "formalization_yaml", "paper", "namespace_notes",
-             "source_paper", "ai_assistance", "track", "evidence_paths"}
+             "source_paper", "ai_assistance", "track"}
 # Paper-coupled packages (#22.10): optional `paper: {arxiv, status}`; promote refuses while the paper is
 # unpublished and no arXiv id is recorded (so a public flip cannot disclose results before the preprint).
 PAPER_STATUSES = ("unpublished", "preprint", "published")
@@ -1832,10 +1754,6 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
             merged = dict(pkg.get("namespace_notes") or {})
             merged.update({ns: text for ns in namespaces})
             sets[field] = merged
-        if field == "evidence_paths":
-            errs = evidence_path_errors(value, claims_file_rel(pkg))
-            if errs:
-                raise Fail(f"{name}: " + "; ".join(errs) + "; nothing written")
         if field == "track" and value not in TRACKS:
             raise Fail(f"track must be one of {', '.join(TRACKS)}, got {value!r}")
         if field == "formalization_yaml":
@@ -1870,9 +1788,6 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
     for field, value in sets.items():
         if pkg.get(field) != value:
             changes[field] = (pkg.get(field), value)
-    if "evidence_paths" in changes and not reason:
-        raise Fail(f"{name}: --evidence-paths requires --reason (it widens what may change after a receipt's "
-                   f"commit without a new receipt)")
     if "track" in changes and not reason:
         raise Fail(f"{name}: --track requires --reason (it changes which evidence doi-minted needs)")
 
@@ -1950,7 +1865,7 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
 
 
 def _bound_at(repo: pathlib.Path, head: str | None, rel,
-              rule: dict | None = None) -> tuple[bool, str | None, str]:
+              formalization: str | None = None) -> tuple[bool, str | None, str]:
     """(kept, bound commit, verdict) for a recorded receipt path at the new checkout: the file must be
     readable there and its commit must equal HEAD (or HEAD an evidence-only descendant of it)."""
     rec = recorded_json(repo, rel)
@@ -1961,7 +1876,7 @@ def _bound_at(repo: pathlib.Path, head: str | None, rel,
         return False, commit, f"{rel} is not readable at the new path"
     if not (commit and _HEX40.fullmatch(commit)):
         return False, commit, "the receipt names no 40-hex commit"
-    ok, note = evidence_only_descendant(repo, commit, head, **(rule or {}))
+    ok, note = evidence_only_descendant(repo, commit, head, formalization)
     return ok, commit, (note or f"commit {commit[:12]} is HEAD")
 
 
@@ -2070,7 +1985,7 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
     gate = copy.deepcopy(pkg.get("gate") or {})
     b_receipt = b_comp = None
     if gate.get("receipt"):
-        kept, commit, verdict = _bound_at(new_abs, head, gate["receipt"], binding_rule(pkg))
+        kept, commit, verdict = _bound_at(new_abs, head, gate["receipt"], formalization_rel(pkg))
         b_receipt = {"path": gate["receipt"], "commit": commit, "kept": kept, "verdict": verdict}
         if not kept:
             cleared.append("gate.receipt")
@@ -2078,7 +1993,7 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
                          f"is not bound to HEAD {str(head)[:12]} at the new path")
             gate["receipt"] = None
     if gate.get("comparator"):
-        ckept, ccommit, cverdict = _bound_at(new_abs, head, gate["comparator"], binding_rule(pkg))
+        ckept, ccommit, cverdict = _bound_at(new_abs, head, gate["comparator"], formalization_rel(pkg))
         kept = bool(gate.get("receipt")) and ckept
         b_comp = {"path": gate["comparator"], "commit": ccommit, "kept": kept,
                   "verdict": cverdict if gate.get("receipt") else "the lower-tier receipt is cleared"}
@@ -2174,7 +2089,7 @@ def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
     head = git_head(repo)
     if head is None:
         raise Fail(f"cannot resolve HEAD in {repo}")
-    ok, note = evidence_only_descendant(repo, commit, head, **binding_rule(pkg))
+    ok, note = evidence_only_descendant(repo, commit, head, formalization_rel(pkg))
     if not ok:
         raise Fail(f"receipt commit {commit[:12]}… != repo HEAD {head[:12]}… — "
                    f"the receipt must bind to HEAD or an evidence-only descendant "
@@ -2460,7 +2375,7 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
     head = git_head(repo)
     if head is None:
         raise Fail(f"cannot resolve HEAD in {repo}")
-    ok, note = evidence_only_descendant(repo, commit, head, **binding_rule(pkg))
+    ok, note = evidence_only_descendant(repo, commit, head, formalization_rel(pkg))
     if not ok:
         raise Fail(f"comparator commit {commit[:12]}… != repo HEAD {head[:12]}… — "
                    f"the comparator receipt must bind to HEAD or an evidence-only "
@@ -2586,7 +2501,7 @@ def binding_lines(pkg: dict, repo: pathlib.Path, commit: str, toolchain) -> list
     """The ✓ lines of a validated binding (#26.2): commit vs HEAD, the formalization.yaml rule, the
     toolchain at the bound commit. Called only after the validator passed, so every line is a pass."""
     head = git_head(repo) or ""
-    _ok, note = evidence_only_descendant(repo, commit, head, **binding_rule(pkg))
+    _ok, note = evidence_only_descendant(repo, commit, head, formalization_rel(pkg))
     out = [f"✓ binding: commit {commit[:12]} is HEAD" if commit == head
            else f"✓ binding: HEAD {head[:12]}: {note}"]
     rel = formalization_rel(pkg)
@@ -3692,7 +3607,7 @@ def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False,
             rcommit = json.loads((repo / receipt_rel).read_text()).get("commit")
         except Exception:
             rcommit = None
-        ok, note = (evidence_only_descendant(repo, rcommit, head, **binding_rule(pkg))
+        ok, note = (evidence_only_descendant(repo, rcommit, head, formalization_rel(pkg))
                     if rcommit and head else (False, "no receipt commit"))
         if ok:
             checks.append(("✓", f"gate receipt bound to HEAD {head[:12]}"
@@ -4250,7 +4165,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
                     rcommit = json.loads(rp.read_text()).get("commit")
                 except Exception:
                     rcommit = None
-                if rcommit and ref_tip and not evidence_only_descendant(repo, rcommit, ref_tip, **binding_rule(pkg))[0]:
+                if rcommit and ref_tip and not evidence_only_descendant(repo, rcommit, ref_tip, formalization_rel(pkg))[0]:
                     note("receipt-drift", name,
                          f"receipt={str(rcommit)[:12]} {ref_label}={ref_tip[:12]}{suffix}")
         comp_rel = gate_rec.get("comparator")
@@ -4261,7 +4176,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
             else:
                 untracked(name, repo, ref_tip, comp_rel, ref_label)
                 ccommit = (recorded_json(repo, comp_rel) or {}).get("commit")
-                if ccommit and ref_tip and not evidence_only_descendant(repo, ccommit, ref_tip, **binding_rule(pkg))[0]:
+                if ccommit and ref_tip and not evidence_only_descendant(repo, ccommit, ref_tip, formalization_rel(pkg))[0]:
                     note("comparator-drift", name,
                          f"comparator={str(ccommit)[:12]} {ref_label}={ref_tip[:12]}{suffix}")
         if pkg.get("formalization_yaml"):
@@ -4383,8 +4298,6 @@ def validate_registry(data) -> list[str]:
                         known = ", ".join(str(x)[:12] for x in pal_commits) or "none"
                         errors.append(f"{pfx}: doi {v.get('doi')} commit {c[:12]} matches no "
                                       f"palomar entry (palomar commits: {known})")
-        if "evidence_paths" in pkg:
-            errors += [f"{pfx}.{e}" for e in evidence_path_errors(pkg["evidence_paths"], claims_file_rel(pkg))]
         if "track" in pkg and pkg["track"] not in TRACKS:
             errors.append(f"{pfx}: bad track {pkg.get('track')!r} (allowed: {', '.join(TRACKS)})")
         errors += paper_errors(pkg.get("paper"), pfx)
@@ -5168,7 +5081,7 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
-update    set fields (--notes over non-empty notes: exit 2, nothing written, unless --replace-notes, which replaces, prints the old value, event notes_replaced + notes_from; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT` and prints only `appended note: <line>` (--json changes.notes keeps from/to), not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. --track palomar|doi-only --reason R: the optional DOI track (see record doi-minted). --evidence-paths GLOBS --reason R: opt-in globs that may change after a receipt's commit (never *.lean, lakefile.*, lake-manifest.json, lean-toolchain, the claims file; off while a .lean reads files; '' clears). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
+update    set fields (--notes over non-empty notes: exit 2, nothing written, unless --replace-notes, which replaces, prints the old value, event notes_replaced + notes_from; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT` and prints only `appended note: <line>` (--json changes.notes keeps from/to), not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. --track palomar|doi-only --reason R: the optional DOI track (see record doi-minted). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
@@ -5177,7 +5090,7 @@ claim     CAS lease; refuses if another agent holds an unexpired lease (names ho
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
-gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine.
+gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine. Progress files (PROGRESS.md, state file, ledgers) live outside the package dir: any other change inside it needs a new receipt.
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN naming the field + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json   |   receipt slurm --job J --log PATH --commit SHA [--stdout JOB.out] [--stderr JOB.err] [--checker TEXT] [--repo DIR] [--redact REGEX]... [--sacct-file F] [--out PATH] [--append-readme] (no registry): writes the lower-tier receipt from a finished Slurm job; refuses (exit 1, nothing written) unless sacct's main job line is COMPLETED 0:0, the stdout's verify-log-sha256 = sha256(raw log) and pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at SHA) (no --stdout: the log's own `verify-log-sha256:` line = sha256 of the log minus that line), stderr is empty, lean_toolchain/mathlib_rev from SHA agree with any log line, sorry 0 and axioms from the log (sorry-count:/axioms: lines, else 'sorry' warnings/#print axioms output), a checker (--checker or checker:), and no public-safety blocking hit is left after redacting /tmp/<account>-job, /scratch/<user>/ and --redact; job_id slurm-<J>; writes .lean-receipts/<c12>-slurm-<J>.json + <c12>-slurm-<J>-verify.redacted.log (report_sha256; with --stdout also job_stdout_sha256 + manifest_sha256, additive keys gate ignores), prints the README entry (with --stdout a `- Seal:` line naming both; --append-readme: appended to .lean-receipts/README.md) and `gate NAME --check --receipt PATH`; --json {ok, receipt, log, report_sha256, job_id, checks[], refusals[], ...}   |   receipt systemd (alias local) --unit U --log PATH --commit SHA [--properties-file F | --run [--memory-max 8G] [--memory-swap-max 0] [--cpu-quota 400%] [--runtime-max 4h] [--setenv K=V]... [--properties-out PATH] -- CMD...] + the same --stdout/--stderr/--checker/--repo/--redact/--out/--append-readme/--json: the same receipt from a finished systemd --user service unit; the unit state comes from --run (lean-pkg runs CMD bounded via systemd-run --user -p RemainAfterExit=yes, WorkingDirectory=--repo, so the finished unit stays loaded: properties are captured to <log>.unit.properties before it is stopped and reset; the checkout must be at SHA with no tracked change under the package dir before and after), --properties-file (saved `systemctl --user show U -p ...` + a Hostname= line) or live `systemctl --user show U`; refuses unless LoadState=loaded, Id=U, terminal (failed/inactive or active+exited), Result=success (oom-kill, timeout, signal named), ExecMainCode exited with ExecMainStatus 0, NRestarts 0, plus every receipt slurm seal/field/redaction check (optional stdout invocation-id = InvocationID); job_id systemd-user:<U>:<InvocationID>@<host> (host from the running system); also writes <c12>-<slug>-unit.properties (additive unit_properties_sha256); built-in redaction <repo>, <HOME>, /run/user/<UID>/
@@ -5512,8 +5425,6 @@ def cmd_update(args) -> int:
         value = getattr(args, field.replace("-", "_"), None)
         if value is not None:
             sets[field] = value
-    if args.evidence_paths is not None:   # comma-separated globs; '' clears
-        sets["evidence_paths"] = [g.strip() for g in args.evidence_paths.split(",") if g.strip()]
     paper = {k: v for k, v in (("arxiv", args.paper_arxiv), ("status", args.paper_status)) if v is not None}
     if paper:
         if "arxiv" in paper:
@@ -6804,11 +6715,6 @@ def main(argv: list[str] | None = None) -> int:
                    help="the package's license as an SPDX id or expression, e.g. 'MIT OR Apache-2.0' (what the index and Reservoir expect)")
     s.add_argument("--formalization-yaml", dest="formalization_yaml", metavar="REL",
                    help="repository-relative path of the package's formalization.yaml")
-    s.add_argument("--evidence-paths", dest="evidence_paths", metavar="GLOBS", default=None,
-                   help="comma-separated package-relative globs (public-safety glob syntax) that may change after "
-                        "a receipt's commit without a new receipt, e.g. 'PROGRESS.md,verification/**'; never "
-                        "*.lean, lakefile.*, lake-manifest.json, lean-toolchain or the claims file; needs --reason; "
-                        "'' clears")
     s.add_argument("--paper-arxiv", dest="paper_arxiv", metavar="ID",
                    help="arXiv id of the paper this package verifies (sets paper.arxiv; status defaults to "
                         "preprint)")

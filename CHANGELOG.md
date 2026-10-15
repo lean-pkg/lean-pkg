@@ -7,19 +7,11 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
-### Added
-
-- Opt-in `evidence_paths` per package (`update NAME --evidence-paths GLOBS --reason R`): package-relative globs
-  whose files may change after a receipt's commit without a new receipt, for workflows that edit progress files
-  after every replay. Build inputs are never evidence (`*.lean`, `lakefile.*`, `lake-manifest.json`,
-  `lean-toolchain`, and the claims file, which `gate` checks at the receipt's commit): a glob matching one is
-  refused, and such a path is never exempt even under a hand-edited glob. The globs are not applied while any
-  Lean file at HEAD reads files at build time (`include_str`, `IO.FS`, `readFile`). Every reader of the
-  evidence-only rule applies them (gate, `--check`, `--regate`, audit, ledger, next, publish, relocation);
-  public index checks stay strict. See docs/receipts.md, "Opt-in evidence paths".
-
 ### Changed
 
+- Documented the layout for workflows that edit progress files after every replay: those files live outside
+  the package directory (docs/receipts.md, "Progress files live outside the package directory"), and the
+  evidence-only rule is unchanged. The opt-in `evidence_paths` of #101 is reverted before any release.
 - CI's private-boundary job also runs `scripts/private-boundary-check.sh --history` on a full-depth checkout, so
   a private string in a commit message (or in any blob of the pull request's history) fails the pull request
   before it reaches `main`. The tree scan alone let one through in #94's commit messages.
