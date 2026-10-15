@@ -18,6 +18,7 @@ import contextlib
 import hashlib
 import pathlib
 import re
+import subprocess
 
 from . import claims as cl
 from . import cli as core
@@ -47,7 +48,7 @@ _DECL_LINE = re.compile(
     r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|partial|unsafe|nonrec|scoped)\s+)*"
     r"(" + "|".join(DECL_KEYWORDS) + r")\s+([^\s:({\[⦃]+)")
 DECL_HITS_PER_PACKAGE = 10     # declaration hits kept per package; the rest are counted, not listed
-DECL_FILES_MAX = 200           # files read per package after the git grep prefilter
+DECL_FILES_MAX = 2000          # files read per package after the git grep prefilter; past it, coverage says so
 EXCERPT_MAX = 160
 
 
@@ -208,11 +209,36 @@ def _decl_order(h: dict) -> tuple:
     return (h["where"] != "name", h["package"], rel, int(line) if line.isdigit() else 0)
 
 
-def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int] | None:
-    """(hits, omitted) from the package's checkout at HEAD, or None when there is no git checkout
+def _read_blobs(repo: pathlib.Path, rev: str, rels: list[str]) -> dict[str, bytes]:
+    """{rel: bytes} for package-relative paths at `rev`, through one `git cat-file --batch` (one process for
+    thousands of files instead of one `git show` each). A path git reports missing is left out."""
+    if not rels:
+        return {}
+    spec = "".join(f"{rev}:./{r}\n" for r in rels).encode("utf-8")
+    p = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=spec, capture_output=True,
+                       env=core.scrubbed_env())
+    out, data, i = {}, p.stdout, 0
+    for rel in rels:
+        nl = data.find(b"\n", i)
+        if nl < 0:
+            break
+        header = data[i:nl].split()
+        i = nl + 1
+        if len(header) == 3 and header[1] == b"blob":
+            size = int(header[2])
+            out[rel] = data[i:i + size]
+            i += size + 1                       # the object, then its trailing newline
+    return out
+
+
+def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int, dict | None] | None:
+    """(hits, omitted, capped) from the package's checkout at HEAD, or None when there is no git checkout
     at local_path (not searched). A declaration matches when every query word (case-insensitive,
     accents folded, as a substring so camelCase names match) occurs in its name or its docstring;
-    a name match ranks before a docstring-only match."""
+    a name match ranks before a docstring-only match. `omitted` counts matching declarations beyond the
+    DECL_HITS_PER_PACKAGE shown; `capped` is {"candidates", "inspected"} when more candidate files matched the
+    git grep prefilter than DECL_FILES_MAX allows reading (else None): those files were never examined, so a
+    zero is not an absence (field report: a theorem in the 201st file was silently missed)."""
     if not pkg.get("local_path"):
         return None
     try:
@@ -231,10 +257,14 @@ def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int] 
     p = core.git(repo, *args, "HEAD", "--", "*.lean")
     if p.returncode not in (0, 1):
         return None
-    files = sorted(ln.split(":", 1)[1] for ln in p.stdout.splitlines() if ":" in ln)[:DECL_FILES_MAX]
+    candidates = sorted(ln.split(":", 1)[1] for ln in p.stdout.splitlines() if ":" in ln)
+    files = candidates[:DECL_FILES_MAX]
+    capped = ({"candidates": len(candidates), "inspected": len(files)}
+              if len(candidates) > len(files) else None)
+    blobs = _read_blobs(repo, head, files)
     found = []
     for rel in files:
-        blob = core.git_show_bytes(repo, rel, head)
+        blob = blobs.get(rel)
         if blob is None:
             continue
         for line, kw, dname, doc, st in lean_declarations(blob.decode("utf-8", errors="replace")):
@@ -248,7 +278,7 @@ def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int] 
                           "status": None, "pin": head, "file": f"{rel}:{line}", "score": 1,
                           "where": where, "hit_kind": DECL_HIT_KIND, "repo": None})
     found.sort(key=_decl_order)
-    return found[:DECL_HITS_PER_PACKAGE], max(0, len(found) - DECL_HITS_PER_PACKAGE)
+    return found[:DECL_HITS_PER_PACKAGE], max(0, len(found) - DECL_HITS_PER_PACKAGE), capped
 
 
 def coverage_text(cov: dict | None) -> str | None:
@@ -265,6 +295,9 @@ def coverage_text(cov: dict | None) -> str | None:
             + (f": {', '.join(ns)}" if ns else "") + ")")
     if cov.get("declaration_hits_omitted"):
         text += f"; {cov['declaration_hits_omitted']} more declaration hit(s) not listed"
+    for c in cov.get("declaration_files_capped") or []:
+        text += (f"; {c['package']}: only {c['inspected']} of {c['candidates']} candidate file(s) inspected "
+                 f"(file cap), so a zero there is not an absence")
     return text
 
 
@@ -294,7 +327,8 @@ def registry_search(term: str, reg_path: pathlib.Path) -> tuple[dict, dict | Non
         return block("registry", "skipped",
                      f"unreadable registry (packages.{bad[0] if bad else '?'} is not a mapping)"), None
     hits, decl_hits = [], []
-    cov = {"claims": 0, "declaration_only": 0, "not_searched": [], "declaration_hits_omitted": 0}
+    cov = {"claims": 0, "declaration_only": 0, "not_searched": [], "declaration_hits_omitted": 0,
+           "declaration_files_capped": []}
     for name in sorted(pkgs):
         if has_synced_claims(pkgs[name]):
             cov["claims"] += 1
@@ -306,6 +340,8 @@ def registry_search(term: str, reg_path: pathlib.Path) -> tuple[dict, dict | Non
             cov["declaration_only"] += 1
             decl_hits += got[0]
             cov["declaration_hits_omitted"] += got[1]
+            if got[2]:
+                cov["declaration_files_capped"].append({"package": name, **got[2]})
     decl_hits.sort(key=_decl_order)
     for name in sorted(pkgs):
         pkg = reg["packages"][name]
@@ -419,8 +455,9 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
     # Completeness at a glance (#14, G9): a source skipped (offline, an outage, a route) means a zero count
     # is not a negative result; callers that copy "0 hits" into a record must see that here.
     skipped = [b["source"] for b in blocks if b["state"] != "ok"]
-    payload.update({"complete": not skipped, "searched": len(blocks) - len(skipped),
-                    "skipped_sources": skipped})
+    truncated = ["registry"] if (cov or {}).get("declaration_files_capped") else []
+    payload.update({"complete": not skipped and not truncated, "searched": len(blocks) - len(skipped),
+                    "skipped_sources": skipped, "truncated_sources": truncated})
     return render_text(payload), payload
 
 
@@ -464,10 +501,15 @@ def render_text(payload: dict) -> list[str]:
     cov_line = coverage_text(payload.get("coverage"))
     if cov_line:
         lines.append(cov_line)
+    if payload.get("truncated_sources") and not payload.get("skipped_sources"):
+        lines.append(f"incomplete: {', '.join(payload['truncated_sources'])} hit a file cap (see the coverage line); "
+                     f"a zero here is not a negative result")
     if payload.get("skipped_sources"):
         n, k = len(payload["sources"]), len(payload["skipped_sources"])
-        lines.append(f"incomplete: searched {n - k} of {n} sources; skipped: {', '.join(payload['skipped_sources'])}; "
-                     f"a zero here is not a negative result")
+        cap = (f"; {', '.join(payload['truncated_sources'])} hit a file cap"
+               if payload.get("truncated_sources") else "")
+        lines.append(f"incomplete: searched {n - k} of {n} sources; skipped: {', '.join(payload['skipped_sources'])}"
+                     f"{cap}; a zero here is not a negative result")
     lines.append("consulted: " + ", ".join(
         f"{b['source']} ({'ok, ' + _n(len(b['hits'])) if b['state'] == 'ok' else state_text(b)})"
         for b in payload["sources"]))
