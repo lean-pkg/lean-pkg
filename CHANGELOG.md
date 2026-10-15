@@ -7,12 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.39] - 2026-10-15
+
 ### Changed
 
 - docs/prior-art.md: "While the paper is being written", a synthetic co-development example of the discover, pin,
   check-compatibility, decide (require, reuse, vendor, contribute, build) and look-again cycle, including how to
   tell a bounded search from an absence (`complete`, `truncated_sources`, `not_searched_reasons`) and that Loogle
   and LeanSearch answer for Mathlib master, not your pin. The co-development page links to it.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.38] - 2026-10-15
 
