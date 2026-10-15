@@ -187,3 +187,30 @@ def test_not_selected_still_wins_over_routing(lp, srch, searchable, monkeypatch,
     _fake(srch, monkeypatch)
     assert run_search(lp, searchable, "stochastic fubini", "--sources", "registry") == 0
     assert "loogle: skipped: not selected" in capsys.readouterr().out
+
+
+def test_an_outage_marks_the_search_incomplete_in_json_and_text(lp, srch, searchable, monkeypatch, capsys):
+    """Field report (G9): LeanSearch answered 500, the other sources 0 hits, and a copied record said
+    "0 hits". `complete`, `searched` and `skipped_sources` make the gap explicit; the text names it too."""
+    calls = []
+    outage = {"state": "skipped", "reason": "HTTP 500: service error at leansearch.net; retry later",
+              "revision": None, "hits": []}
+    stub_adapters(srch, monkeypatch, calls, {"leansearch": outage})
+    assert run_search(lp, searchable, "predictable sigma algebra", "--json", "--loogle") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["complete"] is False and p["skipped_sources"] == ["leansearch"]
+    assert p["searched"] == len(srch.SOURCES) - 1
+    assert run_search(lp, searchable, "predictable sigma algebra", "--loogle") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-2] == (f"incomplete: searched {len(srch.SOURCES) - 1} of {len(srch.SOURCES)} sources; "
+                         "skipped: leansearch; a zero here is not a negative result")
+    assert lines[-1].startswith("consulted: ")
+
+
+def test_a_full_search_is_complete_and_prints_no_incomplete_line(lp, srch, searchable, monkeypatch, capsys):
+    stub_adapters(srch, monkeypatch, [])
+    assert run_search(lp, searchable, "foo bound", "--json", "--loogle") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["complete"] is True and p["skipped_sources"] == [] and p["searched"] == len(srch.SOURCES)
+    assert run_search(lp, searchable, "foo bound", "--loogle") == 0
+    assert "incomplete:" not in capsys.readouterr().out

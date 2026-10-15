@@ -159,7 +159,10 @@ local score.
 
 Each block says `ok` or `skipped: <reason>`. An unreachable service, a missing
 `gh`, or `--offline` gives `skipped`, never zero hits, and the closing line
-names every source consulted. Zero hits are not an error: the exit code is 0
+names every source consulted. When any source was skipped, the line before
+it says so (`incomplete: searched N of M sources; skipped: ...`), and
+`--json` carries `complete`, `searched` and `skipped_sources[]`: a record of
+"zero hits" from an incomplete search is not a negative result. Zero hits are not an error: the exit code is 0
 unless the command line is wrong (exit 2). `--package NAME` names the
 registered package the search is for; every package's claims are still
 searched.

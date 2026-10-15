@@ -416,6 +416,11 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
     payload = {"ok": True, "term": term, "date": date, "package": package, "offline": offline,
                "route": route, "sources": blocks, "total_hits": sum(len(b["hits"]) for b in blocks),
                "coverage": cov}
+    # Completeness at a glance (#14, G9): a source skipped (offline, an outage, a route) means a zero count
+    # is not a negative result; callers that copy "0 hits" into a record must see that here.
+    skipped = [b["source"] for b in blocks if b["state"] != "ok"]
+    payload.update({"complete": not skipped, "searched": len(blocks) - len(skipped),
+                    "skipped_sources": skipped})
     return render_text(payload), payload
 
 
@@ -459,6 +464,10 @@ def render_text(payload: dict) -> list[str]:
     cov_line = coverage_text(payload.get("coverage"))
     if cov_line:
         lines.append(cov_line)
+    if payload.get("skipped_sources"):
+        n, k = len(payload["sources"]), len(payload["skipped_sources"])
+        lines.append(f"incomplete: searched {n - k} of {n} sources; skipped: {', '.join(payload['skipped_sources'])}; "
+                     f"a zero here is not a negative result")
     lines.append("consulted: " + ", ".join(
         f"{b['source']} ({'ok, ' + _n(len(b['hits'])) if b['state'] == 'ok' else state_text(b)})"
         for b in payload["sources"]))
