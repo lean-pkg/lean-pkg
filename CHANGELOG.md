@@ -9,6 +9,9 @@ change the registry schema or receipt format, always with a migration).
 
 ### Changed
 
+- Documented the layout for workflows that edit progress files after every replay: those files live outside
+  the package directory (docs/receipts.md, "Progress files live outside the package directory"), and the
+  evidence-only rule is unchanged. The opt-in `evidence_paths` of #101 is reverted before any release.
 - CI's private-boundary job also runs `scripts/private-boundary-check.sh --history` on a full-depth checkout, so
   a private string in a commit message (or in any blob of the pull request's history) fails the pull request
   before it reaches `main`. The tree scan alone let one through in #94's commit messages.

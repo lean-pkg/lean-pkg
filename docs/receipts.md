@@ -366,6 +366,34 @@ inside another makes every commit to the inner one drift for the outer one
 (`register` warns). To reuse the first package's results, depend on it from
 git at a pinned rev, not by path (see above).
 
+## Progress files live outside the package directory
+
+Any change inside the package directory, other than `.lean-receipts/`, needs
+a new receipt and a replay. That is deliberate and has no opt-out. So files
+that change after every replay (a progress log, a state file, a statement
+ledger, a roadmap, wave notes) belong outside the package directory, where
+they are never drift:
+
+```text
+Article-X/                      manuscript repository
+  PROGRESS.md                   progress log, state file, ledgers, roadmap
+  .lean-dev-state.json
+  STATEMENT_LEDGER.md  BOUNDARIES.md  ROADMAP.md
+  verification/<wave>/          wave notes and replay transcripts
+  lean/                         the package: registered local_path
+    lakefile.toml  lean-toolchain  lake-manifest.json  claims.yaml
+    Pkg/ ...
+    .lean-receipts/             receipts (`receipt slurm` writes here)
+```
+
+When the package is its own repository checked out inside the manuscript
+repository (as `lean/` above), the progress files go in the manuscript
+repository beside it. A companion repository that holds both keeps the Lake
+package in a subdirectory, registers that subdirectory as `local_path`, and
+keeps the progress files at its root. `claims.yaml` stays inside the package:
+`gate` reads it at the receipt's commit. A change to a `.lean` file, even to a
+docstring, always needs a new receipt.
+
 ## Where evidence lives
 
 Receipts and logs are copied into `<repo>/.lean-receipts/` by `gate` and
