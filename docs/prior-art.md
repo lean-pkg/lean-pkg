@@ -212,8 +212,10 @@ lean-pkg search "∑ k ∈ Finset.range n, (f (k + 1) - f k)" --package telescop
 The first is natural language (Loogle is skipped, every other source runs);
 the second is a signature, so it goes to Loogle as well. Before reading a zero
 as an absence, check `complete`, `skipped_sources[]`, `truncated_sources[]` and
-`coverage.not_searched_reasons[]` in `--json`: a skipped source, a file cap or
-a package that was never searched means the search was bounded.
+`coverage.not_searched_reasons[]` in `--json`: a skipped source, a file cap, a
+source that answered only in part (its block's `partial[]`, e.g. GitHub's code
+search rate-limited while its repository search worked) or a package that was
+never searched means the search was bounded.
 
 **2. Pin what you found.** A candidate is only usable at an exact revision.
 Each hit carries one: a registry claim its `pin` (the synced commit), the index

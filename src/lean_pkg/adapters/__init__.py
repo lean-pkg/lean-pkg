@@ -62,8 +62,14 @@ def run_cmd(argv: list[str], timeout: float = 120) -> tuple[int, bytes, str] | N
     return p.returncode, p.stdout, p.stderr.decode("utf-8", errors="replace")
 
 
-def ok(revision: str | None, hits: list[dict], reason: str | None = None) -> dict:
-    return {"state": "ok", "reason": reason, "revision": revision, "hits": hits}
+def ok(revision: str | None, hits: list[dict], reason: str | None = None,
+       partial: list[str] | None = None) -> dict:
+    """`partial` names the parts of the source that failed (GitHub's `code` search): the source answered,
+    but a zero from it is not a negative result."""
+    r = {"state": "ok", "reason": reason, "revision": revision, "hits": hits}
+    if partial:
+        r["partial"] = list(partial)
+    return r
 
 
 def skipped(reason: str, revision: str | None = None) -> dict:

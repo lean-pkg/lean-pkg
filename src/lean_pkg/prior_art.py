@@ -63,8 +63,9 @@ def _q(term: str) -> str:
 
 def not_found_line(payload: dict) -> str | None:
     """The spec's zero-hit wording, over exactly the sources that ran and found nothing."""
-    zero = [f"{b['source']} at {b['revision'] or 'unknown revision'}" for b in payload["sources"]
-            if b["state"] == "ok" and not b["hits"] and not b.get("withheld")]
+    zero = [f"{b['source']} at {b['revision'] or 'unknown revision'}"
+            + (f" ({', '.join(b['partial'])} search failed, not searched)" if b.get("partial") else "")
+            for b in payload["sources"] if b["state"] == "ok" and not b["hits"] and not b.get("withheld")]
     if not zero:
         return None
     return f"Not found in {', '.join(zero)} on {payload['date']} for {_q(payload['term'])}."
@@ -111,6 +112,8 @@ def render_record(payload: dict, *, withheld: int, private_claims: bool) -> str:
              "| Source | Revision | State | Hits |", "|---|---|---|---|"]
     for b in payload["sources"]:
         state = "ok" if b["state"] == "ok" else f"skipped: {b['reason']}"
+        if b["state"] == "ok" and b.get("partial"):
+            state = f"partial: {', '.join(b['partial'])} search failed"
         w = b.get("withheld") or 0
         hits = (f"{len(b['hits'])} shown (+{w} withheld)" if w else str(len(b["hits"]))) if b["state"] == "ok" else "-"
         lines.append(f"| {b['source']} | {_cell(b['revision'] or '-')} | {_cell(state)} | {hits} |")

@@ -191,3 +191,16 @@ def test_record_prints_the_nav_hint_and_json_carries_it(lp, searchable, capsys):
 def test_no_record_no_nav_hint(lp, searchable, capsys):
     assert run_search(lp, searchable, "foo bound", "--offline", "--json") == 0
     assert "nav_hint" not in json.loads(capsys.readouterr().out)
+
+
+def test_record_never_reports_a_partly_failed_source_as_not_found(lp, srch, searchable, monkeypatch, capsys):
+    """Field report: GitHub code search was rate-limited (HTTP 403) while repository search answered with
+    nothing. The record must not say "Not found in github" as if the code had been searched."""
+    s = searchable
+    partial = {"state": "ok", "reason": "code search failed: HTTP 403: API rate limit exceeded",
+               "revision": "live", "hits": [], "partial": ["code"]}
+    monkeypatch.setattr(srch.ADAPTERS["github"], "search", lambda term, timeout=10: partial)
+    assert run_search(lp, s, "zz no such term", "--sources", "github", "--package", "beta", "--record") == 0
+    text = record_file(s.env.repo_b, today(lp), "zz-no-such-term").read_text()
+    assert "| github | live | partial: code search failed | 0 |" in text
+    assert "Not found in github at live (code search failed, not searched) on " in text

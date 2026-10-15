@@ -365,6 +365,21 @@ def test_github_code_search_failure_is_a_partial_ok(monkeypatch):
     r = gh.search("Gumbel")
     assert r["state"] == "ok" and len(r["hits"]) == 1
     assert r["reason"] == "code search failed: HTTP 401: Requires authentication"
+    assert r["partial"] == ["code"]
+
+
+def test_github_repository_search_failure_is_partial_too(monkeypatch):
+    gh = mod("github")
+    monkeypatch.setattr(gh, "runner", fake_search([], repos=(1, None)))
+    r = gh.search("Gumbel")
+    assert r["state"] == "ok" and r["partial"] == ["repository"]
+    assert r["reason"].startswith("repository search failed: HTTP 401")
+
+
+def test_github_with_both_searches_answering_is_not_partial(monkeypatch):
+    gh = mod("github")
+    monkeypatch.setattr(gh, "runner", fake_search([]))
+    assert "partial" not in gh.search("Gumbel")
 
 
 def test_github_both_failing_is_skipped(monkeypatch):

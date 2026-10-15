@@ -214,3 +214,40 @@ def test_a_full_search_is_complete_and_prints_no_incomplete_line(lp, srch, searc
     assert p["complete"] is True and p["skipped_sources"] == [] and p["searched"] == len(srch.SOURCES)
     assert run_search(lp, searchable, "foo bound", "--loogle") == 0
     assert "incomplete:" not in capsys.readouterr().out
+
+
+GH_PARTIAL = {"state": "ok", "reason": "code search failed: HTTP 403: API rate limit exceeded",
+              "revision": "live", "hits": [], "partial": ["code"]}
+
+
+def test_a_partly_failed_source_marks_the_search_incomplete(lp, srch, searchable, monkeypatch, capsys):
+    """Field report: GitHub code search hit a rate limit (HTTP 403) while repository search answered,
+    so github read `ok, 0 hits` and the search said `complete: true`. A zero from a source that answered
+    only in part is not a negative result."""
+    stub_adapters(srch, monkeypatch, [], {"github": GH_PARTIAL})
+    assert run_search(lp, searchable, "Doob maximal inequality", "--json", "--loogle") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["complete"] is False and p["skipped_sources"] == [] and p["truncated_sources"] == ["github"]
+    gh = next(b for b in p["sources"] if b["source"] == "github")
+    assert gh["state"] == "ok" and gh["partial"] == ["code"]
+    assert all(b["partial"] == [] for b in p["sources"] if b["source"] != "github")
+    assert run_search(lp, searchable, "Doob maximal inequality", "--loogle") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-2] == "incomplete: github: code search failed; a zero here is not a negative result"
+    assert "github (partial, 0 hits)" in lines[-1] and "loogle (ok, 1 hit)" in lines[-1]
+
+
+def test_a_partial_source_and_an_outage_are_both_named(lp, srch, searchable, monkeypatch, capsys):
+    outage = {"state": "skipped", "reason": "HTTP 500", "revision": None, "hits": []}
+    stub_adapters(srch, monkeypatch, [], {"github": GH_PARTIAL, "leansearch": outage})
+    assert run_search(lp, searchable, "Doob maximal inequality", "--loogle") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-2] == (f"incomplete: searched {len(srch.SOURCES) - 1} of {len(srch.SOURCES)} sources; "
+                         "skipped: leansearch; github: code search failed; a zero here is not a negative result")
+
+
+def test_a_malformed_partial_field_is_ignored(lp, srch, searchable, monkeypatch, capsys):
+    stub_adapters(srch, monkeypatch, [], {"github": dict(GH_PARTIAL, partial="code")})
+    assert run_search(lp, searchable, "Doob maximal inequality", "--json", "--loogle") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["complete"] is True and p["truncated_sources"] == []

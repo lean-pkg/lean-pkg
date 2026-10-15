@@ -7,6 +7,17 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `search` no longer reports a complete search when GitHub answered only in part. When `gh search code` failed
+  (for example HTTP 403, rate limit) and `gh search repos` worked, the github source read `ok, 0 hits` with the
+  failure only in its note, and `--json` said `complete: true` (field report). Every source block now carries
+  `partial[]` (`["code"]` or `["repository"]` for GitHub, empty otherwise); a source with a failed part is added to
+  `truncated_sources`, makes `complete` false, and is named on the `incomplete:` line
+  (`incomplete: github: code search failed; a zero here is not a negative result`); the `consulted:` line reads
+  `github (partial, 0 hits)`. A `--record` page shows `partial: code search failed` in its Sources table and no
+  longer writes `Not found in github at live` as if the code had been searched.
+
 ## [0.7.39] - 2026-10-15
 
 ### Changed
