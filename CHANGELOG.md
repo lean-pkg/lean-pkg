@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.37] - 2026-10-15
+
 ### Fixed
 
 - `search` no longer misses a declaration silently when a package has many candidate files. The declaration search
@@ -16,6 +18,8 @@ change the registry schema or receipt format, always with a migration).
   `coverage.declaration_files_capped[]` {package, candidates, inspected}, `truncated_sources: ["registry"]` and
   `complete: false`; the coverage line names the package and the `incomplete:` line says a file cap was hit. The
   10-per-package display cap is separate and still counted as `declaration_hits_omitted`.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.36] - 2026-10-15
 
