@@ -305,8 +305,12 @@ def test_make_test_removes_its_bytecode_cache_on_sigint(tmp_path):
                                      'mkdir -p "$PYTHONPYCACHEPREFIX/x"\nexec sleep 30\n')
     (fakebin / "python3").chmod(0o755)
     env = dict(os.environ, PATH=f"{fakebin}{os.pathsep}{os.environ['PATH']}")
+    # A suite started as `cmd &` from a script (or under nohup) runs with SIGINT ignored, and that is
+    # inherited across exec; a shell cannot trap a signal ignored at entry, so the recipe's trap would never
+    # run. Give make the default disposition, as a terminal would.
     p = subprocess.Popen([make, "-s", "-C", str(ROOT), "test"], env=env, start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
     gone = False   # reaped by someone else: ECHILD from our waitpid
 
     def reap(deadline):
@@ -363,6 +367,22 @@ def test_make_test_removes_its_bytecode_cache_on_sigint(tmp_path):
     if leaked:
         shutil.rmtree(prefix, ignore_errors=True)
     assert not leaked, f"{prefix} leaked after SIGINT"
+
+
+def test_the_sigint_test_passes_when_sigint_is_ignored_on_entry():
+    """Regression: two suites launched as `( make test ) &` from a script ran with SIGINT ignored, and the
+    test above then failed with "make test still running 15 s after SIGINT". Run it in a pytest that
+    starts with SIGINT ignored, as such a launch does; it must pass."""
+    import shutil, signal, subprocess, sys
+    import pytest
+    if shutil.which("make") is None:
+        pytest.skip("make not installed")
+    code = ("import signal, sys, pytest; signal.signal(signal.SIGINT, signal.SIG_IGN); "
+            "sys.exit(pytest.main(['-q', '-p', 'no:cacheprovider', "
+            "'tests/test_docs.py::test_make_test_removes_its_bytecode_cache_on_sigint']))")
+    p = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=120)
+    assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
+    assert "1 passed" in p.stdout
 
 
 def test_copyright_statement_is_the_ipx_confirmed_one_everywhere():
