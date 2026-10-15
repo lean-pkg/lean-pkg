@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.34] - 2026-10-15
+
 ### Changed
 
 - `receipt slurm|systemd` refuses a verify log whose `sorry-count:` line declares fewer than the log's own
@@ -14,6 +16,8 @@ change the registry schema or receipt format, always with a migration).
   lists only `theorem`s printed `sorry-count: 0` while Lean warned about a `sorry` in a `lemma` (field report, G7).
   None of the 20 committed verify logs checked (every registered package with a checkout on the maintainer's
   host) has such a warning.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.33] - 2026-10-15
 
