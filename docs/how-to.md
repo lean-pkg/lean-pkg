@@ -81,6 +81,10 @@ lean-pkg claim my-proof --workspace w9 --agent bob --force --reason "alice is aw
 A refusal names the current holder and the expiry. Work that outlasts the
 TTL renews before the lease lapses; a lapsed lease is refused by `renew`
 (claim again). `audit` reports expired leases; `audit --fix` clears them.
+`status` ends with `lease: EXPIRED ...` once a lease has lapsed and with
+`lease: expires in ...` in its last two hours, and any other command on the
+package says the same on stderr, so a holder that went idle hears it on its
+next command. `lean-pkg lease` is another name for `lean-pkg claim`.
 
 ## Move a package through the lifecycle by hand
 

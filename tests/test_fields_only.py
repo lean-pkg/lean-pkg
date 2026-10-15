@@ -81,7 +81,8 @@ def test_status_unknown_nested_field_exits_2_listing_that_level(lp, env, capsys)
 def test_status_without_fields_unchanged(lp, env, capsys):
     rc, cap = _run(lp, env, capsys, "status", "alpha", "--json")
     data = json.loads(cap.out)
-    assert set(data) == {"ok", "name", "package", "history_count", "branch"}   # branch: additive (#48)
+    assert set(data) == {"ok", "name", "package", "history_count", "branch",   # branch: additive (#48)
+                         "lease_state"}                                       # additive: lapse warning
     assert data["package"]["name"] == "alpha"
 
 

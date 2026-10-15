@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `lease` is accepted as the name of `claim` (the registry's own word for what it takes); it is a write in every
+  respect, including committed mode and the registry lock (field report).
+- A lease that lapses mid-workflow is said out loud (field report: a release lease lapsed overnight while its
+  holder waited on a decision). `status NAME` ends with `lease: EXPIRED <age> ago (<agent>); renew no longer works:
+  lean-pkg claim ...` for a lapsed lease and `lease: expires in <time> (<agent>); keep it: lean-pkg renew ...` for
+  one lapsing within 2 h, and `--json` carries `lease_state` {state, seconds_left}. Any other command naming that
+  package prints the same as a stderr `WARN`, so the holder hears it on its next command.
+
 ### Changed
 
 - A write that runs without committed mode no longer leaves a shared registry clone dirty in silence. When the
