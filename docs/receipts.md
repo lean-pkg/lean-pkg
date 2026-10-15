@@ -331,6 +331,33 @@ at X, not at H, and never from the working tree. Modified tracked files in
 the checkout print a WARN at `gate` and `comparator`; `--refuse-dirty` turns
 the WARN into a refusal.
 
+### Opt-in evidence paths
+
+Some workflows edit progress files after every replay (a progress log, a
+state file, a ledger under `verification/`), and under the rule above each
+such edit costs a new receipt. A package can name those files as evidence:
+
+```bash
+lean-pkg update my-proof --evidence-paths 'PROGRESS.md,verification/**,.lean-dev-state.json' \
+  --reason "wave-close files"
+```
+
+The globs use the public-safety syntax and are package-relative. Paths that
+match them may then differ between the receipt's commit and HEAD, like
+`.lean-receipts/`. Three limits keep the binding honest:
+
+- build inputs are never evidence, whatever a glob says: `*.lean`,
+  `lakefile.*`, `lake-manifest.json`, `lean-toolchain`, and the package's
+  claims file (`gate` checks it at the receipt's commit). `update` refuses a
+  glob that would match one, such as `*`, `**` or `*.yaml`;
+- if any Lean file at HEAD reads files while it builds (`include_str`,
+  `IO.FS`, `readFile`), the globs are not applied, since an "evidence" file
+  could then be a source;
+- the setting needs `--reason` and is recorded as an `updated` event;
+  `--evidence-paths ''` returns the package to the strict rule.
+
+A Lean change, even to a docstring, still needs a new receipt.
+
 ### Path dependencies
 
 A receipt binds the package directory at one commit. A Lake
