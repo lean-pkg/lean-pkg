@@ -505,3 +505,28 @@ def test_help_names_the_sources_and_redactions(lp, capsys):
     for needle in ("--properties-file", "--run", "RemainAfterExit", "systemd-user:<U>:<InvocationID>@<host>",
                    "redacted to <repo>, <HOME>, /run/user/<UID>/"):
         assert needle in out, needle
+
+
+def test_json_names_the_sealed_files_not_the_raw_capture(lp, repo, tmp_path, capsys):
+    """Field report (SWE round 3): a coordinator took the raw properties capture (the same 21 pairs in another
+    order) for the sealed sidecar and its seal check refused. `sealed[]` names every file the run wrote and
+    bound, with its SHA-256 and the receipt key holding it; `properties` stays the raw, unsealed input."""
+    lines = props_text().splitlines(keepends=True)
+    u = Unit(tmp_path, props="".join(reversed(lines)))          # same pairs, different byte order
+    assert run(lp, repo, u, "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    roles = {e["role"]: e for e in data["sealed"]}
+    assert set(roles) == {"receipt", "redacted-log", "unit.properties"}
+    receipt = json.loads(Path(roles["receipt"]["path"]).read_text())
+    for e in data["sealed"]:
+        assert sha(Path(e["path"]).read_bytes()) == e["sha256"]
+        if e["receipt_key"]:
+            assert receipt[e["receipt_key"]] == e["sha256"]
+    assert roles["unit.properties"]["receipt_key"] == "unit_properties_sha256"
+    assert data["properties"] == str(u.props) and sha(u.props.read_bytes()) != roles["unit.properties"]["sha256"]
+
+
+def test_json_sealed_is_empty_when_refused(lp, repo, tmp_path, capsys):
+    assert run(lp, repo, Unit(tmp_path, props=props_text(Result="oom-kill")), "--json") == 1
+    assert json.loads(capsys.readouterr().out)["sealed"] == []
+    assert_nothing_written(repo)

@@ -360,6 +360,7 @@ def _refuse_early(args, job_id: str | None, refusals: list[str], checks: list[st
     """Refuse before the shared pipeline can run (the unit never ran, or left no log)."""
     if args.json_out:
         payload = {"ok": False, "receipt": None, "log": None, "report_sha256": None, "raw_log_sha256": None,
+                   "sealed": [],
                    "job_id": job_id, "seal": None}
         payload.update(json_extra)
         payload.update({"redactions": 0, "lines_redacted": 0, "checks": checks, "readme_block": None,
