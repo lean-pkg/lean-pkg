@@ -27,6 +27,10 @@ change the registry schema or receipt format, always with a migration).
   retry later`, and a 404 as `HTTP 404: API moved (https://leansearch.net/search not found); the leansearch adapter
   needs updating`, instead of a bare `HTTP <status>` (other statuses unchanged). On 2026-10-14 every query
   answered 500 while the request matched the site's own page, and the bare status left open which side was at fault.
+- docs/how-to.md: `public-safety` blocks a lease holder's name recorded in a progress file, because it derives
+  that name from the package record. Write the lease line in its redacted form, pointing at
+  `lean-pkg status NAME --fields lease`, or keep the name and exempt that one file with a scoped
+  `allow: PROGRESS.md: ^<agent-name>$` (#99; behaviour unchanged).
 
 ### Fixed
 
