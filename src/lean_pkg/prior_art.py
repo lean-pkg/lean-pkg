@@ -75,12 +75,13 @@ def coverage_sentence(payload: dict) -> str | None:
     cov = payload.get("coverage")
     if not cov:
         return None
+    from . import search as srch   # local: search imports this module
     blind = cov["declaration_only"] + len(cov["not_searched"])
     if not blind:
         return None
     return (f"{blind} of {blind + cov['claims']} registered packages have no synced claims: "
             f"{cov['declaration_only']} searched by declaration only, {len(cov['not_searched'])} not searched "
-            f"(no checkout).")
+            f"({srch.not_searched_groups(cov, names=False)}).")
 
 
 def _candidate(h: dict) -> str:
