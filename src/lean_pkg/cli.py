@@ -32,6 +32,7 @@ touch the outside world are dry-run by default.
     update    <name> [--notes ...] [--status S --reason T]
                                             fields of a registered package
     claim     <name> --workspace W --agent A [--ttl H] [--reason T] [--contact C] [--force]
+              (alias: lease)
     release   <name> [--agent A] [--force]
     renew     <name> --agent A [--ttl H] [--contact C | --no-contact]
                                             restart your live lease; refuses once lapsed
@@ -1191,6 +1192,53 @@ def lease_expires_label(lease: dict | None, now: dt.datetime) -> str:
 
 
 LEASE_WARN_HOURS = 2    # doctor warns about leases that lapse within this window
+COMMAND_ALIASES = {"lease": "claim"}   # the registry's own word for what claim takes (field report)
+# Commands that act on a lease themselves, or print its state, get no lapse warning (lease_warning).
+LEASE_WARNING_SKIP = {"claim", "renew", "release", "leases", "audit", "status"}
+
+
+def lease_state(lease: dict | None, now: dt.datetime) -> tuple[str, float | None]:
+    """(state, seconds left) of a lease: `none`, `invalid` (unparseable fields), `expired` (seconds < 0),
+    `expiring` (within LEASE_WARN_HOURS) or `live`."""
+    if not lease:
+        return "none", None
+    exp = lease_expiry_or_none(lease)
+    if exp is None:
+        return "invalid", None
+    left = (exp - now).total_seconds()
+    if left <= 0:
+        return "expired", left
+    return ("expiring" if left <= LEASE_WARN_HOURS * 3600 else "live"), left
+
+
+def lease_state_line(name: str, lease: dict | None, now: dt.datetime) -> str | None:
+    """`status`'s lease line: EXPIRED or expiring with the command that keeps it; None for a live lease or none."""
+    state, left = lease_state(lease, now)
+    agent = (lease or {}).get("agent", "?")
+    if state == "expired":
+        return (f"lease: EXPIRED {human_delta(-left)} ago ({agent}); renew no longer works: lean-pkg claim {name} "
+                f"--workspace W --agent {agent} (audit --fix sweeps it; another agent may claim it first)")
+    if state == "expiring":
+        return (f"lease: expires in {human_delta(left)} ({agent}); keep it: lean-pkg renew {name} --agent {agent}")
+    if state == "invalid":
+        return "lease: unreadable claimed_at/ttl_hours; audit --fix sweeps it"
+    return None
+
+
+def lease_warning(args) -> None:
+    """Before a command on one package: a stderr WARN when that package's lease has lapsed or lapses within
+    LEASE_WARN_HOURS, so a holder that went idle mid-workflow hears it on its next command (#53's report: a
+    release lease lapsed unnoticed overnight). Best effort: an unreadable registry says nothing here."""
+    name = getattr(args, "name", None)
+    if not isinstance(name, str) or getattr(args, "cmd", None) in LEASE_WARNING_SKIP:
+        return
+    try:
+        pkg = (load_registry(registry_path(args), check_version=False).get("packages") or {}).get(name)
+    except Exception:   # noqa: BLE001 -- a warning must never turn into the command's failure
+        return
+    line = lease_state_line(name, (pkg or {}).get("lease"), dt.datetime.now(dt.timezone.utc))
+    if line:
+        print(f"lean-pkg: WARN: {name} {line}", file=sys.stderr)
 
 
 def nonneg_hours(v: str) -> float:
@@ -4599,9 +4647,12 @@ def cmd_status(args) -> int:
     except (KeyError, TypeError, ValueError):
         repo = None
     branch = branch_state(repo)
+    now = dt.datetime.now(dt.timezone.utc)
+    state, left = lease_state(pkg.get("lease"), now)
     if args.json_out:
         print_json({"ok": True, "name": args.name, "package": pkg,
-                    "history_count": len(hist), **omitted, "branch": branch})
+                    "history_count": len(hist), **omitted, "branch": branch,
+                    "lease_state": {"state": state, "seconds_left": None if left is None else int(left)}})
         return 0
     view = dict(pkg)
     view["history"] = f"<{len(hist)} entries; last 5 below>"
@@ -4615,6 +4666,9 @@ def cmd_status(args) -> int:
     notice = branch_notice(repo, branch)
     if notice:
         print(f"branch: {notice}")
+    line = lease_state_line(args.name, pkg.get("lease"), now)
+    if line:
+        print(line)
     return 0
 
 
@@ -5073,7 +5127,7 @@ any -> archived                    `update --status archived --reason` or `audit
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path}; --registry-snapshot COMMIT (env LEAN_PKG_REGISTRY_SNAPSHOT): read-only, the registry + event log as of COMMIT of its git repo (git show into a temp copy); reads work (status/list/board/audit/dry runs/comparator config --dry-run), every write exits 2 `read-only: --registry-snapshot`; --json +registry_snapshot sha)
 board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
-status    full record + last 5 history entries (a lease adds derived expires_at, UTC); --fields a,b.c: only those keys (dotted paths; lease.contact: null when unset; aliases = the table columns: pin, vis, reaudit, expires|lease.expires, lease.claimed; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
+status    full record + last 5 history entries (a lease adds derived expires_at, UTC; a lapsed lease ends the output with `lease: EXPIRED ...`, one lapsing within 2h with `lease: expires in ...`; --json lease_state {state live|expiring|expired|invalid|none, seconds_left}); --fields a,b.c: only those keys (dotted paths; lease.contact: null when unset; aliases = the table columns: pin, vis, reaudit, expires|lease.expires, lease.claimed; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent; a legacy literal ~/x local_path is rewritten $HOME-relative). ex: lean-pkg migrate --dry-run
@@ -5095,7 +5149,7 @@ update    set fields (--notes over non-empty notes: exit 2, nothing written, unl
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
-claim     CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
+claim     (alias: lease) CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Any other command naming a package whose lease has lapsed, or lapses within 2h, prints stderr `WARN: NAME lease: EXPIRED ... | expires in ...` with the claim/renew that keeps it (not claim/renew/release/leases/audit/status). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
   flags: --workspace W --agent A (required) [--ttl HOURS: 24 new; a holder's re-claim keeps its TTL] [--reason TEXT] [--contact TEXT: address of the holding session (e.g. lab-desk/n14-paper, @lean-ops), stored as lease.contact; one line, <= 200 chars, else exit 2; a re-claim without it keeps it] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
@@ -6716,7 +6770,7 @@ def main(argv: list[str] | None = None) -> int:
     add_json(s)
     s.set_defaults(fn=cmd_register)
 
-    s = sub.add_parser("claim", help="CAS lease on a package (24h default TTL)")
+    s = sub.add_parser("claim", aliases=["lease"], help="CAS lease on a package (24h default TTL); alias: lease")
     s.add_argument("name")
     s.add_argument("--workspace", required=True)
     s.add_argument("--agent", required=True)
@@ -7027,6 +7081,8 @@ def main(argv: list[str] | None = None) -> int:
 
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)
+    if getattr(args, "cmd", None) in COMMAND_ALIASES:   # every later check keys on the canonical name
+        args.cmd = COMMAND_ALIASES[args.cmd]
     if getattr(args, "show_version", False):   # before the registry lock: --version reads no registry
         return cmd_version(args)
     snapshot = registry_snapshot_arg(args)
@@ -7174,6 +7230,7 @@ def run_command(args) -> int:
                 with _registry_lock_if_present(args):
                     ctx = commit_preflight(args, mode)
                 args.commit_ctx = ctx   # the TUI commits after each of its writes
+            lease_warning(args)
             rc = args.fn(args)
         except UsageError as e:
             if getattr(args, "json_out", False):
