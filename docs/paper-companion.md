@@ -67,6 +67,8 @@ lean-pkg search "telescoping partial sums" --package telescoping-companion
 
 If the search reports `incomplete: searched N of M sources`, a zero is not a
 negative result; search again later or look by hand.
+For the full discover, pin, check and decide cycle, see
+[Prior-art search: while the paper is being written](prior-art.md#while-the-paper-is-being-written).
 
 ## 3. State it exactly, with its hypotheses
 

@@ -192,6 +192,67 @@ is itself private, and then says `private-claims: yes` near the top; check such
 a record before that repository goes public. Otherwise it gives only their
 number.
 
+## While the paper is being written
+
+When a paper and its Lean companion develop together (see
+[Develop a paper with its Lean companion](paper-companion.md)), search before
+each new intermediate result, not once at the start. The steps below continue
+that page's synthetic example: the companion `telescoping-companion` needs the
+partial sums of `1/((k+1)(k+2))`, and the registry also holds a fictional
+package `series-basics`.
+
+**1. Discover, in prose and by shape.** Run both kinds of query, and keep the
+record:
+
+```bash
+lean-pkg search "telescoping partial sums" --package telescoping-companion --record
+lean-pkg search "∑ k ∈ Finset.range n, (f (k + 1) - f k)" --package telescoping-companion --record
+```
+
+The first is natural language (Loogle is skipped, every other source runs);
+the second is a signature, so it goes to Loogle as well. Before reading a zero
+as an absence, check `complete`, `skipped_sources[]`, `truncated_sources[]` and
+`coverage.not_searched_reasons[]` in `--json`: a skipped source, a file cap or
+a package that was never searched means the search was bounded.
+
+**2. Pin what you found.** A candidate is only usable at an exact revision.
+Each hit carries one: a registry claim its `pin` (the synced commit), the index
+its commit, Reservoir its index commit. Loogle and LeanSearch search Mathlib
+`master`, not your pin, so check a Mathlib candidate at the Mathlib your
+`lake-manifest.json` pins before relying on it. For a registry candidate:
+
+```bash
+lean-pkg status series-basics --fields repo,pin,lean_toolchain,license_spdx
+lean-pkg claims ledger series-basics --json
+```
+
+The ledger says whether the claim is `verified` and at which commit;
+a declaration hit (`hit_kind: declaration (unclaimed)`) has `trust: none`.
+
+**3. Check compatibility.** Compare the candidate's exact statement with the
+use the paper makes of it: the same hypotheses (no stronger ones), the same
+objects, a conclusion at least as strong. Then the practical fit: toolchain and
+Mathlib pins, license, and whether it is a reusable claim or an internal
+helper. A candidate that differs only in an extra hypothesis the paper can
+discharge is still a reuse; one whose statement the paper cannot meet is not.
+
+**4. Decide and write it down.** Edit the record's `decision:` line:
+
+| decision | when |
+|---|---|
+| `require` | depend on the candidate's package from git at the pinned rev |
+| `reuse` | it is already in a dependency you have (for example Mathlib at your pin) |
+| `vendor` | copy it in, with its license and attribution, because a dependency is too heavy |
+| `contribute` | adapt it upstream (a missing hypothesis, a generalisation) and depend on the result |
+| `build` | nothing fits; give the reason each candidate was rejected |
+
+**5. Know when to look again.** A decision holds for the statement and pins it
+was made for. Search again when the paper changes what it needs from the
+result, when your toolchain or Mathlib pin moves, or when a candidate's
+package is re-gated at a new commit. The paper-to-Lean coverage map on the
+co-development page is the place to note which results were reused, adapted or
+built.
+
 ## Reminders, not gates
 
 `lean-pkg claim` prints a note when the package has no `prior-art-searched`
