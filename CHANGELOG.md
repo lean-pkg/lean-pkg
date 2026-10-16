@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.44] - 2026-10-16
+
 ### Fixed
 
 - `claim`/`renew --ttl` is bounded at 8760 hours (one year); a larger value is a usage error (exit 2) with nothing
@@ -157,6 +159,9 @@ change the registry schema or receipt format, always with a migration).
   `systemd-user:<U>:<InvocationID>@h-<12 hex>`, the first 12 hex digits of the SHA-256 of the lower-cased host
   name, and the stored `unit.properties` carries the label in `Hostname=` (the receipt scan now blocks this host's
   name, review finding). Receipts already written keep their names.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
+
 ## [0.7.43] - 2026-10-16
 
 ### Fixed
