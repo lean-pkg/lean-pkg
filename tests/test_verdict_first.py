@@ -107,7 +107,7 @@ def test_public_safety_quiet_prints_no_hit_lines(lp, tmp_path, capsys):
     (repo / "A.lean").write_text("theorem t : True := trivial\n")
     assert ps_run(lp, reg, "public-safety", "pkg", "--no-history", "--quiet") == 0
     lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == 3 and lines[-1] == "ok: no private pattern found"
+    assert len(lines) == 4 and lines[2].startswith("  note: no project-specific patterns: built-ins only") and lines[-1] == "ok: no private pattern found"
 
 
 def test_audit_quiet_prints_the_count_line_only(lp, env, capsys):

@@ -9,6 +9,15 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `public-safety NAME`: with no hit and no blocking line in `.lean-pkg-private-patterns` (none, or only `warn:`
+  and `allow:` lines), a `note: no project-specific patterns: built-ins only` line before the verdict (also under
+  `--quiet`): 0 hits then means none of the generic patterns matched, not that nothing private is there. JSON:
+  additive `builtins_only` (true when the patterns file supplies no blocking line) (field report).
+- docs/receipts.md "Before freezing a public candidate": project-specific `block:` patterns (citation-key
+  prefixes, internal review and note files, reviewer and agent handles, private repository names; placeholders,
+  never the strings), `public-safety --history --strict` with `skipped[]` read, a history sample check before
+  trusting 0 hits, `release --fresh-repo` (or `--from-tree`) when the history holds private material and a
+  re-scan of the fresh repository with the patterns file copied in, and the patterns file kept untracked (field report).
 - docs/paper-companion.md "Consolidate several checkpoint packages into one": a recipe for merging several
   verified-private packages into one new package under a new name, with existing commands only: a
   relocation-only consolidation commit (no renames), a committed source and claim hash map (sha256 per relocated
@@ -16,6 +25,11 @@ change the registry schema or receipt format, always with a migration).
   gate (owned names, claim ids, negative controls and witnesses, comparator configuration), `register --like`,
   fresh gate and comparator receipts, and two environment pitfalls (file modes under `umask 002`, hashing elan's
   `lake` proxy instead of the toolchain binary) (field report).
+
+### Fixed
+
+- docs/receipts.md "Paper-incubated packages": a code fence closed on a line that also held prose, so the rest
+  of the page rendered as code.
 
 ## [0.7.50] - 2026-10-16
 

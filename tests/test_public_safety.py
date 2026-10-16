@@ -97,6 +97,39 @@ def test_untracked_patterns_file_is_read_not_reported(lp, tmp_path, capsys):
     assert payload["patterns_source"]["tracked"] is False and payload["warnings"] == []
 
 
+def test_zero_hits_with_builtins_only_says_so(lp, tmp_path, capsys):
+    """Field report: 0 hits under the built-ins alone means none of them matched, not that nothing private is there;
+    the human report says so, and the JSON carries builtins_only. A blocking file line ends the note."""
+    note = "  note: no project-specific patterns: built-ins only"
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={
+        "Main.lean": "theorem t : True := trivial\n", ".gitignore": ".lean-pkg-private-patterns\n"})
+    reg = make_env(tmp_path, repo)
+    assert run(lp, reg, "public-safety", "pkg") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[2].startswith(note) and lines[-1] == "ok: no private pattern found" and len(lines) == 4
+    assert run(lp, reg, "public-safety", "pkg", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["builtins_only"] is True
+    # warn: and allow: lines are not project-specific blocking patterns: the note stays
+    (repo / ".lean-pkg-private-patterns").write_text("warn: Nightjar\nallow: ^x$\n")
+    assert run(lp, reg, "public-safety", "pkg") == 0
+    assert any(ln.startswith(note) for ln in capsys.readouterr().out.splitlines())
+    # one blocking line (bare or block:): no note, builtins_only false
+    for line in (f"{SECRET_WORD}\n", f"block: {SECRET_WORD}\n"):
+        (repo / ".lean-pkg-private-patterns").write_text(line)
+        assert run(lp, reg, "public-safety", "pkg") == 0
+        lines = capsys.readouterr().out.splitlines()
+        assert not any(ln.startswith(note) for ln in lines) and len(lines) == 3
+        assert run(lp, reg, "public-safety", "pkg", "--json") == 0
+        assert json.loads(capsys.readouterr().out)["builtins_only"] is False
+    # a hit: the note is not printed (the scan found something; the JSON key still describes the patterns)
+    (repo / ".lean-pkg-private-patterns").unlink()
+    (repo / "Main.lean").write_text(f"-- from {SECRET_PATH}\ntheorem t : True := trivial\n")
+    assert run(lp, reg, "public-safety", "pkg", "--no-history") == 1
+    assert not any(ln.startswith(note) for ln in capsys.readouterr().out.splitlines())
+    assert run(lp, reg, "public-safety", "pkg", "--no-history", "--json") == 1
+    assert json.loads(capsys.readouterr().out)["builtins_only"] is True
+
+
 def test_clean_package_passes(lp, tmp_path, capsys):
     repo = make_repo(tmp_path / "pkg-repo", extra_files={"Main.lean": "theorem t : True := trivial\n"})
     reg = make_env(tmp_path, repo)
@@ -490,7 +523,7 @@ def test_report_puts_the_verdict_up_front_and_groups_warn_hits_after_blocking(lp
     (repo / "A.lean").write_text("theorem t : True := trivial\n")
     assert run(lp, reg, "public-safety", "pkg", "--no-history") == 0
     lines = capsys.readouterr().out.splitlines()
-    assert len(lines) == 3 and lines[-1] == "ok: no private pattern found"
+    assert len(lines) == 4 and lines[2].startswith("  note: no project-specific patterns: built-ins only") and lines[-1] == "ok: no private pattern found"
 
 
 def test_lease_holder_in_a_progress_file_and_its_scoped_allow(lp, tmp_path, capsys):
