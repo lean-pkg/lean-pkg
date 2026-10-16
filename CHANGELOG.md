@@ -26,6 +26,15 @@ change the registry schema or receipt format, always with a migration).
   explains why coverage can differ between runs (checkouts and git grep outcomes; no shared cache) (field report).
 - docs/prior-art.md: "When a public library is not found": what the index, Reservoir and GitHub sources each
   cover, and why a construction inside a third-party library is found by the library's own words (field report).
+- `lean-exercise check --challenge FILE --solution FILE`: a new console script (beside `comparator-receipt`) that
+  judges a learner's Solution against a Challenge with the toolchain's `lake comparator`, one run per `sorry`'d
+  theorem, with a verdict each: `accepted`, `statement_mismatch`, `illegal_axiom` (axiom named, `sorry` for
+  `sorryAx`), `kernel_rejected`, `build_error`, `missing`, `timeout`, `tool_error`; exit 0/1/2; `--json` schema
+  `exercise-check/1`. Registry-free: it writes only a temporary Lake project (removed unless `--keep DIR`). The
+  learner's code is built only inside `lake comparator`'s `bwrap` sandbox; a host that cannot sandbox is refused
+  (exit 2) before anything is written. `--no-sandbox` is a labelled self-check (`"trust": "self-check-only"`).
+  Refused: a Challenge that declares definitions (shared ones go in `--defs FILE`), axioms outside the standard
+  three, Mathlib imports (v1 is Mathlib-free). See docs/exercise.md.
 
 ## [0.7.47] - 2026-10-16
 
