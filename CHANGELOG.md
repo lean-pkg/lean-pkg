@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.47] - 2026-10-16
+
 ### Added
 
 - docs/comparator.md: "A cluster without unprivileged user namespaces". Both comparator sandboxes are kernel
@@ -27,6 +29,8 @@ change the registry schema or receipt format, always with a migration).
   that was `ready` can turn `open`, and packages whose hand-written Challenge names are `<Ns>Audit.<short>`
   for `<ProjectNs>.<short>` lose that credit until the entries name the full declaration (rename to
   `<Ns>Audit.<full decl>` or re-scaffold). docs/lifecycle.md and docs/comparator.md state the rule.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.46] - 2026-10-16
 
