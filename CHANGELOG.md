@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- Skill `lean-shared-cluster-verification`: using a shared cluster (Slurm or similar) for Lean gates without
+  wasted allocations. Iterate locally and submit only compiled trees; preflight the job's container and `PATH` on
+  the login node with `type -P` (`command -v time` passes on the shell keyword); run a trial job through
+  `receipt slurm --check`; read `Too many open files in system` as the job's own thread count, never a bad node;
+  size CPUs and memory from a pilot's `sacct`. Listed in the router, `skills/README.md` and `docs/skills.md`
+  (field report).
+
 ## [0.7.42] - 2026-10-16
 
 ### Added

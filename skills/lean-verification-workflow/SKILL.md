@@ -48,6 +48,7 @@ publication (prose versus evidence).
 | an ownership audit flags `X.congr_simp` or `X.eq_1` downstream | `lean-reserved-name-mint-site` |
 | write or fix the `#print axioms` audit; negative controls | `lean-axiom-audit` |
 | bind results to commits; leaf vs full builds; replay layers | `lean-receipt-discipline` |
+| run a gate or heavy build on a shared cluster (Slurm): preflight, thread cap, sizing | `lean-shared-cluster-verification` |
 | Palomar, DOI, Reservoir, citation | `lean-publishing` |
 | extract a library or contribute to Mathlib | `lean-upstreaming` |
 

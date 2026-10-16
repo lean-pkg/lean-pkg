@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shared Cluster Verification"
+  short_description: "Run Lean gates on Slurm without wasted jobs"
+  default_prompt: "Use $lean-shared-cluster-verification to check this Lean job before it goes to the cluster queue."

@@ -1,6 +1,6 @@
 # Agent skills for LLM-assisted Lean verification
 
-Nineteen skills for coding agents (Claude Code, Codex, or any harness that
+Twenty skills for coding agents (Claude Code, Codex, or any harness that
 reads `SKILL.md` folders) that formalize mathematics in Lean 4 for a paper.
 They focus on three things a green build does not give you: **fidelity** of
 each statement to the paper, **evidence** that binds results to exact bytes,
@@ -56,6 +56,7 @@ Codex, or just describe the task.
 | **Evidence** | |
 | [lean-axiom-audit](lean-axiom-audit/SKILL.md) | writing the exact-inventory `#print axioms` audit |
 | [lean-receipt-discipline](lean-receipt-discipline/SKILL.md) | binding a result to a commit; choosing a replay layer |
+| [lean-shared-cluster-verification](lean-shared-cluster-verification/SKILL.md) | running a gate or heavy build on a shared cluster without wasted jobs |
 | [lean-claim-ledger](lean-claim-ledger/SKILL.md) | recording what is verified, conditional, partial, excluded |
 | [lean-paper-companion](lean-paper-companion/SKILL.md) | formalizing alongside a paper in progress |
 | **Publication** | |

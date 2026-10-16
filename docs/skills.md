@@ -9,7 +9,7 @@ title: Agent skills
 `lean-pkg` ships a set of **skills** for coding agents that formalize
 mathematics in Lean 4. A skill is a folder with a `SKILL.md` file: a short,
 named lesson that an agent such as Claude Code or Codex loads when a task
-matches its description. These nineteen skills are lessons from real
+matches its description. These twenty skills are lessons from real
 formalization failures, rewritten for general use.
 
 They cover what a green `lake build` does not:
@@ -76,6 +76,7 @@ what it did.
 | `lean-reserved-name-mint-site` | `X.congr_simp` or `X.eq_1` appears in the wrong module |
 | `lean-axiom-audit` | writing the exact-inventory `#print axioms` audit |
 | `lean-receipt-discipline` | binding a result to a commit; choosing a replay layer |
+| `lean-shared-cluster-verification` | running a gate or heavy build on a shared cluster without wasted jobs |
 | `lean-claim-ledger` | recording what is verified, conditional, partial, excluded |
 | `lean-paper-companion` | formalizing alongside a paper in progress |
 | `lean-pkg-agent` | using the lean-pkg registry and trust gate |
