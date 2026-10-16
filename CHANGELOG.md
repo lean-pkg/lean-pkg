@@ -25,6 +25,23 @@ change the registry schema or receipt format, always with a migration).
   fresh-build check, refusing a restore that changed the tree outside `.lake/packages` or brings the package's
   root namespace, and logs `deps-restore: tar <sha256>`; the package still compiles fresh (field reports).
 
+### Fixed
+
+- Docs-only rule: a `.lean` file is a build input only when a `lean_lib` or `lean_exe` of the package owns it
+  (roots, globs and `srcDir`, read from `lakefile.toml` at the bound commit and at HEAD), the receipt's checker
+  names it, or `build_inputs` matches it; `input_file`/`input_dir` targets and `require` path dependencies make
+  their paths build inputs. A `#check`/`#print axioms` generator outside every library no longer forces a re-gate.
+  A `lakefile.lean` (or an unreadable `lakefile.toml`) keeps every `*.lean` as a build input, and the refusal
+  says why (field report).
+- A `claims.yaml` changed after the receipt commit, alone, is still refused (gate binds the claims), now with
+  `claims.yaml changed after the receipt commit ...: commit claims.yaml before the verify run, or re-gate`;
+  docs/lifecycle.md "Commit the claims before the gate" (field report).
+- HEAD binding of a package with another registered package nested inside it (`lean/contrib` in `lean/`):
+  changes under the nested root are no longer drift for the outer package (gate, `gate --check`, comparator,
+  `next`, `audit`, the claims ledger, promote), unless the outer package reads it: a `path` package in its
+  `lake-manifest.json`, a `lakefile.toml` require/target there, a `lakefile.lean` naming it, or a symlink into it
+  keeps it a build input, and the refusal names the reason. Unregistered nested directories count as before
+  (field report).
 
 ## [0.7.49] - 2026-10-16
 

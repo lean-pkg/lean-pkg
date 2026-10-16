@@ -167,7 +167,10 @@ REFUSED = {
                   "lean-toolchain (lean-toolchain"),
     "build-inputs-glob": (lambda repo: commit_files(repo, {"data/table.csv": "1,2\n"}),
                           "data/table.csv (build_inputs data/*.csv"),
-    "claims": (lambda repo: commit_files(repo, {"claims.yaml": "schema: claims/1\nclaims: []\n"}),
+    # a claims.yaml change alone has its own message (tests/test_gate_binding_scope.py); with a source change
+    # it is listed as a build input like any other
+    "claims": (lambda repo: commit_files(repo, {"claims.yaml": "schema: claims/1\nclaims: []\n",
+                                                "lean-toolchain": "leanprover/lean4:v4.33.0\n"}),
                "claims.yaml (claims"),
     "symlink": (_symlink, "link.md (symlink"),
     "gitlink": (_gitlink, "vendor/dep (gitlink"),

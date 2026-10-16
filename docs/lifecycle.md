@@ -158,6 +158,22 @@ the ledger is `ready`; otherwise it names the ledger's first fix. A comparator
 PASS therefore no longer suffices on its own: every `reusable` theorem and
 lemma has to be among the declarations it compared.
 
+### Commit the claims before the gate
+
+`gate` validates `claims.yaml` as committed at the receipt's commit, and the
+ledger reads the claims from there: the claims define what the receipt
+certifies, so they are part of what it binds. Commit `claims.yaml` (and the
+recorded `claims_file`) together with the source, before the verify run that
+produces the receipt. A `claims.yaml` committed after that commit is drift for
+both binding rules, including a package that opted in to
+[docs-only descendants](receipts.md#docs-only-descendants-opt-in). When it is
+the only change, the refusal says so:
+`claims.yaml changed after the receipt commit ...`, then
+`commit claims.yaml before the verify run, or re-gate`. The two
+ways forward are a new verify run at the commit that holds the claims (then
+`gate --regate`), or moving the claims change into a commit before the
+receipt's.
+
 ## Results ledger
 
 A successful `gate` and `promote --yes` end with a `results-ledger:` line

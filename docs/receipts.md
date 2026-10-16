@@ -609,7 +609,23 @@ records an `updated` event (the field in `fields`, its old value as
 
 Build inputs, matched on paths relative to the package directory:
 
-- every `*.lean` file at any depth;
+- every `*.lean` file a `lean_lib` or `lean_exe` of the package owns, read
+  from `lakefile.toml` at X and at H, following Lake: a library owns every
+  module that has one of its `roots` as a prefix (the roots default to the
+  library's name) or matches one of its `globs` (`Foo`, `Foo.*`, `Foo.+`, all
+  read as prefixes), under the package `srcDir` joined with the library's
+  `srcDir`; an executable owns its `root` module (default: its name) and the
+  modules below it. A `.lean` file outside every target (a `#check` /
+  `#print axioms` generator under `verification/`, a scratch file) is not a
+  build input unless the checker names it or `build_inputs` matches it.
+  Every `*.lean` file at any depth counts when the package has a
+  `lakefile.lean` (Lake uses it over `lakefile.toml`; it is code, so it is not
+  read), has no `lakefile.toml`, or has one this rule cannot read precisely
+  (it does not parse, declares no `lean_lib`/`lean_exe`, declares an unknown
+  `[[...]]` table, or a `srcDir` that leaves the package); the refusal then
+  says which;
+- every file under an `input_file` / `input_dir` target's path and under a
+  `require` path dependency's directory;
 - `lakefile.*` (`lakefile.lean`, `lakefile.toml`), `lake-manifest.json` and
   `lean-toolchain`, at any depth;
 - every path matching a glob in the record's `build_inputs` (`fnmatch`, so
@@ -633,6 +649,10 @@ Always refused under the opt-in, whatever `build_inputs` says:
   names the file;
 - any change to `claims.yaml` (and to the recorded `claims_file`): `gate`
   reads the claims at the receipt commit, so they stay part of what it binds.
+  When it is the only change, the refusal says
+  `claims.yaml changed after the receipt commit`: commit the claims before
+  the verify run, or re-gate (see
+  [Commit the claims before the gate](lifecycle.md#commit-the-claims-before-the-gate)).
 
 Deletions and renames of build inputs count: the diff is read with
 `git diff --no-renames --raw`, so renaming `Main.lean` to `Main.md` is a
@@ -702,10 +722,22 @@ its own and gated on its own receipt, and because the binding is scoped to
 the package directory, commits to `lean-r2/` are never drift for `lean/`.
 Register the second with `register NAME --path DIR --like OTHER`: it takes
 the repository and project fields from OTHER and notes whether the toolchain
-and Mathlib pin match. Keep them siblings, not nested: a package directory
-inside another makes every commit to the inner one drift for the outer one
-(`register` warns). To reuse the first package's results, depend on it from
-git at a pinned rev, not by path (see above).
+and Mathlib pin match. Prefer siblings to nesting (`register` warns about a
+package directory inside another). A nested package that is registered
+itself (`lean/contrib/` inside `lean/`) is not drift for the outer one: both
+binding rules (and so `gate`, `gate --check`, `comparator`, `next`, `audit`,
+the claims ledger and `promote`) leave out the changes under the root of
+every other registered package that lies inside the outer package's
+directory, as the declaration scan does. That holds only while the outer
+package does not read it. The inner directory stays a build input of the
+outer one, and the refusal names it with the reason, when, at X or at H, the
+outer `lake-manifest.json` has a `path` package at, inside or above it (or
+cannot be read), the outer `lakefile.toml` requires it by path or has a
+`lean_lib`, `lean_exe` or input target whose sources lie there, the outer
+`lakefile.lean` mentions its name at all (read conservatively), or a symlink
+committed at X outside it resolves into it. An unregistered nested directory
+is part of the outer package as before. To reuse the first package's results,
+depend on it from git at a pinned rev, not by path (see above).
 
 ## Progress files live outside the package directory
 
