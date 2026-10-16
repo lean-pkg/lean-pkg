@@ -156,6 +156,47 @@ def test_cache_reuse_names_root_modules_only():
     assert lh.cache_reuse_problems("lake-artifact-cache: true\n", files, {"Demo"})[0]
 
 
+# Shaped like a field log from a verify script without the build markers (#14): every root module Built (a
+# module with linter warnings as `⚠ [...] Built`), the script's fresh-build verdict, then later `lake lean FILE`
+# steps (axiom check, audits, type check, examples) re-printing the stored warnings of the modules with
+# warnings as `Replayed`. A Replayed after the module's own Built is a warning replay, not a restore.
+FIELD_LOG = ("\x1b[32m✔ [1/9] Built Demo.Basic (1.1s)\x1b[0m\n"
+             "⚠ [2/9] Built Demo.Integral (3.4s)\n"
+             "warning: Demo/Integral.lean:12:2: unused variable `h`\n"
+             "✔ [3/9] Built Demo.Main (0.8s)\n"
+             "⚠ [4/9] (Optional) Built Demo.Examples:c (0.2s)\n"
+             "Build completed successfully (9 jobs).\n"
+             "fresh build check: PASS (4 root jobs built, 0 restored)\n"
+             "== AxiomCheck ==\n"
+             "⚠ [1/3] Replayed Demo.Integral\n"
+             "warning: Demo/Integral.lean:12:2: unused variable `h`\n"
+             "== TypeCheck ==\n"
+             "\x1b[33m⚠ [2/3] Replayed Demo.Examples\x1b[0m\n"
+             "== Examples ==\n"
+             "⚠ [1/2] (Optional) Replayed Demo.Integral:c\n"
+             "ℹ [2/2] Replayed Mathlib.Foo\n")
+
+
+def test_a_replay_after_the_modules_own_build_is_not_a_restore():
+    files = ["Demo/Basic.lean", "Demo/Integral.lean", "Demo/Main.lean", "Demo/Examples.lean"]
+    refusals, checks = lh.cache_reuse_problems(FIELD_LOG, files, {"Demo"})
+    assert refusals == [] and checks[0].startswith("✓ lake:")
+    assert lh.restored_jobs(lh.job_lines(FIELD_LOG)) == [("Replayed", "Mathlib.Foo")]
+    # only ever restored: still refused, whatever else the log built
+    only = "✔ [1/3] Built Demo.Basic\nℹ [2/3] Reused Demo.Main\n⚠ [3/3] Replayed Demo.Integral\n"
+    refusals, _ = lh.cache_reuse_problems(only, files, {"Demo"})
+    assert len(refusals) == 1 and "Demo.Main (Reused), Demo.Integral (Replayed)" in refusals[0]
+    assert "Demo.Basic" not in refusals[0]
+    # strict order: a cache line BEFORE the module's Built is not excused by the Built that follows it
+    before = "\x1b[33m⚠ [1/2] Replayed Demo.Main\x1b[0m\n✔ [2/2] Built Demo.Main\n"
+    refusals, _ = lh.cache_reuse_problems(before, files, {"Demo"})
+    assert len(refusals) == 1 and "Demo.Main (Replayed)" in refusals[0]
+    # another module's Built excuses nothing; Unpacked after Built is excused like Replayed
+    assert lh.cache_reuse_problems("✔ [1/2] Built Demo.Basic\n✔ [2/2] Unpacked Demo.Main\n", files, {"Demo"})[0]
+    assert lh.cache_reuse_problems("✔ [1/2] Built Demo.Main\n✔ [2/2] Unpacked Demo.Main\n", files,
+                                   {"Demo"})[0] == []
+
+
 def demo_repo(repo: Path) -> Path:
     write_lake_project(repo)
     _git(repo, "add", "-A")
@@ -179,6 +220,21 @@ def test_preflight_names_a_restored_root_module(lp, repo, tmp_path, capsys):
                     "--stderr", str(job.err), "--commit", repo_head(repo), "--repo", str(repo),
                     "--checker", CHECKER]) == 1
     assert "Demo.Main (Replayed)" in capsys.readouterr().out
+
+
+def test_receipt_accepts_a_field_shaped_log_without_markers(lp, repo, tmp_path, fake_sacct, capsys):
+    """#14: a log with no build markers, every root module Built, then Replayed by later `lake lean` steps."""
+    demo_repo(repo)
+    assert run(lp, repo, Job(tmp_path, LOG + FIELD_LOG)) == 0, capsys.readouterr().err
+    assert receipt_json(repo)["sorry_count"] == 0
+
+
+def test_receipt_still_refuses_a_replay_with_no_earlier_build(lp, repo, tmp_path, fake_sacct, capsys):
+    demo_repo(repo)
+    log = LOG + "⚠ [1/2] Replayed Demo.Main\n✔ [2/2] Built Demo.Main\n"
+    assert run(lp, repo, Job(tmp_path, log)) == 1
+    assert "Demo.Main (Replayed)" in capsys.readouterr().err
+    assert_nothing_written(repo)
 
 
 def test_a_restored_dependency_module_is_accepted(lp, repo, tmp_path, fake_sacct, capsys):
@@ -229,6 +285,21 @@ def test_the_template_fails_on_a_restored_root_module(lp, repo, tmp_path, capsys
     assert p.returncode == 1
     assert "error: Lake restored root-package module(s) instead of compiling them: Demo.Main\n" in log
     assert "sorry-count:" not in log
+
+
+def test_the_template_judges_order_inside_the_markers(lp, repo, tmp_path, capsys):
+    """A VERIFY_CMD that builds and then runs `lake lean` inside the markers: a Replayed after the module's own
+    Built passes the template's shell check; one before it fails (as the Python check)."""
+    demo_repo(repo)
+    p, log, _ = template_job(lp, capsys, repo, tmp_path,
+                             "⚠ [1/2] Built Demo.Main\n✔ [2/2] (Optional) Built Demo.X:c\n"
+                             "⚠ [1/2] Replayed Demo.Main\n⚠ [2/2] (Optional) Replayed Demo.X:c\n")
+    assert p.returncode == 0, p.stderr + log
+    (tmp_path / "again").mkdir()
+    p, log, _ = template_job(lp, capsys, repo, tmp_path / "again",
+                             "⚠ [1/2] Replayed Demo.Main\n⚠ [2/2] Built Demo.Main\n")
+    assert p.returncode == 1
+    assert "error: Lake restored root-package module(s) instead of compiling them: Demo.Main\n" in log
 
 
 def test_the_template_fails_on_a_shadowing_lean_path_entry(lp, repo, tmp_path, capsys):

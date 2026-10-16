@@ -609,7 +609,7 @@ def stack_preexec():
 # (<project>/.lake/build/lib/**/*.olean; dependencies under .lake/packages/ are not the package's modules),
 # snapshot before and after the stage, only tell what was written: an olean that is new or changed with no
 # `Built` line for its module counts as `restored` (additive key, present when non-zero), and the distinct
-# `Reused` / `Replayed` / `Unpacked` targets as `cache_reused` (likewise). prebuilt = the stage ran, passed
+# `Reused` / `Replayed` / `Unpacked` targets with no earlier `Built` line as `cache_reused` (likewise). prebuilt = the stage ran, passed
 # and compiled nothing. COMPARATOR_RECEIPT_BUILD_SOURCE declares where a prebuilt tree came from (free text,
 # redacted).
 BUILD_SOURCE_ENV = "COMPARATOR_RECEIPT_BUILD_SOURCE"
@@ -728,7 +728,7 @@ def build_provenance(before: dict[str, int] | None, after: dict[str, int] | None
     written = [k for k, m in after.items() if before.get(k) != m]
     jobs = lh.job_lines(log_text)
     built = {t for v, t in jobs if v == "Built"}
-    reused = {t for v, t in jobs if v in lh.CACHE_VERBS} - built
+    reused = {t for _, t in lh.restored_jobs(jobs)}     # a Replayed after its own Built is not a restore
     # an olean path under .lake/build/lib/ (lean/A/B.olean) is module A.B
     restored = [k for k in written
                 if k.removeprefix("lean/").removesuffix(".olean").replace("/", ".") not in built]

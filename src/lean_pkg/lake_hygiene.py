@@ -12,6 +12,9 @@ and Lean sources of v4.35.0-rc2):
    prints such a job (`<icon> [i/n] Reused M`, also `Replayed`, `Unpacked`) only when it has output or with
    `-v`, so the defence is a fresh, empty LAKE_CACHE_DIR with LAKE_ARTIFACT_CACHE=false and a fresh tree; a
    log that still shows a root-package module Reused, Replayed or Unpacked is refused (`cache_reuse_problems`).
+   A `Replayed` line for a module the log already showed `Built` is not a restore: a later `lake lean FILE`
+   re-prints the stored warnings of the modules it imports (`restored_jobs`). Only an earlier `Built`
+   exonerates; a cache line before the module's `Built`, or with none, still counts.
 
 2. LEAN_PATH order. Lake's `Workspace.leanPath` lists the root package's lib directory LAST, and Lean's
    `SearchPath.findWithExt` takes the FIRST entry holding `<R>/` or `<R>.olean` for a module whose root
@@ -68,6 +71,21 @@ def job_lines(text: str) -> list[tuple[str, str]]:
     out = []
     for m in JOB_LINE_RE.finditer(strip_ansi(text)):
         out.append((m.group(1), m.group(2).split(":", 1)[0]))
+    return out
+
+
+def restored_jobs(jobs) -> list[tuple[str, str]]:
+    """The distinct (verb, target) cache jobs (CACHE_VERBS) of [(verb, target)], in log order, for which no
+    EARLIER `Built` line names the same target. A module compiled in this log and later shown `Replayed` had
+    its stored warnings re-printed (a `lake lean FILE` importing it), it was not restored; a cache line with no
+    earlier `Built` (before it, or none at all) still counts."""
+    built: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for verb, target in jobs:
+        if verb == "Built":
+            built.add(target)
+        elif verb in CACHE_VERBS and target not in built and (verb, target) not in out:
+            out.append((verb, target))
     return out
 
 
@@ -143,14 +161,12 @@ def is_root_module(module: str, lean_files, roots: set[str]) -> bool:
 
 def cache_reuse_problems(text: str, lean_files, roots: set[str]) -> tuple[list[str], list[str]]:
     """(refusals, checks) for a build log: root-package modules Lake restored instead of compiling (inside the
-    template's build markers when present), and the template's own cache declarations when present."""
+    template's build markers when present; a cache line after the module's own `Built` is a warning replay,
+    restored_jobs), and the template's own cache declarations when present."""
     refusals, checks = [], []
     section = build_section(text)
-    restored = []
-    for verb, target in job_lines(section):
-        if verb in CACHE_VERBS and is_root_module(target, lean_files, roots):
-            if (verb, target) not in restored:
-                restored.append((verb, target))
+    restored = [(verb, target) for verb, target in restored_jobs(job_lines(section))
+                if is_root_module(target, lean_files, roots)]
     if restored:
         shown = ", ".join(f"{t} ({v})" for v, t in restored[:8]) + (
             f" (+{len(restored) - 8} more)" if len(restored) > 8 else "")

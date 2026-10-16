@@ -774,6 +774,12 @@ def test_build_provenance_counts_only_built_lines_as_compiled(cr):
     assert mixed["restored"] == 1 and mixed["cache_reused"] == 2
     assert cr.build_provenance_line(mixed) == ("build: compiled 1 module(s); 1 olean(s) restored, not compiled, "
                                                "2 module(s) Lake reports reused from a cache")
+    # a Replayed after the module's own Built is a warning replay (a later `lake lean`), not a cache restore;
+    # one before it still counts
+    after = cr.build_provenance({}, {"lean/A.olean": 1}, "✔ [1/2] Built A\n⚠ [2/2] Replayed A\n", None)
+    assert after["compiled"] is True and "cache_reused" not in after and "restored" not in after
+    before = cr.build_provenance({}, {"lean/A.olean": 1}, "⚠ [1/2] Replayed A\n✔ [2/2] Built A\n", None)
+    assert before["cache_reused"] == 1
 
 
 def test_a_shadowing_dependency_fails_the_build_stage(project: Path, tmp_path: Path):

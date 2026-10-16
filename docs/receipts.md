@@ -303,7 +303,15 @@ against the Lake and Lean sources of v4.35.0-rc2):
   root or glob of the lakefile) `Reused`, `Replayed` or `Unpacked`, inside
   the `lean-pkg-build:` markers when the log has them (the audit's
   `lake lean` replays the modules it imports), and one whose
-  `lake-artifact-cache:` line says anything but `false`.
+  `lake-artifact-cache:` line says anything but `false`. A cache line for a
+  module that an EARLIER line of the judged section shows `Built` is not a
+  restore: when a later step runs `lake lean FILE`, Lake re-prints the
+  stored warnings of the just-built modules it imports as `Replayed`, so a
+  verify script without the markers that builds and then audits passes. Only
+  an earlier `Built` excuses it: a module only ever `Reused`, `Replayed` or
+  `Unpacked`, or shown so before its `Built`, is still refused, and so is
+  the template's own shell check. Emit the markers around the build anyway:
+  then only the build is judged.
 - **LEAN_PATH order.** Lake lists the root package's lib directory last on
   `LEAN_PATH`, and Lean loads a module whose first component is `R` from the
   first entry holding `R/` or `R.olean`. Under `lake env lean FILE` a
