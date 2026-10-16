@@ -11,7 +11,7 @@ import pytest
 from .conftest import (_git, base_pkg, commit_claims, make_receipt, make_repo, read_events, read_reg,
                        repo_head, set_lease, write_reg)
 
-PAYLOAD_KEYS = {"ok", "name", "command", "reason", "blockers", "notes", "state"}
+PAYLOAD_KEYS = {"ok", "name", "command", "reason", "blockers", "notes", "state", "repo_override"}
 STATE_KEYS = {"status", "visibility", "lease", "gate_commit", "comparator_commit", "head", "checkout",
               "dirty", "receipt_candidate", "rejected_receipts", "comparator_configs", "claims_ledger"}
 
@@ -34,6 +34,12 @@ def drop_receipt(repo, receipt, name="slurm-1.json"):
     d.mkdir(exist_ok=True)
     (d / name).write_text(json.dumps(receipt))
     return f".lean-receipts/{name}"
+
+
+@pytest.fixture()
+def low_floor(monkeypatch):
+    """A comparator toolchain floor the fixture toolchain meets, for the comparator-step tests."""
+    monkeypatch.setenv("LEAN_PKG_TOOLCHAIN_FLOOR", "v4.0.0")
 
 
 @pytest.fixture(autouse=True)
@@ -187,7 +193,7 @@ def test_verified_private_attaches_a_comparator_receipt_on_disk(lp, env, capsys)
     assert rc == 0 and data["command"] == f"lean-pkg comparator beta --receipt {env.repo_b / comp_rel} --agent vera"
 
 
-def test_verified_private_without_comparator_receipt_runs_comparator_receipt(lp, env, capsys):
+def test_verified_private_without_comparator_receipt_runs_comparator_receipt(lp, env, capsys, low_floor):
     reg = read_reg(env)
     comp_rel = reg["packages"]["beta"]["gate"]["comparator"]
     reg["packages"]["beta"]["gate"]["comparator"] = None
@@ -196,6 +202,34 @@ def test_verified_private_without_comparator_receipt_runs_comparator_receipt(lp,
     rc, data = nxt(lp, env, capsys, "beta")
     assert rc == 0 and data["command"] == f"comparator-receipt --project {env.repo_b}"
     assert data["state"]["comparator_configs"] == ["comparator.json"]
+
+
+def test_comparator_receipt_below_the_toolchain_floor_names_the_floor_first(lp, env, capsys, monkeypatch):
+    # field report: the fixture toolchain (v4.32.0) is below audit's default floor; say so before the step
+    monkeypatch.delenv("LEAN_PKG_TOOLCHAIN_FLOOR", raising=False)
+    reg = read_reg(env)
+    comp_rel = reg["packages"]["beta"]["gate"]["comparator"]
+    reg["packages"]["beta"]["gate"]["comparator"] = None
+    write_reg(env, reg)
+    (env.repo_b / comp_rel).unlink()
+    rc, data = nxt(lp, env, capsys, "beta")
+    floor = lp.DEFAULT_TOOLCHAIN_FLOOR
+    assert rc == 1 and data["ok"] is False and data["command"] is None
+    [b] = data["blockers"]
+    assert b["kind"] == "below-toolchain-floor" and b["floor"] == floor
+    assert b["lean_toolchain"] == "leanprover/lean4:v4.32.0"
+    assert b["deferred_command"] == f"comparator-receipt --project {env.repo_b}"
+    assert data["reason"].startswith(f"toolchain leanprover/lean4:v4.32.0 is below the comparator floor {floor}: "
+                                     f"bump lean-toolchain")
+
+
+def test_attaching_a_comparator_receipt_on_disk_is_not_floor_blocked(lp, env, capsys, monkeypatch):
+    monkeypatch.delenv("LEAN_PKG_TOOLCHAIN_FLOOR", raising=False)
+    reg = read_reg(env)
+    reg["packages"]["beta"]["gate"]["comparator"] = None
+    write_reg(env, reg)
+    rc, data = nxt(lp, env, capsys, "beta")
+    assert rc == 0 and data["command"].startswith("lean-pkg comparator beta --receipt ")
 
 
 def _gated_without_config(tmp_path, env, claims: bool):
@@ -217,13 +251,24 @@ def _claims_for(pkg: str) -> str:
     return CLAIMS_YAML.replace("package: beta", f"package: {pkg}").replace("id: beta/", f"id: {pkg}/")
 
 
-def test_verified_private_without_config_scaffolds_from_claims(lp, env, capsys, tmp_path):
+def test_verified_private_without_config_scaffolds_from_claims(lp, env, capsys, low_floor, tmp_path):
     _gated_without_config(tmp_path, env, claims=True)
     assert lp.main(["--registry", str(env.registry), "claims", "sync", "gamma"]) == 0
     capsys.readouterr()
     rc, data = nxt(lp, env, capsys, "gamma")
     assert rc == 0 and data["command"] == "lean-pkg comparator config --from-claims gamma"
     assert "re-gate" in data["reason"]
+
+
+def test_scaffolding_a_config_below_the_toolchain_floor_is_blocked(lp, env, capsys, tmp_path, monkeypatch):
+    monkeypatch.setenv("LEAN_PKG_TOOLCHAIN_FLOOR", "v4.33.0")      # the floor `audit` resolves (env)
+    _gated_without_config(tmp_path, env, claims=True)
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "gamma"]) == 0
+    capsys.readouterr()
+    rc, data = nxt(lp, env, capsys, "gamma")
+    assert rc == 1 and data["blockers"][0]["kind"] == "below-toolchain-floor"
+    assert data["blockers"][0]["floor"] == "v4.33.0"
+    assert "`lean-pkg comparator config --from-claims gamma`" in data["reason"]
 
 
 def test_verified_private_without_config_or_claims_syncs_claims(lp, env, capsys, tmp_path):

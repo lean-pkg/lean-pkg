@@ -392,7 +392,8 @@ def test_next_recommends_publish_only_when_the_ledger_is_ready(lp, env, capsys):
     assert data["state"]["claims_ledger"]["package_status"] == "ready"
 
 
-def test_next_names_the_coverage_fix_when_a_claim_is_not_compared(lp, env, capsys):
+def test_next_names_the_coverage_fix_when_a_claim_is_not_compared(lp, env, capsys, monkeypatch):
+    monkeypatch.setenv("LEAN_PKG_TOOLCHAIN_FLOOR", "v4.0.0")   # the fixture toolchain is below the default
     gated(env, names=("foo_le_bar", "zap"))
     publish_evidence(env.repo_b)
     rc, data = run_json(lp, env, capsys, "next", "beta")

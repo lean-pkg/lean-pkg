@@ -131,7 +131,15 @@ def test_gate_success_prints_rl_reminder(lp, env, tmp_path, capsys):
     r = make_receipt(env.repo_a)
     assert run_gate(lp, env, r, tmp_path) == 0
     out = capsys.readouterr().out
-    assert "results-ledger: record the outcome for alpha in your results ledger" in out
+    # field report: the line names the commands and the doc section, not just "your results ledger"
+    line = next(x for x in out.splitlines() if x.startswith("results-ledger: "))
+    assert "`lean-pkg status alpha`" in line and "`lean-pkg claims ledger alpha`" in line
+    assert "docs/lifecycle.md#results-ledger" in line
+
+
+def test_rl_reminder_doc_section_exists():
+    from .conftest import ROOT
+    assert "\n## Results ledger\n" in (ROOT / "docs" / "lifecycle.md").read_text()
 
 
 def test_gate_success_json_includes_rl_reminder(lp, env, tmp_path, capsys):
@@ -142,6 +150,7 @@ def test_gate_success_json_includes_rl_reminder(lp, env, tmp_path, capsys):
     assert rc == 0
     data = json.loads(capsys.readouterr().out)
     assert data["rl_reminder"] is True
+    assert "`lean-pkg claims ledger alpha`" in data["rl_hint"]
 
 
 def test_gate_noop_has_no_rl_reminder(lp, env, tmp_path, capsys):

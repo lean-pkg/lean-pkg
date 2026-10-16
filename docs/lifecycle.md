@@ -142,6 +142,18 @@ the ledger is `ready`; otherwise it names the ledger's first fix. A comparator
 PASS therefore no longer suffices on its own: every `reusable` theorem and
 lemma has to be among the declarations it compared.
 
+## Results ledger
+
+A successful `gate` and `promote --yes` end with a `results-ledger:` line
+(`--json`: `rl_reminder: true` and the line as `rl_hint`). lean-pkg keeps no
+results ledger: the outcome is already in the registry
+(`lean-pkg status NAME`, the event log) and, per claim, in
+`lean-pkg claims ledger NAME`. A
+results ledger is the project's own record of what was proved and where (a
+paper's verification table, a lab notebook, a wiki page), outside lean-pkg;
+the line is a reminder to add the gated or promoted commit there, if the
+project keeps one. lean-pkg never reads or writes it.
+
 ## Events
 
 Each event line is one JSON object: `ts`, `event`, `name`, plus
