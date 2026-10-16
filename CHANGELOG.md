@@ -7,6 +7,16 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- docs/paper-companion.md "Consolidate several checkpoint packages into one": a recipe for merging several
+  verified-private packages into one new package under a new name, with existing commands only: a
+  relocation-only consolidation commit (no renames), a committed source and claim hash map (sha256 per relocated
+  file, old claim id to new claim id, old receipts cited as provenance only), a collision audit before the first
+  gate (owned names, claim ids, negative controls and witnesses, comparator configuration), `register --like`,
+  fresh gate and comparator receipts, and two environment pitfalls (file modes under `umask 002`, hashing elan's
+  `lake` proxy instead of the toolchain binary) (field report).
+
 ## [0.7.50] - 2026-10-16
 
 ### Added

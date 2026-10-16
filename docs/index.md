@@ -69,7 +69,7 @@ will automate the registry bootstrap; it is not implemented yet.
 
 - [Start here](newcomers.md): the newcomer path, including the Lean reading list.
 - [Sample workflow](sample-workflow.md): a real package from registration to a promotion dry run, with the seven-step diagram.
-- [Develop a paper with its Lean companion](paper-companion.md): check intermediate results while the paper evolves, record checkpoints, reuse unchanged results, keep a coverage map.
+- [Develop a paper with its Lean companion](paper-companion.md): check intermediate results while the paper evolves, record checkpoints, reuse unchanged results, keep a coverage map, consolidate several checkpoint packages into one new package.
 - [FAQ](faq.md): common questions, including how this differs from Palomar and Mathlib.
 - [Motivation](motivation.md): the problem this solves and where it is going.
 - [Getting started](getting-started.md): install and a complete worked example.

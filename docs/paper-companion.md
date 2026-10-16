@@ -176,6 +176,142 @@ At submission the deliverable is:
 Publishing the companion follows the usual path: [scan for private strings](how-to.md#scan-for-private-strings-before-publishing),
 the comparator tier, and `promote`.
 
+## Consolidate several checkpoint packages into one
+
+A long project can leave several verified-private packages behind, one per
+round or checkpoint, each with its own gate. Publishing one companion then
+means consolidating them into a new package. There is no single command for
+this: `release --fresh-repo` moves one existing record to one new repository,
+while consolidation creates a new record from several inputs. The recipe
+below uses only existing commands. It assumes the inputs share one Lean
+toolchain and one Mathlib revision; align the pins first if they do not,
+since that is a change to every input.
+
+**The rules.** The old packages, their repositories and their histories stay
+as they are. The new package gets a new name, because an old name already
+denotes its own round. Its evidence is new: no old receipt is copied or
+reused, because a receipt binds one commit of one repository and the
+consolidated commit descends from none of them. Old receipts and commits
+appear in the new repository only as provenance.
+
+### Assemble the tree without renaming anything
+
+Build the new tree in a new repository and commit the result as one
+consolidation commit that relocates code and changes nothing else:
+
+- keep every namespace and declaration name as it was;
+- where possible keep the module paths too (one `lean_lib` per input in a
+  single `lakefile.toml` keeps each file byte-identical); where files must
+  move, the only content change allowed is the `import` lines;
+- do not fix, golf or reformat anything in this commit.
+
+Renames, merged helpers and cleanups come later as separate commits, each
+reviewed and gated on its own. A reviewer can then check the consolidation
+commit mechanically against the hash map, and the later commits as ordinary
+diffs.
+
+### Record the source and claim hash map
+
+Commit a hash map in the new package directory, in the consolidation commit
+itself, so that the first receipt binds it. `lean-pkg` does not read this
+file; it is your record, and a reviewer re-checks it. One possible shape,
+`provenance/consolidation.yaml`:
+
+```yaml
+inputs:
+  - package: example-round-1            # the old registry name
+    repo_commit: 0123456789abcdef0123456789abcdef01234567
+    gate_receipt: .lean-receipts/0123456789ab-job123.json   # path in the OLD repository; provenance only
+    comparator_receipt: .lean-receipts/0123456789ab-comparator.json
+files:
+  - from: {package: example-round-1, path: Example/Round1/Basic.lean,
+           sha256: 9f2c...}
+    to: {path: Example/Round1/Basic.lean, sha256: 9f2c...}
+    change: none                        # or: imports-only
+claims:
+  - from: example-round-1/main-bound
+    to: example-companion/main-bound
+```
+
+Take each `from` hash from the old commit, not from a working copy
+(`git -C OLD show COMMIT:PATH | sha256sum`), and each `to` hash from the
+committed new tree (`git show HEAD:PATH | sha256sum`). Every relocated file
+and every old claim gets a row; a claim dropped on purpose gets a row that
+says so. For an `imports-only` row, the diff between the two blobs with the
+`import` lines removed must be empty. If the new package is meant to become
+public, check that the old names and paths the map cites may be public:
+`lean-pkg public-safety NAME --strict` scans the map like any other file.
+
+### Audit the collisions before the first gate
+
+Several inputs that each passed their own gate can still clash once they
+share one environment. Check before the first verify run:
+
+- **Owned names.** Two inputs that define the same fully qualified name
+  build fine as long as no module imports both, so a plain `lake build` of
+  the separate roots can miss the clash. Add a root module that imports every
+  module of the package and build it: a clash is then a Lean error. List the
+  declarations of each input and compare them as well, so the report names
+  both owners.
+- **Claim ids.** Merge the claims into one `claims.yaml` for the new package
+  name and run `lean-pkg claims check --file claims.yaml`; it refuses
+  duplicate ids. Two old ids that name the same declaration, or one id
+  reused across rounds for different statements, need a decision recorded
+  in the map's `claims` rows.
+- **Negative controls and witnesses.** Each input's checker may carry
+  negative controls (a file that must fail, an axiom list that must not
+  grow) and witness definitions. Merge them into one checker for the new
+  package, check that each control still targets the name it was written
+  for, and keep deliberately failing files out of every `lean_lib` (a file a
+  library owns is built, so a failing control breaks the build). Witnesses
+  with the same name from two inputs are an owned-name clash like any other.
+- **Comparator configuration.** Do not concatenate old `comparator.json`
+  files: their Challenge modules can clash too. Scaffold a new configuration
+  from the merged claims once they are synced
+  (`lean-pkg comparator config --from-claims NAME`), then carry the
+  hand-written statements over entry by entry.
+
+### Register, gate and run the comparator on the new commit
+
+```bash
+lean-pkg register example-companion --like example-round-1 \
+  --repo git@github.com:you/example-companion.git --path src/example-companion
+lean-pkg claim example-companion --workspace laptop --agent you
+lean-pkg claims sync example-companion
+```
+
+`register --like` copies the sibling's repository URL, owner project,
+upstream target and automation note, and reports whether the toolchain and
+Mathlib pins match; `--repo` names the new repository instead of the copied one.
+The new package shares root namespaces with the old ones, so `audit` reports
+`duplicate-namespace`; record why with
+`lean-pkg update NAME --namespace-note TEXT` (the finding becomes `info`
+once every package sharing the namespace carries a note).
+
+Then produce a fresh lower-tier receipt and a fresh comparator receipt at
+the consolidation commit (or a later commit), exactly as for any package:
+step 4 above and
+[Produce the comparator receipt](how-to.md#produce-the-comparator-receipt).
+The old packages need no change. If you want their records to point
+forward, `lean-pkg update NAME --append-note TEXT --agent A` adds a note
+event to an old record without touching its repository or its evidence.
+
+### Two environment pitfalls
+
+- **File modes in a fresh checkout.** Git records only whether a file is
+  executable (`100644` or `100755`), not its full mode. A clone made under
+  `umask 002` writes regular files as `0664`, so a verifier that binds the
+  source by comparing modes against `0644` refuses a correct tree. Run such
+  verifiers in a checkout made under `umask 022`, or compare only the mode
+  bits Git records. Do not weaken the check itself.
+- **Which `lake`.** If a runtime contract hashes the Lake binary, run the
+  receipt with the exact binary of the pinned toolchain (`elan which lake`,
+  run in the checkout, prints its path), not through elan's `lake` proxy on
+  `PATH`: the proxy is a different file from the binary that does the work,
+  so its hash says nothing about the toolchain.
+  (`comparator-receipt` records which `lake` it used in
+  `toolchain_resolution`; see [Runtime](comparator.md#runtime).)
+
 ## What this does not claim
 
 - Partial formal coverage is not a certificate for the whole paper.
