@@ -1,0 +1,24 @@
+usage: lean-pkg claim [-h] --workspace WORKSPACE --agent AGENT [--ttl HOURS] [--reason REASON]
+                      [--contact TEXT] [--force] [--json] [--commit] [--push] [--no-commit]
+                      name
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --workspace WORKSPACE
+  --agent AGENT
+  --ttl HOURS           lease TTL, 1..8760 (default: 24 for a new claim; a holder's re-claim keeps
+                        the lease's current ttl_hours; above 8760: exit 2)
+  --reason REASON
+  --contact TEXT        address of the holding session (e.g. an amsg address such as lab-
+                        desk/n14-paper or @lean-ops), stored in the lease and shown by
+                        leases/status; one line, at most 200 characters; a holder's re-claim
+                        without it keeps the lease's
+  --force               override a live lease; requires --reason
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

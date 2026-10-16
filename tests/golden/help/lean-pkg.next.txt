@@ -1,0 +1,19 @@
+usage: lean-pkg next [-h] [--agent A] [--repo DIR] [--json] [--commit] [--push] [--no-commit] name
+
+positional arguments:
+  name
+
+options:
+  -h, --help   show this help message and exit
+  --agent A    who is asking: a live lease held by another agent blocks (exit 1); without it a
+               live lease is only noted; also filled into the recommended command
+  --repo DIR   evaluate the checkout DIR instead of the registered local_path, for this call only
+               (never saved; stderr note, JSON repo_override): for a host whose registered path
+               holds another branch. DIR must be a git work tree, and when it has remotes one must
+               be the package's repo (Host:/p matches a local-path repo /p; the registered
+               local_path itself needs no remote)
+  --json       machine-readable JSON on stdout
+  --commit     write commands: pull --ff-only, then commit the registry files (default:
+               $LEAN_PKG_COMMIT=1)
+  --push       --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit  never commit or push (overrides the env)

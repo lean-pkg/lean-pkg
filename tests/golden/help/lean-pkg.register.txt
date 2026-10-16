@@ -1,0 +1,39 @@
+usage: lean-pkg register [-h] [--repo REPO] --path PATH [--like OTHER]
+                         [--owner-project OWNER_PROJECT] [--visibility {private,public}]
+                         [--status {scratch,active,gate-pending,public}]
+                         [--upstream-target {none,mathlib,palomar}] [--automation AUTOMATION]
+                         [--notes NOTES] [--reason REASON] [--workspace WORKSPACE] [--agent AGENT]
+                         [--ttl TTL] [--dry-run] [--json] [--commit] [--push] [--no-commit]
+                         name
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --repo REPO           git URL (or local bare path); required unless --like gives it
+  --path PATH           local checkout path, $HOME-relative
+  --like OTHER          a sibling of registered package OTHER: copy its repo, owner-project,
+                        upstream-target and automation (flags given here win; visibility is never
+                        copied, default private), and report whether the toolchain and Mathlib pin
+                        match OTHER's
+  --owner-project OWNER_PROJECT
+  --visibility {private,public}
+  --status {scratch,active,gate-pending,public}
+                        public only with --visibility public and --reason (an already-public repo)
+  --upstream-target {none,mathlib,palomar}
+                        default none
+  --automation AUTOMATION
+  --notes NOTES
+  --reason REASON       required with --status public
+  --workspace WORKSPACE
+                        metadata only; does NOT claim
+  --agent AGENT         metadata only; does NOT claim
+  --ttl TTL             accepted and ignored (register never claims; claim separately with `lean-
+                        pkg claim NAME --ttl H`)
+  --dry-run             print the would-be entry as YAML without writing
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

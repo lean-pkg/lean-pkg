@@ -1,7 +1,7 @@
 # lean-pkg: local gates. No tab characters: recipes use '>' as the prefix.
 # `make check` is the release gate; hosted CI runs the same targets once the repository is public.
 .RECIPEPREFIX := >
-.PHONY: check test boundary tabs versions reuse history public-safety release cut-release record-doi docs
+.PHONY: check test boundary tabs versions reuse history public-safety release cut-release record-doi docs goldens
 
 check: test boundary tabs versions reuse
 > @echo "check: all gates green"
@@ -10,6 +10,11 @@ check: test boundary tabs versions reuse
 # The EXIT trap removes it on every exit, including Ctrl-C (INT/TERM/HUP exit through it).
 test:
 > @d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && trap 'exit 130' INT TERM HUP && PYTHONPYCACHEPREFIX="$$d" python3 -m pytest -q -p no:cacheprovider
+
+# Re-record the golden CLI contract (help texts, --json key sets) after an intended change; review
+# `git diff tests/golden` before committing (CONTRIBUTING.md, "The golden CLI contract").
+goldens:
+> @d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && trap 'exit 130' INT TERM HUP && PYTHONPYCACHEPREFIX="$$d" LEAN_PKG_RECORD_GOLDENS=1 python3 -m pytest -q -p no:cacheprovider tests/test_cli_contract_help.py tests/test_cli_contract_json.py
 
 boundary:
 > bash scripts/private-boundary-check.sh

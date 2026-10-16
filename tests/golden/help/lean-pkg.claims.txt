@@ -1,0 +1,21 @@
+usage: lean-pkg claims [-h] [--json] [--commit] [--push] [--no-commit]
+                       {sync,list,check,migrate,ledger} ...
+
+positional arguments:
+  {sync,list,check,migrate,ledger}
+    sync                read claims.yaml at HEAD of the checkout; validate (TODO placeholders
+                        refused); cache; event
+    list                table of cached claims with status and trust
+    check               re-validate cached claims; exit 0/1 (--file: a working-copy file)
+    migrate             legacy claims.json -> a claims/1 skeleton in the checkout (never the
+                        registry)
+    ledger              per-claim closure from the recorded evidence: verified only with zero
+                        diagnostics; read-only; exit 0 only when the package is ready
+
+options:
+  -h, --help            show this help message and exit
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

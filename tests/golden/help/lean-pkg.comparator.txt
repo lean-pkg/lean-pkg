@@ -1,0 +1,62 @@
+usage: lean-pkg comparator [-h] [--receipt RECEIPT] [--check] [--refuse-private] [--refuse-dirty]
+                           [--replace] [--from-claims NAME] [--coverage NAME] [--out OUT]
+                           [--dry-run] [--challenge-namespace CHALLENGE_NAMESPACE] [--agent AGENT]
+                           [--challenge-from-type] [--emit-script F] [--from-output F]
+                           [--checkout DIR] [--no-registry] [--allow-partial] [--lake-env DIR]
+                           [--jobs JOBS] [--timeout TIMEOUT] [--json] [--commit] [--push]
+                           [--no-commit]
+                           name
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --receipt RECEIPT     path to comparator receipt JSON (required, except for `comparator host-
+                        check`)
+  --check               validate only; record nothing (works at any status)
+  --refuse-private      refuse (exit 1, nothing copied) when the receipt holds private strings;
+                        default is a WARN line and the receipt is kept
+  --refuse-dirty        refuse when tracked files are modified in the checkout; default is a WARN
+                        line
+  --replace             when .lean-receipts/ already holds a different comparator receipt for the
+                        same commit: keep it as <c12>-comparator.replaced-<UTC stamp>.json, attach
+                        the new one, record comparator-replaced
+  --from-claims NAME    `comparator config --from-claims NAME`: add a TODO theorem_names entry per
+                        synced claim (theorem/lemma) no comparator configuration covers yet; never
+                        overwrites
+  --coverage NAME       `comparator config --coverage NAME`: read-only; claims covered by the
+                        comparator config tracked at the gate-bound commit, and why a changed
+                        config needs a new gate
+  --out OUT             with config: the configuration to extend or create (default
+                        comparator.json)
+  --dry-run             with config: print the would-be JSON; write nothing
+  --challenge-namespace CHALLENGE_NAMESPACE
+                        with config: namespace of the new Challenge names (default <Package>Audit)
+  --agent AGENT         the agent acting (recorded as the event's actor; another agent's live
+                        lease then refuses); with config: lease holder, if one is live
+  --challenge-from-type
+                        with config: pre-fill each new Challenge/Solution from the declaration's
+                        elaborated type (runs `lake env lean` in the checkout)
+  --emit-script F       with config: write the type driver to F (run it elsewhere: cd CHECKOUT &&
+                        bash F OUT.json); no Lean runs here
+  --from-output F       with config: fill the scaffold from the driver's comparator-types/1 JSON F
+  --checkout DIR        with config --from-claims: use this package checkout instead of the
+                        registry's local_path (HEAD must be the claims-synced commit or an
+                        evidence-only descendant)
+  --no-registry         with config --from-output/--challenge-from-type and --out FILE: scratch
+                        mode; write the merged config to FILE outside the checkout, lease not
+                        consulted
+  --allow-partial       with config --from-output/--challenge-from-type: ingest a run with
+                        extraction failures (the failed entries keep TODO, restatement_reason
+                        extraction_failed)
+  --lake-env DIR        with config types: Lake directory inside the checkout (default: the
+                        checkout)
+  --jobs JOBS           with config types: parallel Lean processes (default 2, at most the CPUs;
+                        halved and retried on too many open files)
+  --timeout TIMEOUT     with config types: seconds per declaration (default 120)
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

@@ -1,0 +1,17 @@
+usage: lean-pkg publish [-h] [--dry-run] [--public-safety] [--json] [--commit] [--push]
+                        [--no-commit]
+                        name
+
+positional arguments:
+  name
+
+options:
+  -h, --help       show this help message and exit
+  --dry-run        required: print the checklist and next commands; nothing is written
+  --public-safety  also scan the tree and git history for private patterns (`lean-pkg public-
+                   safety`); implies --dry-run
+  --json           machine-readable JSON on stdout
+  --commit         write commands: pull --ff-only, then commit the registry files (default:
+                   $LEAN_PKG_COMMIT=1)
+  --push           --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit      never commit or push (overrides the env)

@@ -1,0 +1,20 @@
+usage: lean-pkg audit [-h] [--fix] [--toolchain-floor VERSION] [--promotion] [--no-gh] [--quiet]
+                      [--json] [--commit] [--push] [--no-commit]
+
+options:
+  -h, --help            show this help message and exit
+  --fix                 clear expired leases and update visibility/archive state from gh
+  --toolchain-floor VERSION
+                        oldest acceptable lean_toolchain (default: $LEAN_PKG_TOOLCHAIN_FLOOR, else
+                        leanprover/lean4:v4.35.0-rc2)
+  --promotion           judge every package against the toolchain floor as for promote (warn, not
+                        info)
+  --no-gh               skip the GitHub (gh) checks: visibility and archived state are not
+                        compared
+  --quiet               only the count line ("N finding(s): W warn, I info", or "no findings"); no
+                        per-finding line (--json is unchanged)
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

@@ -1,0 +1,395 @@
+{
+  "audit": {
+    "keys": [
+      "counts",
+      "findings",
+      "fix",
+      "fixed",
+      "ok"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "board": {
+    "keys": [
+      "packages",
+      "version"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "claim": {
+    "keys": [
+      "event",
+      "expires_at",
+      "lease",
+      "name",
+      "notes",
+      "ok"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "claims-check": {
+    "keys": [
+      "ok",
+      "packages"
+    ],
+    "rc": 1,
+    "type": "object"
+  },
+  "claims-ledger": {
+    "keys": [
+      "bound_commit",
+      "claims",
+      "claims_source",
+      "comparator_sha256",
+      "counts",
+      "ledger_digest",
+      "name",
+      "ok",
+      "package_status",
+      "reasons",
+      "receipt_sha256",
+      "required",
+      "schema",
+      "stage"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "claims-list": {
+    "keys": [
+      "claims",
+      "ok"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "comparator-coverage": {
+    "keys": [
+      "bound_commit",
+      "candidate",
+      "changed_configs",
+      "claims_source",
+      "config_changed",
+      "configs",
+      "covered",
+      "head",
+      "name",
+      "next_commands",
+      "not_applicable",
+      "not_covered",
+      "ok",
+      "statement",
+      "theorem_claims",
+      "todo",
+      "uncovered"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "comparator-host-check": {
+    "keys": [
+      "can",
+      "checks",
+      "env_warnings",
+      "mechanism_detail",
+      "mechanisms",
+      "ok",
+      "palomar",
+      "verdict"
+    ],
+    "rc": "host",
+    "type": "object"
+  },
+  "formalization": {
+    "keys": [
+      "main_results",
+      "name",
+      "ok",
+      "path",
+      "placeholders",
+      "registry_updated",
+      "unchanged",
+      "validation",
+      "warnings",
+      "written",
+      "yaml"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "gate": {
+    "keys": [
+      "claims_schema",
+      "commit",
+      "dirty",
+      "event",
+      "gate",
+      "ignored_evidence",
+      "name",
+      "ok",
+      "pins",
+      "pins_kept",
+      "private_strings",
+      "receipt",
+      "report_log",
+      "rl_hint",
+      "rl_reminder",
+      "status",
+      "status_unchanged"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "gate-check": {
+    "keys": [
+      "checks",
+      "claims_schema",
+      "commit",
+      "comparator",
+      "dirty",
+      "event",
+      "head",
+      "name",
+      "ok",
+      "pins",
+      "pins_kept",
+      "private_strings",
+      "recorded",
+      "repo_override",
+      "report_log",
+      "status"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "leases": {
+    "keys": [
+      "leases",
+      "now",
+      "ok"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "list": {
+    "keys": [
+      "packages",
+      "version"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "llms": {
+    "keys": [
+      "ok",
+      "text"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "migrate-dry-run": {
+    "keys": [
+      "changes",
+      "dry_run",
+      "from_version",
+      "ok",
+      "to_version"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "next": {
+    "keys": [
+      "blockers",
+      "command",
+      "name",
+      "notes",
+      "ok",
+      "reason",
+      "repo_override",
+      "state"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "promote-dry-run": {
+    "keys": [
+      "checklist",
+      "claims_ledger",
+      "dry_run",
+      "ignored_evidence",
+      "name",
+      "ok",
+      "one_way_warning",
+      "public_safety",
+      "refused"
+    ],
+    "rc": 1,
+    "type": "object"
+  },
+  "public-safety": {
+    "keys": [
+      "block_hits",
+      "history_hits",
+      "history_scanned",
+      "hits",
+      "latex_label_hits",
+      "name",
+      "ok",
+      "package_prefix",
+      "patterns_source",
+      "scope",
+      "skipped",
+      "skipped_blocking",
+      "strict",
+      "tree_hits",
+      "warn_hits",
+      "warnings"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "publish-dry-run": {
+    "keys": [
+      "checklist",
+      "claims_ledger",
+      "dry_run",
+      "head",
+      "ignored_evidence",
+      "name",
+      "next",
+      "ok",
+      "ready"
+    ],
+    "rc": 1,
+    "type": "object"
+  },
+  "register": {
+    "keys": [
+      "dry_run",
+      "event",
+      "name",
+      "notes",
+      "package",
+      "warnings"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "register-dry-run": {
+    "keys": [
+      "dry_run",
+      "name",
+      "notes",
+      "package",
+      "warnings"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "release": {
+    "keys": [
+      "event",
+      "name",
+      "ok",
+      "released_lease"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "renew": {
+    "keys": [
+      "event",
+      "expires_at",
+      "lease",
+      "name",
+      "ok"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "status": {
+    "keys": [
+      "branch",
+      "history_count",
+      "lease_state",
+      "name",
+      "ok",
+      "package"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "status-unknown": {
+    "keys": [
+      "error",
+      "ok"
+    ],
+    "rc": 1,
+    "type": "object"
+  },
+  "update": {
+    "keys": [
+      "changes",
+      "event",
+      "forced",
+      "name",
+      "ok",
+      "reason"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "update-path-dry-run": {
+    "keys": [
+      "binding",
+      "cleared",
+      "dry_run",
+      "event",
+      "name",
+      "new_path",
+      "next_commands",
+      "notes",
+      "ok",
+      "old_path",
+      "redetected",
+      "status"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "usage-error": {
+    "keys": [
+      "error",
+      "ok",
+      "usage"
+    ],
+    "rc": 2,
+    "type": "object"
+  },
+  "validate": {
+    "keys": [
+      "errors",
+      "ok",
+      "registry",
+      "valid"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "version": {
+    "keys": [
+      "commit",
+      "dirty",
+      "install",
+      "ok",
+      "path",
+      "version"
+    ],
+    "rc": 0,
+    "type": "object"
+  }
+}

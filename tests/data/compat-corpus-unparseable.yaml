@@ -1,0 +1,73 @@
+# Lines of tests/data/compat-corpus.txt that do not parse with lean-pkg 0.7.48, and why. Each is a
+# quotation, not a call that runs today: a command or flag named in prose, or prose that followed a
+# command in a code block. tests/test_cli_contract_corpus.py fails when a listed line starts to parse
+# (remove it) or an unlisted line stops parsing (a compatibility break).
+unparseable:
+- line: lean-pkg claim
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg claims check --file
+  reason: a flag named in prose without its value
+- line: lean-pkg claims check demo demo demo demo demo demo demo
+  reason: prose that follows the command inside a code block or docstring, not arguments
+- line: lean-pkg claims list demo demo demo claims with status demo demo
+  reason: prose that follows the command inside a code block or docstring, not arguments
+- line: lean-pkg claims sync
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg claims sync demo demo demo demo demo
+  reason: prose that follows the command inside a code block or docstring, not arguments
+- line: lean-pkg comparator
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg comparator --check
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg comparator demo --check --receipt
+  reason: a flag named in prose without its value
+- line: lean-pkg comparator demo --receipt
+  reason: a flag named in prose without its value
+- line: lean-pkg gate
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg gate --check
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg gate --check --repo demo
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg gate --comparator
+  reason: a flag named in prose without its value
+- line: lean-pkg gate demo
+  reason: quoted without --receipt, which gate requires
+- line: lean-pkg gate demo --receipt
+  reason: a flag named in prose without its value
+- line: lean-pkg index add
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg index add demo
+  reason: quoted without --by, which index add requires
+- line: lean-pkg index add demo --from-registry --repo-dir demo
+  reason: quoted without --by, which index add requires
+- line: lean-pkg index build
+  reason: 'no `index build` subcommand: a plan named a verb that never shipped (index has add, check, render, migrate)'
+- line: lean-pkg promote
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg promote demo demo demo demo demo demo demo
+  reason: prose that follows the command inside a code block or docstring, not arguments
+- line: lean-pkg public-safety --strict
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg receipt
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg receipt systemd --run
+  reason: quoted as a flag reference without --unit, --log and --commit, which receipt systemd requires
+- line: lean-pkg register
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg renew demo
+  reason: quoted without --agent, which renew requires (renew is holder-only)
+- line: lean-pkg search
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg search --record
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg search demo demo
+  reason: prose that follows the command inside a code block or docstring, not arguments
+- line: lean-pkg search demo demo demo demo demo demo demo demo demo demo demo demo
+  reason: prose that follows the command inside a code block or docstring, not arguments
+- line: lean-pkg update
+  reason: 'a command named in prose without its required arguments: a reference, not a runnable line'
+- line: lean-pkg update --notes
+  reason: a flag named in prose without its value
+- line: lean-pkg update demo --notes
+  reason: a flag named in prose without its value

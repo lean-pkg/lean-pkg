@@ -1,0 +1,11 @@
+usage: lean-pkg doctor [-h] [--fetch] [--json] [--commit] [--push] [--no-commit]
+
+options:
+  -h, --help   show this help message and exit
+  --fetch      git fetch origin in the tool checkout and the registry repo before comparing
+               (default: local refs)
+  --json       machine-readable JSON on stdout
+  --commit     write commands: pull --ff-only, then commit the registry files (default:
+               $LEAN_PKG_COMMIT=1)
+  --push       --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit  never commit or push (overrides the env)
