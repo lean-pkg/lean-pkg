@@ -273,6 +273,10 @@ Each line is a regular expression: bare or `block:` blocks, `warn:` warns,
 `allow:` exempts, each optionally scoped to a path glob; the built-in
 `latex-label` family is warn-only.
 `promote` runs the same scan and refuses while blocking hits remain.
+The built-ins catch generic private strings only: a scan with no project-specific
+`block:` line says `note: no project-specific patterns: built-ins only`, and its
+0 hits do not mean the history is clean. Before freezing a public candidate made
+from private history, follow [Before freezing a public candidate](receipts.md#before-freezing-a-public-candidate).
 
 The scan also blocks names taken from the package's own record: its agent,
 workspace and lease holder. A progress file that records who holds the lease

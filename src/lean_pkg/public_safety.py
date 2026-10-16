@@ -818,8 +818,12 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
             "history_scanned": history, "scope": scope, "package_prefix": prefix,
             "skipped": skipped,
             "skipped_blocking": sum(1 for s in skipped if s["reason"] != "binary" and not s.get("allowed")),
+            "builtins_only": sc.n_file - sc.n_file_warn == 0,
             "patterns_source": source, "warnings": sc.problems + warnings}
 
+
+BUILTINS_ONLY_NOTE = (f"  note: no project-specific patterns: built-ins only (no blocking line in {PATTERNS_FILE}); "
+                      "0 hits means none of these patterns matched, not that nothing private is there")
 
 SCOPE_NOTE = ("scanned the repository root: the package is a subdirectory, and promotion publishes the "
               "whole repository")
@@ -850,7 +854,8 @@ def report_lines(name: str, result: dict, quiet: bool = False) -> list[str]:
     """The human report. The summary line names no path (#38): it is pasted into release notes
     verbatim, and the checkout is the one the registry record names. With hits, the verdict line comes
     right after the summary and patterns lines and again last; blocking hits are listed before the
-    warn-only ones, which follow under a count line. quiet (#44): the summary, patterns, warn-only count
+    warn-only ones, which follow under a count line. With no hit and no blocking line in the patterns
+    file, a note line says the built-ins alone ran (field report). quiet (#44): the summary, patterns, note, warn-only count
     and verdict lines only, the verdict once; no WARN or hit line. --json is not affected."""
     src = result["patterns_source"]
     n = len(result["hits"])
@@ -864,6 +869,8 @@ def report_lines(name: str, result: dict, quiet: bool = False) -> list[str]:
              f"{src['allow']} allow, {src['file_warn_patterns']} warn-only, "
              f"{src['scoped_patterns'] + src['allow_scoped']} path-scoped) + {len(src['builtin'])} built-in + {len(src['derived'])} registry-derived "
              f"({', '.join(src['derived']) or 'none'}) + internal paths"]
+    if not n and result.get("builtins_only"):   # field report: the built-ins cannot know a project's own private terms
+        lines.append(BUILTINS_ONLY_NOTE)
     fail = blocking(result["hits"], result["strict"])
     rest = [h for h in result["hits"] if not any(h is f for f in fail)]
     if not n:

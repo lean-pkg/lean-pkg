@@ -892,7 +892,9 @@ there and nowhere else:
 allow: docs/**: ^(?:approvals/|notes/|TODO-private)$
 # the test fixtures carry the working title on purpose; nothing else may
 allow: tests/fixtures/**: (?i)example working title
-``` Theorem numbers quoted from an
+```
+
+Theorem numbers quoted from an
 unposted manuscript ("Lemma 4.1 of the paper") are a leak even without a
 label or a path; add a `block:` line for the phrasing you use, or rewrite
 those doc-comments to state the result itself.
@@ -907,5 +909,63 @@ public-safety is necessary, not sufficient: a second release audit found two
 comment-only paper-specific leaks (provenance and proof-narrative wording)
 that no pattern can catch. Keep an independent human-style read of comments
 and docstrings before adopting the public tree.
+
+### Before freezing a public candidate
+
+A field report: a public candidate was about to be frozen from private
+history. A read-only review found 113 references to the project's private
+working citations in each of five ancestor commits, yet
+`lean-pkg public-safety NAME --history --strict` reported 0 hits, and the tree
+at HEAD was clean. The built-in patterns know generic private strings (home
+paths, internal directories, e-mail addresses, LaTeX-label shapes, the
+record's own agent and host names); they cannot know a project's own terms.
+Before freezing a candidate made from private history:
+
+1. Write the project's own terms into `.lean-pkg-private-patterns` as
+   `block:` lines. The kinds that matter: private citation-key prefixes and
+   key formats, internal note and review file names or directories, reviewer
+   and agent handles, private repository names and working titles. Write
+   them as regular expressions that match the family, not as a list of
+   every string, and never quote the strings themselves in public
+   documentation or issues; the shapes below are placeholders:
+
+   ```text
+   # private citation keys of the working bibliography
+   block: \b<key-prefix>[a-z]+:[0-9]{2}:
+   # internal review and note files, by name
+   block: (?i)\b<internal-review-file>\b
+   # reviewer and agent handles
+   block: \b(?:<handle-1>|<handle-2>)\b
+   # private repositories and working titles
+   block: (?i)<private-repo-name>|<working-title>
+   ```
+
+2. Run `lean-pkg public-safety NAME --history --strict` and read the whole
+   report, including `skipped[]` (`--json`) or the `skipped:` lines: a file
+   or blob listed there was not scanned in full, so its content is not
+   covered by the verdict.
+3. Treat 0 hits as "none of the patterns matched", not as "no private
+   content". When the patterns file has no blocking line the report says
+   so (`note: no project-specific patterns: built-ins only`, JSON
+   `builtins_only: true`). Sample-check the history with the project's own
+   key formats before trusting the result, for example
+   `git log --all -p | grep -cE '<your-key-regex>'` for content and
+   `git log --all --format=%B | grep -cE '<your-key-regex>'` for commit
+   messages. A non-zero count with 0 scan hits means a pattern is missing.
+4. When the history holds private material, do not try to clean it commit by
+   commit: prefer `lean-pkg release NAME --fresh-repo DIR` (one fresh commit
+   of the gate-bound tree, or of `--source-commit SHA`) or, for a tree cleaned
+   by hand, `--fresh-repo DIR --from-tree SRCDIR`. The export is scanned with
+   the source checkout's patterns file. After the export the registry entry
+   points at DIR, which has no patterns file (the export drops it), so copy
+   the file into DIR, keep it out of git there (`.git/info/exclude` or
+   `.gitignore`), and run `lean-pkg public-safety NAME --history --strict`
+   again on the fresh repository.
+5. Keep `.lean-pkg-private-patterns` itself out of the published tree. It
+   lists the private strings: when it is tracked, `public-safety` reports a
+   blocking `patterns-file` hit and a `WARN` naming the fix
+   (`git rm --cached .lean-pkg-private-patterns`, then add it to
+   `.gitignore`), and `release --fresh-repo` never exports it. A copy left
+   in an old commit is a history hit like any other.
 
 Next: [The comparator tier](comparator.md).

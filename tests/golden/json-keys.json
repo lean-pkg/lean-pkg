@@ -233,6 +233,7 @@
   "public-safety": {
     "keys": [
       "block_hits",
+      "builtins_only",
       "history_hits",
       "history_scanned",
       "hits",
