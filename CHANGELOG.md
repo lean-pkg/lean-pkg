@@ -9,6 +9,10 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- public-safety: Lean's own build artifacts (`X.olean.private`, `X.ilean.private`, written by the module system) are
+  no longer reported as references to a private file (`private-file-ref`); a docs line explaining open-file counts
+  blocked a release. Any other `*.private` name still hits.
+
 - `receipt slurm|systemd` counts Lean's real sorry warning. Lean 4 prints ``declaration uses `sorry` `` with
   backticks (every toolchain checked, v4.29 to v4.35-rc2); only `declaration uses 'sorry'` was matched, so a log
   with a real sorry warning was counted as 0, a declared `sorry-count: 0` could hide it (#108's check never fired on
