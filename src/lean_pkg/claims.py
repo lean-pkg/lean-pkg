@@ -18,6 +18,7 @@ import yaml
 
 from . import cli as core
 from . import index as idx
+from . import lean_scan
 
 CLAIMS_SCHEMA = "claims/1"
 SUPPORTED_CLAIMS_SCHEMAS = (CLAIMS_SCHEMA,)
@@ -115,8 +116,14 @@ def _claim_errors(c, i: int, package: str | None) -> list[str]:
         errors.append(f"{where}.id must be <package>/<slug> with slug [a-z0-9][a-z0-9-]*, got {c['id']!r}")
     elif package is not None and m.group(1) != package:
         errors.append(f"{where}.id {c['id']!r} must start with the package name {package!r}/")
-    if not isinstance(c["decl"], str) or not c["decl"].strip() or any(ch.isspace() for ch in c["decl"]):
-        errors.append(f"{where}.decl must be a Lean declaration name (no spaces)")
+    if not lean_scan.is_name(c["decl"]):
+        errors.append(f"{where}.decl must be a Lean declaration name (dotted; no spaces outside «»), "
+                      f"got {c['decl']!r}")
+    elif c["decl"] == TODO:
+        errors.append(f"{where} ({c['id']}): decl is the `claims migrate` placeholder {TODO}; name the declaration")
+    if isinstance(c["summary"], str) and c["summary"].strip().startswith(TODO):
+        errors.append(f"{where} ({c['id']}): summary is the `claims migrate` placeholder "
+                      f"{c['summary'].strip()[:40]!r}; write the one-sentence summary")
     if c["kind"] not in CLAIM_KINDS:
         errors.append(f"{where}.kind must be one of {CLAIM_KINDS}, got {c['kind']!r}")
     if c["status"] not in CLAIM_STATUSES:
@@ -215,15 +222,15 @@ def schema_check_text(text: str, where: str, package: str | None = None) -> tupl
 
 
 def decl_problems(read_file, claims: list[dict]) -> list[str]:
-    """Each claim's declaration (its last name component) must occur in its file.
+    """Each claim's declaration (its last name component, a «quoted» one kept whole) must occur in its file.
     `read_file(rel) -> str | None` reads the file at the commit being checked."""
     out = []
     for c in claims:
         text = read_file(c["file"])
-        last = str(c["decl"]).rsplit(".", 1)[-1]
+        last = lean_scan.last_component(str(c["decl"]))
         if text is None:
             out.append(f"{c['id']}: file {c['file']} is not tracked at that commit")
-        elif last not in text:
+        elif not lean_scan.occurs(last, text):
             out.append(f"{c['id']}: {last!r} does not occur in {c['file']}")
     return out
 
@@ -590,7 +597,7 @@ def do_claims_migrate(reg: dict, name: str, src: str, out: str | None, dry_run: 
         raise core.Fail(f"{name}: --from {src} is not JSON: {e}")
     doc, todos, unmapped, skipped = migrate_rows(name, legacy_rows(data))
     header = [f"# Migrated by `lean-pkg claims migrate {name}` from a legacy claims JSON. A skeleton:",
-              f"# fix every TODO (sync refuses {TODO}.lean), delete these comments, commit, then run",
+              f"# fix every TODO (sync refuses each {TODO} placeholder), delete these comments, commit, then run",
               f"# `lean-pkg claims sync {name}`. Nothing here is verified; trust comes from receipts."]
     header += [f"# TODO {t['id']}: {', '.join(t['todo'])}" for t in todos]
     if unmapped:
@@ -690,7 +697,8 @@ def add_parsers(sub, add_json) -> None:
     add_json(s)
     s.set_defaults(fn=cmd_claims, claims_fn=None)
     csub = s.add_subparsers(dest="claims_cmd")
-    a = csub.add_parser("sync", help="read claims.yaml at HEAD of the checkout; validate; cache; event")
+    a = csub.add_parser("sync", help="read claims.yaml at HEAD of the checkout; validate (TODO placeholders refused); "
+                                           "cache; event")
     a.add_argument("name")
     a.add_argument("--agent", default=None,
                    help="the agent acting (recorded as the event's actor); another agent's live lease then refuses")

@@ -30,6 +30,8 @@ _WORD = re.compile(r"[\W_]+", re.UNICODE)
 
 
 def fold(text) -> str:
+    """NFKD, strip combining marks, casefold: Itô -> ito, Black–Scholes keeps its words. The one folding
+    used by every search source (lean_pkg.search imports it), applied to the term and the text alike."""
     import unicodedata
     s = unicodedata.normalize("NFKD", str(text or ""))
     return "".join(ch for ch in s if not unicodedata.combining(ch)).casefold()
@@ -64,15 +66,21 @@ def run_cmd(argv: list[str], timeout: float = 120) -> tuple[int, bytes, str] | N
 
 def ok(revision: str | None, hits: list[dict], reason: str | None = None,
        partial: list[str] | None = None, capped: list[str] | None = None,
-       cap_limit: int | None = None) -> dict:
+       cap_limit: int | None = None, total: int | None = None) -> dict:
     """`partial` names the parts of the source that failed (GitHub's `code` search): the source answered,
     but a zero from it is not a negative result. `capped` names the parts that returned exactly their
-    result limit `cap_limit`: more matches may exist beyond the ones listed."""
+    result limit `cap_limit`: more matches may exist beyond the ones listed. `total` is how many matches the
+    source found when it lists fewer: more than len(hits) marks the `results` part capped at len(hits)."""
     r = {"state": "ok", "reason": reason, "revision": revision, "hits": hits}
     if partial:
         r["partial"] = list(partial)
+    capped = list(capped or [])
+    if isinstance(total, int) and total > len(hits):
+        capped.append("results")
+        cap_limit = cap_limit or len(hits)
+        r["total"] = total
     if capped:
-        r["capped"], r["cap_limit"] = list(capped), cap_limit
+        r["capped"], r["cap_limit"] = capped, cap_limit
     return r
 
 
@@ -94,9 +102,10 @@ def words(text) -> list[str]:
 
 
 def matches(term: str, *texts) -> bool:
-    """Every word of the term occurs in the texts (substring, case-insensitive), like a
-    `grep -i` per word over descriptions: 'Fisher-Tippett' matches 'Fisher-Tippett-Gnedenko'."""
-    hay = " ".join(str(t or "") for t in texts).lower()
+    """Every word of the term occurs in the texts (substring, case- and accent-insensitive: both sides
+    folded), like a `grep -i` per word over descriptions: 'Fisher-Tippett' matches 'Fisher-Tippett-Gnedenko',
+    'Godel' matches 'Gödel'."""
+    hay = fold(" ".join(str(t or "") for t in texts))
     ws = words(term)
     return bool(ws) and all(w in hay for w in ws)
 

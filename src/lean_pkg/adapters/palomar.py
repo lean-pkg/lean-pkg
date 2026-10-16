@@ -166,4 +166,4 @@ def search(term: str, timeout: float = 10) -> dict:
                    src.get("repository")):
             found.append(hit(e.get("id"), e.get("title"), ENTRY_BASE + str(e.get("path") or ""),
                              repository=src.get("repository"), theorem_names=list(thms or [])))
-    return ok(rev, found[:LIMIT], f"{len(rows)} results searched")
+    return ok(rev, found[:LIMIT], f"{len(rows)} results searched", total=len(found))

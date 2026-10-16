@@ -23,6 +23,7 @@ import urllib.request
 import yaml
 
 from . import cli as core
+from . import lean_scan
 
 
 ENTRY_SCHEMA = "index-entry/2"
@@ -88,9 +89,13 @@ def entry_names(root: pathlib.Path) -> list[str]:
 
 def load_entry(path: pathlib.Path) -> dict:
     try:
-        data = yaml.safe_load(path.read_text())
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         raise core.Fail(f"index entry not found: {path}")
+    except UnicodeDecodeError as e:
+        raise core.Fail(f"{path}: not UTF-8 text ({e.reason} at byte {e.start})")
+    except OSError as e:
+        raise core.Fail(f"{path}: unreadable: {e.strerror or e}")
     except yaml.YAMLError as e:
         raise core.Fail(f"{path}: not valid YAML: {e}")
     if not isinstance(data, dict):
@@ -580,8 +585,8 @@ def headline_problems(clone: pathlib.Path, headline: list[dict]) -> list[str]:
         f = clone / h["file"]
         if not f.is_file():
             out.append(f"headline file {h['file']} is not tracked at the pin")
-        elif h["name"].rsplit(".", 1)[-1] not in f.read_text(errors="replace"):
-            out.append(f"headline {h['name']}: {h['name'].rsplit('.', 1)[-1]!r} does not occur in {h['file']}")
+        elif not lean_scan.occurs(lean_scan.last_component(h["name"]), f.read_text(errors="replace")):
+            out.append(f"headline {h['name']}: {lean_scan.last_component(h['name'])!r} does not occur in {h['file']}")
     return out
 
 
@@ -623,7 +628,7 @@ def prior_art_notes(clone: pathlib.Path, headline: list[dict]) -> list[str]:
     d = clone / "docs" / "prior-art"
     texts = [p.read_text(errors="replace") for p in sorted(d.glob("*.md"))] if d.is_dir() else []
     missing = [h["name"] for h in headline
-               if not any(h["name"].rsplit(".", 1)[-1] in t for t in texts)]
+               if not any(lean_scan.occurs(lean_scan.last_component(h["name"]), t) for t in texts)]
     if not missing:
         return []
     return [f"note: no prior-art record under docs/prior-art/ at the pin names {', '.join(missing)} "
