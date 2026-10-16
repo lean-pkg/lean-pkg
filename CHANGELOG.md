@@ -48,6 +48,18 @@ change the registry schema or receipt format, always with a migration).
   `report_compressed` the `.gz` must hash to its `sha256` and decompress to exactly `bytes`; output past that
   length refuses without expanding further (4 GiB without `report_compressed`); not gzip refuses.
 
+### Changed
+
+- `receipt slurm` and `receipt systemd` write `log_commit_bound` into the receipt JSON too (`true` when the verify
+  log's `commit:` line names `--commit`, `false` when the log has none and `--stdout` binds it only through
+  `lake-manifest.json`); a `false` also adds a `- WARN:` line to the README entry, printed and appended. A
+  consumer keeping only the sealed files used to lose the limitation, which only the `--json` response and a
+  stderr WARN stated (field report). The key is additive and informational: `gate` never reads it, so a receipt
+  claiming `true` is judged exactly like one without it, and receipts written before it existed still pass. A
+  re-run over a receipt written by 0.7.44 differs by this key and is refused as a differing file, as before.
+- `receipt slurm --check --json` reports `log_commit_bound` as well: `true`/`false` against `--commit`, `null`
+  without `--commit` (field report).
+
 ## [0.7.44] - 2026-10-16
 
 ### Fixed

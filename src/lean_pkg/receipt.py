@@ -639,11 +639,12 @@ def _write(path: pathlib.Path, data: bytes) -> None:
 
 def readme_block(*, commit: str, heading: str, executor_lines: list[str], receipt: dict, log_name: str,
                  raw_sha: str, n_diff: int, redaction_note: str, extra: list[str], seal: dict | None = None,
-                 evidence_lines: list[str] | None = None) -> str:
+                 evidence_lines: list[str] | None = None, log_commit_bound: bool | None = None) -> str:
     """The `.lean-receipts/README.md` entry, in the field operator's block shape: the executor's own lines
     (job or unit state), then checker, log, any further evidence lines, and the seal. `seal`
     ({job_stdout_sha256, manifest_sha256}, only with --stdout) adds the line naming what the seal was checked
-    against."""
+    against. `log_commit_bound` False (the verify log has no `commit:` line) adds a WARN line, so the README
+    entry keeps the limitation the run's stderr WARN states (field report)."""
     axioms = ", ".join(receipt["axioms"]) or "none"
     # The heading gets the commit prefix itself; a --readme-heading that already starts with this commit
     # (`4095a30`: ... or 4095a30: ...) would print it twice (field report). Any other SHA is kept.
@@ -655,6 +656,8 @@ def readme_block(*, commit: str, heading: str, executor_lines: list[str], receip
              f"- Log: `{log_name}`, SHA-256 `{receipt['report_sha256']}` (= `report_sha256`);",
              f"  raw log SHA-256 `{raw_sha}` ({n_diff} line(s) differ: {redaction_note})."]
     lines += evidence_lines or []
+    if log_commit_bound is False:
+        lines.append(f"- WARN: {NO_COMMIT_LINE} (`log_commit_bound: false`).")
     if seal:
         lines.append(f"- Seal: job stdout SHA-256 `{seal['job_stdout_sha256']}` carries {SHA_KEY} = raw log "
                      f"SHA-256 `{raw_sha}`; lake-manifest.json SHA-256 `{seal['manifest_sha256']}` (pre = post).")
@@ -869,6 +872,9 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     }
     if seal:
         receipt.update(seal)       # additive keys: validate_receipt and gate ignore keys beyond RECEIPT_FIELDS
+    # Additive and informational only (field report): whether the verify log's own `commit:` line names --commit.
+    # Gate never reads it: a receipt claiming `true` passes or fails gate exactly as one without the key.
+    receipt["log_commit_bound"] = log_commit_bound
     files = []                     # (path, bytes) of the executor's evidence files
     sealed_files = []              # {role, path, sha256, receipt_key} of each evidence file, for --json
     evidence_lines = []
@@ -902,7 +908,8 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     block = readme_block(commit=commit or name12, heading=args.readme_heading or ev.default_heading,
                          executor_lines=ev.executor_lines(out.name, tar), receipt=receipt, log_name=log_out.name,
                          raw_sha=raw_sha, n_diff=n_diff, redaction_note=ev.redaction_note,
-                         extra=args.readme_line or [], seal=seal, evidence_lines=evidence_lines)
+                         extra=args.readme_line or [], seal=seal, evidence_lines=evidence_lines,
+                         log_commit_bound=log_commit_bound)
 
     sc = _scanner(repo)
     scanned = [("redacted verify log", redacted)]
@@ -1078,8 +1085,9 @@ def preflight(args) -> int:
 
     check_fields(fields, commit=commit, toolchain=toolchain, manifest=manifest, checker_flag=args.checker,
                  check_log_job_id=log_job_id, refusals=problems)
+    log_commit_bound = None                # null: no resolved --commit to compare the log's `commit:` line with
     if commit is not None:
-        commit_line_binding(fields, commit, "--stdout" in paths, problems, checks)
+        log_commit_bound = commit_line_binding(fields, commit, "--stdout" in paths, problems, checks)
         why = evidence_symlink_problem(repo, commit)
         if why:
             problems.append(why)
@@ -1093,7 +1101,7 @@ def preflight(args) -> int:
     ok = not problems
     if args.json_out:
         core.print_json({"ok": ok, "check": True, "written": [], "raw_log_sha256": hashlib.sha256(raw).hexdigest(),
-                         "checks": checks, "problems": problems})
+                         "log_commit_bound": log_commit_bound, "checks": checks, "problems": problems})
     else:
         print(f"receipt slurm --check: {'ok' if ok else f'{len(problems)} problem(s)'}; nothing written")
         for c in checks:

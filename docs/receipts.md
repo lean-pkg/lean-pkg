@@ -122,7 +122,8 @@ Log key lines are `key: value` with the key at the start of the line, each
 at most once. A log `lean-toolchain:` or `mathlib-rev:` line that disagrees
 with the commit refuses, and so do optional `commit:` (at least 7 hex, a
 prefix of `--commit`) and `job-id:` lines that disagree with the flags.
-The receipt carries exactly the nine schema fields.
+The receipt carries the nine schema fields, plus additive keys `gate`
+ignores (`log_commit_bound`, and the seal and evidence hashes).
 
 **The log's own binding to the commit.** A `commit:` line binds the log to
 `--commit` (the `--template` prints one). Without it, the in-log fallback
@@ -130,7 +131,14 @@ seal binds the log to nothing, so it is refused there (no `--stdout`); with
 `--stdout` the log is bound only through the `lake-manifest.json` hashes, and
 the run prints a stderr WARN that the verify log has no `commit:` line and is
 bound to the commit only through `lake-manifest.json` (JSON
-`log_commit_bound: false`).
+`log_commit_bound: false`). The written receipt keeps that value
+(`log_commit_bound`: `true` with a matching `commit:` line, `false`
+without one), and a `false` adds a `- WARN:` line to the README entry, so
+the limitation survives in the sealed files alone.
+`receipt slurm --check --json` reports the same key (`null` without `--commit`). The key is
+informational: `gate` never reads it, so a receipt claiming `true` is
+judged exactly like one without the key (a receipt written before the key
+existed is still accepted).
 
 **Redaction and the public-safety check.** Every field but `checker` is
 read from the raw log, so a redaction can never delete the evidence it is
