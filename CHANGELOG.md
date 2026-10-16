@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.40] - 2026-10-15
+
 ### Added
 
 - `lease` is accepted as the name of `claim` (the registry's own word for what it takes); it is a write in every
@@ -38,6 +40,8 @@ change the registry schema or receipt format, always with a migration).
   (`incomplete: github: code search failed; a zero here is not a negative result`); the `consulted:` line reads
   `github (partial, 0 hits)`. A `--record` page shows `partial: code search failed` in its Sources table and no
   longer writes `Not found in github at live` as if the code had been searched.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.39] - 2026-10-15
 
