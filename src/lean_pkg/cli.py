@@ -537,7 +537,8 @@ def formalization_derived_only(repo: pathlib.Path, bound: str, head: str, rel: s
 
 
 def evidence_only_descendant(repo: pathlib.Path, bound: str,
-                             head: str, formalization: str | None = None) -> tuple[bool, str]:
+                             head: str, formalization: str | None = None,
+                             exclude: tuple[str, ...] = ()) -> tuple[bool, str]:
     """Evidence-only descendant rule (see DESIGN.md): a receipt bound to commit `bound` is
     accepted at `head` when head == bound, or when head descends from bound and
     the only paths that differ live under .lean-receipts/ (the evidence itself).
@@ -547,6 +548,8 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     `formalization` (the package's recorded formalization.yaml path, see formalization_rel):
     that file may also differ when only its derived keys changed, since it must cite the
     receipt and so cannot be inside the bound commit (#23.5). claims.yaml never may.
+    `exclude`: package-relative directories of nested registered packages this package does not depend
+    on (nested_exclusions); changes under them are not this package's (#3).
     Returns (ok, note)."""
     if bound == head:
         return True, ""
@@ -558,6 +561,8 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     # --no-renames: a rename into .lean-receipts/ is a source change.
     p = git(repo, "diff", "--no-renames", "--name-only", "--relative", bound, head)
     paths = [x for x in p.stdout.splitlines() if x.strip()]
+    ignored = [x for x in paths if under_any(x, exclude)]
+    paths = [x for x in paths if not under_any(x, exclude)]
     foreign = [x for x in paths if not x.startswith(".lean-receipts/")]
     # Outside a subdirectory package: .gitattributes/.gitmodules/.lfsconfig at the repository root or between
     # it and the package still change the bytes the build sees (filters, eol, LFS); never evidence.
@@ -571,7 +576,10 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     if linked:
         return False, (f"HEAD {head[:12]} differs from {bound[:12]} in evidence that a committed symlink "
                        f"points to: {', '.join(linked[:5])}; a symlink target is never evidence")
-    if prefix and not paths:
+    if (prefix or ignored) and not paths:
+        if ignored:
+            return True, (f"descendant of {bound[:12]} with no change under {prefix or './'} outside nested "
+                          f"registered package(s) {nested_label(ignored, exclude)}")
         return True, f"descendant of {bound[:12]} with no change under {prefix}"
     if formalization and formalization in foreign:
         problem = formalization_derived_only(repo, bound, head, formalization)
@@ -581,7 +589,88 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     if foreign or not paths:
         return False, (f"HEAD {head[:12]} differs from {bound[:12]} outside "
                        f".lean-receipts/: {foreign[:5]}")
-    return True, f"evidence-only descendant of {bound[:12]} (+{len(paths)} evidence file(s))"
+    return True, (f"evidence-only descendant of {bound[:12]} (+{len(paths)} evidence file(s))"
+                  + (f"; ignored {len(ignored)} change(s) under nested registered package(s) "
+                     f"{nested_label(ignored, exclude)}" if ignored else ""))
+
+
+def under_any(path: str, dirs) -> bool:
+    """`path` is one of the package-relative directories `dirs` or lies under one."""
+    return any(path == d or path.startswith(d + "/") for d in dirs)
+
+
+def nested_label(paths, dirs) -> str:
+    """The directories among `dirs` that hold at least one of `paths`, as `a/, b/`."""
+    return ", ".join(f"{d}/" for d in sorted(dirs) if any(x == d or x.startswith(d + "/") for x in paths))
+
+
+# The packages of the registry this process loaded last (load_registry): the nested-package rule (#3)
+# reads their roots. A caller with no registry loaded sees none, which keeps the stricter rule.
+_LOADED_PACKAGES: dict = {}
+
+
+def registered_nested_dirs(repo: pathlib.Path, packages: dict | None = None) -> tuple[str, ...]:
+    """The local_path roots of other registered packages strictly inside the package directory `repo`,
+    relative to it, sorted (the same roots the declaration scan skips, #117)."""
+    pkgs = _LOADED_PACKAGES if packages is None else packages
+    try:
+        mine = pathlib.Path(repo).resolve()
+    except (OSError, RuntimeError):
+        return ()
+    out = set()
+    for other in (pkgs or {}).values():
+        if not isinstance(other, dict) or not other.get("local_path"):
+            continue
+        try:
+            root = repo_path(other).resolve()
+        except (OSError, RuntimeError, TypeError, ValueError):
+            continue
+        if root != mine and mine in root.parents:
+            out.add(root.relative_to(mine).as_posix())
+    return tuple(sorted(out))
+
+
+def nested_exclusions(repo: pathlib.Path, bound: str, head: str,
+                      nested: tuple[str, ...]) -> tuple[tuple[str, ...], list[str]]:
+    """(excluded, kept): the nested registered package directories whose changes between bound and head
+    are not this package's, and one `dir/ (why)` note per nested directory that stays a build input
+    because this package depends on it or reads it: a `path` package in lake-manifest.json, a lakefile
+    that requires or names it, a lean_lib/lean_exe/input whose sources lie there, or a symlink committed
+    at bound (outside it) that resolves into it. Read at bound and at head; fails closed (an unreadable
+    file or tree keeps the directory)."""
+    from .build_scope import nested_dependency, overlaps
+    if not nested:
+        return (), []
+    p = git(repo, "diff", "--no-renames", "--name-only", "--relative", bound, head)
+    changed = [x for x in p.stdout.splitlines() if x.strip()]
+    touched = [d for d in nested if any(x == d or x.startswith(d + "/") for x in changed)]
+    if not touched:
+        return (), []
+    try:
+        tree = bound_tree(repo, bound)
+    except Fail as e:
+        return (), [f"{d}/ (the tree at {bound[:12]} is unreadable: {e})" for d in touched]
+    excluded, kept = [], []
+    for d in touched:
+        why = None
+        for rev in (bound, head):
+            why = nested_dependency(lambda rel, rev=rev: git_show_bytes(repo, rel, rev), d)
+            if why:
+                why = f"{why} at {rev[:12]}"
+                break
+        if not why:
+            for link, mode in sorted(tree.items()):
+                if not mode.startswith("120000:") or link == d or link.startswith(d + "/"):
+                    continue
+                t = resolve_tree_path(tree, link)
+                if t is not None and overlaps(t, d):
+                    why = f"symlink {link} resolves into it"
+                    break
+        if why:
+            kept.append(f"{d}/ ({why})")
+        else:
+            excluded.append(d)
+    return tuple(excluded), kept
 
 
 # Docs-only descendants (opt-in per package: record field docs_descendants, `update NAME
@@ -717,13 +806,24 @@ def checker_paths(repo: pathlib.Path, bound: str, checker) -> list[str]:
     return out
 
 
-def docs_build_input(path: str, globs, extra) -> str | None:
-    """Why a package-relative path is a build input for the docs rule, or None for a non-build file."""
+CLAIMS_COMMIT_FIRST = ("commit claims.yaml before the verify run, or re-gate "
+                       "(docs/lifecycle.md#commit-the-claims-before-the-gate)")
+
+
+def docs_build_input(path: str, globs, extra, scopes=None) -> str | None:
+    """Why a package-relative path is a build input for the docs rule, or None for a non-build file.
+    `scopes`: the Lake scopes (build_scope.LakeScope) read at the bound commit and at HEAD; a `.lean` file
+    is a build input when one of them owns it. None (no scope could be read): every `.lean` file is."""
+    from .build_scope import scope_reason
     base = posixpath.basename(path)
     if base in DOCS_ALWAYS_REFUSED:
         return base
-    if base.endswith(".lean"):
+    if base.endswith(".lean") and (scopes is None or base.startswith("lakefile.")):
         return "*.lean"
+    for sc in scopes or []:
+        why = scope_reason(sc, path)
+        if why:
+            return why
     if base.startswith("lakefile."):
         return "lakefile.*"
     if base in DOCS_BUILD_BASENAMES:
@@ -737,15 +837,19 @@ def docs_build_input(path: str, globs, extra) -> str | None:
 
 
 def docs_only_descendant(repo: pathlib.Path, bound: str, head: str, pkg: dict | None,
-                         checker=None) -> tuple[bool, str, list[str]]:
+                         checker=None, exclude: tuple[str, ...] = ()) -> tuple[bool, str, list[str]]:
     """The docs-only descendant rule (docs/receipts.md): head descends from bound and no build input
-    under the package directory changed. Build inputs: *.lean, lakefile.*, lake-manifest.json,
+    under the package directory changed. Build inputs: the .lean files a lean_lib or lean_exe of the
+    package owns (read from lakefile.toml at bound and at head; every *.lean when there is a
+    lakefile.lean, no lakefile.toml, or one that cannot be read precisely), input_file/input_dir and
+    `require` path targets, lakefile.*, lake-manifest.json,
     lean-toolchain at any depth, the record's build_inputs globs, the files the receipt's checker names;
     always refused: a symlink or gitlink added/changed/removed, .gitattributes, .gitmodules, .lfsconfig,
     claims.yaml (and the recorded claims_file); for a subdirectory package also a .gitattributes,
     .gitmodules or .lfsconfig at the repository root or in any directory between it and the package.
-    The formalization.yaml keeps its derived-keys-only rule.
+    The formalization.yaml keeps its derived-keys-only rule. `exclude`: as for evidence_only_descendant.
     Returns (ok, note, docs_paths): docs_paths are the changed non-build, non-evidence paths."""
+    from .build_scope import lake_scope
     pkg = pkg or {}
     if not _is_ancestor(repo, bound, head):
         return False, f"{bound[:12]} is not an ancestor of HEAD {head[:12]}", []
@@ -753,18 +857,30 @@ def docs_only_descendant(repo: pathlib.Path, bound: str, head: str, pkg: dict | 
     fields = p.stdout.split("\0")
     globs = [g for g in (pkg.get("build_inputs") or []) if isinstance(g, str) and g.strip()]
     extra = set(checker_paths(repo, bound, checker))
+    scopes, why_conservative = [], ""
+    for rev in (bound, head):
+        sc, why_sc = lake_scope(lambda rel, rev=rev: git_show_bytes(repo, rel, rev))
+        if sc is None:
+            scopes, why_conservative = None, why_sc
+            break
+        scopes.append(sc)
     claims_rel = str(pkg.get("claims_file") or "claims.yaml").strip()
     while claims_rel.startswith("./"):
         claims_rel = claims_rel[2:]
     fz_rel = formalization_rel(pkg) or "formalization.yaml"
     refused: list[str] = []
+    claims_changed: list[str] = []   # refused only because they are the claims file
     docs: list[str] = []
     admitted: list[str] = []      # docs, evidence and formalization paths: none may be a symlink target
+    ignored = 0
     i = 0
     while i + 1 < len(fields):
         meta, path = fields[i], fields[i + 1]
         i += 2
         if not meta.startswith(":"):
+            continue
+        if under_any(path, exclude):
+            ignored += 1
             continue
         parts = meta[1:].split()
         modes = parts[:2]
@@ -772,9 +888,11 @@ def docs_only_descendant(repo: pathlib.Path, bound: str, head: str, pkg: dict | 
             kind = "gitlink" if "160000" in modes else "symlink"
             refused.append(f"{path} ({kind} {parts[-1][:1]})")
             continue
-        why = "claims_file" if path == claims_rel else docs_build_input(path, globs, extra)
+        why = "claims_file" if path == claims_rel else docs_build_input(path, globs, extra, scopes)
         if why:
             refused.append(f"{path} ({why}{', deleted' if parts[-1].startswith('D') else ''})")
+            if why in ("claims_file", "claims.yaml") and not parts[-1].startswith("D"):
+                claims_changed.append(refused[-1])
             continue
         if path == fz_rel:
             problem = formalization_derived_only(repo, bound, head, fz_rel)
@@ -794,32 +912,51 @@ def docs_only_descendant(repo: pathlib.Path, bound: str, head: str, pkg: dict | 
         except Fail as e:
             refused.append(f"{len(admitted)} file(s) ({e})")
     if refused:
+        if refused == claims_changed:
+            names = ", ".join(x.split(" (", 1)[0] for x in claims_changed)
+            return False, (f"{names} changed after the receipt commit {bound[:12]} (HEAD {head[:12]}); gate "
+                           f"reads the claims at the receipt commit, so they are part of what it binds: "
+                           f"{CLAIMS_COMMIT_FIRST}"), []
+        lean_note = ""
+        if scopes is None and any(" (*.lean" in x for x in refused):
+            lean_note = (f" (every *.lean counts as a build input: {why_conservative}; only a lakefile.toml's "
+                         f"lean_lib/lean_exe targets narrow it)")
         return False, (f"build input(s) changed between {bound[:12]} and HEAD {head[:12]}: "
                        f"{'; '.join(refused[:3])}" + (f" (+{len(refused) - 3} more)" if len(refused) > 3 else "")
-                       + "; the receipt must be rebuilt at HEAD"), []
+                       + lean_note + "; the receipt must be rebuilt at HEAD"), []
     docs.sort()
     shown = ", ".join(docs[:5]) + (f", +{len(docs) - 5} more" if len(docs) > 5 else "")
     return True, (f"docs-only descendant of {bound[:12]} ({len(docs)} non-build file(s): {shown}; "
-                  f"opted in)"), docs
+                  f"opted in" + (f"; ignored {ignored} change(s) under nested registered package(s) "
+                                 f"{', '.join(d + '/' for d in exclude)}" if ignored else "") + ")"), docs
 
 
 def package_descendant(repo: pathlib.Path, bound: str, head: str, pkg: dict | None,
-                       checker=None, formalization: str | None = None) -> tuple[bool, str, list[str] | None]:
+                       checker=None, formalization: str | None = None,
+                       nested: tuple[str, ...] | None = None) -> tuple[bool, str, list[str] | None]:
     """The binding rule for a package's commit-bound evidence: the evidence-only rule, then, when the
     record opts in (docs_descendants: true), the docs-only rule. (ok, note, docs_paths): docs_paths is
     a list only when the docs rule admitted head. Without the opt-in the verdict and note are the
     evidence-only rule's, plus one hint clause when the docs rule would have admitted head.
     `formalization` overrides the record's pointer (gate --refresh-formalization); `checker` defaults
-    to the recorded gate receipt's."""
+    to the recorded gate receipt's. `nested`: the package-relative roots of nested registered packages
+    (default: from the registry this process loaded, registered_nested_dirs); changes under one are not
+    this package's unless it depends on it (nested_exclusions, #3)."""
     pkg = pkg or {}
     fz = formalization if formalization is not None else formalization_rel(pkg)
-    ok, note = evidence_only_descendant(repo, bound, head, fz)
+    if nested is None:
+        nested = registered_nested_dirs(repo)
+    exclude, kept = nested_exclusions(repo, bound, head, nested) if bound != head else ((), [])
+    kept_note = (f"; nested registered package(s) still counted as build input(s): {'; '.join(kept)}"
+                 if kept else "")
+    ok, note = evidence_only_descendant(repo, bound, head, fz, exclude)
     if ok or not _is_ancestor(repo, bound, head):
-        return ok, note, None
+        return ok, note + ("" if ok else kept_note), None
+    note += kept_note
     if checker is None:
         checker = (recorded_json(repo, (pkg.get("gate") or {}).get("receipt")) or {}).get("checker")
     dpkg = {**pkg, "formalization_yaml": fz} if fz else pkg
-    dok, dnote, docs = docs_only_descendant(repo, bound, head, dpkg, checker)
+    dok, dnote, docs = docs_only_descendant(repo, bound, head, dpkg, checker, exclude)
     if pkg.get("docs_descendants") is True:
         if dok:
             return True, dnote, docs
@@ -827,6 +964,8 @@ def package_descendant(repo: pathlib.Path, bound: str, head: str, pkg: dict | No
     if dok:
         return False, (f"{note}; every changed path is a non-build file, so the package can opt in with "
                        f"`lean-pkg update {pkg.get('name') or 'NAME'} --accept-docs-descendants --reason TEXT`"), None
+    if CLAIMS_COMMIT_FIRST in dnote:
+        return False, f"{note}; {dnote}", None
     return False, note, None
 
 
@@ -1005,6 +1144,8 @@ def load_registry(path: pathlib.Path, *, check_version: bool = True) -> dict:
         raise Fail(f"registry schema version {v} is not supported (supported: "
                    f"{', '.join(map(str, SUPPORTED_REGISTRY_VERSIONS))}); this lean-pkg is older than the "
                    f"registry: upgrade lean-pkg (`lean-pkg migrate` upgrades only older registries)")
+    global _LOADED_PACKAGES
+    _LOADED_PACKAGES = data["packages"]
     return data
 
 
