@@ -55,6 +55,10 @@ differing file already at either path is refused. The README entry block is prin
 `--append-readme` appended to `README.md` beside the receipt. With `--stdout` the seal evidence is persisted
 (#72): the receipt gains the additive keys `job_stdout_sha256` (the job stdout file) and `manifest_sha256`
 (`lake-manifest.json` at the commit), which `gate` ignores, and the README block a `- Seal:` line naming both.
+`--artifacts DIR` (with --stdout; also under --check): the job's artifact seal (the template's ARTIFACTS_DIR):
+sha256(DIR/artifacts.sha256) must be the stdout's `artifacts-manifest-sha256` line and every file under DIR is
+rehashed against that manifest (check_artifacts); the receipt gains `artifacts_manifest_sha256` and the manifest
+is written beside it as an evidence file. Without the flag nothing changes.
 Everything after the executor's own terminal-state check (2. to 5. and the output) is `produce`, shared with
 `receipt systemd` (receipt_systemd.py), which hands it an `Evidence` with its job identity, check lines, README
 lines and extra evidence files.
@@ -161,12 +165,23 @@ SRC_MODE=${SRC_MODE:-archive}
 # tree, or when a dependency's build directory holds one of the package's root namespaces. The package itself
 # is still compiled fresh: the checks below are unchanged. The log records the tarball's sha256, never its path.
 DEPS_TAR=${DEPS_TAR:-}
+# Optional artifact seal: ARTIFACTS_DIR, a directory relative to the job's package tree ($SRC; relative to $WORK
+# with ARTIFACTS_BASE=work) that the build or the audit fills. After the audit every regular file under it is
+# copied to ARTIFACTS_OUT (default $OUT_DIR/artifacts-<J>; must not exist yet) with a manifest artifacts.sha256
+# there: one line per file, sorted by path, `<relative path> <size> <sha256>`. The manifest's sha256 goes on
+# stdout beside the seal lines (artifacts-manifest-sha256), so `lean-pkg receipt slurm --artifacts DIR`
+# rehashes a collected copy against the job's own manifest. A symlink or special file under the directory, a
+# file name holding a newline, or a copy that does not rehash to the manifest fails the job.
+ARTIFACTS_DIR=${ARTIFACTS_DIR:-}
+ARTIFACTS_BASE=${ARTIFACTS_BASE:-src}
 
 JOB=${SLURM_JOB_ID:?run this under sbatch}
 PKG_DIR=${PKG_DIR:-${SLURM_SUBMIT_DIR:-$PWD}}
 COMMIT=${COMMIT:-$(git -C "$PKG_DIR" rev-parse HEAD)}
 OUT_DIR=${OUT_DIR:-${SLURM_SUBMIT_DIR:-$PWD}}
 LOG="$OUT_DIR/verify-$JOB.log"
+ARTIFACTS_OUT=${ARTIFACTS_OUT:-$OUT_DIR/artifacts-$JOB}
+ARTIFACTS_MANIFEST=artifacts.sha256
 
 # Node-local work directory. The receipt redacts /tmp/<user>-job<J> and /scratch/<user>/ by itself; a
 # path elsewhere that appears in the log needs `--redact REGEX` at receipt time.
@@ -320,6 +335,59 @@ fi
 $RUN bash -c "$AXIOMS_CMD" >>"$LOG" 2>&1
 echo "fs-file-nr-after: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)" >>"$LOG"
 
+# The artifact seal (ARTIFACTS_DIR above). artifacts_list DIR: the manifest lines of the regular files under DIR,
+# sorted by path (C locale), the manifest itself left out.
+artifacts_list() {
+  (cd "$1" && find . -path "./$ARTIFACTS_MANIFEST" -prune -o -type f -print0 | LC_ALL=C sort -z \
+    | while IFS= read -r -d '' f; do
+        printf '%s %s %s\n' "${f#./}" "$(stat -c %s "$f")" "$(sha256sum <"$f" | cut -d' ' -f1)"
+      done)
+}
+artifacts_sha=""
+if [ -n "$ARTIFACTS_DIR" ]; then
+  case "$ARTIFACTS_BASE" in
+    src) abase="$SRC" ;;
+    work) abase="$WORK" ;;
+    *) echo "error: ARTIFACTS_BASE is src or work, not '$ARTIFACTS_BASE'" >>"$LOG"; exit 1 ;;
+  esac
+  case "/$ARTIFACTS_DIR/" in
+    //*|*/../*) echo "error: ARTIFACTS_DIR must be a relative path without '..'" >>"$LOG"; exit 1 ;;
+  esac
+  adir="$abase/$ARTIFACTS_DIR"
+  if [ ! -d "$adir" ] || [ "$(realpath -e "$adir")" != "$(realpath -m -s "$(realpath -e "$abase")/$ARTIFACTS_DIR")" ]; then
+    echo "error: ARTIFACTS_DIR is not a directory under $ARTIFACTS_BASE (or a path component is a symlink)" >>"$LOG"
+    exit 1
+  fi
+  bad=$(find "$adir" ! -type f ! -type d -print -quit)
+  if [ -n "$bad" ]; then
+    echo "error: ARTIFACTS_DIR holds a symlink or special file: ${bad#"$adir"/}" >>"$LOG"
+    exit 1
+  fi
+  if [ -n "$(find "$adir" -name $'*[\n\r]*' -print -quit)" ]; then
+    echo "error: ARTIFACTS_DIR holds a file name with a newline" >>"$LOG"
+    exit 1
+  fi
+  if [ -e "$adir/$ARTIFACTS_MANIFEST" ]; then
+    echo "error: ARTIFACTS_DIR already holds $ARTIFACTS_MANIFEST, the manifest's own name" >>"$LOG"
+    exit 1
+  fi
+  if [ -e "$ARTIFACTS_OUT" ] || [ -L "$ARTIFACTS_OUT" ]; then
+    echo "error: ARTIFACTS_OUT already exists; the job never overwrites artifacts" >>"$LOG"
+    exit 1
+  fi
+  mkdir -p "$(dirname "$ARTIFACTS_OUT")"
+  mkdir "$ARTIFACTS_OUT"
+  artifacts_list "$adir" >"$ARTIFACTS_OUT/$ARTIFACTS_MANIFEST"
+  cp -R "$adir/." "$ARTIFACTS_OUT/"
+  # the copy is what is collected: it must rehash to the manifest taken from the job's own tree
+  if ! artifacts_list "$ARTIFACTS_OUT" | cmp -s - "$ARTIFACTS_OUT/$ARTIFACTS_MANIFEST"; then
+    echo "error: the copy in ARTIFACTS_OUT does not rehash to the manifest of ARTIFACTS_DIR" >>"$LOG"
+    exit 1
+  fi
+  artifacts_sha=$(sha256sum "$ARTIFACTS_OUT/$ARTIFACTS_MANIFEST" | cut -d' ' -f1)
+  echo "artifacts-manifest: $(wc -l <"$ARTIFACTS_OUT/$ARTIFACTS_MANIFEST") file(s) from $ARTIFACTS_BASE/$ARTIFACTS_DIR, sha256 $artifacts_sha" >>"$LOG"
+fi
+
 # The key lines, from Lean's own output in the log: sorry-count may not be lower than the
 # `declaration uses `sorry`` warnings (either quote style), and axioms may not leave out a `#print axioms` result.
 sorry=$(grep -c -E "declaration uses ['\`]sorry['\`]" "$LOG" || true)
@@ -337,6 +405,9 @@ axioms=$(tr '\n' ' ' <"$LOG" | grep -o 'depends on axioms: \[[^]]*\]' | sed -e '
 } >>"$LOG"
 
 # The seal: nothing may write to the log after this line.
+if [ -n "$artifacts_sha" ]; then
+  echo "artifacts-manifest-sha256 $artifacts_sha"
+fi
 echo "post-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
 echo "verify-log-sha256 $(sha256sum "$LOG" | cut -d' ' -f1)"
 """
@@ -489,6 +560,171 @@ def check_stdout(text: str, raw_sha: str, manifest: bytes | None, c12: str | Non
                         f"{c12} ({man[:12]}…)")
     else:
         checks.append(f"✓ manifest: pre = post = lake-manifest.json at {c12} ({man[:12]}…)")
+
+
+# --------------------------------------------------------------------------
+# the artifact seal (--artifacts)
+
+ARTIFACTS_KEY = "artifacts-manifest-sha256"
+ARTIFACTS_MANIFEST = "artifacts.sha256"
+ARTIFACTS_RECEIPT_KEY = "artifacts_manifest_sha256"
+HASH_CHUNK = 1 << 20
+_MANIFEST_LINE = re.compile(rb"(.+) (0|[1-9][0-9]*) ([0-9a-f]{64})")
+
+
+def _named(kind: str, names: list[str], limit: int = 5) -> str:
+    shown = ", ".join(names[:limit]) + (f" (+{len(names) - limit} more)" if len(names) > limit else "")
+    return f"{len(names)} {kind} file(s): {shown}"
+
+
+def _bad_rel(rel: str) -> bool:
+    """A manifest path that is not a plain relative path inside the directory (absolute, empty, `.`/`..`
+    components, a backslash, a NUL)."""
+    parts = rel.split("/")
+    return (not rel or rel.startswith("/") or "\\" in rel or "\0" in rel
+            or any(x in ("", ".", "..") for x in parts))
+
+
+def parse_artifacts_manifest(data: bytes, manifest_name: str) -> tuple[dict[str, tuple[int, str]], list[str]]:
+    """({relative path: (size, sha256)}, problems) for the job's `<path> <size> <sha256>` lines: sorted by path
+    (bytes), no duplicate, no path traversal, the manifest itself not listed, a final newline."""
+    problems: list[str] = []
+    entries: dict[str, tuple[int, str]] = {}
+    if data and not data.endswith(b"\n"):
+        problems.append(f"{manifest_name}: no final newline (a truncated copy?)")
+    lines = data.split(b"\n")
+    if lines and lines[-1] == b"":
+        lines.pop()
+    prev = None
+    dups: list[str] = []
+    bad: list[str] = []
+    unsorted = False
+    for n, line in enumerate(lines, 1):
+        m = _MANIFEST_LINE.fullmatch(line)
+        if not m:
+            problems.append(f"{manifest_name} line {n}: not `<relative path> <size> <sha256>`")
+            continue
+        try:
+            rel = m.group(1).decode("utf-8")
+        except UnicodeDecodeError:
+            problems.append(f"{manifest_name} line {n}: the path is not UTF-8")
+            continue
+        if _bad_rel(rel) or rel == manifest_name:
+            bad.append(rel)
+            continue
+        if rel in entries:
+            dups.append(rel)
+            continue
+        if prev is not None and m.group(1) < prev:
+            unsorted = True
+        prev = m.group(1)
+        entries[rel] = (int(m.group(2)), m.group(3).decode())
+    if bad:
+        problems.append(f"{manifest_name}: {_named('path-traversal or invalid', bad)} (absolute, `..`, `.` or "
+                        f"empty components, or the manifest itself)")
+    if dups:
+        problems.append(f"{manifest_name}: {_named('duplicate', dups)}; each path is listed once")
+    if unsorted:
+        problems.append(f"{manifest_name}: the lines are not sorted by path (the job writes them sorted)")
+    return entries, problems
+
+
+def walk_artifacts(root: pathlib.Path, manifest_name: str) -> tuple[dict[str, int], list[str], list[str]]:
+    """({relative path: size} of every regular file under root, symlinks, special files); never follows a
+    symlink. The manifest at the top is left out."""
+    files: dict[str, int] = {}
+    links: list[str] = []
+    special: list[str] = []
+    stack = [""]
+    while stack:
+        rel_dir = stack.pop()
+        with os.scandir(root / rel_dir if rel_dir else root) as it:
+            for e in it:
+                rel = f"{rel_dir}/{e.name}" if rel_dir else e.name
+                st = e.stat(follow_symlinks=False)
+                if e.is_symlink():
+                    links.append(rel)
+                elif e.is_dir(follow_symlinks=False):
+                    stack.append(rel)
+                elif e.is_file(follow_symlinks=False):
+                    if rel != manifest_name:
+                        files[rel] = st.st_size
+                else:
+                    special.append(rel)
+    return files, sorted(links), sorted(special)
+
+
+def hash_file(path: pathlib.Path) -> str:
+    """sha256 of a regular file read in 1 MiB chunks, opened without following a symlink."""
+    h = hashlib.sha256()
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(fd, "rb") as f:
+        while chunk := f.read(HASH_CHUNK):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def check_artifacts(root: pathlib.Path, manifest_name: str, stdout_text: str, refusals: list[str],
+                    checks: list[str]) -> tuple[bytes | None, dict | None]:
+    """--artifacts DIR (the job's artifact seal): the manifest's sha256 must be the job stdout's one
+    `artifacts-manifest-sha256` line (the stdout is bound by the stdout seal and sacct), and every file under DIR
+    is rehashed in 1 MiB chunks against it: a missing, extra or changed file, a symlink, a special file, a
+    path-traversal or duplicate manifest entry refuses. Previously copied files are adopted only by this rehash
+    against the job's own manifest, never by another collection attempt's hashes. Returns (manifest bytes,
+    summary) when every check passed, else (None, None)."""
+    shown = manifest_name
+    n0 = len(refusals)
+    if root.is_symlink() or not root.is_dir():
+        refusals.append(f"--artifacts {root.name}: not a directory (a symlink is not one)")
+        return None, None
+    mpath = root / manifest_name
+    if mpath.is_symlink() or not mpath.is_file():
+        refusals.append(f"--artifacts: no regular file {shown} in the directory (the job's manifest; a symlink is "
+                        f"not one)")
+        return None, None
+    data = mpath.read_bytes()
+    actual = hashlib.sha256(data).hexdigest()
+    sealed = _one_hex(stdout_text, ARTIFACTS_KEY, refusals)
+    if sealed is not None and sealed != actual:
+        refusals.append(f"--artifacts: {shown} hashes to {actual[:12]}…, not the job stdout's {ARTIFACTS_KEY} "
+                        f"{sealed[:12]}…; it is not the manifest the job wrote")
+    entries, problems = parse_artifacts_manifest(data, shown)
+    refusals += [f"--artifacts: {x}" for x in problems]
+    try:
+        files, links, special = walk_artifacts(root, manifest_name)
+    except OSError as e:
+        refusals.append(f"--artifacts: cannot list the directory: {e}")
+        return None, None
+    if links:
+        refusals.append(f"--artifacts: {_named('symlink', links)}; the seal binds regular files only")
+    if special:
+        refusals.append(f"--artifacts: {_named('special', special)}; the seal binds regular files only")
+    missing = sorted(set(entries) - set(files))
+    extra = sorted(set(files) - set(entries))
+    if missing:
+        refusals.append(f"--artifacts: {_named('missing', missing)} (in {shown}, not in the directory)")
+    if extra:
+        refusals.append(f"--artifacts: {_named('extra', extra)} (in the directory, not in {shown})")
+    changed: list[str] = []
+    total = 0
+    for rel in sorted(set(entries) & set(files)):
+        size, digest = entries[rel]
+        total += files[rel]
+        if files[rel] != size:
+            changed.append(rel)
+            continue
+        try:
+            if hash_file(root / rel) != digest:
+                changed.append(rel)
+        except OSError as e:
+            refusals.append(f"--artifacts: {rel}: cannot be read ({e.__class__.__name__})")
+    if changed:
+        refusals.append(f"--artifacts: {_named('changed', changed)} (size or sha256 differs from {shown})")
+    if len(refusals) > n0:
+        return None, None
+    checks.append(f"✓ artifacts: {shown} sha256 = job stdout {ARTIFACTS_KEY} {actual[:12]}…; {len(entries)} "
+                  f"file(s), {total} bytes rehashed, none missing, extra or changed")
+    return data, {"files": len(entries), "bytes": total, "manifest": shown, "manifest_sha256": actual}
 
 
 # --------------------------------------------------------------------------
@@ -1233,6 +1469,41 @@ def _job_files(args) -> dict:
     return paths
 
 
+def artifacts_args(args, paths: dict) -> tuple[pathlib.Path, str] | None:
+    """(DIR, manifest name) for --artifacts, or None; the usage errors (exit 2) of the flag pair."""
+    name = getattr(args, "artifacts_manifest", None)
+    root = getattr(args, "artifacts", None)
+    if root is None:
+        if name is not None:
+            raise core.UsageError("--artifacts-manifest is only for --artifacts DIR")
+        return None
+    if "--stdout" not in paths:
+        raise core.UsageError(f"--artifacts needs --stdout (the job's {ARTIFACTS_KEY} line is on its stdout, which "
+                              f"the stdout seal binds)")
+    name = ARTIFACTS_MANIFEST if name is None else name
+    if not name or "/" in name or name in (".", "..") or "\0" in name:
+        raise core.UsageError(f"--artifacts-manifest {name!r}: a file name inside the --artifacts directory")
+    path = pathlib.Path(root).expanduser()
+    if not path.exists() and not path.is_symlink():
+        raise core.UsageError(f"--artifacts {root}: no such directory")
+    return path, name
+
+
+def _artifact_evidence(art, paths: dict, refusals: list[str], checks: list[str]) -> tuple[list, dict | None]:
+    """(Evidence.evidence_files entries, JSON summary) of a --artifacts check (both empty without the flag)."""
+    if art is None:
+        return [], None
+    out_text = paths["--stdout"].read_bytes().decode("utf-8", errors="replace")
+    data, summary = check_artifacts(*art, out_text, refusals, checks)
+    if data is None:
+        return [], {"ok": False, "dir": str(art[0]), "manifest": art[1]}
+    line = (f"- Artifacts: `{{name}}`, SHA-256 `{{sha}}` (= `{ARTIFACTS_RECEIPT_KEY}` = the job stdout's "
+            f"{ARTIFACTS_KEY}); {summary['files']} file(s), {summary['bytes']} bytes rehashed from the collected "
+            f"copy.")
+    return ([(ARTIFACTS_MANIFEST, data, ARTIFACTS_RECEIPT_KEY, line)],
+            {"ok": True, "dir": str(art[0]), **summary})
+
+
 def preflight(args) -> int:
     """`receipt slurm --check` (field report): every check on the job's files that needs neither sacct nor a
     finished long job, on the .log/.out/.err of a trial run; every problem is listed, nothing is written. The
@@ -1242,6 +1513,7 @@ def preflight(args) -> int:
     job = (args.job or "").strip().removeprefix("slurm-") or None
     repo = repo_dir(args)
     paths = _job_files(args)
+    art = artifacts_args(args, paths)
     extra = common_usage(args)
     problems: list[str] = []
     checks: list[str] = []
@@ -1294,10 +1566,14 @@ def preflight(args) -> int:
     if fams:
         problems.append(f"public-safety: a private string remains in the redacted verify log ({', '.join(fams)}); "
                         f"add a --redact REGEX for it")
+    _files, art_summary = _artifact_evidence(art, paths, problems, checks)
     ok = not problems
     if args.json_out:
-        core.print_json({"ok": ok, "check": True, "written": [], "raw_log_sha256": hashlib.sha256(raw).hexdigest(),
-                         "log_commit_bound": log_commit_bound, "checks": checks, "problems": problems})
+        payload = {"ok": ok, "check": True, "written": [], "raw_log_sha256": hashlib.sha256(raw).hexdigest(),
+                   "log_commit_bound": log_commit_bound, "checks": checks, "problems": problems}
+        if art is not None:                # additive, only with --artifacts
+            payload["artifacts"] = art_summary
+        core.print_json(payload)
     else:
         print(f"receipt slurm --check: {'ok' if ok else f'{len(problems)} problem(s)'}; nothing written")
         for c in checks:
@@ -1325,6 +1601,7 @@ def cmd_receipt_slurm(args) -> int:
     core.receipt_job_slug(job_id)
     repo = repo_dir(args)
     paths = _job_files(args)
+    art = artifacts_args(args, paths)
     extra = common_usage(args)
 
     refusals: list[str] = []
@@ -1350,9 +1627,13 @@ def cmd_receipt_slurm(args) -> int:
             return f"verify log: `job-id:` {value!r} is not --job {job!r}"
         return None
 
+    evidence_files, art_summary = _artifact_evidence(art, paths, refusals, checks)
+    json_extra = {"sacct": sacct}
+    if art is not None:                    # additive, only with --artifacts: without it nothing changes
+        json_extra["artifacts"] = art_summary
     ev = Evidence(verb="receipt slurm", job_id=job_id, refusals=refusals, checks=checks, executor_lines=lines,
                   default_heading=f"lower-tier receipt, Slurm job {job}", check_log_job_id=log_job_id,
-                  json_extra={"sacct": sacct})
+                  json_extra=json_extra, evidence_files=evidence_files)
     return produce(args, ev, repo, paths, extra)
 
 
@@ -1415,6 +1696,14 @@ def add_parsers(sub, add_json) -> None:
                         f"redacted to {USER_TOKEN} instead (/tmp/{USER_TOKEN}-job, /scratch/{USER_TOKEN}/)")
     s.add_argument("--sacct-file", default=None, metavar="F",
                    help=f"saved output of `sacct -j J --format={SACCT_FORMAT} -P -n` (a host without Slurm)")
+    s.add_argument("--artifacts", default=None, metavar="DIR",
+                   help=f"the collected copy of the job's sealed artifact directory (the template's ARTIFACTS_DIR): "
+                        f"the manifest's sha256 must be the --stdout {ARTIFACTS_KEY} line and every file under DIR "
+                        f"is rehashed against it (missing, extra, changed files, symlinks, special files, "
+                        f"path traversal and duplicate entries refuse); the receipt gains {ARTIFACTS_RECEIPT_KEY} "
+                        f"and the manifest is written beside it. Needs --stdout")
+    s.add_argument("--artifacts-manifest", default=None, metavar="NAME",
+                   help=f"the manifest's file name inside --artifacts DIR (default {ARTIFACTS_MANIFEST})")
     add_common_flags(s, "Slurm job J", "slurm-<J>")
     s.set_defaults(fn=cmd_receipt_slurm)
     receipt_systemd.add_parser(rsub)

@@ -13,6 +13,21 @@ change the registry schema or receipt format, always with a migration).
   and its topics, `receipt slurm`/`systemd` with `--compress-log` and the Slurm template's `SRC_MODE=clone` and `DEPS_TAR`,
   comparator configuration and readiness checks, `search` flags, the pre-freeze check and the consolidation recipe; Requirements
   states `lean-exercise`'s host needs.
+- `receipt slurm --template`: an optional artifact seal (`ARTIFACTS_DIR=<dir>`, relative to the job's package tree,
+  or to the work directory with `ARTIFACTS_BASE=work`). After the audit the job lists every regular file under it in
+  `artifacts.sha256` (sorted `<relative path> <size> <sha256>` lines), copies the directory and the manifest to
+  `ARTIFACTS_OUT` (default `$OUT_DIR/artifacts-<J>`, never overwritten), rehashes the copy against the manifest, and
+  prints `artifacts-manifest-sha256 <hex>` on stdout beside the seal lines; a symlink, a special file or a newline in
+  a file name fails the job. Without `ARTIFACTS_DIR` the template behaves as before (field report).
+- `receipt slurm --artifacts DIR [--artifacts-manifest NAME]` (and `--check`; needs `--stdout`): the manifest's
+  SHA-256 must equal the job stdout's `artifacts-manifest-sha256` line (the stdout is bound by the stdout seal and
+  sacct), and every file under `DIR` is rehashed in 1 MiB chunks against it; missing, extra or changed files,
+  symlinks, special files, path-traversal, duplicate or unsorted entries refuse. The receipt gains the additive key
+  `artifacts_manifest_sha256` (`gate` ignores it), the manifest is written beside the receipt as
+  `<c12>-slurm-<J>-artifacts.sha256` (`sealed[]` role `artifacts.sha256`), and `--json` gains `artifacts`. Without
+  `--artifacts` nothing changes. docs/receipts.md "Recollecting a finished job": `--check`, then the receipt, on
+  recollected files; previously copied files are adopted only by this rehash against the job's own manifest
+  (field report).
 
 ### Changed
 

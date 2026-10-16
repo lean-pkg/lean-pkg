@@ -1,8 +1,9 @@
 usage: lean-pkg receipt slurm [-h] [--job J] [--log PATH] [--commit SHA] [--template] [--check]
                               [--stdout PATH] [--stderr PATH] [--redact REGEX] [--sacct-file F]
-                              [--checker TEXT] [--repo DIR] [--out PATH] [--compress-log]
-                              [--append-readme] [--readme-heading TEXT] [--readme-line TEXT]
-                              [--tar-sha256 HEX] [--json]
+                              [--artifacts DIR] [--artifacts-manifest NAME] [--checker TEXT]
+                              [--repo DIR] [--out PATH] [--compress-log] [--append-readme]
+                              [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
+                              [--json]
 
 options:
   -h, --help            show this help message and exit
@@ -25,6 +26,14 @@ options:
                         are always redacted to <USER> instead (/tmp/<USER>-job, /scratch/<USER>/)
   --sacct-file F        saved output of `sacct -j J --format=JobID,State,ExitCode,Elapsed,TotalCPU
                         -P -n` (a host without Slurm)
+  --artifacts DIR       the collected copy of the job's sealed artifact directory (the template's
+                        ARTIFACTS_DIR): the manifest's sha256 must be the --stdout artifacts-
+                        manifest-sha256 line and every file under DIR is rehashed against it
+                        (missing, extra, changed files, symlinks, special files, path traversal
+                        and duplicate entries refuse); the receipt gains artifacts_manifest_sha256
+                        and the manifest is written beside it. Needs --stdout
+  --artifacts-manifest NAME
+                        the manifest's file name inside --artifacts DIR (default artifacts.sha256)
   --checker TEXT        the exact checker command or mode (default: the log's `checker:` line)
   --repo DIR            the package checkout (default: the current directory)
   --out PATH            receipt path (default <repo>/.lean-receipts/<commit12>-slurm-<J>.json);
