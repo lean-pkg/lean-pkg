@@ -40,6 +40,8 @@ change the registry schema or receipt format, always with a migration).
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
+Zenodo version DOI: [10.5281/zenodo.23424170](https://doi.org/10.5281/zenodo.23424170)
+
 ## [0.7.47] - 2026-10-16
 
 ### Added
