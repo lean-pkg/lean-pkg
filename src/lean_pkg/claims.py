@@ -84,6 +84,18 @@ def _one_line(s, limit: int = 300) -> bool:
     return isinstance(s, str) and bool(s.strip()) and "\n" not in s.strip() and len(s) <= limit
 
 
+def _line_why(s, limit: int = 300) -> str:
+    """Why `s` fails _one_line, for the error message (field report: a 301-character single-line citation was
+    told only "must be null or one line")."""
+    if not isinstance(s, str):
+        return f"got {type(s).__name__}"
+    if not s.strip():
+        return "it is empty"
+    if "\n" in s.strip():
+        return f"it spans {len(s.strip().splitlines())} lines"
+    return f"it is {len(s)} characters, over the {limit}-character limit"
+
+
 def _claim_errors(c, i: int, package: str | None) -> list[str]:
     where = f"claims[{i}]"
     if not isinstance(c, dict):
@@ -110,16 +122,23 @@ def _claim_errors(c, i: int, package: str | None) -> list[str]:
     if c["status"] not in CLAIM_STATUSES:
         errors.append(f"{where}.status must be one of {CLAIM_STATUSES}, got {c['status']!r}")
     if not _one_line(c["summary"]):
-        errors.append(f"{where}.summary must be one sentence (one line, at most 300 characters)")
+        errors.append(f"{where}.summary must be one sentence (one line, at most 300 characters); "
+                      f"{_line_why(c['summary'])}")
     if not (idx._is_rel(c["file"]) and str(c["file"]).endswith(".lean")):
         errors.append(f"{where}.file must be a repo-relative .lean path, got {c['file']!r}")
-    if not isinstance(c["aliases"], list) or not all(_one_line(a, 120) for a in c["aliases"]):
-        errors.append(f"{where}.aliases must be a list of one-line phrases")
+    if not isinstance(c["aliases"], list):
+        errors.append(f"{where}.aliases must be a list of one-line phrases (at most 120 characters each)")
+    else:
+        for j, a in enumerate(c["aliases"]):
+            if not _one_line(a, 120):
+                errors.append(f"{where}.aliases[{j}] must be a one-line phrase (at most 120 characters); "
+                              f"{_line_why(a, 120)}")
     if not isinstance(c["keywords"], list) or not all(
             isinstance(k, str) and KEYWORD_RE.match(k) for k in c["keywords"]):
         errors.append(f"{where}.keywords must be a list of lowercase tags ([a-z0-9-])")
     if c["citation"] is not None and not _one_line(c["citation"]):
-        errors.append(f"{where}.citation must be null or one line")
+        errors.append(f"{where}.citation must be null or one line of at most 300 characters; "
+                      f"{_line_why(c['citation'])}")
     sb = c["superseded_by"]
     if sb is not None and not (isinstance(sb, str) and CLAIM_ID_RE.match(sb)):
         errors.append(f"{where}.superseded_by must be null or a claim id, got {sb!r}")

@@ -504,3 +504,33 @@ def test_sync_is_quiet_when_the_pin_is_pushed_or_there_is_no_remote(lp, env, cap
     assert lp.main(["--registry", str(env.registry), "--json", "claims", "sync", "beta"]) == 0
     cap = capsys.readouterr()
     assert json.loads(cap.out)["pin_published"] is True and "WARN" not in cap.err
+
+
+# Field report: a single-line citation of 301 characters was refused with only "must be null or one line", so
+# the author looked for a line break that was not there. Each length error names the limit and the cause.
+
+def test_a_long_single_line_citation_names_the_limit(cl):
+    d = doc()
+    d["claims"][0]["citation"] = "x" * 301
+    errs = cl.validate_claims(d)
+    assert any("citation must be null or one line of at most 300 characters; it is 301 characters, over the "
+               "300-character limit" in e for e in errs), errs
+    d["claims"][0]["citation"] = "x" * 300
+    assert cl.validate_claims(d) == []
+
+
+def test_a_multiline_citation_says_it_spans_lines(cl):
+    d = doc()
+    d["claims"][0]["citation"] = "first line\nsecond line"
+    assert any("citation" in e and "it spans 2 lines" in e for e in cl.validate_claims(d))
+
+
+def test_a_long_alias_and_summary_name_their_limits(cl):
+    d = doc()
+    d["claims"][0]["aliases"] = ["ok phrase", "y" * 121]
+    d["claims"][0]["summary"] = "z" * 301
+    errs = cl.validate_claims(d)
+    assert any("aliases[1] must be a one-line phrase (at most 120 characters); it is 121 characters" in e
+               for e in errs), errs
+    assert any("summary must be one sentence (one line, at most 300 characters); it is 301 characters" in e
+               for e in errs), errs
