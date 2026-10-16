@@ -2,9 +2,9 @@ usage: lean-pkg comparator [-h] [--receipt RECEIPT] [--check] [--refuse-private]
                            [--replace] [--from-claims NAME] [--coverage NAME] [--out OUT]
                            [--dry-run] [--challenge-namespace CHALLENGE_NAMESPACE] [--agent AGENT]
                            [--challenge-from-type] [--emit-script F] [--from-output F]
-                           [--checkout DIR] [--no-registry] [--allow-partial] [--lake-env DIR]
-                           [--jobs JOBS] [--timeout TIMEOUT] [--json] [--commit] [--push]
-                           [--no-commit]
+                           [--checkout DIR] [--claims-file PATH] [--repo DIR] [--no-registry]
+                           [--allow-partial] [--lake-env DIR] [--jobs JOBS] [--timeout TIMEOUT]
+                           [--json] [--commit] [--push] [--no-commit]
                            name
 
 positional arguments:
@@ -44,6 +44,15 @@ options:
   --checkout DIR        with config --from-claims: use this package checkout instead of the
                         registry's local_path (HEAD must be the claims-synced commit or an
                         evidence-only descendant)
+  --claims-file PATH    with config --from-claims: read the claims from this working-copy
+                        claims.yaml instead of the registry's synced cache (no `claims sync`
+                        needed); schema-checked exactly like `claims check --file`; never written
+                        to the registry; the output names the file and its sha256
+  --repo DIR            with NAME --check only: validate against the checkout DIR instead of the
+                        registered local_path, for this call (never saved; JSON repo_override).
+                        DIR must be a git work tree, and when it has remotes one must be the
+                        package's repo. Attaching refuses it: it binds the registered checkout
+                        (move that with `update --path`)
   --no-registry         with config --from-output/--challenge-from-type and --out FILE: scratch
                         mode; write the merged config to FILE outside the checkout, lease not
                         consulted

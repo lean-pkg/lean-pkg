@@ -15,15 +15,20 @@ formalization renderer leaves names still listed under `lean_pkg_scaffold.todo` 
 `status.main_results`.
 
 Claims come from the registry cache, which must be synced at HEAD (or HEAD an evidence-only
-descendant of the synced commit): `lean-pkg claims sync NAME` first.
+descendant of the synced commit): `lean-pkg claims sync NAME` first. Or (#13) from a working-copy
+file, `--claims-file PATH`: schema-checked exactly like `claims check --file`, normalized the way
+`claims sync` caches claims (so the generated configuration is the one the registry route would
+produce for the same claims), and never written to the registry. The output names the source.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
 import re
+import shlex
 
 from . import cli as core
 from . import lean_scan
@@ -148,16 +153,46 @@ def synced_claims(pkg: dict, repo: pathlib.Path, checkout: bool = False) -> list
     return [c for c in pkg["claims"] if isinstance(c, dict)]
 
 
+def file_claims(name: str, path: str) -> tuple[list[dict], dict]:
+    """`--claims-file PATH` (#13): the claims of a working-copy claims.yaml, for a worker that cannot run
+    `claims sync` (a registry write). Validated exactly like `claims check --file PATH` with NAME (schema,
+    and the file's `package` must be NAME), then normalized as `claims sync` caches them. Reads no
+    registry and writes nothing. Returns (claims, source)."""
+    from .claims import load_claims_text, normalize_claim, schema_check_text
+    p = pathlib.Path(str(path)).expanduser()
+    if not p.is_file():
+        raise core.Fail(f"{name}: --claims-file {path}: claims file not found; nothing written")
+    raw = p.read_bytes()
+    text = raw.decode("utf-8", errors="replace")
+    _n, errors = schema_check_text(text, str(p), name)
+    if errors:
+        raise core.Fail(f"{name}: --claims-file {p}: {len(errors)} schema error(s) (`lean-pkg claims check --file "
+                        f"{p} {name}` lists them): " + "; ".join(errors) + "; nothing written")
+    claims = [normalize_claim(c) for c in load_claims_text(text, str(p))["claims"]]
+    return claims, {"kind": "file", "path": str(p.resolve()), "sha256": hashlib.sha256(raw).hexdigest(),
+                    "synced_commit": None, "claims": len(claims)}
+
+
+def source_line(src: dict) -> str:
+    if src["kind"] == "file":
+        return (f"claims source: --claims-file {src['path']} (sha256 {src['sha256']}; schema-checked like "
+                f"`claims check --file`; not synced: the registry is unchanged)")
+    return f"claims source: registry cache (synced at {str(src['synced_commit'])[:12]})"
+
+
 def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespace: str | None,
                           agent: str | None, types: dict | None = None, checkout: str | None = None,
-                          no_registry: bool = False) -> tuple[list[str], dict, str | None]:
+                          no_registry: bool = False, claims_file: str | None = None
+                          ) -> tuple[list[str], dict, str | None]:
     """(lines, payload, would-be JSON text or None when nothing changes).
 
     `types` (#25), when given: {"mode": "local"|"emit"|"ingest", "emit": F, "from_output": F,
     "lake_env": DIR, "jobs": N, "timeout": S}; see comparator_types.
     `checkout` (#31): the package checkout to use instead of the registry's local_path.
     `no_registry` (#31): scratch mode; `out` is a file outside the checkout, merged from the
-    checkout's comparator.json, and the lease is not consulted."""
+    checkout's comparator.json, and the lease is not consulted.
+    `claims_file` (#13): read the claims from this working-copy file instead of the synced cache
+    (`file_claims`); the payload's claims_source says which was used."""
     pkg = core.get_pkg(reg, name)
     if checkout:
         repo = pathlib.Path(os.path.abspath(pathlib.Path(checkout).expanduser()))
@@ -185,7 +220,14 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     ns = namespace or default_namespace(name)
     if not NAMESPACE_RE.match(ns):
         raise core.Fail(f"--challenge-namespace {ns!r} is not a Lean name")
-    claims = synced_claims(pkg, repo, checkout=bool(checkout))
+    if claims_file is not None:
+        if core.git_head(repo) is None:
+            raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
+        claims, csource = file_claims(name, claims_file)
+    else:
+        claims = synced_claims(pkg, repo, checkout=bool(checkout))
+        csource = {"kind": "registry", "path": None, "sha256": None,
+                   "synced_commit": pkg.get("claims_synced_commit"), "claims": len(claims)}
     if checkout and types is not None:
         from . import comparator_types as ct
         ct.lake_dir_rel(repo, types.get("lake_env"))      # the Lake package must be there
@@ -229,15 +271,15 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     summary = (f"{name}: {len(claims)} claim(s): {existing} already configured, {len(added)} added, "
                f"{skipped} skipped (not a theorem/lemma, or superseded)")
     payload = {"ok": True, "name": name, "out": str(scratch) if scratch else rel, "dry_run": dry_run, **counts,
-               "added_names": [a["theorem_name"] for a in added], "written": False}
+               "added_names": [a["theorem_name"] for a in added], "written": False, "claims_source": csource}
     if checkout:
         payload["checkout"] = str(repo)
     if scratch:
         payload["no_registry"] = True
         payload["not_done"] = NOT_DONE
     if not added:
-        return [summary, f"{rel}: nothing to add; nothing written"], payload, None
-    lines = [summary]
+        return [summary, source_line(csource), f"{rel}: nothing to add; nothing written"], payload, None
+    lines = [summary, source_line(csource)]
     if types is not None:
         from . import comparator_types as ct
         head = core.git_head(repo) or ""
@@ -249,8 +291,8 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
             decls = [{k: d[k] for k in ("decl", "claim", "module")} for d in cfgd["decls"]]
             path = ct.emit_path(repo, types["emit"])
             epay = {"ok": True, "name": name, "dry_run": dry_run, "script": str(path), "commit": head,
-                    "decls": decls, "written": False}
-            elines = [summary, f"{len(decls)} declaration(s) to elaborate at {head[:12]}:"] + \
+                    "decls": decls, "written": False, "claims_source": csource}
+            elines = [summary, source_line(csource), f"{len(decls)} declaration(s) to elaborate at {head[:12]}:"] + \
                 [f"  {d['decl']}  ({d['module'] or 'no module: will be a type_error'})" for d in decls]
             if dry_run:
                 return elines + ["dry run: no driver written"], epay, None
@@ -259,7 +301,9 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
             path.chmod(0o755)
             epay["written"] = True
             return elines + [f"wrote {path}; run: cd {repo} && bash {path} OUT.json, then "
-                             f"lean-pkg comparator config --from-claims {name} --from-output OUT.json"], epay, None
+                             f"lean-pkg comparator config --from-claims {name} --from-output OUT.json"
+                             + (f" --claims-file {shlex.quote(csource['path'])}" if csource["kind"] == "file"
+                                else "")], epay, None
         if types.get("mode") == "local":
             doc, source = ct.run_local(repo, cfgd), "the local run"
         else:
@@ -476,7 +520,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
 
 USAGE = ("usage: lean-pkg comparator config --from-claims NAME [--out comparator.json] [--dry-run] "
          "[--challenge-namespace NS] [--agent A] [--challenge-from-type | --emit-script F | --from-output F] "
-         "[--allow-partial] [--checkout DIR] [--no-registry --out FILE] "
+         "[--allow-partial] [--checkout DIR] [--claims-file PATH] [--no-registry --out FILE] "
          "[--lake-env DIR] [--jobs N] [--timeout S]  |  lean-pkg comparator config --coverage NAME")
 
 
@@ -507,7 +551,7 @@ def types_mode(args) -> dict | None:
 def cmd_comparator_config(args) -> int:
     if getattr(args, "coverage", None):
         if args.from_claims or args.out or args.dry_run or types_mode(args) is not None or args.agent or \
-                getattr(args, "checkout", None):
+                getattr(args, "checkout", None) or getattr(args, "claims_file", None):
             raise core.UsageError("--coverage NAME is read-only and takes no other config flag")
         lines, payload = do_coverage(core.load_registry(core.registry_path(args)), args.coverage)
         if getattr(args, "json_out", False):
@@ -526,7 +570,8 @@ def cmd_comparator_config(args) -> int:
     reg = core.load_registry(core.registry_path(args))
     lines, payload, text = do_config_from_claims(reg, args.from_claims, args.out or "comparator.json",
                                                  args.dry_run, args.challenge_namespace, args.agent, types,
-                                                 getattr(args, "checkout", None), no_registry)
+                                                 getattr(args, "checkout", None), no_registry,
+                                                 getattr(args, "claims_file", None))
     if getattr(args, "json_out", False):
         if text is not None:
             payload["config"] = json.loads(text)

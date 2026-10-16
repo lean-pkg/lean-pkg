@@ -9,6 +9,15 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `comparator NAME --check --receipt R --repo DIR`: pre-check a comparator receipt made in a worktree or on a
+  feature branch against that checkout instead of the registered `local_path`, with the rules of
+  `gate --check --repo` (this call only, never saved; stderr note; remote matching; JSON `repo_override`, `null`
+  without it). Attaching refuses `--repo` (exit 2) (#13).
+- `comparator config --from-claims NAME --claims-file PATH` (all modes, `--challenge-from-type` included): read
+  the claims from a working-copy `claims.yaml` instead of the synced registry cache, so a worker without registry
+  rights needs no `claims sync`. Checked like `claims check --file PATH NAME`; never written to the registry; the
+  configuration equals the registry route's for the same claims. The output names the source (`claims source:`
+  line, JSON `claims_source` with the file's sha256, also on the registry route) (#13).
 - `receipt slurm --template`: `SRC_MODE=clone` (default `archive`) builds from a new repository holding only
   `COMMIT` (file transport only, its own object store, no untracked or ignored files), refuses unless HEAD is
   `COMMIT` and `git status` is empty, and logs `src-mode:` / `src-head:`; `receipt slurm` and `--check` refuse a

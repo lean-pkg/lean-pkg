@@ -5975,8 +5975,8 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
   no status change; event comparator-attached; identical re-attach = no-op; another receipt for the same commit: --replace keeps the old one as <c12>-comparator.replaced-<stamp>.json, event comparator-replaced {replaced}. It is required by promote.
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
   COMPARATOR_RECEIPT_ALLOWED_HOSTS, or COMPARATOR_RECEIPT_ALLOW_HOST=1). Stages checkout, cache-get, build, comparator, receipt log to <evidence-dir>/comparator-stages/NN-<stage>.log + stages.json (kept on failure; the error names the stage and log; --evidence-dir DIR, default .lake/comparator-receipt); readiness before any expensive stage: a .lake/.lake/packages(/*) symlink resolving outside the project is refused (the lake comparator sandbox cannot read it), and the checkout stage ends with `lake --no-build build M` per configured module (unknown target: fails naming the missing [[lean_lib]]); a judge that stops before judging (sandboxed dependency resolution) is a tool/environment error, not a rejection; --prepare runs only the setup stages (idempotent); a later run at the same commit/toolchain/config hash skips them (--from-prepared DIR: reuse DIR's, refuse a mismatch); receipt gains an additive stages[] summary.
-  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --refuse-private, --refuse-dirty
-  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped; --challenge-from-type pre-fills Challenge (elaborated type) + Solution (`exact @_root_.<decl>`) via `lake env lean` [--lake-env DIR --jobs N --timeout S], or split it: --emit-script F (bash F OUT.json on a Slurm node, JSON comparator-types/1; ENFILE/EMFILE: halves jobs, retries) then --from-output OUT.json (commit must be HEAD; driver exits 1 on extraction errors, 2 if none filled; ingest refuses those unless --allow-partial: failures kept TODO, extraction_failed; --checkout DIR instead of local_path; --no-registry --out FILE: scratch config, no lease check); per entry: type_error keeps the TODO, needs_restatement flags project vocabulary; each printed type re-elaborated vs the decl (example : (T) := @decl), failure keeps TODO, round_trip_failed   |   comparator config --coverage NAME: read-only; claims covered/not/TODO by the config tracked at the gate-bound commit (never a candidate); a changed or uncommitted config cannot certify that tree, a new gate at a commit tracking it is required; prints the exact next commands (JSON next_commands[])   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot); warn git-env (JSON env_warnings[]) when GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES/GIT_COMMON_DIR/GIT_NAMESPACE is set (comparator-receipt and package-checkout git drop them; stages.json git_env_scrubbed[])
+  flags: --receipt PATH (required), --check (validate only, record nothing; works at any status), --check --repo DIR (validate against the checkout DIR, e.g. a worktree or feature branch, not the registered local_path; same rules as gate --check --repo: never saved, stderr note, JSON repo_override {path, registered_path, remote_match}, null without it; attaching refuses --repo, exit 2), --refuse-private, --refuse-dirty
+  ex: lean-pkg comparator my-lean --receipt .lean-receipts/<c12>-comparator.json   |   comparator config --from-claims NAME [--out comparator.json] [--dry-run]: one TODO theorem_names entry per synced theorem/lemma claim not yet configured (name <Pkg>Audit.<decl>; lean_pkg_scaffold.todo says what to write); never overwrites; counts existing/added/skipped; --challenge-from-type pre-fills Challenge (elaborated type) + Solution (`exact @_root_.<decl>`) via `lake env lean` [--lake-env DIR --jobs N --timeout S], or split it: --emit-script F (bash F OUT.json on a Slurm node, JSON comparator-types/1; ENFILE/EMFILE: halves jobs, retries) then --from-output OUT.json (commit must be HEAD; driver exits 1 on extraction errors, 2 if none filled; ingest refuses those unless --allow-partial: failures kept TODO, extraction_failed; --checkout DIR instead of local_path; --claims-file PATH: claims from that working-copy claims.yaml instead of the synced registry cache (no claims sync; schema-checked like claims check --file, package must be NAME; never written to the registry; same config as the registry route for the same claims; output line `claims source:` and JSON claims_source {kind registry|file, path, sha256, synced_commit, claims}); --no-registry --out FILE: scratch config, no lease check); per entry: type_error keeps the TODO, needs_restatement flags project vocabulary; each printed type re-elaborated vs the decl (example : (T) := @decl), failure keeps TODO, round_trip_failed   |   comparator config --coverage NAME: read-only; claims covered/not/TODO by the config tracked at the gate-bound commit (never a candidate); a changed or uncommitted config cannot certify that tree, a new gate at a commit tracking it is required; prints the exact next commands (JSON next_commands[])   |   comparator host-check: read-only, no registry: kernel, landlock ABI, bwrap, go/cargo/jq/git/lean/lake/python3 ok|warn|fail, then `mechanism toolchain|legacy: ok|fail` (toolchain = bwrap+lean+lake+python3, what Palomar runs; legacy = Landlock ABI>=1 + go/cargo/git/jq/lean/lake) + verdict naming only usable ones (exit 0 can / 1 cannot); warn git-env (JSON env_warnings[]) when GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_OBJECT_DIRECTORY/GIT_ALTERNATE_OBJECT_DIRECTORIES/GIT_COMMON_DIR/GIT_NAMESPACE is set (comparator-receipt and package-checkout git drop them; stages.json git_env_scrubbed[])
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, a claims ledger that is not ready (`claims ledger NAME`: every reusable claim verified, theorems/lemmas by the comparator too; no claims = unknown = refused; JSON claims_ledger {package_status, counts, required, reasons, ledger_digest}), both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs; --yes first runs git fetch --prune --tags origin incl. +refs/pull/*/head:refs/remotes/origin/pr/*, 120 s; a failed fetch is a ✗), (paper field) a paper unpublished with no arXiv id, and blocking public-safety hits (the whole repository when the package is a subdirectory of it; warn-only hits: a WARN line; skip: --skip-public-safety, a WARN). Evidence on disk that git ignores (receipts, comparator logs, comparator-stages/ files) is a WARN naming each path + rule (.gitignore:3:*.log) and the remedy (!.lean-receipts/ + !**/.lean-receipts/** after it, or git add -f); a not-committed ✗ names the rule; JSON ignored_evidence[{path, rule}] (also publish, and gate/comparator after attaching: stderr WARN).
@@ -6583,27 +6583,42 @@ def cmd_comparator_host_check(args) -> int:
 
 
 def cmd_comparator(args) -> int:
+    repo_arg = getattr(args, "repo", None)
+    if repo_arg is not None and (is_host_check(args) or is_comparator_config(args)):
+        raise UsageError("comparator --repo goes with `comparator NAME --check --receipt R` (`comparator config` "
+                         "takes --checkout DIR; host-check reads no checkout)")
     if is_host_check(args):
         return cmd_comparator_host_check(args)
     if is_comparator_config(args):
         from .comparator_config import cmd_comparator_config
         return cmd_comparator_config(args)
     if args.from_claims or args.coverage or args.out or args.dry_run or args.challenge_namespace \
-            or args.challenge_from_type \
+            or args.challenge_from_type or getattr(args, "claims_file", None) \
             or args.emit_script or args.from_output or args.lake_env or args.jobs is not None \
             or args.timeout is not None:
         raise UsageError("--from-claims, --coverage, --out, --dry-run, --challenge-namespace and the type flags belong to "
                          "`lean-pkg comparator config --from-claims NAME` (or `comparator config --coverage NAME`)")
     if args.receipt is None:
         raise UsageError("comparator NAME needs --receipt PATH (or: lean-pkg comparator host-check)")
+    if repo_arg is not None and not args.check:
+        # #13: like gate, a writing comparator binds the registered checkout; move it with `update --path`
+        raise UsageError("comparator --repo goes with --check: attaching binds the registered local_path "
+                         f"(validate here with `comparator {args.name} --check --receipt R --repo DIR`, or move "
+                         f"the record with `lean-pkg update {args.name} --path DIR --reason TEXT`)")
     reg_path, events_p = registry_path(args), events_path(args)
-    reg = load_registry(reg_path)
+    reg, override = load_registry(reg_path), None
     if not args.check:
         warn_lease(lease_actor(reg, args.name, args.agent, "comparator"))
+    elif repo_arg is not None:
+        reg, override = repo_override(reg, args.name, repo_arg)
+        if note := repo_override_note(override):
+            print(note, file=sys.stderr)
     out, payload = do_comparator(reg_path, reg, events_p,
                                  args.name, args.receipt, args.check,
                                  refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
                                  replace=args.replace)
+    if args.check:
+        payload["repo_override"] = override
     if args.json_out:
         print_json(payload)
     else:
@@ -7983,6 +7998,16 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--checkout", default=None, metavar="DIR",
                    help="with config --from-claims: use this package checkout instead of the registry's "
                         "local_path (HEAD must be the claims-synced commit or an evidence-only descendant)")
+    s.add_argument("--claims-file", dest="claims_file", default=None, metavar="PATH",
+                   help="with config --from-claims: read the claims from this working-copy claims.yaml instead of "
+                        "the registry's synced cache (no `claims sync` needed); schema-checked exactly like "
+                        "`claims check --file`; never written to the registry; the output names the file and "
+                        "its sha256")
+    s.add_argument("--repo", default=None, metavar="DIR",
+                   help="with NAME --check only: validate against the checkout DIR instead of the registered "
+                        "local_path, for this call (never saved; JSON repo_override). DIR must be a git work "
+                        "tree, and when it has remotes one must be the package's repo. Attaching refuses it: "
+                        "it binds the registered checkout (move that with `update --path`)")
     s.add_argument("--no-registry", action="store_true",
                    help="with config --from-output/--challenge-from-type and --out FILE: scratch mode; write "
                         "the merged config to FILE outside the checkout, lease not consulted")
