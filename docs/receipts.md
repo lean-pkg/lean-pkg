@@ -162,6 +162,54 @@ absent; an entry already naming the receipt is not repeated):
 `--tar-sha256 HEX` adds the frozen source tarball's hash (the clause is
 left out without it), and each `--readme-line TEXT` adds a line at the end.
 
+**A job that meets the contract (`--template`).**
+`lean-pkg receipt slurm --template` prints a minimal sbatch wrapper (bash)
+whose files carry every line above; it needs no other flag and no registry:
+
+```bash
+lean-pkg receipt slurm --template > verify.sbatch   # edit VERIFY_CMD, AXIOMS_CMD, CHECKER and the #SBATCH lines
+sbatch verify.sbatch
+```
+
+The wrapper copies the tree committed at `COMMIT` (default `HEAD` of the
+submitting checkout) into a node-local work directory
+(`${SLURM_TMPDIR:-/tmp/$USER-job-<J>}`), prints `pre-manifest-sha256` to
+stdout, sends every tool's output into `verify-<J>.log` (so `--error` stays
+empty), writes the `commit:`, `job-id:`, `lean-toolchain:` and `checker:`
+lines, runs the package's build and `#print axioms` commands, derives
+`sorry-count:` and `axioms:` from Lean's own output in the log, and only
+then prints `post-manifest-sha256` and `verify-log-sha256` (nothing may
+write to the log after that). `LEAN_NUM_THREADS` defaults to 3:
+Mathlib-heavy packages can exhaust the node's file table (`fs.file-max`) at
+higher values, and `/proc/sys/fs/file-nr` goes into the log before and
+after the build. Comments say where to stage the Lean toolchain and
+`MATHLIB_CACHE_DIR` node-local and how to run the tools inside the job's
+container (`RUN=...`). A work directory outside `/tmp/<user>-job<J>` and
+`/scratch/<user>/` that appears in the log needs a `--redact` at receipt
+time.
+
+**Check the files first (`--check`).** A long job whose files miss a line
+cannot be receipted and must be run again. `--check` runs every check
+above that the job's own files decide, on the files of any finished job
+(a short trial run is enough), and names every problem at once:
+
+```bash
+lean-pkg receipt slurm --check --commit "$(git rev-parse HEAD)" \
+  --log verify-123.log --stdout verify-123.out --stderr verify-123.err
+```
+
+It checks the stdout seal (each key exactly once, 64 hex, `verify-log-sha256`
+equal to the log's SHA-256, pre = post), the empty stderr, the log's key
+lines and fields (`checker:` or `--checker`, `sorry-count:` or a completion
+line, `axioms:` or `#print axioms` output, the declared-versus-printed
+rules), and the public-safety scan of the redacted log. With `--commit` it
+also compares the manifest hash, `lean-toolchain:`, `mathlib-rev:` and
+`commit:` with the commit; without it those lines say `not checked`. sacct
+is not run, so the job state is `not checked` unless `--sacct-file F` and
+`--job J` are given. It writes nothing; exit 0 when the files are
+acceptable, 1 otherwise; `--json` prints
+`{ok, check, written: [], raw_log_sha256, checks[], problems[]}`.
+
 ## A lower-tier receipt from a systemd unit
 
 `lean-pkg receipt systemd` (alias `receipt local`) writes the same receipt
