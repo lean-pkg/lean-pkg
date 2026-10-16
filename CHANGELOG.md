@@ -14,6 +14,12 @@ change the registry schema or receipt format, always with a migration).
   `/proc/sys/fs/file-nr`, and size the allocation from a pilot's `sacct` (field report).
 - `--repo DIR` naming the registered local_path no longer prints the note "using --repo P instead of the
   registered local_path P" with the same path twice; JSON `repo_override` is unchanged (field report).
+- `receipt slurm` / `receipt systemd` refused a fresh-build log with no `lean-pkg-build:` markers as "Lake
+  restored root-package module(s)" when later `lake lean FILE` steps re-printed the warnings of just-built
+  modules as `Replayed`. A Reused/Replayed/Unpacked line now counts as a restore only when no earlier `Built`
+  line names the same module; a module only ever restored, or shown restored before its `Built`, is still
+  refused. The `--template` shell check and comparator `build_provenance.cache_reused` use the same order
+  rule (field report).
 
 ## [0.7.45] - 2026-10-16
 

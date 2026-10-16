@@ -30,8 +30,9 @@ Checks, all run before anything is written (every failed check is listed; any on
    union of its `#print axioms` output (`depends on axioms: [...]`, `does not depend on any axioms`); none of
    either refuses. Names are compared without a universe suffix (`Classical.choice.{u}` is `Classical.choice`).
    `checker` is `--checker`, else the log's `checker:`. A root-package module the log shows Lake restored
-   (`Reused`, `Replayed`, `Unpacked`; inside the template's `lean-pkg-build:` markers when present) refuses:
-   its sorry warning need not be in the log (lake_hygiene, `lake_cache_check`).
+   (`Reused`, `Replayed`, `Unpacked`; inside the template's `lean-pkg-build:` markers when present; not after
+   the module's own `Built` line, which is a warning replay) refuses: its sorry warning need not be in the log
+   (lake_hygiene, `lake_cache_check`).
    Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse. A log with no `commit:` line is
    refused without --stdout (the in-log seal binds it to nothing) and WARNed with it (`log_commit_bound: false`).
    Every field but `checker` is read from the RAW log. Without `generated-at:` the
@@ -198,11 +199,13 @@ fi
 $RUN bash -c "$VERIFY_CMD" >>"$LOG" 2>&1
 echo "lean-pkg-build: end" >>"$LOG"
 # A root-package module Lake restored instead of compiling fails the job: its sorry warning need not be in the
-# log. (Lake prints such a job only when it has output, or with -v; the empty cache is the real defence.)
+# log. (Lake prints such a job only when it has output, or with -v; the empty cache is the real defence.) A
+# cache line after the module's own Built is Lake re-printing its stored warnings, not a restore.
 restored=""
 for m in $(sed -n '/^lean-pkg-build: begin$/,/^lean-pkg-build: end$/p' "$LOG" \
-    | grep -oE '\[[0-9]+/[0-9]+\]( \(Optional\))? (Reused|Replayed|Unpacked) [^ ]+' | awk '{print $NF}' \
-    | sed 's/:.*$//' | sort -u || true); do
+    | grep -oE '\[[0-9]+/[0-9]+\]( \(Optional\))? (Built|Reused|Replayed|Unpacked) [^ ]+' \
+    | awk '{m = $NF; sub(/:.*$/, "", m); if ($(NF - 1) == "Built") b[m] = 1; else if (!(m in b)) print m}' \
+    | sort -u || true); do
   if [ -n "$(find . -path ./.lake -prune -o -path "*/${m//.//}.lean" -print -quit 2>/dev/null)" ] \
       || lake_root_namespaces | grep -qxF "${m%%.*}"; then
     restored="$restored $m"
