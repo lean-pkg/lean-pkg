@@ -115,6 +115,34 @@ change the registry schema or receipt format, always with a migration).
   `citation: Zenodo version DOI for X.Y.Z` commit as its own and pushes it; both refused before (`main differs from
   origin/main`, `more than this release's own commits`). `make cut-release` retries its own push the same way
   (review finding).
+- `promote` (and `public-safety`, the promote/publish checklist) scans the whole repository when the package is a
+  subdirectory of it: the flip makes the whole GitHub repository public, but the scan covered only the package
+  directory (its tree, the blobs under it, the commits touching it). The report says "scanned the repository root";
+  `public-safety --package-only` keeps the old scope (what `release --fresh-repo` exports). Path-scoped pattern
+  lines stay package-relative and never apply outside the package (review finding).
+- public-safety scans a tracked symbolic link's target string (what git stores and publishes) in the tree and the
+  history; links were skipped, and their blobs with them (review finding).
+- public-safety scans every commit's author and committer identity, every annotated tag (name, tagger identity,
+  message) and every branch and tag name. A host-like commit or tag address, one without a dotted domain
+  (`user@hostname`) or under a local TLD (`lan`, `local`, `localdomain`, `localhost`, `home`, `internal`,
+  `intranet`, `corp`, `private`, `test`, `invalid`, `example`), is an `identity-email` hit and is no longer declared
+  by being used (it was published and allowed, in content too); an ordinary dotted address is still declared by use,
+  and `consent[]` entries and `allow:` lines still declare any address. `release --fresh-repo` checks the identity
+  its export commit will carry the same way (review finding).
+- public-safety no longer reports a partial scan as clean: UTF-8/16/32 text with a byte-order mark and BOM-less
+  UTF-16 are decoded (they read as binary and were skipped); lines over 20000 characters are scanned whole in
+  overlapping chunks (they were cut); a binary file is scanned through its printable runs; files are read up to
+  64 MB (was 5 MB, silently). Everything not scanned in full is listed in `skipped[]` {where, path, reason} and
+  counted on the summary line; bytes past the cap are a blocking `unscanned` hit unless an
+  `allow: GLOB: ^unscanned$` line covers the file (review finding).
+- `promote --yes` first runs `git fetch --prune --tags origin` (branches, tags and GitHub's `refs/pull/*/head`
+  into `refs/remotes/origin/pr/*`, 120 s timeout), so the scan covers what the remote holds, not only what was last
+  fetched; a failed fetch is a `✗` and refuses. The dry run stays offline (review finding).
+- `scripts/private-boundary-check.sh`: the re-check after the public-URL exceptions is case-insensitive like the
+  first match (`grep -qiF`, and the exceptions are removed case-insensitively), so a case variant of a forbidden
+  string no longer escapes; binary files and blobs are scanned through their printable runs instead of skipped;
+  tracked symbolic links by their target; `--history` also scans author and committer identities and annotated tag
+  objects. `PRIVATE_BOUNDARY_EXTRA=FILE` adds forbidden strings (for tests) (review finding).
 
 ### Changed
 

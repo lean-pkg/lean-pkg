@@ -1,8 +1,15 @@
 # lean-pkg public-safety -- private strings in a package's tree and git history
 """`lean-pkg public-safety NAME [--history|--no-history] [--strict]` (#35, #36): before a package
 goes public, scan what would be published (the working tree git would ship) and, by default,
-everything the public flip exposes (every blob and commit message reachable from any ref, the
-approach of lean-pkg's own `make history`) for private patterns:
+everything the public flip exposes (every blob, commit message, author and committer identity,
+annotated tag and branch or tag name reachable from any ref, the approach of lean-pkg's own
+`make history`) for private patterns. When the package is a subdirectory of its git repository, the
+scan covers the whole repository (`--package-only`: the package directory alone), because promotion
+makes the whole GitHub repository public. A symbolic link is scanned as its target string; UTF-8/16/32
+text with a byte-order mark (and BOM-less UTF-16) is decoded; long lines are scanned whole, in
+overlapping chunks; a binary file is scanned through its printable runs and listed in `skipped[]`;
+bytes past MAX_SCAN_BYTES are listed there too and are a blocking `unscanned` hit unless an
+`allow: GLOB: ^unscanned$` line covers the file. Patterns:
 
 - the package's `.lean-pkg-private-patterns` file: one regular expression per line, `#` comments;
   a bare line or `block: REGEX` is blocking, `warn: REGEX` is warn-only, `allow: REGEX` exempts a
@@ -14,8 +21,10 @@ approach of lean-pkg's own `make history`) for private patterns:
   the public tree: tracked (or in history) it is a hit.
 - built-in defaults: absolute home paths, a cloud-sync folder path, `approvals/`, `notes/`,
   `*.private`, `TODO-private`, and email addresses other than the declared ones (the repository's
-  commit identities, `consent[]` entries, `allow:` lines, reserved example domains, `git@`
-  SSH remotes).
+  commit and tag identities that are ordinary mail addresses, `consent[]` entries, `allow:` lines,
+  reserved example domains, GitHub noreply, `git@` SSH remotes). A host-like identity address, one
+  without a dotted domain (`user@hostname`) or under a local TLD (LOCAL_TLDS: an address under `.lan`), is
+  not declared by being used: it is an `identity-email` hit.
 - user and host names derived at scan time from the registry record's own `local_path`, `agent`
   and `workspace` fields and its lease (`agent`, `workspace`, `contact`; never stored). `allow:` lines see a derived token's whole non-space run
   (#38) and exempt it only where one of their matches covers the token, so allowing a public URL
@@ -55,7 +64,10 @@ INTERNAL_DIRS = ("approvals", "notes", "drafts", "scratch")
 INTERNAL_SUFFIXES = (".priv", ".private")
 REDACTED = "[…]"
 CONTEXT = 20            # characters of context on each side of a redacted match (40 in all)
-MAX_SCAN_BYTES = 5_000_000
+MAX_SCAN_BYTES = 64_000_000   # bytes of one file or blob scanned; the rest is listed as skipped (a block hit)
+LINE_CHUNK = 20_000           # a longer line is scanned in overlapping chunks of this many characters
+LINE_OVERLAP = 1_000          # overlap of two chunks: a match up to this long is never cut in two
+UNSCANNED = "unscanned"       # what an `allow:` line must match in full to exempt an unscanned portion
 EMAIL_RE = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"
 # reserved example domains, GitHub noreply, and git@host (an SSH remote, not a mailbox)
 ALWAYS_ALLOWED_EMAIL = re.compile(
@@ -237,13 +249,33 @@ def derived_patterns(pkg: dict) -> list[Pattern]:
     return pats
 
 
+# The last label of a host-only or local mail domain: an identity address there names a machine, not a
+# mailbox (an address under `.lan`), so it is never declared by being used, and it is an `identity-email` hit.
+LOCAL_TLDS = frozenset({"lan", "local", "localdomain", "localhost", "home", "internal", "intranet", "corp",
+                        "private", "test", "invalid", "example"})
+
+
+def public_identity_email(email: str) -> bool:
+    """A commit or tag address that is declared by being used: a mail address whose domain has a dot and
+    whose last label is not a local or host-only TLD (LOCAL_TLDS)."""
+    e = email.strip()
+    if not re.fullmatch(EMAIL_RE, e):
+        return False
+    domain = e.rsplit("@", 1)[1]
+    return "." in domain and domain.rsplit(".", 1)[1].casefold() not in LOCAL_TLDS
+
+
 def declared_emails(pkg: dict, repo: pathlib.Path | None) -> set[str]:
-    """The author's declared addresses: commit identities of the repository, plus any address in the
-    record's consent entries."""
+    """The author's declared addresses: the repository's commit (author, committer) and tagger
+    addresses that are ordinary mail addresses (public_identity_email: dotted domain, not a local or
+    host-only TLD), plus any address in the record's consent entries. A host-like identity
+    (`user@hostname`, an address under `.lan`) is not declared: it is an `identity-email` hit."""
     out: set[str] = set()
     if repo is not None and core.git_head(repo):
         p = core.git(repo, "log", "--all", "--format=%ae%n%ce")
-        out.update(x.strip().casefold() for x in p.stdout.splitlines() if x.strip())
+        t = core.git(repo, "for-each-ref", "refs/tags", "--format=%(taggeremail)")
+        found = p.stdout.splitlines() + [x.strip().strip("<>") for x in t.stdout.splitlines()]
+        out.update(x.strip().casefold() for x in found if x.strip() and public_identity_email(x))
     for c in pkg.get("consent") or []:
         if isinstance(c, dict):
             for v in c.values():
@@ -251,8 +283,16 @@ def declared_emails(pkg: dict, repo: pathlib.Path | None) -> set[str]:
     return out
 
 
+IDENTITY_EMAIL = Pattern("identity-email", "builtin", re.compile(r"(?!)"))
+
+
 class Scanner:
-    def __init__(self, pkg: dict, patterns_root: pathlib.Path, repo_for_emails: pathlib.Path | None):
+    def __init__(self, pkg: dict, patterns_root: pathlib.Path, repo_for_emails: pathlib.Path | None,
+                 scope_prefix: str = ""):
+        """scope_prefix: when the scan root is a repository whose package is the subdirectory
+        `scope_prefix` (with its trailing `/`), path-scoped lines apply to the package-relative part of
+        a path under it and never to a path outside the package."""
+        self.scope_prefix = scope_prefix
         file_pats, self.allow, self.problems, self.file_present = read_patterns_file(patterns_root)
         builtin = [Pattern(label, "builtin", re.compile(rx)) for label, rx in BUILTIN]
         builtin += [Pattern(label, "builtin", re.compile(rx), WARN) for label, rx in BUILTIN_WARN]
@@ -268,6 +308,8 @@ class Scanner:
     def active(self, path: str | None) -> tuple[list[Pattern], list[re.Pattern]]:
         """(patterns, allow regexes) that apply to a file at `path` (None: a commit message or a
         location string; path-scoped lines never apply there)."""
+        if path is not None and self.scope_prefix:
+            path = path[len(self.scope_prefix):] if path.startswith(self.scope_prefix) else None
         if path not in self._active:
             def hit(g):
                 return g is None or (path is not None and g.fullmatch(path) is not None)
@@ -283,6 +325,42 @@ class Scanner:
         if pat.label == "latex-label":
             return bool(_LATEX_LABEL_ALLOW_RE.match(text))
         return False
+
+    def unscanned_allowed(self, path: str | None) -> bool:
+        """An unscanned portion of `path` is exempt only where an `allow:` line applying to it matches
+        the word `unscanned` in full (`allow: GLOB: ^unscanned$`)."""
+        return any(a.fullmatch(UNSCANNED) for a in self.active(path)[1])
+
+    def identity_hits(self, name: str, email: str) -> list[tuple[int, Pattern, str]]:
+        """Hits in a commit or tag identity `name <email>`: every pattern, as for any text, and
+        `identity-email` (in place of the email family) for a host-like address, one without a dotted
+        domain (`user@hostname`) or under a local TLD (such as `.lan`), unless an `allow:` line, a
+        consent entry or the always-allowed list (example domains, GitHub noreply) covers it."""
+        text = f"{name} <{email}>"
+        spans = self.spans(text)
+        e = email.strip()
+        at = len(name) + 2                 # where the address starts in text
+        if public_identity_email(e):       # an ordinary address is declared by being used
+            spans = [x for x in spans if not (x[2].label == "email" and x[0] >= at)]
+        elif e and not (
+                any(a.search(e) for a in self.active(None)[1]) or e.casefold() in self.emails
+                or ALWAYS_ALLOWED_EMAIL.search(e)):
+            spans = [x for x in spans if not (x[2].label == "email" and x[0] >= at)]
+            spans = sorted(spans + [(at, at + len(email), IDENTITY_EMAIL)], key=lambda x: (x[0], -x[1]))
+        return self._line_hits(1, text, spans, set())
+
+    def _line_hits(self, n: int, line: str, spans, seen: set) -> list[tuple[int, Pattern, str]]:
+        hits = []
+        if not spans:
+            return hits
+        red, starts = _redact(line, spans)
+        for (_s, _e, pat), pos in zip(spans, starts):
+            if pat.label in seen:
+                continue
+            seen.add(pat.label)
+            lo, hi = max(0, pos - CONTEXT), min(len(red), pos + len(REDACTED) + CONTEXT)
+            hits.append((n, pat, " ".join(red[lo:hi].split())))
+        return hits
 
     def spans(self, line: str, path: str | None = None) -> list[tuple[int, int, Pattern]]:
         pats, allow = self.active(path)
@@ -327,23 +405,19 @@ class Scanner:
 
     def scan_text(self, text: str, path: str | None = None) -> list[tuple[int, Pattern, str]]:
         """(line number, pattern, redacted excerpt): one hit per pattern per line. `path`: the
-        package-relative file the text is from, for path-scoped lines (#38)."""
+        package-relative file the text is from, for path-scoped lines (#38). A line longer than
+        LINE_CHUNK characters is scanned whole, in chunks overlapping by LINE_OVERLAP."""
         hits = []
         for n, line in enumerate(text.splitlines(), 1):
-            if len(line) > 20000:
-                line = line[:20000]
-            spans = self.spans(line, path)
-            if not spans:
+            seen: set = set()
+            if len(line) <= LINE_CHUNK:
+                hits += self._line_hits(n, line, self.spans(line, path), seen)
                 continue
-            red, starts = _redact(line, spans)
-            seen = set()
-            for (s, _e, pat), pos in zip(spans, starts):
-                if pat.label in seen:
-                    continue
-                seen.add(pat.label)
-                lo, hi = max(0, pos - CONTEXT), min(len(red), pos + len(REDACTED) + CONTEXT)
-                excerpt = " ".join(red[lo:hi].split())
-                hits.append((n, pat, excerpt))
+            for i in range(0, len(line), LINE_CHUNK - LINE_OVERLAP):
+                chunk = line[i:i + LINE_CHUNK]
+                hits += self._line_hits(n, chunk, self.spans(chunk, path), seen)
+                if i + LINE_CHUNK >= len(line):
+                    break
         return hits
 
 
@@ -367,10 +441,45 @@ def _redact(line: str, spans) -> tuple[str, list[int]]:
     return "".join(out), starts
 
 
-def _decode(data: bytes) -> str | None:
+_BOMS = ((b"\xff\xfe\x00\x00", "utf-32-le"), (b"\x00\x00\xfe\xff", "utf-32-be"), (b"\xef\xbb\xbf", "utf-8-sig"),
+         (b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be"))
+_PRINTABLE_RUN = re.compile(rb"[\x20-\x7e\t]{4,}")
+
+
+def _utf16_guess(data: bytes) -> str | None:
+    """A BOM-less UTF-16 text: NUL in (nearly) every other byte of the first 8000 and in no other."""
+    sample = data[:8000]
+    if len(sample) < 8:
+        return None
+    even, odd = sample[0::2], sample[1::2]
+    ze, zo = even.count(0) / len(even), odd.count(0) / len(odd)
+    if zo > 0.6 and ze < 0.05:
+        return "utf-16-le"
+    if ze > 0.6 and zo < 0.05:
+        return "utf-16-be"
+    return None
+
+
+def decode_blob(data: bytes) -> tuple[str, bool]:
+    """(text to scan, binary). A UTF-8/16/32 byte-order mark, or BOM-less UTF-16, is decoded as such;
+    other data with a NUL in its first 8000 bytes is binary, and its text is its printable ASCII runs
+    of 4+ characters, one per line (what `strings` shows: metadata, embedded paths; compressed or
+    otherwise encoded content is not inspected)."""
+    for bom, enc in _BOMS:
+        if data.startswith(bom):
+            return data.decode(enc, errors="replace").lstrip("﻿"), False
     if b"\0" in data[:8000]:
-        return None                               # binary
-    return data[:MAX_SCAN_BYTES].decode("utf-8", errors="replace")
+        enc = _utf16_guess(data)
+        if enc:
+            return data.decode(enc, errors="replace"), False
+        return "\n".join(m.group(0).decode("ascii") for m in _PRINTABLE_RUN.finditer(data)), True
+    return data.decode("utf-8", errors="replace"), False
+
+
+def _decode(data: bytes) -> str | None:
+    """Compatibility: the text of data, None for binary (see decode_blob)."""
+    text, binary = decode_blob(data[:MAX_SCAN_BYTES])
+    return None if binary else text
 
 
 def _hit(sc: Scanner, where: str, path: str, line, pat_label: str, kind: str, excerpt: str,
@@ -382,9 +491,48 @@ def _hit(sc: Scanner, where: str, path: str, line, pat_label: str, kind: str, ex
     return h
 
 
+def _skip(sc: Scanner, skipped: list[dict], hits: list[dict], where: str, path: str, reason: str,
+          commit: str | None = None, unscanned_bytes: int | None = None) -> None:
+    """Record a file or blob not (fully) scanned. A binary one is listed only (its printable runs were
+    scanned); any other unscanned portion is also a blocking `unscanned` hit, unless an `allow:` line
+    for the path matches `unscanned` in full."""
+    rec = {"where": where, "path": sc.redact_path(path), "reason": reason}
+    if commit:
+        rec["commit"] = commit
+    if unscanned_bytes is not None:
+        rec["unscanned_bytes"] = unscanned_bytes
+    if reason != "binary":
+        rec["allowed"] = sc.unscanned_allowed(path)
+        if not rec["allowed"]:
+            hits.append(_hit(sc, where, path, None, UNSCANNED, "skipped",
+                             f"not scanned: {reason}" + (f" ({unscanned_bytes} bytes)" if unscanned_bytes else ""),
+                             commit))
+    skipped.append(rec)
+
+
+def _scan_bytes(sc: Scanner, data: bytes, size: int, where: str, rel: str, hits: list[dict],
+                skipped: list[dict], commit=None, commit_of=None) -> None:
+    """Scan one file's or blob's bytes (data: at most MAX_SCAN_BYTES of its `size` bytes). commit_of():
+    the commit to label history hits with, computed only when there is one."""
+    text, binary = decode_blob(data)
+    found = sc.scan_text(text, rel)
+    if found and commit_of is not None:
+        commit = commit_of()
+    for n, pat, excerpt in found:
+        hits.append(_hit(sc, where, rel, None if binary else n, pat.label, pat.kind, excerpt, commit,
+                         pat.severity))
+    if binary:
+        _skip(sc, skipped, hits, where, rel, "binary", commit)
+    if size > len(data):
+        if commit is None and commit_of is not None:
+            commit = commit_of()
+        _skip(sc, skipped, hits, where, rel, f"over the {MAX_SCAN_BYTES}-byte scan cap", commit, size - len(data))
+
+
 def tree_files(root: pathlib.Path, git_mode: bool = True) -> tuple[list[str], set[str], bool]:
     """(package-relative files git would ship, the tracked ones, is a git checkout). Outside a git
-    checkout, or with git_mode False (an export directory): every file under root except VCS metadata."""
+    checkout, or with git_mode False (an export directory): every file under root except VCS metadata,
+    a symbolic link to a directory included (as a file: its target is what is scanned)."""
     if git_mode and core.git(root, "rev-parse", "--is-inside-work-tree").returncode == 0:
         p = core.git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
         files = sorted({x for x in p.stdout.split("\0") if x})
@@ -393,19 +541,27 @@ def tree_files(root: pathlib.Path, git_mode: bool = True) -> tuple[list[str], se
     files = []
     for d, dirs, names in os.walk(root):
         dirs[:] = [x for x in dirs if x != ".git"]
-        for nm in names:
+        links = [x for x in dirs if os.path.islink(os.path.join(d, x))]
+        for nm in names + links:
             files.append(os.path.relpath(os.path.join(d, nm), root).replace(os.sep, "/"))
     return sorted(files), set(), False
 
 
-def scan_tree(sc: Scanner, root: pathlib.Path, git_mode: bool = True) -> tuple[list[dict], list[str], bool]:
-    """(hits, warnings, patterns file tracked)."""
+def is_patterns_file(rel: str) -> bool:
+    return rel.rsplit("/", 1)[-1] == PATTERNS_FILE
+
+
+def scan_tree(sc: Scanner, root: pathlib.Path, git_mode: bool = True,
+              skipped: list[dict] | None = None) -> tuple[list[dict], list[str], bool]:
+    """(hits, warnings, patterns file tracked). A symbolic link is scanned as its target string (what
+    git stores and publishes); files not fully scanned go to skipped."""
     files, tracked, is_git = tree_files(root, git_mode)
     hits: list[dict] = []
     warnings: list[str] = []
+    skipped = [] if skipped is None else skipped
     pf_tracked = False
     for rel in files:
-        if rel == PATTERNS_FILE:
+        if is_patterns_file(rel):
             if is_git and rel in tracked:
                 pf_tracked = True
                 warnings.append(f"{PATTERNS_FILE} is tracked: it lists the private strings, so publishing it "
@@ -420,21 +576,31 @@ def scan_tree(sc: Scanner, root: pathlib.Path, git_mode: bool = True) -> tuple[l
         if rule:
             hits.append(_hit(sc, "tree", rel, None, rule, "internal-file", "internal file by path"))
         f = root / rel
-        if f.is_symlink() or not f.is_file():
+        if f.is_symlink():
+            try:
+                target = os.readlink(f)
+            except OSError:
+                _skip(sc, skipped, hits, "tree", rel, "unreadable symbolic link")
+                continue
+            for n, pat, excerpt in sc.scan_text(target, rel):
+                hits.append(_hit(sc, "tree", rel, n, pat.label, pat.kind, excerpt, severity=pat.severity))
+            continue
+        if not f.is_file():
             continue
         try:
-            text = _decode(f.read_bytes())
+            size = f.stat().st_size
+            with open(f, "rb") as fh:
+                data = fh.read(MAX_SCAN_BYTES)
         except OSError:
+            _skip(sc, skipped, hits, "tree", rel, "unreadable")
             continue
-        if text is None:
-            continue
-        for n, pat, excerpt in sc.scan_text(text, rel):
-            hits.append(_hit(sc, "tree", rel, n, pat.label, pat.kind, excerpt, severity=pat.severity))
+        _scan_bytes(sc, data, size, "tree", rel, hits, skipped)
     return hits, warnings, pf_tracked
 
 
 def _clean_blob_shas(root: pathlib.Path) -> set[str]:
-    """Blob ids of tracked files whose working-tree bytes are the index's: already scanned as tree."""
+    """Blob ids of tracked files whose working-tree bytes are the index's: already scanned as tree
+    (a symbolic link's blob is its target string, which the tree scan reads too)."""
     dirty = set(core.git(root, "diff", "--name-only", "--relative").stdout.split("\n"))
     out = set()
     for line in core.git(root, "ls-files", "-s").stdout.splitlines():
@@ -451,23 +617,74 @@ def _batch(root: pathlib.Path, args: list[str], stdin: bytes) -> bytes:
     return p.stdout if p.returncode == 0 else b""
 
 
+def _batch_objects(root: pathlib.Path, shas: list[str]):
+    """(sha, size, the first MAX_SCAN_BYTES bytes) of each object, read with one cat-file --batch."""
+    if not shas:
+        return
+    data = _batch(root, ["cat-file", "--batch"], ("\n".join(shas) + "\n").encode())
+    i = 0
+    while i < len(data):
+        nl = data.index(b"\n", i)
+        head = data[i:nl].decode().split()
+        i = nl + 1
+        if len(head) < 3 or head[1] == "missing":
+            continue
+        size = int(head[2])
+        body, i = data[i:i + size], i + size + 1
+        yield head[0], size, body[:MAX_SCAN_BYTES]
+
+
 def _introducing_commit(root: pathlib.Path, sha: str) -> str | None:
     p = core.git(root, "log", "--all", "--format=%H", f"--find-object={sha}")
     lines = [x for x in p.stdout.split() if x]
     return lines[-1] if lines else None
 
 
-def scan_history(sc: Scanner, root: pathlib.Path) -> list[dict]:
-    """Every blob reachable from any ref under the package directory (once each, labelled by one path
-    it had and the commit that introduced it) and every commit message touching it."""
+def _parse_tag(body: bytes) -> tuple[str, str, str, str]:
+    """(tag name, tagger name, tagger email, message) of an annotated tag object."""
+    text = body.decode("utf-8", errors="replace")
+    head, _, msg = text.partition("\n\n")
+    tag = tname = temail = ""
+    for line in head.splitlines():
+        if line.startswith("tag "):
+            tag = line[4:]
+        elif line.startswith("tagger "):
+            m = re.match(r"tagger (.*?) <([^>]*)>", line)
+            if m:
+                tname, temail = m.group(1), m.group(2)
+    return tag, tname, temail, msg
+
+
+def _short_ref(ref: str) -> str | None:
+    """The published name of a branch, tag or remote-tracking ref (refs/remotes/R/x -> x); None for
+    other refs (notes, stash, scratch namespaces), which carry no name of their own on GitHub."""
+    parts = ref.split("/")
+    if len(parts) >= 3 and parts[1] in ("heads", "tags"):
+        return "/".join(parts[2:])
+    if len(parts) >= 4 and parts[1] == "remotes":
+        return "/".join(parts[3:])
+    return None
+
+
+def scan_history(sc: Scanner, root: pathlib.Path, skipped: list[dict] | None = None) -> list[dict]:
+    """Every blob reachable from any ref under the scanned directory (once each, labelled by one path
+    it had and the commit that introduced it; a symbolic link's blob is its target string), every
+    commit message touching it, every author and committer identity of those commits, every annotated
+    tag (name, tagger identity, message) and every branch and tag name. Root is the repository top
+    when the whole repository is scanned."""
+    skipped = [] if skipped is None else skipped
     prefix = core.git(root, "rev-parse", "--show-prefix").stdout.strip()
     skip = _clean_blob_shas(root)
     listing = core.git(root, "rev-list", "--all", "--objects").stdout
     check = _batch(root, ["cat-file", "--batch-check=%(objecttype) %(objectname) %(rest)"],
                    listing.encode()).decode("utf-8", errors="replace")
     blobs: dict[str, str] = {}
+    tags: list[str] = []
     for line in check.splitlines():
         parts = line.split(" ", 2)
+        if len(parts) >= 2 and parts[0] == "tag" and parts[1] not in tags:
+            tags.append(parts[1])
+            continue
         if len(parts) < 3 or parts[0] != "blob" or parts[1] in blobs:
             continue
         path = parts[2]
@@ -482,7 +699,7 @@ def scan_history(sc: Scanner, root: pathlib.Path) -> list[dict]:
     for sha, path in blobs.items():
         if sha in skip:
             continue                              # the same bytes are in the working tree: a tree hit
-        if path == PATTERNS_FILE:
+        if is_patterns_file(path):
             if path not in internal_seen:
                 internal_seen.add(path)
                 hits.append(_hit(sc, "history", path, None, "patterns-file", "internal-file",
@@ -494,27 +711,11 @@ def scan_history(sc: Scanner, root: pathlib.Path) -> list[dict]:
             hits.append(_hit(sc, "history", path, None, rule, "internal-file", "internal file by path",
                              _introducing_commit(root, sha)))
         to_read.append(sha)
-    if to_read:
-        data = _batch(root, ["cat-file", "--batch"], ("\n".join(to_read) + "\n").encode())
-        i = 0
-        while i < len(data):
-            nl = data.index(b"\n", i)
-            head = data[i:nl].decode().split()
-            i = nl + 1
-            if len(head) < 3 or head[1] == "missing":
-                continue
-            size = int(head[2])
-            body, i = data[i:i + size], i + size + 1
-            text = _decode(body)
-            if text is None:
-                continue
-            found = sc.scan_text(text, blobs[head[0]])
-            if found:
-                commit = _introducing_commit(root, head[0])
-                for n, pat, excerpt in found:
-                    hits.append(_hit(sc, "history", blobs[head[0]], n, pat.label, pat.kind, excerpt, commit,
-                                     pat.severity))
-    log = core.git(root, "log", "--all", "--format=%H%x00%B%x1e", *(["--", "."] if prefix else []))
+    for sha, size, body in _batch_objects(root, to_read):
+        _scan_bytes(sc, body, size, "history", blobs[sha], hits, skipped,
+                    commit_of=lambda s=sha: _introducing_commit(root, s))
+    scope = ["--", "."] if prefix else []
+    log = core.git(root, "log", "--all", "--format=%H%x00%B%x1e", *scope)
     for rec in log.stdout.split("\x1e"):
         sha, _, msg = rec.strip("\n").partition("\0")
         if not sha:
@@ -522,6 +723,37 @@ def scan_history(sc: Scanner, root: pathlib.Path) -> list[dict]:
         for n, pat, excerpt in sc.scan_text(msg):
             hits.append(_hit(sc, "history", "commit-message", n, pat.label, pat.kind, excerpt, sha.strip(),
                              pat.severity))
+    # author and committer identities: published with every commit; each distinct one once, labelled
+    # by the oldest commit carrying it (git log lists newest first)
+    idents: dict[tuple[str, str], str] = {}
+    log = core.git(root, "log", "--all", "--format=%H%x00%an%x00%ae%x00%cn%x00%ce", *scope)
+    for line in log.stdout.splitlines():
+        f = line.split("\0")
+        if len(f) == 5:
+            idents[(f[1], f[2])] = f[0]
+            idents[(f[3], f[4])] = f[0]
+    for (name, email), sha in idents.items():
+        for _n, pat, excerpt in sc.identity_hits(name, email):
+            hits.append(_hit(sc, "history", "commit-identity", None, pat.label, pat.kind, excerpt, sha,
+                             pat.severity))
+    # annotated tags: name, tagger identity and message
+    for sha, _size, body in _batch_objects(root, tags):
+        tag, tname, temail, msg = _parse_tag(body)
+        found = [("tag-name", n, p, ex) for n, p, ex in sc.scan_text(tag)]
+        if tname or temail:
+            found += [("tag-identity", None, p, ex) for _n, p, ex in sc.identity_hits(tname, temail)]
+        found += [("tag-message", n, p, ex) for n, p, ex in sc.scan_text(msg)]
+        for where, n, pat, excerpt in found:
+            hits.append(_hit(sc, "history", where, n, pat.label, pat.kind, excerpt, sha, pat.severity))
+    # branch and tag names (refs/remotes/R/x counts as x: what a push publishes)
+    names: dict[str, None] = {}
+    for ref in core.git(root, "for-each-ref", "--format=%(refname)").stdout.splitlines():
+        short = _short_ref(ref.strip())
+        if short and short != "HEAD":
+            names.setdefault(short, None)
+    for short in names:
+        for n, pat, excerpt in sc.scan_text(short):
+            hits.append(_hit(sc, "history", "ref-name", None, pat.label, pat.kind, excerpt, None, pat.severity))
     return hits
 
 
@@ -537,17 +769,39 @@ def warn_families(hits: list[dict]) -> str:
     return ", ".join(fams)
 
 
+def repository_scope(root: pathlib.Path) -> tuple[pathlib.Path, str] | None:
+    """(repository top, the package's prefix with its trailing `/`) when root is a subdirectory of its
+    git repository, else None."""
+    p = core.git(root, "rev-parse", "--show-toplevel")
+    top = p.stdout.strip()
+    if p.returncode != 0 or not top or os.path.realpath(top) == os.path.realpath(root):
+        return None
+    prefix = core.git(root, "rev-parse", "--show-prefix").stdout.strip()
+    return pathlib.Path(top), prefix
+
+
 def scan(pkg: dict, root: pathlib.Path, history: bool = True,
          patterns_root: pathlib.Path | None = None, source_repo: pathlib.Path | None = None,
-         export: bool = False, strict: bool = False) -> dict:
+         export: bool = False, strict: bool = False, whole_repo: bool = False) -> dict:
     """The scan result as the --json payload body: ok, hits[], tree_hits, history_hits, block_hits,
-    warn_hits, strict, patterns_source, warnings[]. ok: no blocking hit (strict: no hit). export=True: root is a plain exported directory (every file, no git,
-    no history); patterns_root/source_repo then name the package checkout whose patterns file and
-    commit identities apply (default: root)."""
-    sc = Scanner(pkg, patterns_root or root, source_repo or root)
-    tree, warnings, pf_tracked = scan_tree(sc, root, git_mode=not export)
+    warn_hits, strict, scope, skipped[], patterns_source, warnings[]. ok: no blocking hit (strict: no
+    hit). export=True: root is a plain exported directory (every file, no git, no history);
+    patterns_root/source_repo then name the package checkout whose patterns file and consent apply
+    (default: root). whole_repo=True (promotion): when root is a subdirectory of its git repository,
+    the whole repository is scanned (tree, every blob, every commit), since making the GitHub
+    repository public publishes all of it; the package's patterns file still applies."""
+    scope, prefix = "package", ""
+    if whole_repo and not export:
+        rs = repository_scope(root)
+        if rs is not None:
+            patterns_root, source_repo = patterns_root or root, source_repo or root
+            root, prefix = rs
+            scope = "repository"
+    sc = Scanner(pkg, patterns_root or root, source_repo or root, scope_prefix=prefix)
+    skipped: list[dict] = []
+    tree, warnings, pf_tracked = scan_tree(sc, root, git_mode=not export, skipped=skipped)
     history = bool(history and not export and core.git_head(root) is not None)
-    hist = scan_history(sc, root) if history else []
+    hist = scan_history(sc, root, skipped) if history else []
     hits = tree + hist
     source = {"file": PATTERNS_FILE if sc.file_present else None, "file_patterns": sc.n_file,
               "allow": len(sc.allow), "allow_scoped": sc.n_allow_scoped, "scoped_patterns": sc.n_scoped,
@@ -561,8 +815,27 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
     return {"ok": not blocking(hits, strict), "hits": hits, "tree_hits": len(tree), "history_hits": len(hist),
             "block_hits": len(hits) - n_warn, "warn_hits": n_warn, "strict": bool(strict),
             "latex_label_hits": sum(1 for h in hits if h["pattern"] == "latex-label"),
-            "history_scanned": history,
+            "history_scanned": history, "scope": scope, "package_prefix": prefix,
+            "skipped": skipped,
+            "skipped_blocking": sum(1 for s in skipped if s["reason"] != "binary" and not s.get("allowed")),
             "patterns_source": source, "warnings": sc.problems + warnings}
+
+
+SCOPE_NOTE = ("scanned the repository root: the package is a subdirectory, and promotion publishes the "
+              "whole repository")
+
+
+def skipped_note(result: dict) -> str:
+    """'' or the summary-line note on what was not (fully) scanned."""
+    sk = result.get("skipped") or []
+    if not sk:
+        return ""
+    nb = sum(1 for s in sk if s["reason"] == "binary")
+    other = len(sk) - nb
+    parts = [f"{nb} binary (printable text only)"] if nb else []
+    if other:
+        parts.append(f"{other} not scanned in full ({result.get('skipped_blocking', other)} blocking)")
+    return f"; {len(sk)} file(s)/blob(s) not fully scanned: " + ", ".join(parts)
 
 
 def hit_line(h: dict) -> str:
@@ -585,7 +858,8 @@ def report_lines(name: str, result: dict, quiet: bool = False) -> list[str]:
     lines = [f"public-safety for {name}: {n} hit(s) ({result['tree_hits']} tree, "
              f"{result['history_hits']} history" + ("" if result["history_scanned"] else "; history not scanned")
              + f"); {nb} blocking, {nw} warning(s)" + (" (--strict: warnings block)" if result["strict"] else "")
-             + f"; {result['latex_label_hits']} from latex-label",
+             + f"; {result['latex_label_hits']} from latex-label" + skipped_note(result)
+             + (f"; {SCOPE_NOTE}" if result.get("scope") == "repository" else ""),
              f"  patterns: {src['file'] or 'no ' + PATTERNS_FILE} ({src['file_patterns']} pattern(s), "
              f"{src['allow']} allow, {src['file_warn_patterns']} warn-only, "
              f"{src['scoped_patterns'] + src['allow_scoped']} path-scoped) + {len(src['builtin'])} built-in + {len(src['derived'])} registry-derived "
@@ -607,6 +881,9 @@ def report_lines(name: str, result: dict, quiet: bool = False) -> list[str]:
     if n:
         lines.append(verdict)   # also up front: dozens of warn lines must not push the verdict out of view
     lines += [f"  WARN {w}" for w in result["warnings"]]
+    lines += [f"  skipped: {s['where']} {(s.get('commit') or '')[:12] + ' ' if s.get('commit') else ''}{s['path']}  "
+              f"({s['reason']}" + ("; allowed by an `allow: ... unscanned` line" if s.get("allowed") else "") + ")"
+              for s in result.get("skipped") or []]
     lines += [hit_line(h) for h in fail]           # blocking hits first, then the warn-only ones as a group
     if rest:
         lines.append(f"  warn-only hit(s): {len(rest)} ({warn_families(rest)}); they do not block")
@@ -622,17 +899,22 @@ def refusal(name: str, n: int, n_warn: int = 0) -> str:
 
 
 def checklist_item(pkg: dict, repo: pathlib.Path) -> tuple[tuple[str, str], dict]:
-    """The promote/publish checklist line and the counts for the JSON payload."""
-    result = scan(pkg, repo, history=True)
+    """The promote/publish checklist line and the counts for the JSON payload. The whole repository is
+    scanned when the package is a subdirectory of it: the flip publishes all of it."""
+    result = scan(pkg, repo, history=True, whole_repo=True)
     n, nb, nw = len(result["hits"]), result["block_hits"], result["warn_hits"]
     counts = {"skipped": False, "hits": n, "tree_hits": result["tree_hits"],
-              "history_hits": result["history_hits"], "block_hits": nb, "warn_hits": nw}
+              "history_hits": result["history_hits"], "block_hits": nb, "warn_hits": nw,
+              "scope": result["scope"], "unscanned": len(result["skipped"]),
+              "unscanned_blocking": result["skipped_blocking"]}
+    where = " (whole repository: the package is a subdirectory)" if result["scope"] == "repository" else ""
     if nb:
-        return ("✗", refusal(pkg["name"], nb, nw)), counts
+        return ("✗", refusal(pkg["name"], nb, nw) + where), counts
     if nw:   # #36: warn-only hits (latex-label, `warn:` lines) never block on their own
-        return ("WARN", f"public-safety: 0 blocking hit(s), {nw} warning(s) ({warn_families(result['hits'])}) "
+        return ("WARN", f"public-safety{where}: 0 blocking hit(s), {nw} warning(s) ({warn_families(result['hits'])}) "
                         f"— review with `lean-pkg public-safety {pkg['name']}`"), counts
-    return ("✓", "public-safety: no private pattern in the tree or the history"), counts
+    return ("✓", f"public-safety{where}: no private pattern in the tree or the history"
+                 + skipped_note(result)), counts
 
 
 def cmd_public_safety(args) -> int:
@@ -641,7 +923,8 @@ def cmd_public_safety(args) -> int:
     repo = core.repo_path(pkg)
     if not repo.is_dir():
         raise core.Fail(f"{args.name}: local_path does not exist: {repo}")
-    result = scan(pkg, repo, history=args.history, strict=args.strict)
+    result = scan(pkg, repo, history=args.history, strict=args.strict,
+                  whole_repo=not getattr(args, "package_only", False))
     if getattr(args, "json_out", False):
         core.print_json(dict(result, name=args.name))
     else:
@@ -657,6 +940,10 @@ def add_parsers(sub, add_json) -> None:
                    help="also scan every blob and commit message reachable from any ref (default: on)")
     s.add_argument("--strict", action="store_true",
                    help="warn-only hits (latex-label, `warn:` lines) fail the scan too (exit 1)")
+    s.add_argument("--package-only", action="store_true",
+                   help="scan only the package directory even when it is a subdirectory of its repository "
+                        "(default: the whole repository then, which is what promote publishes; the package "
+                        "directory alone is what `release --fresh-repo` exports)")
     s.add_argument("--quiet", action="store_true",
                    help="only the summary, patterns, warn-only count and verdict lines; no per-hit line "
                         "(--json is unchanged)")

@@ -263,7 +263,8 @@ git add .lean-receipts && git commit -m "evidence: receipts for <c12>"
 ## Scan for private strings before publishing
 
 ```bash
-lean-pkg public-safety my-proof            # tree plus every reachable blob and commit message
+lean-pkg public-safety my-proof            # tree plus every reachable blob, commit message, identity and tag
+lean-pkg public-safety my-proof --package-only   # only the package directory of a larger repository
 lean-pkg public-safety my-proof --strict   # warn-only hits block too
 ```
 

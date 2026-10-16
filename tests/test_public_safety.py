@@ -165,7 +165,8 @@ def test_promote_refuses_while_hits_remain(lp, env, fake_gh, capsys):
     assert run(lp, env.registry, "promote", "beta", "--json") == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["public_safety"] == {"skipped": False, "hits": 1, "tree_hits": 1, "history_hits": 0,
-                                        "block_hits": 1, "warn_hits": 0}
+                                        "block_hits": 1, "warn_hits": 0,
+                                        "scope": "package", "unscanned": 0, "unscanned_blocking": 0}
     assert run(lp, env.registry, "promote", "beta", "--skip-public-safety", "--json") == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["public_safety"] == {"skipped": True}
@@ -207,12 +208,18 @@ def test_unknown_package_and_missing_path(lp, tmp_path, capsys):
     assert run(lp, reg, "public-safety", "nope") == 1
 
 
-def test_package_subdirectory_scans_only_its_own_history(lp, tmp_path, capsys):
+def test_package_subdirectory_package_only_scans_only_its_own_history(lp, tmp_path, capsys):
+    # --package-only: what `release --fresh-repo` exports. The default (promotion's scope) is the whole
+    # repository, since the flip publishes all of it (tests/test_public_safety_scope.py).
     root = make_repo(tmp_path / "mono", extra_files={"paper/draft.tex": f"{SECRET_PATH}\n",
                                                       "lean/Main.lean": "x\n"})
     reg = make_env(tmp_path, root / "lean")
-    assert run(lp, reg, "public-safety", "pkg", "--json") == 0
-    assert json.loads(capsys.readouterr().out)["hits"] == []
+    assert run(lp, reg, "public-safety", "pkg", "--package-only", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["hits"] == [] and payload["scope"] == "package"
+    assert run(lp, reg, "public-safety", "pkg", "--json") == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["scope"] == "repository" and {h["path"] for h in payload["hits"]} == {"paper/draft.tex"}
 
 
 # #36: LaTeX manuscript references (latex-label, warn-only), per-hit severity, --strict, block:/warn: lines
