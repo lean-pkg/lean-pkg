@@ -413,9 +413,22 @@ def sha256_file(p: pathlib.Path) -> str:
 
 
 def cfg_name(path: str) -> str:
-    """Same rule as comparator-check.sh: strip .json, '/' -> '_'."""
+    """Same rule as comparator-check.sh: strip .json, '/' -> '_'. Not injective
+    (`comparator_config_a.json` and `comparator/config_a.json` both give `comparator_config_a`);
+    cfg_name_collision refuses such a pair rather than renaming: committed receipts use these names."""
     base = path[:-5] if path.endswith(".json") else path
     return base.replace("/", "_")
+
+
+def cfg_name_collision(configs: list[str]) -> tuple[str, str, str] | None:
+    """(first, second, name) for the first two configurations whose logs would share a name, else None."""
+    seen: dict[str, str] = {}
+    for rel in configs:
+        name = cfg_name(rel)
+        if name in seen:
+            return seen[name], rel, name
+        seen[name] = rel
+    return None
 
 
 def parse_pins(text: str) -> dict:
@@ -433,7 +446,13 @@ STANDARD_AXIOMS = frozenset({"propext", "Quot.sound", "Classical.choice"})
 def lint_configs(project: pathlib.Path, configs: list[str]) -> None:
     """Configuration-level rules, checked before anything is built so a refusal
     writes nothing: permitted_axioms within the standard three, and definition
-    holes carrying a human judged_as sign-off (see holes.py)."""
+    holes carrying a human judged_as sign-off (see holes.py), and no two configurations
+    whose log names (cfg_name) coincide: one log would overwrite the other."""
+    clash = cfg_name_collision(configs)
+    if clash:
+        a, b, name = clash
+        raise RunnerError(f"{a} and {b} both map to the log name {name}.log (the '/' becomes '_'), so one "
+                          f"configuration's log would overwrite the other's; rename one of them; nothing written")
     for cfg_rel in configs:
         try:
             cfg = json.loads((project / cfg_rel).read_bytes())
@@ -1234,10 +1253,10 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         force_sample: bool = False) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
-    set_redactions(project)   # #41: no checkout/HOME/TMPDIR path reaches a log or a receipt
+    evidence = evidence or project / DEFAULT_EVIDENCE
+    set_redactions(project, evidence=evidence)   # #41: no checkout/evidence/HOME/TMPDIR path reaches a log or receipt
     if not prepare and not check.is_file():
         raise RunnerError(f"comparator-check script not found: {check}")
-    evidence = evidence or project / DEFAULT_EVIDENCE
     dirty = dirty_paths(project, evidence)
     if dirty:
         raise RunnerError(f"dirty tree — commit or remove before a receipt run: {', '.join(dirty[:10])}")
@@ -1550,7 +1569,8 @@ def main(argv: list[str] | None = None) -> int:
                          "default: the vendored PalomarTemplate copy)")
     ap.add_argument("--evidence-dir", default=None, metavar="DIR",
                     help="where the stage logs and stages.json go, kept on failure "
-                         f"(default: <project>/{DEFAULT_EVIDENCE.as_posix()}; its {STAGES_DIR}/ subdirectory)")
+                         f"(default: <project>/{DEFAULT_EVIDENCE.as_posix()}; its {STAGES_DIR}/ subdirectory); "
+                         "outside the project its path is written as <evidence> in every log and receipt")
     ap.add_argument("--prepare", action="store_true",
                     help="run only the setup stages (dependency checkout, Mathlib cache, build of the "
                          "configured modules); idempotent; a later run at the same commit, toolchain and "
