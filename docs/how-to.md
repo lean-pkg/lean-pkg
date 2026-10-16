@@ -37,7 +37,7 @@ lean-pkg search "stochastic Fubini" --offline   # registry and index only
 lean-pkg search "stochastic Fubini"             # plus Loogle, LeanSearch, Reservoir, Palomar, GitHub
 lean-pkg claims sync my-proof                   # read claims.yaml at HEAD, validate, cache
 lean-pkg claims list my-proof
-lean-pkg claims check my-proof
+lean-pkg claims check my-proof                  # the cached claims at the synced commit (commit + sync first)
 lean-pkg claims check --file claims.yaml        # schema-check the working copy, no registry
 lean-pkg claims migrate my-proof --from old-claims.json --dry-run   # legacy JSON to a claims/1 skeleton
 ```

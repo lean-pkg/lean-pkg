@@ -265,3 +265,34 @@ def test_the_record_groups_reasons_without_names(lp, unclaimed, tmp_path):
     date = lp.now_iso()[:10]
     text = (unclaimed.env.repo_a / "docs" / "prior-art" / f"{date}-gaussian-damped-mass.md").read_text()
     assert "2 not searched (no checkout: 1, no git HEAD: 1)." in text and "demo-d" not in text
+
+
+NESTED_LEAN = """\
+namespace Contrib
+
+/-- Lives only in the nested package. -/
+theorem nestedOnlyThing : True := trivial
+
+end Contrib
+"""
+
+
+def test_a_nested_registered_package_is_not_scanned_as_part_of_its_parent(lp, srch, unclaimed, capsys):
+    """Field report: alpha's checkout contains another registered package (contrib/); the declaration scan of
+    alpha attributed contrib's declarations to alpha. Each file now belongs to the innermost package."""
+    s = unclaimed
+    (s.env.repo_a / "contrib").mkdir()
+    (s.env.repo_a / "contrib" / "Contrib.lean").write_text(NESTED_LEAN)
+    _git(s.env.repo_a, "add", "-A")
+    _git(s.env.repo_a, "commit", "-m", "contrib")
+    reg = read_reg(s.env)
+    reg["packages"]["alpha-contrib"] = base_pkg("alpha-contrib", s.env.repo_a / "contrib", "gate-pending")
+    write_reg(s.env, reg)
+    search_json(lp, s, "nested only thing")
+    p = json.loads(capsys.readouterr().out)
+    hits = [h for h in p["sources"][0]["hits"] if h.get("decl") == "nestedOnlyThing"]
+    assert [h["package"] for h in hits] == ["alpha-contrib"]
+    assert hits[0]["file"].startswith("Contrib.lean:")
+    search_json(lp, s, "gaussian damped mass")        # the parent's own declarations are still found
+    p = json.loads(capsys.readouterr().out)
+    assert any(h["package"] == "alpha" for h in p["sources"][0]["hits"])

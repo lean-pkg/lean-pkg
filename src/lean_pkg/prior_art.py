@@ -29,9 +29,19 @@ SLUG_MAX = 60
 NAV_REASON = "a strict MkDocs build needs a nav entry (or a literate-nav glob) for it"
 
 
-def nav_hint(rel: str) -> dict:
+MKDOCS_CONFIGS = ("mkdocs.yml", "mkdocs.yaml")
+
+
+def has_mkdocs(target: pathlib.Path) -> bool:
+    return any((target / f).is_file() for f in MKDOCS_CONFIGS)
+
+
+def nav_hint(rel: str, target: pathlib.Path | None = None) -> dict | None:
     """#50: the new page is an error under `mkdocs build --strict` until nav lists it. A hint only:
-    lean-pkg never edits the consumer's mkdocs.yml."""
+    lean-pkg never edits the consumer's mkdocs.yml. None when the repository has no MkDocs config: a plain
+    Lean repository has no nav to update (field report)."""
+    if target is not None and not has_mkdocs(target):
+        return None
     return {"path": rel, "reason": NAV_REASON}
 
 
@@ -218,8 +228,9 @@ def write_record(payload: dict, *, reg_path: pathlib.Path, events_p: pathlib.Pat
             f.write(text)
     except FileExistsError:
         raise core.Fail(f"{rel} appeared in {target} during the write; nothing overwritten")
-    out = [f"record written: {dest} (decision: pending; edit it, then commit it in that repository)",
-           f"note: {rel} is new; {NAV_REASON}"]
+    out = [f"record written: {dest} (decision: pending; edit it, then commit it in that repository)"]
+    if has_mkdocs(target):
+        out.append(f"note: {rel} is new; {NAV_REASON}")
     sources = {b["source"]: (b["state"] if b["state"] == "ok" else f"skipped: {b['reason']}")
                for b in payload["sources"]}
     hits = {b["source"]: (len(b["hits"]) if b["state"] == "ok" else None) for b in payload["sources"]}
@@ -231,4 +242,5 @@ def write_record(payload: dict, *, reg_path: pathlib.Path, events_p: pathlib.Pat
     else:
         out.append("no event log (no registry here and no --events): prior-art-searched not recorded")
         event = None
-    return out, {"path": rel, "event": event, "withheld": withheld, "private_claims": private_claims}
+    return out, {"path": rel, "event": event, "withheld": withheld, "private_claims": private_claims,
+                 "mkdocs": has_mkdocs(target)}
