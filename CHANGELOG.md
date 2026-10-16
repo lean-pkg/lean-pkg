@@ -7,6 +7,14 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- docs/comparator.md: "A cluster without unprivileged user namespaces". Both comparator sandboxes are kernel
+  features (a user namespace or setuid `bwrap` for `toolchain`, Landlock for `legacy`), so no Singularity or
+  Apptainer recipe supplies them and none is supported; the section names the in-image `host-check` to run on
+  a compute node, the supported split (build or `--prepare` on the cluster, copy `.lake/build`, judge on a host
+  that passes `host-check` with `COMPARATOR_RECEIPT_BUILD_SOURCE`), and never bypassing the sandbox (field report).
+
 ## [0.7.46] - 2026-10-16
 
 ### Fixed
