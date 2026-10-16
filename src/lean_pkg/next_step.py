@@ -211,8 +211,8 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
             return out(f"lean-pkg gate {name} --receipt {_q(repo / cand['path'])}{comp_flag}{as_agent}",
                        f"gate-pending with a lower-tier receipt bound to HEAD {head[:12]}; validate first: "
                        f"`lean-pkg gate {name} --check --receipt {_q(repo / cand['path'])}{comp_flag}`")
-        at_head = [b for b in bad if b.get("commit") and core.evidence_only_descendant(
-            repo, b["commit"], head, core.formalization_rel(pkg))[0]] if bad else []
+        at_head = [b for b in bad if b.get("commit") and core.package_descendant(
+            repo, b["commit"], head, pkg)[0]] if bad else []
         if at_head:
             b = at_head[0]
             return blocked("invalid-receipt", f"invalid receipt {b['path']}: {b['error']}",

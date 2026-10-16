@@ -34,7 +34,7 @@ Cluster; packages verified there carry the acknowledgment "This work was complet
 
 | Field | Rule |
 |---|---|
-| `commit` | 40 lowercase hex; HEAD, or HEAD is an evidence-only descendant of it |
+| `commit` | 40 lowercase hex; HEAD, or HEAD is an evidence-only descendant of it (or, for a package that opted in, a [docs-only descendant](#docs-only-descendants-opt-in)) |
 | `lean_toolchain` | equals the `lean-toolchain` file committed at `commit`, stripped (an uncommitted edit never counts) |
 | `mathlib_rev` | nonempty |
 | `sorry_count` | integer, must be 0 |
@@ -378,6 +378,85 @@ findings of `audit`. Comparator configurations and `lean-toolchain` are read
 at X, not at H, and never from the working tree. Modified tracked files in
 the checkout print a WARN at `gate` and `comparator`; `--refuse-dirty` turns
 the WARN into a refusal.
+
+### Docs-only descendants (opt-in)
+
+An agent that commits only notes inside the package directory (a README, a
+`docs/` page, notes on the cluster run) after the source commit X moves HEAD
+away from X, and the evidence-only rule then refuses the receipt: the only
+ways forward were to rerun the check at the new HEAD or to rebind by hand. A
+package can opt in to a second rule:
+
+```
+lean-pkg update NAME --accept-docs-descendants --reason "notes are committed beside the code"
+lean-pkg update NAME --no-accept-docs-descendants --reason "back to evidence-only"
+lean-pkg update NAME --build-inputs 'data/*.csv,*.json' --reason "read at elaboration time"
+```
+
+The record field is `docs_descendants` (boolean; absent means false) and the
+optional `build_inputs` is a list of globs. Each flag needs `--reason`,
+records an `updated` event (the field in `fields`, its old value as
+`<field>_from`), follows the lease rule and accepts `--dry-run`.
+
+> With `docs_descendants: true`, a receipt bound to commit X is also accepted
+> at HEAD H when H descends from X and no build input under the package
+> directory changed between X and H.
+
+Build inputs, matched on paths relative to the package directory:
+
+- every `*.lean` file at any depth;
+- `lakefile.*` (`lakefile.lean`, `lakefile.toml`), `lake-manifest.json` and
+  `lean-toolchain`, at any depth;
+- every path matching a glob in the record's `build_inputs` (`fnmatch`, so
+  `*` also crosses `/`; a glob without `/` also matches a file name at any
+  depth);
+- best effort: each word of the receipt's `checker` text that names a file
+  tracked at X (a `scripts/check.sh` named there, for example).
+
+Always refused under the opt-in, whatever `build_inputs` says:
+
+- a symlink (mode 120000) or a gitlink/submodule (mode 160000) added,
+  changed or removed anywhere under the package directory;
+- any change to `.gitattributes` or `.gitmodules`;
+- any change to `claims.yaml` (and to the recorded `claims_file`): `gate`
+  reads the claims at the receipt commit, so they stay part of what it binds.
+
+Deletions and renames of build inputs count: the diff is read with
+`git diff --no-renames --raw`, so renaming `Main.lean` to `Main.md` is a
+deleted `.lean` file. The recorded `formalization_yaml` keeps the
+derived-keys-only rule above. Paths outside the package directory stay
+irrelevant, as for the evidence-only rule. The evidence-only rule is always
+tried first; the docs-only rule only applies when it refuses.
+
+The gated commit stays X, never H: the receipt is copied under X's name and
+the event records `commit: X`. When the docs-only rule admitted H, the text
+output says
+
+```
+✓ HEAD <H12> is a docs-only descendant of <X12> (3 non-build file(s): README.md, docs/x.md, evidence/notes.md; opted in)
+```
+
+and the `gate-passed`, `regated`, `comparator-attached` (or
+`comparator-replaced`) event and the `--json` payloads (also of
+`gate --check` and `comparator --check`, which write nothing) carry the
+additive fields `descendant_of: X` and `docs_paths` (the changed non-build
+paths, at most 50). The same rule decides `promote`'s binding line, `audit`'s
+`receipt-drift`/`comparator-drift`, `next`, `palomar prepare`, `update --path`
+and the claims-synced checks. A refusal under the opt-in names the first
+changed build input(s) and says the receipt must be rebuilt at HEAD. Without
+the opt-in nothing changes, except that a refusal the docs-only rule would have
+admitted ends with the hint that the package can opt in with
+`lean-pkg update NAME --accept-docs-descendants`.
+
+Why it is opt-in: the receipt then no longer certifies that HEAD's package
+directory is byte-identical to X. It certifies X; what H adds is limited to
+files the build is assumed not to read. That assumption holds for a package
+whose build reads only the listed inputs, and fails for one that reads other
+files while elaborating (`include_str`, a data file loaded by a macro or
+`initialize`, a script outside the list called from the lakefile): such a
+package must list them in `build_inputs`, or stay with the evidence-only rule.
+lean-pkg cannot check that the list is complete, so the maintainer decides per
+package.
 
 ### Path dependencies
 

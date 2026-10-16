@@ -15,7 +15,8 @@ def test_package_fields_cover_every_schema_tier(lp):
     assert lp.REQUIRED_FIELDS == [k for k in keys if tier[k] == "v1"]
     assert {k for k in keys if tier[k] == "v2"} == set(lp.V2_PACKAGE_DEFAULTS)
     assert {k for k in keys if tier[k] == "v3"} == set(lp.V3_PACKAGE_DEFAULTS)
-    assert {k for k in keys if tier[k] == "optional"} == {"paper", "namespace_notes", "source_paper", "ai_assistance", "track"}
+    assert {k for k in keys if tier[k] == "optional"} == {"paper", "namespace_notes", "source_paper", "ai_assistance",
+                                                          "track", "docs_descendants", "build_inputs"}
     assert all(m.strip() for _, _, m in lp.PACKAGE_FIELDS)
 
 

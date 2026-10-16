@@ -85,7 +85,7 @@ def _gate_evidence(pkg: dict, repo: pathlib.Path) -> tuple[list[dict], str | Non
                                               f"(fetch it)")], None, hashes
     diags: list[dict] = []
     head = core.git_head(repo) or ""
-    ok, note = core.evidence_only_descendant(repo, bound, head, core.formalization_rel(pkg))
+    ok, note, _docs = core.package_descendant(repo, bound, head, pkg, checker=rec.get("checker"))
     if not ok:
         diags.append(_diag("receipt-commit-mismatch", f"receipt {bound[:12]}, HEAD {head[:12]} ({note}); re-gate"))
     allowed = set(gate.get("axioms_allowed") or core.DEFAULT_AXIOMS)
@@ -118,8 +118,8 @@ def _comparator_evidence(pkg: dict, repo: pathlib.Path, bound: str | None) -> tu
         return [_diag("comparator-commit-mismatch", f"comparator {commit[:12] or '(none)'}, gate receipt "
                                                     f"{bound[:12]}: both tiers must bind one commit")], hashes
     head = core.git_head(repo) or ""
-    ok, note = (core.evidence_only_descendant(repo, commit, head, core.formalization_rel(pkg))
-                if core._HEX40.fullmatch(commit) else (False, "not a 40-hex commit"))
+    ok, note, _docs = (core.package_descendant(repo, commit, head, pkg)
+                       if core._HEX40.fullmatch(commit) else (False, "not a 40-hex commit", None))
     if not ok:                                      # stale, not contradicted: re-run, do not call it invalid
         return [_diag("comparator-commit-mismatch", f"comparator {commit[:12] or '(none)'}, HEAD {head[:12]} "
                                                     f"({note})")], hashes
