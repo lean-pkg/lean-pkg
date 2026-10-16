@@ -14,6 +14,14 @@ change the registry schema or receipt format, always with a migration).
   comparator configuration and readiness checks, `search` flags, the pre-freeze check and the consolidation recipe; Requirements
   states `lean-exercise`'s host needs.
 
+### Changed
+
+- `receipt slurm` (and `--check`) and `receipt systemd`: when no `lean-toolchain` is committed at `--commit` at the
+  `--repo` path, the refusal also names that path inside the git repository and the paths at which the commit does
+  hold a `lean-toolchain` (a copy of a subdirectory package placed elsewhere in the same repository, or the
+  repository root given for a subdirectory package, was refused with no hint). Still refused; tests now cover
+  subdirectory packages for both forms and `gate --check` on the result (field report).
+
 ## [0.7.51] - 2026-10-16
 
 ### Added

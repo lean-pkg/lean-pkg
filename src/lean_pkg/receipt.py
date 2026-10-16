@@ -667,6 +667,36 @@ def resolve_commit(repo: pathlib.Path, sha: str) -> str | None:
     return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else None
 
 
+def package_path_hint(repo: pathlib.Path, commit: str) -> str:
+    """Why `lean-toolchain` is absent at --commit for this --repo: the commit's files are read at the path of
+    --repo inside its git repository (`git rev-parse --show-prefix`), so a copy of the package placed at another
+    path of the same repository (a frozen review packet, say) reads nothing. Names that path and the paths at
+    which the commit does hold a `lean-toolchain` (at most five), all relative to the repository root."""
+    p = core.git(repo, "rev-parse", "--show-prefix")
+    prefix = p.stdout.strip() if p.returncode == 0 else ""
+    ls = core.git(repo, "ls-tree", "-r", "--full-tree", "--name-only", "-z", commit)
+    names = ls.stdout.split("\0") if ls.returncode == 0 else []
+    found = sorted({n[:-len("lean-toolchain")] or "./" for n in names
+                    if n == "lean-toolchain" or n.endswith("/lean-toolchain")})
+    where = ", ".join(found[:5]) + (f" (and {len(found) - 5} more)" if len(found) > 5 else "") if found else "no path"
+    return (f" (--repo is `{prefix or './'}` in its git repository and the commit's files are read there; "
+            f"at {commit[:12]} a lean-toolchain is committed at: {where}; pass the package directory of a "
+            f"checkout at its committed path, not a copy placed elsewhere)")
+
+
+def commit_package_files(repo: pathlib.Path, commit: str, refusals: list[str]) -> tuple[str | None, bytes | None]:
+    """(lean-toolchain, lake-manifest.json) committed at `commit`, read relative to the package directory
+    --repo (which may be a subdirectory of its repository); an absent lean-toolchain is a refusal naming where
+    the commit does hold one."""
+    toolchain = None
+    blob = core.git_show_bytes(repo, "./lean-toolchain", commit)
+    if blob is None:
+        refusals.append(f"no lean-toolchain committed at {commit[:12]}" + package_path_hint(repo, commit))
+    else:
+        toolchain = blob.decode("utf-8", "replace").strip()
+    return toolchain, core.git_show_bytes(repo, "./lake-manifest.json", commit)
+
+
 # Local identity tokens shorter than this, or in this list, are never blocking tokens (too common in logs).
 IDENTITY_MIN_LEN = 3
 IDENTITY_STOPWORDS = frozenset({
@@ -1003,12 +1033,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
         refusals.append(f"--commit {args.commit_sha}: not a commit in the --repo checkout "
                         f"(default the current directory)")
     else:
-        blob = core.git_show_bytes(repo, "./lean-toolchain", commit)
-        if blob is None:
-            refusals.append(f"no lean-toolchain committed at {c12}")
-        else:
-            toolchain = blob.decode("utf-8", "replace").strip()
-        manifest = core.git_show_bytes(repo, "./lake-manifest.json", commit)
+        toolchain, manifest = commit_package_files(repo, commit, refusals)
 
     raw = paths["--log"].read_bytes()
     raw_sha = hashlib.sha256(raw).hexdigest()
@@ -1240,12 +1265,7 @@ def preflight(args) -> int:
             problems.append(f"--commit {args.commit_sha}: not a commit in the --repo checkout "
                             f"(default the current directory)")
         else:
-            blob = core.git_show_bytes(repo, "./lean-toolchain", commit)
-            if blob is None:
-                problems.append(f"no lean-toolchain committed at {commit[:12]}")
-            else:
-                toolchain = blob.decode("utf-8", "replace").strip()
-            manifest = core.git_show_bytes(repo, "./lake-manifest.json", commit)
+            toolchain, manifest = commit_package_files(repo, commit, problems)
     raw = paths["--log"].read_bytes()
     check_seal(paths, raw, manifest, commit[:12] if commit else None, problems, checks)
     raw_text = raw.decode("utf-8", errors="replace")
