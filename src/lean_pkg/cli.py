@@ -103,6 +103,7 @@ import subprocess
 import sys
 import tempfile
 import traceback
+import textwrap
 import unicodedata
 import urllib.error
 import urllib.request
@@ -5987,7 +5988,7 @@ audit     read-only without --fix (expired leases reported); --fix: sweep leases
 validate  schema + enum + history sanity.              ex: lean-pkg validate
 next      NAME [--agent A] [--repo DIR] read-only, offline (never gh, never writes): the ONE recommended next command + a one-line reason, from the record + checkout (claim / update --status / gate --check / gate / gate --regate (verified-private, HEAD moved) / comparator-receipt / comparator config --from-claims / comparator / publish --dry-run (only when the claims ledger is ready; else its first fix or `claims ledger NAME`) / reservoir check / palomar prepare / record ...); without --agent a live lease is only noted; a checkout off its default branch (or detached) is noted, HEAD still judged; --repo DIR evaluates the checkout DIR instead of the registered local_path for this call (never saved; stderr note; JSON repo_override {path, registered_path, remote_match}, null without it; DIR a git work tree whose remotes, if any, include the package's repo (Host:/p matches a local-path repo /p; the registered local_path itself needs no remote); carried into a recommended gate --check, any other recommended command that reads the checkout gets a note that it uses the registered path); a comparator step (comparator-receipt, comparator config) whose lean-toolchain at HEAD is below audit's comparator floor (--toolchain-floor default / LEAN_PKG_TOOLCHAIN_FLOOR) is blocked first: command null, blocker below-toolchain-floor {lean_toolchain, floor, deferred_command}, reason says bump the toolchain, commit, re-gate; exit 0 command (or nothing left: command null), 1 blocked; --json {ok, name, command, reason, blockers[{kind: foreign-lease|invalid-lease|missing-checkout|no-commit|dirty-tree|invalid-receipt|unreadable-receipt|below-toolchain-floor, detail}], notes[], repo_override, state{status, lease, gate_commit, comparator_commit, head, dirty[], receipt_candidate, claims_ledger, ...}}. ex: lean-pkg next my-lean --agent vera --json
 doctor    ok/warn/n/a: version, install, registry [source: flag|env|user-default|cwd], user-default, events [source: flag|registry-sibling|env|sibling], registry-repo (behind/ahead of origin or no origin remote, dirty registry files: warn = do not write yet; --fetch first), index, host (comparator host-check verdict; warn = cannot produce comparator receipts or a leaked GIT_* repository variable), tools (n/a = optional; the detail says what it is for and when it is needed; tool comparator without bwrap: run `comparator host-check`), gh auth (account; warn = not logged in, promote needs it), python; exit 1 if the registry is unreadable or its schema version is unsupported (every other command refuses a newer version: upgrade lean-pkg).
-llms      this contract (--json: {"ok": true, "text": ...}); --short: ~40 lines cut from it by section (title, PURPOSE head, STANDING RULES, the first line of each subcommand; --json adds "short": true; the rest, e.g. publish, public-safety, reservoir check, palomar prepare, comparator config/host-check, release --fresh-repo/--adopt-repo: the full text). ex: lean-pkg llms --short
+llms      this contract (--json: {"ok": true, "text": ...}); --short: ~40 lines cut from it by section (title, PURPOSE head, STANDING RULES, the first line of each subcommand; --json adds "short": true; the rest, e.g. publish, public-safety, reservoir check, palomar prepare, comparator config/host-check, release --fresh-repo/--adopt-repo: the full text). ex: lean-pkg llms --short   |   help [TOPIC|COMMAND ...]  gh-style help topics, no registry read: exit-codes (0/1/2, what 1 means per command, comparator-receipt/lean-exercise codes), environment (every variable lean-pkg, comparator-receipt and lean-exercise read, with its default; --json variables[{name, section, meaning, default}]), formatting (--json, stdout vs stderr, named schemas, jq); no argument: commands + topics; COMMAND: exactly its --help; unknown: exit 2. ex: lean-pkg help environment
 wiki      render a Markdown status page.               ex: lean-pkg wiki --out status/index.md   |   report (read-only): a bug report in the shape of .github/ISSUE_TEMPLATE/bug_report.md: version + doctor ok/warn lines + host-check verdict, --command "ARGS" re-run in a subprocess (+ --json when the subcommand has it; a writing command is not re-run), --body TEXT (no re-run) and/or --from-log FILE[:N] (last N lines, default 200, as Log excerpt) first in What happened (one of --command/--body/--from-log required, else exit 2), --package NAME record (status, lease, receipt commits); every captured text redacted (registry/checkout paths -> <registry>/<registry-dir>/<checkout>, home -> ~, public-safety built-ins + .lean-pkg-private-patterns of the checkout and registry dir + record-derived names -> […]); a blocking hit left: exit 1, nothing filed. Dry run unless --yes: gh issue create -R lean-pkg/lean-pkg (--repo OWNER/NAME) --label bug|enhancement (--enhancement), prints the URL; no gh or gh not logged in: exit 1 (gh auth login). --json {ok, filed, url, title, labels, body, redactions, log_excerpt {path, lines} with --from-log}. ex: lean-pkg report --command "status my-lean" --package my-lean
 index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, env LEAN_PKG_INDEX, index/ beside the registry if present, ./index; check/render/migrate exit 1 when it is missing).
   add NAME --by HANDLE --headline 'Name :: File.lean :: One sentence.[ :: ChallengeTheorem]' [--from-registry] [--repo URL]
@@ -6086,7 +6087,7 @@ plus event-specific fields (agent, workspace, ttl_hours, reason, contact, commit
 EXIT CODES
 0  success, including dry-runs and the "already gated" no-op
 1  refused or validation failed (stderr has the reason; with --json stdout also gets {"ok": false, "error": ...})
-2  usage error (argparse, or an interactive prompt attempted off-tty; with --json a usage refusal, argparse's included, also prints {"ok": false, "error": ..., "usage": true})
+2  usage error (argparse, or an interactive prompt attempted off-tty; with --json a usage refusal, argparse's included, also prints {"ok": false, "error": ..., "usage": true}); what 1 means per command, and comparator-receipt's and lean-exercise's codes: lean-pkg help exit-codes
 """
 
 
@@ -6139,6 +6140,83 @@ def cmd_llms(args) -> int:
         print_json({"ok": True, "text": text, "short": True} if short else {"ok": True, "text": text})
         return 0
     print(text, end="")
+    return 0
+
+
+def _subparsers_action(parser):
+    return next((a for a in parser._actions if isinstance(a, argparse._SubParsersAction)), None)
+
+
+def help_index(root) -> str:
+    """`lean-pkg help` with no argument: the commands and the help topics, gh-style."""
+    from . import help_topics
+    out = [root.description or "", "", "USAGE", "  lean-pkg [global flags] <command> [flags]",
+           "  lean-pkg help <command> | <topic>", "", "COMMANDS"]
+    rows = [(a.dest, a.help or "") for a in _subparsers_action(root)._choices_actions]
+    width = max(len(n) for n, _ in rows) + 2
+    for name, text in rows:
+        out.append(f"  {name.ljust(width)}{textwrap.shorten(text, 96 - width, placeholder=' ...')}")
+    out += ["", "HELP TOPICS"]
+    width = max(len(n) for n in help_topics.TOPICS) + 2
+    for name, (summary, _) in help_topics.TOPICS.items():
+        out.append(f"  {name.ljust(width)}{summary}")
+    out += ["", "LEARN MORE",
+            "  lean-pkg help <command>   that command's flags, the same text as `lean-pkg <command> --help`",
+            "  lean-pkg help <topic>     one of the topics above",
+            "  lean-pkg llms             the whole agent contract (llms.txt)"]
+    return "\n".join(out) + "\n"
+
+
+def help_command_parser(root, words: list[str]):
+    """The parser `help WORDS...` names: a command, or a nested one (`help index add`). comparator's verbs
+    (`comparator config`, `comparator host-check`) are positionals of `comparator`, so its help covers them.
+    Anything else is a usage error naming what exists."""
+    parser, path = root, ["lean-pkg"]
+    for i, word in enumerate(words):
+        action = _subparsers_action(parser)
+        if action is None:
+            if path == ["lean-pkg", "comparator"] and word in (HOST_CHECK, CONFIG_CMD) and i == len(words) - 1:
+                return parser
+            raise UsageError(f"help: `{' '.join(path[1:])}` has no subcommand {word!r}; "
+                             f"see `lean-pkg help {' '.join(path[1:])}`")
+        word = COMMAND_ALIASES.get(word, word) if parser is root else word
+        if word not in action.choices:
+            if parser is root:
+                from . import help_topics
+                raise UsageError(f"help: unknown command or topic {word!r}; topics: "
+                                 f"{', '.join(help_topics.TOPICS)}; commands: `lean-pkg help`")
+            raise UsageError(f"help: `{' '.join(path[1:])}` has no subcommand {word!r}; choose from "
+                             f"{', '.join(action.choices)}")
+        parser = action.choices[word]
+        path.append(word)
+    return parser
+
+
+def cmd_help(args) -> int:
+    """`help [TOPIC | COMMAND [SUBCOMMAND]]` (gh's `help`): no argument lists the commands and topics; a
+    topic prints its text (help_topics); a command prints exactly its --help. Reads no registry."""
+    from . import help_topics
+    words = list(getattr(args, "words", None) or [])
+    root = args.help_root
+    if not words:
+        text = help_index(root)
+        payload = {"ok": True, "topics": list(help_topics.TOPICS),
+                   "commands": list(_subparsers_action(root).choices), "text": text}
+    elif words[0] in help_topics.TOPICS:
+        if len(words) > 1:
+            raise UsageError(f"help {words[0]}: a topic takes no further argument (got {' '.join(words[1:])!r})")
+        text = help_topics.topic_text(words[0])
+        payload = {"ok": True, "topic": words[0], "text": text}
+        if words[0] == "environment":
+            payload["variables"] = help_topics.environment_rows()
+    else:
+        parser = help_command_parser(root, words)
+        text = parser.format_help()
+        payload = {"ok": True, "command": " ".join(words), "text": text}
+    if getattr(args, "json_out", False):
+        print_json(payload)
+    else:
+        print(text, end="")
     return 0
 
 
@@ -7969,6 +8047,14 @@ def main(argv: list[str] | None = None) -> int:
     add_json(s)
     s.set_defaults(fn=cmd_llms)
 
+    s = sub.add_parser("help", help="help topics (exit-codes, environment, formatting) or a command's --help",
+                       description="Without an argument: the commands and help topics. With a topic "
+                                   "(exit-codes, environment, formatting): that topic. With a command "
+                                   "(`help status`, `help index add`): exactly its --help. Reads no registry.")
+    s.add_argument("words", nargs="*", metavar="TOPIC|COMMAND")
+    add_json(s)
+    s.set_defaults(fn=cmd_help, help_root=ap)
+
     s = sub.add_parser("wiki", help="render a Markdown status page")
     s.add_argument("--out", default=None,
                    help="write the Markdown here instead of stdout")
@@ -8007,6 +8093,8 @@ def main(argv: list[str] | None = None) -> int:
         args.cmd = COMMAND_ALIASES[args.cmd]
     if getattr(args, "show_version", False):   # before the registry lock: --version reads no registry
         return cmd_version(args)
+    if getattr(args, "cmd", None) == "help":   # reads no registry: never a snapshot, never a lock
+        return run_command(args)
     snapshot = registry_snapshot_arg(args)
     if snapshot:   # #34: a historical registry, read-only; no lock (nothing is written)
         return run_snapshot(args, snapshot)

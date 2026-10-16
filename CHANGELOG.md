@@ -20,6 +20,13 @@ change the registry schema or receipt format, always with a migration).
   inside statement types, two rewrite recipes, and a tested `Expr.getUsedConstants` listing (field report).
 - docs/receipts.md "Sealed logs and whitespace checks": never normalize sealed logs; exclude `.lean-receipts/` from
   `git diff --check`; lean-pkg writes no `.gitattributes` (a gate build input) (field report).
+- `lean-pkg help [TOPIC|COMMAND]`, in the manner of `gh help`: `help exit-codes` (0/1/2, what 1 means for each
+  command that answers yes or no, and the codes of comparator-receipt, lean-exercise and the types driver),
+  `help environment` (every environment variable lean-pkg, comparator-receipt, lean-exercise and the scripts
+  read, with its default; `--json` adds `variables[]`), `help formatting` (`--json`, stdout vs stderr, the
+  named schemas, filtering with jq). `help` alone lists the commands and topics; `help COMMAND` prints exactly
+  `COMMAND --help`. Reads no registry. A test fails when the source reads an environment variable the
+  environment topic does not list.
 
 ### Fixed
 
