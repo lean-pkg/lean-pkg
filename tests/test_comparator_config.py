@@ -107,6 +107,20 @@ def test_refuses_an_out_path_the_runner_would_not_find(lp, env, capsys):
     assert rc == 1 and "not a comparator configuration path" in cap.err
 
 
+def test_refuses_an_out_path_whose_log_name_collides(lp, env, capsys):
+    """comparator_config_a.json and comparator/config_a.json share the log name comparator_config_a."""
+    (env.repo_b / "comparator_config_a.json").write_text((env.repo_b / "comparator.json").read_text())
+    _git(env.repo_b, "add", "comparator_config_a.json")
+    _git(env.repo_b, "commit", "-q", "-m", "second config")
+    synced(lp, env, capsys)
+    rc, cap = cc(lp, env, capsys, "--out", "comparator/config_a.json")
+    assert rc == 1 and "comparator_config_a.json and comparator/config_a.json" in cap.err
+    assert "comparator_config_a.log" in cap.err
+    assert not (env.repo_b / "comparator" / "config_a.json").exists()
+    rc, cap = cc(lp, env, capsys, "--out", "comparator/config-b.json")   # no collision: written
+    assert rc == 0, cap.err
+
+
 def test_refuses_a_malformed_existing_config(lp, env, capsys):
     synced(lp, env, capsys)
     (env.repo_b / "comparator.json").write_text('{"theorem_names": "x"}\n')

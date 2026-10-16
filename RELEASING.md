@@ -21,10 +21,19 @@ changes evidence.
 `main` (`scripts/cut-release.py`). It lists the `### Added` entries for step 0,
 which stays a judgment, so read them, then: commits the citation bump (2a),
 refuses unless the public-safety scan (3) is clean, writes the version files
-and the summary line (1, 2), commits and pushes them (4), runs
-`scripts/release.sh` (5), and waits up to `DOI_WAIT` seconds (default 300)
-for Zenodo to record the version DOI (7). Re-running it after a failure
-resumes where it stopped; a step 7 timeout only warns, and
+and the summary line (1, 2), runs `make check` on that tree, commits and
+pushes them (4), runs `scripts/release.sh` (5), and waits up to `DOI_WAIT`
+seconds (default 300) for Zenodo to record the version DOI (7). A failing
+`make check` restores the four version files and stops before the release
+commit, so `origin/main` never says X.Y.Z without the gate having passed.
+Re-running it after a failure resumes where it stopped: once the version
+files say X.Y.Z and `release: X.Y.Z` is in `HEAD`'s history, it resumes at
+the push and step 5, and the tag goes on `HEAD`, so a fix committed and
+pushed on top of the release commit after a failed step 5 is part of the
+release. It refuses when origin already has the tag at another commit,
+unless the only commit since is an unpushed step 7 commit, which it pushes
+(step 5 then skipped). Every push is retried on transient errors as in
+step 5. A step 7 timeout only warns, and
 `make record-doi VERSION=X.Y.Z` finishes it later. Set
 `LEAN_PKG_COMMIT_TRAILER` to add trailers to every commit both scripts make,
 one `Key: value` per line (for an assistant-run release:
@@ -76,9 +85,11 @@ is refused before anything is written. The steps by hand:
    section, which becomes the release notes, as printed (it names no path):
    `public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree,
    0 history); 0 blocking, 0 warning(s)`.
-4. Commit (`release: X.Y.Z`; the four version files by name, never
+4. Run `make check` on the tree with the version files written, then
+   commit (`release: X.Y.Z`; the four version files by name, never
    `git add -A`; abort if anything else is modified or untracked) and push
-   `main`.
+   `main`. A gate that fails after the push would leave `origin/main` at
+   X.Y.Z with no tag.
 5. Run `make release VERSION=X.Y.Z` (that is `scripts/release.sh`). It
    refuses unless: on `main`, clean tree, `main == origin/main`, the three
    files agree (`scripts/check-versions.py`), the changelog section exists
@@ -105,7 +116,11 @@ is refused before anything is written. The steps by hand:
    points at `tree/vX.Y.Z`, lists the version DOI under `identifiers:`, adds a
    `Zenodo version DOI:` line to the version's `CHANGELOG.md` section, and
    commits (`citation: Zenodo version DOI for X.Y.Z`) and pushes `main`. It
-   changes nothing when both files already carry the DOI.
+   changes nothing when both files already carry the DOI. The push is
+   retried on transient errors as in step 5 (same variables); when it still
+   fails, the commit stays local, the message says so, and running the same
+   command again (or `make cut-release VERSION=X.Y.Z`) pushes it: a `main`
+   ahead of `origin/main` by exactly that commit is resumed, not refused.
 
 ## Gates
 

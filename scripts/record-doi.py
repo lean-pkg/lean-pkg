@@ -7,7 +7,10 @@ version of that concept and points at the tag, then lists its DOI under `identif
 in CITATION.cff and adds a `Zenodo version DOI:` line to the X.Y.Z section of
 CHANGELOG.md, in one commit (`citation: Zenodo version DOI for X.Y.Z`) pushed to main.
 
-Idempotent: when both files already carry the DOI it changes nothing. --wait polls
+Idempotent: when both files already carry the DOI it changes nothing. The push is retried on
+transient errors as scripts/release.sh does (LEAN_PKG_RELEASE_RETRIES, LEAN_PKG_RELEASE_RETRY_DELAY);
+when it still fails, the commit stays local and a re-run pushes it: a main ahead of origin/main by
+exactly its own `citation: Zenodo version DOI for X.Y.Z` commit is resumed, not refused. --wait polls
 Zenodo (every 30 s) until the record appears or the time is spent; the archive usually
 lands within minutes of the GitHub release. LEAN_PKG_ZENODO_API overrides the API base
 (default https://zenodo.org/api); LEAN_PKG_ZENODO_RECORDS_FILE reads the search pages
@@ -28,6 +31,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+NAME = "record-doi"
 POLL = 30
 REPO_URL = "https://github.com/lean-pkg/lean-pkg"
 
@@ -53,6 +57,55 @@ def trailer_args() -> list[str]:
     if bad:
         die(f"LEAN_PKG_COMMIT_TRAILER: not a `Key: value` trailer line: {bad[0]!r}", 2)
     return [a for x in lines for a in ("--trailer", x)]
+
+
+# Failure classification for `git push`, the same markers as scripts/release.sh (#73): a permanent
+# refusal is checked first (an SSH auth failure also prints "Could not read from remote repository").
+PERMANENT_MARKERS = ("permission denied", "authentication failed", "bad credentials", "repository not found",
+                     "[rejected]", "[remote rejected]", "already exists", "http 401", "http 403", "http 404",
+                     "http 422")
+TRANSIENT_MARKERS = ("connection reset", "kex_exchange_identification", "could not read from remote repository",
+                     "tls handshake timeout", "i/o timeout", "timed out", "timeout", "connection closed by",
+                     "connection refused", "the remote end hung up unexpectedly", "early eof", "broken pipe",
+                     "could not resolve host", "temporary failure in name resolution", "network is unreachable",
+                     "ssh: connect to host")
+TRANSIENT_HTTP_RE = re.compile(r"(returned error:|http|status)\s*5\d\d(?!\d)")
+
+
+def transient_reason(out: str) -> str | None:
+    """The marker that makes a failed push's output transient, None when it is permanent or unknown.
+    (The same function is in scripts/cut-release.py and scripts/record-doi.py.)"""
+    low = out.lower()
+    if any(m in low for m in PERMANENT_MARKERS):
+        return None
+    m = next((m for m in TRANSIENT_MARKERS if m in low), None) or TRANSIENT_HTTP_RE.search(low)
+    return m if isinstance(m, str) or m is None else m.group(0)
+
+
+def push_main() -> tuple[bool, str]:
+    """`git push origin main`, retried on transient errors like scripts/release.sh: LEAN_PKG_RELEASE_RETRIES
+    attempts (default 4), waiting LEAN_PKG_RELEASE_RETRY_DELAY s (default 10) doubled per retry.
+    (ok, the last attempt's output). (The same function is in scripts/cut-release.py and scripts/record-doi.py.)"""
+    def env_int(k: str, default: int, floor: int) -> int:
+        v = os.environ.get(k, "")
+        return int(v) if v.isdigit() and int(v) >= floor else default
+    retries = env_int("LEAN_PKG_RELEASE_RETRIES", 4, 1)
+    delay = env_int("LEAN_PKG_RELEASE_RETRY_DELAY", 10, 0)
+    for n in range(1, retries + 1):
+        r = subprocess.run(["git", "push", "-q", "origin", "main"], cwd=ROOT, capture_output=True, text=True)
+        out = (r.stdout + r.stderr).strip()
+        if r.returncode == 0:
+            return True, out
+        reason = transient_reason(out)
+        if reason is None or n == retries:
+            why = "not transient; not retrying" if reason is None else f"transient: {reason}; giving up"
+            print(f"{NAME}: push attempt {n}/{retries} failed ({why}):\n{out}", file=sys.stderr)
+            return False, out
+        wait = delay * (1 << (n - 1))
+        print(f"{NAME}: push attempt {n}/{retries} failed (transient: {reason}); retrying in {wait} s",
+              file=sys.stderr, flush=True)
+        time.sleep(wait)
+    return False, ""
 
 
 def concept_doi(cff: str) -> str:
@@ -143,8 +196,15 @@ def main() -> int:
     if git("status", "--porcelain"):
         die("working tree not clean")
     git("fetch", "-q", "--no-tags", "origin")
+    own = f"citation: Zenodo version DOI for {v}"
     if git("rev-parse", "HEAD") != git("rev-parse", "origin/main"):
-        die("main differs from origin/main (pull or push first)")
+        ahead = git("log", "--format=%s", "origin/main..HEAD").splitlines()
+        if git("rev-list", "--count", "HEAD..origin/main") != "0" or ahead != [own]:
+            die("main differs from origin/main (pull or push first)")
+        print(f"record-doi: {git('rev-parse', '--short', 'HEAD')} `{own}` is committed but not on origin; "
+              "pushing it")
+        push_or_die(v)
+        return 0
 
     cff_path, chg_path = ROOT / "CITATION.cff", ROOT / "CHANGELOG.md"
     cff, chg = cff_path.read_text(), chg_path.read_text()
@@ -175,11 +235,21 @@ def main() -> int:
     cff_path.write_text(new_cff)
     chg_path.write_text(new_chg)
     git("add", "CITATION.cff", "CHANGELOG.md")
-    git("commit", "-q", "-m", f"citation: Zenodo version DOI for {v}",
+    git("commit", "-q", "-m", own,
         "-m", f"RELEASING.md step 7: Zenodo archived v{v} as {doi} (concept {concept}).", *trailers)
-    git("push", "-q", "origin", "main")
-    print(f"record-doi: {v} -> {doi}; committed {git('rev-parse', '--short', 'HEAD')} and pushed main")
+    print(f"record-doi: {v} -> {doi}; committed {git('rev-parse', '--short', 'HEAD')}")
+    push_or_die(v)
     return 0
+
+
+def push_or_die(v: str) -> None:
+    sha = git("rev-parse", "--short", "HEAD")
+    ok, _ = push_main()
+    if not ok:
+        die(f"{sha} `citation: Zenodo version DOI for {v}` is committed on main but not pushed (see above); "
+            f"nothing is lost: run `make record-doi VERSION={v}` again once the remote is reachable and it "
+            f"pushes that commit (so does `make cut-release VERSION={v}`)")
+    print(f"record-doi: pushed main at {sha}")
 
 
 if __name__ == "__main__":

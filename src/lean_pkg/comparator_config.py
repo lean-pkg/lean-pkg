@@ -132,6 +132,12 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     if not core.COMPARATOR_CONFIG_RE.match(rel):
         raise core.Fail(f"--out {rel}: not a comparator configuration path (comparator*.json at the "
                         f"package root or comparator/config*.json); the runner would not find it")
+    from .comparator_receipt import cfg_name_collision
+    clash = cfg_name_collision([c for c in core.head_comparator_configs(repo) if c != rel] + [rel])
+    if clash:
+        a, b, log = clash
+        raise core.Fail(f"--out {rel}: {a} and {b} both map to the log name {log}.log, so "
+                        f"comparator-receipt would refuse them; choose another --out")
     ns = namespace or default_namespace(name)
     if not NAMESPACE_RE.match(ns):
         raise core.Fail(f"--challenge-namespace {ns!r} is not a Lean name")

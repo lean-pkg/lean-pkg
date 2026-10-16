@@ -92,6 +92,30 @@ change the registry schema or receipt format, always with a migration).
   - `gate` and `comparator` wrote through a planted (even dangling) symlink at the destination in
     `.lean-receipts/`, outside the repository. A symlinked destination or `.lean-receipts` is refused.
 
+- `comparator-receipt` no longer writes an `--evidence-dir` outside the checkout into a committed log. When the
+  toolchain judge runs a partial unit (`--unit-size`, `--judges` above 1, a resumed run) it is handed a
+  configuration copy under `<evidence>/comparator-stages/04-units/`, and that absolute path reached the receipt log
+  unredacted when the evidence directory was not under the checkout, `HOME` or `TMPDIR`. It is now written as
+  `<evidence>/...` in every log and receipt field; an evidence directory inside the checkout keeps `<checkout>/...`
+  (review finding).
+- `comparator-receipt` refuses two configurations whose receipt logs would share a name: `comparator_config_a.json`
+  and `comparator/config_a.json` both map to `comparator_config_a.log`, so one configuration's log overwrote the
+  other's. The refusal (exit 1, nothing written) names both files; `comparator config --out` refuses to create
+  such a pair. Log names of non-colliding configurations are unchanged (review finding).
+- `make cut-release` runs `make check` on the release tree before the release commit. It used to push
+  `release: X.Y.Z` to `main` before the gate ran (inside `scripts/release.sh`), so a failing gate left
+  `origin/main` at X.Y.Z with no tag and a re-run refused (`X.Y.Z is not above the current version`). A failing
+  check now restores the version files and pushes nothing. A re-run also resumes, instead of refusing, when the
+  version files already say X.Y.Z and `release: X.Y.Z` is anywhere in `HEAD`'s history (a fix pushed on top after a
+  failed step 5 is tagged with the release), and refuses when origin already has the tag at another commit
+  (review finding).
+- `make record-doi` retries a failed push on transient errors (as `scripts/release.sh` does, same
+  `LEAN_PKG_RELEASE_RETRIES` / `LEAN_PKG_RELEASE_RETRY_DELAY`) and, when it still fails, says the commit is local
+  instead of a traceback. A re-run of `make record-doi` or `make cut-release` recognises the unpushed
+  `citation: Zenodo version DOI for X.Y.Z` commit as its own and pushes it; both refused before (`main differs from
+  origin/main`, `more than this release's own commits`). `make cut-release` retries its own push the same way
+  (review finding).
+
 ### Changed
 
 - `gate` refuses a receipt whose `mathlib_rev` is not prefix-equal to the `mathlib` rev in `lake-manifest.json`
@@ -105,7 +129,6 @@ change the registry schema or receipt format, always with a migration).
   `systemd-user:<U>:<InvocationID>@h-<12 hex>`, the first 12 hex digits of the SHA-256 of the lower-cased host
   name, and the stored `unit.properties` carries the label in `Hostname=` (the receipt scan now blocks this host's
   name, review finding). Receipts already written keep their names.
-
 ## [0.7.43] - 2026-10-16
 
 ### Fixed

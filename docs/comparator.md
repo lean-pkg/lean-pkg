@@ -107,6 +107,11 @@ adds nothing. It prints the counts (already configured, added, skipped:
 definitions, constructions, libraries and superseded claims). `--out`
 names another configuration (`comparator*.json` or
 `comparator/config*.json`; created with the standard fields when absent).
+Each configuration's receipt log is named by its path without `.json`, `/`
+becoming `_`, so `comparator_config_a.json` and `comparator/config_a.json`
+would share `comparator_config_a.log`: `comparator-receipt` refuses such a
+pair (exit 1, nothing written, both files named) and `--out` refuses to
+create one.
 It refuses when `claims.yaml` is not tracked at HEAD or the claims are not
 synced at HEAD, and a live lease held by another agent refuses the write
 (`--agent`). The registry is never written.
@@ -842,7 +847,11 @@ log, every unit and receipt log, and every receipt field has absolute paths
 under the checkout, `HOME` and `TMPDIR` replaced by `<checkout>/...`,
 `<home>/...` and `<tmp>/...` (longest prefix first, at path boundaries, both
 as given and resolved), so `public-safety` does not flag lean-pkg's own
-output. The receipt's hashes and bindings cover the tree's bytes and the
+output. An `--evidence-dir` outside the checkout becomes `<evidence>/...`
+wherever it sits (under `HOME`, `TMPDIR` or neither): the toolchain judge of
+a partial unit (`--unit-size`, `--judges` above 1, a resumed run) reads a
+configuration copy from `<evidence>/comparator-stages/04-units/`, and its
+command line reaches the committed log. The receipt's hashes and bindings cover the tree's bytes and the
 logs as committed, not where the checkout lives, so validation is
 unaffected. `--host-label LABEL` (or `COMPARATOR_RECEIPT_HOST_LABEL`)
 replaces the host name in `host`, `job_id`, `host_policy` and the output,

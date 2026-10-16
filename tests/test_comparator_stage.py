@@ -846,6 +846,58 @@ def test_receipt_and_logs_carry_no_host_paths_and_still_validate(tmp_path: Path,
     assert (project / ".lean-receipts" / f"{head[:12]}-comparator.json").is_file()
 
 
+def test_evidence_dir_outside_the_checkout_never_reaches_a_committed_file(tmp_path: Path, lp):
+    """A partial unit (--unit-size) hands the toolchain judge a config copy under the evidence dir;
+    an evidence dir outside the checkout, HOME and TMPDIR must still not reach a committed log."""
+    project = make_project(tmp_path, {"comparator.json": ["N.a", "N.b"]})
+    ev = tmp_path / "scratch-cluster" / "ev"
+    tmpdir = tmp_path / "t"
+    tmpdir.mkdir()
+    r = run(project, "--evidence-dir", str(ev), "--unit-size", "1",
+            extra={"HOME": str(tmp_path / "no-home"), "TMPDIR": str(tmpdir)})
+    assert r.returncode == 0, r.stderr
+    files = sorted((project / ".lean-receipts").iterdir())
+    assert len(files) == 2
+    for f in files:
+        text = f.read_text()
+        assert str(ev) not in text and "scratch-cluster" not in text, (f.name, text)
+    assert "<evidence>/comparator-stages/04-units/" in receipt_log(project)
+    assert "scratch-cluster" not in (ev / "comparator-stages" / "04-comparator.log").read_text()
+    validate(lp, project)
+
+
+def test_configs_sharing_a_log_name_are_refused_before_anything_runs(tmp_path: Path):
+    """comparator_config_a.json and comparator/config_a.json both map to comparator_config_a.log."""
+    project = make_project(tmp_path, {"comparator_config_a.json": ["foo"], "comparator/config_a.json": ["bar"]})
+    calls_file = tmp_path / "calls.txt"
+    r = run(project, extra={"STUB_CALLS": str(calls_file)})
+    assert r.returncode == 1
+    assert "comparator_config_a.json and comparator/config_a.json" in r.stderr
+    assert "comparator_config_a.log" in r.stderr and "nothing written" in r.stderr
+    assert not (project / ".lean-receipts").exists() and not calls_file.exists()
+
+
+def test_distinct_log_names_keep_their_existing_spelling():
+    from lean_pkg.comparator_receipt import cfg_name, cfg_name_collision
+    cfgs = ["comparator.json", "comparator_b.json", "comparator/config.json", "comparator/config_c.json"]
+    assert [cfg_name(c) for c in cfgs] == ["comparator", "comparator_b", "comparator_config",
+                                            "comparator_config_c"]
+    assert cfg_name_collision(cfgs) is None
+    assert cfg_name_collision(["comparator_config.json", "comparator/config.json"]) == (
+        "comparator_config.json", "comparator/config.json", "comparator_config")
+
+
+def test_evidence_dir_inside_the_checkout_keeps_the_checkout_spelling():
+    from lean_pkg import comparator_stage as cs
+    cs.set_redactions(Path("/work/u/pkg"), home="/home/u", tmp="/tmp", evidence=Path("/work/u/pkg/.lake/ev"))
+    try:
+        assert cs.redact("/work/u/pkg/.lake/ev/x") == "<checkout>/.lake/ev/x"
+        cs.set_redactions(Path("/work/u/pkg"), home="/home/u", tmp="/tmp", evidence=Path("/home/u/ev"))
+        assert cs.redact("/home/u/ev/x /home/u/evx /home/u/k") == "<evidence>/x <home>/evx <home>/k"
+    finally:
+        cs.set_redactions(None, home="", tmp="")
+
+
 def test_redaction_respects_path_boundaries():
     from lean_pkg import comparator_stage as cs
     cs.set_redactions(Path("/work/u/pkg"), home="/home/u", tmp="/tmp")

@@ -38,18 +38,28 @@ KILL_GRACE = 10.0          # seconds between TERM and KILL for a judge's process
 
 # ---------------------------------------------------------------------------
 # Redaction (#41): absolute paths under the checkout, HOME and TMPDIR never reach a stage log, a
-# receipt log or a receipt field; they become <checkout>/..., <home>/..., <tmp>/... . Hashes and
-# bindings cover the tree's bytes, not where it was checked out, so nothing they bind changes.
+# receipt log or a receipt field; they become <checkout>/..., <home>/..., <tmp>/... . An evidence
+# directory outside the checkout (--evidence-dir) becomes <evidence>/...: the toolchain judge of a
+# partial unit (--unit-size, --judges > 1, a resumed run) is handed a configuration copy under it.
+# Hashes and bindings cover the tree's bytes, not where it was checked out, so nothing they bind changes.
 
 _REDACT: list[tuple[re.Pattern, str]] = []
 _PATH_TAIL = r"(?![A-Za-z0-9_.\-])"     # the prefix must end at a path boundary (/home/u, not /home/u2)
 
 
-def set_redactions(checkout: pathlib.Path | None, home: str | None = None, tmp: str | None = None) -> None:
-    """Configure redaction for this process: longest prefix first, real and as-given spellings."""
+def set_redactions(checkout: pathlib.Path | None, home: str | None = None, tmp: str | None = None,
+                   evidence: pathlib.Path | None = None) -> None:
+    """Configure redaction for this process: longest prefix first, real and as-given spellings.
+    An evidence directory inside the checkout is already covered by <checkout>/ and keeps that
+    spelling; one outside it becomes <evidence>, whatever else (HOME, TMPDIR) contains it."""
     import tempfile
+    if evidence is not None and checkout is not None:
+        ev, co = os.path.realpath(evidence), os.path.realpath(checkout)
+        if ev == co or ev.startswith(co.rstrip("/") + "/"):
+            evidence = None
     pairs: list[tuple[str, str]] = []
     for value, tag in ((str(checkout) if checkout else None, "<checkout>"),
+                       (str(evidence) if evidence else None, "<evidence>"),
                        (tmp if tmp is not None else (os.environ.get("TMPDIR") or tempfile.gettempdir()), "<tmp>"),
                        (home if home is not None else os.environ.get("HOME"), "<home>")):
         if not value:
