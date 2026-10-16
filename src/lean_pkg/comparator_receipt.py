@@ -920,15 +920,20 @@ def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> N
             return "ok", 0, what
         return body
 
-    stages.run("checkout", step([lake, "env", "true"], "dependency checkout per lake-manifest.json")
-               if lakefile else (lambda log: no_lake))
+    mods = config_modules(project, configs)
+    checkout = step([lake, "env", "true"], "dependency checkout per lake-manifest.json")
+
+    def checkout_then_targets(log):
+        result = checkout(log)
+        target_readiness(project, lake, log, mods)
+        return result
+    stages.run("checkout", checkout_then_targets if lakefile else (lambda log: no_lake))
     if not lakefile:
         stages.run("cache-get", lambda log: no_lake)
     elif manifest_has_mathlib(project):
         stages.run("cache-get", step([lake, "exe", "cache", "get"], "Mathlib build cache"))
     else:
         stages.run("cache-get", lambda log: ("skipped", None, "no mathlib package in lake-manifest.json"))
-    mods = config_modules(project, configs)
     if lakefile and mods:
         before = olean_snapshot(project)
         build = step([lake, "build", *mods], "build of " + ", ".join(mods))
@@ -946,6 +951,58 @@ def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> N
         stages.build_provenance = build_provenance(None, None, "", build_source())
     stages.save()
     print(f"comparator-receipt: {build_provenance_line(stages.build_provenance)}", file=sys.stderr)
+
+
+# Lake target readiness (C1). A configured module outside every [[lean_lib]]'s roots/globs passes direct
+# `lean` elaboration but makes `lake build` (stage 03, and the judge's own sandboxed build) fail with
+# `unknown target`. Lake decides that from the loaded workspace (a lakefile.lean is code, and a root is
+# buildable only if the lib's globs match it), so the runner asks Lake rather than parsing the lakefile:
+# `lake --no-build build M` exits 0 (up to date) or 3 (Lake's noBuildCode: needs a rebuild) for a known
+# target, and 1 with `unknown target `M`` for one no library covers (checked on Lean v4.35.0-rc2). It runs
+# at the end of stage 01, once the dependencies are checked out (loading the workspace needs them) and
+# before stage 02 (the Mathlib cache download) and stage 03 (the build).
+NO_BUILD_NEEDS_REBUILD = 3
+UNKNOWN_TARGET_HINT = ("add it to a [[lean_lib]] in the lakefile: its roots or globs must cover the module "
+                       "(when the library sets globs, they must also match a root), for example a separate "
+                       "[[lean_lib]] name = \"ComparatorAudit\" with globs = [\"ComparatorAudit.+\"]; see "
+                       "docs/getting-started.md (`unknown target`)")
+
+
+def classify_target_probe(module: str, returncode: int, output: str) -> str:
+    """One `lake --no-build build MODULE` result: "ready" (exit 0), "rebuild" (exit 3, a known target that
+    is not up to date), "unknown" (Lake's `unknown target`/`unknown module` for this module) or "other"."""
+    if returncode == 0:
+        return "ready"
+    if returncode == NO_BUILD_NEEDS_REBUILD:
+        return "rebuild"
+    if f"unknown target `{module}`" in output or f"unknown module `{module}`" in output:
+        return "unknown"
+    return "other"
+
+
+def target_readiness(project: pathlib.Path, lake: str, log: pathlib.Path, modules) -> None:
+    """Refuse (StageError) when a configured challenge/solution module is not a Lake target; record every
+    probe in the log. Any other probe failure is logged and left to the build stage."""
+    unknown: list[str] = []
+    with open(log, "a", encoding="utf-8") as fh:
+        for mod in modules:
+            try:
+                p = subprocess.run([lake, "--no-build", "build", mod], cwd=project, capture_output=True,
+                                   text=True, env=tool_env(), stdin=subprocess.DEVNULL,
+                                   preexec_fn=stack_preexec(), timeout=3600)
+                rc, out = p.returncode, (p.stdout or "") + (p.stderr or "")
+            except (OSError, subprocess.TimeoutExpired) as e:
+                rc, out = -1, str(e)
+            verdict = classify_target_probe(mod, rc, out)
+            last = last_line(out)
+            fh.write(f"lake-target: {mod}: {verdict} (exit {rc})"
+                     + (f"; {redact(last)}" if verdict == "other" and last else "") + "\n")
+            if verdict == "unknown":
+                unknown.append(mod)
+    if unknown:
+        raise StageError(f"Lake target readiness: {', '.join(unknown)} "
+                         f"{'is' if len(unknown) == 1 else 'are'} not a Lake target (`lake build` reports "
+                         f"unknown target); {UNKNOWN_TARGET_HINT}; nothing written", 1)
 
 
 def shadow_preflight(project: pathlib.Path, lake: str, log: pathlib.Path, modules=()) -> None:
@@ -979,7 +1036,41 @@ def judged(log_text: str, mechanism: str, returncode: int | None) -> bool:
     lines = log_text.splitlines()
     if mechanism == "legacy":
         return any(LEGACY_REJECT_MARK in ln for ln in lines)
-    return any(ln.startswith(JUDGING_MARK) for ln in lines)
+    marks = [i for i, ln in enumerate(lines) if ln.startswith(JUDGING_MARK)]
+    if not marks:
+        return False
+    return pre_judge_failure(lines[marks[-1] + 1:], returncode) is None
+
+
+# `lake comparator` (Lean v4.35.0-rc2, Lake/CLI/Check.lean) prints "Resolving dependencies" before its sandboxed
+# workspace resolution and "Building <module>" / "Exporting ..." once it starts on the challenge; it exits 2
+# (cannotRun) when it cannot even start. A run that stopped before "Building"/"Exporting" never judged (C2).
+JUDGE_PROGRESS = ("Building ", "Exporting ", "Running ", "Your solution is okay!")
+
+
+EXTERNAL_LINK_NOTE = ("a common cause: .lake/packages, or an entry in it, linked to a checkout outside the "
+                      "project, which the sandbox cannot read")
+
+
+def judge_failure_reason(log_text: str, mechanism: str, returncode: int | None) -> str | None:
+    """pre_judge_failure for a whole toolchain judge log (None for legacy or a log without the mark)."""
+    if mechanism == "legacy":
+        return None
+    lines = log_text.splitlines()
+    marks = [i for i, ln in enumerate(lines) if ln.startswith(JUDGING_MARK)]
+    return pre_judge_failure(lines[marks[-1] + 1:], returncode) if marks else None
+
+
+def pre_judge_failure(after_mark: list[str], returncode: int | None) -> str | None:
+    """Why a failed `lake comparator` (its output after JUDGING_MARK) stopped before judging, or None."""
+    if any(ln.startswith(JUDGE_PROGRESS) for ln in after_mark):
+        return None
+    if any(ln.strip() == "Resolving dependencies" for ln in after_mark):
+        return ("lake comparator failed while resolving the workspace in its sandbox (dependency "
+                "resolution or workspace load), before building or judging anything")
+    if returncode == 2:
+        return "lake comparator could not start (exit 2)"
+    return None
 
 
 def last_line(log_text: str, limit: int = 200) -> str:
@@ -1121,7 +1212,8 @@ class Stage04:
         ok = j.returncode == 0 and (self.mechanism == "legacy" or comparator_pass(out, "toolchain"))
         if not ok:
             self.progress.mark(unit.slots, "failed")
-            self.failure = (unit, j.returncode, judged(out, self.mechanism, j.returncode), last_line(out))
+            self.failure = (unit, j.returncode, judged(out, self.mechanism, j.returncode), last_line(out),
+                            judge_failure_reason(out, self.mechanism, j.returncode))
             self.say(f"{self.tag(unit)} failed (exit {j.returncode}) in {secs:.1f}s")
             self.publish()
             return False
@@ -1174,7 +1266,7 @@ class Stage04:
                 self.say(f"comparator-receipt: {msg}")
                 raise PartialStage(msg, 128 + e.signum)
             if self.failure is not None:
-                unit, rc, was_judged, last = self.failure
+                unit, rc, was_judged, last, reason = self.failure
                 self.progress.state = "failed"
                 self.publish()
                 what = "comparator-check" if self.mechanism == "legacy" else f"{unit.config}: lake comparator"
@@ -1183,8 +1275,10 @@ class Stage04:
                 else:
                     judge = "comparator-check" if self.mechanism == "legacy" else f"{unit.config}: verify-comparator"
                     verdict = (f"{judge}: the judge tool failed before judging ({self.tag(unit)}, exit {rc}"
-                               + (f"; last line: {last}" if last else "") + "); this is not a verdict on the "
-                               f"proof, fix the tool or the project setup and rerun")
+                               + (f"; {reason}" if reason else "")
+                               + (f"; last line: {last}" if last else "") + "); this is a tool/environment "
+                               f"error, not a verdict on the proof; fix the tool or the project setup and rerun"
+                               + (f" ({EXTERNAL_LINK_NOTE})" if reason and "resolving" in reason else ""))
                 raise StageError(f"{verdict}; {self.progress.summary()}; nothing written; partial report "
                                  f"{self.progress.path}", rc)
             self.assemble()
@@ -1382,6 +1476,38 @@ def dirty_paths(project: pathlib.Path, evidence: pathlib.Path) -> list[str]:
     return out
 
 
+# External dependency symlinks (C2). `lake comparator` resolves the workspace inside its bwrap sandbox,
+# which grants only the project directory, the toolchain and LakeHome (Lake/CLI/Check.lean,
+# safeResolveWorkspace); a .lake or .lake/packages(/*) symlink to another checkout passes host-check and the
+# unsandboxed setup stages but fails there (EEXIST while resolving dependencies). Refused before setup.
+EXTERNAL_LINK_HINT = ("the `lake comparator` sandbox grants only the project directory, the toolchain and "
+                      "LakeHome, so it cannot follow them; copy the dependencies inside the project (replace "
+                      "each symlink with a real copy of its target, e.g. `rm LINK && cp -a TARGET LINK`, or "
+                      "remove it and let `lake env true` check the dependencies out again) and rerun")
+
+
+def external_dependency_links(project: pathlib.Path) -> list[str]:
+    """`<path> -> <target>` for each of .lake, .lake/packages and .lake/packages/* that is a symlink whose
+    target (resolved) lies outside the project directory (resolved). Targets are redacted."""
+    root = pathlib.Path(os.path.realpath(project))
+    cand = [project / ".lake", project / ".lake" / "packages"]
+    pk = project / ".lake" / "packages"
+    try:
+        if pk.is_dir():
+            cand += sorted(pk.iterdir())
+    except OSError:
+        pass
+    out = []
+    for c in cand:
+        if not c.is_symlink():
+            continue
+        target = pathlib.Path(os.path.realpath(c))
+        if target == root or root in target.parents:
+            continue
+        out.append(f"{c.relative_to(project)} -> {redact(str(target))}")
+    return out
+
+
 def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         mechanism: str = "auto", verify: pathlib.Path | None = None,
         evidence: pathlib.Path | None = None, prepare: bool = False,
@@ -1479,6 +1605,11 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                               f"configuration in one run and cannot be cut into units; use --mechanism "
                               f"toolchain; nothing written")
         print(f"mechanism: {mechanism}")
+    if mechanism != "legacy":   # C2: before any setup stage; the sandbox of `lake comparator` cannot follow them
+        links = external_dependency_links(project)
+        if links:
+            raise RunnerError(f"dependency symlink(s) resolving outside the project: {'; '.join(links)}; "
+                              f"{EXTERNAL_LINK_HINT}; nothing written")
     if from_prepared is not None and mismatch:
         raise RunnerError(f"--from-prepared {from_prepared}: {mismatch}; run `comparator-receipt --prepare` "
                           f"at this commit first; nothing written")

@@ -422,6 +422,76 @@ The [lean-claim-ledger](../skills/lean-claim-ledger/SKILL.md),
 and [lean-weakened-hypothesis-vacuity](../skills/lean-weakened-hypothesis-vacuity/SKILL.md)
 skills describe this audit in detail.
 
+### Challenge types mention only trusted constants
+
+The comparator checks that the Solution proves the Challenge's statements,
+but a statement is only as trustworthy as the constants its type mentions.
+The type of every Challenge theorem must refer only to trusted constants:
+Mathlib and Lean core, plus the Challenge's own declarations, each of which a
+reviewer reads and accepts as part of the statement. Two ways a type quietly
+picks up something else:
+
+- **Lifted proofs.** Lean 4.35 lifts an inline proof inside a type, such as a
+  `Fin` bound `⟨0, by omega⟩`, into an auxiliary constant `<theorem>._proof_N`
+  owned by the Challenge module. The statement then depends on that constant,
+  not on a Mathlib lemma; `set_option backward.proofsInPublic` did not remove
+  them in a field report. Write the bound as a literal Mathlib proof term
+  instead, for example `⟨0, Nat.succ_pos n⟩`, or
+  `(Int.toNat_lt' hN).mpr (Int.emod_lt_of_pos j (Int.natCast_pos.mpr hN))`
+  for an `Int.toNat (j % N) < N.toNat` index.
+- **Project proofs in a type.** A theorem about `MemLp.toLp f h` embeds the
+  project's proof `h : MemLp f p μ` in its type. State it with an existential
+  witness instead (`∃ h : MemLp f p μ, ‖MemLp.toLp f h‖ = ...`, all original
+  hypotheses kept), and prove, in the Solution or a reviewed lemma, an
+  explicit two-way `↔` between that statement and the literal original
+  proposition; proof irrelevance makes the two agree for any witness. Never
+  supply the witness with `sorry` or a definition hole.
+
+To list what each Challenge theorem's type uses, elaborate this file with
+`lake lean` (tested on Lean v4.35.0-rc2; it only reads the environment):
+
+```lean
+import Lean
+import MyProof.Challenge        -- the challenge_module
+open Lean
+
+/-- Module roots treated as trusted. -/
+def trustedRoots : List Name := [`Init, `Std, `Lean, `Mathlib, `Batteries, `Aesop, `Qq, `Plausible]
+
+/-- Every constant a theorem's TYPE mentions whose module is not under a trusted root. -/
+def untrustedInType (thm : Name) : MetaM (List (Name × Name)) := do
+  let env ← getEnv
+  let some ci := env.find? thm | throwError "unknown constant {thm}"
+  let mut out := []
+  for c in ci.type.getUsedConstants do
+    let mod := match env.getModuleIdxFor? c with
+      | some i => env.header.moduleNames[i.toNat]!
+      | none => env.mainModule
+    unless trustedRoots.any (·.isPrefixOf mod) do
+      out := (c, mod) :: out
+  return out.reverse
+
+#eval show MetaM Unit from do
+  for thm in [`MyProof.main_theorem] do      -- the configuration's theorem_names
+    IO.println s!"{thm}: {← untrustedInType thm}"
+```
+
+On a toy Challenge (module `Audit.Challenge`, importing a library `Toy`)
+whose `lifted` states `myVec n ⟨0, by omega⟩ = 0`, whose `literal` states
+`myVec n ⟨0, Nat.succ_pos n⟩ = 0` and whose `usesProject` mentions `Toy.x`, it
+prints:
+
+```text
+lifted: [(myVec, Audit.Challenge), (lifted._proof_1, Audit.Challenge)]
+literal: [(myVec, Audit.Challenge)]
+usesProject: [(Toy.x, Toy)]
+```
+
+Each line names a constant and its module. A Challenge declaration
+(`myVec` above) is expected and must be reviewed; a `._proof_N` constant or a
+constant from the project's own library (`Toy.x`) widens what the reader has
+to trust, and is rewritten with one of the recipes above.
+
 ### Coverage at the gate-bound commit
 
 `lean-pkg comparator config --coverage NAME` is read-only. It writes nothing
@@ -580,7 +650,30 @@ step can be watched with `tail -f`), and `stages.json` beside the logs records
 the binding (`commit`, `lean_toolchain`, `config_hash`) and, per stage,
 `status` (`ok`, `skipped`, `failed`, `prepared`), `exit`, `wall_s`, `note` and
 `log`. Both are kept on failure. The error names the failed stage, its log and
-`stages.json`. `--evidence-dir DIR` moves them. The default is
+`stages.json`.
+
+Two readiness checks run before anything expensive. Before any stage, a run
+that may use `lake comparator` (every mechanism but `legacy`, and every
+`--prepare`) refuses when `.lake`, `.lake/packages` or an entry in it is a
+symlink resolving outside the project directory: the `lake comparator` sandbox
+grants only the project, the toolchain and LakeHome, so it would fail resolving
+the dependencies (`EEXIST`) after the setup passed. Copy the dependencies inside
+the project instead. At the end of `checkout`, once the dependencies are there
+to load the workspace, `lake --no-build build M` runs for each configured
+module: exit 0 (up to date) or 3 (needs a rebuild) is fine; Lake's
+`unknown target` means no `[[lean_lib]]`'s roots or globs cover the module (see
+[getting started](getting-started.md)), and the stage fails naming it, before
+the Mathlib cache download and the build. The checkout log records each probe
+as a `lake-target:` line. Asking Lake rather than reading the lakefile is
+deliberate: a `lakefile.lean` is code, and a root is buildable only when its
+library's globs match it.
+
+A judge that stops before judging (verify-comparator.sh fails before
+`== lake comparator`, or `lake comparator` fails while resolving the workspace
+in its sandbox, after `Resolving dependencies` and before `Building`, or exits
+2 because it could not start) is reported as "the judge tool failed before
+judging ... a tool/environment error, not a verdict on the proof", never as
+"did not accept the solution". `--evidence-dir DIR` moves them. The default is
 `<project>/.lake/comparator-receipt`, which the runner leaves out of its
 dirty-tree check.
 

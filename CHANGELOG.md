@@ -7,6 +7,26 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `comparator-receipt` Lake target readiness: at the end of the `checkout` stage (dependencies present, before
+  `cache-get` and `build`), `lake --no-build build M` per configured challenge/solution module; Lake's `unknown
+  target` fails the stage naming the module and the `[[lean_lib]]` fix, exit 3 (needs rebuild) passes; each probe is
+  a `lake-target:` line in the checkout log (field report).
+- `comparator-receipt` (and `--prepare`) refuses, before any stage, a `.lake`, `.lake/packages` or
+  `.lake/packages/*` symlink resolving outside the project, naming it: the `lake comparator` sandbox cannot read it
+  and failed with `EEXIST` after the setup passed. Copy the dependencies inside the project (field report).
+- docs/comparator.md "Challenge types mention only trusted constants": lifted `_proof_N` constants and project proofs
+  inside statement types, two rewrite recipes, and a tested `Expr.getUsedConstants` listing (field report).
+- docs/receipts.md "Sealed logs and whitespace checks": never normalize sealed logs; exclude `.lean-receipts/` from
+  `git diff --check`; lean-pkg writes no `.gitattributes` (a gate build input) (field report).
+
+### Fixed
+
+- A `lake comparator` that fails while resolving the workspace in its sandbox (after `Resolving dependencies`, before
+  `Building`) or exits 2 (could not start) is reported as a tool/environment error before judging, not as "did not
+  accept the solution" (field report).
+
 ## [0.7.48] - 2026-10-16
 
 ### Added

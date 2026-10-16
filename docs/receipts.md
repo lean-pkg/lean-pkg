@@ -715,6 +715,23 @@ package's `formalization.yaml` (commit, gate receipt, comparator receipt) and
 lists every tracked comparator configuration under `status.main_results`; see
 [formalization.yaml](formalization.md).
 
+### Sealed logs and whitespace checks
+
+A receipt binds each log by its sha256, so a committed log must keep its
+bytes exactly. Checker output can contain lines of only spaces, which
+`git diff --check` (and editors or hooks that strip trailing whitespace)
+flag. Never normalize a sealed log: the receipt would no longer match it.
+Narrow the whitespace check instead, for example in CI:
+
+```bash
+git diff --check origin/main...HEAD -- . ':(exclude).lean-receipts/'
+```
+
+lean-pkg does not write a `.gitattributes` (such as `*.log -whitespace`) for
+you: `gate` treats a changed `.gitattributes` as a build input, so adding one
+would itself require a new gate. Add it yourself, before gating, if you prefer
+it to a pathspec.
+
 ## Publishing a package incubated beside private work
 
 `promote` makes the whole repository public, history included. A package

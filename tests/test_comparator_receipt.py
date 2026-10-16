@@ -702,7 +702,7 @@ def test_stack_env_reaches_the_lake_children_and_the_receipt(cr, project: Path, 
     r, calls = run_staged(project, extra_env={"COMPARATOR_LAKE": str(wrapper),
                                               "COMPARATOR_RECEIPT_STACK": str(want_kb)})
     assert r.returncode == 0, r.stderr
-    assert seen.read_text().split() == [str(want_kb)] * 4   # every setup child
+    assert seen.read_text().split() == [str(want_kb)] * 6   # every setup child (4) and target probe (2)
     assert f"COMPARATOR_RECEIPT_STACK={want_kb}" in r.stderr and f"set to {want_kb} kB" in r.stderr
     head = git(project, "rev-parse", "HEAD")
     rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
