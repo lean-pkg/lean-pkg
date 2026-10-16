@@ -4,6 +4,8 @@
 [--readme-line TEXT ...] [--tar-sha256 HEX]] [--json]` (#70): turn a Slurm verification job (its accounting,
 its verify log, its stdout and stderr) into a lower-tier receipt in exactly the shape `gate --receipt`
 validates. It never reads or writes a registry.
+`--template` prints SBATCH_TEMPLATE, a minimal sbatch wrapper that emits every line read below; `--check` (preflight)
+runs every check below that the job's files decide, writes nothing, and names every problem (field report).
 
 Checks, all run before anything is written (every failed check is listed; any one refuses, exit 1):
 
@@ -85,6 +87,101 @@ _SORRY_RE = re.compile(r"declaration uses 'sorry'")
 _BUILD_DONE_RE = re.compile(r"Build completed successfully|^lake build: ok\b", re.M)
 _DEPENDS_RE = re.compile(r"depends on axioms:\s*\[([^\]]*)\]")
 _NO_AXIOMS_RE = re.compile(r"does not depend on any axioms")
+
+# `receipt slurm --template` (field report): a minimal sbatch wrapper that emits exactly what the receipt reads,
+# so the first long job is receiptable. tests/test_receipt_slurm.py runs it against a fake build.
+SBATCH_TEMPLATE = r"""#!/bin/bash
+# verify.sbatch: a Lean verification job whose files `lean-pkg receipt slurm` accepts
+# (printed by `lean-pkg receipt slurm --template`). Submit it from the package checkout:
+#
+#   sbatch verify.sbatch
+#   lean-pkg receipt slurm --check --log verify-J.log --stdout verify-J.out --stderr verify-J.err --commit SHA
+#   lean-pkg receipt slurm --job J --log verify-J.log --stdout verify-J.out --stderr verify-J.err --commit SHA
+#
+# Run --check on the files of a short trial job before the long one: it names every line still missing.
+# What the receipt reads; keep these lines as they are:
+#   stdout (.out): exactly one line each of pre-manifest-sha256, post-manifest-sha256, verify-log-sha256
+#   stderr (.err): empty, so every tool writes into the log, never to the job's stderr
+#   the log: one line each of checker:, sorry-count:, axioms: (and lean-toolchain:, commit:, job-id:,
+#            generated-at:, which must agree with the commit and the job)
+#   the job: sacct State COMPLETED, ExitCode 0:0 (any failed step fails the job: set -e)
+#SBATCH --job-name=lean-verify
+#SBATCH --output=verify-%j.out
+#SBATCH --error=verify-%j.err
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=16G
+#SBATCH --time=02:00:00
+# Add the partition, account or QOS lines your site requires.
+
+set -euo pipefail
+
+# The package's own commands (placeholders; edit them here or set them when submitting).
+VERIFY_CMD=${VERIFY_CMD:-"lake build"}
+# a file of `#print axioms Name` lines for the theorems the receipt covers
+AXIOMS_CMD=${AXIOMS_CMD:-"lake env lean Verify/Axioms.lean"}
+CHECKER=${CHECKER:-"verify.sbatch (lake build; #print axioms)"}
+# Run the tools inside the job container when the node needs one, e.g. RUN="apptainer exec lean.sif".
+RUN=${RUN:-}
+
+JOB=${SLURM_JOB_ID:?run this under sbatch}
+PKG_DIR=${PKG_DIR:-${SLURM_SUBMIT_DIR:-$PWD}}
+COMMIT=${COMMIT:-$(git -C "$PKG_DIR" rev-parse HEAD)}
+OUT_DIR=${OUT_DIR:-${SLURM_SUBMIT_DIR:-$PWD}}
+LOG="$OUT_DIR/verify-$JOB.log"
+
+# Node-local work directory. The receipt redacts /tmp/<user>-job<J> and /scratch/<user>/ by itself; a
+# path elsewhere that appears in the log needs `--redact REGEX` at receipt time.
+WORK=${SLURM_TMPDIR:-/tmp/${USER:-user}-job-$JOB}
+SRC="$WORK/src"
+mkdir -p "$SRC"
+trap 'rm -rf "$SRC"' EXIT
+# Stage the Lean runtime (the elan toolchain) and the Mathlib cache node-local before the build, e.g.
+# copy the toolchain under "$WORK/elan" and export ELAN_HOME="$WORK/elan" PATH="$WORK/elan/bin:$PATH";
+# a shared filesystem under many parallel readers is slow and can fail the build.
+export MATHLIB_CACHE_DIR=${MATHLIB_CACHE_DIR:-$WORK/mathlib-cache}
+# Mathlib-heavy packages can exhaust the node's file table (fs.file-max) at higher thread counts;
+# /proc/sys/fs/file-nr goes into the log before and after the build.
+export LEAN_NUM_THREADS=${LEAN_NUM_THREADS:-3}
+
+# The committed tree at COMMIT, never the working tree.
+git -C "$PKG_DIR" archive --format=tar "$COMMIT:./" | tar -xf - -C "$SRC"
+cd "$SRC"
+echo "pre-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
+
+{
+  echo "commit: $COMMIT"
+  echo "job-id: $JOB"
+  echo "lean-toolchain: $(cat lean-toolchain)"
+  echo "checker: $CHECKER"
+  echo "lean-num-threads: $LEAN_NUM_THREADS"
+  echo "fs-file-nr-before: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)"
+} >"$LOG"
+$RUN bash -c "$VERIFY_CMD" >>"$LOG" 2>&1
+$RUN bash -c "$AXIOMS_CMD" >>"$LOG" 2>&1
+echo "fs-file-nr-after: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)" >>"$LOG"
+
+# The key lines, from Lean's own output in the log: sorry-count may not be lower than the
+# `declaration uses 'sorry'` warnings, and axioms may not leave out a `#print axioms` result.
+sorry=$(grep -c "declaration uses 'sorry'" "$LOG" || true)
+# (newlines joined first: Lean wraps a long axiom list over several lines)
+axioms=$(tr '\n' ' ' <"$LOG" | grep -o 'depends on axioms: \[[^]]*\]' | sed -e 's/^[^[]*\[//' -e 's/\]$//' \
+  | tr ',' '\n' | tr -d ' ' | grep -v '^$' | sort -u | paste -sd, - || true)
+{
+  echo "sorry-count: $sorry"
+  if [ -n "$axioms" ]; then
+    echo "axioms: $axioms"
+  elif grep -q 'does not depend on any axioms' "$LOG"; then
+    echo "axioms: none"
+  fi
+  echo "generated-at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} >>"$LOG"
+
+# The seal: nothing may write to the log after this line.
+echo "post-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
+echo "verify-log-sha256 $(sha256sum "$LOG" | cut -d' ' -f1)"
+"""
 
 
 # --------------------------------------------------------------------------
@@ -451,7 +548,7 @@ def readme_block(*, commit: str, heading: str, executor_lines: list[str], receip
 
 def common_usage(args) -> list[re.Pattern]:
     """The usage checks every `receipt` form shares (exit 2); returns the compiled --redact patterns."""
-    if not args.commit_sha.strip() or args.commit_sha.startswith("-"):
+    if args.commit_sha is not None and (not args.commit_sha.strip() or args.commit_sha.startswith("-")):
         raise core.UsageError(f"--commit must name a commit, got {args.commit_sha!r}")
     if args.tar_sha256 is not None and not _HEX64.fullmatch(args.tar_sha256):
         raise core.UsageError("--tar-sha256 must be 64 hex characters")
@@ -496,6 +593,69 @@ class Evidence:
         self.redact_help = redact_help
 
 
+def check_seal(paths: dict, raw: bytes, manifest: bytes | None, c12: str | None, refusals: list[str],
+               checks: list[str], stdout_check=None) -> dict | None:
+    """The seal (stdout, else the in-log fallback) and the empty stderr; returns the seal evidence persisted
+    with --stdout (#72), else None."""
+    raw_sha = hashlib.sha256(raw).hexdigest()
+    seal = None
+    if "--stdout" in paths:
+        out_raw = paths["--stdout"].read_bytes()
+        out_text = out_raw.decode("utf-8", errors="replace")
+        check_stdout(out_text, raw_sha, manifest, c12, refusals, checks)
+        if stdout_check:
+            stdout_check(out_text, refusals, checks)
+        seal = {"job_stdout_sha256": hashlib.sha256(out_raw).hexdigest(),
+                "manifest_sha256": hashlib.sha256(manifest).hexdigest() if manifest is not None else None}
+    else:
+        why = check_self_hash(raw)
+        if why:
+            refusals.append(why)
+        else:
+            checks.append(f"✓ seal: in-log {SHA_KEY} (fallback; no --stdout)")
+        checks.append("· manifest: not checked (no --stdout)")
+    if "--stderr" in paths:
+        n = paths["--stderr"].stat().st_size
+        if n:
+            refusals.append(f"job stderr is not empty ({n} bytes); a clean job writes nothing there")
+        else:
+            checks.append("✓ stderr: empty")
+    else:
+        checks.append("· stderr: not checked (no --stderr)")
+    return seal
+
+
+def check_fields(fields: dict, *, commit: str | None, toolchain: str | None, manifest: bytes | None,
+                 checker_flag: str | None, check_log_job_id, refusals: list[str]) -> tuple[str | None, str | None]:
+    """(mathlib_rev, checker): the log's fields against the commit and the flags. Without a commit (preflight
+    without --commit) the commit-side comparisons are skipped."""
+    c12 = commit[:12] if commit else None
+    if toolchain is not None and "lean-toolchain" in fields and fields["lean-toolchain"] != toolchain:
+        refusals.append(f"toolchain mismatch: verify log says {fields['lean-toolchain']!r}, "
+                        f"lean-toolchain committed at {c12} says {toolchain!r}")
+    mathlib = manifest_mathlib_rev(manifest)
+    if mathlib and "mathlib-rev" in fields and fields["mathlib-rev"] != mathlib:
+        refusals.append(f"mathlib mismatch: verify log says {fields['mathlib-rev']!r}, lake-manifest.json "
+                        f"committed at {c12} says {mathlib!r}")
+    mathlib = mathlib or fields.get("mathlib-rev")
+    if commit is not None and not mathlib:
+        refusals.append(f"no mathlib rev: no `mathlib` package in lake-manifest.json at {c12} and no "
+                        f"`mathlib-rev:` line in the verify log")
+    checker = checker_flag.strip() if checker_flag else fields.get("checker")
+    if not checker:
+        refusals.append("no checker: pass --checker TEXT (the exact checker command or mode) or print a "
+                        "`checker:` line in the verify log")
+    if commit is not None and "commit" in fields:
+        claimed = fields["commit"].lower()
+        if len(claimed) < 7 or not commit.startswith(claimed):
+            refusals.append(f"verify log: `commit:` {fields['commit']!r} is not --commit {c12}")
+    if "job-id" in fields and check_log_job_id is not None:
+        why = check_log_job_id(fields["job-id"])
+        if why:
+            refusals.append(why)
+    return mathlib, checker
+
+
 def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.Pattern]) -> int:
     """The shared second half of every `receipt` form: commit facts, the seal, the verify log's fields, redaction,
     the public-safety scan, and (when nothing refused) the receipt, the redacted log, the executor's evidence
@@ -518,61 +678,16 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
 
     raw = paths["--log"].read_bytes()
     raw_sha = hashlib.sha256(raw).hexdigest()
-    seal = None
-    if "--stdout" in paths:
-        out_raw = paths["--stdout"].read_bytes()
-        out_text = out_raw.decode("utf-8", errors="replace")
-        check_stdout(out_text, raw_sha, manifest, c12, refusals, checks)
-        if ev.stdout_check:
-            ev.stdout_check(out_text, refusals, checks)
-        # the seal evidence, persisted (#72): what the checks above compared against
-        seal = {"job_stdout_sha256": hashlib.sha256(out_raw).hexdigest(),
-                "manifest_sha256": hashlib.sha256(manifest).hexdigest() if manifest is not None else None}
-    else:
-        why = check_self_hash(raw)
-        if why:
-            refusals.append(why)
-        else:
-            checks.append(f"✓ seal: in-log {SHA_KEY} (fallback; no --stdout)")
-        checks.append("· manifest: not checked (no --stdout)")
-    if "--stderr" in paths:
-        n = paths["--stderr"].stat().st_size
-        if n:
-            refusals.append(f"job stderr is not empty ({n} bytes); a clean job writes nothing there")
-        else:
-            checks.append("✓ stderr: empty")
-    else:
-        checks.append("· stderr: not checked (no --stderr)")
+    seal = check_seal(paths, raw, manifest, c12, refusals, checks, ev.stdout_check)
 
     raw_text = raw.decode("utf-8", errors="replace")
     redacted, n_redacted = redact(raw_text, extra, ev.redactions)
     n_diff = lines_differing(raw_text, redacted)
     fields, problems = parse_log(redacted)
     refusals += problems
-
-    if toolchain is not None and "lean-toolchain" in fields and fields["lean-toolchain"] != toolchain:
-        refusals.append(f"toolchain mismatch: verify log says {fields['lean-toolchain']!r}, "
-                        f"lean-toolchain committed at {c12} says {toolchain!r}")
-    mathlib = manifest_mathlib_rev(manifest)
-    if mathlib and "mathlib-rev" in fields and fields["mathlib-rev"] != mathlib:
-        refusals.append(f"mathlib mismatch: verify log says {fields['mathlib-rev']!r}, lake-manifest.json "
-                        f"committed at {c12} says {mathlib!r}")
-    mathlib = mathlib or fields.get("mathlib-rev")
-    if commit is not None and not mathlib:
-        refusals.append(f"no mathlib rev: no `mathlib` package in lake-manifest.json at {c12} and no "
-                        f"`mathlib-rev:` line in the verify log")
-    checker = args.checker.strip() if args.checker else fields.get("checker")
-    if not checker:
-        refusals.append("no checker: pass --checker TEXT (the exact checker command or mode) or print a "
-                        "`checker:` line in the verify log")
-    if commit is not None and "commit" in fields:
-        claimed = fields["commit"].lower()
-        if len(claimed) < 7 or not commit.startswith(claimed):
-            refusals.append(f"verify log: `commit:` {fields['commit']!r} is not --commit {c12}")
-    if "job-id" in fields:
-        why = ev.check_log_job_id(fields["job-id"])
-        if why:
-            refusals.append(why)
+    mathlib, checker = check_fields(fields, commit=commit, toolchain=toolchain, manifest=manifest,
+                                    checker_flag=args.checker, check_log_job_id=ev.check_log_job_id,
+                                    refusals=refusals)
 
     name12 = c12 or "0" * 12
     out = (pathlib.Path(args.out).expanduser() if args.out
@@ -701,13 +816,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     return 0
 
 
-def cmd_receipt_slurm(args) -> int:
-    job = (args.job or "").strip().removeprefix("slurm-")
-    if not job:
-        raise core.UsageError("--job must not be empty")
-    job_id = f"slurm-{job}"
-    core.receipt_job_slug(job_id)
-    repo = repo_dir(args)
+def _job_files(args) -> dict:
     paths = {}
     for flag, value in (("--log", args.log), ("--stdout", args.stdout), ("--stderr", args.stderr)):
         if value is not None:
@@ -715,6 +824,95 @@ def cmd_receipt_slurm(args) -> int:
             if not p.is_file():
                 raise core.UsageError(f"{flag} {value}: no such file")
             paths[flag] = p
+    return paths
+
+
+def preflight(args) -> int:
+    """`receipt slurm --check` (field report): every check on the job's files that needs neither sacct nor a
+    finished long job, on the .log/.out/.err of a trial run; every problem is listed, nothing is written. The
+    commit-side checks run only with --commit, the sacct check only with --sacct-file and --job."""
+    if args.log is None:
+        raise core.UsageError("--check needs --log PATH (the job's raw verify log)")
+    job = (args.job or "").strip().removeprefix("slurm-") or None
+    repo = repo_dir(args)
+    paths = _job_files(args)
+    extra = common_usage(args)
+    problems: list[str] = []
+    checks: list[str] = []
+    if args.sacct_file is not None and job:
+        text, _why = sacct_text(job, args.sacct_file)
+        _s, why = check_job(job, text)
+        if why:
+            problems.append(why)
+        else:
+            checks.append(f"✓ sacct: job {job} COMPLETED, exit 0:0 (--sacct-file)")
+    else:
+        checks.append("· sacct: not checked in preflight (the receipt needs the main job line COMPLETED, exit "
+                      "0:0; give --sacct-file F --job J to check a saved copy)")
+    commit = toolchain = manifest = None
+    if args.commit_sha is None:
+        checks.append("· commit: not checked (no --commit): the manifest hashes against lake-manifest.json, "
+                      "and lean-toolchain:, mathlib-rev:, commit: against the commit")
+    else:
+        commit = resolve_commit(repo, args.commit_sha)
+        if commit is None:
+            problems.append(f"--commit {args.commit_sha}: not a commit in the --repo checkout "
+                            f"(default the current directory)")
+        else:
+            blob = core.git_show_bytes(repo, "./lean-toolchain", commit)
+            if blob is None:
+                problems.append(f"no lean-toolchain committed at {commit[:12]}")
+            else:
+                toolchain = blob.decode("utf-8", "replace").strip()
+            manifest = core.git_show_bytes(repo, "./lake-manifest.json", commit)
+    raw = paths["--log"].read_bytes()
+    check_seal(paths, raw, manifest, commit[:12] if commit else None, problems, checks)
+    redacted, _n = redact(raw.decode("utf-8", errors="replace"), extra)
+    fields, found = parse_log(redacted)
+    problems += found
+
+    def log_job_id(value: str) -> str | None:
+        if job and value.removeprefix("slurm-") != job:
+            return f"verify log: `job-id:` {value!r} is not --job {job!r}"
+        return None
+
+    check_fields(fields, commit=commit, toolchain=toolchain, manifest=manifest, checker_flag=args.checker,
+                 check_log_job_id=log_job_id, refusals=problems)
+    fams = blocking_families(_scanner(repo), redacted)
+    if fams:
+        problems.append(f"public-safety: a private string remains in the redacted verify log ({', '.join(fams)}); "
+                        f"add a --redact REGEX for it")
+    ok = not problems
+    if args.json_out:
+        core.print_json({"ok": ok, "check": True, "written": [], "raw_log_sha256": hashlib.sha256(raw).hexdigest(),
+                         "checks": checks, "problems": problems})
+    else:
+        print(f"receipt slurm --check: {'ok' if ok else f'{len(problems)} problem(s)'}; nothing written")
+        for c in checks:
+            print(f"  {c}")
+        for pr in problems:
+            print(f"  ✗ {pr}")
+    return 0 if ok else 1
+
+
+def cmd_receipt_slurm(args) -> int:
+    if args.template:
+        if args.check:
+            raise core.UsageError("--template and --check do not combine")
+        sys.stdout.write(SBATCH_TEMPLATE)
+        return 0
+    if args.check:
+        return preflight(args)
+    missing = [f for f, v in (("--job", args.job), ("--log", args.log), ("--commit", args.commit_sha)) if v is None]
+    if missing:
+        raise core.UsageError(f"receipt slurm needs {', '.join(missing)} (or --template, or --check on a job's files)")
+    job = (args.job or "").strip().removeprefix("slurm-")
+    if not job:
+        raise core.UsageError("--job must not be empty")
+    job_id = f"slurm-{job}"
+    core.receipt_job_slug(job_id)
+    repo = repo_dir(args)
+    paths = _job_files(args)
     extra = common_usage(args)
 
     refusals: list[str] = []
@@ -774,12 +972,22 @@ def add_parsers(sub, add_json) -> None:
                                        "never the registry)")
     rsub = r.add_subparsers(dest="receipt_cmd", metavar="{slurm,systemd}", required=True)
     s = rsub.add_parser("slurm", help="a lower-tier receipt from a finished Slurm job, its verify log and "
-                                      "its stdout seal")
-    s.add_argument("--job", required=True, metavar="J", help="the Slurm job id (job_id becomes slurm-J)")
-    s.add_argument("--log", required=True, metavar="PATH",
-                   help="the job's raw verify log; when it has no `checker:` line, --checker TEXT is required")
-    s.add_argument("--commit", dest="commit_sha", required=True, metavar="SHA",
-                   help="the verified commit; must exist in --repo")
+                                      "its stdout seal (--template: an sbatch wrapper that meets it; --check: "
+                                      "preflight the job's files)")
+    s.add_argument("--job", default=None, metavar="J",
+                   help="the Slurm job id (job_id becomes slurm-J); required unless --template or --check")
+    s.add_argument("--log", default=None, metavar="PATH",
+                   help="the job's raw verify log (required unless --template); when it has no `checker:` line, "
+                        "--checker TEXT is required")
+    s.add_argument("--commit", dest="commit_sha", default=None, metavar="SHA",
+                   help="the verified commit; must exist in --repo; required unless --template or --check")
+    s.add_argument("--template", action="store_true",
+                   help="print a minimal sbatch wrapper whose .out/.err/log meet every check below (placeholders "
+                        "for the package's own commands); needs no other flag")
+    s.add_argument("--check", action="store_true",
+                   help="preflight the files of a finished (trial) job: every seal, stderr and log-line check, "
+                        "each problem named; no sacct (unless --sacct-file), commit checks only with --commit; "
+                        "writes nothing, exit 0/1")
     s.add_argument("--stdout", default=None, metavar="PATH",
                    help=f"the job's stdout (.out): {SHA_KEY} = sha256(raw log), {PRE_KEY} = {POST_KEY} = "
                         "sha256(lake-manifest.json at the commit); without it the log must carry its own seal")

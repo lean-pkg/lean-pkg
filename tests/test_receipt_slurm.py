@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -634,3 +635,169 @@ def test_universe_suffixes_name_the_same_axiom(lp, repo, tmp_path, fake_sacct, c
     assert run(lp, repo, Job(tmp_path, LOG + printed)) == 0
     r = json.loads(next(rdir(repo).glob("*.json")).read_text())
     assert sorted(r["axioms"]) == ["Classical.choice", "Quot.sound", "propext"]
+
+
+# --------------------------------------------------------------------------
+# --template and --check (field report: a first cluster job emitted none of the seal or key lines, so the
+# accepted full run could not be receipted and had to be repeated)
+
+SEAL_AND_KEY_LINES = ("pre-manifest-sha256", "post-manifest-sha256", "verify-log-sha256", "checker:",
+                      "sorry-count:", "axioms:")
+
+
+def template_text(lp, capsys) -> str:
+    assert lp.main(["receipt", "slurm", "--template"]) == 0
+    return capsys.readouterr().out
+
+
+def test_template_is_bash_and_emits_every_line_the_receipt_reads(lp, tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))                 # no registry anywhere: --template needs none
+    text = template_text(lp, capsys)
+    path = tmp_path / "verify.sbatch"
+    path.write_text(text)
+    assert subprocess.run(["bash", "-n", str(path)], capture_output=True).returncode == 0
+    assert text.startswith("#!/bin/bash\n") and "#SBATCH --error=" in text
+    for key in SEAL_AND_KEY_LINES:
+        assert f'echo "{key}' in text, key
+    assert "LEAN_NUM_THREADS=${LEAN_NUM_THREADS:-3}" in text and "/proc/sys/fs/file-nr" in text
+    assert "MATHLIB_CACHE_DIR" in text and "SLURM_TMPDIR" in text
+    assert "/home/" not in text and "\t" not in text
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def run_template_job(lp, capsys, repo, tmp_path, build: str, axioms: str) -> Job:
+    """Run the printed template as the job would, with the package's commands replaced by fakes that print
+    `build` and `axioms`; returns its files in the Job shape."""
+    path = tmp_path / "verify.sbatch"
+    path.write_text(template_text(lp, capsys))
+    (tmp_path / "build.txt").write_text(build)
+    (tmp_path / "axioms.txt").write_text(axioms)
+    out_dir = tmp_path / "submit"
+    out_dir.mkdir()
+    env = {**os.environ, "SLURM_JOB_ID": "123", "SLURM_TMPDIR": str(tmp_path / "node"), "PKG_DIR": str(repo),
+           "OUT_DIR": str(out_dir), "VERIFY_CMD": f"cat {tmp_path / 'build.txt'}",
+           "AXIOMS_CMD": f"cat {tmp_path / 'axioms.txt'}", "CHECKER": CHECKER}
+    p = subprocess.run(["bash", str(path)], capture_output=True, text=True, env=env, cwd=out_dir)
+    assert p.returncode == 0, p.stderr
+    job = Job.__new__(Job)
+    job.log = out_dir / "verify-123.log"
+    job.out, job.err = out_dir / "verify-123.out", out_dir / "verify-123.err"
+    job.out.write_text(p.stdout)
+    job.err.write_text(p.stderr)
+    return job
+
+
+def test_a_job_following_the_template_is_accepted(lp, env, repo, tmp_path, fake_sacct, capsys):
+    axioms = ("'Demo.main_theorem' depends on axioms: [propext,\n Classical.choice.{u},\n Quot.sound]\n"
+              "'Demo.trivial_fact' does not depend on any axioms\n")
+    job = run_template_job(lp, capsys, repo, tmp_path, "Build completed successfully\n", axioms)
+    assert job.err.read_text() == ""
+    for key in SEAL_AND_KEY_LINES[:3]:
+        assert job.out.read_text().count(key) == 1, key
+    head = repo_head(repo)
+    common = ["--log", str(job.log), "--stdout", str(job.out), "--stderr", str(job.err), "--repo", str(repo)]
+    assert lp.main(["receipt", "slurm", "--check", "--commit", head, *common]) == 0
+    out = capsys.readouterr().out
+    assert "receipt slurm --check: ok; nothing written" in out and "✗" not in out
+    assert_nothing_written(repo)
+    assert lp.main(["receipt", "slurm", "--job", "123", "--commit", head, *common]) == 0
+    r = receipt_json(repo)
+    assert r["checker"] == CHECKER and r["sorry_count"] == 0
+    assert sorted(r["axioms"]) == ["Classical.choice", "Quot.sound", "propext"]
+    rp = next(rdir(repo).glob("*-slurm-123.json"))
+    assert lp.main(["--registry", str(env.registry), "gate", "alpha", "--check", "--receipt", str(rp)]) == 0
+
+
+def test_a_template_job_with_a_sorry_is_named_by_the_check(lp, repo, tmp_path, capsys):
+    job = run_template_job(lp, capsys, repo, tmp_path, "warning: Demo.lean:3:8: declaration uses 'sorry'\n",
+                           "'Demo.x' does not depend on any axioms\n")
+    assert lp.main(["receipt", "slurm", "--check", "--log", str(job.log), "--stdout", str(job.out),
+                    "--stderr", str(job.err), "--commit", repo_head(repo), "--repo", str(repo)]) == 1
+    assert "sorry count is 1; gate requires 0" in capsys.readouterr().out
+
+
+def check(lp, repo, job: Job, *extra, checker=True, commit=True, stderr=True) -> int:
+    argv = ["receipt", "slurm", "--check", "--log", str(job.log), "--stdout", str(job.out), "--repo", str(repo)]
+    if stderr:
+        argv += ["--stderr", str(job.err)]
+    if commit:
+        argv += ["--commit", repo_head(repo)]
+    if checker:
+        argv += ["--checker", CHECKER]
+    return lp.main(argv + list(extra))
+
+
+def test_check_accepts_a_good_job_without_sacct_and_writes_nothing(lp, repo, tmp_path, capsys, monkeypatch):
+    no_sacct(monkeypatch)
+    job = Job(tmp_path)
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    assert check(lp, repo, job) == 0
+    out = capsys.readouterr().out
+    assert "✓ seal: job stdout verify-log-sha256" in out and "✓ manifest: pre = post" in out
+    assert "✓ stderr: empty" in out and "· sacct: not checked in preflight" in out
+    assert_nothing_written(repo)
+    assert {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == before
+    assert check(lp, repo, job, commit=False) == 0
+    assert "· commit: not checked (no --commit)" in capsys.readouterr().out
+
+
+def drop(text: str, key: str) -> str:
+    return "".join(line for line in text.splitlines(keepends=True) if not line.startswith(key))
+
+
+def test_check_names_each_missing_requirement(lp, repo, tmp_path, capsys, monkeypatch):
+    no_sacct(monkeypatch)
+    good = Job(tmp_path)
+    cases = []
+    for key in SEAL_AND_KEY_LINES[:3]:
+        cases.append((key, {"out": drop(good.out.read_text(), key)}))
+    cases.append(("verify-log-sha256", {"out": good.out.read_text() + f"verify-log-sha256 {'0' * 64}\n"}))
+    cases.append(("stderr", {"err": "lake: warning\n"}))
+    cases.append(("`sorry-count:`", {"log": drop(LOG, "lake build: ok")}))
+    cases.append(("`axioms:`", {"log": "".join(x for x in LOG.splitlines(True) if "axioms" not in x)}))
+    for needle, change in cases:
+        job = Job(tmp_path)
+        log = change.get("log", LOG)
+        job.log.write_text(log)
+        out = change.get("out", job.out.read_text().replace(sha(LOG.encode()), sha(log.encode())))
+        job.out.write_text(out)
+        job.err.write_text(change.get("err", ""))
+        assert check(lp, repo, job) == 1, needle
+        text = capsys.readouterr().out
+        assert any(needle in line for line in text.splitlines() if line.lstrip().startswith("✗")), (needle, text)
+    job = Job(tmp_path)
+    assert check(lp, repo, job, checker=False) == 1
+    assert "`checker:` line" in capsys.readouterr().out
+    assert_nothing_written(repo)
+
+
+def test_check_lists_every_problem_at_once_in_json(lp, repo, tmp_path, capsys, monkeypatch):
+    no_sacct(monkeypatch)
+    log = "nothing useful\n"
+    job = Job(tmp_path, log, err="boom\n")
+    job.out.write_text(drop(drop(job.out.read_text(), "pre-manifest"), "verify-log"))
+    assert check(lp, repo, job, "--json", checker=False) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is False and data["written"] == []
+    probs = "\n".join(data["problems"])
+    for needle in ("`verify-log-sha256`", "`pre-manifest-sha256`", "stderr is not empty", "`sorry-count:`",
+                   "`axioms:`", "`checker:`"):
+        assert needle in probs, needle
+    assert len(data["problems"]) >= 6
+    assert any(c.startswith("· sacct: not checked") for c in data["checks"])
+    assert_nothing_written(repo)
+
+
+def test_check_with_a_saved_sacct_file_checks_the_job_state(lp, repo, tmp_path, capsys):
+    bad = tmp_path / "sacct.txt"
+    bad.write_text("123|FAILED|1:0|00:01:00|00:01:00\n")
+    assert check(lp, repo, Job(tmp_path), "--job", "123", "--sacct-file", str(bad)) == 1
+    assert "State=FAILED" in capsys.readouterr().out
+
+
+def test_template_and_check_need_their_flags(lp, repo, tmp_path, capsys):
+    assert lp.main(["receipt", "slurm", "--template", "--check"]) == 2
+    assert lp.main(["receipt", "slurm", "--check", "--repo", str(repo)]) == 2
+    assert "--check needs --log" in capsys.readouterr().err
+    assert lp.main(["receipt", "slurm", "--log", str(Job(tmp_path).log)]) == 2
+    assert "needs --job, --commit" in capsys.readouterr().err

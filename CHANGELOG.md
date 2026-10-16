@@ -15,6 +15,16 @@ change the registry schema or receipt format, always with a migration).
   it). `DIR` must be a git work tree, and when it has remotes one must be the package's repository. A writing
   `gate` refuses `--repo` (exit 2): a gate binds the registered checkout, which `update --path` moves (field
   report).
+- `receipt slurm --template` prints a minimal sbatch wrapper whose `.out`, empty `.err` and verify log carry every
+  line `receipt slurm` reads: one `pre-manifest-sha256`, `post-manifest-sha256` and `verify-log-sha256` line in
+  stdout, and `checker:`, `sorry-count:`, `axioms:` (derived from Lean's own output in the log), `lean-toolchain:`,
+  `commit:`, `job-id:` and `generated-at:` in the log. The package's commands are placeholders; the work directory is
+  node-local, `LEAN_NUM_THREADS` defaults to 3 and `/proc/sys/fs/file-nr` is logged. It needs no registry (field
+  report).
+- `receipt slurm --check` preflights the files of a finished job, such as a short trial run before the long one:
+  the seal, stderr, log-line, field and public-safety checks of the receipt, every problem named at once, nothing
+  written, exit 0/1, `--json` `problems[]`. sacct is not run (a saved `--sacct-file` with `--job` is checked);
+  the commit-side checks run only with `--commit` (field report).
 
 ### Changed
 
