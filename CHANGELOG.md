@@ -15,6 +15,19 @@ change the registry schema or receipt format, always with a migration).
   a compute node, the supported split (build or `--prepare` on the cluster, copy `.lake/build`, judge on a host
   that passes `host-check` with `COMPARATOR_RECEIPT_BUILD_SOURCE`), and never bypassing the sandbox (field report).
 
+### Fixed
+
+- Soundness: the promote claims ledger (#80), `comparator config --coverage`, `next` and `comparator config
+  --from-claims` credited a claim to any comparator `theorem_names` entry with the same last name component, so
+  `RMTFoundations.TracyWidom.monotone_TW1R` passed as verified because comparator.json compared
+  `RMTFoundations.TWOneMonotone.monotone_TW1R`, a different declaration (field report). A name now covers a claim
+  only as its `decl` or `<Prefix>.<decl>` (the scaffold's `<Package>Audit.<decl>`), and only when `decl` is the
+  fully qualified name of a declaration its file declares at the gate-bound commit; a bare or partial `decl`
+  is credited to no name, and its `no-comparator-config` detail says why. This is a behaviour change: a ledger
+  that was `ready` can turn `open`, and packages whose hand-written Challenge names are `<Ns>Audit.<short>`
+  for `<ProjectNs>.<short>` lose that credit until the entries name the full declaration (rename to
+  `<Ns>Audit.<full decl>` or re-scaffold). docs/lifecycle.md and docs/comparator.md state the rule.
+
 ## [0.7.46] - 2026-10-16
 
 ### Fixed

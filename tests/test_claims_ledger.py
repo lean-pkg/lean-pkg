@@ -13,9 +13,11 @@ import yaml
 from .conftest import (ROOT, _git, commit_claims, drop_claims, make_comparator_receipt, make_receipt,
                        publish_evidence, read_events, read_reg, repo_head, write_reg)
 
-LEAN = ("theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ndef qux := 1\n"
-        "theorem old_one : True := trivial\ntheorem zap : True := trivial\n")
-ALL_NAMES = ("foo_le_bar", "baz", "zap")
+LEAN = ("namespace Demo\n"   # the claims name Demo.<decl>: exact covers() (#80 fix)
+        "theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ndef qux := 1\n"
+        "theorem old_one : True := trivial\ntheorem zap : True := trivial\n"
+        "end Demo\n")
+ALL_NAMES = ("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.baz", "BetaAudit.Demo.zap")
 
 
 def claim(cid, decl, kind="theorem", status="reusable", sb=None, deps=()):
@@ -108,7 +110,7 @@ def test_lower_tier_alone_never_closes_a_claim_promote_needs(lp, env, capsys):
 
 def test_an_open_dependency_propagates_blocked(lp, env, capsys):
     extra = claim("top", "Demo.foo_le_bar", deps=["beta/zap"])          # top -> zap -> baz
-    gated(env, claims=claims_list(top=extra), names=("foo_le_bar", "zap"))
+    gated(env, claims=claims_list(top=extra), names=("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.zap"))
     rc, data = ledger(lp, env, capsys)
     rows = by_id(data)
     assert rows["baz"]["status"] == "open" and codes(rows["baz"]) == ["no-comparator-config"]
@@ -148,7 +150,7 @@ def test_contradicting_evidence_fails_the_package(lp, env, capsys):
 
 def test_experimental_claims_are_reported_but_not_required(lp, env, capsys):
     gated(env, claims=claims_list(baz=claim("baz", "Demo.baz", kind="lemma", status="experimental"),
-                                  zap=claim("zap", "Demo.zap")), names=("foo_le_bar", "zap"))
+                                  zap=claim("zap", "Demo.zap")), names=("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.zap"))
     rc, data = ledger(lp, env, capsys)
     rows = by_id(data)
     assert rows["baz"]["required"] is False and rows["baz"]["status"] == "verified"   # comparator not asked
@@ -224,15 +226,16 @@ def _comparator_invalid(lp, env, capsys):
 
 
 def _no_comparator_config(lp, env, capsys):
-    gated(env, names=("foo_le_bar", "zap"))
+    gated(env, names=("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.zap"))
 
 
 def _comparator_todo(lp, env, capsys):
-    gated(env, names=("foo_le_bar", "BetaAudit.baz", "zap"), todo=("BetaAudit.baz",))
+    gated(env, names=("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.baz", "BetaAudit.Demo.zap"),
+          todo=("BetaAudit.Demo.baz",))
 
 
 def _depends_on_open(lp, env, capsys):
-    gated(env, names=("foo_le_bar", "zap"))
+    gated(env, names=("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.zap"))
 
 
 def _depends_on_unknown(lp, env, capsys):
@@ -355,7 +358,7 @@ def test_promote_passes_the_ledger_item_when_ready(lp, env, fake_gh, capsys):
 
 
 def test_promote_refuses_when_a_reusable_theorem_is_not_compared(lp, env, fake_gh, capsys):
-    gated(env, names=("foo_le_bar", "zap"))                 # baz: comparator PASS, but not for baz
+    gated(env, names=("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.zap"))                 # baz: comparator PASS, but not for baz
     publish_evidence(env.repo_b)
     rc, data = run_json(lp, env, capsys, "promote", "beta", "--yes")
     assert rc == 1 and data["refused"] is True
@@ -375,7 +378,7 @@ def test_promote_refuses_a_package_without_claims(lp, env, fake_gh, capsys):
 
 
 def test_publish_dry_run_carries_the_ledger(lp, env, fake_gh, capsys):
-    gated(env, names=("foo_le_bar", "zap"))
+    gated(env, names=("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.zap"))
     publish_evidence(env.repo_b)
     rc, data = run_json(lp, env, capsys, "publish", "beta", "--dry-run")
     assert rc == 1 and data["ready"] is False
@@ -394,7 +397,7 @@ def test_next_recommends_publish_only_when_the_ledger_is_ready(lp, env, capsys):
 
 def test_next_names_the_coverage_fix_when_a_claim_is_not_compared(lp, env, capsys, monkeypatch):
     monkeypatch.setenv("LEAN_PKG_TOOLCHAIN_FLOOR", "v4.0.0")   # the fixture toolchain is below the default
-    gated(env, names=("foo_le_bar", "zap"))
+    gated(env, names=("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.zap"))
     publish_evidence(env.repo_b)
     rc, data = run_json(lp, env, capsys, "next", "beta")
     assert rc == 0 and data["command"] == "lean-pkg comparator config --from-claims beta", data

@@ -170,7 +170,7 @@ def cfg_name(cfg_rel: str) -> str:
 
 
 def add_comparator_config(repo: Path, name: str = "comparator.json",
-                          theorem_names=("foo_le_bar",),
+                          theorem_names=("BetaAudit.Demo.foo_le_bar",),
                           permitted_axioms=("propext", "Quot.sound",
                                             "Classical.choice"),
                           definition_names=(), judged_as: dict | None = None) -> str:
@@ -438,7 +438,7 @@ def make_index_package(root: Path, name: str = "demo", *, lower: bool = True,
         "lake-manifest.json": MATHLIB_MANIFEST,
         "Demo/Main.lean": "theorem foo_le_bar : True := trivial\n", **(extra_files or {})})
     if comparator:
-        add_comparator_config(repo)
+        add_comparator_config(repo, theorem_names=("foo_le_bar",))   # index judged_as: the headline
     pin = repo_head(repo)
     lower_rel = comp_rel = None
     if lower:
@@ -490,7 +490,7 @@ def cl(lp):
     return importlib.import_module("lean_pkg.claims")
 
 
-DEMO_LEAN = "theorem foo_le_bar : True := trivial\n"
+DEMO_LEAN = "namespace Demo\n\ntheorem foo_le_bar : True := trivial\n\nend Demo\n"   # claims say Demo.foo_le_bar
 CLAIMS_YAML = """\
 schema: claims/1
 package: beta

@@ -62,7 +62,7 @@ def test_render_two_configs_to_stdout(lp, env, capsys):
     assert doc["project"]["name"] == "beta"
     results = doc["status"]["main_results"]
     assert [(r["comparator_config"], r["declaration"]) for r in results] == [
-        ("comparator.json", "foo_le_bar"),
+        ("comparator.json", "BetaAudit.Demo.foo_le_bar"),
         ("comparator/config-second.json", "second_a"),
         ("comparator/config-second.json", "second_b")]
     assert all(r["file"] == "Solution.lean" and r["challenge_file"] == "Challenge.lean"
@@ -169,7 +169,7 @@ def test_definition_holes_carry_the_judged_as_reviewer(lp, env, capsys):
     holed = [r for r in doc["status"]["main_results"] if r["declaration"] == "holed"][0]
     assert holed["definition_holes"] == ["Challenge.witness"]
     assert holed["judged_as"] == JUDGED
-    plain = [r for r in doc["status"]["main_results"] if r["declaration"] == "foo_le_bar"][0]
+    plain = [r for r in doc["status"]["main_results"] if r["declaration"] == "BetaAudit.Demo.foo_le_bar"][0]
     assert "judged_as" not in plain
 
 
@@ -257,7 +257,7 @@ def test_write_refuses_a_differing_file_without_force(lp, env, capsys):
     assert "differs" in err and "--force" in err
     assert yaml.safe_load(target.read_text())["status"]["main_results"][0]["declaration"] == "hand_edited"
     assert run(lp, env, "beta", "--write", "--force") == 0
-    assert yaml.safe_load(target.read_text())["status"]["main_results"][0]["declaration"] == "foo_le_bar"
+    assert yaml.safe_load(target.read_text())["status"]["main_results"][0]["declaration"] == "BetaAudit.Demo.foo_le_bar"
 
 
 def test_kept_keys_survive_regeneration_and_derived_keys_do_not(lp, env, capsys):

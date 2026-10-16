@@ -182,6 +182,7 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
         if bound:
             names, todo = cc._names(cc._configs_at(repo, bound)) if stage == "promote" else (set(), set())
             read = claims_mod._reader(repo, bound)
+            qualified = cc.qualified_decls(read, claims) if stage == "promote" else set()
 
     ids = {str(c.get("id")) for c in claims}
     rows: list[dict] = []
@@ -196,9 +197,13 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
             diags += comp_diags
             if bound and not comp_diags:
                 real = names - todo
-                if not cc.covers(real, decl):
-                    code = "comparator-todo" if cc.covers(todo, decl) else "no-comparator-config"
-                    diags.append(_diag(code, f"{decl} at {bound[:12]}"))
+                q = decl in qualified
+                if not cc.covers(real, decl, q):
+                    code = "comparator-todo" if cc.covers(todo, decl, q) else "no-comparator-config"
+                    why = "" if q else (f" ({decl} is not the fully qualified name of a declaration in "
+                                        f"{c.get('file')}: a bare or partial name is credited to no "
+                                        f"comparator name)")
+                    diags.append(_diag(code, f"{decl} at {bound[:12]}{why}"))
         for d in c.get("depends_on") or []:
             if d not in ids:
                 diags.append(_diag("depends-on-unknown", f"{d} is not a claim of {name}'s claims file"))

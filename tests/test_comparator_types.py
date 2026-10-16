@@ -14,8 +14,10 @@ import yaml
 
 from .conftest import _git, commit_claims, repo_head, set_lease
 
-LEAN = ("theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ntheorem zap : True := trivial\n"
-        "theorem wow : True := trivial\n")
+LEAN = ("namespace Demo\n"   # the claims name Demo.<decl>: exact covers() (#80 fix)
+        "theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ntheorem zap : True := trivial\n"
+        "theorem wow : True := trivial\n"
+        "end Demo\n")
 
 
 def claim(cid, decl, kind="theorem", file="Demo/Main.lean"):
