@@ -7,6 +7,20 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `search`: a registered package whose checkout lies inside another's (a `contrib/` package inside a companion's
+  `lean/`) is no longer scanned as part of the outer package, so its declarations are attributed to it alone
+  (field report).
+
+### Changed
+
+- `claims sync` warns when the commit it pins is on no remote-tracking branch of the checkout (as of its last
+  fetch): readers of the registered repository cannot inspect such claims. The sync still succeeds; `--json`
+  carries `pin_published` (`true`, `false`, `null` without a remote) (field report).
+- `search --record` prints the MkDocs nav note only when the repository has an `mkdocs.yml`; otherwise `nav_hint`
+  is `null` and `record.mkdocs` is `false` (field report: noise in plain Lean repositories).
+
 ## [0.7.40] - 2026-10-15
 
 ### Added

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import sys
 
 import yaml
 
@@ -291,6 +292,22 @@ def _tolerate_v2(pkg: dict) -> None:
         pkg.setdefault(k, list(d) if isinstance(d, list) else d)
 
 
+def pin_published(repo, commit: str) -> bool | None:
+    """Is `commit` on a remote-tracking branch of the checkout (as of its last fetch)? None when the checkout
+    has no remote. A claim pinned to an unpushed commit cannot be inspected by anyone reading the registered
+    repository (field report)."""
+    if not core.git(repo, "remote").stdout.strip():
+        return None
+    p = core.git(repo, "for-each-ref", "--count=1", "--contains", commit, "--format=%(refname)", "refs/remotes")
+    return p.returncode == 0 and bool(p.stdout.strip())
+
+
+def _unpublished_warning(name: str, head: str) -> None:
+    print(f"lean-pkg: WARN: {name}: claims are pinned at {head[:12]}, which is on no remote-tracking branch of the "
+          f"checkout (as of its last fetch): readers of the registered repository cannot inspect them; push it, "
+          f"then claims sync {name}", file=sys.stderr)
+
+
 def do_claims_sync(reg_path, reg, events_p, name: str) -> tuple[list[str], dict]:
     pkg = core.get_pkg(reg, name)
     _tolerate_v2(pkg)
@@ -317,10 +334,13 @@ def do_claims_sync(reg_path, reg, events_p, name: str) -> tuple[list[str], dict]
     if errors:
         raise core.Fail(f"{name}: {rel} refused: " + "; ".join(errors))
     claims = [normalize_claim(c) for c in doc["claims"]]
+    published = pin_published(repo, head)
+    if published is False:
+        _unpublished_warning(name, head)
     if pkg.get("claims") == claims and pkg.get("claims_synced_commit") == head:
         return ([f"{name}: claims already synced at {head[:12]}; nothing written"],
                 {"ok": True, "name": name, "event": "claims-noop", "commit": head,
-                 "claims": len(claims)})
+                 "claims": len(claims), "pin_published": published})
     pkg["claims_file"] = rel
     pkg["claims"] = claims
     pkg["claims_synced_commit"] = head
@@ -328,7 +348,7 @@ def do_claims_sync(reg_path, reg, events_p, name: str) -> tuple[list[str], dict]
     core.save_registry(reg_path, reg)
     return ([f"{name}: {len(claims)} claim(s) synced from {rel} at {head[:12]}"],
             {"ok": True, "name": name, "event": "claims-synced", "commit": head,
-             "claims": len(claims)})
+             "claims": len(claims), "pin_published": published})
 
 
 def _targets(reg: dict, name: str | None) -> list[str]:

@@ -469,3 +469,38 @@ def test_claims_check_with_a_file_path_names_the_file_flag(lp, tmp_path, monkeyp
     assert lp.main(["--registry", str(tmp_path / "absent.yaml"), "claims", "check", "claims.yaml"]) == 2
     err = capsys.readouterr().err
     assert "is a file" in err and "lean-pkg claims check --file claims.yaml" in err
+
+
+# Field report: claims pinned at a commit the registered repository does not have (never pushed); readers of
+# that repository cannot inspect the claimed declarations. sync says so; the JSON carries pin_published.
+
+def _with_origin(env, tmp_path, push: bool):
+    origin = tmp_path / "beta-origin.git"
+    _git(tmp_path, "init", "-q", "--bare", str(origin))
+    _git(env.repo_b, "remote", "add", "origin", str(origin))
+    if push:
+        _git(env.repo_b, "push", "-q", "origin", "HEAD:refs/heads/main")
+        _git(env.repo_b, "fetch", "-q", "origin")
+
+
+def test_sync_warns_when_the_pin_is_on_no_remote_branch(lp, env, capsys, tmp_path):
+    head = commit_claims(env.repo_b)
+    _with_origin(env, tmp_path, push=False)
+    assert lp.main(["--registry", str(env.registry), "--json", "claims", "sync", "beta"]) == 0
+    cap = capsys.readouterr()
+    assert json.loads(cap.out)["pin_published"] is False
+    assert f"beta: claims are pinned at {head[:12]}, which is on no remote-tracking branch" in cap.err
+    assert read_reg(env)["packages"]["beta"]["claims_synced_commit"] == head   # a warning, not a refusal
+    assert sync(lp, env) == 0                                                    # the no-op says it again
+    assert "on no remote-tracking branch" in capsys.readouterr().err
+
+
+def test_sync_is_quiet_when_the_pin_is_pushed_or_there_is_no_remote(lp, env, capsys, tmp_path):
+    commit_claims(env.repo_b)
+    assert lp.main(["--registry", str(env.registry), "--json", "claims", "sync", "beta"]) == 0
+    cap = capsys.readouterr()
+    assert json.loads(cap.out)["pin_published"] is None and "WARN" not in cap.err
+    _with_origin(env, tmp_path, push=True)
+    assert lp.main(["--registry", str(env.registry), "--json", "claims", "sync", "beta"]) == 0
+    cap = capsys.readouterr()
+    assert json.loads(cap.out)["pin_published"] is True and "WARN" not in cap.err

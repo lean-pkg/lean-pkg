@@ -159,7 +159,7 @@ def test_json_reports_the_record(lp, searchable, capsys):
     assert run_search(lp, searchable, "foo bound", "--offline", "--package", "beta", "--record", "--json") == 0
     p = json.loads(capsys.readouterr().out)
     assert p["record"] == {"path": f"docs/prior-art/{today(lp)}-foo-bound.md", "event": "prior-art-searched",
-                           "withheld": 0, "private_claims": False}
+                           "withheld": 0, "private_claims": False, "mkdocs": False}
 
 
 def test_record_slug_truncation_keeps_distinct_terms_distinct():
@@ -204,3 +204,15 @@ def test_record_never_reports_a_partly_failed_source_as_not_found(lp, srch, sear
     text = record_file(s.env.repo_b, today(lp), "zz-no-such-term").read_text()
     assert "| github | live | partial: code search failed | 0 |" in text
     assert "Not found in github at live (code search failed, not searched) on " in text
+
+
+def test_a_repository_without_mkdocs_gets_no_nav_note(lp, searchable, capsys):
+    """Field report: plain Lean repositories have no MkDocs tree, so the nav note was noise."""
+    s = searchable
+    assert not (s.env.repo_b / "mkdocs.yml").exists()
+    assert run_search(lp, s, "foo bound", "--offline", "--package", "beta", "--record") == 0
+    out = capsys.readouterr().out
+    assert "record written: " in out and "strict MkDocs" not in out
+    assert run_search(lp, s, "trivial bound", "--offline", "--package", "beta", "--record", "--json") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["nav_hint"] is None and p["record"]["mkdocs"] is False

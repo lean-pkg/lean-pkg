@@ -248,14 +248,17 @@ class NotSearched(str):
     """The code a declaration search returns instead of hits (a key of NOT_SEARCHED)."""
 
 
-def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int, dict | None] | NotSearched:
+def declaration_hits(term: str, name: str, pkg: dict,
+                     nested: tuple[str, ...] = ()) -> tuple[list[dict], int, dict | None] | NotSearched:
     """(hits, omitted, capped) from the package's checkout at HEAD, or a NotSearched code (no-path,
     no-checkout, no-git-head, scan-error) when it could not be searched. A declaration matches when every query word (case-insensitive,
     accents folded, as a substring so camelCase names match) occurs in its name or its docstring;
     a name match ranks before a docstring-only match. `omitted` counts matching declarations beyond the
     DECL_HITS_PER_PACKAGE shown; `capped` is {"candidates", "inspected"} when more candidate files matched the
     git grep prefilter than DECL_FILES_MAX allows reading (else None): those files were never examined, so a
-    zero is not an absence (field report: a theorem in the 201st file was silently missed)."""
+    zero is not an absence (field report: a theorem in the 201st file was silently missed). `nested` lists the
+    checkout-relative roots of other registered packages inside this one; their files belong to them and are
+    not scanned here (field report: a contrib package's declarations were attributed to its parent)."""
     if not pkg.get("local_path"):
         return NotSearched("no-path")
     try:
@@ -271,7 +274,7 @@ def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int, 
     args = ["grep", "-l", "-I", "-i", "-F", "--all-match"]
     for w in words:
         args += ["-e", w]
-    p = core.git(repo, *args, "HEAD", "--", "*.lean")
+    p = core.git(repo, *args, "HEAD", "--", "*.lean", *[f":(exclude){d}/" for d in nested])
     if p.returncode not in (0, 1):
         return NotSearched("scan-error")
     candidates = sorted(ln.split(":", 1)[1] for ln in p.stdout.splitlines() if ":" in ln)
@@ -296,6 +299,30 @@ def declaration_hits(term: str, name: str, pkg: dict) -> tuple[list[dict], int, 
                           "where": where, "hit_kind": DECL_HIT_KIND, "repo": None})
     found.sort(key=_decl_order)
     return found[:DECL_HITS_PER_PACKAGE], max(0, len(found) - DECL_HITS_PER_PACKAGE), capped
+
+
+def package_roots(pkgs: dict) -> dict[str, pathlib.Path]:
+    """Each package's resolved checkout directory (packages without a usable local_path are left out)."""
+    roots = {}
+    for name, pkg in pkgs.items():
+        if isinstance(pkg, dict) and pkg.get("local_path"):
+            try:
+                roots[name] = core.repo_path(pkg).resolve()
+            except (OSError, RuntimeError, TypeError, ValueError):
+                continue
+    return roots
+
+
+def nested_roots(name: str, roots: dict[str, pathlib.Path]) -> tuple[str, ...]:
+    """The roots of other registered packages strictly inside `name`'s, relative to it, sorted."""
+    mine = roots.get(name)
+    if mine is None:
+        return ()
+    out = set()
+    for other, root in roots.items():
+        if other != name and root != mine and mine in root.parents:
+            out.add(root.relative_to(mine).as_posix())
+    return tuple(sorted(out))
 
 
 def not_searched_groups(cov: dict, names: bool) -> str:
@@ -364,11 +391,12 @@ def registry_search(term: str, reg_path: pathlib.Path) -> tuple[dict, dict | Non
     hits, decl_hits = [], []
     cov = {"claims": 0, "declaration_only": 0, "not_searched": [], "not_searched_reasons": [],
            "declaration_hits_omitted": 0, "declaration_files_capped": []}
+    roots = package_roots(pkgs)
     for name in sorted(pkgs):
         if has_synced_claims(pkgs[name]):
             cov["claims"] += 1
             continue
-        got = declaration_hits(term, name, pkgs[name])
+        got = declaration_hits(term, name, pkgs[name], nested_roots(name, roots))
         if isinstance(got, NotSearched):
             cov["not_searched"].append(name)
             cov["not_searched_reasons"].append({"package": name, "code": str(got),
@@ -601,7 +629,8 @@ def cmd_search(args) -> int:
             lines, payload["record"] = prior_art.write_record(payload, reg_path=reg_path,
                                                               events_p=events_p, repo_dir=args.repo_dir,
                                                               actor=args.agent)
-        payload["nav_hint"] = prior_art.nav_hint(payload["record"]["path"])
+        payload["nav_hint"] = (prior_art.nav_hint(payload["record"]["path"])
+                               if payload["record"].get("mkdocs") else None)
         out += lines
     if args.json_out:
         core.print_json(payload)
