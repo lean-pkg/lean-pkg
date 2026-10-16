@@ -66,7 +66,8 @@ BUILTIN = (
     ("cloud-sync-path", r"~/Dropbox/"),
     ("approvals-ref", r"(?<![A-Za-z0-9_.-])approvals/"),
     ("notes-ref", r"(?<![A-Za-z0-9_.-])notes/"),
-    ("private-file-ref", r"[A-Za-z0-9_-][A-Za-z0-9_./-]*\.private\b"),
+    # Lean's own build artifacts (`X.olean.private`, `X.ilean.private`, module system) are not private files.
+    ("private-file-ref", r"[A-Za-z0-9_-][A-Za-z0-9_./-]*(?<!\.olean)(?<!\.ilean)\.private\b"),
     ("todo-private", r"TODO-private"),
     ("email", EMAIL_RE),
 )

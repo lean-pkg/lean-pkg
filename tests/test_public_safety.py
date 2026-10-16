@@ -506,3 +506,15 @@ def test_lease_holder_in_a_progress_file_and_its_scoped_allow(lp, tmp_path, caps
     (repo / ".lean-pkg-private-patterns").write_text("")
     assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 1
     assert {h["path"] for h in json.loads(capsys.readouterr().out)["hits"]} == {"Main.lean"}
+
+
+def test_lean_build_artifacts_are_not_private_file_references(tmp_path):
+    """`X.olean.private` / `X.ilean.private` are Lean's own module-system build files, named in docs that explain
+    open-file counts; the private-file rule blocked a release on such a line. Other `*.private` files still hit."""
+    from lean_pkg import public_safety as ps
+    s = ps.Scanner({}, tmp_path, None)
+    names = lambda text: [p.label for _, p, _ in s.scan_text(text)]
+    assert "private-file-ref" not in names("each Lean process opens one file per `.olean`, `.olean.private`, `.ir`")
+    assert "private-file-ref" not in names("lake reads Mathlib/Topology/Basic.olean.private and Basic.ilean.private")
+    assert "private-file-ref" in names("see notes/approvals.private for the referee list")
+    assert "private-file-ref" in names("x.private")
