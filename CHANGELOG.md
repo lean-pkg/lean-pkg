@@ -15,6 +15,22 @@ change the registry schema or receipt format, always with a migration).
   `ssh://[user@]Host[:port]/p` and `file:///p` with the same absolute path; two remotes that both name a host
   still compare exactly, and a relative or `~` path never matches. `--repo` naming the registered local_path
   itself no longer needs a matching remote.
+- `comparator-receipt --estimate` found no olean weight in Lake's real layout: Lake writes the package's oleans
+  under `.lake/build/lib/lean/`, and the module names were read as `lean.Pkg.Mod`, so every sampled row had
+  `weight_bytes: 0`, no slot was heavy and the heaviest-first part of the sample silently did nothing (a field run
+  sampled 5 of 16 slots, one of them 19,403 s, all at weight 0). The `lean/` layout component is dropped now
+  (`.lake/build/lib/` is still read). A slot's module is also found by a syntactic scan of the package's sources
+  for the declaration (following `namespace`/`section`/`mutual`/`end`), so a theorem whose namespace is not its
+  module path is weighed; the namespace-prefix rule is the fallback (field report).
+
+### Added
+
+- The estimate (still schema `comparator-estimate/2`; additive fields) records `weights_found`, `olean_modules`
+  and `weighted_slots`; when no slot has a weight the runner warns on stderr that the heaviest-first part was
+  skipped and the text output says `weights_found false`. It also records `remaining_estimate_seconds` with
+  `unsampled_slots`, `remaining_per_slot_seconds` and `remaining_estimate_model`: the unsampled slots at the mean
+  of the timed non-heavy sampled slots, divided by the judges (the sampled slots are cached for the real run), and
+  prints it. `--help` and docs/comparator.md name the schema and what `/1` to `/2` changed (field report).
 
 ## [0.7.44] - 2026-10-16
 

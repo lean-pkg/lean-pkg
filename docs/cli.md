@@ -186,7 +186,9 @@ writes no receipt: the sample is at least `max(5, ceil(0.25 * slots))` (capped a
 the slot count) and starts with the heaviest slots by olean size; a smaller
 `--sample` (or `--slots` subset) exits 2 unless `--force-sample`, which warns and
 records `sample_forced: true`; `recommended_cap` uses the per-slot max model below
-half coverage (`cap_model`); see
+half coverage (`cap_model`); `weights_found: false` (with a warning) says no slot
+had an olean weight; `remaining_estimate_seconds` covers the unsampled slots only;
+the JSON is schema `comparator-estimate/2`; see
 [Estimate first](comparator.md#stages-and---prepare).
 `COMPARATOR_RECEIPT_NO_MATHLIB=1` declares a project that knowingly has no Mathlib
 dependency; without it the toolchain mechanism refuses such a project before any

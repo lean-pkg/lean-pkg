@@ -649,10 +649,20 @@ A SPEC that selects every slot is a full run. The legacy mechanism refuses
 runs (or reuses) the setup stages, then judges a sample of the slots one slot per judge invocation, one at a time, and prints
 the timings, `per_slot_seconds`, `slots`, `estimated_seconds`,
 `estimated_seconds_max`, `lower_bound_seconds`, `recommended_cap` with its
-`cap_model`, and a `whole_unit_warning` (also written to
+`cap_model`, `remaining_estimate_seconds`, `weights_found`, and a
+`whole_unit_warning` (also written to
 `comparator-stages/04-comparator.estimate.json`, schema
 `comparator-estimate/2`). It writes no receipt; the slots it judged are
-cached, so the real run skips them. The estimate reports time per slot, not
+cached, so the real run skips them.
+
+The schema. `comparator-estimate/1` carried the timings and the mean model.
+`/2` added the sample floor (`sample_floor`, `sample_forced`), the
+heaviest-first sample (per-row `weight_bytes`, `weight_module`, `heavy`) and
+the max cap model (`estimated_seconds_max`, `cap_model`,
+`whole_unit_warning`). Later fields are additive and keep `/2`:
+`weights_found`, `olean_modules`, `weighted_slots`, `unsampled_slots`,
+`remaining_per_slot_seconds`, `remaining_estimate_seconds` and
+`remaining_estimate_model`. A reader of `/2` ignores fields it does not know. The estimate reports time per slot, not
 memory: it says nothing about whether the build or the judges fit in the
 host's RAM.
 
@@ -665,14 +675,20 @@ estimate records `sample_forced: true`. The sample first takes the
 `max(1, ceil(0.2 * K))` heaviest slots, then fills the rest with the
 namespace-stratified round-robin of `sample:K` over the remaining slots;
 both steps are deterministic. A slot's weight is the size in bytes of the
-olean, under the package's own `.lake/build/lib/` (built by the setup
-stages), of the module named by the longest proper namespace prefix of the
-slot's name that is one of the package's modules: `Pkg.Big.thm` tries
-`Pkg/Big.olean`, then `Pkg.olean`. A name whose namespace matches no module
-weighs 0 and is never picked as heavy, so a package whose declarations live
-in namespaces unrelated to their module paths gets the stratified sample
-alone. Each sampled row records `weight_bytes`, `weight_module` and
-`heavy`. The olean size is a proxy: a bigger olean marks a heavier module,
+olean of its module, under the package's own `.lake/build/lib/lean/` (where
+Lake writes them; older Lake's `.lake/build/lib/` is read too), built by the
+setup stages or unpacked from a prebuilt tarball. The module is the one whose
+source declares the name, found by a syntactic scan of the package's `.lean`
+files (any `srcDir`, hidden directories such as `.lake` skipped; it follows
+`namespace`, `section`, `mutual` and `end`), so a theorem whose namespace is
+not its module path is weighed too; failing that, the module named by the
+longest proper namespace prefix of the slot's name: `Pkg.Big.thm` tries
+`Pkg/Big.olean`, then `Pkg.olean`. A name neither finds weighs 0 and is
+never picked as heavy. When no slot has a weight, the estimate records
+`weights_found: false` (with `olean_modules`, the number of oleans found, and
+`weighted_slots: 0`), the runner warns on stderr that the heaviest-first part
+was skipped, and the sample is the stratified one alone. Each sampled row
+records `weight_bytes`, `weight_module` and `heavy`. The olean size is a proxy: a bigger olean marks a heavier module,
 whose declarations tend to pull in a bigger closure.
 
 The models. `estimated_seconds` is the per-slot mean model,
@@ -686,7 +702,17 @@ seconds covering the per-invocation `lake env`, no-op builds and
 covers less than half the slots (`cap_model: "max"`) and
 `estimated_seconds` otherwise (`cap_model: "mean"`): a small sample's mean
 says nothing about the unsampled slots, which may be heavier than any it
-timed. A field run motivated these rules: two isolated slots of a 16-slot
+timed.
+
+`remaining_estimate_seconds` is what the real run still has to judge: the
+sampled slots that passed are cached, so it counts only the
+`unsampled_slots`, at `remaining_per_slot_seconds`, the mean of the timed
+non-heavy (stratified) sampled slots (all timed slots when none is
+non-heavy), divided by the judges. The heavy slots were picked as the
+heaviest, so one slow outlier among them does not inflate every other slot;
+the model is recorded as `remaining_estimate_model`. It is a per-slot model
+like the others, so the whole-unit warning applies, and it does not change
+`recommended_cap`. A field run motivated these rules: two isolated slots of a 16-slot
 configuration (69.5 s and 168.7 s) gave a 3000 s cap under the mean model,
 and the other 14 names, judged as one unit, were still in their single
 export after 46 minutes when the cap stopped the run with nothing written.

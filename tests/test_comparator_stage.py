@@ -912,3 +912,124 @@ def test_redaction_respects_path_boundaries():
 def test_empty_host_label_is_refused(project: Path):
     r = run(project, "--host-label", " ")
     assert r.returncode == 2 and "--host-label" in r.stderr
+
+
+# --- --estimate weights in Lake's real layout (field report: every row weighed 0) -------------------
+
+def test_olean_sizes_strips_lakes_lib_lean_layout(tmp_path: Path):
+    from lean_pkg.comparator_receipt import olean_sizes, slot_weight
+    lib = tmp_path / ".lake" / "build" / "lib" / "lean"           # where Lake writes the root oleans
+    (lib / "Pkg" / "Big").mkdir(parents=True)
+    (lib / "Pkg.olean").write_bytes(b"x" * 10)
+    (lib / "Pkg" / "Big.olean").write_bytes(b"x" * 300)
+    (lib / "Pkg" / "Big.ilean").write_bytes(b"x" * 999)           # not an olean
+    sizes = olean_sizes(tmp_path)
+    assert sizes == {"Pkg": 10, "Pkg.Big": 300}
+    assert slot_weight("Pkg.Big.thm", sizes) == (300, "Pkg.Big")
+
+
+def test_source_declarations_maps_names_outside_their_module_namespace(tmp_path: Path):
+    from lean_pkg.comparator_receipt import olean_sizes, slot_weight, source_declarations
+    lib = tmp_path / ".lake" / "build" / "lib" / "lean" / "Pkg"
+    lib.mkdir(parents=True)
+    (lib / "Heavy.olean").write_bytes(b"x" * 9000)
+    (lib / "Light.olean").write_bytes(b"x" * 50)
+    src = tmp_path / "src" / "Pkg"                                 # srcDir "src", no lakefile parsing
+    src.mkdir(parents=True)
+    (src / "Heavy.lean").write_text(
+        "/-! doc\ntheorem not_a_decl : True := trivial\n-/\n"
+        "theorem main_bound : 1 = 1 := rfl\n"
+        "namespace Analysis.Bounds\n"
+        "noncomputable section\n"
+        "@[simp] lemma sharp (n : Nat) : n = n := rfl\n"
+        "private theorem _root_.global_fact : True := trivial\n"
+        "end\n"
+        "theorem tail : True := trivial\n"
+        "end Analysis.Bounds\n"
+        "def after : Nat := 0\n")
+    (src / "Light.lean").write_text("namespace Pkg.Light\ntheorem small : True := trivial\nend Pkg.Light\n")
+    other = tmp_path / ".lake" / "packages" / "dep"                # dependencies are not scanned
+    other.mkdir(parents=True)
+    (other / "Heavy.lean").write_text("theorem from_dep : True := trivial\n")
+    sizes = olean_sizes(tmp_path)
+    decls = source_declarations(tmp_path, sizes)
+    assert decls["main_bound"] == "Pkg.Heavy" and decls["Analysis.Bounds.sharp"] == "Pkg.Heavy"
+    assert decls["global_fact"] == "Pkg.Heavy" and decls["Analysis.Bounds.tail"] == "Pkg.Heavy"
+    assert decls["after"] == "Pkg.Heavy" and decls["Pkg.Light.small"] == "Pkg.Light"
+    assert "not_a_decl" not in decls and "from_dep" not in decls
+    assert slot_weight("main_bound", sizes, decls) == (9000, "Pkg.Heavy")
+    assert slot_weight("Analysis.Bounds.sharp", sizes, decls) == (9000, "Pkg.Heavy")
+    assert slot_weight("unknown", sizes, decls) == (0, None)
+
+
+def test_remaining_estimate_excludes_the_heavy_outlier():
+    from lean_pkg.comparator_receipt import remaining_estimate
+    rows = [{"slot": 4, "seconds": 19403.0, "heavy": True}] + \
+        [{"slot": i, "seconds": t, "heavy": False} for i, t in ((1, 36.0), (2, 100.0), (3, 187.0), (5, 77.0))]
+    r = remaining_estimate(rows, slots=16, judges=1)
+    assert r["unsampled_slots"] == 11 and r["remaining_per_slot_seconds"] == 100.0
+    assert r["remaining_estimate_seconds"] == 1100 and "unsampled" in r["remaining_estimate_model"]
+    r = remaining_estimate([{"slot": 1, "seconds": 10.0, "heavy": True}], slots=3, judges=2)
+    assert r["remaining_estimate_seconds"] == 10 and r["remaining_per_slot_seconds"] == 10.0
+
+
+def _prebuilt_project(tmp_path: Path, names: list[str], oleans: dict[str, int],
+                      sources: dict[str, str]) -> Path:
+    """A project whose prebuilt .lake/build was unpacked (no build runs): oleans in Lake's layout."""
+    project = make_project(tmp_path, {"comparator.json": names})
+    for rel, text in sources.items():
+        (project / rel).parent.mkdir(parents=True, exist_ok=True)
+        (project / rel).write_text(text)
+    (project / ".gitignore").write_text(".lake/\n")
+    git(project, "add", "-A")
+    git(project, "commit", "-m", "sources")
+    lib = project / ".lake" / "build" / "lib" / "lean"
+    for mod, size in oleans.items():
+        f = lib / (mod.replace(".", "/") + ".olean")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(b"x" * size)
+    return project
+
+
+def test_estimate_weighs_slots_in_lakes_layout_and_root_namespace(tmp_path: Path):
+    # 16 slots like the field run: Pkg.Mi.t names map by prefix; heavy_main lives in Pkg.Core but
+    # sits in the root namespace (its namespace is not its module path)
+    names = [f"Pkg.M{i}.t" for i in range(15)] + ["heavy_main"]
+    oleans = {f"Pkg.M{i}": 100 + i for i in range(15)} | {"Pkg.Core": 50000, "Pkg": 20}
+    srcs = {"Pkg/Core.lean": "import Pkg.M0\n\ntheorem heavy_main : True := trivial\n"}
+    project = _prebuilt_project(tmp_path, names, oleans, srcs)
+    r = run(project, "--estimate", "--json")
+    assert r.returncode == 0, r.stderr
+    e = json.loads(r.stdout[r.stdout.index("{"):])
+    assert e["schema"] == "comparator-estimate/2"
+    assert e["weights_found"] is True and e["olean_modules"] == 17 and e["weighted_slots"] == 16
+    rows = {row["name"]: row for row in e["sample"]}
+    assert rows["heavy_main"]["heavy"] is True and rows["heavy_main"]["weight_bytes"] == 50000
+    assert rows["heavy_main"]["weight_module"] == "Pkg.Core"
+    assert all(row["weight_bytes"] > 0 for row in e["sample"])
+    assert e["unsampled_slots"] == 16 - len(e["sample"])
+    assert isinstance(e["remaining_estimate_seconds"], int) and e["remaining_estimate_model"]
+    assert "heaviest-first part of the sample was skipped" not in r.stderr
+    r = run(project, "--estimate")
+    assert r.returncode == 0, r.stderr
+    assert "remaining_estimate_seconds" in r.stdout and "unsampled slot(s)" in r.stdout
+
+
+def test_estimate_says_when_no_weight_was_found(tmp_path: Path):
+    names = [f"Other.t{i}" for i in range(6)]                       # no namespace matches a module
+    project = _prebuilt_project(tmp_path, names, {"Pkg.A": 300, "Pkg.B": 400}, {})
+    r = run(project, "--estimate", "--json")
+    assert r.returncode == 0, r.stderr
+    e = json.loads(r.stdout[r.stdout.index("{"):])
+    assert e["weights_found"] is False and e["olean_modules"] == 2 and e["weighted_slots"] == 0
+    assert "WARN" in r.stderr and "heaviest-first part of the sample was skipped" in r.stderr
+    assert "2 olean module(s)" in r.stderr
+    r = run(project, "--estimate")
+    assert r.returncode == 0 and "weights_found false" in r.stdout
+
+
+def test_estimate_help_names_the_schema():
+    r = subprocess.run([*RECEIPT_CLI, "--help"], env=runner_env(), capture_output=True, text=True)
+    assert r.returncode == 0
+    flat = " ".join(r.stdout.split())
+    assert "comparator-estimate/2" in flat and "/1 -> /2" in flat
