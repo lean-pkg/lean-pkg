@@ -173,6 +173,7 @@ REFUSED = {
     "gitlink": (_gitlink, "vendor/dep (gitlink"),
     "gitattributes": (lambda repo: commit_files(repo, {".gitattributes": "*.md text\n"}),
                       ".gitattributes (.gitattributes"),
+    "lfsconfig": (lambda repo: commit_files(repo, {".lfsconfig": "[lfs]\n"}), ".lfsconfig (.lfsconfig"),
     "rename-lean-to-md": (_rename_lean, "Main.lean (*.lean, deleted"),
 }
 
@@ -239,6 +240,29 @@ def test_opt_in_subdirectory_package_ignores_paths_outside(lp, env, tmp_path):
     head = commit_files(root, {"lean/README.md": "x\n", "paper/Other.lean": "-- outside\n"})
     pkg = {"name": "sub", "docs_descendants": True}
     ok, note, docs = lp.package_descendant(root / "lean", bound, head, pkg)
+    assert ok and docs == ["README.md"], note
+
+
+def _nested(env):
+    root = env.repo_a
+    commit_files(root, {"lean/contrib/Main.lean": "-- m\n", "lean/contrib/lean-toolchain": "x\n"})
+    return root, root / "lean" / "contrib", repo_head(root), {"name": "sub", "docs_descendants": True}
+
+
+@pytest.mark.parametrize("attr", [".gitattributes", "lean/.gitattributes", ".gitmodules", "lean/.lfsconfig"])
+def test_opt_in_subdirectory_refuses_ancestor_attribute_files(lp, env, attr):
+    root, pkg_dir, bound, pkg = _nested(env)
+    head = commit_files(root, {"lean/contrib/README.md": "x\n", attr: "* text\n"})
+    ok, note, docs = lp.package_descendant(pkg_dir, bound, head, pkg)
+    assert not ok and docs is None
+    assert f"{attr} (outside the package directory; can change the bytes the build sees)" in note, note
+
+
+def test_opt_in_subdirectory_root_readme_still_admitted(lp, env):
+    root, pkg_dir, bound, pkg = _nested(env)
+    head = commit_files(root, {"lean/contrib/README.md": "x\n", "README.md": "root\n",
+                               "paper/.gitattributes": "* text\n"})   # a sibling dir is not an ancestor
+    ok, note, docs = lp.package_descendant(pkg_dir, bound, head, pkg)
     assert ok and docs == ["README.md"], note
 
 

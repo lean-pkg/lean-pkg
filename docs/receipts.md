@@ -417,15 +417,22 @@ Always refused under the opt-in, whatever `build_inputs` says:
 
 - a symlink (mode 120000) or a gitlink/submodule (mode 160000) added,
   changed or removed anywhere under the package directory;
-- any change to `.gitattributes` or `.gitmodules`;
+- any change to `.gitattributes`, `.gitmodules` or `.lfsconfig`;
+- for a package in a subdirectory of its repository, any change to a
+  `.gitattributes`, `.gitmodules` or `.lfsconfig` at the repository root or in
+  any directory between the root and the package directory (`lean/` for a
+  package at `lean/contrib/`): smudge/clean filters, eol conversion and LFS
+  change the bytes the build sees without changing a `.lean` blob. The refusal
+  names the file;
 - any change to `claims.yaml` (and to the recorded `claims_file`): `gate`
   reads the claims at the receipt commit, so they stay part of what it binds.
 
 Deletions and renames of build inputs count: the diff is read with
 `git diff --no-renames --raw`, so renaming `Main.lean` to `Main.md` is a
 deleted `.lean` file. The recorded `formalization_yaml` keeps the
-derived-keys-only rule above. Paths outside the package directory stay
-irrelevant, as for the evidence-only rule. The evidence-only rule is always
+derived-keys-only rule above. Apart from those attribute files above the
+package, paths outside the package directory stay irrelevant, as for the
+evidence-only rule. The evidence-only rule is always
 tried first; the docs-only rule only applies when it refuses.
 
 The gated commit stays X, never H: the receipt is copied under X's name and

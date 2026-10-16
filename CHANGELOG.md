@@ -22,8 +22,9 @@ change the registry schema or receipt format, always with a migration).
   sets the optional `build_inputs` list. Under the opt-in, a receipt bound to commit X is also accepted at a
   descendant H of X where no build input under the package directory changed: `*.lean`, `lakefile.*`,
   `lake-manifest.json`, `lean-toolchain` at any depth, the `build_inputs` globs and the files the receipt's
-  `checker` names; a symlink or gitlink change, `.gitattributes`, `.gitmodules` and `claims.yaml` are always
-  refused, deletions and renames count, and `formalization.yaml` keeps its derived-keys rule. The gated commit
+  `checker` names; a symlink or gitlink change, `.gitattributes`, `.gitmodules`, `.lfsconfig` and `claims.yaml`
+  are always refused (for a package in a subdirectory also those three files at the repository root and in
+  every directory between it and the package), deletions and renames count, and `formalization.yaml` keeps its derived-keys rule. The gated commit
   stays X. `gate`, `gate --regate` and `comparator` print `✓ HEAD <c12> is a docs-only descendant of <c12>
   (N non-build file(s): ...; opted in)` and their events and `--json` (also `--check`, which writes nothing)
   carry `descendant_of` and `docs_paths` (up to 50). The same rule applies to `promote`, `audit`, `next`,
