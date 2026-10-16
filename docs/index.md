@@ -26,6 +26,7 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 | **adding the comparator tier to your package** | [Add the comparator tier to an existing package](existing-package-comparator.md), step by step |
 | **joining someone's package** | `scripts/bootstrap-collaborator.sh OWNER/PACKAGE`, then [Add the comparator tier to an existing package](existing-package-comparator.md) |
 | **about to publish** | [Scan for private strings](how-to.md#scan-for-private-strings-before-publishing), [a fresh public history for a paper-incubated package](receipts.md#publishing-a-package-incubated-beside-private-work), and [the publish checklist, Reservoir and Palomar](how-to.md#get-listed-publish-checklist-reservoir-palomar) |
+| **teaching or self-checking an exercise** | [`lean-exercise check`](exercise.md): judge a `Solution.lean` against a `Challenge.lean` with `lake comparator`, sandboxed, no registry |
 | **checking a machine** | [`comparator host-check`](how-to.md#check-that-this-machine-can-produce-comparator-receipts) before a long comparator run |
 | **declaring or searching results** | [`claims.yaml` and `lean-pkg search`](how-to.md#declare-reusable-results-and-search-before-building), and [formalization.yaml](how-to.md#render-formalizationyaml) |
 | **testing it from scratch** | [Stranger test](stranger-test.md): run it from the docs alone and record what happened |

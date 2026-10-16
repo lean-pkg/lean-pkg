@@ -24,6 +24,7 @@ test = ["pytest>=7"]
 [project.scripts]
 lean-pkg = "lean_pkg.cli:main"
 comparator-receipt = "lean_pkg.comparator_receipt:main"
+lean-exercise = "lean_pkg.exercise:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
