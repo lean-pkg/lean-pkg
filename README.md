@@ -175,8 +175,12 @@ Something went wrong? `lean-pkg report --command "..."` drafts a bug report in t
 
 Safety nets, before anything is public:
 
-- `lean-pkg public-safety NAME` scans the tree and the whole git history for
-  private strings; `promote` refuses while blocking hits remain.
+- `lean-pkg public-safety NAME` scans the tree and the whole git history
+  (blobs, commit messages, author and committer identities, tags, branch
+  names) for private strings, the whole repository when the package is a
+  subdirectory of it; `promote` refuses while blocking hits remain, and
+  `promote --yes` fetches origin's branches, tags and pull-request heads
+  first.
 - `lean-pkg release NAME --fresh-repo DIR` (or `--adopt-repo DIR`) gives a
   package incubated beside a paper a fresh public history; see
   [Publishing a package incubated beside private work](docs/receipts.md#publishing-a-package-incubated-beside-private-work).

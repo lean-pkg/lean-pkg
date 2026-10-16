@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tarfile
@@ -188,6 +189,29 @@ def source_commit(pkg: dict, repo: pathlib.Path, given: str | None) -> tuple[str
     return sha, f"gate receipt {rel}"
 
 
+def export_identity_hits(sc: "ps.Scanner") -> list[dict]:
+    """The blocking public-safety hits in the author and committer identity the export commit will
+    carry (published with it): git's identity for a new repository, read in an empty scratch one.
+    As for any commit identity: an ordinary mail address is declared by being used; a host-like one
+    (`user@hostname`, a local TLD such as `.lan`) is a hit unless consent or an `allow:` line names it."""
+    out: list[dict] = []
+    seen: set = set()
+    with tempfile.TemporaryDirectory(prefix="lean-pkg-ident-") as d:
+        scratch = pathlib.Path(d)
+        if core.git(scratch, "init", "-q").returncode != 0:
+            return out
+        for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
+            p = core.git(scratch, "var", var)
+            m = re.match(r"(.*?) <([^>]*)>", p.stdout.strip()) if p.returncode == 0 else None
+            if not m or m.groups() in seen:
+                continue
+            seen.add(m.groups())
+            out += [ps._hit(sc, "tree", "export-commit-identity", None, pat.label, pat.kind, ex,
+                            severity=pat.severity)
+                    for _n, pat, ex in sc.identity_hits(m.group(1), m.group(2)) if pat.severity == ps.BLOCK]
+    return out
+
+
 def commit_message(src: str, today: str) -> str:
     return (f"fresh-history export of {src[:12]}; receipts and gate must be re-run on this commit\n\n"
             f"source commit: {src}\nexport date: {today}\n")
@@ -305,6 +329,7 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
             sc = ps.Scanner(pkg, pat_root, email_repo)
             blocking += [ps._hit(sc, "tree", "commit-message", n, pat.label, pat.kind, ex, severity=pat.severity)
                          for n, pat, ex in sc.scan_text(msg) if pat.severity == ps.BLOCK]
+        blocking += export_identity_hits(ps.Scanner(pkg, pat_root, email_repo))
         if blocking:
             lines = [ps.hit_line(h) for h in blocking[:20]]
             if srcdir is None:
