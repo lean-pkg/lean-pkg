@@ -7,6 +7,11 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `--repo DIR` naming the registered local_path no longer prints the note "using --repo P instead of the
+  registered local_path P" with the same path twice; JSON `repo_override` is unchanged (field report).
+
 ## [0.7.45] - 2026-10-16
 
 ### Fixed

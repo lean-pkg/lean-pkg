@@ -456,7 +456,8 @@ def cmd_next(args) -> int:
     override = None
     if getattr(args, "repo", None) is not None:
         reg, override = core.repo_override(reg, args.name, args.repo)
-        print(core.repo_override_note(override), file=sys.stderr)
+        if note := core.repo_override_note(override):
+            print(note, file=sys.stderr)
     payload = decide(reg, args.name, args.agent)
     payload["repo_override"] = override
     if override:

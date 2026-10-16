@@ -4759,7 +4759,15 @@ def repo_override(reg: dict, name: str, repo_arg: str) -> tuple[dict, dict]:
     return copied, {"path": str(d), "registered_path": registered, "remote_match": match}
 
 
-def repo_override_note(view: dict) -> str:
+def repo_override_note(view: dict) -> str | None:
+    """The stderr note for `--repo DIR`; None when DIR is the registered local_path itself (field
+    report: the note then named the same path twice and said nothing)."""
+    try:
+        if view.get("registered_path") and \
+                pathlib.Path(view["registered_path"]).resolve() == pathlib.Path(view["path"]).resolve():
+            return None
+    except OSError:
+        pass
     return (f"lean-pkg: note: using --repo {view['path']} instead of the registered local_path "
             f"{view['registered_path']} (this call only; the registry is unchanged)"
             + ("" if view["remote_match"] else "; no remote to compare with the record's repo: "
@@ -6439,7 +6447,8 @@ def cmd_gate(args) -> int:
         reg, override = load_registry(reg_path), None
         if repo_arg is not None:
             reg, override = repo_override(reg, args.name, repo_arg)
-            print(repo_override_note(override), file=sys.stderr)
+            if note := repo_override_note(override):
+                print(note, file=sys.stderr)
         out, payload = do_gate_check(reg, args.name, args.receipt, args.comparator,
                                      refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
                                      regate=regate, reason=reason)
