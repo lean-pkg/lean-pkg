@@ -19,11 +19,13 @@ import hashlib
 import pathlib
 import re
 import subprocess
+import sys
 
 from . import claims as cl
 from . import cli as core
 from . import index as idx
 from . import lean_scan
+from . import adapters
 from .adapters import fold, github, leansearch, loogle, palomar, reservoir
 
 LOCAL_SOURCES = ("registry", "index")
@@ -43,7 +45,13 @@ _PATHLIKE = re.compile(r"(?:~|/home/|/Users/|[A-Za-z]:\\|(?<![\w.:/-])/(?:scratc
 ROUTES = ("signature", "natural-language")
 SIGNATURE_SOURCES = ("loogle",)       # sources that only take declaration/type patterns
 LOOGLE_NL_REASON = ("natural-language query; Loogle takes declaration patterns — try e.g. "
-                    "`?a + ?b = ?b + ?a` (--loogle forces it)")
+                    "`?a + ?b = ?b + ?a` (--loogle-query PATTERN sends a pattern of its own; --loogle forces "
+                    "the term)")
+# Appended to Loogle's own parse error ("Unknown identifier exponential", "expected end of input"): the term
+# reached Loogle but mixed prose with Lean (field report).
+LOOGLE_SYNTAX_HINT = ("; Loogle takes Lean names, terms and patterns (`Real.exp`, `?a * ?b = ?b * ?a`, "
+                      "`\"martingale\"` for a name fragment), not prose: keep the prose as TERM and pass the "
+                      "Lean part with --loogle-query")
 _SIG_MARKERS = ("→", "->", "∀", "∃", "fun ", "λ", ":", "(", "?", "_", "⊢", '"', "↔", "<->")
 _DOTTED = re.compile(r"\b[A-Z][A-Za-z0-9']*\.[A-Za-z_]")
 DECL_HIT_KIND = "declaration (unclaimed)"
@@ -135,14 +143,15 @@ def _package_hit(name: str, pkg: dict, score: int, where: str) -> dict:
 def block(source: str, state: str, reason: str | None = None, revision: str | None = None,
           hits: list | None = None, route: str | None = None, partial: list | None = None,
           capped: list | None = None, cap_limit: int | None = None, total: int | None = None,
-          incomplete: str | None = None) -> dict:
+          incomplete: str | None = None, cache_writes: list | None = None) -> dict:
     """One source's answer. `partial`/`capped` name parts of a network source that failed or hit their
     result limit (`total`: the matches it found, when it lists fewer); `incomplete` says why a local source
     did not read everything (the registry's file cap or unreadable files, the index's unreadable entries)."""
     return {"source": source, "state": state, "reason": scrub_paths(reason) if reason else reason,
             "revision": revision, "hits": hits or [], "route": route, "partial": list(partial or []),
             "capped": list(capped or []), "cap_limit": cap_limit if capped else None,
-            "total": total if capped else None, "incomplete": incomplete}
+            "total": total if capped else None, "incomplete": incomplete,
+            "cache_writes": list(cache_writes or [])}
 
 
 # --------------------------------------------------------------------------
@@ -250,16 +259,17 @@ def git_bytes(repo: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess(cmd, 127, b"", str(e).encode())
 
 
-def _candidate_files(repo: pathlib.Path, words: list[str], nested: tuple[str, ...]) -> list[str] | None:
-    """Tracked `*.lean` files at HEAD containing every word (case- and accent-insensitive), sorted; None when
-    git grep failed. Paths come NUL-separated and unquoted, so a non-ASCII file name is kept as is."""
+def _candidate_files(repo: pathlib.Path, words: list[str], nested: tuple[str, ...]) -> list[str] | str:
+    """Tracked `*.lean` files at HEAD containing every word (case- and accent-insensitive), sorted; a one-line
+    failure (git_failure) when git grep failed. Paths come NUL-separated and unquoted, so a non-ASCII file name
+    is kept as is."""
     args = ["grep", "-l", "-z", "-I", "-E", "--all-match"]
     for w in words:
         args += ["-e", grep_pattern(w)]
     args += ["HEAD", "--", "*.lean", *[f":(exclude){d}/" for d in nested]]
     p = git_bytes(repo, *args)
     if p.returncode not in (0, 1):
-        return None
+        return git_failure(p)
     names = [x.decode("utf-8", errors="surrogateescape") for x in p.stdout.split(b"\0") if x]
     return sorted(n.split(":", 1)[1] for n in names if ":" in n)
 
@@ -272,13 +282,47 @@ NOT_SEARCHED = {
                     "`lean-pkg status {name} --fields local_path,repo` and clone the repository there"),
     "no-git-head": ("no git HEAD", "the checkout has no commit or is not a git work tree; see "
                     "`lean-pkg status {name} --fields local_path` and `lean-pkg doctor`"),
-    "scan-error": ("scan error", "git grep failed in the checkout; see `lean-pkg doctor` and check the checkout "
-                   "with `git status`"),
+    "scan-error": ("scan error", "git grep failed in the checkout (detail: its exit status and cause); see `lean-pkg doctor` and check the checkout with `git status` and `git fsck`"),
 }
 
 
 class NotSearched(str):
-    """The code a declaration search returns instead of hits (a key of NOT_SEARCHED)."""
+    """The code a declaration search returns instead of hits (a key of NOT_SEARCHED); `detail` says what
+    failed (for scan-error: git grep's exit status and a fixed cause, never its stderr), else None."""
+    detail: str | None = None
+
+    @classmethod
+    def of(cls, code: str, detail: str | None = None) -> "NotSearched":
+        out = cls(code)
+        out.detail = detail
+        return out
+
+
+# git's stderr never reaches the output (it can name host paths and users; #112): a failure is reported as its
+# exit status plus one of these fixed causes, matched on the stderr text, else `cause not recognised`.
+GIT_FAILURE_CAUSES = (
+    (("dubious ownership", "safe.directory"), "repository owned by another user (git safe.directory)"),
+    (("promisor", "could not fetch", "unable to read", "missing blob", "bad object", "invalid object",
+      "loose object"), "object missing or unreadable (a partial or damaged clone; try `git fsck`)"),
+    (("packfile", ".pack", ".idx"), "pack file unreadable (damaged, or replaced by a concurrent repack or gc)"),
+    (("index.lock", ".lock': file exists"), "a git lock file is held by another process"),
+    (("too many open files",), "too many open files"),
+    (("cannot allocate memory", "out of memory"), "out of memory"),
+    (("regular expression", "regex", "regexp"), "the search pattern was rejected"),
+    (("not a git repository",), "not a git work tree"),
+)
+
+
+def git_failure(p: subprocess.CompletedProcess) -> str:
+    """`git grep exit 128: object missing or unreadable (...)` or `git grep killed by signal 11`: the exit status
+    and a fixed cause from GIT_FAILURE_CAUSES; git's own stderr is never copied (it can name host paths)."""
+    rc = p.returncode
+    if rc < 0 or rc in (134, 137, 139):
+        return f"git grep killed by signal {-rc if rc < 0 else rc - 128} (a crash; rerun, and check the host)"
+    err = (p.stderr.decode("utf-8", errors="replace") if isinstance(p.stderr, bytes)
+           else str(p.stderr or "")).lower()
+    cause = next((c for keys, c in GIT_FAILURE_CAUSES if any(k in err for k in keys)), "cause not recognised")
+    return f"git grep exit {rc}: {cause}"
 
 
 def declaration_hits(term: str, name: str, pkg: dict,
@@ -309,8 +353,8 @@ def declaration_hits(term: str, name: str, pkg: dict,
     words = _decl_terms(term)
     dotted = "." in str(term)
     candidates = _candidate_files(repo, words, nested)
-    if candidates is None:
-        return NotSearched("scan-error")
+    if isinstance(candidates, str):
+        return NotSearched.of("scan-error", candidates)
     files = candidates[:DECL_FILES_MAX]
     blobs = _read_blobs(repo, head, files)
     unreadable = sum(1 for rel in files if rel not in blobs)
@@ -364,7 +408,8 @@ def not_searched_groups(cov: dict, names: bool) -> str:
     in NOT_SEARCHED order; `no checkout` alone when nothing was skipped, as before."""
     by: dict[str, list[str]] = {}
     for r in cov.get("not_searched_reasons") or []:
-        by.setdefault(r["code"], []).append(r["package"])
+        by.setdefault(r["code"], []).append(
+            f"{r['package']} ({r['detail']})" if names and r.get("detail") else r["package"])
     if not by:
         return "no checkout"
     if not names and list(by) == ["no-checkout"]:
@@ -452,7 +497,8 @@ def registry_search(term: str, reg_path: pathlib.Path) -> tuple[dict, dict | Non
         if isinstance(got, NotSearched):
             cov["not_searched"].append(name)
             cov["not_searched_reasons"].append({"package": name, "code": str(got),
-                                                "remedy": NOT_SEARCHED[got][1].format(name=name)})
+                                                "remedy": NOT_SEARCHED[got][1].format(name=name),
+                                                "detail": got.detail})
         else:
             cov["declaration_only"] += 1
             decl_hits += got[0]
@@ -520,7 +566,18 @@ def index_block(term: str, root: pathlib.Path) -> dict:
 
 
 def adapter_block(source: str, term: str, timeout: float = 10) -> dict:
-    """Run one network adapter; any failure inside it is `skipped`, never fatal, never zero."""
+    """Run one network adapter; any failure inside it is `skipped`, never fatal, never zero. The block's
+    `cache_writes` lists what the adapter wrote under the lean-pkg cache meanwhile (relative paths)."""
+    adapters.CACHE_WRITES.clear()
+    b = _adapter_block(source, term, timeout)
+    b["cache_writes"] = list(adapters.CACHE_WRITES)
+    adapters.CACHE_WRITES.clear()
+    if source == "loogle" and b["state"] == "skipped" and str(b["reason"] or "").startswith("query not understood"):
+        b["reason"] += LOOGLE_SYNTAX_HINT
+    return b
+
+
+def _adapter_block(source: str, term: str, timeout: float = 10) -> dict:
     try:
         r = ADAPTERS[source].search(term, timeout=timeout)
     except Exception as e:                       # one broken source must not end the search
@@ -555,9 +612,17 @@ def parse_sources(text: str | None) -> tuple[str, ...]:
 
 def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
               package: str | None = None, sources: tuple[str, ...] = SOURCES,
-              offline: bool = False, force_loogle: bool = False) -> tuple[list[str], dict]:
+              offline: bool = False, force_loogle: bool = False,
+              loogle_query: str | None = None) -> tuple[list[str], dict]:
+    """`loogle_query`, when given, is what Loogle receives instead of the term (whatever the term's route);
+    every other source still gets the term."""
     if not tokens(term):
         raise core.UsageError("TERM needs at least one letter or digit")
+    if loogle_query is not None:
+        if not loogle_query.strip():
+            raise core.UsageError("--loogle-query needs a Lean name, term or pattern")
+        if "loogle" not in sources:
+            raise core.UsageError("--loogle-query was given but --sources does not select loogle")
     if package and reg_path.is_file() and package not in (core.load_registry(reg_path)["packages"]):
         raise core.UsageError(f"--package {package!r} is not in the registry")
     blocks, route, cov = [], route_of(term), None
@@ -571,6 +636,8 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
             blocks.append(index_block(term, index_dir))
         elif offline:
             blocks.append(block(src, "skipped", "offline"))
+        elif src == "loogle" and loogle_query is not None:
+            blocks.append(adapter_block(src, loogle_query))
         elif src in SIGNATURE_SOURCES and route == "natural-language" and not force_loogle:
             blocks.append(block(src, "skipped", LOOGLE_NL_REASON))
         else:
@@ -579,7 +646,9 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
     date = core.now_iso()[:10]
     payload = {"ok": True, "term": term, "date": date, "package": package, "offline": offline,
                "route": route, "sources": blocks, "total_hits": sum(len(b["hits"]) for b in blocks),
-               "coverage": cov}
+               "coverage": cov, "loogle_query": loogle_query,
+               "cache": {"root": adapters.cache_root_source(),
+                         "writes": [w for b in blocks for w in b.get("cache_writes") or []]}}
     # Completeness at a glance (#14, G9): a source skipped (offline, an outage, a route) means a zero count
     # is not a negative result; callers that copy "0 hits" into a record must see that here.
     skipped = [b["source"] for b in blocks if b["state"] != "ok"]
@@ -638,7 +707,8 @@ def truncation_text(payload: dict) -> str:
 
 def render_text(payload: dict) -> list[str]:
     lines = [f'lean-pkg search "{payload["term"]}" on {payload["date"]}'
-             + (f" for package {payload['package']}" if payload["package"] else "")]
+             + (f" for package {payload['package']}" if payload["package"] else "")
+             + (f' (Loogle query "{payload["loogle_query"]}")' if payload.get("loogle_query") else "")]
     for b in payload["sources"]:
         if b["state"] != "ok":
             lines.append(f"{b['source']}: skipped: {b['reason']}")
@@ -668,6 +738,12 @@ def render_text(payload: dict) -> list[str]:
     cov_line = coverage_text(payload.get("coverage"))
     if cov_line:
         lines.append(cov_line)
+    cache = payload.get("cache") or {}
+    if cache.get("writes"):
+        root = {"--cache-dir": "the --cache-dir directory", "XDG_CACHE_HOME": "$XDG_CACHE_HOME/lean-pkg",
+                "default": "~/.cache/lean-pkg"}.get(cache.get("root"), "the lean-pkg cache")
+        lines.append(f"cache: wrote {', '.join(cache['writes'])} under {root} (a cache refresh; the registry was "
+                     "not written; --cache-dir DIR keeps a search's cache private)")
     why = truncation_text(payload)
     if why and not payload.get("skipped_sources"):
         lines.append(f"incomplete: {why}; a zero here is not a negative result")
@@ -691,10 +767,18 @@ def cmd_search(args) -> int:
     if args.agent and not args.record:
         raise core.UsageError("--agent is only used with --record")
     reg_path = core.registry_path(args)
-    out, payload = do_search(args.term, reg_path=reg_path,
-                             index_dir=idx.index_root(args), package=args.package,
-                             sources=parse_sources(args.sources), offline=args.offline,
-                             force_loogle=args.loogle)
+    if args.cache_dir is not None and not str(args.cache_dir).strip():
+        raise core.UsageError("--cache-dir needs a directory")
+    saved_root = adapters.CACHE_ROOT
+    try:
+        if args.cache_dir is not None:
+            adapters.CACHE_ROOT = pathlib.Path(args.cache_dir).expanduser().resolve()
+        out, payload = do_search(args.term, reg_path=reg_path,
+                                 index_dir=idx.index_root(args), package=args.package,
+                                 sources=parse_sources(args.sources), offline=args.offline,
+                                 force_loogle=args.loogle, loogle_query=args.loogle_query)
+    finally:
+        adapters.CACHE_ROOT = saved_root
     if args.record:
         from . import prior_art
         events_p = core.events_path(args) if (args.events or reg_path.is_file()) else None
@@ -709,10 +793,21 @@ def cmd_search(args) -> int:
         payload["nav_hint"] = (prior_art.nav_hint(payload["record"]["path"])
                                if payload["record"].get("mkdocs") else None)
         out += lines
+    failed = args.require_complete and not payload["complete"]
+    if failed:
+        # Opt-in (field report): an incomplete search exits 1 so a script cannot read its zero as an absence.
+        why = truncation_text(payload)
+        msg = ("search incomplete (--require-complete): "
+               + (f"skipped: {', '.join(payload['skipped_sources'])}" if payload["skipped_sources"] else "")
+               + ("; " if payload["skipped_sources"] and why else "") + why)
+        payload.update({"ok": False, "error": msg})
     if args.json_out:
         core.print_json(payload)
     else:
         print("\n".join(out))
+    if failed:
+        print(f"lean-pkg: {msg}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -730,6 +825,15 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--loogle", action="store_true",
                    help="send the term to Loogle even when it reads as natural language (by default "
                         "only declaration/type patterns go to Loogle)")
+    s.add_argument("--loogle-query", default=None, metavar="PATTERN",
+                   help="send PATTERN to Loogle instead of the term (a Lean name, term or pattern such as "
+                        "'Real.exp' or '?a * ?b = ?b * ?a'); the other sources still get the term")
+    s.add_argument("--require-complete", action="store_true",
+                   help="exit 1 when the search is incomplete (a source skipped, failed in part, capped, or "
+                        "read only part of what it should); the output is printed in full first")
+    s.add_argument("--cache-dir", default=None, metavar="DIR",
+                   help="use DIR as the lean-pkg cache for this search (Palomar snapshots, Reservoir index) "
+                        "instead of $XDG_CACHE_HOME/lean-pkg or ~/.cache/lean-pkg")
     s.add_argument("--sources", default=None, metavar="a,b,c",
                    help="subset of: " + ",".join(SOURCES) + " (order is fixed)")
     s.add_argument("--index", default=None,

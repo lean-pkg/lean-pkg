@@ -136,6 +136,33 @@ lean-pkg search 'law of large numbers'           # natural-language: Loogle skip
 lean-pkg search 'law of large numbers' --loogle  # forced
 ```
 
+Loogle parses Lean, not prose. A term that mixes the two (`exponential martingale Real.exp`,
+or prose sent with `--loogle`) reaches Loogle and fails
+there with "Unknown identifier exponential" or "expected end of input": the
+source is skipped (so the search is incomplete) and the reason says what to
+do. Keep the prose as the term and give Loogle its own query:
+
+```bash
+lean-pkg search 'compensated Poisson random measure' --loogle-query 'MeasureTheory.Measure, "poisson"'
+```
+
+`--loogle-query PATTERN` sends PATTERN to Loogle whatever the term's route;
+every other source still gets the term, and `--json` carries `loogle_query`.
+Loogle's own syntax: a constant name (`Real.exp`), a quoted name fragment
+(`"martingale"`), a subterm pattern with `?` metavariables
+(`?a * ?b = ?b * ?a`), or a conclusion pattern after `⊢`, separated by commas
+to combine them; see [loogle.lean-lang.org](https://loogle.lean-lang.org).
+
+### Requiring a complete search
+
+`--require-complete` turns an incomplete search into exit 1: the output is
+printed in full first, `--json` then carries `ok: false` and `error`
+(`search incomplete (--require-complete): skipped: loogle`), and stderr gets
+the same line. Without it an incomplete search exits 0, as before. Use it in
+scripts that must not record a bounded search as an absence.
+
+### The cache
+
 Palomar caches are complete, revision-consistent snapshots: every page must
 carry the same registry revision, and paging errors or repeated cursors are
 reported as skipped sources rather than zero hits. Cached rows carry a schema,
@@ -144,6 +171,41 @@ from live pages. The snapshots-v1 cache directory is separate from older
 bare-list caches, so older running clients never read the new envelope. A
 legacy cache alone is not used as offline search evidence. Concurrent searches
 write separate temporary files and publish the cache atomically.
+
+Any online search refreshes that cache (a new Palomar snapshot, a new
+Reservoir index commit), with or without `--record` and `--no-commit`; only
+the registry and its event log are left alone without `--record`. The output
+says what was written: each source block's `cache_writes[]` and the top-level
+`cache` {`root`, `writes[]`} in `--json` (paths relative to the cache root,
+`root` one of `--cache-dir`, `XDG_CACHE_HOME`, `default`), and a
+`cache: wrote palomar/snapshots-v1/173.json under $XDG_CACHE_HOME/lean-pkg ...`
+line. The cache is `$XDG_CACHE_HOME/lean-pkg`, else `~/.cache/lean-pkg`. To
+keep a search from touching the shared one, give it a private cache:
+
+```bash
+lean-pkg search 'Gumbel' --cache-dir "$(mktemp -d)"         # one search
+XDG_CACHE_HOME="$PWD/.cache-private" lean-pkg search 'Gumbel' # a whole session
+```
+
+`--offline` writes nothing and searches the newest cached snapshot.
+
+### Registry coverage between runs
+
+The registry's coverage is computed afresh on every run: the registry file is
+read once (writes replace it atomically, so a reader never sees half a file),
+and each package without synced claims is searched in its checkout at `HEAD`.
+There is no shared coverage cache, so two searches run side by side do not
+disturb each other. Two runs differ only when a checkout, its `HEAD`, or the
+outcome of `git grep` in it differs. A `scan-error` package carries `detail`:
+`git grep exit 128: <cause>` with a fixed cause
+(`object missing or unreadable` for a partial or damaged clone, `pack file unreadable` when a
+concurrent repack or gc replaced a pack, `repository owned by another user`,
+`too many open files`, `out of memory`, ...) or `git grep killed by signal N`
+for a crash, and the coverage line repeats it
+(`scan error: NAME (git grep exit 128: ...)`). git's own stderr is never copied,
+since it can name host paths. A package that fails only sometimes points at
+the host (memory, open files) or at concurrent maintenance in that checkout;
+rerun, and run `git fsck` there.
 
 
 Local sources are scored deterministically: an exact alias scores 3, a
@@ -166,6 +228,25 @@ it says so (`incomplete: searched N of M sources; skipped: ...`), and
 unless the command line is wrong (exit 2). `--package NAME` names the
 registered package the search is for; every package's claims are still
 searched.
+
+### When a public library is not found
+
+Each network source sees only part of a library, so search with the
+library-level words as well as the result-level ones:
+
+- the **index** lists only packages entered with receipts at a pin (see
+  [The index](index-catalog.md)); a third-party library is not in it until
+  its maintainers add an entry;
+- **Reservoir** lists only the packages Reservoir itself indexes, and lean-pkg
+  matches their names, descriptions and keywords;
+- **GitHub**'s repository search matches a repository's name, description and
+  topics, and its code search covers only part of GitHub, so a construction
+  inside a library (a Poisson random measure in a Lévy-process library) is
+  found by the library's own words (`Lévy process`), not always by the
+  construction's.
+
+A library found by hand is still prior art: cite it in the record with its
+repository and commit, and decide on it like any other candidate.
 
 ## The record
 

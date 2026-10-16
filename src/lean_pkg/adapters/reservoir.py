@@ -16,7 +16,7 @@ import re
 import shutil
 import tarfile
 
-from . import cache_dir, hit, matches, ok, run_cmd, skipped
+from . import cache_dir, hit, matches, note_cache_write, ok, run_cmd, skipped
 
 NAME = "reservoir"
 ENV = "LEAN_PKG_RESERVOIR_INDEX"
@@ -89,6 +89,7 @@ def index_dir() -> tuple[pathlib.Path | None, str | None, str | None]:
             extract(r[1], dest)
         except (ValueError, tarfile.TarError, OSError) as e:
             return None, None, f"index tarball refused: {type(e).__name__}"
+        note_cache_write("reservoir-index", sha)
     return dest, sha[:8], None
 
 
