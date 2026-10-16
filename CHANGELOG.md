@@ -33,6 +33,15 @@ change the registry schema or receipt format, always with a migration).
 - A `lake comparator` that fails while resolving the workspace in its sandbox (after `Resolving dependencies`, before
   `Building`) or exits 2 (could not start) is reported as a tool/environment error before judging, not as "did not
   accept the solution" (field report).
+### Changed
+
+- Tests: a golden CLI contract (CONTRIBUTING.md, "The golden CLI contract"). It pins the `--help` text of every
+  command, the top-level keys of 30 `--json` payloads, an argv table of which invocations write and lock the
+  registry (checked against `is_write_invocation` and `locks_registry`), a scrubbed corpus of 97 quoted
+  invocations that must keep parsing, the reserved verbs no package may be named, and the options that share the
+  `--registry` abbreviation prefix. `make goldens` re-records the help and JSON goldens after an intended change.
+  No behaviour change.
+
 
 ## [0.7.48] - 2026-10-16
 
