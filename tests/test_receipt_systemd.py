@@ -136,7 +136,7 @@ def test_happy_path_receipt_passes_gate_check(lp, env, repo, tmp_path, capsys):
             "MemoryMax 8.0 GiB, MemorySwapMax 0 B, CPUQuota 400%, RuntimeMax 4h.") in out
     receipt = json.loads(rp.read_text())
     assert list(receipt) == list(lp.RECEIPT_FIELDS) + ["job_stdout_sha256", "manifest_sha256",
-                                                       "unit_properties_sha256"]
+                                                       "log_commit_bound", "unit_properties_sha256"]
     assert receipt["job_id"] == JOB_ID and lp.receipt_job_slug(JOB_ID) == SLUG
     assert receipt["report_sha256"] == sha(lg.read_bytes())
     assert receipt["unit_properties_sha256"] == sha(pf.read_bytes())
@@ -620,3 +620,30 @@ def test_json_sealed_is_empty_when_refused(lp, repo, tmp_path, capsys):
     assert run(lp, repo, Unit(tmp_path, props=props_text(Result="oom-kill")), "--json") == 1
     assert json.loads(capsys.readouterr().out)["sealed"] == []
     assert_nothing_written(repo)
+
+
+def test_the_written_receipt_and_readme_keep_log_commit_bound(lp, env, repo, tmp_path, capsys):
+    """Field report: like `receipt slurm`, the persisted receipt carries `log_commit_bound` and a false value
+    adds a WARN line to the README entry; gate ignores the key (a forged true changes nothing)."""
+    assert run(lp, repo, Unit(tmp_path), "--json", "--append-readme") == 0
+    data = json.loads(capsys.readouterr().out)
+    rp = Path(data["receipt"])
+    receipt = json.loads(rp.read_text())
+    assert receipt["log_commit_bound"] is False and data["log_commit_bound"] is False
+    warn = ("- WARN: the verify log has no commit: line; it is bound to the commit only through lake-manifest.json "
+            "(`log_commit_bound: false`).")
+    assert warn in data["readme_block"].splitlines()
+    assert warn in (rdir(repo) / "README.md").read_text().splitlines()
+    reg = ["--registry", str(env.registry), "gate", "alpha", "--check", "--receipt"]
+    assert lp.main(reg + [str(rp)]) == 0
+    capsys.readouterr()
+    forged = tmp_path / "forged.json"
+    forged.write_text(json.dumps({**receipt, "sorry_count": 2, "log_commit_bound": True}))
+    assert lp.main(reg + [str(forged)]) != 0
+    capsys.readouterr()
+    for p in rdir(repo).iterdir():
+        p.unlink()
+    assert run(lp, repo, Unit(tmp_path, f"commit: {repo_head(repo)}\n" + LOG), "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert json.loads(Path(data["receipt"]).read_text())["log_commit_bound"] is True
+    assert "WARN" not in data["readme_block"]

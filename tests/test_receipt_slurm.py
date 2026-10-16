@@ -131,7 +131,8 @@ def test_happy_path_receipt_passes_gate_check(lp, env, repo, tmp_path, fake_sacc
     assert "elapsed 00:12:05, TotalCPU 01:10:22." in out
     assert f"next: lean-pkg gate NAME --check --receipt .lean-receipts/{c12}-slurm-123.json" in out
     receipt = json.loads(rp.read_text())
-    assert list(receipt) == list(lp.RECEIPT_FIELDS) + ["job_stdout_sha256", "manifest_sha256"]
+    assert list(receipt) == list(lp.RECEIPT_FIELDS) + ["job_stdout_sha256", "manifest_sha256", "log_commit_bound"]
+    assert receipt["log_commit_bound"] is False                # the fixture log has no `commit:` line
     assert receipt["report_sha256"] == sha(lg.read_bytes())
     assert receipt["job_id"] == "slurm-123" and receipt["sorry_count"] == 0
     assert receipt["lean_toolchain"] == TOOLCHAIN and receipt["mathlib_rev"] == MATHLIB_REV
@@ -537,7 +538,8 @@ def test_no_seal_evidence_without_stdout(lp, repo, tmp_path, fake_sacct, capsys)
     assert sha(job.out.read_bytes()) not in data["readme_block"]
     assert sha(MATHLIB_MANIFEST.encode()) not in data["readme_block"]
     receipt = json.loads(Path(data["receipt"]).read_text())
-    assert list(receipt) == list(lp.RECEIPT_FIELDS)
+    assert list(receipt) == list(lp.RECEIPT_FIELDS) + ["log_commit_bound"]
+    assert receipt["log_commit_bound"] is True
 
 
 def test_help_names_checker_requirement_and_redaction_tokens(lp, capsys):
@@ -1039,3 +1041,92 @@ def test_compress_log_flag_is_offered_by_both_receipt_forms(lp, capsys):
             lp.main(["receipt", form, "--help"])
         out = capsys.readouterr().out
         assert "--compress-log" in out and "gzip -dc" in out, form
+# --------------------------------------------------------------------------
+# field report: log_commit_bound persisted in the receipt, the README entry and --check --json
+
+def test_the_written_receipt_and_readme_keep_log_commit_bound(lp, repo, tmp_path, fake_sacct, capsys):
+    """A consumer keeping only the sealed artifacts keeps the limitation: the receipt JSON carries
+    `log_commit_bound` and, when false, the README entry (printed and appended) carries a WARN line."""
+    assert run(lp, repo, Job(tmp_path), "--json", "--append-readme") == 0
+    data = json.loads(capsys.readouterr().out)
+    receipt = json.loads(Path(data["receipt"]).read_text())
+    assert receipt["log_commit_bound"] is False and data["log_commit_bound"] is False
+    warn = ("- WARN: the verify log has no commit: line; it is bound to the commit only through lake-manifest.json "
+            "(`log_commit_bound: false`).")
+    assert warn in data["readme_block"].splitlines()
+    assert warn in (rdir(repo) / "README.md").read_text().splitlines()
+    sealed = {e["role"]: e for e in data["sealed"]}
+    assert sha(Path(data["receipt"]).read_bytes()) == sealed["receipt"]["sha256"]
+    for p in rdir(repo).iterdir():
+        p.unlink()
+    assert run(lp, repo, Job(tmp_path, f"commit: {repo_head(repo)}\n" + LOG), "--json", "--append-readme") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert json.loads(Path(data["receipt"]).read_text())["log_commit_bound"] is True
+    assert "WARN" not in data["readme_block"] and "WARN" not in (rdir(repo) / "README.md").read_text()
+
+
+def test_the_human_output_prints_the_readme_warn_line(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path)) == 0
+    out = capsys.readouterr().out
+    assert "- WARN: the verify log has no commit: line" in out
+
+
+def test_check_json_reports_log_commit_bound(lp, repo, tmp_path, capsys):
+    """`--check --json` names log_commit_bound like the producing run: true / false against --commit, null
+    without --commit (nothing to compare the log's `commit:` line with)."""
+    head = repo_head(repo)
+    base = ["receipt", "slurm", "--check", "--json", "--repo", str(repo), "--checker", CHECKER]
+
+    def check(job: Job, *extra) -> dict:
+        assert lp.main(base + ["--log", str(job.log), "--stdout", str(job.out), "--stderr", str(job.err),
+                               *extra]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    data = check(Job(tmp_path), "--commit", head)
+    assert data["ok"] is True and data["log_commit_bound"] is False
+    data = check(Job(tmp_path, f"commit: {head}\n" + LOG), "--commit", head)
+    assert data["log_commit_bound"] is True
+    assert any("`commit:` line = --commit" in c for c in data["checks"])
+    assert check(Job(tmp_path, f"commit: {head}\n" + LOG))["log_commit_bound"] is None
+    assert check(Job(tmp_path))["log_commit_bound"] is None
+
+
+def test_check_json_log_commit_bound_on_a_refused_preflight(lp, repo, tmp_path, capsys):
+    raw = LOG.encode()
+    sealed = (raw + f"verify-log-sha256: {sha(raw)}\n".encode()).decode()
+    job = Job(tmp_path, sealed)
+    assert lp.main(["receipt", "slurm", "--check", "--json", "--log", str(job.log), "--commit", repo_head(repo),
+                    "--repo", str(repo), "--checker", CHECKER]) == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is False and data["log_commit_bound"] is False
+
+
+def test_gate_ignores_log_commit_bound_and_a_forged_true_changes_nothing(lp, env, repo, tmp_path, fake_sacct,
+                                                                          capsys):
+    """Gate reads only the schema fields: a receipt with `log_commit_bound` false passes, an older receipt
+    without the key passes, and a forged `true` neither rescues a failing receipt nor changes gate's output."""
+    assert run(lp, repo, Job(tmp_path)) == 0
+    capsys.readouterr()
+    written = json.loads(next(rdir(repo).glob("*.json")).read_text())
+    assert written["log_commit_bound"] is False
+    reg = ["--registry", str(env.registry)]
+    before = env.registry.read_bytes()
+
+    def gate(receipt: dict, name: str) -> tuple[int, str, str]:
+        p = tmp_path / name
+        p.write_text(json.dumps(receipt, indent=2))
+        rc = lp.main(reg + ["gate", "alpha", "--check", "--receipt", str(p)])
+        out, err = capsys.readouterr()
+        return rc, out.replace(str(p), "P"), err.replace(str(p), "P")
+
+    old = {k: v for k, v in written.items() if k != "log_commit_bound"}
+    as_written = gate(written, "written.json")
+    assert as_written[0] == 0 and "receipt valid at commit" in as_written[1]
+    assert gate(old, "old.json") == as_written
+    assert gate({**written, "log_commit_bound": True}, "forged.json") == as_written
+    assert gate({**written, "log_commit_bound": "yes"}, "junk.json") == as_written
+    for bad in ({"sorry_count": 1}, {"axioms": STD_AXIOMS + ["sorryAx"]}, {"commit": "0" * 40}):
+        refused = gate({**written, **bad}, "bad.json")
+        forged = gate({**written, **bad, "log_commit_bound": True}, "bad.json")
+        assert refused[0] != 0 and forged == refused, bad
+    assert env.registry.read_bytes() == before
