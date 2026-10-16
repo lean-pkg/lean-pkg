@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.45] - 2026-10-16
+
 ### Fixed
 
 - `gate --check --repo DIR` and `next --repo DIR` refused a checkout whose remote is the scp-style
@@ -82,6 +84,8 @@ change the registry schema or receipt format, always with a migration).
   re-run over a receipt written by 0.7.44 differs by this key and is refused as a differing file, as before.
 - `receipt slurm --check --json` reports `log_commit_bound` as well: `true`/`false` against `--commit`, `null`
   without `--commit` (field report).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.44] - 2026-10-16
 
