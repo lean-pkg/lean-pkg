@@ -93,7 +93,7 @@ def synced_claims(pkg: dict, repo: pathlib.Path, checkout: bool = False) -> list
     synced = pkg.get("claims_synced_commit")
     if not synced or not pkg.get("claims"):
         raise core.Fail(f"{name}: claims are not synced (`lean-pkg claims sync {name}` first)")
-    ok, note = core.evidence_only_descendant(repo, synced, head, core.formalization_rel(pkg))
+    ok, note, _docs = core.package_descendant(repo, synced, head, pkg)
     if not ok:
         if checkout:     # #31: say how this checkout differs from the commit the claims are bound to
             raise core.Fail(f"{name}: --checkout {repo}: HEAD {head[:12]} is not the claims-synced commit "

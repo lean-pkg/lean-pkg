@@ -15,6 +15,22 @@ change the registry schema or receipt format, always with a migration).
   `receipt slurm --check`; read `Too many open files in system` as the job's own thread count, never a bad node;
   size CPUs and memory from a pilot's `sacct`. Listed in the router, `skills/README.md` and `docs/skills.md`
   (field report).
+- Docs-only descendants, opt-in per package (field reports: a docs-only commit after the source commit forced a
+  rerun of a long cluster job or a hand rebind). `lean-pkg update NAME --accept-docs-descendants --reason TEXT`
+  sets the new optional record field `docs_descendants: true` (`--no-accept-docs-descendants` clears it; both
+  need `--reason`, record an `updated` event and accept `--dry-run`); `--build-inputs GLOB,GLOB --reason TEXT`
+  sets the optional `build_inputs` list. Under the opt-in, a receipt bound to commit X is also accepted at a
+  descendant H of X where no build input under the package directory changed: `*.lean`, `lakefile.*`,
+  `lake-manifest.json`, `lean-toolchain` at any depth, the `build_inputs` globs and the files the receipt's
+  `checker` names; a symlink or gitlink change, `.gitattributes`, `.gitmodules`, `.lfsconfig` and `claims.yaml`
+  are always refused (for a package in a subdirectory also those three files at the repository root and in
+  every directory between it and the package), deletions and renames count, and `formalization.yaml` keeps its derived-keys rule. The gated commit
+  stays X. `gate`, `gate --regate` and `comparator` print `✓ HEAD <c12> is a docs-only descendant of <c12>
+  (N non-build file(s): ...; opted in)` and their events and `--json` (also `--check`, which writes nothing)
+  carry `descendant_of` and `docs_paths` (up to 50). The same rule applies to `promote`, `audit`, `next`,
+  `palomar prepare`, `update --path` and the claims-synced checks. Without the opt-in the behaviour is unchanged,
+  except that a refusal the docs-only rule would have admitted ends with a hint naming the flag. `validate`
+  checks both fields. See docs/receipts.md (Docs-only descendants).
 
 ## [0.7.42] - 2026-10-16
 
