@@ -634,15 +634,79 @@ def olean_snapshot(project: pathlib.Path) -> dict[str, int]:
 
 
 def olean_sizes(project: pathlib.Path) -> dict[str, int]:
-    """{module name: olean size in bytes} for the root package's oleans (A/B/C.olean -> A.B.C)."""
-    return {rel[:-len(".olean")].replace("/", "."): st.st_size for rel, st in root_oleans(project)}
+    """{module name: olean size in bytes} for the root package's oleans (A/B/C.olean -> A.B.C). Lake
+    writes them under .lake/build/lib/lean/ (older Lake: .lake/build/lib/); the `lean/` component is
+    the layout, not part of the module name."""
+    out: dict[str, int] = {}
+    for rel, st in root_oleans(project):
+        if rel.startswith("lean/"):
+            rel = rel[len("lean/"):]
+        out[rel[:-len(".olean")].replace("/", ".")] = st.st_size
+    return out
 
 
-def slot_weight(name: str, sizes: dict[str, int]) -> tuple[int, str | None]:
-    """--estimate's weight for a declaration (#59): the size of the olean of the module named by the
-    longest proper namespace prefix of the name that is one of the package's modules (A.B.C.thm tries
-    A.B.C, then A.B, then A); (0, None) when none is. A proxy: a bigger olean marks a heavier module,
-    whose declarations tend to pull a bigger closure."""
+_DECL_RE = re.compile(
+    r"^[ \t]*(?:@\[[^\]]*\][ \t]*)?(?:(?:private|protected|noncomputable|nonrec|partial|unsafe|scoped)"
+    r"[ \t]+)*(?:theorem|lemma|def|abbrev|instance|structure|inductive|class|opaque|axiom|example)"
+    r"[ \t]+([^\s(:{\[]+)", re.M)
+_NS_RE = re.compile(r"^[ \t]*(?:(?:noncomputable|public)[ \t]+)*(namespace|section|mutual|end)\b[ \t]*([^\s-]*)",
+                    re.M)
+
+
+def source_declarations(project: pathlib.Path, sizes: dict[str, int]) -> dict[str, str]:
+    """{full declaration name: module} from the package's own sources, for the modules in sizes (a
+    file X/Y/Z.lean outside hidden directories such as .lake whose dotted path ends in a module name:
+    srcDir and subdirectories need no Lake configuration). Tracks `namespace`/`section`/`mutual`/`end`
+    only; a syntactic scan, so a name it cannot see (macro-generated, `export`) stays unweighted."""
+    if not sizes:
+        return {}
+    files: dict[str, pathlib.Path] = {}
+    sources = []
+    for d, dirs, names in os.walk(project):
+        dirs[:] = sorted(x for x in dirs if not x.startswith(".") and x != "lake-packages")
+        sources += [pathlib.Path(d) / n for n in sorted(names) if n.endswith(".lean")]
+    for p in sources:
+        rel = p.relative_to(project).parts
+        parts = list(rel[:-1]) + [rel[-1][:-len(".lean")]]
+        for i in range(len(parts)):
+            mod = ".".join(parts[i:])
+            if mod in sizes:
+                files.setdefault(mod, p)
+                break
+    out: dict[str, str] = {}
+    for mod, p in files.items():
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        text = re.sub(r"/-.*?-/", "", text, flags=re.S)      # block and doc comments
+        events = sorted([(m.start(), "ns", m.group(1), m.group(2)) for m in _NS_RE.finditer(text)]
+                        + [(m.start(), "decl", m.group(1), "") for m in _DECL_RE.finditer(text)])
+        stack: list[tuple[str, str]] = []          # (kind, name)
+        for _pos, kind, a, b in events:
+            if kind == "ns":
+                if a in ("namespace", "section", "mutual"):
+                    stack.append((a, b))
+                elif stack:
+                    stack.pop()
+                continue
+            name = a[len("_root_."):] if a.startswith("_root_.") else \
+                ".".join([n for k, n in stack if k == "namespace" and n] + [a])
+            out.setdefault(name, mod)
+    return out
+
+
+def slot_weight(name: str, sizes: dict[str, int],
+                decls: dict[str, str] | None = None) -> tuple[int, str | None]:
+    """--estimate's weight for a declaration (#59): the size of the olean of the module whose source
+    declares the name (decls, from source_declarations; this covers a theorem whose namespace is not
+    its module path), else of the module named by the longest proper namespace prefix of the name that
+    is one of the package's modules (A.B.C.thm tries A.B.C, then A.B, then A); (0, None) when neither
+    finds one. A proxy: a bigger olean marks a heavier module, whose declarations tend to pull a
+    bigger closure."""
+    mod = (decls or {}).get(name)
+    if mod is not None and mod in sizes:
+        return sizes[mod], mod
     parts = name.split(".")
     for n in range(len(parts) - 1, 0, -1):
         mod = ".".join(parts[:n])
@@ -1185,6 +1249,27 @@ def estimate_numbers(times: list[float], slots: int, judges: int) -> dict:
                                        f"+ {SETUP_ALLOWANCE})"}
 
 
+REMAINING_MODEL = ("mean of the timed non-heavy sampled slots (all timed slots when none is non-heavy) "
+                   "* unsampled slots / judges; the sampled slots that passed are cached and not judged "
+                   "again; per-slot timings, so the whole_unit_warning applies")
+
+
+def remaining_estimate(rows: list[dict], slots: int, judges: int) -> dict:
+    """The additive remaining-run estimate: the slots the sample did not judge, at the mean of the
+    timed non-heavy (stratified) sampled slots. The heavy slots were picked as the heaviest, so the
+    unsampled ones weigh no more than they; one slow outlier then does not inflate every other slot.
+    With no non-heavy timing it falls back to the mean of all timed slots."""
+    timed = [r for r in rows if r.get("seconds") is not None]
+    light = [r["seconds"] for r in timed if not r.get("heavy")]
+    basis = light or [r["seconds"] for r in timed]
+    unsampled = max(0, slots - len({r["slot"] for r in rows}))
+    mean = sum(basis) / len(basis) if basis else 0.0
+    return {"unsampled_slots": unsampled,
+            "remaining_per_slot_seconds": round(mean, 1),
+            "remaining_estimate_seconds": int(math.ceil(mean * unsampled / max(1, judges))),
+            "remaining_estimate_model": REMAINING_MODEL}
+
+
 def run_estimate(project, configs, mechanism, check, verify, stages, commit, judges, subset, k,
                  resume_command, forced: bool = False) -> dict:
     """--estimate: judge a sample of K slots (the heaviest by olean weight, then namespace-stratified)
@@ -1193,11 +1278,20 @@ def run_estimate(project, configs, mechanism, check, verify, stages, commit, jud
     cfgs = [(c, json.loads((project / c).read_bytes())) for c in configs]
     all_slots = list_slots(cfgs)
     sizes = olean_sizes(project)                  # after the build stage: the package's own oleans
-    weigh = {s.index: slot_weight(s.name, sizes) for s in all_slots}
+    decls = source_declarations(project, sizes)
+    weigh = {s.index: slot_weight(s.name, sizes, decls) for s in all_slots}
+    weights_found = any(w > 0 for w, _m in weigh.values())
     if subset is not None:
         sample, heavy = subset, set()
     else:
         sample, heavy = weighted_sample(all_slots, k, {i: w for i, (w, _m) in weigh.items()})
+        if not weights_found:
+            why = (f"none of the {len(all_slots)} slot name(s) maps to one of the package's "
+                   f"{len(sizes)} olean module(s)" if sizes else
+                   "no olean of the package was found under .lake/build/lib")
+            print(f"comparator-receipt: WARN: --estimate: no slot has an olean weight ({why}); the "
+                  f"heaviest-first part of the sample was skipped and the sample is namespace-stratified "
+                  f"only", file=sys.stderr)
     with tempfile.TemporaryDirectory(prefix="comparator-receipt.") as tmp:
         st = Stage04(project, configs, mechanism, check, verify, stages, pathlib.Path(tmp) / "logs",
                      resume_command, resume=False, judges=1, subset=sample, isolate=True)
@@ -1218,7 +1312,10 @@ def run_estimate(project, configs, mechanism, check, verify, stages, commit, jud
             times.append(secs)
     out = {"schema": ESTIMATE_SCHEMA, "commit": commit, "mechanism": mechanism, "sample": rows,
            "sample_floor": sample_floor(len(all_slots)), "sample_forced": forced,
+           "weights_found": weights_found, "olean_modules": len(sizes),
+           "weighted_slots": sum(1 for w, _m in weigh.values() if w > 0),
            **estimate_numbers(times, len(all_slots), judges),
+           **remaining_estimate(rows, len(all_slots), judges),
            "whole_unit_warning": WHOLE_UNIT_WARNING,
            "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
     path = stages.dir / ESTIMATE_FILE
@@ -1599,8 +1696,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--estimate", action="store_true",
                     help="after setup, judge a sample of slots (the heaviest by olean size, then "
                          "namespace-stratified) one at a time and print an estimate {per_slot_seconds, "
-                         "slots, estimated_seconds, recommended_cap}; writes no receipt (the judged slots "
-                         "are cached for the real run)")
+                         "slots, estimated_seconds, recommended_cap, remaining_estimate_seconds}; writes no "
+                         "receipt (the judged slots are cached for the real run). The JSON is schema "
+                         f"{ESTIMATE_SCHEMA}; /1 -> /2 added the sample floor, the heaviest-first sample "
+                         "(per-row weight_bytes, weight_module, heavy) and the max cap model; later "
+                         "additions (weights_found, remaining_estimate_seconds, ...) are additive and "
+                         "keep /2. See docs/comparator.md (Estimate first)")
     ap.add_argument("--sample", type=int, default=None, metavar="K",
                     help=f"--estimate: sample size (default and floor: max({ESTIMATE_MIN_SAMPLE}, "
                          f"ceil({ESTIMATE_MIN_FRACTION} * slots)), capped at the slots); --slots "
@@ -1722,6 +1823,12 @@ def main(argv: list[str] | None = None) -> int:
                else "the sample covers at least half the slots")
         print(f"recommended_cap {e['recommended_cap']} s = {e['recommended_cap_formula']} "
               f"(cap_model {e['cap_model']}: {why})")
+        print(f"remaining_estimate_seconds {e['remaining_estimate_seconds']} ({e['unsampled_slots']} "
+              f"unsampled slot(s) at {e['remaining_per_slot_seconds']} s; model: "
+              f"{e['remaining_estimate_model']})")
+        if not e["weights_found"]:
+            print(f"WARNING: weights_found false: no slot maps to one of the package's "
+                  f"{e['olean_modules']} olean module(s); the sample is namespace-stratified only")
         print(f"whole_unit_warning: {e['whole_unit_warning']}")
         print(f"estimate: {res['estimate_file']}")
         return 0
