@@ -306,6 +306,8 @@ lean-pkg release my-proof --fresh-repo ~/src/my-proof-public --from-tree ~/src/m
 Evidence is cleared (a receipt binds one commit), so gate and run the
 comparator again on the new commit, then `publish --dry-run` and `promote`.
 The full sequence: [Publishing a package incubated beside private work](receipts.md#publishing-a-package-incubated-beside-private-work).
+Before the flip, give the new repository's README its credits (lean-pkg, and
+the compute when the receipts show where it ran): [Credits](paper-companion.md#credits).
 
 ## Publish
 

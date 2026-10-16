@@ -40,6 +40,12 @@ change the registry schema or receipt format, always with a migration).
   `--artifacts` nothing changes. docs/receipts.md "Recollecting a finished job": `--check`, then the receipt, on
   recollected files; previously copied files are adopted only by this rehash against the job's own manifest
   (field report).
+- `docs/paper-companion.md`: "Credits", a README line crediting lean-pkg with its repository link and concept DOI
+  (exact version DOI from `CITATION.cff` or the README's Citation section); `docs/how-to.md` points to it before a
+  fresh-history release goes public.
+- `docs/paper-companion.md`: "Acknowledge the compute", the official Easley acknowledgment as Markdown with the cluster
+  name linked to its documentation, for a companion whose receipts show the gates ran on Easley. `docs/receipts.md`,
+  `docs/comparator.md` and the README's own acknowledgment carry the same link.
 
 ### Changed
 
