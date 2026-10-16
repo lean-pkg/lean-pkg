@@ -23,7 +23,9 @@ Where the unit's terminal state comes from (one of three, like sacct / --sacct-f
   --setenv names them, it gets LAKE_CACHE_DIR=<a fresh empty temporary directory, removed afterwards> and
   LAKE_ARTIFACT_CACHE=false, so no module is restored (`Reused`) without its sorry warning (lake_hygiene).
   An explicit --setenv LAKE_CACHE_DIR=DIR is used as given (it should be empty); LAKE_CACHE_DIR= (empty, which
-  does not disable the cache) and a LAKE_ARTIFACT_CACHE other than false/0 are usage errors. A log showing a
+  does not disable the cache) and a LAKE_ARTIFACT_CACHE other than false/0 are usage errors. Interrupted while
+  waiting (SIGINT, SIGTERM, SIGHUP), the unit is left running and its temporary cache is kept while the unit may
+  still run; the recovery command (the same without --run) is printed, exit 128 + the signal (report_interrupt). A log showing a
   root-package module Reused, Replayed or Unpacked is refused, so run from a clean build (`lake clean`).
 - `--properties-file F`: the output of `systemctl --user show U -p <UNIT_PROPS>` saved before the unit was
   collected, plus a `Hostname=` line naming the host it ran on (the host is part of job_id).
@@ -52,11 +54,14 @@ import hashlib
 import os
 import pathlib
 import re
+import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 from . import cli as core
@@ -336,6 +341,87 @@ def source_problem(repo: pathlib.Path, commit: str | None, when: str, exclude=()
     return None
 
 
+class RunInterrupted(Exception):
+    """`receipt systemd --run` stopped by a signal (SIGINT, SIGTERM, SIGHUP) while the unit was started or
+    polled; cmd_receipt_systemd exits 128 + signum."""
+
+    def __init__(self, signum: int):
+        super().__init__(f"interrupted by {signal.Signals(signum).name}")
+        self.signum = signum
+
+
+INTERRUPT_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+def _set_handlers(handler) -> dict:
+    """Install `handler` for INTERRUPT_SIGNALS (main thread only); the previous handlers, for _restore."""
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+    return {s: signal.signal(s, handler) for s in INTERRUPT_SIGNALS}
+
+
+def _restore(old: dict) -> None:
+    for s, h in old.items():
+        signal.signal(s, h)
+
+
+def _raise_interrupt(signum, _frame):
+    raise RunInterrupted(signum)
+
+
+def unit_running(ctl: str, unit: str) -> bool | None:
+    """True while the unit (and so its main process) may still run, False when it is gone (not loaded) or
+    terminal (failed, inactive, active+exited), None when its state cannot be read."""
+    text, why = systemctl_show(ctl, unit, "LoadState,ActiveState,SubState")
+    if why:
+        return None
+    state, _ = parse_properties(text)
+    load = state.get("LoadState")
+    if load is None:
+        return None
+    if load != "loaded" or state.get("ActiveState") in ("failed", "inactive") or state.get("SubState") == "exited":
+        return False
+    return True
+
+
+def recovery_command(args, unit: str, repo: pathlib.Path, paths: dict, commit: str | None) -> str:
+    """The `receipt systemd --unit U ...` (no --run) that writes the receipt from the unit once it finished."""
+    argv = ["lean-pkg", "receipt", "systemd", "--unit", unit, "--log", str(paths["--log"]),
+            "--commit", commit or args.commit_sha, "--repo", str(repo)]
+    for flag in ("--stdout", "--stderr"):
+        if flag in paths:
+            argv += [flag, str(paths[flag])]
+    if args.checker:
+        argv += ["--checker", args.checker]
+    for rx in args.redact or []:
+        argv += ["--redact", rx]
+    return " ".join(shlex.quote(a) for a in argv)
+
+
+def report_interrupt(args, signum: int, unit: str, running: bool | None, cache_dir: str | None, repo, paths,
+                     commit) -> None:
+    """What an interrupted --run leaves and how to finish it (stderr): the unit is not stopped; its temporary
+    Lake cache is kept while the unit may still run; the recovery command, which skips the "source tree
+    unchanged during the run" check."""
+    name = signal.Signals(signum).name
+    state = {True: "is still running", False: "is no longer running", None: "is in an unknown state"}[running]
+    err = sys.stderr
+    print(f"lean-pkg: receipt systemd: interrupted by {name} while waiting for {unit}; the unit {state} and was "
+          f"not stopped; nothing was written to .lean-receipts", file=err)
+    if cache_dir is not None:
+        if running is False:
+            print("lean-pkg: its temporary LAKE_CACHE_DIR was removed (the unit no longer runs)", file=err)
+        else:
+            print(f"lean-pkg: its temporary LAKE_CACHE_DIR is kept at {cache_dir} (the unit may still use it); "
+                  f"remove it once the unit has finished: rm -rf {shlex.quote(cache_dir)}", file=err)
+    print("lean-pkg: to write the receipt once the unit has finished (it stays loaded: RemainAfterExit), run "
+          "without --run, adding any other flags of this run (--out, --append-readme, ...):", file=err)
+    print(f"  {recovery_command(args, unit, repo, paths, commit)}", file=err)
+    print("lean-pkg: WARN recovery via --unit skips the --run check that the source tree was unchanged during the "
+          "run (HEAD at --commit, no tracked change, no untracked file); confirm `git status` is clean yourself. "
+          f"Then: systemctl --user stop {unit}; systemctl --user reset-failed {unit}", file=err)
+
+
 def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathlib.Path,
              refusals: list[str], checks: list[str]) -> str | None:
     """Start the command as the bounded transient unit, wait for it to finish, capture its properties before
@@ -370,10 +456,24 @@ def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathli
     checks.append("✓ lake cache: " + ("a fresh empty LAKE_CACHE_DIR" if cache_dir else "LAKE_CACHE_DIR as --setenv")
                   + ", LAKE_ARTIFACT_CACHE=false" + (" (--setenv)" if "LAKE_ARTIFACT_CACHE" in given else ""))
     argv += ["--", *args.command]
+    # Interrupted while the unit may still run (Ctrl-C or a SIGTERM while polling), its temporary Lake cache is
+    # never deleted under it: the unit's state decides, and the recovery command is printed (report_interrupt).
+    keep_cache = False
+    old = _set_handlers(_raise_interrupt)
     try:
         return _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, checks)
+    except (KeyboardInterrupt, RunInterrupted) as e:
+        _set_handlers(signal.SIG_IGN)            # no second interruption while the state is read and reported
+        signum = e.signum if isinstance(e, RunInterrupted) else signal.SIGINT
+        running = unit_running(ctl, unit)
+        keep_cache = running is not False
+        if cache_dir is not None and not keep_cache:
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        report_interrupt(args, signum, unit, running, cache_dir, repo, paths, commit)
+        raise RunInterrupted(signum) from None
     finally:
-        if cache_dir is not None:
+        _restore(old)
+        if cache_dir is not None and not keep_cache:
             shutil.rmtree(cache_dir, ignore_errors=True)
 
 
@@ -501,7 +601,10 @@ def cmd_receipt_systemd(args) -> int:
     checks: list[str] = []
     json_extra = {"unit": None, "properties": None, "ran": run}
     if run:
-        text = run_unit(args, unit, repo, paths, props_out, refusals, checks)
+        try:
+            text = run_unit(args, unit, repo, paths, props_out, refusals, checks)
+        except RunInterrupted as e:
+            return 128 + e.signum
         if text is not None:
             json_extra["properties"] = str(props_out)
     elif args.properties_file is not None:

@@ -446,6 +446,30 @@ session lacks them, `XDG_RUNTIME_DIR=/run/user/$UID` and
 `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$UID/bus` are set for
 `systemd-run` and `systemctl`.
 
+**An interrupted `--run`.** Ctrl-C (SIGINT), SIGTERM or SIGHUP while
+lean-pkg waits for the unit does not stop the unit: it keeps running under
+the user manager. lean-pkg reads the unit's state, keeps the temporary
+`LAKE_CACHE_DIR` while the unit is (or may be) still running, since the
+build may still be using it, and prints where it is with the `rm -rf`
+to run once the unit has finished; it removes the directory itself when the
+unit is gone or already finished. It writes nothing to `.lean-receipts/`,
+exits 128 + the signal number (130 for Ctrl-C) and prints the recovery
+command, the same command without `--run` (add any other flags of the
+first run, such as `--out` or `--append-readme`):
+
+```bash
+lean-pkg receipt systemd --unit audit-gate.service --log /tmp/gate/verify.log --commit <sha> \
+  --repo <repo> --stdout /tmp/gate/unit.out --stderr /tmp/gate/unit.err --checker "gate.sh (lake build; #print axioms)"
+```
+
+Run it once `systemctl --user show audit-gate.service -p ActiveState,SubState`
+says the unit finished (RemainAfterExit keeps it loaded until then), then
+`systemctl --user stop` and `reset-failed` it. Recovery through `--unit`
+reads the unit live and skips one `--run` check: that the source tree was
+unchanged during the run (HEAD at `--commit`, no tracked change, no
+untracked file); the interrupted run prints a WARN saying so. Check
+`git status` yourself before relying on such a receipt.
+
 **A unit that has already run.** `--properties-file F` reads saved
 properties, captured before the unit was collected:
 

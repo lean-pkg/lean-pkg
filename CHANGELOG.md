@@ -31,6 +31,12 @@ change the registry schema or receipt format, always with a migration).
   docs change. `.lean-receipts/` is never a build input whatever `build_inputs` says; a matching file outside it
   still refuses, and symlinks, `claims.yaml`, the attribute files, the checker's files and the `formalization.yaml`
   derived-keys rule are unchanged (field report #5).
+- `receipt systemd --run` interrupted (SIGINT, SIGTERM, SIGHUP) while waiting for the unit deleted the unit's
+  temporary `LAKE_CACHE_DIR` while the unit could still be running and using it (and SIGTERM was not handled at
+  all). The cache is now kept while the unit is running or its state cannot be read (removed when the unit is gone
+  or finished), the unit is left alone, nothing is written, the exit status is 128 + the signal, and the recovery
+  command (`lean-pkg receipt systemd --unit U ...` without `--run`) is printed with a WARN that recovery skips the
+  "source tree unchanged during the run" check; documented in docs/receipts.md.
 
 ## [0.7.51] - 2026-10-16
 
