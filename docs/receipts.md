@@ -278,6 +278,42 @@ container (`RUN=...`). A work directory outside `/tmp/<user>-job<J>` and
 `/scratch/<user>/` that appears in the log needs a `--redact` at receipt
 time.
 
+Two optional settings (environment variables when submitting, or edits at
+the top of the wrapper):
+
+- **`SRC_MODE=clone`** (default `archive`). `archive` extracts
+  `git archive COMMIT`, so the job's tree has no `.git` and a verify script
+  that binds its evidence to `git rev-parse HEAD` fails. `clone` makes the
+  work directory a new repository (`git init`, no template hooks) holding
+  only `COMMIT` and its history, fetched over the file transport from the
+  submitting checkout (`GIT_ALLOW_PROTOCOL=file`: never the network; its own
+  object store, so nothing is shared with the checkout and no untracked or
+  ignored file comes along), and checks it out detached at `COMMIT` (a short
+  `COMMIT` is resolved to the full SHA first; a package in a subdirectory of
+  its repository is built from that subdirectory, as with `archive`). The
+  job fails unless `git rev-parse HEAD` is `COMMIT` and
+  `git status --porcelain --untracked-files=all --ignored` is empty. The log
+  gets `src-mode: clone` and `src-head: <sha>` (`src-mode: archive`
+  otherwise); `receipt slurm` and `--check` refuse a `src-head:` line that
+  is not `--commit`.
+- **`DEPS_TAR=PATH`**: a tarball (any compression `tar` reads) holding
+  `.lake/packages`, the dependencies' checkouts and builds, restored before
+  the fresh-build check so the job need not fetch and build Mathlib again.
+  It is extracted into a staging directory and only its `.lake/packages`
+  directory is moved into the tree; anything else in it (a `.lake/build`,
+  sources) is ignored. The job fails when the tree already has
+  `.lake/packages`, when the tarball has none (a symlink is not one), when
+  a listing and the content hashes of the tree outside `.lake/packages`
+  differ before and after the restore, or when a dependency's
+  `build/lib/lean` holds one of the package's root namespaces
+  (`deps-restore-shadow: <relative path>` lines; the `LEAN_PATH` check
+  before the audit still runs). The log gets `deps-restore: tar <sha256>`
+  (never the path; `deps-restore: none` without it) and
+  `deps-restore-check: ok (...)`. The package itself is still compiled
+  fresh: the empty Lake cache, the `.lake/build` refusal and the
+  `Reused`/`Replayed`/`Unpacked` check are unchanged. The sha256 identifies
+  the tarball; it is not what makes the build trustworthy.
+
 ### Fresh builds and LEAN_PATH
 
 Two Lake behaviours can make a verify log say less than it seems to (checked

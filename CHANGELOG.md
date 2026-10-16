@@ -11,6 +11,12 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `receipt slurm --template`: `SRC_MODE=clone` (default `archive`) builds from a new repository holding only
+  `COMMIT` (file transport only, its own object store, no untracked or ignored files), refuses unless HEAD is
+  `COMMIT` and `git status` is empty, and logs `src-mode:` / `src-head:`; `receipt slurm` and `--check` refuse a
+  `src-head:` that is not `--commit`. `DEPS_TAR=PATH` restores `.lake/packages` from a tarball before the
+  fresh-build check, refusing a restore that changed the tree outside `.lake/packages` or brings the package's
+  root namespace, and logs `deps-restore: tar <sha256>`; the package still compiles fresh (field reports).
 - `comparator-receipt` Lake target readiness: at the end of the `checkout` stage (dependencies present, before
   `cache-get` and `build`), `lake --no-build build M` per configured challenge/solution module; Lake's `unknown
   target` fails the stage naming the module and the `[[lean_lib]]` fix, exit 3 (needs rebuild) passes; each probe is
