@@ -42,11 +42,11 @@ claims:
 | `id` | `<package>/<slug>`; the slug (`[a-z0-9][a-z0-9-]*`) names the mathematics, never the declaration, so a rename changes `decl` and keeps the id |
 | `decl` | the Lean declaration; its last name component must occur in `file` |
 | `kind` | `definition`, `lemma`, `theorem`, `construction` or `library` |
-| `summary` | one sentence |
-| `aliases`, `keywords` | free phrases; lowercase tags (`[a-z0-9-]`) |
+| `summary` | one sentence: one line, at most 300 characters |
+| `aliases`, `keywords` | free phrases, one line of at most 120 characters each; lowercase tags (`[a-z0-9-]`) |
 | `status` | `reusable`, `internal`, `experimental` or `superseded` |
 | `superseded_by` | the id that replaces a superseded claim (a claim is never deleted; supersession must not cycle) |
-| `citation`, `depends_on` | an optional paper locator; other claim ids |
+| `citation`, `depends_on` | an optional paper locator, one line of at most 300 characters; other claim ids |
 
 Unknown keys are refused, and so is anything that looks like a local path.
 Trust is never typed into a claim: it is derived from the package's receipts.

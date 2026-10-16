@@ -12,6 +12,10 @@ change the registry schema or receipt format, always with a migration).
 - `search`: a registered package whose checkout lies inside another's (a `contrib/` package inside a companion's
   `lean/`) is no longer scanned as part of the outer package, so its declarations are attributed to it alone
   (field report).
+- `claims sync` / `claims check`: a length error names the limit and the cause. A single-line citation of 301
+  characters was refused with only `citation must be null or one line`; it now reads `... one line of at most 300
+  characters; it is 301 characters, over the 300-character limit`, a multi-line value says `it spans N lines`, and
+  `summary` and each `aliases[j]` (120) name theirs the same way (field report).
 
 ### Changed
 
