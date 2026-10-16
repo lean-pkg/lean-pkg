@@ -1,0 +1,189 @@
+---
+title: Extracting a public Lean repository
+---
+
+[&larr; lean-pkg documentation](index.md)
+
+*Which files of my paper repository would a public Lean-verification repository contain, byte for byte, and is anything private among them?*
+
+`lean-pkg-extract` is a separate console script, installed with lean-pkg,
+for a working repository that mixes a paper (TeX, bibliography, reviews,
+correspondence) with its Lean formalization. It plans a standalone public
+repository that holds only the Lean package and its verification material,
+with every file traced to a blob of one source commit.
+
+**P1: plan only; write comes next.** This release has the dry run,
+`lean-pkg-extract plan`. It writes nothing. A later release adds
+`lean-pkg-extract write --output DIR`, which materializes exactly the plan.
+
+```bash
+lean-pkg-extract plan --repo . --commit HEAD --manifest extract.json
+```
+
+```text
+plan: OK: 11 file(s) included (1253 bytes), 4 excluded, 1 allowed private, 3 module(s), 2 claim(s), 0 weakening(s); source commit bf1c0dd6...
+included (to <- from, size, sha256, blob, mode, class):
+  Demo.lean <- lean/Demo.lean  35  1e48bc25...  2f2cea21...  100644  lean-source
+  ...
+excluded (PRIVATE: keep this list out of anything published):
+  lean/notes/todo.md  private-marker: internal-dir notes/
+  ...
+modules (module -> file, library):
+  Demo.Basic -> Demo/Basic.lean  (Demo)
+claims (id -> decl -> file):
+  demo/main-bound -> Demo.main_bound -> Demo/Main.lean
+pins:
+  lean_toolchain: lean-toolchain <- lean/lean-toolchain  sha256 b1a88ff9...  leanprover/lean4:v4.20.0
+  lake_manifest: lake-manifest.json <- lean/lake-manifest.json  sha256 acafb9ee...
+    mathlib: git https://github.com/leanprover-community/mathlib4 @ <40-hex rev>
+totals: ...
+plan: OK: ...
+```
+
+## What it reads, and what it never touches
+
+- It reads git objects at `--commit` only: `git ls-tree -r -z --full-tree`
+  and `git cat-file --batch`. The working tree, the index and uncommitted
+  edits are never read, so the plan describes the commit, not your checkout.
+- `--commit` may be any revision; the plan records the full 40-hex SHA. A
+  revision that is not a commit of `--repo` is refused.
+- `--repo` must be the top directory of the repository (manifest paths are
+  relative to it); a bare repository works too.
+- No registry, event log, lease or receipt is opened, and there is no network
+  access: lazy fetches of a partial clone are switched off, so a blob missing
+  from the object store is a refusal.
+- The only write is `--report PATH`, the JSON plan, which must lie outside
+  the source repository (the report lists private paths, and a dry run leaves
+  the source unchanged).
+
+## The manifest
+
+The manifest is strict JSON, schema `lean-pkg-extract/1`. Duplicate keys,
+unknown keys and non-standard constants (`NaN`) are refused. JSON rather than
+YAML because it has one reading: no implicit types, anchors or merge keys.
+
+```json
+{
+  "schema": "lean-pkg-extract/1",
+  "source_commit": "0123456789abcdef0123456789abcdef01234567",
+  "roots": [
+    {"from": "lean", "to": ".", "kind": "lean-package"},
+    {"from": "verification", "to": "verification", "kind": "verification"}
+  ],
+  "pins": {
+    "lean_toolchain": "lean/lean-toolchain",
+    "lake_manifest": "lean/lake-manifest.json",
+    "claims": "lean/claims.yaml",
+    "verification": ["verification/check.sh"]
+  },
+  "exclude": [{"path": "lean/Scratch/**", "reason": "experiments, not part of the release"}],
+  "allow_private": [{"path": "lean/docs/overview.tex", "reason": "the statement overview the README links"}]
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `schema` | `lean-pkg-extract/1` (required) |
+| `source_commit` | optional; when given, a full 40-hex SHA equal to the resolved `--commit` |
+| `roots` | required; `from` (a path in the source, `.` for all of it), `to` (its place in the output, `.` for the output root), `kind`: `lean-package`, `verification`, `docs` or `data` |
+| `pins` | required `lean_toolchain` and `lake_manifest`; optional `claims` and `verification` (scripts and controls). Every pin must exist at the commit, be a regular file and be included |
+| `exclude` | `{path, reason}` globs over source paths; matching files are left out and listed with the reason |
+| `allow_private` | `{path, reason}` globs that include a default-denied file; every use is disclosed in the plan, and an entry that matches no denied file is refused |
+| `lean_libs` | `{name, src_dir, roots}`; required for a `lakefile.lean` package (the plan does not run Lean), refused for a `lakefile.toml` one, whose `[[lean_lib]]` and `[[lean_exe]]` tables are read instead |
+| `dependency_namespaces` | `{package: [Namespace, ...]}` when a dependency's root namespace is not its capitalized name |
+| `allow_unresolved_imports` | `{import, reason}`: an import that resolves to nothing is accepted. **This weakens the import check**; each one is disclosed under `weakened`, and an entry never needed is refused |
+
+Paths in `from`, `to` and `pins` must be plain relative POSIX paths: no `..`,
+no leading `/`, no backslash, no empty or `.` segment. Globs use the
+`.lean-pkg-private-patterns` syntax (`**/`, `*`, `?`; a glob without `/`
+matches the file name at any depth).
+
+Roots may nest. A file belongs to the deepest root whose `from` contains it,
+so `{"from": "lean", "to": "."}` beside `{"from": "lean/docs", "to": "docs"}`
+carves `lean/docs` out of the outer root. Targets may nest too
+(`.` and `verification` above), but two roots may not share a `to`, two files
+may not map to one output path, a file may not also be a directory, and an
+outer root may not write into an inner root's target directory.
+
+## Classification: default deny
+
+Every file under a root is classified, in this order:
+
+1. `exclude` rules: left out, listed with their reason.
+2. Default-denied classes, left out unless `allow_private` names them:
+
+   | Class | Paths |
+   |---|---|
+   | `private-patterns` | `.lean-pkg-private-patterns` |
+   | `receipts` | anything under `.lean-receipts/` (receipts bind the source commits, not the extract) |
+   | `build-output` | anything under `.lake/` or `.git/` |
+   | `review-material` | a `reviews/`, `prompts/` or `transcripts/` directory, `*.transcript*`, `*.jsonl` event streams |
+   | `correspondence` | `*.eml`, `*.mbox`, a `mail/` or `correspondence/` directory |
+   | `private-marker` | `notes/`, `approvals/`, `drafts/`, `scratch/`, `*.priv`, `*.private`, `TODO-private*` |
+   | `manuscript` | `*.tex`, `*.bib`, `*.pdf`, `*.bbl` |
+
+3. Pinned files (class `pin:<role>`).
+4. What the root's kind carries: everywhere `README*`, `LICENSE*`, `COPYING*`,
+   `NOTICE*`, `AUTHORS*`, `CHANGELOG*`, `CONTRIBUTING*`, `CITATION*`,
+   `.gitignore`, `.gitattributes`; `lean-package` adds the Lake files and
+   `.lean .md .txt .toml .json .yaml .yml`; `verification` adds
+   `.lean .sh .py .md .txt .toml .json .yaml .yml .expected` and `Makefile`;
+   `docs` adds `.md .txt .rst .html .css .svg .png .jpg .jpeg .gif`; `data`
+   adds `.json .csv .tsv .txt .yaml .yml .toml .md`.
+
+A file that falls in none of these is **unclassified, and the plan is
+refused** with its path: exclude it, move it, or put it in a root whose kind
+carries it. Files outside every root are not part of the plan at all.
+
+## Refusals
+
+The plan lists every refusal at once (exit 1), sorted:
+
+- unsafe manifest paths (traversal, absolute), overlapping targets, a root
+  whose `from` does not exist;
+- a gitlink (submodule) under a root: refused, never silently dropped;
+- a symlink whose target is absolute, leaves its root or the repository, does
+  not exist, or is (or contains) an excluded file;
+- a missing, excluded or symlinked pin; a `lean-toolchain` that is empty or a
+  floating channel (`stable`, `nightly`, ...);
+- a `lake-manifest.json` package that is not a `git` dependency at a full
+  40-hex `rev`, or a `path` dependency outside the included roots;
+- a claims file that fails the schema `lean-pkg claims check` applies, a
+  claim whose `file` is not included (resolved relative to the claims file's
+  output directory), or whose declaration does not occur in that file;
+- an `import X` in an included `.lean` file that is neither an included
+  module (a `lean_lib` root is a name prefix of `X`, as in Lake), nor
+  `Init`/`Std`/`Lean`/`Lake`, nor the namespace of a pinned dependency, nor
+  allowed by `allow_unresolved_imports`. An import of a library module whose
+  file is excluded is refused with that reason. The check is static and best
+  effort: it reads `import` lines with comments and strings masked and does
+  not run Lean;
+- a stale `allow_private` or `allow_unresolved_imports` entry;
+- a `--report` path inside the source repository.
+
+## Output and exit codes
+
+`--json` prints schema `lean-pkg-extract-plan/1`: `ok`, `source` (`commit`,
+`manifest_sha256`), `roots`, `included[]` {to, from, size, sha256, blob, mode,
+class, root}, `excluded[]` {from, class, reason}, `allowed_private[]`,
+`weakened[]`, `modules[]` {module, file, from, lib}, `unowned_lean_files[]`,
+`claims[]` {id, decl, file, module}, `pins` (each with its sha256 and blob;
+the toolchain `value`; the manifest's `packages[]`), `refusals[]`, `totals`.
+The text form prints the verdict first and again last.
+
+The excluded inventory names private paths. It goes only to stdout and to
+`--report`; never paste it into anything public.
+
+The output is deterministic: sorted, no timestamps, no host paths. Two runs on
+the same commit and manifest are byte-identical.
+
+Exit codes: 0 the plan is clean, 1 refused, 2 usage (argparse; `--repo` not a
+git repository or a subdirectory of one).
+
+## What comes next
+
+`write --output DIR` will materialize the plan into a new directory and verify
+every file against its recorded blob. `lean-pkg extract ...` as a subcommand of
+`lean-pkg` is left to the extension-dispatch work; use the `lean-pkg-extract`
+script. For consolidating several registered packages into one, see
+[Consolidate several checkpoint packages into one](paper-companion.md#consolidate-several-checkpoint-packages-into-one).

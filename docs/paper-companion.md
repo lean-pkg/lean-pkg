@@ -187,6 +187,12 @@ below uses only existing commands. It assumes the inputs share one Lean
 toolchain and one Mathlib revision; align the pins first if they do not,
 since that is a change to every input.
 
+When the Lean code lives inside the paper's own repository rather than in
+registered packages, [`lean-pkg-extract plan`](extract.md) plans the public
+tree instead: every file classified (private material default-denied),
+traced to a blob of one source commit, with its module and claim maps
+(P1: plan only; write comes next).
+
 **The rules.** The old packages, their repositories and their histories stay
 as they are. The new package gets a new name, because an old name already
 denotes its own round. Its evidence is new: no old receipt is copied or

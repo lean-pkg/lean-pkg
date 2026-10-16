@@ -9,6 +9,18 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH [--json] [--report PATH]`: a new console script
+  that plans a standalone public Lean-verification repository from a mixed TeX+Lean working repository (P1: dry run
+  only; `write` comes next). It reads git objects at COMMIT only (never the working tree, a registry or the network),
+  takes a strict-JSON manifest (schema `lean-pkg-extract/1`: roots, pins, exclude, allow_private), classifies every
+  file under the roots with default deny (reviews, prompts, transcripts, `*.jsonl`, correspondence, private markers,
+  `.tex`/`.bib`/`.pdf`, `.lean-receipts/` and the patterns file are left out unless `allow_private` names them, with
+  the reason disclosed), and refuses unclassified files, path traversal, overlapping targets, escaping symlinks,
+  gitlinks, missing or floating pins, dependencies not pinned to a full SHA, invalid claims files, claims whose file is
+  not included and unresolved imports. Prints the included inventory (sha256, blob, mode), the private excluded
+  inventory, module and claim maps and pins; `--json` schema `lean-pkg-extract-plan/1`; exit 0/1/2. See
+  docs/extract.md.
+
 - README: concise overview mentions, each linking to its docs page, of `lean-exercise check` and `--no-sandbox`, `lean-pkg help`
   and its topics, `receipt slurm`/`systemd` with `--compress-log` and the Slurm template's `SRC_MODE=clone` and `DEPS_TAR`,
   comparator configuration and readiness checks, `search` flags, the pre-freeze check and the consolidation recipe; Requirements

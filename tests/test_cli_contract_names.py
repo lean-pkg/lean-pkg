@@ -29,7 +29,7 @@ RESERVED_VERBS = frozenset(CORE_RESERVED) | {
     "run", "attach", "coverage", "claim", "lease", "leases", "renew", "release", "promote", "fresh-repo",
     "adopt-repo", "formalization", "view", "register", "update", "record", "init", "migrate", "validate",
     "audit", "wiki", "snapshot", "add", "render", "sync", "ledger", "prepare", "slurm", "systemd", "local",
-    "extension", "exercise",
+    "extension", "exercise", "extract",
 }
 
 REGISTRY_ENV = "LEAN_PKG_RESERVED_NAMES_REGISTRY"
