@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.51] - 2026-10-16
+
 ### Added
 
 - `public-safety NAME`: with no hit and no blocking line in `.lean-pkg-private-patterns` (none, or only `warn:`
@@ -47,6 +49,8 @@ change the registry schema or receipt format, always with a migration).
 
 - docs/receipts.md "Paper-incubated packages": a code fence closed on a line that also held prose, so the rest
   of the page rendered as code.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.50] - 2026-10-16
 
