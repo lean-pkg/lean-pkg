@@ -813,7 +813,9 @@ CLAIMS_COMMIT_FIRST = ("commit claims.yaml before the verify run, or re-gate "
 def docs_build_input(path: str, globs, extra, scopes=None) -> str | None:
     """Why a package-relative path is a build input for the docs rule, or None for a non-build file.
     `scopes`: the Lake scopes (build_scope.LakeScope) read at the bound commit and at HEAD; a `.lean` file
-    is a build input when one of them owns it. None (no scope could be read): every `.lean` file is."""
+    is a build input when one of them owns it. None (no scope could be read): every `.lean` file is.
+    The record's build_inputs globs never match under .lean-receipts/: an extension-wide glob (`*.json`,
+    `**/*.json`) or an "everything but README" glob would otherwise turn new evidence into a build input."""
     from .build_scope import scope_reason
     base = posixpath.basename(path)
     if base in DOCS_ALWAYS_REFUSED:
@@ -830,6 +832,8 @@ def docs_build_input(path: str, globs, extra, scopes=None) -> str | None:
         return base
     if path in extra:
         return "checker"
+    if is_evidence_path(path):   # the evidence the gate reads: never a build input by a record's glob (#5)
+        return None
     for g in globs or []:
         if fnmatch.fnmatchcase(path, g) or ("/" not in g and fnmatch.fnmatchcase(base, g)):
             return f"build_inputs {g}"
