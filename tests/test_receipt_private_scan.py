@@ -149,3 +149,26 @@ def test_warn_wording_under_comparator_check(lp, env, tmp_path, capsys):
     assert _attach(lp, env, tmp_path, "--check", host=PRIVATE) == 0
     (w,) = _warns(capsys.readouterr().err)
     assert "nothing copied (--check)" in w and "as is" not in w
+
+
+def test_warn_under_gate_check_says_kept_not_refused(lp, env, tmp_path, capsys):
+    """Field report: an accepted receipt with a local path in a field warned `nothing copied (refused; reason
+    below)` under `gate --check`, as if the receipt had been refused."""
+    assert _gate(lp, env, tmp_path, "--check", checker=PRIVATE) == 0
+    (w,) = _warns(capsys.readouterr().err)
+    assert w.startswith("WARN: receipt field receipt.checker contains a private local path (")
+    assert "refused;" not in w and "reason below" not in w and "nothing copied (--check)" in w
+    assert w.endswith("; --refuse-private refuses such a receipt)")
+
+
+def test_warn_on_an_accepted_receipt_says_kept(lp, env, tmp_path, capsys):
+    assert _gate(lp, env, tmp_path, checker=PRIVATE) == 0
+    (w,) = _warns(capsys.readouterr().err)
+    assert "(kept: the receipt is now in .lean-receipts/ as is; --refuse-private refuses" in w
+
+
+def test_refuse_private_text_is_unchanged(lp, env, tmp_path, capsys):
+    assert _gate(lp, env, tmp_path, "--refuse-private", checker=PRIVATE) == 1
+    err = capsys.readouterr().err
+    assert ("--refuse-private: receipt holds private strings, nothing copied: receipt.checker "
+            "(private local path)") in err

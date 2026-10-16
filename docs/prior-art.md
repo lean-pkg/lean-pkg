@@ -214,7 +214,10 @@ the second is a signature, so it goes to Loogle as well. Before reading a zero
 as an absence, check `complete`, `skipped_sources[]`, `truncated_sources[]` and
 `coverage.not_searched_reasons[]` in `--json`: a skipped source, a file cap, a
 source that answered only in part (its block's `partial[]`, e.g. GitHub's code
-search rate-limited while its repository search worked) or a package that was
+search rate-limited while its repository search worked), a part that returned
+exactly its result limit (its block's `capped[]` with `cap_limit`: GitHub's code
+or repository search stops at 30, so more matches may exist; the record's Sources
+table says `capped:` and an `Incomplete:` sentence names it) or a package that was
 never searched means the search was bounded.
 
 **2. Pin what you found.** A candidate is only usable at an exact revision.

@@ -59,4 +59,7 @@ def search(term: str, timeout: float = 30) -> dict:
         note, partial = f"repository search failed: {repos_err}", ["repository"]
     elif code is None:
         note, partial = f"code search failed: {code_err}", ["code"]
-    return ok(revision(), hits, note, partial)
+    # A sub-search that returned exactly LIMIT results hit its cap: more may exist (field report).
+    capped = [part for part, rows in (("repository", repos), ("code", code))
+              if rows is not None and len(rows) >= int(LIMIT)]
+    return ok(revision(), hits, note, partial, capped, int(LIMIT))

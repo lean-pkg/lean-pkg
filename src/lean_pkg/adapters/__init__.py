@@ -63,12 +63,16 @@ def run_cmd(argv: list[str], timeout: float = 120) -> tuple[int, bytes, str] | N
 
 
 def ok(revision: str | None, hits: list[dict], reason: str | None = None,
-       partial: list[str] | None = None) -> dict:
+       partial: list[str] | None = None, capped: list[str] | None = None,
+       cap_limit: int | None = None) -> dict:
     """`partial` names the parts of the source that failed (GitHub's `code` search): the source answered,
-    but a zero from it is not a negative result."""
+    but a zero from it is not a negative result. `capped` names the parts that returned exactly their
+    result limit `cap_limit`: more matches may exist beyond the ones listed."""
     r = {"state": "ok", "reason": reason, "revision": revision, "hits": hits}
     if partial:
         r["partial"] = list(partial)
+    if capped:
+        r["capped"], r["cap_limit"] = list(capped), cap_limit
     return r
 
 
