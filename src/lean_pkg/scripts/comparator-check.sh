@@ -22,6 +22,11 @@
 #       hand on a lab host, openai/math family-072 replay, 2026-10-07; the
 #       script path itself is not yet exercised end to end). The deviation is printed on
 #       its own "== lean4export toolchain override:" line in every log.
+#   LEAN_PATH shadowing (2026-10-16): before the comparator runs under `lake env`,
+#   lake_shadow_check refuses a LEAN_PATH entry other than the project's own
+#   .lake/build/lib/lean that holds one of the project's root namespaces (Lake
+#   lists the root package last; Lean loads <R>/ from the first entry holding
+#   it, so a dependency's copy would be exported and judged instead).
 #   Definition holes need a human sign-off. leanprover/comparator compares a
 #   name listed in definition_names by name, universes, type and safety only
 #   (Comparator/Compare.lean), never by body, and its README says such holes
@@ -243,6 +248,53 @@ fi
 for bin in "$comparator_bin" "$lean4export_bin" "$nanoda_bin" "$landrun_bin"; do
   [ -x "$bin" ] || die "missing tool $bin"
 done
+
+# >>> lean-pkg lake_shadow_check (keep identical in every copy; see lean_pkg/lake_hygiene.py)
+lake_root_namespaces() {
+  local found
+  found=$(
+    {
+      if [ -f lakefile.toml ]; then
+        awk '/^[[:space:]]*\[/ { lib = ($0 ~ /^[[:space:]]*\[\[[[:space:]]*lean_lib[[:space:]]*\]\]/) }
+             lib && /^[[:space:]]*(name|roots|globs)[[:space:]]*=/' lakefile.toml | grep -oE '"[^"]+"' | tr -d '"'
+      fi
+      if [ -f lakefile.lean ]; then
+        grep -oE 'lean_lib[[:space:]]+(«[^»]+»|[A-Za-z_][A-Za-z0-9_.]*)' lakefile.lean | awk '{print $2}'
+        tr '\n' ' ' < lakefile.lean | grep -oE '(roots|globs)[[:space:]]*:=[[:space:]]*#\[[^]]*\]' \
+          | grep -oE '`[^]`[:space:],)]+' | tr -d '`'
+      fi
+    } 2>/dev/null | sed -e 's/^«\([^»]*\)».*$/\1/' -e 's/[.].*$//' | grep -E '^[A-Za-z_]' | sort -u || true
+  )
+  if [ -z "$found" ]; then
+    found=$(find . -path ./.lake -prune -o -name '*.lean' ! -path ./lakefile.lean -print 2>/dev/null \
+      | sed -e 's|^\./||' -e 's|/.*$||' -e 's|\.lean$||' | grep -E '^[A-Za-z_]' | sort -u || true)
+  fi
+  printf '%s\n' "$found"
+}
+lake_shadow_check() {
+  local own entry r n=0 hits=0 roots
+  local -a entries
+  own="$(pwd -P)/.lake/build/lib/lean"
+  roots=$(lake_root_namespaces)
+  IFS=: read -r -a entries <<<"${1:-}"
+  for entry in "${entries[@]}"; do
+    [ -n "$entry" ] || continue
+    n=$((n + 1))
+    if [ "$(cd "$entry" 2>/dev/null && pwd -P)" = "$own" ]; then continue; fi
+    for r in $roots; do
+      if [ -d "$entry/$r" ] || [ -e "$entry/$r.olean" ] || [ -e "$entry/$r.ilean" ]; then
+        echo "lean-path-shadow: $entry/$r"
+        hits=$((hits + 1))
+      fi
+    done
+  done
+  if [ "$hits" -gt 0 ]; then return 1; fi
+  echo "lean-path-shadow: none ($n entries, roots $(printf '%s' "$roots" | paste -sd, -))"
+}
+# <<< lean-pkg lake_shadow_check
+lean_path="$(lake env printenv LEAN_PATH)"
+lake_shadow_check "$lean_path" \
+  || die "a LEAN_PATH entry shadows this project's own modules (lean-path-shadow lines above); a dependency's copy would be judged instead; remove it and rebuild"
 
 # Comparator runs `lake build <module>` and lean4export inside landrun sandboxes that may execute only the
 # toolchain directory, so resolve lake/lean to the toolchain's own binaries rather than the elan shims.

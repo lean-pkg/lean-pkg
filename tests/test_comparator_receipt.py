@@ -503,7 +503,7 @@ def test_stages_logged_for_every_stage_and_summarised_in_receipt(project: Path):
     _lake_project(project)
     r, calls = run_staged(project)
     assert r.returncode == 0, r.stderr
-    assert calls == ["lake env true", "lake exe cache get", "lake build Challenge Solution"]
+    assert calls == ["lake env true", "lake exe cache get", "lake build Challenge Solution", "lake env printenv LEAN_PATH"]
     st = _stages(project)
     assert [e["stage"] for e in st["stages"]] == ["checkout", "cache-get", "build", "comparator", "receipt"]
     assert all(e["status"] == "ok" and e["exit"] == 0 for e in st["stages"])
@@ -525,7 +525,7 @@ def test_stage_run_scrubs_a_leaked_git_index_file(project: Path):
     bogus = str(project.parent / "no-such-dir" / "index")
     r, calls = run_staged(project, extra_env={"GIT_INDEX_FILE": bogus, "GIT_NAMESPACE": "elsewhere"})
     assert r.returncode == 0, r.stderr
-    assert calls == ["lake env true", "lake exe cache get", "lake build Challenge Solution"]   # no `leaked`
+    assert calls == ["lake env true", "lake exe cache get", "lake build Challenge Solution", "lake env printenv LEAN_PATH"]   # no `leaked`
     st = _stages(project)
     assert st["git_env_scrubbed"] == ["GIT_INDEX_FILE", "GIT_NAMESPACE"]
     assert all(e["status"] == "ok" for e in st["stages"])
@@ -550,14 +550,14 @@ def test_prepare_runs_only_setup_then_the_run_skips_it(project: Path):
     _lake_project(project)
     r, calls = run_staged(project, "--prepare")
     assert r.returncode == 0, r.stderr
-    assert len(calls) == 3 and "== lake comparator" not in r.stdout
+    assert len(calls) == 4 and "== lake comparator" not in r.stdout
     assert not (project / ".lean-receipts").exists()
     assert _stages(project)["prepare"] is True and _stages(project)["setup_complete"] is True
     r, calls = run_staged(project, "--prepare")               # idempotent: nothing reruns
-    assert r.returncode == 0 and "already prepared" in r.stdout and len(calls) == 3
+    assert r.returncode == 0 and "already prepared" in r.stdout and len(calls) == 4
     r, calls = run_staged(project)
     assert r.returncode == 0, r.stderr
-    assert len(calls) == 3 and "setup reused" in r.stderr     # straight to the comparison
+    assert len(calls) == 4 and "setup reused" in r.stderr     # straight to the comparison
     st = _stages(project)
     assert [e["status"] for e in st["stages"]] == ["prepared"] * 3 + ["ok", "ok"]
 
@@ -570,7 +570,7 @@ def test_comparison_failure_after_prepare_is_retryable_without_setup(project: Pa
     assert _stages(project)["failed_stage"] == "comparator"
     r, calls = run_staged(project)
     assert r.returncode == 0, r.stderr
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
 def test_prepared_state_is_bound_to_the_config_hash(project: Path):
@@ -582,7 +582,7 @@ def test_prepared_state_is_bound_to_the_config_hash(project: Path):
     git(project, "commit", "-am", "more names")
     r, calls = run_staged(project)
     assert r.returncode == 0, r.stderr
-    assert "no reusable prepared state" in r.stderr and len(calls) == 6
+    assert "no reusable prepared state" in r.stderr and len(calls) == 8
 
 
 def test_from_prepared_refuses_a_mismatched_state(project: Path, tmp_path: Path):
@@ -602,14 +602,14 @@ def test_from_prepared_reuses_a_matching_state_elsewhere(project: Path, tmp_path
     run_staged(project, "--prepare", "--evidence-dir", str(other))
     r, calls = run_staged(project, "--from-prepared", str(other))
     assert r.returncode == 0, r.stderr
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
 def test_cache_get_skipped_without_mathlib(project: Path):
     _lake_project(project, mathlib=False)
     r, calls = run_staged(project, extra_env={"COMPARATOR_RECEIPT_NO_MATHLIB": "1"})   # #62: declared
     assert r.returncode == 0, r.stderr
-    assert calls == ["lake env true", "lake build Challenge Solution"]
+    assert calls == ["lake env true", "lake build Challenge Solution", "lake env printenv LEAN_PATH"]
     assert _stages(project)["stages"][1]["status"] == "skipped"
 
 
@@ -702,7 +702,7 @@ def test_stack_env_reaches_the_lake_children_and_the_receipt(cr, project: Path, 
     r, calls = run_staged(project, extra_env={"COMPARATOR_LAKE": str(wrapper),
                                               "COMPARATOR_RECEIPT_STACK": str(want_kb)})
     assert r.returncode == 0, r.stderr
-    assert seen.read_text().split() == [str(want_kb)] * 3   # every setup child
+    assert seen.read_text().split() == [str(want_kb)] * 4   # every setup child
     assert f"COMPARATOR_RECEIPT_STACK={want_kb}" in r.stderr and f"set to {want_kb} kB" in r.stderr
     head = git(project, "rev-parse", "HEAD")
     rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
@@ -743,17 +743,52 @@ def _receipt(project: Path) -> dict:
 
 
 def test_build_provenance_rule(cr):
-    bp = cr.build_provenance({}, {"lean/A.olean": 1, "lean/B.olean": 2}, "", None)
+    built = "✔ [1/2] Built A (0.4s)\n✔ [2/2] Built B\n"
+    bp = cr.build_provenance({}, {"lean/A.olean": 1, "lean/B.olean": 2}, built, None)
     assert bp == {"compiled": True, "modules_built": 2, "prebuilt": False, "source": None}
     same = {"lean/A.olean": 1}
     assert cr.build_provenance(same, dict(same), "Build completed successfully.\n", "job 7") == \
         {"compiled": False, "modules_built": 0, "prebuilt": True, "source": "job 7"}
-    touched = cr.build_provenance(same, {"lean/A.olean": 5}, "", None)
+    touched = cr.build_provenance(same, {"lean/A.olean": 5}, "✔ [1/1] Built A\n", None)
     assert touched["compiled"] is True and touched["modules_built"] == 1        # rewritten in place
     lines = "✔ [1/3] Built Challenge (0.4s)\n✔ [2/3] Built Solution\n✔ [3/3] Built Solution\n"
     assert cr.build_provenance({}, {}, lines, None)["modules_built"] == 2       # lake's lines, no olean tree
     assert cr.build_provenance(None, None, "", None) == \
         {"compiled": False, "modules_built": None, "prebuilt": False, "source": None}
+
+
+def test_build_provenance_counts_only_built_lines_as_compiled(cr):
+    """Lake's artifact cache writes oleans without compiling them (Reused / Replayed / Unpacked): an olean
+    written with no `Built` line for its module is `restored`, never compiled (lake_hygiene)."""
+    bp = cr.build_provenance({}, {"lean/A.olean": 1, "lean/B/C.olean": 2}, "", None)
+    assert bp == {"compiled": False, "modules_built": 0, "prebuilt": True, "source": None, "restored": 2}
+    same = {"lean/A.olean": 1}
+    touched = cr.build_provenance(same, {"lean/A.olean": 5}, "", None)
+    assert touched["compiled"] is False and touched["restored"] == 1
+    log = "ℹ [1/3] Reused A\n⚠ [2/3] Replayed B.C\n✔ [3/3] Unpacked D\n"
+    bp = cr.build_provenance({}, {"lean/A.olean": 1, "lean/B/C.olean": 2}, log, None)
+    assert bp == {"compiled": False, "modules_built": 0, "prebuilt": True, "source": None, "cache_reused": 3,
+                  "restored": 2}
+    mixed = cr.build_provenance({}, {"lean/A.olean": 1, "lean/B/C.olean": 2}, "✔ [1/2] Built B.C\n" + log, None)
+    assert mixed["compiled"] is True and mixed["modules_built"] == 1
+    assert mixed["restored"] == 1 and mixed["cache_reused"] == 2
+    assert cr.build_provenance_line(mixed) == ("build: compiled 1 module(s); 1 olean(s) restored, not compiled, "
+                                               "2 module(s) Lake reports reused from a cache")
+
+
+def test_a_shadowing_dependency_fails_the_build_stage(project: Path, tmp_path: Path):
+    """A LEAN_PATH entry before the project's own lib directory that holds its root namespace refuses the run
+    after the build stage: Lean would load the dependency's copy under `lake env` (lake_hygiene)."""
+    _lake_project(project)
+    dep = tmp_path / "dep-lib"
+    (dep / "Challenge").mkdir(parents=True)
+    r, calls = run_staged(project, extra_env={
+        "LAKE_STUB_LEAN_PATH": f"{dep}:{project}/.lake/build/lib/lean"})
+    assert r.returncode == 1
+    assert "LEAN_PATH shadows the package's own modules" in r.stderr and "dep-lib/Challenge" in r.stderr
+    assert calls[-1] == "lake env printenv LEAN_PATH"
+    assert _stages(project)["failed_stage"] == "build"
+    assert not list(project.glob(".lean-receipts/*-comparator.json"))
 
 
 def test_build_provenance_compiled_is_recorded(project: Path):
@@ -791,7 +826,7 @@ def test_build_provenance_is_carried_through_from_prepared(project: Path, tmp_pa
     assert r.returncode == 0, r.stderr
     r, calls = run_staged(project, "--from-prepared", str(other))
     assert r.returncode == 0, r.stderr
-    assert len(calls) == 3                                  # no new build
+    assert len(calls) == 4                                  # no new build
     assert _receipt(project)["build_provenance"] == \
         {"compiled": True, "modules_built": 2, "prebuilt": False, "source": "prepare job 1"}
     assert "build: compiled 2 module(s) (source: prepare job 1)" in r.stderr
@@ -828,7 +863,7 @@ def test_lean_threads_reach_the_lake_children_the_judges_and_the_receipt(project
     r, _ = run_staged(project, extra_env={"LAKE_STUB_ENV": str(seen), "COMPARATOR_VERIFY": str(judge),
                                           "LEAN_NUM_THREADS": "16", "COMPARATOR_RECEIPT_LEAN_THREADS": "1"})
     assert r.returncode == 0, r.stderr
-    assert seen.read_text().split() == ["LEAN_NUM_THREADS=1"] * 3     # every setup child
+    assert seen.read_text().split() == ["LEAN_NUM_THREADS=1"] * 4     # every setup child
     assert judge_seen.read_text().split() == ["LEAN_NUM_THREADS=1"]   # the comparator stage's judge
     assert "COMPARATOR_RECEIPT_LEAN_THREADS=1: LEAN_NUM_THREADS=1 for the lake/lean children" in r.stderr
     assert _receipt(project)["lean_threads"] == 1
@@ -839,5 +874,5 @@ def test_lean_threads_unset_leaves_the_environment_alone(project: Path, tmp_path
     seen = tmp_path / "env.txt"
     r, _ = run_staged(project, extra_env={"LAKE_STUB_ENV": str(seen), "LEAN_NUM_THREADS": "16"})
     assert r.returncode == 0, r.stderr
-    assert seen.read_text().split() == ["LEAN_NUM_THREADS=16"] * 3     # inherited, untouched
+    assert seen.read_text().split() == ["LEAN_NUM_THREADS=16"] * 4     # inherited, untouched
     assert _receipt(project)["lean_threads"] is None and "lean threads:" not in r.stderr

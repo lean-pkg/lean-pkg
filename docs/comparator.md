@@ -771,20 +771,35 @@ validators ignore it.
 `lake build <Challenge> <Solution>`; when `.lake/build` already holds the package's oleans for this
 commit, toolchain and manifest it compiles nothing, and the receipt says so
 in the additive `build_provenance`
-`{compiled, modules_built, prebuilt, source}`. The rule: the runner records
-the mtime of every olean under the package's own `.lake/build/lib/` (not the
-dependencies under `.lake/packages/`) before and after the stage; an olean
-that is new or whose mtime changed was written by the stage. Lake's
-`[i/n] Built <target>` lines in the stage log are a second witness.
-`compiled` is true when either shows a build; `modules_built` counts the
-oleans written (or, when none changed, the distinct `Built` targets);
-`prebuilt` is true when the stage ran, passed and compiled nothing; a
-skipped stage records
+`{compiled, modules_built, prebuilt, source}`. The rule: only Lake's own
+`[i/n] Built <target>` lines in the stage log witness a compilation;
+`compiled` is true when there is one and `modules_built` counts the distinct
+`Built` targets. Lake's local artifact cache writes oleans without compiling
+them, and says so with `Reused`, `Replayed` or `Unpacked` (checked against
+the Lake source of v4.35.0-rc2), so an olean write alone proves nothing: the
+runner records the mtime of every olean under the package's own
+`.lake/build/lib/` (not the dependencies under `.lake/packages/`) before and
+after the stage, and an olean that is new or changed with no `Built` line
+for its module is counted in the additive `restored` (present when
+non-zero); the distinct `Reused` / `Replayed` / `Unpacked` targets are
+counted in `cache_reused` (likewise). `prebuilt` is true when the stage ran,
+passed and compiled nothing; a skipped stage records
 `compiled: false, modules_built: null, prebuilt: false`. `COMPARATOR_RECEIPT_BUILD_SOURCE` declares where a
 prebuilt tree came from (free text such as a job id or a host label,
 redacted like every receipt string; `null` when unset). The runner prints
 `build: compiled N module(s)` or `build: prebuilt (source: ...)` after the
-stage; a reused or `--from-prepared` setup carries the provenance recorded
+stage, followed by `; N olean(s) restored, not compiled` and
+`N module(s) Lake reports reused from a cache` when those are non-zero.
+After the build the stage also runs `lake env printenv LEAN_PATH` and
+refuses (stage `build` failed, nothing written) when an entry other than the
+package's own `.lake/build/lib/lean` holds one of its root namespaces (the
+lakefile's `lean_lib` names, roots and globs, else the tracked sources'
+top-level names, plus the configured Challenge and Solution modules'): Lake
+lists the root package last and Lean loads `<R>/` from the first entry
+holding it, so a dependency's copy would be judged instead. Each `lean-path-shadow:`
+line goes to `03-build.log`. `verify-comparator.sh` and `comparator-check.sh`
+run the same check (one shell function, `lake_shadow_check`) before they
+judge; a reused or `--from-prepared` setup carries the provenance recorded
 in its `stages.json` when it was built (a state prepared before this field
 existed records nulls, printed as `provenance not recorded`).
 `comparator --check` and `gate --check` print the same line; validators

@@ -9,7 +9,11 @@
 # declared to have no Mathlib, where Lake has no `cache` executable), and the
 # line "== lake comparator (toolchain) <config>" is printed right before `lake
 # comparator`, so a failure before it is reported as a tool failure, not as a
-# rejected proof. Everything else is upstream.
+# rejected proof; (4) before `lake comparator`, lake_shadow_check refuses a
+# LEAN_PATH entry other than the project's own .lake/build/lib/lean that holds
+# one of the project's root namespaces (Lake lists the root package last and
+# Lean loads <R>/ from the first entry holding it; lean_pkg/lake_hygiene.py).
+# Everything else is upstream.
 set -euo pipefail
 
 # Judge Solution against Challenge the way Palomar does: with the `lake
@@ -72,6 +76,55 @@ if [ "${VERIFY_COMPARATOR_SKIP_CACHE_GET:-}" = 1 ]; then
   echo "skipping lake exe cache get (VERIFY_COMPARATOR_SKIP_CACHE_GET=1: no Mathlib dependency)"
 else
   lake exe cache get
+fi
+# >>> lean-pkg lake_shadow_check (keep identical in every copy; see lean_pkg/lake_hygiene.py)
+lake_root_namespaces() {
+  local found
+  found=$(
+    {
+      if [ -f lakefile.toml ]; then
+        awk '/^[[:space:]]*\[/ { lib = ($0 ~ /^[[:space:]]*\[\[[[:space:]]*lean_lib[[:space:]]*\]\]/) }
+             lib && /^[[:space:]]*(name|roots|globs)[[:space:]]*=/' lakefile.toml | grep -oE '"[^"]+"' | tr -d '"'
+      fi
+      if [ -f lakefile.lean ]; then
+        grep -oE 'lean_lib[[:space:]]+(«[^»]+»|[A-Za-z_][A-Za-z0-9_.]*)' lakefile.lean | awk '{print $2}'
+        tr '\n' ' ' < lakefile.lean | grep -oE '(roots|globs)[[:space:]]*:=[[:space:]]*#\[[^]]*\]' \
+          | grep -oE '`[^]`[:space:],)]+' | tr -d '`'
+      fi
+    } 2>/dev/null | sed -e 's/^«\([^»]*\)».*$/\1/' -e 's/[.].*$//' | grep -E '^[A-Za-z_]' | sort -u || true
+  )
+  if [ -z "$found" ]; then
+    found=$(find . -path ./.lake -prune -o -name '*.lean' ! -path ./lakefile.lean -print 2>/dev/null \
+      | sed -e 's|^\./||' -e 's|/.*$||' -e 's|\.lean$||' | grep -E '^[A-Za-z_]' | sort -u || true)
+  fi
+  printf '%s\n' "$found"
+}
+lake_shadow_check() {
+  local own entry r n=0 hits=0 roots
+  local -a entries
+  own="$(pwd -P)/.lake/build/lib/lean"
+  roots=$(lake_root_namespaces)
+  IFS=: read -r -a entries <<<"${1:-}"
+  for entry in "${entries[@]}"; do
+    [ -n "$entry" ] || continue
+    n=$((n + 1))
+    if [ "$(cd "$entry" 2>/dev/null && pwd -P)" = "$own" ]; then continue; fi
+    for r in $roots; do
+      if [ -d "$entry/$r" ] || [ -e "$entry/$r.olean" ] || [ -e "$entry/$r.ilean" ]; then
+        echo "lean-path-shadow: $entry/$r"
+        hits=$((hits + 1))
+      fi
+    done
+  done
+  if [ "$hits" -gt 0 ]; then return 1; fi
+  echo "lean-path-shadow: none ($n entries, roots $(printf '%s' "$roots" | paste -sd, -))"
+}
+# <<< lean-pkg lake_shadow_check
+lean_path="$(lake env printenv LEAN_PATH)"
+if ! lake_shadow_check "$lean_path"; then
+  echo "error: a LEAN_PATH entry shadows this project's own modules (lean-path-shadow lines above);" \
+    "a dependency's copy would be judged instead; remove it and rebuild" >&2
+  exit 1
 fi
 echo "== lake comparator (toolchain) $config_path"
 lake comparator --config "$config"

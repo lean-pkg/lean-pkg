@@ -72,7 +72,7 @@ lake exe cache get && lake build
 # Build completed successfully (3427 jobs).
 
 grep -rnE '\bsorry\b|^axiom ' --include='*.lean' . | grep -v .lake     # empty
-lake env lean scripts/Axioms.lean
+lake lean scripts/Axioms.lean    # not `lake env lean`: see receipts.md, "Fresh builds and LEAN_PATH"
 # 'MarkovProcessPilot.integral_eval_exitTimeTrunc_Ioo' depends on axioms: [propext, Classical.choice, Quot.sound]
 ```
 

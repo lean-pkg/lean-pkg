@@ -2956,11 +2956,16 @@ def build_provenance_line(bp: dict) -> str:
     """One line for a comparator receipt's additive build_provenance (#56); never validated."""
     src = bp.get("source")
     tail = f" (source: {src})" if src else ""
+    # Lake's artifact cache writes oleans without compiling them: never counted as compiled (lake_hygiene)
+    cached = [f"{bp[k]} {what}" for k, what in (("restored", "olean(s) restored, not compiled"),
+                                                 ("cache_reused", "module(s) Lake reports reused from a cache"))
+              if isinstance(bp.get(k), int) and bp[k]]
+    cached_tail = f"; {', '.join(cached)}" if cached else ""
     if bp.get("compiled") is True:
         n = bp.get("modules_built")
-        return (f"build: compiled {n} module(s)" if isinstance(n, int) else "build: compiled") + tail
+        return (f"build: compiled {n} module(s)" if isinstance(n, int) else "build: compiled") + tail + cached_tail
     if bp.get("prebuilt") is True:
-        return f"build: prebuilt (source: {src or 'not declared'})"
+        return f"build: prebuilt (source: {src or 'not declared'})" + cached_tail
     if bp.get("compiled") is False:
         return "build: no build stage ran (skipped)" + tail
     return "build: provenance not recorded (the setup was prepared before build_provenance)" + tail

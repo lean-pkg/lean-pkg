@@ -78,9 +78,15 @@ Negative control, in a scratch clone, never the publishable tree:
 ```bash
 git clone --quiet . /tmp/audit-control && cd /tmp/audit-control
 sed -i 's/^  exact final_step$/  sorry/' MyPkg/Main.lean
-lake build MyPkg && lake env lean AxiomCheck.lean > control.txt 2>&1
+lake build MyPkg && lake lean AxiomCheck.lean > control.txt 2>&1
 python3 audit.py control.txt   # must fail, naming sorryAx on MyPkg.main_theorem
 ```
+
+Run the audit file with `lake lean`, not `lake env lean`: Lake lists the root
+package's lib directory last on `LEAN_PATH` and Lean loads `MyPkg/` from the
+first entry holding it, so under `lake env` a dependency's build directory
+holding `MyPkg/` would be audited instead (`lake lean` passes explicit module
+paths; see `lean-receipt-discipline` for the `LEAN_PATH` preflight).
 
 For a mathematical mutation (a wrong coefficient, a reversed inequality),
 require the failure to be the intended `False` or type mismatch; an earlier

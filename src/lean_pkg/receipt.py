@@ -29,7 +29,9 @@ Checks, all run before anything is written (every failed check is listed; any on
    log's `axioms:` line (refused when it omits an axiom the log's own `#print axioms` output reports), else the
    union of its `#print axioms` output (`depends on axioms: [...]`, `does not depend on any axioms`); none of
    either refuses. Names are compared without a universe suffix (`Classical.choice.{u}` is `Classical.choice`).
-   `checker` is `--checker`, else the log's `checker:`.
+   `checker` is `--checker`, else the log's `checker:`. A root-package module the log shows Lake restored
+   (`Reused`, `Replayed`, `Unpacked`; inside the template's `lean-pkg-build:` markers when present) refuses:
+   its sorry warning need not be in the log (lake_hygiene, `lake_cache_check`).
    Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse. A log with no `commit:` line is
    refused without --stdout (the in-log seal binds it to nothing) and WARNed with it (`log_commit_bound: false`).
    Every field but `checker` is read from the RAW log. Without `generated-at:` the
@@ -71,6 +73,7 @@ import subprocess
 import sys
 
 from . import cli as core
+from . import lake_hygiene as lh
 from . import public_safety as ps
 
 SHA_KEY = "verify-log-sha256"
@@ -117,7 +120,9 @@ SBATCH_TEMPLATE = r"""#!/bin/bash
 #   stdout (.out): exactly one line each of pre-manifest-sha256, post-manifest-sha256, verify-log-sha256
 #   stderr (.err): empty, so every tool writes into the log, never to the job's stderr
 #   the log: one line each of checker:, sorry-count:, axioms: (and lean-toolchain:, commit:, job-id:,
-#            generated-at:, which must agree with the commit and the job)
+#            generated-at:, which must agree with the commit and the job), the build between the
+#            lean-pkg-build: begin / end lines, and no root-package module Lake restored instead of
+#            compiling (`Reused`, `Replayed`, `Unpacked`): its sorry warning need not be in the log
 #   the job: sacct State COMPLETED, ExitCode 0:0 (any failed step fails the job: set -e)
 #SBATCH --job-name=lean-verify
 #SBATCH --output=verify-%j.out
@@ -133,8 +138,12 @@ set -euo pipefail
 
 # The package's own commands (placeholders; edit them here or set them when submitting).
 VERIFY_CMD=${VERIFY_CMD:-"lake build"}
-# a file of `#print axioms Name` lines for the theorems the receipt covers
-AXIOMS_CMD=${AXIOMS_CMD:-"lake env lean Verify/Axioms.lean"}
+# a file of `#print axioms Name` lines for the theorems the receipt covers. `lake lean FILE`, not
+# `lake env lean FILE`: under `lake env` a dependency's build directory holding the package's own namespace
+# comes first on LEAN_PATH and would be loaded instead (the check below refuses that too).
+AXIOMS_CMD=${AXIOMS_CMD:-"lake lean Verify/Axioms.lean"}
+# prints the LEAN_PATH the audit runs under, for the shadowing check
+LEAN_PATH_CMD=${LEAN_PATH_CMD:-"lake env printenv LEAN_PATH"}
 CHECKER=${CHECKER:-"verify.sbatch (lake build; #print axioms)"}
 # Run the tools inside the job container when the node needs one, e.g. RUN="apptainer exec lean.sif".
 RUN=${RUN:-}
@@ -149,8 +158,15 @@ LOG="$OUT_DIR/verify-$JOB.log"
 # path elsewhere that appears in the log needs `--redact REGEX` at receipt time.
 WORK=${SLURM_TMPDIR:-/tmp/${USER:-user}-job-$JOB}
 SRC="$WORK/src"
-mkdir -p "$SRC"
-trap 'rm -rf "$SRC"' EXIT
+# Lake's local artifact cache restores a module built earlier (`Reused`) without its sorry warning, so the job
+# gets an empty cache of its own and the cache switched off. LAKE_CACHE_DIR="" would NOT disable it (Lake then
+# uses .lake/cache), and a lakefile's `enableArtifactCache = true` wins over LAKE_ARTIFACT_CACHE=false: the
+# empty directory leaves it nothing to restore. (--no-cache / LAKE_NO_CACHE only govern downloads.)
+export LAKE_CACHE_DIR="$WORK/lake-cache"
+export LAKE_ARTIFACT_CACHE=false
+rm -rf "$SRC" "$LAKE_CACHE_DIR"
+mkdir -p "$SRC" "$LAKE_CACHE_DIR"
+trap 'rm -rf "$SRC" "$LAKE_CACHE_DIR"' EXIT
 # Stage the Lean runtime (the elan toolchain) and the Mathlib cache node-local before the build, e.g.
 # copy the toolchain under "$WORK/elan" and export ELAN_HOME="$WORK/elan" PATH="$WORK/elan/bin:$PATH";
 # a shared filesystem under many parallel readers is slow and can fail the build.
@@ -171,8 +187,39 @@ echo "pre-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
   echo "checker: $CHECKER"
   echo "lean-num-threads: $LEAN_NUM_THREADS"
   echo "fs-file-nr-before: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)"
+  echo "lake-cache-dir: fresh (empty, job-local)"
+  echo "lake-artifact-cache: $LAKE_ARTIFACT_CACHE"
 } >"$LOG"
+if [ -e .lake/build ] || [ -n "$(ls -A "$LAKE_CACHE_DIR")" ]; then
+  echo "error: not a fresh build: the committed tree holds .lake/build, or the Lake cache is not empty" >>"$LOG"
+  exit 1
+fi
+""" + lh.SHADOW_CHECK_SH + r"""echo "lean-pkg-build: begin" >>"$LOG"
 $RUN bash -c "$VERIFY_CMD" >>"$LOG" 2>&1
+echo "lean-pkg-build: end" >>"$LOG"
+# A root-package module Lake restored instead of compiling fails the job: its sorry warning need not be in the
+# log. (Lake prints such a job only when it has output, or with -v; the empty cache is the real defence.)
+restored=""
+for m in $(sed -n '/^lean-pkg-build: begin$/,/^lean-pkg-build: end$/p' "$LOG" \
+    | grep -oE '\[[0-9]+/[0-9]+\]( \(Optional\))? (Reused|Replayed|Unpacked) [^ ]+' | awk '{print $NF}' \
+    | sed 's/:.*$//' | sort -u || true); do
+  if [ -n "$(find . -path ./.lake -prune -o -path "*/${m//.//}.lean" -print -quit 2>/dev/null)" ] \
+      || lake_root_namespaces | grep -qxF "${m%%.*}"; then
+    restored="$restored $m"
+  fi
+done
+if [ -n "$restored" ]; then
+  echo "error: Lake restored root-package module(s) instead of compiling them:$restored" >>"$LOG"
+  exit 1
+fi
+# LEAN_PATH: Lake lists the package's own lib directory last and Lean loads <R>/ from the first entry holding
+# it, so a dependency's build directory holding the package's namespace is refused before the audit. The
+# check runs here, outside $RUN: with a container, bind the work directory at the same path.
+lean_path=$($RUN bash -c "$LEAN_PATH_CMD")
+if ! lake_shadow_check "$lean_path" >>"$LOG"; then
+  echo "error: a LEAN_PATH entry shadows the package's own modules (lean-path-shadow lines above)" >>"$LOG"
+  exit 1
+fi
 $RUN bash -c "$AXIOMS_CMD" >>"$LOG" 2>&1
 echo "fs-file-nr-after: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)" >>"$LOG"
 
@@ -816,6 +863,31 @@ def evidence_symlink_problem(repo: pathlib.Path, commit: str | None) -> str | No
     return None
 
 
+def lake_cache_check(repo: pathlib.Path, commit: str | None, raw_text: str, refusals: list[str],
+                     checks: list[str]) -> None:
+    """A root-package module the log shows Lake restored (Reused, Replayed, Unpacked) instead of compiling
+    refuses: its sorry warning need not be in the log (lake_hygiene). Root modules: the tracked .lean sources
+    and lean_lib roots at the commit (without one, of the checkout)."""
+    try:
+        if commit is not None:
+            tracked = list(core.bound_tree(repo, commit))
+            toml, lean = (core.git_show_bytes(repo, f"./{n}", commit) for n in ("lakefile.toml", "lakefile.lean"))
+        else:
+            p = core.git(repo, "ls-files", "--", ".")
+            tracked = p.stdout.splitlines() if p.returncode == 0 else []
+            toml, lean = ((repo / n).read_bytes() if (repo / n).is_file() else None
+                          for n in ("lakefile.toml", "lakefile.lean"))
+    except core.Fail as e:
+        refusals.append(str(e))
+        return
+    files = lh.tracked_lean_files(tracked)
+    roots = lh.package_roots(*(b.decode("utf-8", "replace") if b is not None else None for b in (toml, lean)),
+                             files)
+    found, ok = lh.cache_reuse_problems(raw_text, files, roots)
+    refusals += found
+    checks += ok
+
+
 def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.Pattern]) -> int:
     """The shared second half of every `receipt` form: commit facts, the seal, the verify log's fields, redaction,
     the public-safety scan, and (when nothing refused) the receipt, the redacted log, the executor's evidence
@@ -845,6 +917,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     n_diff = lines_differing(raw_text, redacted)
     fields, problems = parse_raw_log(raw_text, redacted)
     refusals += problems
+    lake_cache_check(repo, commit, raw_text, refusals, checks)
     mathlib, checker = check_fields(fields, commit=commit, toolchain=toolchain, manifest=manifest,
                                     checker_flag=args.checker, check_log_job_id=ev.check_log_job_id,
                                     refusals=refusals)
@@ -1077,6 +1150,7 @@ def preflight(args) -> int:
     redacted, _n = redact(raw_text, extra)
     fields, found = parse_raw_log(raw_text, redacted)
     problems += found
+    lake_cache_check(repo, commit, raw_text, problems, checks)
 
     def log_job_id(value: str) -> str | None:
         if job and value.removeprefix("slurm-") != job:

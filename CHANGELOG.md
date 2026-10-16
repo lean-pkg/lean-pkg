@@ -26,6 +26,26 @@ change the registry schema or receipt format, always with a migration).
   `.lean-receipts/<c12>-<job>.json`, so the stored copy lost its log. The log (plain or `.gz`) now follows it when
   `.lean-receipts/` holds no copy (`sealed log copied to ...`; JSON `report_log.copy[]`; `--check`:
   `· gate would also copy ...`); a symlink at either log name there refuses, nothing written.
+- Lake's local artifact cache could defeat a "fresh build": a module restored from it is reported `Reused`
+  without its ``declaration uses `sorry` `` warning, so a sorry count scraped from the verify log could read 0
+  (checked against the Lake source of v4.35.0-rc2: the cache is read unless switched off, a package lakefile's
+  `enableArtifactCache = true` wins over `LAKE_ARTIFACT_CACHE=false`, `LAKE_CACHE_DIR=""` does not disable it).
+  `receipt slurm --template` builds with `LAKE_CACHE_DIR` a fresh empty job-local directory and
+  `LAKE_ARTIFACT_CACHE=false` (path-free `lake-cache-dir:` / `lake-artifact-cache:` log lines), refuses a committed
+  `.lake/build`, brackets the build with `lean-pkg-build:` markers and fails the job when it shows a root-package
+  module `Reused`, `Replayed` or `Unpacked`. `receipt systemd --run` gives the unit the same isolation unless
+  `--setenv` names the variables (`LAKE_CACHE_DIR=` and `LAKE_ARTIFACT_CACHE=true` are usage errors).
+  `receipt slurm` / `receipt systemd` (and `--check`) refuse a log showing a root-package module restored, naming
+  it. `comparator-receipt`'s `build_provenance` counts only Lake's `Built` lines as compiled; an olean written
+  without one is `restored`, and `Reused` / `Replayed` / `Unpacked` targets are `cache_reused` (additive keys,
+  present when non-zero).
+- A dependency's build directory could shadow the package's own modules for `lake env lean`: Lake lists the root
+  package's lib directory last on `LEAN_PATH` and Lean loads `<R>/` from the first entry holding it. The template's
+  default `AXIOMS_CMD` is `lake lean Verify/Axioms.lean` (explicit module paths); the template, `comparator-receipt`
+  (after its build stage), `verify-comparator.sh` and `comparator-check.sh` refuse when a `LEAN_PATH` entry other
+  than the package's own `.lake/build/lib/lean` holds one of its root namespaces, naming the path (new module
+  `lake_hygiene`; one shell function, `lake_shadow_check`, carried verbatim by the template and both scripts). The
+  `lean-receipt-discipline` and `lean-axiom-audit` skills use `lake lean` and show the preflight.
 
 ### Added
 
