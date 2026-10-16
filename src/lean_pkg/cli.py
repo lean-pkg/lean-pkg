@@ -2812,19 +2812,58 @@ def regate_lineage(name: str, pkg: dict, repo: pathlib.Path, commit: str,
                          f"non_descendant: true)")
 
 
-def receipt_pin_changes(pkg: dict, receipt: dict) -> dict:
-    """{field: {"from", "to"}} for the package's lean_toolchain and mathlib_pin that differ from the receipt's
-    lean_toolchain and mathlib_rev (field report: a deliberate pin bump, gated, left `list` on the old pin).
-    Both are receipt-bound facts at the gated commit. mathlib_pin keeps register's 10-character form; a
-    recorded pin that is a prefix of the receipt's rev, or the reverse, is unchanged."""
-    out = {}
+def _same_rev(a: str, b: str) -> bool:
+    return bool(a and b) and (a.startswith(b) or b.startswith(a))
+
+
+def committed_mathlib_rev(repo: pathlib.Path, commit: str) -> str | None:
+    """The mathlib package's rev in lake-manifest.json committed at `commit`; None when unreadable."""
+    blob = git_show_bytes(repo, "./lake-manifest.json", commit)
+    try:
+        data = json.loads(blob.decode("utf-8")) if blob is not None else None
+    except (ValueError, UnicodeDecodeError):
+        return None
+    for p in (data.get("packages") or []) if isinstance(data, dict) else []:
+        if isinstance(p, dict) and str(p.get("name", "")).lower() in ("mathlib", "«mathlib»") and p.get("rev"):
+            return str(p["rev"]).strip()
+    return None
+
+
+def receipt_pin_changes(pkg: dict, repo: pathlib.Path, receipt: dict) -> tuple[dict, dict]:
+    """(changes, kept) for the package's lean_toolchain and mathlib_pin against the receipt's lean_toolchain and
+    mathlib_rev (field report: a deliberate pin bump, gated, left `list` on the old pin). A receipt value is
+    adopted only when it agrees with the file committed at the receipt's commit (`lean-toolchain`, the mathlib
+    rev in `lake-manifest.json`); otherwise the recorded value is kept and `kept` says why, {field: {receipt,
+    manifest}}; never a refusal. mathlib_pin keeps register's 10-character form; revs that are prefixes of one
+    another are equal."""
+    changes, kept = {}, {}
+    commit = str(receipt.get("commit") or "")
     tc = str(receipt.get("lean_toolchain") or "").strip()
     if tc and pkg.get("lean_toolchain") != tc:
-        out["lean_toolchain"] = {"from": pkg.get("lean_toolchain"), "to": tc}
+        blob = git_show_bytes(repo, "./lean-toolchain", commit) if commit else None
+        committed = blob.decode("utf-8", "replace").strip() if blob is not None else None
+        if committed == tc:
+            changes["lean_toolchain"] = {"from": pkg.get("lean_toolchain"), "to": tc}
+        else:
+            kept["lean_toolchain"] = {"receipt": tc, "manifest": committed}
     rev = str(receipt.get("mathlib_rev") or "").strip()
     old = str(pkg.get("mathlib_pin") or "")
-    if rev and not (old and (rev.startswith(old) or old.startswith(rev))):
-        out["mathlib_pin"] = {"from": pkg.get("mathlib_pin"), "to": rev[:10]}
+    if rev and not _same_rev(rev, old):
+        committed = committed_mathlib_rev(repo, commit) if commit else None
+        if committed and _same_rev(rev, committed):
+            changes["mathlib_pin"] = {"from": pkg.get("mathlib_pin"), "to": rev[:10]}
+        else:
+            kept["mathlib_pin"] = {"receipt": rev, "manifest": committed}
+    return changes, kept
+
+
+def pins_kept_lines(name: str, kept: dict, commit: str) -> list[str]:
+    files = {"lean_toolchain": ("lean_toolchain", "lean-toolchain"), "mathlib_pin": ("mathlib_rev", "lake-manifest.json")}
+    out = []
+    for field, v in kept.items():
+        key, f = files[field]
+        found = v["manifest"] if v["manifest"] is not None else "unreadable"
+        out.append(f"{name}: pins kept: receipt {key} {v['receipt']} does not match {f} at {commit[:12]} ({found})")
     return out
 
 
@@ -2894,9 +2933,10 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
                       + (f"; re-gate with `lean-pkg gate {name} --receipt R --regate`"
                          if status == "verified-private" else "")
                       + (f"; first: {to_gate_pending_cmd(name, commit)}" if status == "active" else ""))
-    pins = receipt_pin_changes(pkg, receipt)
+    pins, pins_kept = receipt_pin_changes(pkg, repo, receipt)
     if pins:
         checks.append(f"· pins: gate would record {pin_changes_text(pins)} (from the receipt)")
+    checks += [f"· {line.split(': ', 1)[1]}" for line in pins_kept_lines(name, pins_kept, commit)]
     ok = cs["ok"] is not False and lineage_ok
     msg = (f"{name}: receipt valid at commit {commit[:12]}"
            + (f" with comparator ({len(comp['configs'])} config(s))" if comp else "")
@@ -2907,7 +2947,8 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
     payload = {"ok": ok, "name": name, "event": "gate-checked", "recorded": False, "commit": commit,
                "head": git_head(repo), "status": status, "checks": checks,
                "comparator": ({"commit": comp["commit"], "configs": len(comp["configs"])} if comp else None),
-               "private_strings": private, "dirty": dirty, "claims_schema": cs, "pins": pins}
+               "private_strings": private, "dirty": dirty, "claims_schema": cs, "pins": pins,
+               "pins_kept": pins_kept}
     if regate:
         payload["regate"] = regate_view
     return [msg] + [f"  {c}" for c in checks], payload
@@ -3035,7 +3076,7 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     else:
         new_status = "verified-private"
     pkg["status"] = new_status
-    pins = receipt_pin_changes(pkg, receipt)
+    pins, pins_kept = receipt_pin_changes(pkg, repo, receipt)
     for field, change in pins.items():
         pkg[field] = change["to"]
     if pins:
@@ -3060,6 +3101,7 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
                    + (f" with comparator evidence {comp_rel}" if comp_rel else ""))
     if pins:
         out.append(f"{name}: pins updated from the receipt: {pin_changes_text(pins)}")
+    out += pins_kept_lines(name, pins_kept, commit)
     out.append(RL_REMINDER.format(name=name))
     ignored = attached_ignored_evidence(pkg, repo)
     payload = {"ok": True, "name": name, "event": event,
@@ -3067,7 +3109,8 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
                "receipt": dest_rel, "commit": commit, "rl_reminder": True,
                "rl_hint": RL_REMINDER.format(name=name),
                "status_unchanged": was_public or regate, "private_strings": private, "dirty": dirty,
-               "ignored_evidence": ignored, "claims_schema": cs, "pins": pins}
+               "ignored_evidence": ignored, "claims_schema": cs, "pins": pins,
+               "pins_kept": pins_kept}
     if regate:
         payload.update(previous_commit=prev_commit, non_descendant=non_descendant, reason=reason or "")
     if comp_rel:
@@ -5232,7 +5275,7 @@ claim     (alias: lease) CAS lease; refuses if another agent holds an unexpired 
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
-gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". gate/regate record the receipt's lean_toolchain and mathlib_rev[:10] into lean_toolchain/mathlib_pin (a prefix match is unchanged; one "pins updated" line; event and JSON pins {field: {from, to}}; --check: "· pins: gate would record ...", nothing written). --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine. Progress files (PROGRESS.md, state file, ledgers) live outside the package dir: any other change inside it needs a new receipt.
+gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". gate/regate record the receipt's lean_toolchain and mathlib_rev[:10] into lean_toolchain/mathlib_pin when each agrees with lean-toolchain / lake-manifest.json at the receipt commit (a prefix match is unchanged; one "pins updated" line; event and JSON pins {field: {from, to}}); a disagreeing or unreadable one is kept, never a refusal: "NAME: pins kept: receipt mathlib_rev X does not match lake-manifest.json at <c12> (Y)", JSON pins_kept {field: {receipt, manifest}}; --check reports both, nothing written. --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine. Progress files (PROGRESS.md, state file, ledgers) live outside the package dir: any other change inside it needs a new receipt.
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN "receipt field F contains a ... (kept: ...; --refuse-private refuses such a receipt)" + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines), --check --repo DIR (validate against the checkout DIR, not the registered local_path, this call only: never saved; stderr note; JSON repo_override {path, registered_path, remote_match}, null without it; DIR must be a git work tree and, when it has remotes, one must be the package's repo, else the caller vouches; a writing gate refuses --repo, exit 2: it binds the registered checkout, move that with update --path). Success (and promote --yes) ends with a results-ledger: line (JSON rl_reminder, rl_hint): lean-pkg keeps no results ledger, the outcome is in `status NAME` and `claims ledger NAME`; add it to the project's own results ledger if it keeps one (docs/lifecycle.md#results-ledger)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json   |   receipt slurm --job J --log PATH --commit SHA [--stdout JOB.out] [--stderr JOB.err] [--checker TEXT] [--repo DIR] [--redact REGEX]... [--sacct-file F] [--out PATH] [--append-readme] (no registry): writes the lower-tier receipt from a finished Slurm job; refuses (exit 1, nothing written) unless sacct's main job line is COMPLETED 0:0, the stdout's verify-log-sha256 = sha256(raw log) and pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at SHA) (no --stdout: the log's own `verify-log-sha256:` line = sha256 of the log minus that line), stderr is empty, lean_toolchain/mathlib_rev from SHA agree with any log line, sorry 0 and axioms from the log (sorry-count:/axioms: lines, else 'sorry' warnings/#print axioms output; a sorry-count: below the log's own 'sorry' warnings, or an axioms: line omitting an axiom its #print axioms output reports, is refused; universe suffixes .{u} ignored), a checker (--checker or checker:), and no public-safety blocking hit is left after redacting /tmp/<account>-job, /scratch/<user>/ and --redact; job_id slurm-<J>; writes .lean-receipts/<c12>-slurm-<J>.json + <c12>-slurm-<J>-verify.redacted.log (report_sha256; with --stdout also job_stdout_sha256 + manifest_sha256, additive keys gate ignores), prints the README entry (with --stdout a `- Seal:` line naming both; --append-readme: appended to .lean-receipts/README.md) and `gate NAME --check --receipt PATH`; --json {ok, receipt, log, report_sha256, job_id, sealed[] {role, path, sha256, receipt_key} (the exact files bound; systemd's `properties` is the raw unsealed capture), checks[], refusals[], ...}; --template (no other flag, no registry): print a minimal sbatch wrapper emitting every line the receipt reads (stdout seal lines, empty stderr, checker:/sorry-count:/axioms: in the log); --check --log PATH [--stdout] [--stderr] [--commit SHA] [--job J --sacct-file F]: preflight a job's files, every problem named, no sacct, nothing written, exit 0/1, --json {ok, checks[], problems[]}   |   receipt systemd (alias local) --unit U --log PATH --commit SHA [--properties-file F | --run [--memory-max 8G] [--memory-swap-max 0] [--cpu-quota 400%] [--runtime-max 4h] [--setenv K=V]... [--properties-out PATH] -- CMD...] + the same --stdout/--stderr/--checker/--repo/--redact/--out/--append-readme/--json: the same receipt from a finished systemd --user service unit; the unit state comes from --run (lean-pkg runs CMD bounded via systemd-run --user -p RemainAfterExit=yes, WorkingDirectory=--repo, so the finished unit stays loaded: properties are captured to <log>.unit.properties before it is stopped and reset; the checkout must be at SHA with no tracked change under the package dir before and after), --properties-file (saved `systemctl --user show U -p ...` + a Hostname= line) or live `systemctl --user show U`; refuses unless LoadState=loaded, Id=U, terminal (failed/inactive or active+exited), Result=success (oom-kill, timeout, signal named), ExecMainCode exited with ExecMainStatus 0, NRestarts 0, plus every receipt slurm seal/field/redaction check (optional stdout invocation-id = InvocationID); job_id systemd-user:<U>:<InvocationID>@<host> (host from the running system); also writes <c12>-<slug>-unit.properties (additive unit_properties_sha256); built-in redaction <repo>, <HOME>, /run/user/<UID>/

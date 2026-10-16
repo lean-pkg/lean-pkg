@@ -27,11 +27,14 @@ change the registry schema or receipt format, always with a migration).
   the commit-side checks run only with `--commit` (field report).
 - `gate` and `gate --regate` record the receipt's `lean_toolchain` and `mathlib_rev` (first 10 characters) into
   the package's `lean_toolchain` and `mathlib_pin`, which are receipt-bound facts at the gated commit; after a
-  deliberate pin bump `list` showed the old Mathlib pin. When either changes, one line `NAME: pins updated from
+  deliberate pin bump `list` showed the old Mathlib pin. Each is adopted only when it agrees with the file
+  committed at the receipt's commit (`lean-toolchain`; the mathlib rev in `lake-manifest.json`, prefix-equal);
+  otherwise the recorded value is kept, the gate still passes, and `NAME: pins kept: receipt mathlib_rev X does
+  not match lake-manifest.json at <c12> (Y)` is printed (JSON `pins_kept` {field: {receipt, manifest}}). When either changes, one line `NAME: pins updated from
   the receipt: ...` is printed and the `gate-passed`/`regated` event gains `pins` {field: {from, to}} (JSON
   `pins`, `{}` when unchanged). A recorded pin that is a prefix of the receipt's rev, or the reverse, is
   unchanged; an identical re-gate stays a no-op; `gate --check` reports `· pins: gate would record ...` and
-  writes nothing (field report).
+  `· pins kept: ...` and writes nothing (field report).
 
 ### Changed
 
