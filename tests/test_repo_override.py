@@ -157,3 +157,15 @@ def test_the_registered_checkout_needs_no_remote_proof(lp, env, capsys):
     rc, out, err = run(lp, env, capsys, "next", "alpha", "--repo", str(env.repo_a), "--json")
     assert rc == 0, out
     assert json.loads(out)["repo_override"]["remote_match"] is None
+
+
+def test_no_note_when_repo_is_the_registered_path(lp, env, capsys, tmp_path):
+    """Field report: --repo naming the registered local_path printed 'using --repo P instead of the
+    registered local_path P'. The JSON keeps repo_override; the stderr note is suppressed."""
+    rc, out, err = run(lp, env, capsys, "next", "alpha", "--repo", str(env.repo_a), "--json")
+    assert rc == 0 and json.loads(out)["repo_override"]["path"] == str(env.repo_a.resolve())
+    assert "--repo" not in err
+    p = write_receipt(tmp_path, make_receipt(env.repo_a))
+    rc, out, err = run(lp, env, capsys, "gate", "alpha", "--check", "--receipt", str(p),
+                       "--repo", str(env.repo_a), "--json")
+    assert rc == 0 and json.loads(out)["repo_override"] is not None and "using --repo" not in err
