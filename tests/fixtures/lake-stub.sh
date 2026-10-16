@@ -6,7 +6,18 @@
 # module and prints lake's `✔ [i/n] Built M` line (#56); without it the build is a no-op.
 # LAKE_STUB_ENV=<file> gets one `LEAN_NUM_THREADS=<value|unset>` line per call (#55).
 # `lake env printenv LEAN_PATH` prints $LAKE_STUB_LEAN_PATH (default: the project's own lib directory).
+# `lake --no-build build M` (the target readiness probe, C1) exits 0, or 1 with Lake's `unknown target` line
+# for a module listed in LAKE_STUB_UNKNOWN, or 3 (Lake's needs-rebuild code) for one in LAKE_STUB_STALE; it is
+# logged to $LAKE_STUB_PROBES, not $LAKE_STUB_CALLS, so the setup-stage call lists stay as they were.
 set -euo pipefail
+if [ "${1:-}" = "--no-build" ] && [ "${2:-}" = "build" ]; then
+  echo "lake $*" >> "${LAKE_STUB_PROBES:-/dev/null}"
+  if [[ " ${LAKE_STUB_UNKNOWN:-} " == *" ${3:-} "* ]]; then echo "error: unknown target \`${3}\`" >&2; exit 1; fi
+  if [[ " ${LAKE_STUB_STALE:-} " == *" ${3:-} "* ]]; then
+    echo "error: target is out-of-date and needs to be rebuilt" >&2; exit 3
+  fi
+  exit 0
+fi
 echo "lake $*" >> "${LAKE_STUB_CALLS:-/dev/null}"
 for v in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
          GIT_COMMON_DIR GIT_NAMESPACE; do

@@ -221,7 +221,9 @@ error: no such file or directory (error code: 2)
 ```
 
 Every module must also belong to a library in `lakefile.toml`, or
-`lake build MyProof.Challenge` fails with `unknown target`. One `[[lean_lib]]`
+`lake build MyProof.Challenge` fails with `unknown target`
+(`comparator-receipt` checks this with `lake --no-build build` at the end of
+its `checkout` stage, before the cache download and the build). One `[[lean_lib]]`
 whose `globs` cover the directory, as above, is enough. For several
 challenges, keep them under one directory, for example
 `Audit/<Name>/Challenge.lean` with `[[lean_lib]] name = "Audit"` and
