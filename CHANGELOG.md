@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.43] - 2026-10-16
+
 ### Fixed
 
 - public-safety: Lean's own build artifacts (`X.olean.private`, `X.ilean.private`, written by the module system) are
@@ -44,6 +46,8 @@ change the registry schema or receipt format, always with a migration).
   `palomar prepare`, `update --path` and the claims-synced checks. Without the opt-in the behaviour is unchanged,
   except that a refusal the docs-only rule would have admitted ends with a hint naming the flag. `validate`
   checks both fields. See docs/receipts.md (Docs-only descendants).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.42] - 2026-10-16
 
