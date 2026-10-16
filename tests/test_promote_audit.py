@@ -98,7 +98,7 @@ def test_promote_success_prints_rl_reminder(lp, env, fake_gh,
     rc = lp.main(["--registry", str(env.registry), "promote", "beta", "--yes"])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "results-ledger: record the outcome for beta in your results ledger" in out
+    assert "results-ledger: lean-pkg recorded this outcome for beta (`lean-pkg status beta`" in out
 
 
 def test_promote_success_json_includes_rl_reminder(lp, env, fake_gh,
@@ -109,7 +109,7 @@ def test_promote_success_json_includes_rl_reminder(lp, env, fake_gh,
                   "beta", "--yes"])
     assert rc == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["rl_reminder"] is True
+    assert data["rl_reminder"] is True and "docs/lifecycle.md#results-ledger" in data["rl_hint"]
     assert data["event"] == "promoted"
 
 

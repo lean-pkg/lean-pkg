@@ -18,12 +18,17 @@ from __future__ import annotations
 import datetime as dt
 import json
 import pathlib
+import re
 import shlex
+import sys
 
 from . import cli as core
 
 TERMINAL = ("upstreamed", "archived")
 CLEAN_TREE_STATUSES = ("gate-pending", "verified-private")   # evidence is produced from HEAD here
+# Subcommands that read the package checkout (a recommended one ignores `next --repo`).
+READS_CHECKOUT = ("gate", "comparator", "publish", "claims", "palomar", "reservoir", "formalization",
+                  "public-safety")
 
 
 def _receipt_candidates(repo: pathlib.Path) -> list[tuple[str, dict | None]]:
@@ -271,7 +276,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
         if crel and cerr:
             notes.append(f"comparator receipt {crel} not usable: {cerr}")
         if state["comparator_configs"]:
-            return out(f"comparator-receipt --project {_q(repo)}",
+            return _comparator_step(pkg, repo, head, out, f"comparator-receipt --project {_q(repo)}",
                        f"no comparator evidence; {len(state['comparator_configs'])} comparator config(s) "
                        f"tracked at HEAD: run comparator-receipt on a host its policy allows (`lean-pkg "
                        f"comparator host-check`), then attach the receipt with `lean-pkg comparator {name} "
@@ -284,7 +289,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
             nxt = []
             notes.append(f"comparator config --coverage: {e}")
         if nxt:
-            return out(nxt[0].split("   #")[0],
+            return _comparator_step(pkg, repo, head, out, nxt[0].split("   #")[0],
                        "no comparator config tracked at HEAD: scaffold one from the synced claims (committing "
                        "it moves HEAD, so re-gate afterwards: " + "; ".join(c.split("   #")[0] for c in nxt[1:3])
                        + ")")
@@ -320,7 +325,7 @@ def _ledger_step(reg: dict, pkg: dict, name: str, state: dict, notes: list[str],
             nxt = []
             notes.append(f"comparator config --coverage: {e}")
         if nxt:
-            return out(nxt[0].split("   #")[0],
+            return _comparator_step(pkg, core.repo_path(pkg), state["head"], out, nxt[0].split("   #")[0],
                        f"promote would refuse: {why}; extend the comparator configuration to the uncovered claims "
                        f"(committing it moves HEAD, so re-gate afterwards: "
                        + "; ".join(c.split("   #")[0] for c in nxt[1:3]) + ")")
@@ -331,6 +336,36 @@ def _ledger_step(reg: dict, pkg: dict, name: str, state: dict, notes: list[str],
         hint = f"; {h}, then re-gate the commit that tracks it" if h else ""
     return out(f"lean-pkg claims ledger {name}",
                f"promote would refuse: {why}{hint}; the ledger lists each open claim and why")
+
+
+def toolchain_below_floor(pkg: dict, repo: pathlib.Path, head: str | None) -> tuple[str, str] | None:
+    """(toolchain, floor) when the lean-toolchain committed at HEAD (else the registry's) is below the
+    comparator floor `audit` checks (below-toolchain-floor); None when it is not, or is not comparable."""
+    raw = core.git_show_bytes(repo, "lean-toolchain", head) if head else None
+    lines = raw.decode("utf-8", "replace").splitlines() if raw else []
+    tc = (lines[0].strip() if lines else "") or str(pkg.get("lean_toolchain") or "").strip()
+    try:
+        floor = core.resolve_toolchain_floor(None)
+    except core.UsageError:
+        floor = core.DEFAULT_TOOLCHAIN_FLOOR
+    key, floor_key = core.parse_lean_toolchain(tc), core.parse_lean_toolchain(floor)
+    return (tc, floor) if key and floor_key and key < floor_key else None
+
+
+def _comparator_step(pkg, repo, head, out, command, reason):
+    """A comparator step (scaffold a config, run comparator-receipt) under the comparator toolchain floor
+    is blocked first (field report): the toolchain mechanism, what Palomar runs, needs the floor."""
+    below = toolchain_below_floor(pkg, repo, head)
+    if below is None:
+        return out(command, reason)
+    tc, floor = below
+    detail = f"toolchain {tc} is below the comparator floor {floor}"
+    return out(None, f"{detail}: bump lean-toolchain (and Mathlib) to {floor} or later, commit, re-gate, then "
+                     f"`{command}`; a legacy-mechanism comparator receipt (`comparator-receipt --mechanism "
+                     f"legacy`) works below the floor but is not what Palomar runs, and `lean-pkg audit` warns "
+                     f"below-toolchain-floor once comparator evidence is recorded",
+               [{"kind": "below-toolchain-floor", "detail": detail, "lean_toolchain": tc, "floor": floor,
+                 "deferred_command": command}])
 
 
 def _dirty(name, repo, state, out):
@@ -392,11 +427,40 @@ def render(payload: dict) -> list[str]:
     return lines
 
 
+def _with_repo(cmd: str, repo: str) -> str:
+    """`gate --check` takes --repo too: carry it into that recommended command."""
+    if cmd.startswith("lean-pkg gate ") and " --check" in cmd and " --repo " not in cmd:
+        return f"{cmd} --repo {_q(repo)}"
+    return cmd
+
+
+def _carry_repo(payload: dict, repo: str) -> None:
+    """--repo DIR is for `next` and `gate --check` only: fill it into those, and say that any other
+    lean-pkg command recommended still reads the registered local_path."""
+    cmd = payload.get("command")
+    if cmd:
+        payload["command"] = _with_repo(cmd, repo)
+    payload["reason"] = re.sub(r"`(lean-pkg gate [^`]*)`", lambda m: f"`{_with_repo(m.group(1), repo)}`",
+                               payload["reason"])
+    words = (payload.get("command") or "").split()
+    if words[:1] == ["lean-pkg"] and len(words) > 1 and words[1] in READS_CHECKOUT and "--repo" not in words:
+        payload["notes"].append("the recommended command reads the registered local_path, not --repo: run it "
+                                "where that checkout is current, or move the record with `lean-pkg update "
+                                f"{payload['name']} --path DIR --reason TEXT`")
+
+
 def cmd_next(args) -> int:
     reg = core.load_registry(core.registry_path(args))
     if args.agent is not None:
         core.require_nonempty("--agent", args.agent)
+    override = None
+    if getattr(args, "repo", None) is not None:
+        reg, override = core.repo_override(reg, args.name, args.repo)
+        print(core.repo_override_note(override), file=sys.stderr)
     payload = decide(reg, args.name, args.agent)
+    payload["repo_override"] = override
+    if override:
+        _carry_repo(payload, override["path"])
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:
@@ -411,5 +475,10 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--agent", default=None, metavar="A",
                    help="who is asking: a live lease held by another agent blocks (exit 1); without it a live "
                         "lease is only noted; also filled into the recommended command")
+    s.add_argument("--repo", default=None, metavar="DIR",
+                   help="evaluate the checkout DIR instead of the registered local_path, for this call only "
+                        "(never saved; stderr note, JSON repo_override): for a host whose registered path "
+                        "holds another branch. DIR must be a git work tree, and when it has remotes one must "
+                        "be the package's repo")
     add_json(s)
     s.set_defaults(fn=cmd_next)

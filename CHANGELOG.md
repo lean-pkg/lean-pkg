@@ -7,6 +7,26 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `next --repo DIR` and `gate --check --repo DIR`: evaluate another checkout than the registered `local_path` for
+  one call, as on a host whose registered path holds another branch. Never written to the registry; a stderr note
+  names both paths and `--json` carries `repo_override` {path, registered_path, remote_match} (`null` without
+  it). `DIR` must be a git work tree, and when it has remotes one must be the package's repository. A writing
+  `gate` refuses `--repo` (exit 2): a gate binds the registered checkout, which `update --path` moves (field
+  report).
+
+### Changed
+
+- `next` blocks a comparator step (`comparator-receipt`, `comparator config`) when the package's `lean-toolchain`
+  at HEAD is below the comparator floor `audit` checks, instead of recommending it: `command` is null, the
+  blocker kind is `below-toolchain-floor` {lean_toolchain, floor, deferred_command}, and the reason says to bump
+  the toolchain, commit and re-gate first (field report).
+- The `results-ledger:` line after `gate` and `promote --yes` names what to run and where the term is defined:
+  `lean-pkg status NAME`, `lean-pkg claims ledger NAME`, and the new "Results ledger" section of
+  docs/lifecycle.md (lean-pkg keeps no results ledger; it is the project's own record). `--json` adds the line
+  as `rl_hint` (field report).
+
 ## [0.7.41] - 2026-10-15
 
 ### Fixed
