@@ -26,6 +26,7 @@ import pathlib
 import re
 
 from . import cli as core
+from . import lean_scan
 
 SCAFFOLD_KEY = "lean_pkg_scaffold"
 NOT_DONE = ["the package lease was not consulted",
@@ -53,11 +54,54 @@ def scaffold_todo_names(cfg: dict) -> set[str]:
     return {str(t.get("theorem_name")) for t in todo or [] if isinstance(t, dict) and t.get("theorem_name")}
 
 
-def covers(names: set[str], decl: str) -> bool:
-    """A configured name covers a claim when it is the declaration, ends with `.<decl>`, or has the same
-    last component (a hand-written `<Ns>Audit.<short>` entry)."""
-    last = decl.rsplit(".", 1)[-1]
-    return any(n == decl or n.endswith("." + decl) or n.rsplit(".", 1)[-1] == last for n in names)
+def _components(name: str) -> list[str] | None:
+    """A Lean name's components, a «quoted» plain identifier unquoted (`«foo»` is `foo`); None when malformed."""
+    parts = lean_scan.split_name(str(name).strip())
+    if parts is None:
+        return None
+    return [p[1:-1] if p.startswith("«") and re.fullmatch(r"«[A-Za-z_][A-Za-z0-9_'!?]*»", p) else p
+            for p in parts]
+
+
+def qualified_decls(read_file, claims: list[dict]) -> set[str]:
+    """The claims' `decl` values that are the fully qualified name of a declaration their `file` declares
+    (lean_scan: `namespace`/`section`/`end` tracked, `_root_.` honoured), read with `read_file(rel)`.
+    A bare or partial name (`foo` for `Demo.foo`) is not in the set: it does not say which declaration
+    it means, so no prefixed configuration name can be credited to it."""
+    out: set[str] = set()
+    texts: dict[str, set[tuple[str, ...]]] = {}
+    for c in claims:
+        decl, rel = str(c.get("decl") or ""), c.get("file")
+        want = _components(decl)
+        if not decl or not rel or want is None:
+            continue
+        if rel not in texts:
+            text = read_file(rel)
+            found: set[tuple[str, ...]] = set()
+            for row in lean_scan.declarations(text or ""):
+                comps = _components(row[2])
+                if comps is not None:
+                    found.add(tuple(comps))
+            texts[rel] = found
+        if tuple(want) in texts[rel]:
+            out.add(decl)
+    return out
+
+
+def covers(names: set[str], decl: str, qualified: bool) -> bool:
+    """Does a configured comparator name cover a claim's declaration (#80 ledger, --coverage, next, the
+    scaffold)? Only by the full name, and only for a declaration whose fully qualified name the claim
+    states (`qualified`, from `qualified_decls`): the name IS the declaration, or it is `<Prefix>.<decl>`,
+    the Challenge-namespace form the scaffold writes (`<Package>Audit.<decl>`). A shared last component
+    never covers (`A.B.thm` is not `A.C.thm`), and a bare or partial `decl` is covered by nothing."""
+    want = _components(decl)
+    if not qualified or not want:
+        return False
+    for n in names:
+        have = _components(n)
+        if have and len(have) >= len(want) and have[-len(want):] == want:
+            return True
+    return False
 
 
 def _load_out(repo: pathlib.Path, rel: str) -> dict | None:
@@ -160,6 +204,8 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     block = dict(cfg.get(SCAFFOLD_KEY) or {})
     todo = list(block.get("todo") or [])
     todo_claims = {str(t.get("claim")) for t in todo if isinstance(t, dict)}
+    from .claims import _reader
+    qualified = qualified_decls(_reader(repo, core.git_head(repo) or "HEAD"), claims)
     existing = skipped = 0
     added: list[dict] = []
     sources: list[dict] = []
@@ -168,7 +214,7 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
         if c.get("kind") not in CLAIM_KINDS or c.get("status") == "superseded" or not decl:
             skipped += 1
             continue
-        if covers(configured, decl) or cid in todo_claims:
+        if covers(configured, decl, decl in qualified) or f"{ns}.{decl}" in configured or cid in todo_claims:
             existing += 1
             continue
         tname = f"{ns}.{decl}"
@@ -305,7 +351,7 @@ def _names(configs: dict[str, bytes]) -> tuple[set[str], set[str]]:
     return names, todo
 
 
-def _classify(claims: list[dict], configs: dict[str, bytes]) -> dict:
+def _classify(claims: list[dict], configs: dict[str, bytes], qualified: set[str]) -> dict:
     names, todo = _names(configs)
     real = names - todo
     out = {"covered": [], "todo": [], "not_covered": [], "not_applicable": 0}
@@ -313,9 +359,9 @@ def _classify(claims: list[dict], configs: dict[str, bytes]) -> dict:
         decl = str(c.get("decl") or "")
         if c.get("kind") not in CLAIM_KINDS or c.get("status") == "superseded" or not decl:
             out["not_applicable"] += 1
-        elif covers(real, decl):
+        elif covers(real, decl, decl in qualified):
             out["covered"].append(c)
-        elif covers(todo, decl):
+        elif covers(todo, decl, decl in qualified):
             out["todo"].append(c)
         else:
             out["not_covered"].append(c)
@@ -353,7 +399,9 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
     head = core.git_head(repo) or ""
     claims, source = _claims_at(pkg, repo, bound)
     at_bound = _configs_at(repo, bound)
-    cls = _classify(claims, at_bound)
+    from .claims import _reader
+    qualified = qualified_decls(_reader(repo, bound), claims)
+    cls = _classify(claims, at_bound, qualified)
     work = _worktree_configs(repo)
     at_head = _configs_at(repo, head) if head else {}
     changed: list[dict] = []
@@ -372,7 +420,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
         changed.append({"path": path, "change": why})
     candidate = None
     if changed:
-        cc_ = _classify(claims, work)
+        cc_ = _classify(claims, work, qualified)
         candidate = {"configs": sorted(work), "covered": len(cc_["covered"]), "todo": len(cc_["todo"]),
                      "not_covered": len(cc_["not_covered"]), "certifies": False}
     props = len(cls["covered"]) + len(cls["todo"]) + len(cls["not_covered"])

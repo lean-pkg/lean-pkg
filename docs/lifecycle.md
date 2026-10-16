@@ -126,13 +126,29 @@ one.
 | `comparator-unreadable` | unknown | the recorded comparator receipt is missing or not JSON |
 | `comparator-commit-mismatch` | open | the comparator receipt binds another commit than the gate receipt, or neither `HEAD` nor an evidence-only ancestor |
 | `comparator-invalid` | failed | the comparator receipt fails the comparator validator (config or log bytes, PASS line, tools) |
-| `no-comparator-config` | open | no comparator configuration at the gate-bound commit names the declaration |
+| `no-comparator-config` | open | no comparator configuration at the gate-bound commit names the declaration by its full name (below) |
 | `comparator-todo` | open | the declaration is only a scaffold `TODO` entry (`comparator config --from-claims`) |
 | `depends-on-open` | blocked | a `depends_on` claim in this package is not verified |
 | `depends-on-unknown` | unknown | a `depends_on` claim is in another package or not in this claims file |
 
 Receipt-level codes apply to every claim, and comparator codes to every
 required theorem and lemma: one stale receipt opens them all.
+
+A comparator configuration names a claim only by its full declaration name:
+a `theorem_names` entry equal to the claim's `decl`, or `<Prefix>.<decl>`
+(the Challenge-namespace form `comparator config --from-claims` writes,
+`<Package>Audit.<decl>`). The claim's `decl` must be the fully qualified name
+of a declaration its `file` declares at the gate-bound commit (`namespace`,
+`section` and `_root_.` resolved by a source scan); a bare or partial `decl`
+(`thm` for `Demo.thm`) is credited to no name, and its
+`no-comparator-config` detail says so. A name that only shares the last
+component never counts: `A.C.thm` does not cover `A.B.thm`, and neither does
+a hand-written `<Package>Audit.thm`. Through 0.7.46 such a name did, so a
+theorem passed the promote ledger on the strength of a different compared
+declaration; a ledger that was `ready` may now be `open` until each such
+claim gets a Challenge/Solution entry of its own (rename a short
+`<Ns>.thm` entry to `<Ns>.<full decl>`, or run
+`comparator config --from-claims NAME`).
 
 `promote` refuses unless the ledger at the promote stage is `ready`: one
 checklist line carries its summary and names `claims ledger NAME`, and

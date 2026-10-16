@@ -100,10 +100,15 @@ tracked configuration covers yet, it appends a Challenge name
 changes the prefix) and records, under `lean_pkg_scaffold.todo`, the claim,
 the declaration, its file and two `TODO:` lines: the Challenge statement a
 human must write in Mathlib vocabulary, and the Solution bridge to the
-project theorem. A claim counts as covered when a configured name is its
-declaration, ends with `.<decl>`, or shares its last component. Existing
-keys and entries are never removed, renamed or reordered, and a second run
-adds nothing. It prints the counts (already configured, added, skipped:
+project theorem. A claim counts as covered only by its full declaration
+name: a configured name is its `decl`, or is `<Prefix>.<decl>` (the form
+this command writes), and only when `decl` is the fully qualified name of
+a declaration its `file` declares (namespaces resolved). A name that merely
+shares the last component (`A.C.thm` for `A.B.thm`, or a hand-written
+`<Package>Audit.thm`) covers nothing, and a bare or partial `decl` is
+covered by no name; the claims ledger and `--coverage` use the same rule.
+Existing keys and entries are never removed, renamed or reordered, and a
+second run adds nothing. It prints the counts (already configured, added, skipped:
 definitions, constructions, libraries and superseded claims). `--out`
 names another configuration (`comparator*.json` or
 `comparator/config*.json`; created with the standard fields when absent).

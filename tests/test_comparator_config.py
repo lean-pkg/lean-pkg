@@ -9,8 +9,10 @@ import yaml
 
 from .conftest import _git, commit_claims, drop_claims, read_events, read_reg, set_lease
 
-LEAN = ("theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ndef qux := 1\n"
-        "theorem old_one : True := trivial\ntheorem zap : True := trivial\n")
+LEAN = ("namespace Demo\n"   # the claims name Demo.<decl>: exact covers() (#80 fix)
+        "theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ndef qux := 1\n"
+        "theorem old_one : True := trivial\ntheorem zap : True := trivial\n"
+        "end Demo\n")
 
 
 def claim(cid, decl, kind="theorem", status="reusable", sb=None):
@@ -46,7 +48,7 @@ def test_dry_run_prints_the_would_be_json_and_writes_nothing(lp, env, capsys):
     assert rc == 0
     assert "5 claim(s): 1 already configured, 2 added, 2 skipped" in cap.out
     cfg = json.loads(cap.out[cap.out.index("{"):])
-    assert cfg["theorem_names"] == ["foo_le_bar", "BetaAudit.Demo.baz", "BetaAudit.Demo.zap"]
+    assert cfg["theorem_names"] == ["BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.baz", "BetaAudit.Demo.zap"]
     todo = cfg["lean_pkg_scaffold"]["todo"]
     assert [t["claim"] for t in todo] == ["beta/baz", "beta/zap"]
     assert all(t["challenge"].startswith("TODO: ") and t["solution"].startswith("TODO: ") for t in todo)

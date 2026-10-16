@@ -10,8 +10,10 @@ import yaml
 
 from .conftest import _git, commit_claims, make_receipt, read_events, read_reg, repo_head, write_reg
 
-LEAN = ("theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ndef qux := 1\n"
-        "theorem old_one : True := trivial\ntheorem zap : True := trivial\n")
+LEAN = ("namespace Demo\n"   # the claims name Demo.<decl>: exact covers() (#80 fix)
+        "theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ndef qux := 1\n"
+        "theorem old_one : True := trivial\ntheorem zap : True := trivial\n"
+        "end Demo\n")
 
 
 def claim(cid, decl, kind="theorem", status="reusable", sb=None):
