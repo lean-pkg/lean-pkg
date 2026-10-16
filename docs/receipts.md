@@ -39,7 +39,7 @@ Cluster; packages verified there carry the acknowledgment "This work was complet
 | `mathlib_rev` | nonempty; prefix-equal to the `mathlib` rev in `lake-manifest.json` committed at `commit` (not checked when that file has no readable `mathlib` entry) |
 | `sorry_count` | integer, must be 0 |
 | `axioms` | list of strings, subset of `gate.axioms_allowed` (default `propext`, `Quot.sound`, `Classical.choice`) |
-| `report_sha256` | 64 hex characters: the frozen verification report; when the redacted verify log `<commit12>-<job slug>-verify.redacted.log` that `receipt slurm`/`systemd` writes is found (beside the receipt file, in the package's `.lean-receipts/`, or tracked there at HEAD), every copy must hash to it, else `gate` refuses; none found prints `· report_sha256 not checked (no redacted log beside the receipt)` |
+| `report_sha256` | 64 hex characters: the frozen verification report; when the redacted verify log `<commit12>-<job slug>-verify.redacted.log` that `receipt slurm`/`systemd` writes is found (beside the receipt file, in the package's `.lean-receipts/`, or tracked there at HEAD), every copy must hash to it, else `gate` refuses; none found prints `· report_sha256 not checked (no redacted log beside the receipt)`. A compressed copy `<...>-verify.redacted.log.gz` is checked the same way on its uncompressed bytes ([compressed sealed log](#a-compressed-sealed-log---compress-log)); report_sha256 is never the hash of the .gz |
 | `job_id`, `checker`, `generated_at` | nonempty: the executor's terminal job identity, the exact checker mode, and an ISO-8601 time that must parse. The stored copy is named `<commit12>-<job_id>.json`, with characters outside `[A-Za-z0-9._-]` replaced by `-` and leading dots and dashes dropped |
 
 The frozen report named by `report_sha256` is expected to bind the candidate
@@ -162,6 +162,55 @@ refused (gate refuses it too: see [the rule](#evidence-binding-the-evidence-only
 hash is in the entry. A differing file already at either path is refused;
 an identical one is left alone. The command prints the README entry and
 the next step, `lean-pkg gate NAME --check --receipt .lean-receipts/<commit12>-slurm-<J>.json`.
+
+### A compressed sealed log (`--compress-log`)
+
+GitHub refuses a file over 100 MiB, and a full declaration audit can make the
+redacted log larger than that (a field report: 740 MiB, about 15 MB as gzip).
+`receipt slurm --compress-log` (and `receipt systemd --compress-log`) writes
+the redacted log as `<commit12>-<job slug>-verify.redacted.log.gz` instead of
+the plain `.log`: deterministic gzip (level 9, header mtime 0, no file name,
+so the same log gives the same bytes on every run with the same zlib). Without the flag
+nothing changes, except that a redacted log over 90 MiB prints a stderr
+`WARN` naming `--compress-log`; the output is never compressed silently.
+
+- `report_sha256` stays the SHA-256 of the **uncompressed** redacted log.
+- The receipt gains the additive key `report_compressed`:
+  `{"format": "gzip", "sha256": "<SHA-256 of the .gz>", "bytes": <uncompressed length>}`.
+  Older receipts are unchanged and still verify.
+- `--json` `log` names the `.gz`; `sealed[]` lists it with role
+  `redacted-log.gz`, its own `sha256`, `receipt_key`
+  `report_compressed.sha256` and `uncompressed_sha256` (= `report_sha256`);
+  `report_compressed` is in the payload too. The README entry gains a
+  `- Stored compressed:` line with the restore command.
+
+`gate` (and `gate --check`) reads `X.log.gz` wherever it looks for `X.log`
+(beside the receipt, in `.lean-receipts/`, tracked there at HEAD). It
+stream-decompresses it and refuses unless the uncompressed bytes hash to
+`report_sha256`; when `report_compressed` is present the `.gz` must also hash
+to `report_compressed.sha256`, the output must be exactly
+`report_compressed.bytes` long, and decompression stops and refuses as soon
+as the output passes that length (a gzip bomb is never expanded). A `.gz`
+for an older receipt without `report_compressed` (compressed by hand) is
+checked against `report_sha256` under a fixed 4 GiB cap. A
+`report_compressed.sha256` equal to `report_sha256`, or a `report_sha256`
+that is the hash of the `.gz`, never passes. A plain `.log` and a `.gz`
+side by side are both checked.
+
+Restore the plain log and check it against the receipt:
+
+```bash
+gzip -dc <commit12>-slurm-<J>-verify.redacted.log.gz > <commit12>-slurm-<J>-verify.redacted.log
+sha256sum <commit12>-slurm-<J>-verify.redacted.log   # must print report_sha256
+```
+
+**The canonical copy keeps its log.** `gate --receipt PATH` stores the
+receipt as `.lean-receipts/<commit12>-<job slug>.json`. When the sealed log
+(plain or `.gz`) was found beside `PATH` and `.lean-receipts/` holds no copy
+of it, `gate` copies it there too, so the stored receipt verifies on its own
+(output `sealed log copied to ...`, JSON `report_log.copy[]`; `gate --check`
+prints `· gate would also copy ...` and writes nothing). A symlink at either
+log name in `.lean-receipts/` refuses, nothing copied or recorded.
 
 **The README entry.** With `--append-readme` the entry is appended to
 `README.md` beside the receipt (created with a `# Receipts` heading when

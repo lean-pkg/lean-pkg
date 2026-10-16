@@ -43,7 +43,10 @@ Checks, all run before anything is written (every failed check is listed; any on
 
 Output: `job_id` is `slurm-<J>`; the redacted log `<c12>-slurm-<J>-verify.redacted.log` and the receipt
 `<c12>-slurm-<J>.json` (the name `gate` stores it under) go to `<repo>/.lean-receipts/` (`--out PATH` names
-the receipt, the log goes beside it). `report_sha256` is the SHA-256 of the redacted log as written. A
+the receipt, the log goes beside it). `report_sha256` is the SHA-256 of the redacted log as written. With
+`--compress-log` the log is written as `<...>-verify.redacted.log.gz` (deterministic gzip) instead: `report_sha256`
+is still the SHA-256 of the uncompressed log, and the additive `report_compressed` {format: gzip, sha256 of the
+.gz, bytes uncompressed} binds the .gz (restore: `gzip -dc X.log.gz > X.log`). A
 differing file already at either path is refused. The README entry block is printed, and with
 `--append-readme` appended to `README.md` beside the receipt. With `--stdout` the seal evidence is persisted
 (#72): the receipt gains the additive keys `job_stdout_sha256` (the job stdout file) and `manifest_sha256`
@@ -71,6 +74,9 @@ from . import cli as core
 from . import public_safety as ps
 
 SHA_KEY = "verify-log-sha256"
+# Without --compress-log, a redacted log above this size gets a stderr WARN naming the flag (GitHub refuses a
+# file over 100 MiB); the output is never changed silently.
+LARGE_LOG_WARN_BYTES = 90 << 20
 PRE_KEY, POST_KEY = "pre-manifest-sha256", "post-manifest-sha256"
 LOG_KEYS = ("lean-toolchain", "mathlib-rev", "checker", "sorry-count", "axioms", "commit", "job-id",
             "generated-at")
@@ -586,6 +592,24 @@ def _same_or_absent(path: pathlib.Path, data: bytes) -> str | None:
     return None
 
 
+def _other_form_problem(path: pathlib.Path, log_bytes: bytes, report_sha: str) -> str | None:
+    """The sealed log in the form this run does not write (.log beside a --compress-log run, .log.gz beside a
+    plain one) is left alone when it holds the same log, else refused: gate checks every copy it finds."""
+    if path.is_symlink():
+        return f"{path.name}: a symlink is in the way; nothing written"
+    if not path.exists():
+        return None
+    if path.name.endswith(core.REPORT_GZ_SUFFIX):
+        try:
+            same = core.gunzip_digest(path, len(log_bytes), path.name) == (report_sha, len(log_bytes))
+        except core.Fail:
+            same = False
+    else:
+        same = path.read_bytes() == log_bytes
+    return None if same else (f"{path.name} already exists with a different log; remove it first "
+                              f"(nothing written)")
+
+
 def _kept_fallback_time(path: pathlib.Path, receipt: dict) -> str | None:
     """#85: the `generated_at` of the receipt already at `path` when it is identical to `receipt` but for that
     field (same keys, same order, same values) and that field is a valid timestamp, else None. Only used when the
@@ -855,6 +879,17 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
         files.append((path, data))
         sealed_files.append({"role": suffix, "path": str(path), "sha256": digest, "receipt_key": key})
         evidence_lines.append(line.format(name=path.name, sha=digest))
+    gz_out = log_out.with_name(log_out.name + core.REPORT_GZ_SUFFIX)
+    compress = bool(getattr(args, "compress_log", False))
+    gz_bytes = gz_sha = None
+    if compress:   # report_sha256 stays the uncompressed log's hash; the .gz is bound by its own additive key
+        gz_bytes = core.gzip_deterministic(log_bytes)
+        gz_sha = hashlib.sha256(gz_bytes).hexdigest()
+        receipt["report_compressed"] = {"format": "gzip", "sha256": gz_sha, "bytes": len(log_bytes)}
+        evidence_lines.append(f"- Stored compressed: `{gz_out.name}` (deterministic gzip, SHA-256 `{gz_sha}` = "
+                              f"`report_compressed.sha256`; {len(log_bytes)} bytes uncompressed). Restore: "
+                              f"`gzip -dc {gz_out.name} > {log_out.name}`, then `sha256sum {log_out.name}` "
+                              f"prints `report_sha256`.")
     if not fields.get("generated-at"):
         kept = _kept_fallback_time(out, receipt)
         if kept and kept != receipt["generated_at"]:
@@ -879,11 +914,15 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
             refusals.append(f"public-safety: a private string remains in the {what} ({', '.join(fams)}); "
                             + (ev.redact_help if what != "README block"
                                else "fix --readme-heading / --readme-line"))
+    log_written = (gz_out, gz_bytes) if compress else (log_out, log_bytes)
     if not refusals:
-        for path, data in ((log_out, log_bytes), *files, (out, receipt_bytes)):
+        for path, data in (log_written, *files, (out, receipt_bytes)):
             why = _same_or_absent(path, data)
             if why:
                 refusals.append(why)
+        why = _other_form_problem(gz_out if not compress else log_out, log_bytes, report_sha)
+        if why:
+            refusals.append(why)
     readme = out.parent / "README.md"
     if not refusals and out.parent.is_symlink():
         refusals.append(f"{out.parent.name}/ is a symlink; nothing written")
@@ -903,7 +942,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     if not refusals:
         checks.append(f"✓ public-safety: no blocking hit after {n_redacted} redaction(s)")
         out.parent.mkdir(parents=True, exist_ok=True)
-        _write(log_out, log_bytes)
+        _write(*log_written)
         for path, data in files:
             _write(path, data)
         _write(out, receipt_bytes)
@@ -918,9 +957,10 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
 
     if args.json_out:
         payload = {"ok": not refusals, "receipt": None if refusals else str(out),
-                   "log": None if refusals else str(log_out),
+                   "log": None if refusals else str(log_written[0]),
                    "report_sha256": None if refusals else report_sha, "raw_log_sha256": raw_sha,
-                   "job_id": ev.job_id, "seal": seal, "log_commit_bound": log_commit_bound}
+                   "job_id": ev.job_id, "seal": seal, "log_commit_bound": log_commit_bound,
+                   "report_compressed": receipt.get("report_compressed")}
         payload.update(ev.json_extra)
         # The exact files this run wrote and bound, so a caller never guesses a sidecar by its name: the
         # receipt itself, the redacted log (report_sha256) and each evidence file with the receipt key that
@@ -928,7 +968,9 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
         payload["sealed"] = [] if refusals else (
             [{"role": "receipt", "path": str(out), "sha256": hashlib.sha256(receipt_bytes).hexdigest(),
               "receipt_key": None},
-             {"role": "redacted-log", "path": str(log_out), "sha256": report_sha, "receipt_key": "report_sha256"}]
+             ({"role": "redacted-log.gz", "path": str(gz_out), "sha256": gz_sha,
+               "receipt_key": "report_compressed.sha256", "uncompressed_sha256": report_sha} if compress else
+              {"role": "redacted-log", "path": str(log_out), "sha256": report_sha, "receipt_key": "report_sha256"})]
             + sealed_files)
         payload.update({"redactions": n_redacted, "lines_redacted": n_diff, "checks": checks,
                         "readme_block": None if refusals else block, "readme_appended": appended,
@@ -936,6 +978,10 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
         core.print_json(payload)
     if log_commit_bound is False and not refusals:
         print(f"lean-pkg: WARN {NO_COMMIT_LINE}", file=sys.stderr)
+    if not compress and not refusals and len(log_bytes) > LARGE_LOG_WARN_BYTES:
+        print(f"lean-pkg: WARN the redacted log is {len(log_bytes) / (1 << 20):.1f} MiB, near or over GitHub's "
+              f"100 MiB per-file limit; rerun with --compress-log to write it as deterministic gzip "
+              f"(report_sha256 unchanged)", file=sys.stderr)
     if refusals:
         verdict = f"{ev.verb}: refused, {len(refusals)} problem(s); nothing written"
         print(f"lean-pkg: {verdict}", file=sys.stderr)
@@ -948,7 +994,11 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
         for c in checks:
             print(f"  {c}")
         print(f"  receipt     {rel_r}")
-        print(f"  verify log  {rel_l} (redacted; report_sha256 {report_sha})")
+        if compress:
+            print(f"  verify log  {_shown(gz_out, repo)} (redacted, gzip SHA-256 {gz_sha}; report_sha256 "
+                  f"{report_sha} is the uncompressed log's)")
+        else:
+            print(f"  verify log  {rel_l} (redacted; report_sha256 {report_sha})")
         for path, _data in files:
             print(f"  evidence    {_shown(path, repo)}")
         if appended:
@@ -1110,6 +1160,12 @@ def add_common_flags(s, kind: str, name_hint: str) -> None:
     s.add_argument("--out", default=None, metavar="PATH",
                    help=f"receipt path (default <repo>/.lean-receipts/<commit12>-{name_hint}.json); the redacted log "
                         f"is written beside it as <commit12>-{name_hint}-verify.redacted.log")
+    s.add_argument("--compress-log", action="store_true",
+                   help="write the redacted log as deterministic gzip <...>-verify.redacted.log.gz (level 9, mtime 0, "
+                        "no file name) instead of the plain .log; report_sha256 stays the SHA-256 of the "
+                        "uncompressed log and the receipt gains report_compressed {format: gzip, sha256 of the .gz, "
+                        "bytes uncompressed}; gate decompresses (bounded) and checks report_sha256. Restore: "
+                        "gzip -dc X.log.gz > X.log. Without it, a log over 90 MiB prints a WARN naming this flag")
     s.add_argument("--append-readme", action="store_true",
                    help="append the entry block to README.md beside the receipt (created if absent; an entry "
                         "already naming the receipt is not repeated)")

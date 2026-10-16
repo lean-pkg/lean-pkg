@@ -22,6 +22,10 @@ change the registry schema or receipt format, always with a migration).
   (`.lake/build/lib/` is still read). A slot's module is also found by a syntactic scan of the package's sources
   for the declaration (following `namespace`/`section`/`mutual`/`end`), so a theorem whose namespace is not its
   module path is weighed; the namespace-prefix rule is the fallback (field report).
+- `gate --receipt PATH` checked the sealed log beside `PATH` but copied only the receipt JSON to
+  `.lean-receipts/<c12>-<job>.json`, so the stored copy lost its log. The log (plain or `.gz`) now follows it when
+  `.lean-receipts/` holds no copy (`sealed log copied to ...`; JSON `report_log.copy[]`; `--check`:
+  `· gate would also copy ...`); a symlink at either log name there refuses, nothing written.
 
 ### Added
 
@@ -31,6 +35,18 @@ change the registry schema or receipt format, always with a migration).
   `unsampled_slots`, `remaining_per_slot_seconds` and `remaining_estimate_model`: the unsampled slots at the mean
   of the timed non-heavy sampled slots, divided by the judges (the sampled slots are cached for the real run), and
   prints it. `--help` and docs/comparator.md name the schema and what `/1` to `/2` changed (field report).
+- `receipt slurm|systemd --compress-log` (field report: a 481-declaration audit made a 740 MiB redacted log, over
+  GitHub's 100 MiB file limit): the sealed log is written as deterministic gzip
+  `<c12>-<job slug>-verify.redacted.log.gz` (level 9, mtime 0, no file name) instead of the plain `.log`.
+  `report_sha256` stays the SHA-256 of the uncompressed log; the receipt gains the additive
+  `report_compressed` {format: gzip, sha256 of the .gz, bytes uncompressed}, `sealed[]` lists the `.gz` with its
+  own hash (role `redacted-log.gz`), the README entry names the restore command
+  (`gzip -dc X.log.gz > X.log`, then `sha256sum`). Without the flag nothing changes but a stderr WARN naming it
+  when the redacted log is over 90 MiB. Old receipts are unchanged.
+- `gate` and `gate --check` check `X.log.gz` wherever they look for `X.log`: stream-decompressed, the
+  uncompressed bytes must hash to `report_sha256` (the `.gz` hash never stands in for it), and with
+  `report_compressed` the `.gz` must hash to its `sha256` and decompress to exactly `bytes`; output past that
+  length refuses without expanding further (4 GiB without `report_compressed`); not gzip refuses.
 
 ## [0.7.44] - 2026-10-16
 

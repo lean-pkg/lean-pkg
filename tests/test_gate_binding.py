@@ -171,7 +171,8 @@ def test_report_sha256_is_checked_against_the_log_beside_the_receipt(lp, env, tm
     (tmp_path / _log_name(r)).write_bytes(log)
     assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check", "--json") == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["report_log"] == {"checked": True, "log": _log_name(r), "where": ["beside the receipt"]}
+    assert data["report_log"] == {"checked": True, "log": _log_name(r), "where": ["beside the receipt"],
+                                  "copy": [f".lean-receipts/{_log_name(r)}"]}
     assert f"✓ report_sha256 = sha256 of {_log_name(r)} (beside the receipt)" in data["checks"]
     (tmp_path / _log_name(r)).write_bytes(log + b"edited\n")
     assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 1
@@ -257,3 +258,145 @@ def test_comparator_attach_refuses_a_planted_symlink(lp, env, tmp_path, capsys):
     assert main(lp, env, "comparator", "beta", "--receipt", str(cp)) == 1
     assert "is a symlink; refusing to write through it" in capsys.readouterr().err
     assert not victim.exists()
+
+
+# --- compressed sealed log: X.log.gz checked by its uncompressed bytes --------------------------------------
+
+LOG = b"redacted verify log\n" * 50
+
+
+def _gz(data: bytes) -> bytes:
+    from lean_pkg.cli import gzip_deterministic
+    return gzip_deterministic(data)
+
+
+def _gz_receipt(repo, log=LOG, **overrides):
+    blob = _gz(log)
+    r = make_receipt(repo, report_sha256=hashlib.sha256(log).hexdigest(),
+                     report_compressed={"format": "gzip", "sha256": hashlib.sha256(blob).hexdigest(),
+                                        "bytes": len(log)})
+    r.update(overrides)
+    return r, blob
+
+
+def test_gz_log_is_checked_by_its_uncompressed_hash(lp, env, tmp_path, capsys):
+    r, blob = _gz_receipt(env.repo_a)
+    p = write_receipt(tmp_path, r)
+    (tmp_path / (_log_name(r) + ".gz")).write_bytes(blob)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check", "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["report_log"]["where"] == ["beside the receipt, decompressed from .gz"]
+
+
+def test_tampered_gz_content_is_refused(lp, env, tmp_path, capsys):
+    """Edited log content, re-compressed, with report_compressed.sha256 rewritten to match the new .gz:
+    report_sha256 (the uncompressed hash) still refuses it. Without the rewrite the .gz hash refuses first."""
+    r, _blob = _gz_receipt(env.repo_a)
+    forged = _gz(LOG + b"one more line\n")
+    (tmp_path / (_log_name(r) + ".gz")).write_bytes(forged)
+    p = write_receipt(tmp_path, r)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 1
+    assert "report_compressed.sha256 mismatch" in capsys.readouterr().err
+    r["report_compressed"].update(sha256=hashlib.sha256(forged).hexdigest(), bytes=len(LOG) + 14)
+    p = write_receipt(tmp_path, r)
+    before = env.registry.read_bytes()
+    for extra in (("--check",), ()):
+        assert main(lp, env, "gate", "alpha", "--receipt", str(p), *extra) == 1
+        assert "report_sha256 mismatch" in capsys.readouterr().err
+    assert env.registry.read_bytes() == before and not (env.repo_a / ".lean-receipts").exists()
+
+
+def test_gz_expanding_past_the_recorded_bytes_is_refused(lp, env, tmp_path, capsys):
+    big = b"\0" * (4 << 20)
+    blob = _gz(big)
+    r = make_receipt(env.repo_a, report_sha256=hashlib.sha256(LOG).hexdigest(),
+                     report_compressed={"format": "gzip", "sha256": hashlib.sha256(blob).hexdigest(),
+                                        "bytes": len(LOG)})
+    (tmp_path / (_log_name(r) + ".gz")).write_bytes(blob)
+    p = write_receipt(tmp_path, r)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 1
+    assert f"decompresses to more than the {len(LOG)} bytes" in capsys.readouterr().err
+
+
+def test_gz_without_report_compressed_is_bounded_by_the_default_cap(lp, env, tmp_path, capsys, monkeypatch):
+    """A .gz compressed by hand for an older receipt (no report_compressed) is still checked against
+    report_sha256, under the fixed default decompression cap."""
+    from lean_pkg import cli
+    r = make_receipt(env.repo_a, report_sha256=hashlib.sha256(LOG).hexdigest())
+    (tmp_path / (_log_name(r) + ".gz")).write_bytes(_gz(LOG))
+    p = write_receipt(tmp_path, r)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 0
+    capsys.readouterr()
+    monkeypatch.setattr(cli, "REPORT_GZ_DEFAULT_CAP", 10)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 1
+    assert "decompresses to more than the 10 bytes" in capsys.readouterr().err
+
+
+def test_gz_hash_substituted_into_report_sha256_is_refused(lp, env, tmp_path, capsys):
+    """report_sha256 = sha256(.gz) never passes: the check is always on the uncompressed bytes."""
+    blob = _gz(LOG)
+    gz_sha = hashlib.sha256(blob).hexdigest()
+    r = make_receipt(env.repo_a, report_sha256=gz_sha)
+    (tmp_path / (_log_name(r) + ".gz")).write_bytes(blob)
+    p = write_receipt(tmp_path, r)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 1
+    assert "report_sha256 mismatch" in capsys.readouterr().err
+    r["report_compressed"] = {"format": "gzip", "sha256": gz_sha, "bytes": len(LOG)}
+    p = write_receipt(tmp_path, r)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 1
+    assert "report_compressed.sha256 equals report_sha256" in capsys.readouterr().err
+
+
+def test_not_gzip_is_refused(lp, env, tmp_path, capsys):
+    r = make_receipt(env.repo_a, report_sha256=hashlib.sha256(LOG).hexdigest())
+    (tmp_path / (_log_name(r) + ".gz")).write_bytes(LOG)
+    p = write_receipt(tmp_path, r)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 1
+    assert "is not a valid gzip stream" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("compressed", [True, False])
+def test_canonical_copy_carries_the_sealed_log_and_verifies(lp, env, tmp_path, capsys, compressed):
+    """Field report: gate accepts a receipt at a nested path and checks the log beside it, but copied only the
+    JSON to .lean-receipts/<leaf>.json. The sealed log (plain or .gz) now follows it, so the canonical copy
+    verifies on its own."""
+    repo = env.repo_a
+    r, blob = _gz_receipt(repo) if compressed else (
+        make_receipt(repo, report_sha256=hashlib.sha256(LOG).hexdigest()), LOG)
+    log_file = _log_name(r) + (".gz" if compressed else "")
+    nested = repo / ".lean-receipts" / "runs" / "slurm-12345"
+    nested.mkdir(parents=True)
+    p = write_receipt(nested, r, name=f"{r['commit'][:12]}-slurm-12345.json")
+    (nested / log_file).write_bytes(blob)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check", "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["report_log"]["copy"] == [f".lean-receipts/{log_file}"]
+    assert any("gate would also copy" in c for c in data["checks"])
+    assert not (repo / ".lean-receipts" / log_file).exists()          # --check writes nothing
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    canon = repo / data["receipt"]
+    assert canon.parent == repo / ".lean-receipts" and (canon.parent / log_file).read_bytes() == blob
+    assert data["report_log"]["copy"] == [f".lean-receipts/{log_file}"]
+    import shutil
+    shutil.rmtree(repo / ".lean-receipts" / "runs")                   # the canonical pair stands alone
+    assert main(lp, env, "gate", "alpha", "--receipt", str(canon), "--check", "--json") == 0
+    view = json.loads(capsys.readouterr().out)["report_log"]
+    assert view["checked"] is True and view["copy"] == []
+    assert view["where"] == ["beside the receipt" + (", decompressed from .gz" if compressed else "")]
+    (canon.parent / log_file).write_bytes(_gz(LOG + b"x") if compressed else LOG + b"x")
+    assert main(lp, env, "gate", "alpha", "--receipt", str(canon), "--check") == 1
+    assert "mismatch" in capsys.readouterr().err
+
+
+def test_canonical_log_copy_through_a_symlink_is_refused(lp, env, tmp_path, capsys):
+    repo = env.repo_a
+    r = make_receipt(repo, report_sha256=hashlib.sha256(LOG).hexdigest())
+    (tmp_path / _log_name(r)).write_bytes(LOG)
+    p = write_receipt(tmp_path, r)
+    (repo / ".lean-receipts").mkdir()
+    os.symlink(tmp_path / "elsewhere.log", repo / ".lean-receipts" / (_log_name(r) + ".gz"))
+    before = env.registry.read_bytes()
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p)) == 1
+    assert env.registry.read_bytes() == before
+    assert sorted(x.name for x in (repo / ".lean-receipts").iterdir()) == [_log_name(r) + ".gz"]
