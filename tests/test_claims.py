@@ -418,7 +418,9 @@ def test_migrate_writes_claims_yaml_but_never_the_registry(lp, env, cl, capsys):
     assert aux["decl"] == "TODO" and aux["file"] == "TODO.lean"
     assert aux["summary"] == "An auxiliary estimate over two lines."
     assert aux["depends_on"] == ["alpha/thm-main"]
-    assert cl.validate_claims(doc, "alpha") == []        # schema-valid skeleton; sync refuses TODO.lean
+    # the skeleton's only errors are its TODO placeholders, each naming its claim; sync refuses them
+    assert cl.validate_claims(doc, "alpha") == [
+        "claims[1] (alpha/lem-aux): decl is the `claims migrate` placeholder TODO; name the declaration"]
 
 
 def test_migrate_skeleton_is_refused_by_sync_until_todos_are_fixed(lp, env, capsys):
@@ -428,7 +430,7 @@ def test_migrate_skeleton_is_refused_by_sync_until_todos_are_fixed(lp, env, caps
     _git(env.repo_a, "commit", "-m", "skeleton")
     capsys.readouterr()
     assert sync(lp, env, "alpha") == 1
-    assert "TODO.lean is not tracked" in capsys.readouterr().err
+    assert "(alpha/lem-aux): decl is the `claims migrate` placeholder TODO" in capsys.readouterr().err
 
 
 def test_migrate_never_overwrites(lp, env, capsys):
@@ -458,7 +460,8 @@ def test_migrate_refuses_missing_source_and_absolute_out(lp, env, capsys):
 def test_migrate_drops_local_paths(cl):
     doc, todos, _, _ = cl.migrate_rows("alpha", [{"id": "a", "statement": "see /home/someone/notes.txt"}])
     assert doc["claims"][0]["summary"] == "TODO: one sentence."
-    assert cl.validate_claims(doc, "alpha") == []
+    errors = cl.validate_claims(doc, "alpha")
+    assert all("placeholder" in e for e in errors) and not any("/home/" in e for e in errors)
 
 
 def test_claims_check_with_a_file_path_names_the_file_flag(lp, tmp_path, monkeypatch, capsys):
@@ -534,3 +537,60 @@ def test_a_long_alias_and_summary_name_their_limits(cl):
                for e in errs), errs
     assert any("summary must be one sentence (one line, at most 300 characters); it is 301 characters" in e
                for e in errs), errs
+
+
+# --- TODO placeholders and «quoted» names (review of the claims code) ------------------------------
+
+def test_sync_refuses_a_todo_decl_even_when_todo_occurs_in_the_file(lp, env, capsys):
+    """The migrate skeleton's `decl: TODO` used to pass the declaration lookup whenever the file held a
+    `-- TODO` comment, and `summary: "TODO: ..."` passed the schema."""
+    skel = CLAIMS_YAML.replace("decl: Demo.foo_le_bar", "decl: TODO").replace(
+        "summary: A trivial demonstration bound used by the white-noise examples.", "summary: 'TODO: one sentence.'")
+    commit_claims(env.repo_b, text=skel, lean="-- TODO: tighten the constant\ntheorem foo_le_bar : True := trivial\n")
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 1
+    err = capsys.readouterr().err
+    assert "claims[0] (beta/foo-le-bar): decl is the `claims migrate` placeholder TODO" in err
+    assert "claims[0] (beta/foo-le-bar): summary is the `claims migrate` placeholder 'TODO: one sentence.'" in err
+    assert not read_reg(env)["packages"]["beta"].get("claims")
+
+
+@pytest.mark.parametrize("summary", ["TODO", "TODO: one sentence.", "  TODO later"])
+def test_a_todo_summary_is_refused(cl, summary):
+    d = doc()
+    d["claims"][0]["summary"] = summary
+    assert any("summary is the `claims migrate` placeholder" in e for e in cl.validate_claims(d))
+
+
+def test_a_summary_mentioning_todo_later_is_fine(cl):
+    d = doc()
+    d["claims"][0]["summary"] = "A bound; see the TODO list in the paper for the sharp constant."
+    assert cl.validate_claims(d) == []
+
+
+@pytest.mark.parametrize("decl", ["Demo.«foo bar»", "Demo.«a.b»", "«x y».z", "Demo.foo'"])
+def test_guillemet_quoted_decls_are_lean_names(cl, decl):
+    d = doc()
+    d["claims"][0]["decl"] = decl
+    assert cl.validate_claims(d) == []
+
+
+@pytest.mark.parametrize("decl", ["Demo.foo bar", "Demo.«open", "Demo..x", " Demo.x", ""])
+def test_malformed_decls_are_refused(cl, decl):
+    d = doc()
+    d["claims"][0]["decl"] = decl
+    assert any(".decl must be a Lean declaration name" in e for e in cl.validate_claims(d))
+
+
+def test_decl_lookup_splits_guillemet_names(cl):
+    texts = {"A.lean": "theorem «a.b» : True := trivial\n", "B.lean": "theorem «foo bar» : True := trivial\n"}
+    claims = [{"id": "p/a", "decl": "Demo.«a.b»", "file": "A.lean"},
+              {"id": "p/b", "decl": "Demo.«foo bar»", "file": "B.lean"},
+              {"id": "p/c", "decl": "Demo.«zz»", "file": "A.lean"}]
+    assert cl.decl_problems(texts.get, claims) == ["p/c: '«zz»' does not occur in A.lean"]
+
+
+def test_sync_accepts_a_guillemet_decl(lp, env):
+    text = CLAIMS_YAML.replace("decl: Demo.foo_le_bar", "decl: Demo.«foo bar»")
+    commit_claims(env.repo_b, text=text, lean="theorem «foo bar» : True := trivial\n")
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 0
+    assert read_reg(env)["packages"]["beta"]["claims"][0]["decl"] == "Demo.«foo bar»"

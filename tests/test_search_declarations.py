@@ -59,7 +59,7 @@ def test_unclaimed_declaration_is_found_with_its_hit_kind_and_trust(lp, srch, un
     p = json.loads(capsys.readouterr().out)
     reg = p["sources"][0]
     decl = [h for h in reg["hits"] if h["hit_kind"] == "declaration (unclaimed)"]
-    assert [h["decl"] for h in decl] == ["gaussianDampedMass", "IsHeatAdmissible"]
+    assert [h["decl"] for h in decl] == ["DemoA.gaussianDampedMass", "DemoA.IsHeatAdmissible"]
     first = decl[0]
     assert first["package"] == "alpha" and first["trust"] == "none" and first["kind"] == "def"
     assert first["file"] == "DemoA/Heat.lean:10" and first["where"] == "name"
@@ -77,8 +77,8 @@ def test_declaration_hits_rank_after_claim_hits(lp, unclaimed, capsys):
     search_json(lp, unclaimed, "heat")
     hits = json.loads(capsys.readouterr().out)["sources"][0]["hits"]
     assert [(h["hit_kind"], h["decl"]) for h in hits] == [
-        ("claim", "Demo.foo_le_bar"), ("declaration (unclaimed)", "IsHeatAdmissible"),
-        ("declaration (unclaimed)", "heatFlowMass_le")]
+        ("claim", "Demo.foo_le_bar"), ("declaration (unclaimed)", "DemoA.IsHeatAdmissible"),
+        ("declaration (unclaimed)", "DemoA.heatFlowMass_le")]
     assert hits[0]["score"] == 2 and hits[1]["score"] == 1
 
 
@@ -88,7 +88,7 @@ def test_summary_names_the_blind_sources(lp, unclaimed, capsys):
     assert ("registry coverage: 2 of 3 packages have no synced claims: 1 searched by declaration only, "
             "1 not searched (no checkout: demo-c)") in out
     assert out[-1].startswith("consulted: ")
-    assert any(ln.startswith("  [1 name] alpha: gaussianDampedMass  (def, declaration (unclaimed), "
+    assert any(ln.startswith("  [1 name] alpha: DemoA.gaussianDampedMass  (def, declaration (unclaimed), "
                              "trust none, DemoA/Heat.lean:10)") for ln in out)
 
 
@@ -137,8 +137,8 @@ def test_all_synced_says_so(lp, searchable, capsys):
 def test_lean_declarations_parser(srch):
     decls = srch.lean_declarations(HEAT_LEAN)
     assert [(d[0], d[1], d[2]) for d in decls] == [
-        (7, "def", "IsHeatAdmissible"), (10, "def", "gaussianDampedMass"),
-        (12, "theorem", "heatFlowMass_le"), (15, "structure", "Counter")]
+        (7, "def", "DemoA.IsHeatAdmissible"), (10, "def", "DemoA.gaussianDampedMass"),
+        (12, "theorem", "DemoA.heatFlowMass_le"), (15, "structure", "DemoA.Counter")]
     assert decls[2][3] is None and "Gaussian-damped" in decls[0][3]
 
 
@@ -147,7 +147,7 @@ def test_record_lists_the_declaration_and_the_coverage(lp, unclaimed):
     assert run_search(lp, s, "gaussian damped mass", "--offline", "--package", "alpha", "--record") == 0
     date = lp.now_iso()[:10]
     text = (s.env.repo_a / "docs" / "prior-art" / f"{date}-gaussian-damped-mass.md").read_text()
-    assert ("- `gaussianDampedMass` in package `alpha` (def, declaration (unclaimed), trust none, "
+    assert ("- `DemoA.gaussianDampedMass` in package `alpha` (def, declaration (unclaimed), trust none, "
             "`DemoA/Heat.lean:10`). The Gaussian-damped mass of a measure.") in text
     assert ("2 of 3 registered packages have no synced claims: 1 searched by declaration only, "
             "1 not searched (no checkout).") in text
@@ -158,7 +158,7 @@ def test_declaration_hits_past_the_cap_are_counted_not_listed(lp, srch, unclaime
     monkeypatch.setattr(srch, "DECL_HITS_PER_PACKAGE", 1)
     search_json(lp, unclaimed, "heat")
     p = json.loads(capsys.readouterr().out)
-    assert [h["decl"] for h in p["sources"][0]["hits"]] == ["IsHeatAdmissible"]
+    assert [h["decl"] for h in p["sources"][0]["hits"]] == ["DemoA.IsHeatAdmissible"]
     assert p["coverage"]["declaration_hits_omitted"] == 1
 
 
@@ -191,12 +191,13 @@ def test_a_file_cap_that_is_reached_is_reported_and_makes_the_search_incomplete(
     _decoys_and_target(unclaimed.env.repo_a, 4)
     search_json(lp, unclaimed, "chaos moments")
     p = json.loads(capsys.readouterr().out)
-    assert p["coverage"]["declaration_files_capped"] == [{"package": "alpha", "candidates": 5, "inspected": 3}]
+    assert p["coverage"]["declaration_files_capped"] == [{"package": "alpha", "candidates": 5, "inspected": 3,
+                                                         "unreadable": 0}]
     assert p["truncated_sources"] == ["registry"] and p["complete"] is False
     assert run_search(lp, unclaimed, "chaos moments", "--offline") == 0
     out = capsys.readouterr().out
     assert "alpha: only 3 of 5 candidate file(s) inspected (file cap), so a zero there is not an absence" in out
-    assert "registry hit a file cap" in out
+    assert "registry: declaration search hit a file cap" in out
 
 
 def test_the_display_cap_is_not_a_file_cap(lp, srch, unclaimed, capsys):
@@ -230,14 +231,14 @@ def test_each_not_searched_package_carries_a_redacted_reason_and_remedy(lp, srch
     reg["packages"]["demo-e"] = base_pkg("demo-e", tmp_path, "gate-pending", local_path="")
     reg["packages"]["demo-f"] = base_pkg("demo-f", broken, "gate-pending")
     write_reg(unclaimed.env, reg)
-    real_git = srch.core.git
+    real_git = srch.git_bytes
 
     def git(repo, *args, **kw):
         if args and args[0] == "grep" and str(repo).endswith("broken-repo"):
             import subprocess
-            return subprocess.CompletedProcess(["git", *args], 128, "", "fatal: something broke")
+            return subprocess.CompletedProcess(["git", *args], 128, b"", b"fatal: something broke")
         return real_git(repo, *args, **kw)
-    monkeypatch.setattr(srch.core, "git", git)
+    monkeypatch.setattr(srch, "git_bytes", git)
     search_json(lp, unclaimed, "gumbel")
     out = capsys.readouterr().out
     p = json.loads(out)
@@ -290,7 +291,7 @@ def test_a_nested_registered_package_is_not_scanned_as_part_of_its_parent(lp, sr
     write_reg(s.env, reg)
     search_json(lp, s, "nested only thing")
     p = json.loads(capsys.readouterr().out)
-    hits = [h for h in p["sources"][0]["hits"] if h.get("decl") == "nestedOnlyThing"]
+    hits = [h for h in p["sources"][0]["hits"] if h.get("decl") == "Contrib.nestedOnlyThing"]
     assert [h["package"] for h in hits] == ["alpha-contrib"]
     assert hits[0]["file"].startswith("Contrib.lean:")
     search_json(lp, s, "gaussian damped mass")        # the parent's own declarations are still found

@@ -40,5 +40,6 @@ def search(term: str, timeout: float = 10) -> dict:
                 module=h.get("module"), type=" ".join(str(h.get("type") or "").split()))
             for h in rows[:LIMIT]]
     count = data.get("count")
-    note = f"{count} found, first {LIMIT} kept" if isinstance(count, int) and count > LIMIT else None
-    return ok(revision(), hits, note)
+    total = count if isinstance(count, int) and not isinstance(count, bool) else len(rows)
+    # More matches than listed (Loogle's count, or rows past LIMIT) is a capped answer, not a full one.
+    return ok(revision(), hits, None, total=max(total, len(rows)))

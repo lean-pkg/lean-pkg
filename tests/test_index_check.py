@@ -262,3 +262,12 @@ def test_check_recomputes_trust_from_headline_coverage(lp, tmp_path, capsys):
     _git(pkg.repo, "commit", "-am", "later work")
     assert check(lp, root, "demo", "--repo-dir", str(pkg.repo)) == 1
     assert "not judged" in capsys.readouterr().out
+
+
+def test_headline_lookup_splits_guillemet_names(lp, tmp_path):
+    """`rsplit('.')` cut `Demo.«a.b»` at the dot inside the guillemets (review of the discovery code)."""
+    from lean_pkg import index as idx
+    (tmp_path / "A.lean").write_text("theorem «a.b» : True := trivial\n")
+    assert idx.headline_problems(tmp_path, [{"name": "Demo.«a.b»", "file": "A.lean"}]) == []
+    assert idx.headline_problems(tmp_path, [{"name": "Demo.«c.d»", "file": "A.lean"}]) == [
+        "headline Demo.«c.d»: '«c.d»' does not occur in A.lean"]

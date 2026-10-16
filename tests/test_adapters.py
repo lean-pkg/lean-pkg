@@ -109,7 +109,8 @@ def test_loogle_hits(monkeypatch):
     assert [h["name"] for h in r["hits"]] == ["Real.exp", "Real.exp_injective"]
     assert r["hits"][1]["summary"] == ": Function.Injective Real.exp"
     assert r["hits"][0]["url"].endswith("pattern=Real.exp#doc")
-    assert r["reason"] == "641 found, first 20 kept"
+    # 641 matches, 2 in the answer: a capped answer, so the search is incomplete (not a full listing)
+    assert r["reason"] is None and r["capped"] == ["results"] and r["total"] == 641 and r["cap_limit"] == 2
 
 
 def test_loogle_query_error_is_skipped_not_zero(monkeypatch):
@@ -413,3 +414,70 @@ def test_live_revisions():
 def test_the_adapters_package_ships_in_the_wheel():
     setuptools = pytest.importorskip("setuptools")
     assert "lean_pkg.adapters" in setuptools.find_packages(str(ROOT / "src"))
+
+
+# --- truncation is reported, and both sides of a match are folded (review of the discovery code) ---
+
+def test_palomar_lists_30_of_50_matches_and_says_it_is_capped(monkeypatch, srch):
+    pal = mod("palomar")
+    rows = [{"id": f"P{i}", "title": f"Gumbel limit {i}", "path": f"e/{i}"} for i in range(50)]
+    monkeypatch.setattr(pal, "entries", lambda timeout=10: (rows, "7", None))
+    b = srch.adapter_block("palomar", "gumbel")
+    assert len(b["hits"]) == 30 and b["capped"] == ["results"] and b["total"] == 50 and b["cap_limit"] == 30
+    assert srch.part_problems(b) == ["50 matches found, first 30 listed"]
+
+
+def test_palomar_under_its_limit_is_not_capped(monkeypatch, srch):
+    pal = mod("palomar")
+    rows = [{"id": f"P{i}", "title": f"Gumbel limit {i}", "path": f"e/{i}"} for i in range(30)]
+    monkeypatch.setattr(pal, "entries", lambda timeout=10: (rows, "7", None))
+    b = srch.adapter_block("palomar", "gumbel")
+    assert len(b["hits"]) == 30 and b["capped"] == [] and b["total"] is None
+
+
+def test_reservoir_lists_30_of_40_matches_and_says_it_is_capped(monkeypatch, tmp_path, srch):
+    d = tmp_path / "res"
+    for i in range(40):
+        p = d / f"o/p{i}"
+        p.mkdir(parents=True)
+        (p / "metadata.json").write_text(json.dumps({"fullName": f"o/p{i}", "name": f"p{i}",
+                                                     "description": "gumbel stuff", "owner": "o"}))
+    monkeypatch.setenv("LEAN_PKG_RESERVOIR_INDEX", str(d))
+    b = srch.adapter_block("reservoir", "gumbel")
+    assert len(b["hits"]) == 30 and b["capped"] == ["results"] and b["total"] == 40
+
+
+def test_loogle_count_over_its_limit_is_capped(monkeypatch, srch):
+    lg = mod("loogle")
+    body = json.dumps({"count": 500, "hits": [{"name": f"N.x{i}", "type": "T"} for i in range(200)]}).encode()
+    monkeypatch.setattr(lg, "fetch", lambda url, timeout=10: (200, body))
+    b = srch.adapter_block("loogle", "?a + ?b")
+    assert len(b["hits"]) == 20 and b["capped"] == ["results"] and b["total"] == 500 and b["cap_limit"] == 20
+
+
+def test_a_capped_adapter_makes_the_search_incomplete(lp, monkeypatch, searchable, capsys):
+    from .conftest import run_search
+    pal = mod("palomar")
+    rows = [{"id": f"P{i}", "title": f"Gumbel limit {i}", "path": f"e/{i}"} for i in range(50)]
+    monkeypatch.setattr(pal, "entries", lambda timeout=10: (rows, "7", None))
+    assert run_search(lp, searchable, "gumbel", "--sources", "registry,index,palomar", "--json") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["complete"] is False and p["truncated_sources"] == ["palomar"]
+
+
+@pytest.mark.parametrize("term,title", [("Gödel incompleteness", "Godel's incompleteness theorems"),
+                                        ("Godel incompleteness", "Gödel's incompleteness theorems"),
+                                        ("GÖDEL", "gödel numbering")])
+def test_matches_folds_the_text_as_well_as_the_term(term, title):
+    assert mod("").matches(term, title)
+
+
+def test_palomar_finds_an_accented_title(monkeypatch, srch):
+    pal = mod("palomar")
+    rows = [{"id": "P1", "title": "Gödel's incompleteness theorems", "path": "e/1"}]
+    monkeypatch.setattr(pal, "entries", lambda timeout=10: (rows, "7", None))
+    assert len(srch.adapter_block("palomar", "Gödel incompleteness")["hits"]) == 1
+
+
+def test_search_and_the_adapters_share_one_fold(srch):
+    assert srch.fold is mod("").fold

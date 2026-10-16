@@ -40,9 +40,9 @@ claims:
 | Key | Rule |
 |---|---|
 | `id` | `<package>/<slug>`; the slug (`[a-z0-9][a-z0-9-]*`) names the mathematics, never the declaration, so a rename changes `decl` and keeps the id |
-| `decl` | the Lean declaration; its last name component must occur in `file` |
+| `decl` | the Lean declaration, a dotted name whose components may be «quoted» (`Demo.«foo bar»`); its last component («» kept whole) must occur in `file`. `TODO` (the `claims migrate` placeholder) is refused |
 | `kind` | `definition`, `lemma`, `theorem`, `construction` or `library` |
-| `summary` | one sentence: one line, at most 300 characters |
+| `summary` | one sentence: one line, at most 300 characters; one starting with `TODO` (the `claims migrate` placeholder) is refused |
 | `aliases`, `keywords` | free phrases, one line of at most 120 characters each; lowercase tags (`[a-z0-9-]`) |
 | `status` | `reusable`, `internal`, `experimental` or `superseded` |
 | `superseded_by` | the id that replaces a superseded claim (a claim is never deleted; supersession must not cycle) |
@@ -183,14 +183,20 @@ reason:
 which you edit to one of `require`, `reuse`, `vendor`, `contribute` or `build`,
 with the reason each candidate was rejected. Sources that ran and found nothing
 are worded as the record of a bounded search, for example: Not found in
-reservoir at 477b5e7c, palomar at 173 on 2026-10-06 for "Gumbel". A record is
-never overwritten and is never written into the registry directory.
+reservoir at 477b5e7c, palomar at 173 on 2026-10-06 for "Gumbel". A local
+source that did not read everything (the registry's declaration search hit its
+file cap or met unreadable files, or an index entry could not be read) is never
+worded "Not found": its Sources row says `incomplete:` and a "Not fully
+searched" sentence names it. A record is never overwritten and is never written
+into the registry directory.
 
 Privacy: registry rows, cached claims and event lines stay private. A record
 lists claims of other private packages only when the package it is written for
 is itself private, and then says `private-claims: yes` near the top; check such
 a record before that repository goes public. Otherwise it gives only their
-number.
+number. A record written with `--repo-dir` into a folder that is not the
+package's own checkout treats the package's own claims the same way: they are
+listed only when the package is public.
 
 ## While the paper is being written
 
@@ -217,8 +223,11 @@ source that answered only in part (its block's `partial[]`, e.g. GitHub's code
 search rate-limited while its repository search worked), a part that returned
 exactly its result limit (its block's `capped[]` with `cap_limit`: GitHub's code
 or repository search stops at 30, so more matches may exist; the record's Sources
-table says `capped:` and an `Incomplete:` sentence names it) or a package that was
-never searched means the search was bounded.
+table says `capped:` and an `Incomplete:` sentence names it; Palomar, Reservoir
+and Loogle say the same when they found more matches than they list, with the
+block's `total`), a local source marked `incomplete` (unreadable candidate files
+or index entries) or a package that was never searched means the search was
+bounded.
 
 **2. Pin what you found.** A candidate is only usable at an exact revision.
 Each hit carries one: a registry claim its `pin` (the synced commit), the index

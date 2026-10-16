@@ -113,7 +113,7 @@ def test_other_private_claims_are_withheld_from_a_public_or_unknown_target(lp, s
     assert run_search(lp, s, "foo bound", "--offline", "--repo-dir", str(research), "--record") == 0
     text = record_file(research, today(lp), "foo-bound").read_text()
     assert "beta/foo-le-bar" not in text
-    assert "1 registry claim(s) of other private packages matched and are not listed here." in text
+    assert "1 registry hit(s) of private packages matched and are not listed here." in text
     assert "- private-claims: no" in text
     assert read_events(s.env)[-1]["name"] is None
 
@@ -231,3 +231,38 @@ def test_a_repository_without_mkdocs_gets_no_nav_note(lp, searchable, capsys):
     assert run_search(lp, s, "trivial bound", "--offline", "--package", "beta", "--record", "--json") == 0
     p = json.loads(capsys.readouterr().out)
     assert p["nav_hint"] is None and p["record"]["mkdocs"] is False
+
+
+def test_a_private_package_record_in_an_unrelated_folder_withholds_its_own_claims(lp, searchable, tmp_path):
+    """Review: --repo-dir outside beta's checkout downgraded the visibility to unknown, but beta's own private
+    claims were still exempt from withholding and landed in a possibly public folder."""
+    s = searchable
+    research = tmp_path / "public-research"
+    research.mkdir()
+    assert run_search(lp, s, "foo bound", "--offline", "--package", "beta", "--repo-dir", str(research),
+                      "--record") == 0
+    text = record_file(research, today(lp), "foo-bound").read_text()
+    assert "beta/foo-le-bar" not in text and "Demo.foo_le_bar" not in text
+    assert "1 registry hit(s) of private packages matched and are not listed here." in text
+    assert "- private-claims: no" in text
+
+
+def test_a_private_package_record_in_its_own_checkout_via_repo_dir_lists_its_claims(lp, searchable):
+    s = searchable
+    assert run_search(lp, s, "foo bound", "--offline", "--package", "beta", "--repo-dir", str(s.env.repo_b),
+                      "--record") == 0
+    text = record_file(s.env.repo_b, today(lp), "foo-bound").read_text()
+    assert "beta/foo-le-bar" in text and "- private-claims: no" in text
+
+
+def test_a_public_package_record_in_an_unrelated_folder_lists_its_claims(lp, searchable, tmp_path):
+    s = searchable
+    reg = read_reg(s.env)
+    reg["packages"]["beta"]["visibility"] = "public"
+    write_reg(s.env, reg)
+    research = tmp_path / "research"
+    research.mkdir()
+    assert run_search(lp, s, "foo bound", "--offline", "--package", "beta", "--repo-dir", str(research),
+                      "--record") == 0
+    text = record_file(research, today(lp), "foo-bound").read_text()
+    assert "beta/foo-le-bar" in text and "- private-claims: no" in text and "withheld" not in text

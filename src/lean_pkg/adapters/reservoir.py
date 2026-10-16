@@ -123,4 +123,4 @@ def search(term: str, timeout: float = 10) -> dict:
                          keywords=list(m.get("keywords") or []),
                          reservoir=f"https://reservoir.lean-lang.org/@{m.get('owner')}/{m.get('name')}"))
     found.sort(key=lambda h: (-int(h["extra"]["stars"] or 0), h["name"].lower()))
-    return ok(rev, found[:LIMIT], f"{n} packages searched")
+    return ok(rev, found[:LIMIT], f"{n} packages searched", total=len(found))

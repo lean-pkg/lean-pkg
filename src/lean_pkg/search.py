@@ -23,7 +23,8 @@ import subprocess
 from . import claims as cl
 from . import cli as core
 from . import index as idx
-from .adapters import github, leansearch, loogle, palomar, reservoir
+from . import lean_scan
+from .adapters import fold, github, leansearch, loogle, palomar, reservoir
 
 LOCAL_SOURCES = ("registry", "index")
 NETWORK_SOURCES = ("loogle", "leansearch", "reservoir", "palomar", "github")
@@ -35,7 +36,10 @@ HIT_KEYS = ("source", "id", "package", "decl", "kind", "summary", "trust", "stat
             "file", "score", "where", "hit_kind", "repo")
 PACKAGE_FIELDS = ("name", "notes", "owner_project", "repo")
 _TOKEN_SPLIT = re.compile(r"[\W_]+", re.UNICODE)
-_PATHLIKE = re.compile(r"(?:~|/home/|/Users/|[A-Za-z]:\\)\S*")
+# A home directory anywhere; a cluster or system root (/scratch/<x>, /work/<x>, /gpfs/<x>, /srv/<x>, /mnt/<x>,
+# /tmp/<x>, /lustre/<x>) only where a path starts (not inside a URL such as https://host/work/page).
+_PATHLIKE = re.compile(r"(?:~|/home/|/Users/|[A-Za-z]:\\|(?<![\w.:/-])/(?:scratch|work|gpfs|srv|mnt|tmp|lustre)/"
+                       r"(?=[^\s/]))\S*")
 ROUTES = ("signature", "natural-language")
 SIGNATURE_SOURCES = ("loogle",)       # sources that only take declaration/type patterns
 LOOGLE_NL_REASON = ("natural-language query; Loogle takes declaration patterns — try e.g. "
@@ -43,20 +47,10 @@ LOOGLE_NL_REASON = ("natural-language query; Loogle takes declaration patterns �
 _SIG_MARKERS = ("→", "->", "∀", "∃", "fun ", "λ", ":", "(", "?", "_", "⊢", '"', "↔", "<->")
 _DOTTED = re.compile(r"\b[A-Z][A-Za-z0-9']*\.[A-Za-z_]")
 DECL_HIT_KIND = "declaration (unclaimed)"
-DECL_KEYWORDS = ("theorem", "lemma", "def", "structure", "class", "instance", "abbrev", "inductive")
-_DECL_LINE = re.compile(
-    r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|partial|unsafe|nonrec|scoped)\s+)*"
-    r"(" + "|".join(DECL_KEYWORDS) + r")\s+([^\s:({\[⦃]+)")
+DECL_KEYWORDS = lean_scan.KEYWORDS
 DECL_HITS_PER_PACKAGE = 10     # declaration hits kept per package; the rest are counted, not listed
 DECL_FILES_MAX = 2000          # files read per package after the git grep prefilter; past it, coverage says so
 EXCERPT_MAX = 160
-
-
-def fold(text) -> str:
-    """NFKD, strip combining marks, casefold: Itô -> ito, Black–Scholes keeps its words."""
-    import unicodedata
-    s = unicodedata.normalize("NFKD", str(text or ""))
-    return "".join(ch for ch in s if not unicodedata.combining(ch)).casefold()
 
 
 def scrub_paths(text) -> str:
@@ -140,10 +134,15 @@ def _package_hit(name: str, pkg: dict, score: int, where: str) -> dict:
 
 def block(source: str, state: str, reason: str | None = None, revision: str | None = None,
           hits: list | None = None, route: str | None = None, partial: list | None = None,
-          capped: list | None = None, cap_limit: int | None = None) -> dict:
+          capped: list | None = None, cap_limit: int | None = None, total: int | None = None,
+          incomplete: str | None = None) -> dict:
+    """One source's answer. `partial`/`capped` name parts of a network source that failed or hit their
+    result limit (`total`: the matches it found, when it lists fewer); `incomplete` says why a local source
+    did not read everything (the registry's file cap or unreadable files, the index's unreadable entries)."""
     return {"source": source, "state": state, "reason": scrub_paths(reason) if reason else reason,
             "revision": revision, "hits": hits or [], "route": route, "partial": list(partial or []),
-            "capped": list(capped or []), "cap_limit": cap_limit if capped else None}
+            "capped": list(capped or []), "cap_limit": cap_limit if capped else None,
+            "total": total if capped else None, "incomplete": incomplete}
 
 
 # --------------------------------------------------------------------------
@@ -155,34 +154,11 @@ def has_synced_claims(pkg: dict) -> bool:
     return bool(pkg.get("claims"))
 
 
-def lean_declarations(text: str) -> list[tuple[int, str, str, str | None, str]]:
-    """(line, keyword, name, docstring or None, stripped line) for every declaration line
-    (`theorem|lemma|def|structure|class|instance|abbrev|inductive NAME`, after attributes and
-    modifiers). A `/-- ... -/` docstring belongs to the declaration that follows it, with only blank
-    or attribute lines between."""
-    out: list[tuple[int, str, str, str | None, str]] = []
-    doc, buf, in_doc = None, [], False
-    for i, line in enumerate(text.splitlines(), 1):
-        st = line.strip()
-        if in_doc:
-            buf.append(st)
-            if "-/" in st:
-                in_doc, doc = False, " ".join(buf)
-            continue
-        if st.startswith("/--"):
-            buf = [st]
-            if "-/" in st[3:]:
-                doc = st
-            else:
-                in_doc = True
-            continue
-        m = _DECL_LINE.match(line)
-        if m and m.group(2) not in DECL_KEYWORDS:
-            out.append((i, m.group(1), m.group(2), doc, st))
-            doc = None
-        elif st and not st.startswith("@["):
-            doc = None
-    return out
+def lean_declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
+    """(line, keyword, qualified name, docstring or None, stripped line, name as written) for every
+    declaration (lean_pkg.lean_scan: comments and strings skipped, docstrings attached across attribute
+    lines, `namespace`/`section`/`end` tracked so the name is fully qualified)."""
+    return lean_scan.declarations(text)
 
 
 def _doc_text(doc: str | None) -> str:
@@ -213,10 +189,12 @@ def _decl_order(h: dict) -> tuple:
 
 def _read_blobs(repo: pathlib.Path, rev: str, rels: list[str]) -> dict[str, bytes]:
     """{rel: bytes} for package-relative paths at `rev`, through one `git cat-file --batch` (one process for
-    thousands of files instead of one `git show` each). A path git reports missing is left out."""
+    thousands of files instead of one `git show` each). A path git reports missing, or one cat-file cannot
+    name (a newline in it), is left out: the caller counts it as unreadable."""
+    rels = [r for r in rels if "\n" not in r]
     if not rels:
         return {}
-    spec = "".join(f"{rev}:./{r}\n" for r in rels).encode("utf-8")
+    spec = "".join(f"{rev}:./{r}\n" for r in rels).encode("utf-8", errors="surrogateescape")
     p = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=spec, capture_output=True,
                        env=core.scrubbed_env())
     out, data, i = {}, p.stdout, 0
@@ -231,6 +209,59 @@ def _read_blobs(repo: pathlib.Path, rev: str, rels: list[str]) -> dict[str, byte
             out[rel] = data[i:i + size]
             i += size + 1                       # the object, then its trailing newline
     return out
+
+
+def _accent_table() -> dict[str, list[str]]:
+    """{ascii letter: [the letter in both cases, then every Latin letter that folds to it, precomposed and
+    decomposed]}: what `git grep` must accept so a folded query word still finds `Itô` or `GÖDEL`."""
+    import unicodedata
+    table: dict[str, set[str]] = {}
+    for cp in list(range(0xC0, 0x250)) + list(range(0x1E00, 0x1F00)):
+        ch = chr(cp)
+        f = fold(ch)
+        if len(f) == 1 and f.isascii() and f.isalpha():
+            table.setdefault(f, set()).update({ch, unicodedata.normalize("NFD", ch)})
+    return {k: [k, k.upper()] + sorted(v - {k, k.upper()}) for k, v in table.items()}
+
+
+_ACCENTS = _accent_table()
+
+
+def grep_pattern(word: str) -> str:
+    """An extended regular expression matching `word` (already folded) in any case and with any Latin
+    accents: `ito` -> `(i|I|í|...)(t|T|ţ|...)(o|O|ô|...)`. Letters without variants stay literal."""
+    out = []
+    for ch in word:
+        alts = _ACCENTS.get(ch)
+        if alts:
+            out.append("(" + "|".join(alts) + ")")
+        else:
+            out.append(re.sub(r"([\\.^$|?*+()\[\]{}])", r"\\\1", ch))
+    return "".join(out)
+
+
+def git_bytes(repo: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
+    """`git -c core.quotePath=false ARGS` in a package checkout with byte output (file names are not always
+    UTF-8); returncode 127 when git cannot be run."""
+    cmd = ["git", "-C", str(repo), "-c", "core.quotePath=false", *args]
+    try:
+        return subprocess.run(cmd, capture_output=True, check=False, env=core.scrubbed_env())
+    except OSError as e:
+        return subprocess.CompletedProcess(cmd, 127, b"", str(e).encode())
+
+
+def _candidate_files(repo: pathlib.Path, words: list[str], nested: tuple[str, ...]) -> list[str] | None:
+    """Tracked `*.lean` files at HEAD containing every word (case- and accent-insensitive), sorted; None when
+    git grep failed. Paths come NUL-separated and unquoted, so a non-ASCII file name is kept as is."""
+    args = ["grep", "-l", "-z", "-I", "-E", "--all-match"]
+    for w in words:
+        args += ["-e", grep_pattern(w)]
+    args += ["HEAD", "--", "*.lean", *[f":(exclude){d}/" for d in nested]]
+    p = git_bytes(repo, *args)
+    if p.returncode not in (0, 1):
+        return None
+    names = [x.decode("utf-8", errors="surrogateescape") for x in p.stdout.split(b"\0") if x]
+    return sorted(n.split(":", 1)[1] for n in names if ":" in n)
 
 
 # Why a package was not searched by declaration: (label for the text line, read-only remedy). The remedy names
@@ -253,14 +284,17 @@ class NotSearched(str):
 def declaration_hits(term: str, name: str, pkg: dict,
                      nested: tuple[str, ...] = ()) -> tuple[list[dict], int, dict | None] | NotSearched:
     """(hits, omitted, capped) from the package's checkout at HEAD, or a NotSearched code (no-path,
-    no-checkout, no-git-head, scan-error) when it could not be searched. A declaration matches when every query word (case-insensitive,
-    accents folded, as a substring so camelCase names match) occurs in its name or its docstring;
-    a name match ranks before a docstring-only match. `omitted` counts matching declarations beyond the
-    DECL_HITS_PER_PACKAGE shown; `capped` is {"candidates", "inspected"} when more candidate files matched the
-    git grep prefilter than DECL_FILES_MAX allows reading (else None): those files were never examined, so a
-    zero is not an absence (field report: a theorem in the 201st file was silently missed). `nested` lists the
-    checkout-relative roots of other registered packages inside this one; their files belong to them and are
-    not scanned here (field report: a contrib package's declarations were attributed to its parent)."""
+    no-checkout, no-git-head, scan-error) when it could not be searched. A declaration matches when every query
+    word (case-insensitive, accents folded on both sides, as a substring so camelCase names match) occurs in its
+    name or its docstring; a name match ranks before a docstring-only match. Names are fully qualified
+    (`namespace` tracked): a dotted query (`DemoA.heatFlowMass_le`) is matched against the qualified name, a
+    plain one against the name as written. `omitted` counts matching declarations beyond the
+    DECL_HITS_PER_PACKAGE shown; `capped` is None when every candidate file was read, else
+    {"candidates", "inspected", "unreadable"}: more candidate files matched the git grep prefilter than
+    DECL_FILES_MAX allows reading, or `unreadable` of them could not be read. Those files were never examined,
+    so a zero is not an absence (field report: a theorem in the 201st file was silently missed). `nested`
+    lists the checkout-relative roots of other registered packages inside this one; their files belong to them
+    and are not scanned here (field report: a contrib package's declarations were attributed to its parent)."""
     if not pkg.get("local_path"):
         return NotSearched("no-path")
     try:
@@ -273,30 +307,28 @@ def declaration_hits(term: str, name: str, pkg: dict,
     if head is None:
         return NotSearched("no-git-head")
     words = _decl_terms(term)
-    args = ["grep", "-l", "-I", "-i", "-F", "--all-match"]
-    for w in words:
-        args += ["-e", w]
-    p = core.git(repo, *args, "HEAD", "--", "*.lean", *[f":(exclude){d}/" for d in nested])
-    if p.returncode not in (0, 1):
+    dotted = "." in str(term)
+    candidates = _candidate_files(repo, words, nested)
+    if candidates is None:
         return NotSearched("scan-error")
-    candidates = sorted(ln.split(":", 1)[1] for ln in p.stdout.splitlines() if ":" in ln)
     files = candidates[:DECL_FILES_MAX]
-    capped = ({"candidates": len(candidates), "inspected": len(files)}
-              if len(candidates) > len(files) else None)
     blobs = _read_blobs(repo, head, files)
+    unreadable = sum(1 for rel in files if rel not in blobs)
+    capped = ({"candidates": len(candidates), "inspected": len(files) - unreadable, "unreadable": unreadable}
+              if len(candidates) > len(files) or unreadable else None)
     found = []
     for rel in files:
         blob = blobs.get(rel)
         if blob is None:
             continue
-        for line, kw, dname, doc, st in lean_declarations(blob.decode("utf-8", errors="replace")):
+        for line, kw, qual, doc, st, written in lean_declarations(blob.decode("utf-8", errors="replace")):
             dtext = _doc_text(doc)
-            in_name = fold(dname)
+            in_name = fold(qual if dotted else written)
             if not all(w in in_name + " " + fold(dtext) for w in words):
                 continue
             where = "name" if all(w in in_name for w in words) else "docstring"
             found.append({"source": "registry", "id": f"{name}:{rel}:{line}", "package": name,
-                          "decl": dname, "kind": kw, "summary": _excerpt(dtext or st), "trust": "none",
+                          "decl": qual, "kind": kw, "summary": _excerpt(dtext or st), "trust": "none",
                           "status": None, "pin": head, "file": f"{rel}:{line}", "score": 1,
                           "where": where, "hit_kind": DECL_HIT_KIND, "repo": None})
     found.sort(key=_decl_order)
@@ -360,9 +392,27 @@ def coverage_text(cov: dict | None) -> str | None:
     if cov.get("declaration_hits_omitted"):
         text += f"; {cov['declaration_hits_omitted']} more declaration hit(s) not listed"
     for c in cov.get("declaration_files_capped") or []:
-        text += (f"; {c['package']}: only {c['inspected']} of {c['candidates']} candidate file(s) inspected "
-                 f"(file cap), so a zero there is not an absence")
+        text += f"; {c['package']}: {capped_phrase(c)}, so a zero there is not an absence"
     return text
+
+
+def capped_phrase(c: dict) -> str:
+    """`only 3 of 5 candidate file(s) inspected (file cap)`, `(1 unreadable)` or `(file cap; 1 unreadable)`."""
+    unreadable = c.get("unreadable") or 0
+    why = (["file cap"] if c["candidates"] - c["inspected"] - unreadable > 0 else []) + \
+        ([f"{unreadable} unreadable"] if unreadable else [])
+    return f"only {c['inspected']} of {c['candidates']} candidate file(s) inspected ({'; '.join(why)})"
+
+
+def registry_incomplete(cov: dict | None) -> str | None:
+    """Why the registry source read only part of what it should have, or None."""
+    capped = (cov or {}).get("declaration_files_capped") or []
+    if not capped:
+        return None
+    cap = any(c["candidates"] - c["inspected"] - (c.get("unreadable") or 0) > 0 for c in capped)
+    unreadable = sum(c.get("unreadable") or 0 for c in capped)
+    why = (["a file cap"] if cap else []) + ([f"{unreadable} unreadable candidate file(s)"] if unreadable else [])
+    return f"declaration search hit {' and '.join(why)} (see the coverage line)"
 
 
 # --------------------------------------------------------------------------
@@ -421,7 +471,8 @@ def registry_search(term: str, reg_path: pathlib.Path) -> tuple[dict, dict | Non
                 s, where = score_claim(term, c)
                 if s:
                     hits.append(_hit("registry", c, name, trust, pin, s, where))
-    return block("registry", "ok", None, registry_revision(reg_path), rank(hits) + decl_hits), cov
+    return block("registry", "ok", None, registry_revision(reg_path), rank(hits) + decl_hits,
+                 incomplete=registry_incomplete(cov)), cov
 
 
 def entry_claims(entry: dict) -> list[dict]:
@@ -456,12 +507,16 @@ def index_block(term: str, root: pathlib.Path) -> dict:
         except core.Fail:
             unreadable += 1
             continue
+        if not isinstance(entry, dict):
+            unreadable += 1
+            continue
         for c in entry_claims(entry):
             s, where = score_claim(term, c)
             if s:
                 hits.append(_hit("index", c, n, c["trust"], c["pin"], s, where))
     reason = f"{unreadable} unreadable entr{'y' if unreadable == 1 else 'ies'} not searched" if unreadable else None
-    return block("index", "ok", reason, index_revision(root), rank(hits))
+    # An entry that could not be read was not searched: the index answered only in part (complete: false).
+    return block("index", "ok", reason, index_revision(root), rank(hits), incomplete=reason)
 
 
 def adapter_block(source: str, term: str, timeout: float = 10) -> dict:
@@ -478,8 +533,10 @@ def adapter_block(source: str, term: str, timeout: float = 10) -> dict:
     partial = r.get("partial") if isinstance(r.get("partial"), list) else []
     capped = r.get("capped") if isinstance(r.get("capped"), list) else []
     limit = r.get("cap_limit") if isinstance(r.get("cap_limit"), int) else None
+    total = r.get("total") if isinstance(r.get("total"), int) and not isinstance(r.get("total"), bool) else None
     return block(source, "ok", r.get("reason"), r.get("revision"), r["hits"],
-                 partial=[str(x) for x in partial], capped=[str(x) for x in capped], cap_limit=limit)
+                 partial=[str(x) for x in partial], capped=[str(x) for x in capped], cap_limit=limit,
+                 total=total)
 
 
 # --------------------------------------------------------------------------
@@ -526,11 +583,13 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
     # Completeness at a glance (#14, G9): a source skipped (offline, an outage, a route) means a zero count
     # is not a negative result; callers that copy "0 hits" into a record must see that here.
     skipped = [b["source"] for b in blocks if b["state"] != "ok"]
-    truncated = ["registry"] if (cov or {}).get("declaration_files_capped") else []
     # A source that answered with one of its parts failed (GitHub code search rate-limited while the
     # repository search worked) is incomplete too, or its zero reads as an absence (field report).
-    # A part that returned exactly its result limit (GitHub's 30) is truncated the same way (field report).
-    truncated += [b["source"] for b in blocks if b["state"] == "ok" and (b.get("partial") or b.get("capped"))]
+    # A part that returned exactly its result limit (GitHub's 30), or listed fewer matches than it found
+    # (Palomar, Reservoir, Loogle), is truncated the same way; so is a local source that could not read
+    # everything (the registry's file cap or unreadable files, an unreadable index entry).
+    truncated = [b["source"] for b in blocks
+                 if b["state"] == "ok" and (b.get("partial") or b.get("capped") or b.get("incomplete"))]
     payload.update({"complete": not skipped and not truncated, "searched": len(blocks) - len(skipped),
                     "skipped_sources": skipped, "truncated_sources": truncated})
     return render_text(payload), payload
@@ -549,26 +608,31 @@ def consulted_state(b: dict) -> str:
     returned its result limit; else `skipped: <reason>`."""
     if b["state"] != "ok":
         return state_text(b)
-    return ("partial, " if b.get("partial") else "capped, " if b.get("capped") else "ok, ") + _n(len(b["hits"]))
+    return ("partial, " if b.get("partial") else "capped, " if b.get("capped")
+            else "incomplete, " if b.get("incomplete") else "ok, ") + _n(len(b["hits"]))
 
 
 def part_problems(b: dict) -> list[str]:
     """`code search failed`, `code search returned its 30-result limit`: why a source answered in part."""
     lim = f"{b['cap_limit']}-result" if b.get("cap_limit") else "result"
     return ([f"{p} search failed" for p in b.get("partial") or []]
-            + [f"{p} search returned its {lim} limit" for p in b.get("capped") or []])
+            + [f"{b['total']} matches found, first {b['cap_limit']} listed"
+               if p == "results" and b.get("total") and b.get("cap_limit")
+               else f"{p} search returned its {lim} limit" for p in b.get("capped") or []])
 
 
 def truncation_text(payload: dict) -> str:
-    """Why each source in `truncated_sources` answered only in part, e.g. `registry hit a file cap (see the
-    coverage line); github: code search failed` or `github: code search returned its 30-result limit`."""
+    """Why each source in `truncated_sources` answered only in part, e.g. `registry: declaration search hit a
+    file cap (see the coverage line); github: code search failed`, `index: 1 unreadable entry not searched`
+    or `palomar: 50 matches found, first 30 listed`."""
     parts = {b["source"]: part_problems(b) for b in payload["sources"]}
     out = []
     for src in payload.get("truncated_sources") or []:
-        if parts.get(src):
-            out.append(f"{src}: {', '.join(parts[src])}")
-        else:
-            out.append(f"{src} hit a file cap (see the coverage line)")
+        b = next(x for x in payload["sources"] if x["source"] == src)
+        why = parts.get(src) or []
+        if b.get("incomplete"):
+            why = why + [b["incomplete"]]
+        out.append(f"{src}: {', '.join(why)}" if why else f"{src} answered only in part")
     return "; ".join(out)
 
 
@@ -653,7 +717,11 @@ def cmd_search(args) -> int:
 
 
 def add_parsers(sub, add_json) -> None:
-    s = sub.add_parser("search", help="prior-art search over claims, the index and public sources")
+    s = sub.add_parser("search", help="prior-art search over claims, the index and public sources",
+                       description="Prior-art search. Packages without synced claims are searched by declaration "
+                                   "(fully qualified names; accents folded). A source that skipped, failed in part, "
+                                   "listed fewer matches than it found or could not read everything makes the "
+                                   "search incomplete (complete: false): a zero there is not an absence.")
     s.add_argument("term", help="what to look for (quote a phrase)")
     s.add_argument("--package", default=None,
                    help="the registered package this search is for (it labels the output; every "

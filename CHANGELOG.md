@@ -29,6 +29,39 @@ change the registry schema or receipt format, always with a migration).
   `home_outside_tmp_path`, `no_real_io_in_search_adapters`), so a scratch `from tests.conftest import *` keeps
   them; with underscore names it silently dropped them and could write to the caller's real registry (review
   finding).
+- `search`'s declaration fallback reads Lean with a small scanner (`lean_pkg.lean_scan`) instead of a line regex:
+  a theorem inside a `/- ... -/` block comment (nested ones too), a line comment or a string is no longer
+  reported; `/-- doc -/ theorem x` on one line, `class inductive`, `instance (priority := n) name`, `axiom`,
+  `opaque`, `irreducible_def`, `local`/`scoped instance` and `theorem «my theorem»` are found; an attribute with a
+  string or nested brackets (`@[to_additive "See [Foo.add]"]`) and a multi-line attribute keep the declaration and
+  its docstring. Declarations carry their fully qualified name (`namespace`/`section`/`mutual` ... `end` tracked),
+  so `search DemoA.heatFlowMass_le` finds the namespaced theorem; a plain query still matches the name as written
+  (review finding).
+- `search` folds accents on both sides: the `git grep` prefilter accepts accented forms of every query letter
+  (precomposed or decomposed), so `ito` finds `Itô` and `Gödel` finds `Godel`; file names with non-ASCII
+  characters are no longer dropped (`core.quotePath=false`, NUL-separated output); a candidate file that cannot
+  be read is counted (`declaration_files_capped[].unreadable`) and makes the search incomplete instead of being
+  skipped silently. Palomar and Reservoir `matches()` now fold the text as well as the term, and search and the
+  adapters share one `fold` (review finding).
+- A local source that did not read everything is reported as incomplete, never as "not found": the registry
+  (declaration file cap or unreadable files) and the index (an entry that is not valid YAML or not UTF-8, which
+  used to crash the search) set the block's `incomplete`, join `truncated_sources` and make `complete: false`; the
+  `--record` page marks them `incomplete:` in its Sources table, leaves them out of `Not found in ...`, names
+  them in a `Not fully searched` sentence and counts the capped packages in the coverage sentence (review finding).
+- Palomar (30 listed), Reservoir (30) and Loogle (20) report when they found more matches than they list:
+  `capped: ["results"]` with `cap_limit` and `total`, so the search is incomplete (`incomplete: palomar: 50
+  matches found, first 30 listed`) as GitHub's 30-result cap already was. Loogle's old `N found, first 20 kept`
+  note is replaced by this (review finding).
+- `search --record --package P --repo-dir DIR` into a folder that is not P's own checkout no longer lists a
+  private P's own claims there: they are withheld like any other private package's unless P is public, and the
+  `private-claims:` header stays truthful (review finding).
+- `claims sync` / `claims check` refuse a claim still carrying a `claims migrate` placeholder (`decl: TODO`, or a
+  `summary` starting with `TODO`), naming the claim; before, a `-- TODO` comment in the file let `decl: TODO`
+  pass the declaration lookup. A `decl` with «quoted» components (`Demo.«foo bar»`, `Demo.«a.b»`) is accepted
+  and split respecting the guillemets (also for `index` headline checks) (review finding).
+- `scrub_paths` (search reasons, excerpts, package repos) also redacts cluster and system roots where a path
+  starts: `/scratch/<x>`, `/work/<x>`, `/gpfs/<x>`, `/srv/<x>`, `/mnt/<x>`, `/tmp/<x>`, `/lustre/<x>`; URLs and
+  relative paths are left alone (review finding).
 
 ## [0.7.43] - 2026-10-16
 
