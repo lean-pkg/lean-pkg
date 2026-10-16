@@ -368,7 +368,8 @@ edits, is refused before anything is written. A push that hits a transient
 network error is retried with backoff (`LEAN_PKG_PUSH_RETRIES`, default 4),
 and one rejected because another writer pushed first is rebased onto
 `origin/<branch>` and pushed again. A push that still fails exits 1 and keeps
-the local commit; run the `git push origin <branch>` it prints. `--no-commit`
+the local commit; run the recovery it prints (`git pull --rebase origin <branch>`
+then `git push origin <branch>` after a rejection). `--no-commit`
 turns the mode off for one command, and `lean-pkg doctor --fetch` shows how
 the clone stands against `origin`.
 

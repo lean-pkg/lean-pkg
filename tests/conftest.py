@@ -551,15 +551,18 @@ def run_search(lp, s: SimpleNamespace, *argv: str) -> int:
     return lp.main(["--registry", str(s.env.registry), "search", *argv, "--index", str(s.index)])
 
 
+# The autouse isolation fixtures below have public names on purpose: `from tests.conftest import *` (a
+# scratch conftest) imports only names without a leading underscore, so an underscore name would silently
+# drop the isolation and let that scratch suite write to the caller's real registry.
 @pytest.fixture(autouse=True)
-def _no_user_default_registry(monkeypatch, tmp_path):
+def no_user_default_registry(monkeypatch, tmp_path):
     """No test resolves the user's real ~/.lean-pkg/registry: LEAN_PKG_HOME points at an absent per-test
     directory (subprocesses inherit it through os.environ)."""
     monkeypatch.setenv("LEAN_PKG_HOME", str(tmp_path / "lean-pkg-home"))
 
 
 @pytest.fixture(autouse=True)
-def _home_outside_tmp_path(monkeypatch, tmp_path):
+def home_outside_tmp_path(monkeypatch, tmp_path):
     """local_path is stored $HOME-relative when it lies under $HOME (#17). Tests pass absolute paths
     under tmp_path and expect them back verbatim, which holds only when tmp_path is outside $HOME; on a
     host whose TMPDIR is under the real home it would not. cli.HOME is an empty per-test directory."""
@@ -567,7 +570,7 @@ def _home_outside_tmp_path(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _no_real_io_in_search_adapters(monkeypatch, tmp_path):
+def no_real_io_in_search_adapters(monkeypatch, tmp_path):
     """No test reaches the network or runs `gh` through lean_pkg.adapters, and no test
     reads the user's cache: every adapter test patches its module's fetch or runner."""
     adapters = importlib.import_module("lean_pkg.adapters")
