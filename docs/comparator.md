@@ -121,6 +121,29 @@ It refuses when `claims.yaml` is not tracked at HEAD or the claims are not
 synced at HEAD, and a live lease held by another agent refuses the write
 (`--agent`). The registry is never written.
 
+**Without `claims sync`.** `claims sync` writes the registry, so a worker
+without registry rights cannot run it. `--claims-file PATH` reads the claims
+from a working-copy `claims.yaml` instead of the synced cache, in every mode
+(`--challenge-from-type`, `--emit-script`, `--from-output`, with or without
+`--checkout` and `--no-registry`). The file is checked exactly like
+`claims check --file PATH NAME` (schema, and its `package` must be NAME; any
+error refuses, nothing written) and its claims are normalized the way
+`claims sync` caches them, so the configuration is the one the registry
+route produces for the same claims. Neither the tracked `claims.yaml` nor
+the synced commit is consulted, and nothing is written to the registry or
+the event log. The output says which source was used: a line
+`claims source: registry cache (synced at <c12>)` or
+`claims source: --claims-file PATH (sha256 ...; ...)`, and JSON
+`claims_source` {kind `registry`|`file`, path, sha256, synced_commit,
+claims}. Declarations are not looked up in this mode (as with
+`claims check --file`); a missing one shows up as a `type_error` under a
+types flag, and `gate` checks them at the receipt's commit. `--emit-script`
+prints the ingestion command with the same `--claims-file`.
+
+```bash
+lean-pkg comparator config --from-claims beta --claims-file claims.yaml --challenge-from-type --dry-run
+```
+
 Until each Challenge and Solution exists, comparator fails on the TODO
 names, which is the point: nothing is certified by scaffolding. Remove an
 entry from `lean_pkg_scaffold.todo` once both are written, and the key once
@@ -1302,3 +1325,25 @@ word: they re-read the configuration files at the bound commit, hash them,
 compare every declared field, hash the logs on disk, look for the PASS line
 as a full line, and check the axiom subset and the tool pin format. Any
 miss is a named refusal. See [Receipts and trust](receipts.md).
+
+### Pre-checking a receipt made in another checkout
+
+`comparator NAME --check --receipt R` validates against the registered
+`local_path`. A receipt made in a worktree or on a feature branch binds that
+checkout's HEAD and has its logs there, so pass the checkout with `--repo`:
+
+```bash
+lean-pkg comparator beta --check --receipt .lean-receipts/<c12>-comparator.json --repo .
+```
+
+The rules are those of `gate --check --repo DIR`: this call only, never
+written to the registry; a stderr note names both paths (none when DIR is the
+registered path); JSON `repo_override` {path, registered_path, remote_match},
+`null` without `--repo`; DIR must be a git work tree and, when it has remotes
+and the record names a repository, one remote must be it (a local-path repo
+`/p` also matches `Host:/p`, `ssh://Host/p` and `file:///p`; the registered
+checkout itself needs no remote), otherwise the caller vouches for it.
+Attaching (`comparator NAME --receipt R` without `--check`) refuses `--repo`
+(exit 2): it binds the registered checkout, which
+`update NAME --path DIR --reason TEXT` moves. `comparator config` takes
+`--checkout DIR` instead.
