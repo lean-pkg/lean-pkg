@@ -1,0 +1,14 @@
+usage: lean-pkg claims sync [-h] [--agent AGENT] [--json] [--commit] [--push] [--no-commit] name
+
+positional arguments:
+  name
+
+options:
+  -h, --help     show this help message and exit
+  --agent AGENT  the agent acting (recorded as the event's actor); another agent's live lease then
+                 refuses
+  --json         machine-readable JSON on stdout
+  --commit       write commands: pull --ff-only, then commit the registry files (default:
+                 $LEAN_PKG_COMMIT=1)
+  --push         --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit    never commit or push (overrides the env)

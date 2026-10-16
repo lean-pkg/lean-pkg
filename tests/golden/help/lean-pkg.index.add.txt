@@ -1,0 +1,36 @@
+usage: lean-pkg index add [-h] [--from-registry] [--repo-dir REPO_DIR] [--repo REPO] [--tag TAG]
+                          [--lower REL] [--comparator REL] [--license SPDX]
+                          [--headline 'NAME :: FILE :: SUMMARY'] [--field-tag TAG]
+                          [--formalization-yaml REL] [--consent-recorded] --by BY
+                          [--allow-unpushed] [--notes NOTES] [--index INDEX] [--json] [--commit]
+                          [--push] [--no-commit]
+                          name
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --from-registry       start from the registry row (repo, receipts, license, palomar, doi,
+                        reservoir)
+  --repo-dir REPO_DIR   local clone to read from (never modified)
+  --repo REPO           public https URL (a GitHub ssh URL is converted)
+  --tag TAG             release tag at the pin or an evidence-only descendant
+  --lower REL           lower-tier receipt, .lean-receipts/...json
+  --comparator REL      comparator receipt, .lean-receipts/...json
+  --license SPDX
+  --headline 'NAME :: FILE :: SUMMARY'
+  --field-tag TAG       free field tag (repeatable)
+  --formalization-yaml REL
+  --consent-recorded    every coauthor agreed to the listing (the pointer stays private)
+  --by BY               public handle of the person adding the entry
+  --allow-unpushed      do not verify that the pin and evidence are on the public repository
+                        (provisional entry)
+  --notes NOTES
+  --index INDEX         index root (default: $LEAN_PKG_INDEX, else index/ beside the registry when
+                        present, else ./index)
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

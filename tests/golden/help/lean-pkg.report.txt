@@ -1,0 +1,26 @@
+usage: lean-pkg report [-h] [--command ARGS] [--body TEXT] [--from-log FILE[:N]] [--package NAME]
+                       [--title TITLE] [--enhancement] [--repo OWNER/NAME] [--dry-run | --yes]
+                       [--json] [--commit] [--push] [--no-commit]
+
+options:
+  -h, --help           show this help message and exit
+  --command ARGS       the lean-pkg arguments to capture, quoted as one string ("status NAME");
+                       re-run in a subprocess (with --json when the subcommand has it) unless it
+                       would write; a value starting with '-' needs --command=VALUE
+  --body TEXT          free text for What happened, nothing re-run (before the re-run when
+                       --command is given too); redacted like everything else
+  --from-log FILE[:N]  the last N lines (default 200) of a stage log, under Log excerpt in What
+                       happened; redacted like everything else; a missing file is a usage error
+  --package NAME       add the package's registry record (status, lease, receipt commits); its
+                       .lean-pkg-private-patterns joins the redaction
+  --title TITLE        issue title (default: report: <the command>, else report: lean-pkg
+                       <version>)
+  --enhancement        label enhancement instead of bug
+  --repo OWNER/NAME    repository to file on (default lean-pkg/lean-pkg)
+  --dry-run            print title, labels and body; file nothing (default)
+  --yes                file it with `gh issue create` and print the URL (needs `gh auth login`)
+  --json               machine-readable JSON on stdout
+  --commit             write commands: pull --ff-only, then commit the registry files (default:
+                       $LEAN_PKG_COMMIT=1)
+  --push               --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit          never commit or push (overrides the env)

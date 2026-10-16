@@ -1,0 +1,43 @@
+usage: lean-pkg search [-h] [--package PACKAGE] [--offline] [--loogle] [--loogle-query PATTERN]
+                       [--require-complete] [--cache-dir DIR] [--sources a,b,c] [--index INDEX]
+                       [--record] [--repo-dir REPO_DIR] [--agent AGENT] [--json] [--commit]
+                       [--push] [--no-commit]
+                       term
+
+Prior-art search. Packages without synced claims are searched by declaration (fully qualified
+names; accents folded). A source that skipped, failed in part, listed fewer matches than it found
+or could not read everything makes the search incomplete (complete: false): a zero there is not an
+absence.
+
+positional arguments:
+  term                  what to look for (quote a phrase)
+
+options:
+  -h, --help            show this help message and exit
+  --package PACKAGE     the registered package this search is for (it labels the output; every
+                        package's claims are still searched)
+  --offline             skip every network source
+  --loogle              send the term to Loogle even when it reads as natural language (by default
+                        only declaration/type patterns go to Loogle)
+  --loogle-query PATTERN
+                        send PATTERN to Loogle instead of the term (a Lean name, term or pattern
+                        such as 'Real.exp' or '?a * ?b = ?b * ?a'); the other sources still get
+                        the term
+  --require-complete    exit 1 when the search is incomplete (a source skipped, failed in part,
+                        capped, or read only part of what it should); the output is printed in
+                        full first
+  --cache-dir DIR       use DIR as the lean-pkg cache for this search (Palomar snapshots,
+                        Reservoir index) instead of $XDG_CACHE_HOME/lean-pkg or ~/.cache/lean-pkg
+  --sources a,b,c       subset of: registry,index,loogle,leansearch,reservoir,palomar,github
+                        (order is fixed)
+  --index INDEX         index root (default: $LEAN_PKG_INDEX, else ./index)
+  --record              write docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-
+                        dir) and a prior-art-searched event
+  --repo-dir REPO_DIR   research repository for --record
+  --agent AGENT         with --record: the agent acting (recorded as the event's actor); another
+                        agent's live lease on --package then refuses
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

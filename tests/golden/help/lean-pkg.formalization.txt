@@ -1,0 +1,27 @@
+usage: lean-pkg formalization [-h] [--write] [--no-registry] [--out PATH] [--force]
+                              [--reason REASON] [--author NAME] [--agent AGENT] [--json]
+                              [--commit] [--push] [--no-commit]
+                              name
+
+positional arguments:
+  name
+
+options:
+  -h, --help       show this help message and exit
+  --write          write <repo>/<formalization_yaml or formalization.yaml> and set the registry
+                   pointer (event updated); refuses a differing file without --force
+  --no-registry    with --write: write the file only; the registry is not updated (no pointer, no
+                   event), so this is not a registry write (no lock, no --commit)
+  --out PATH       write the render here instead; the registry is untouched
+  --force          with --write: overwrite a file that differs from the render; with --reason also
+                   override a live lease held by another agent
+  --reason REASON  with --write --force: why another agent's lease is overridden (recorded in the
+                   updated event)
+  --author NAME    project.authors entry (repeatable); otherwise kept from the file, else
+                   consent[] owners/authors, else a placeholder
+  --agent AGENT    lease holder, if one is live (for the registry update)
+  --json           machine-readable JSON on stdout
+  --commit         write commands: pull --ff-only, then commit the registry files (default:
+                   $LEAN_PKG_COMMIT=1)
+  --push           --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit      never commit or push (overrides the env)

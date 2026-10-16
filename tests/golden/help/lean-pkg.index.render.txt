@@ -1,0 +1,14 @@
+usage: lean-pkg index render [-h] [--out OUT] [--check] [--index INDEX] [--json] [--commit]
+                             [--push] [--no-commit]
+
+options:
+  -h, --help     show this help message and exit
+  --out OUT
+  --check        exit 1 when the file is stale; write nothing
+  --index INDEX  index root (default: $LEAN_PKG_INDEX, else index/ beside the registry when
+                 present, else ./index)
+  --json         machine-readable JSON on stdout
+  --commit       write commands: pull --ff-only, then commit the registry files (default:
+                 $LEAN_PKG_COMMIT=1)
+  --push         --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit    never commit or push (overrides the env)

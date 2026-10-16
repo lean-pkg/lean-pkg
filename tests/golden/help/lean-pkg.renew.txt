@@ -1,0 +1,23 @@
+usage: lean-pkg renew [-h] --agent AGENT [--ttl HOURS] [--workspace WORKSPACE] [--reason REASON]
+                      [--contact TEXT] [--no-contact] [--json] [--commit] [--push] [--no-commit]
+                      name
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --agent AGENT
+  --ttl HOURS           new TTL, 1..8760 (default: the lease's current ttl_hours; above 8760: exit
+                        2)
+  --workspace WORKSPACE
+                        move the lease to this workspace
+  --reason REASON
+  --contact TEXT        set or replace the lease's contact (address of the holding session; one
+                        line, at most 200 characters); without it the lease keeps its contact
+  --no-contact          clear the lease's contact while renewing (not with --contact)
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

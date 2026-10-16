@@ -1,0 +1,18 @@
+usage: lean-pkg claims migrate [-h] --from PATH [--out OUT] [--dry-run] [--agent AGENT] [--json]
+                               [--commit] [--push] [--no-commit]
+                               name
+
+positional arguments:
+  name
+
+options:
+  -h, --help     show this help message and exit
+  --from PATH    the legacy JSON (relative paths are read from the checkout)
+  --out OUT      repo-relative output (default: claims_file, else claims.yaml)
+  --dry-run      print the skeleton; write nothing
+  --agent AGENT  your lease agent, when the package is leased
+  --json         machine-readable JSON on stdout
+  --commit       write commands: pull --ff-only, then commit the registry files (default:
+                 $LEAN_PKG_COMMIT=1)
+  --push         --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit    never commit or push (overrides the env)

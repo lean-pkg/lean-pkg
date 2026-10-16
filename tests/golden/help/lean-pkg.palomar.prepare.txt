@@ -1,0 +1,17 @@
+usage: lean-pkg palomar prepare [-h] [--out DIR] [--dry-run] [--json] [--commit] [--push]
+                                [--no-commit]
+                                name
+
+positional arguments:
+  name
+
+options:
+  -h, --help   show this help message and exit
+  --out DIR    bundle directory (default <checkout>/.lean-receipts/palomar-<HEAD12>/); must not
+               exist or be empty
+  --dry-run    run every check and print the plan; write nothing
+  --json       machine-readable JSON on stdout
+  --commit     write commands: pull --ff-only, then commit the registry files (default:
+               $LEAN_PKG_COMMIT=1)
+  --push       --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit  never commit or push (overrides the env)

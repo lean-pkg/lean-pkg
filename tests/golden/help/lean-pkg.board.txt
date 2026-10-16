@@ -1,0 +1,60 @@
+usage: lean-pkg board [-h] [--only NAME[,NAME]] [--fields a,b,c] [--no-claims] [--json] [--commit]
+                      [--push] [--no-commit]
+
+options:
+  -h, --help          show this help message and exit
+  --only NAME[,NAME]  filters PACKAGES, never fields: only these packages (comma-separated names),
+                      each with its full record (cached claims included: --no-claims or --fields
+                      shrink it); the same table or --json shape, restricted; an unknown name
+                      exits 1; never opens the TUI
+  --fields a,b,c      trims FIELDS, never packages: each package record cut to these keys, comma-
+                      separated; the same validation, dotted paths and aliases as `status
+                      --fields` (gate.receipt, lease.agent, lease.expires_at; the table columns as
+                      aliases: pin, vis, reaudit, expires; an unknown field exits 2 listing the
+                      valid keys); --json keeps the dump's shape plus a `fields` list, text prints
+                      the selected keys of each package as YAML; never opens the TUI
+  --no-claims         drop the bulk cached arrays (claims; the [bulk] keys below) from each
+                      package record; every other key unchanged; --json adds an `omitted` list;
+                      never opens the TUI
+  --json              machine-readable JSON on stdout
+  --commit            write commands: pull --ff-only, then commit the registry files (default:
+                      $LEAN_PKG_COMMIT=1)
+  --push              --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit         never commit or push (overrides the env)
+
+package record (the "package" object of status --json, each entry of "packages" in list/board --json; [v2]/[v3]: added by that schema version, [optional]: absent unless set):
+  name                  package name; equals its key under packages
+  repo                  git URL (or local bare path) of the repository
+  local_path            checkout path, $HOME-relative
+  visibility            private | public; GitHub is the mirror
+  status                lifecycle status: scratch | active | gate-pending | verified-private | public | upstreamed | archived
+  owner_project         project that owns the package
+  workspace             workspace that registered it
+  agent                 agent that registered it
+  lease                 live claim {workspace, agent, claimed_at, ttl_hours, reason, contact?} or null; contact: optional address of the holding session (claim/renew --contact); status/list/board output adds the derived expires_at (claimed_at + ttl_hours, UTC; never stored)
+  lean_toolchain        lean-toolchain detected in the checkout
+  mathlib_pin           Mathlib revision from lake-manifest.json
+  upstream_target       upstream goal: none | mathlib | palomar
+  automation            automation disclosure (required when upstream_target is mathlib)
+  gate                  trust gate {receipt, comparator, axioms_allowed}: receipt paths in the repo
+  promoted_at           when promote --yes made it public, or null
+  promoted_commit       the commit promoted, or null
+  reaudit_after         ISO date after which to re-audit, or null
+  notes                 free text
+  history               append-only event list (status prints the last 5; --json all)
+  license_spdx          SPDX license id or expression, or null [v2]
+  formalization_yaml    repo-relative path of formalization.yaml, or null [v2]
+  palomar               Palomar evidence entries [{id, version, commit, comparator_config, ...}] [v2]
+  doi                   {concept, versions[{doi, tag, commit, minted_at}]} or null [v2]
+  reservoir             {listed_at, url} once Reservoir lists it, or null [v2]
+  consent               consent records [{who, role, recorded_at, pointer}] [v2]
+  claims_file           repo-relative path of the claims/1 file [v3]
+  claims                cached claims from the last `claims sync` (can be hundreds of KB) [bulk] [v3]
+  claims_synced_commit  40-hex commit the cached claims were read at, or null [v3]
+  paper                 {arxiv, status} of the paper behind a paper-coupled package [optional]
+  namespace_notes       {Lean root namespace: why sharing it with another package is intended} [optional]
+  source_paper          {title, authors[], arxiv, doi} of the formalized paper (credited in formalization.yaml acknowledgements, never as project.authors) [optional]
+  ai_assistance         {tools[], roles[]}: AI tools used and for what (rendered into acknowledgements) [optional]
+  track                 DOI track: palomar | doi-only (absent = palomar); doi-only lets a public package record doi-minted without a palomar-* event (update --track) [optional]
+  docs_descendants      true: a receipt bound to commit C is also accepted at a descendant of C where no build input under the package directory changed (docs-only rule, docs/receipts.md); absent = false (update --accept-docs-descendants) [optional]
+  build_inputs          [glob]: extra package-relative paths the docs-only rule treats as build inputs (fnmatch; a glob without / also matches a basename) (update --build-inputs) [optional]

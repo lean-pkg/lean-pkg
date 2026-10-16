@@ -1,0 +1,103 @@
+# lean-pkg compatibility corpus: scrubbed invocations quoted by agent skills, runbooks and
+# wrapper scripts (scripts/extract-compat-corpus.py). One invocation per line; every word that
+# is not a flag, command, choice or number is `demo`. Parsed (never run) by
+# tests/test_cli_contract_corpus.py; lines that do not parse are listed with a reason in
+# tests/data/compat-corpus-unparseable.yaml.
+# 97 lines from 52 source files.
+lean-pkg --help
+lean-pkg --registry demo
+lean-pkg --registry demo init
+lean-pkg --version
+lean-pkg audit
+lean-pkg audit --fix
+lean-pkg board
+lean-pkg board --json
+lean-pkg claim
+lean-pkg claim demo --workspace demo --agent demo --reason demo
+lean-pkg claim demo --workspace demo --agent demo --ttl 1 --reason demo
+lean-pkg claims check --file
+lean-pkg claims check --file demo
+lean-pkg claims check --file demo --json
+lean-pkg claims check demo demo demo demo demo demo demo
+lean-pkg claims list demo demo demo claims with status demo demo
+lean-pkg claims sync
+lean-pkg claims sync demo
+lean-pkg claims sync demo demo demo demo demo
+lean-pkg comparator
+lean-pkg comparator --check
+lean-pkg comparator demo
+lean-pkg comparator demo --check --receipt
+lean-pkg comparator demo --receipt
+lean-pkg comparator demo --receipt demo
+lean-pkg comparator demo --receipt demo --check
+lean-pkg doctor
+lean-pkg formalization demo --write --no-registry
+lean-pkg gate
+lean-pkg gate --check
+lean-pkg gate --check --repo demo
+lean-pkg gate --comparator
+lean-pkg gate demo
+lean-pkg gate demo --receipt
+lean-pkg gate demo --receipt demo
+lean-pkg gate demo --receipt demo --check
+lean-pkg gate demo --receipt demo --comparator demo
+lean-pkg index add
+lean-pkg index add demo
+lean-pkg index add demo --from-registry --repo-dir demo
+lean-pkg index build
+lean-pkg index check
+lean-pkg index check --clone
+lean-pkg index check --clone demo
+lean-pkg index check demo --clone
+lean-pkg index render
+lean-pkg index render --out demo
+lean-pkg index render --out demo --check
+lean-pkg init
+lean-pkg leases
+lean-pkg leases --agent demo --expiring 1
+lean-pkg list
+lean-pkg list --json
+lean-pkg llms
+lean-pkg migrate
+lean-pkg migrate --dry-run
+lean-pkg promote
+lean-pkg promote demo
+lean-pkg promote demo --yes
+lean-pkg promote demo demo demo demo demo demo demo
+lean-pkg public-safety --strict
+lean-pkg public-safety demo --history
+lean-pkg receipt
+lean-pkg receipt slurm
+lean-pkg receipt slurm --append-readme
+lean-pkg receipt slurm --check
+lean-pkg receipt systemd --run
+lean-pkg record demo demo --field demo --field demo --field demo
+lean-pkg record demo demo --field demo --reason demo
+lean-pkg register
+lean-pkg register demo --path demo --like demo --visibility private --status active
+lean-pkg register demo --repo demo --path demo
+lean-pkg release demo --agent demo
+lean-pkg renew demo
+lean-pkg renew demo --agent demo
+lean-pkg search
+lean-pkg search --record
+lean-pkg search demo
+lean-pkg search demo --json --record --package demo --offline
+lean-pkg search demo --offline --sources demo --json
+lean-pkg search demo --package demo --record
+lean-pkg search demo --record
+lean-pkg search demo demo
+lean-pkg search demo demo demo demo demo demo demo demo demo demo demo demo
+lean-pkg status demo
+lean-pkg status demo --fields lease
+lean-pkg status demo --json
+lean-pkg update
+lean-pkg update --notes
+lean-pkg update demo --notes
+lean-pkg update demo --notes demo
+lean-pkg update demo --notes demo --agent demo
+lean-pkg update demo --notes demo --reason demo
+lean-pkg update demo --repo demo
+lean-pkg update demo --upstream-target palomar --agent demo
+lean-pkg validate
+lean-pkg wiki

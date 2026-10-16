@@ -1,0 +1,97 @@
+usage: lean-pkg update [-h] [--automation AUTOMATION] [--notes TEXT] [--replace-notes]
+                       [--upstream-target {none,mathlib,palomar}] [--track {palomar,doi-only}]
+                       [--accept-docs-descendants | --no-accept-docs-descendants]
+                       [--build-inputs GLOB,GLOB] [--reaudit-after ISO8601]
+                       [--owner-project OWNER_PROJECT] [--repo REPO] [--license-spdx SPDX]
+                       [--formalization-yaml REL] [--paper-arxiv ID]
+                       [--paper-status {unpublished,preprint,published}]
+                       [--source-paper-title TITLE] [--source-paper-author NAME]
+                       [--source-paper-arxiv ID] [--source-paper-doi DOI] [--ai-tool TOOL]
+                       [--ai-role ROLE] [--append-note TEXT] [--namespace-note TEXT]
+                       [--namespace NS]
+                       [--status {scratch,active,gate-pending,verified-private,public,upstreamed,archived}]
+                       [--reason REASON] [--redetect] [--agent AGENT] [--force]
+                       [--path HOME-RELATIVE] [--dry-run] [--json] [--commit] [--push]
+                       [--no-commit]
+                       name
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --automation AUTOMATION
+                        AI-disclosure note; required by mathlib when upstream_target is mathlib
+  --notes TEXT          set the notes; refused when notes exist unless --replace-notes (use
+                        --append-note)
+  --replace-notes       with --notes: replace non-empty notes (the old text stays in history as
+                        notes_from)
+  --upstream-target {none,mathlib,palomar}
+  --track {palomar,doi-only}
+                        the DOI track (needs --reason): doi-only lets a public package record doi-
+                        minted without a palomar-* event; palomar (the default when absent) keeps
+                        rule doi-in-palomar
+  --accept-docs-descendants
+                        opt in (needs --reason): a receipt bound to commit C is also accepted at a
+                        descendant of C where no build input under the package directory changed
+                        (*.lean, lakefile.*, lake-manifest.json, lean-toolchain, --build-inputs
+                        globs, the checker's files; never a symlink/gitlink change,
+                        .gitattributes, .gitmodules, .lfsconfig, claims.yaml, nor those attribute
+                        files in a directory above a subdirectory package); the gated commit stays
+                        C (docs/receipts.md); --dry-run supported
+  --no-accept-docs-descendants
+                        opt out again (needs --reason): only the evidence-only rule applies
+  --build-inputs GLOB,GLOB
+                        extra build inputs for the docs-only rule (needs --reason): comma-
+                        separated package-relative fnmatch globs (`*` crosses /; a glob without /
+                        also matches a basename), replacing the recorded list; '' clears it
+  --reaudit-after ISO8601
+  --owner-project OWNER_PROJECT
+  --repo REPO           remote URL (e.g. after publishing a private dep)
+  --license-spdx SPDX   the package's license as an SPDX id or expression, e.g. 'MIT OR
+                        Apache-2.0' (what the index and Reservoir expect)
+  --formalization-yaml REL
+                        repository-relative path of the package's formalization.yaml
+  --paper-arxiv ID      arXiv id of the paper this package verifies (sets paper.arxiv; status
+                        defaults to preprint)
+  --paper-status {unpublished,preprint,published}
+                        the verified paper's status; promote refuses while unpublished without an
+                        arXiv id
+  --source-paper-title TITLE
+                        title of the formalized paper (source_paper.title; rendered into
+                        formalization.yaml acknowledgements, #22.6)
+  --source-paper-author NAME
+                        an author of the formalized paper (repeatable; the list replaces the
+                        recorded one). Credited in acknowledgements, never in project.authors; no
+                        consent needed
+  --source-paper-arxiv ID
+                        arXiv id of the formalized paper (source_paper.arxiv)
+  --source-paper-doi DOI
+                        DOI of the formalized paper (source_paper.doi)
+  --ai-tool TOOL        an AI tool used (repeatable; the list replaces the recorded one;
+                        ai_assistance.tools)
+  --ai-role ROLE        what the AI tools did (repeatable; replaces; ai_assistance.roles)
+  --append-note TEXT    append a line `YYYY-MM-DD (AGENT): TEXT` (UTC date, --agent) to notes,
+                        keeping what is there; --notes replaces instead
+  --namespace-note TEXT
+                        record why this package shares a Lean root namespace with another
+                        (namespace_notes); audit's duplicate-namespace is info once both packages
+                        carry a note for it
+  --namespace NS        with --namespace-note: the namespace (repeatable); default every root
+                        namespace this checkout shares with another registered package
+  --status {scratch,active,gate-pending,verified-private,public,upstreamed,archived}
+                        manual transitions only; verified-private is gate's and public is
+                        promote's
+  --reason REASON       required for --status and --force
+  --redetect            re-read lean_toolchain and mathlib_pin from the repo
+  --agent AGENT         lease holder, if one is live
+  --force               override a live lease held by another agent; needs --reason
+  --path HOME-RELATIVE  relocate: move local_path to another checkout, keeping name, history and
+                        claims (needs --reason; event relocated; commit-bound evidence not bound
+                        to the new HEAD is cleared)
+  --dry-run             with --path: print the would-be changes, write nothing
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

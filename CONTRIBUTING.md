@@ -57,6 +57,25 @@ bash scripts/private-boundary-check.sh
 
 Use spaces, not tab characters, in source and documentation files.
 
+### The golden CLI contract
+
+`tests/test_cli_contract_*.py` pin the command-line interface: the `--help`
+text of every command (`tests/golden/help/`), the top-level keys of each
+`--json` payload on the test fixtures (`tests/golden/json-keys.json`), an
+argv table of which invocations write and lock the registry, and a corpus of
+quoted invocations that must keep parsing (`tests/data/compat-corpus.txt`).
+When a change to help text or a JSON payload is intended, re-record the
+goldens and review the diff:
+
+```bash
+make goldens        # LEAN_PKG_RECORD_GOLDENS=1 python3 -m pytest -q tests/test_cli_contract_help.py tests/test_cli_contract_json.py
+git diff tests/golden
+```
+
+The corpus is regenerated from its sources with
+`scripts/extract-compat-corpus.py` (see its docstring); it is scrubbed to
+flags, command names and the placeholder `demo`.
+
 ## Code of conduct
 
 We follow the norms of the Lean community.

@@ -1,0 +1,37 @@
+usage: lean-pkg release [-h] [--agent AGENT] [--force] [--reason REASON] [--fresh-repo DIR]
+                        [--remote URL] [--keep-receipts] [--source-commit SHA]
+                        [--from-tree SRCDIR] [--adopt-repo DIR] [--allow-history] [--dry-run]
+                        [--json] [--commit] [--push] [--no-commit]
+                        name
+
+positional arguments:
+  name
+
+options:
+  -h, --help           show this help message and exit
+  --agent AGENT        the holder; with --force, the acting agent recorded as released_by
+  --force              release another agent's lease; requires --reason
+  --reason REASON      free-text reason stored with the event
+  --fresh-repo DIR     export the gate-bound commit's tree (internal files and the patterns file
+                       dropped, public-safety scanned) into a NEW single-commit repository at DIR,
+                       then relocate the package there (update --path): evidence cleared,
+                       provenance note added
+  --remote URL         with --fresh-repo or --adopt-repo: git remote add origin URL, and set the
+                       record's repo
+  --keep-receipts      with --fresh-repo: copy .lean-receipts/ from the source HEAD (they do not
+                       bind to the new commit)
+  --source-commit SHA  with --fresh-repo: export this commit instead of the gate-bound one
+  --from-tree SRCDIR   with --fresh-repo: export the working tree at SRCDIR (a hand-cleaned tree,
+                       not a commit; .gitignore honoured in a checkout) instead of the gate-bound
+                       commit
+  --adopt-repo DIR     adopt the existing repository at DIR as the public history (exactly one
+                       commit unless --allow-history; tree and history public-safety scanned; no
+                       new commit), then relocate the package there
+  --allow-history      with --adopt-repo: accept a repository with more than one commit
+  --dry-run            with --fresh-repo or --adopt-repo: stage and scan, print the plan; nothing
+                       written
+  --json               machine-readable JSON on stdout
+  --commit             write commands: pull --ff-only, then commit the registry files (default:
+                       $LEAN_PKG_COMMIT=1)
+  --push               --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit          never commit or push (overrides the env)

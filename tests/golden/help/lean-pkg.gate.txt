@@ -1,0 +1,42 @@
+usage: lean-pkg gate [-h] --receipt RECEIPT [--comparator PATH] [--refuse-private]
+                     [--refuse-dirty] [--refresh-formalization] [--agent AGENT] [--check]
+                     [--regate] [--reason TEXT] [--repo DIR] [--json] [--commit] [--push]
+                     [--no-commit]
+                     name
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --receipt RECEIPT     path to receipt JSON
+  --comparator PATH     optional comparator receipt JSON; required later by promote
+  --refuse-private      refuse (exit 1, nothing copied) when a receipt holds private strings;
+                        default is a WARN line and the receipt is kept
+  --refuse-dirty        refuse when tracked files are modified in the checkout; default is a WARN
+                        line (receipts are always checked against the bound commit)
+  --refresh-formalization
+                        after the gate, regenerate the package's formalization.yaml (derived keys,
+                        including status.evidence; kept keys survive) and set its registry
+                        pointer; refuses when nothing would change
+  --agent AGENT         the agent acting (recorded as the event's actor); another agent's live
+                        lease then refuses; with --refresh-formalization: the live lease holder
+                        (the file write needs it)
+  --check               validate only, against HEAD (with --comparator: both tiers); write
+                        nothing, record nothing (works at any status), like `comparator --check`
+  --regate              re-gate a verified-private (or public) package on a new receipt in one
+                        step: event regated {previous_commit, commit, job_id, reason}, status
+                        unchanged; the receipt's commit must descend from the gated commit unless
+                        --reason is given
+  --reason TEXT         with --regate: accept a receipt commit that does not descend from the
+                        gated commit (recorded with non_descendant: true)
+  --repo DIR            with --check only: validate against the checkout DIR instead of the
+                        registered local_path, for this call (never saved; JSON repo_override).
+                        DIR must be a git work tree, and when it has remotes one must be the
+                        package's repo. A writing gate refuses it: it binds the registered
+                        checkout (move that with `update --path`)
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

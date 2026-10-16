@@ -1,0 +1,16 @@
+usage: lean-pkg claims check [-h] [--file PATH] [--json] [--commit] [--push] [--no-commit] [name]
+
+positional arguments:
+  name
+
+options:
+  -h, --help   show this help message and exit
+  --file PATH  schema-check this claims file (e.g. claims.yaml before you commit it) instead of
+               the registry cache; schema only (no checkout, so declarations are not looked up:
+               `claims sync` and `gate` do that); reads no registry; NAME, if given, must be its
+               package
+  --json       machine-readable JSON on stdout
+  --commit     write commands: pull --ff-only, then commit the registry files (default:
+               $LEAN_PKG_COMMIT=1)
+  --push       --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit  never commit or push (overrides the env)

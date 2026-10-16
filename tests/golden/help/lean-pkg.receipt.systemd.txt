@@ -1,0 +1,73 @@
+usage: lean-pkg receipt systemd [-h] --unit U --log PATH --commit SHA [--stdout PATH]
+                                [--stderr PATH] [--properties-file F] [--run] [--memory-max BYTES]
+                                [--memory-swap-max BYTES] [--cpu-quota PCT] [--runtime-max SPAN]
+                                [--setenv NAME=VALUE] [--properties-out PATH] [--redact REGEX]
+                                [--checker TEXT] [--repo DIR] [--out PATH] [--compress-log]
+                                [--append-readme] [--readme-heading TEXT] [--readme-line TEXT]
+                                [--tar-sha256 HEX] [--json]
+                                [-- CMD ...]
+
+positional arguments:
+  -- CMD                with --run: the command the unit runs
+
+options:
+  -h, --help            show this help message and exit
+  --unit U              the service unit (`.service` added when absent); job_id becomes systemd-
+                        user:<U>:<InvocationID>@<host label> (h- + 12 hex of the host name's
+                        SHA-256)
+  --log PATH            the raw verify log the unit writes; when it has no `checker:` line,
+                        --checker TEXT is required
+  --commit SHA          the verified commit; must exist in --repo (with --run: the checkout's
+                        clean HEAD)
+  --stdout PATH         the unit's stdout file: verify-log-sha256 = sha256(raw log), pre-manifest-
+                        sha256 = post-manifest-sha256 = sha256(lake-manifest.json at the commit),
+                        optional invocation-id = InvocationID; without it the log must carry its
+                        own seal. With --run the unit writes it
+  --stderr PATH         the unit's stderr file; must be empty. With --run the unit writes it
+  --redact REGEX        also replace matches with <redacted> (repeatable); the checkout's path,
+                        $HOME and /run/user/N/ are always redacted to <repo>, <HOME>,
+                        /run/user/<UID>/ instead
+  --checker TEXT        the exact checker command or mode (default: the log's `checker:` line)
+  --repo DIR            the package checkout (default: the current directory)
+  --out PATH            receipt path (default <repo>/.lean-receipts/<commit12>-systemd-
+                        user-<U>-<InvocationID>-<host label>.json); the redacted log is written
+                        beside it as <commit12>-systemd-user-<U>-<InvocationID>-<host
+                        label>-verify.redacted.log
+  --compress-log        write the redacted log as deterministic gzip <...>-verify.redacted.log.gz
+                        (level 9, mtime 0, no file name) instead of the plain .log; report_sha256
+                        stays the SHA-256 of the uncompressed log and the receipt gains
+                        report_compressed {format: gzip, sha256 of the .gz, bytes uncompressed};
+                        gate decompresses (bounded) and checks report_sha256. Restore: gzip -dc
+                        X.log.gz > X.log. Without it, a log over 90 MiB prints a WARN naming this
+                        flag
+  --append-readme       append the entry block to README.md beside the receipt (created if absent;
+                        an entry already naming the receipt is not repeated)
+  --readme-heading TEXT
+                        the entry heading after the short commit (default: lower-tier receipt,
+                        systemd unit U)
+  --readme-line TEXT    an extra line at the end of the entry block (repeatable)
+  --tar-sha256 HEX      the frozen source tarball's SHA-256, named in the entry block
+  --json                machine-readable JSON on stdout
+
+where the unit's terminal state comes from (default: `systemctl --user show U` now, on this host):
+  --properties-file F   saved `systemctl --user show U -p Id,LoadState,ActiveState,SubState,Result
+                        ,InvocationID,ExecMainCode,ExecMainStatus,ExecMainStartTimestamp,ExecMainE
+                        xitTimestamp,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotoni
+                        c,NRestarts,MemoryPeak,CPUUsageNSec,MemoryMax,MemorySwapMax,CPUQuotaPerSec
+                        USec,RuntimeMaxUSec,OOMPolicy` output, captured before the unit was
+                        collected, plus a `Hostname=` line for the host it ran on
+  --run                 start `-- CMD ...` as the bounded unit U (systemd-run --user,
+                        RemainAfterExit, WorkingDirectory=--repo), wait for it, capture its
+                        properties before stopping it; --log, --stdout, --stderr must not exist
+                        yet
+  --memory-max BYTES    --run: MemoryMax (default 8G)
+  --memory-swap-max BYTES
+                        --run: MemorySwapMax (default 0, so the memory cap is an OOM kill, not
+                        swapping)
+  --cpu-quota PCT       --run: CPUQuota (default 400%)
+  --runtime-max SPAN    --run: RuntimeMaxSec (default 4h)
+  --setenv NAME=VALUE   --run: an extra environment variable for the unit (repeatable; PATH is
+                        passed; LAKE_CACHE_DIR=<fresh empty dir> and LAKE_ARTIFACT_CACHE=false
+                        unless named here)
+  --properties-out PATH
+                        --run: where the captured properties go (default <log>.unit.properties)

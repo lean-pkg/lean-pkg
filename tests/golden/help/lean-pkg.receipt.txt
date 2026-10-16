@@ -1,0 +1,12 @@
+usage: lean-pkg receipt [-h] {slurm,systemd} ...
+
+positional arguments:
+  {slurm,systemd}
+    slurm            a lower-tier receipt from a finished Slurm job, its verify log and its stdout
+                     seal (--template: an sbatch wrapper that meets it; --check: preflight the
+                     job's files)
+    systemd (local)  a lower-tier receipt from a finished systemd --user service unit (run bounded
+                     with --run, or its saved properties), its verify log and its stdout seal
+
+options:
+  -h, --help         show this help message and exit

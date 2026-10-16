@@ -1,0 +1,72 @@
+usage: lean-pkg [-h] [--registry REGISTRY] [--events EVENTS] [--json] [--commit] [--push]
+                [--no-commit] [--registry-snapshot COMMIT] [--version]
+                {board,list,status,init,migrate,record,register,claim,lease,release,renew,leases,update,gate,comparator,promote,audit,validate,doctor,llms,wiki,index,claims,search,formalization,publish,reservoir,public-safety,palomar,next,report,receipt} ...
+
+Lean 4 package registry: board, leases, trust gate, promotion
+
+positional arguments:
+  {board,list,status,init,migrate,record,register,claim,lease,release,renew,leases,update,gate,comparator,promote,audit,validate,doctor,llms,wiki,index,claims,search,formalization,publish,reservoir,public-safety,palomar,next,report,receipt}
+    board               curses TUI on a tty; static table otherwise
+    list                static table, pipe-friendly
+    status              full record + last 5 history entries
+    init                bootstrap an empty registry and its event log
+    migrate             upgrade the registry schema in place (additive; idempotent)
+    record              record a publication evidence event (consent, Palomar, DOI, Reservoir,
+                        Mathlib PR)
+    register            the ONLY write path for new packages: validated, deduping, auto-detecting
+    claim (lease)       CAS lease on a package (24h default TTL); alias: lease
+    release             release a lease (holder-only unless --force); with --fresh-repo DIR:
+                        export the gated tree (or --from-tree SRCDIR) as a new single-commit
+                        repository and move the package there; with --adopt-repo DIR: adopt an
+                        existing one
+    renew               restart your own live lease from now (holder-only; refuses once it has
+                        lapsed: claim again)
+    leases              held leases, soonest expiry first; read-only
+    update              set fields of an already-registered package (register is for NEW ones)
+    gate                validate a lower-tier receipt; gate-pending -> verified-private; records
+                        the receipt's lean_toolchain and mathlib_rev as the package's pins
+    comparator          attach a comparator receipt to a gated package; no status change
+    promote             promotion checklist; DRY-RUN unless --yes
+    audit               report expired leases, gh visibility, drift; read-only without --fix
+    validate            schema + enum + history sanity; exit 0/1
+    doctor              installation, registry, index and tool diagnostics; exit 1 when the
+                        registry is unreadable or its schema version is unsupported
+    llms                print the agent-oriented usage contract
+    wiki                render a Markdown status page
+    index               the public catalog: add | check | render | migrate
+    claims              claims.yaml: sync | list | check | migrate | ledger (named reusable
+                        results)
+    search              prior-art search over claims, the index and public sources
+    formalization       render formalization.yaml (v0.4, what Palomar reads) from the registry and
+                        the repo at HEAD; stdout unless --write/--out
+    publish             read-only release checklist from verified-private to listed (--dry-run
+                        only), with the exact next commands
+    reservoir           Reservoir: check (read-only listing criteria)
+    public-safety       read-only: scan the package's tree and git history for private patterns
+                        (exit 1 on hits; promote runs it)
+    palomar             Palomar: prepare (build a submission bundle; no network)
+    next                read-only: the single recommended next command for a package, with a one-
+                        line reason (exit 0 a command to run, 1 blocked)
+    report              read-only: a redacted bug report in the repository's issue format; dry run
+                        unless --yes (files it with gh issue create)
+    receipt             produce lower-tier receipts (writes files in the package checkout, never
+                        the registry)
+
+options:
+  -h, --help            show this help message and exit
+  --registry REGISTRY   registry yaml (default: $LEAN_PKG_REGISTRY, else ~/.lean-pkg/registry,
+                        else ./lean-packages.yaml)
+  --events EVENTS       event log jsonl (default: lean-package-events.jsonl next to the registry)
+  --json                machine-readable JSON on stdout (exit codes unchanged)
+  --commit              write commands: pull --ff-only first, then commit the registry and event
+                        log together (default: $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push, overriding $LEAN_PKG_COMMIT and $LEAN_PKG_PUSH
+  --registry-snapshot COMMIT
+                        read-only: read the registry file (and its event log) as of COMMIT of the
+                        git repository holding it (env $LEAN_PKG_REGISTRY_SNAPSHOT); every write
+                        exits 2; --json adds registry_snapshot
+  --version             print lean-pkg <VERSION> and the build that runs: short commit (+dirty) and
+                        checkout of an editable install, else the installed package directory;
+                        local only (no fetch); with --json: {ok, version, commit, dirty, install,
+                        path}

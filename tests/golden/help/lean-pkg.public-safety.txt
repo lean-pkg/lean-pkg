@@ -1,0 +1,24 @@
+usage: lean-pkg public-safety [-h] [--history | --no-history] [--strict] [--package-only]
+                              [--quiet] [--json] [--commit] [--push] [--no-commit]
+                              name
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --history, --no-history
+                        also scan every blob and commit message reachable from any ref (default:
+                        on)
+  --strict              warn-only hits (latex-label, `warn:` lines) fail the scan too (exit 1)
+  --package-only        scan only the package directory even when it is a subdirectory of its
+                        repository (default: the whole repository then, which is what promote
+                        publishes; the package directory alone is what `release --fresh-repo`
+                        exports)
+  --quiet               only the summary, patterns, warn-only count and verdict lines; no per-hit
+                        line (--json is unchanged)
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)
