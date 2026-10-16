@@ -5,6 +5,7 @@
 # `lake build M...` with LAKE_STUB_OLEANS="M..." writes .lake/build/lib/lean/<M>.olean for each listed
 # module and prints lake's `✔ [i/n] Built M` line (#56); without it the build is a no-op.
 # LAKE_STUB_ENV=<file> gets one `LEAN_NUM_THREADS=<value|unset>` line per call (#55).
+# `lake env printenv LEAN_PATH` prints $LAKE_STUB_LEAN_PATH (default: the project's own lib directory).
 set -euo pipefail
 echo "lake $*" >> "${LAKE_STUB_CALLS:-/dev/null}"
 for v in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
@@ -12,6 +13,7 @@ for v in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE
   if [ -n "${!v+x}" ]; then echo "leaked $v" >> "${LAKE_STUB_CALLS:-/dev/null}"; fi
 done
 if [ -n "${LAKE_STUB_ENV:-}" ]; then echo "LEAN_NUM_THREADS=${LEAN_NUM_THREADS-unset}" >> "$LAKE_STUB_ENV"; fi
+if [ "$*" = "env printenv LEAN_PATH" ]; then echo "${LAKE_STUB_LEAN_PATH-$PWD/.lake/build/lib/lean}"; exit 0; fi
 echo "stub lake $*"
 if [ -n "${LAKE_STUB_FAIL:-}" ] && [[ " $* " == *" ${LAKE_STUB_FAIL} "* ]]; then
   echo "error: could not clone mathlib (stub)" >&2

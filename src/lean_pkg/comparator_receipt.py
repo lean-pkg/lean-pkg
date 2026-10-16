@@ -49,6 +49,7 @@ SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
 # Acceptance is decided by the same predicate the validator uses (one source of truth).
 from .cli import build_provenance_line, comparator_pass  # noqa: E402
+from . import lake_hygiene as lh  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import check_definition_holes  # noqa: E402
@@ -602,14 +603,17 @@ def stack_preexec():
 
 # Build provenance (#56). The build stage runs `lake build <Challenge> <Solution>`; with a .lake/build that
 # another host populated at the same commit, toolchain and manifest it is a no-op, and the receipt says so.
-# The rule: snapshot the mtimes of the root package's own oleans (<project>/.lake/build/lib/**/*.olean;
-# dependencies under .lake/packages/ are not the package's modules) before and after the stage. An olean
-# that is new or whose mtime changed was written by this stage. Lake's own `[i/n] Built <target>` lines in
-# the stage log are a second witness. compiled = either witness; modules_built = the oleans written (or,
-# when none changed, the distinct `Built` targets); prebuilt = the stage ran, passed and compiled
-# nothing. COMPARATOR_RECEIPT_BUILD_SOURCE declares where a prebuilt tree came from (free text, redacted).
+# Only Lake's own `[i/n] Built <target>` lines witness a compilation: compiled = any; modules_built = the
+# distinct `Built` targets. Lake's artifact cache can write an olean without compiling it (`Reused`,
+# `Replayed`, `Unpacked`; lake_hygiene), so the mtimes of the root package's own oleans
+# (<project>/.lake/build/lib/**/*.olean; dependencies under .lake/packages/ are not the package's modules),
+# snapshot before and after the stage, only tell what was written: an olean that is new or changed with no
+# `Built` line for its module counts as `restored` (additive key, present when non-zero), and the distinct
+# `Reused` / `Replayed` / `Unpacked` targets as `cache_reused` (likewise). prebuilt = the stage ran, passed
+# and compiled nothing. COMPARATOR_RECEIPT_BUILD_SOURCE declares where a prebuilt tree came from (free text,
+# redacted).
 BUILD_SOURCE_ENV = "COMPARATOR_RECEIPT_BUILD_SOURCE"
-BUILT_LINE_RE = re.compile(r"\[\d+/\d+\]\s+Built\s+([^\s(]+)")
+BUILT_LINE_RE = re.compile(r"\[\d+/\d+\](?:\s+\(Optional\))?\s+Built\s+([^\s(]+)")
 
 
 def build_source() -> str | None:
@@ -722,10 +726,19 @@ def build_provenance(before: dict[str, int] | None, after: dict[str, int] | None
     if before is None or after is None:
         return {"compiled": False, "modules_built": None, "prebuilt": False, "source": source}
     written = [k for k, m in after.items() if before.get(k) != m]
-    built = {m.group(1) for m in BUILT_LINE_RE.finditer(log_text)}
-    n = len(written) if written else len(built)
-    compiled = bool(written or built)
-    return {"compiled": compiled, "modules_built": n, "prebuilt": not compiled, "source": source}
+    jobs = lh.job_lines(log_text)
+    built = {t for v, t in jobs if v == "Built"}
+    reused = {t for v, t in jobs if v in lh.CACHE_VERBS} - built
+    # an olean path under .lake/build/lib/ (lean/A/B.olean) is module A.B
+    restored = [k for k in written
+                if k.removeprefix("lean/").removesuffix(".olean").replace("/", ".") not in built]
+    compiled = bool(built)
+    bp = {"compiled": compiled, "modules_built": len(built), "prebuilt": not compiled, "source": source}
+    if reused:
+        bp["cache_reused"] = len(reused)
+    if restored:
+        bp["restored"] = len(restored)
+    return bp
 
 
 def carried_provenance(prior: dict | None) -> dict:
@@ -918,7 +931,13 @@ def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> N
     mods = config_modules(project, configs)
     if lakefile and mods:
         before = olean_snapshot(project)
-        stages.run("build", step([lake, "build", *mods], "build of " + ", ".join(mods)))
+        build = step([lake, "build", *mods], "build of " + ", ".join(mods))
+
+        def build_then_shadow_check(log):
+            result = build(log)
+            shadow_preflight(project, lake, log, mods)
+            return result
+        stages.run("build", build_then_shadow_check)
         log_text = stages.log("build").read_text(encoding="utf-8", errors="replace")
         stages.build_provenance = build_provenance(before, olean_snapshot(project), log_text, build_source())
     else:
@@ -927,6 +946,28 @@ def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> N
         stages.build_provenance = build_provenance(None, None, "", build_source())
     stages.save()
     print(f"comparator-receipt: {build_provenance_line(stages.build_provenance)}", file=sys.stderr)
+
+
+def shadow_preflight(project: pathlib.Path, lake: str, log: pathlib.Path, modules=()) -> None:
+    """Refuse (StageError) when a LEAN_PATH entry other than the root package's own lib directory holds one
+    of its root namespaces: Lake lists the root last, Lean loads <R>/ from the first entry holding it, so the
+    judge (run under `lake env`) would read that copy (lake_hygiene.shadow_hits). The root namespaces: the
+    lakefile's lean_lib roots (else the tracked sources' top-level names) and the configured modules'."""
+    value, why = lh.lean_path(project, lake, tool_env(), preexec=stack_preexec())
+    if why:
+        raise StageError(f"LEAN_PATH shadow check: {why}; nothing written")
+    tracked = git(project, "ls-files").stdout.splitlines()
+    roots = lh.project_roots(project, tracked) | lh.module_roots(modules)
+    hits = lh.shadow_hits(value, project, roots)
+    with open(log, "a", encoding="utf-8") as fh:
+        for h in hits:
+            fh.write(f"lean-path-shadow: {redact(h)}\n")
+        if not hits:
+            fh.write(f"lean-path-shadow: none ({len([e for e in value.split(os.pathsep) if e])} entries, "
+                     f"roots {','.join(sorted(roots))})\n")
+    if hits:
+        raise StageError(f"LEAN_PATH shadows the package's own modules: {', '.join(redact(h) for h in hits)}; "
+                         f"{lh.SHADOW_HINT}; nothing written")
 
 
 def judged(log_text: str, mechanism: str, returncode: int | None) -> bool:

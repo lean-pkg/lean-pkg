@@ -49,13 +49,34 @@ explains it. Each can be right while the links between them are wrong.
 set -euo pipefail
 C=$(git rev-parse HEAD); test -z "$(git status --porcelain)"
 lake exe cache get
+# a fresh build: Lake's artifact cache restores a module (`Reused`) without its sorry warning
+rm -rf .lake/build
+export LAKE_CACHE_DIR="$(mktemp -d)" LAKE_ARTIFACT_CACHE=false   # never LAKE_CACHE_DIR="" (not disabled)
 lake build 2>&1 | tee build.log
+! grep -E '\] (Reused|Replayed|Unpacked) MyPkg' build.log
 ! grep -rnE '\bsorry\b|\badmit\b' --include='*.lean' MyPkg/
-lake env lean AxiomCheck.lean > axioms.txt
+# shadow preflight: no LEAN_PATH entry but ./.lake/build/lib/lean may hold MyPkg/ or MyPkg.olean
+lake env printenv LEAN_PATH | tr : '\n' | grep -vxF "$PWD/.lake/build/lib/lean" | while read -r d; do
+  if [ -e "$d/MyPkg" ] || [ -e "$d/MyPkg.olean" ]; then echo "shadowed by $d" >&2; exit 1; fi
+done
+lake lean AxiomCheck.lean > axioms.txt   # `lake lean`, not `lake env lean` (see below)
 python3 audit.py axioms.txt
-lake env leanchecker MyPkg       # optional layer: silent on success, exit 0
+lake env leanchecker MyPkg       # optional layer: silent on success, exit 0; reads LEAN_PATH (preflight above)
 sha256sum build.log axioms.txt > report.sha256
 ```
+
+Two Lake behaviours undermine a transcript (checked in the Lake and Lean
+sources of v4.35.0-rc2). Lake's local artifact cache is read unless switched
+off, and a package lakefile's `enableArtifactCache = true` overrides
+`LAKE_ARTIFACT_CACHE=false`, so the build gets an empty cache directory of
+its own; `--no-cache` only governs downloads. And Lake lists the root
+package's lib directory last on `LEAN_PATH` while Lean loads `<R>/` from the
+first entry holding it: under `lake env lean FILE` a dependency's build
+directory holding the package's namespace is loaded instead (its `#print
+axioms` is then about someone else's declaration). `lake build` and `lake
+lean FILE` pass explicit module paths and are not affected. `lean-pkg
+receipt slurm --template` does all of this, and `receipt slurm` refuses a
+log showing a root-package module `Reused`, `Replayed` or `Unpacked`.
 
 Replay layers, in increasing strength (see the Lean reference page
 "Validating a Lean Proof"):

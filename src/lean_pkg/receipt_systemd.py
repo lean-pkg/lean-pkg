@@ -19,7 +19,12 @@ Where the unit's terminal state comes from (one of three, like sacct / --sacct-f
   it finishes. The checkout must be at --commit with no tracked change and no untracked file under the
   package directory before the run, and still be after it (untracked: what `git ls-files --others
   --exclude-standard` lists, less .lean-receipts/, .lake/ and the run's own output files; files git ignores
-  are not checked, so they are not bound).
+  are not checked, so they are not bound). Lake's local artifact cache is isolated for the unit: unless
+  --setenv names them, it gets LAKE_CACHE_DIR=<a fresh empty temporary directory, removed afterwards> and
+  LAKE_ARTIFACT_CACHE=false, so no module is restored (`Reused`) without its sorry warning (lake_hygiene).
+  An explicit --setenv LAKE_CACHE_DIR=DIR is used as given (it should be empty); LAKE_CACHE_DIR= (empty, which
+  does not disable the cache) and a LAKE_ARTIFACT_CACHE other than false/0 are usage errors. A log showing a
+  root-package module Reused, Replayed or Unpacked is refused, so run from a clean build (`lake clean`).
 - `--properties-file F`: the output of `systemctl --user show U -p <UNIT_PROPS>` saved before the unit was
   collected, plus a `Hostname=` line naming the host it ran on (the host is part of job_id).
 - neither: `systemctl --user show U` now, on this host (the unit must still be loaded, i.e. not --collect).
@@ -51,6 +56,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 from . import cli as core
@@ -354,7 +360,24 @@ def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathli
             argv += ["-p", f"{prop}=truncate:{paths[flag].resolve()}"]
     argv += [f"--setenv=PATH={os.environ.get('PATH', '')}"]
     argv += [f"--setenv={kv}" for kv in args.setenv or []]
+    given = {kv.split("=", 1)[0] for kv in args.setenv or []}
+    cache_dir = None
+    if "LAKE_CACHE_DIR" not in given:        # a fresh, empty Lake cache of the unit's own (lake_hygiene)
+        cache_dir = tempfile.mkdtemp(prefix="lean-pkg-lake-cache.")
+        argv += [f"--setenv=LAKE_CACHE_DIR={cache_dir}"]
+    if "LAKE_ARTIFACT_CACHE" not in given:
+        argv += ["--setenv=LAKE_ARTIFACT_CACHE=false"]
+    checks.append("✓ lake cache: " + ("a fresh empty LAKE_CACHE_DIR" if cache_dir else "LAKE_CACHE_DIR as --setenv")
+                  + ", LAKE_ARTIFACT_CACHE=false" + (" (--setenv)" if "LAKE_ARTIFACT_CACHE" in given else ""))
     argv += ["--", *args.command]
+    try:
+        return _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, checks)
+    finally:
+        if cache_dir is not None:
+            shutil.rmtree(cache_dir, ignore_errors=True)
+
+
+def _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, checks) -> str | None:
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT, env=user_env())
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -442,6 +465,14 @@ def cmd_receipt_systemd(args) -> int:
         for kv in args.setenv or []:
             if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", kv):
                 raise core.UsageError(f"--setenv {kv!r}: expected NAME=VALUE")
+            name, value = kv.split("=", 1)
+            if name == "LAKE_CACHE_DIR" and not value.strip():
+                raise core.UsageError("--setenv LAKE_CACHE_DIR= (empty) does not disable Lake's artifact cache "
+                                      "(Lake then uses .lake/cache); leave it out and --run gives the unit a "
+                                      "fresh empty one")
+            if name == "LAKE_ARTIFACT_CACHE" and value.strip().lower() not in ("false", "0"):
+                raise core.UsageError(f"--setenv {kv!r}: a receipt run needs LAKE_ARTIFACT_CACHE=false (a "
+                                      f"restored module's sorry warning need not be printed)")
     elif args.setenv:
         raise core.UsageError("--setenv is only for --run")
     paths = {}
@@ -579,7 +610,8 @@ def add_parser(rsub) -> None:
     src.add_argument("--runtime-max", default=DEFAULT_CAPS["runtime_max"], metavar="SPAN",
                      help=f"--run: RuntimeMaxSec (default {DEFAULT_CAPS['runtime_max']})")
     src.add_argument("--setenv", action="append", default=[], metavar="NAME=VALUE",
-                     help="--run: an extra environment variable for the unit (repeatable; PATH is passed)")
+                     help="--run: an extra environment variable for the unit (repeatable; PATH is passed; "
+                          "LAKE_CACHE_DIR=<fresh empty dir> and LAKE_ARTIFACT_CACHE=false unless named here)")
     src.add_argument("--properties-out", default=None, metavar="PATH",
                      help="--run: where the captured properties go (default <log>.unit.properties)")
     s.add_argument("--redact", action="append", default=[], metavar="REGEX",

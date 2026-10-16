@@ -257,7 +257,19 @@ empty), writes the `commit:`, `job-id:`, `lean-toolchain:` and `checker:`
 lines, runs the package's build and `#print axioms` commands, derives
 `sorry-count:` and `axioms:` from Lean's own output in the log, and only
 then prints `post-manifest-sha256` and `verify-log-sha256` (nothing may
-write to the log after that). `LEAN_NUM_THREADS` defaults to 3:
+write to the log after that). It builds with `LAKE_CACHE_DIR` an empty
+directory of its own in the work directory and `LAKE_ARTIFACT_CACHE=false`
+(log lines `lake-cache-dir: fresh (empty, job-local)` and
+`lake-artifact-cache: false`, no path), refuses a committed `.lake/build`,
+brackets the build with `lean-pkg-build: begin` / `lean-pkg-build: end`
+lines and fails the job when that section shows a root-package module
+`Reused`, `Replayed` or `Unpacked`. Before the audit it runs
+`LEAN_PATH_CMD` (default `lake env printenv LEAN_PATH`) and fails when an
+entry other than the package's own `.lake/build/lib/lean` holds one of its
+root namespaces (`lean-path-shadow:` lines; on success one line with the
+entry count and the namespaces, no path); the check runs outside `RUN`, so a
+container must bind the work directory at the same path. The default
+`AXIOMS_CMD` is `lake lean Verify/Axioms.lean`, never `lake env lean`. `LEAN_NUM_THREADS` defaults to 3:
 Mathlib-heavy packages can exhaust the node's file table (`fs.file-max`) at
 higher values, and `/proc/sys/fs/file-nr` goes into the log before and
 after the build. Comments say where to stage the Lean toolchain and
@@ -265,6 +277,43 @@ after the build. Comments say where to stage the Lean toolchain and
 container (`RUN=...`). A work directory outside `/tmp/<user>-job<J>` and
 `/scratch/<user>/` that appears in the log needs a `--redact` at receipt
 time.
+
+### Fresh builds and LEAN_PATH
+
+Two Lake behaviours can make a verify log say less than it seems to (checked
+against the Lake and Lean sources of v4.35.0-rc2):
+
+- **The local artifact cache.** A package reads Lake's artifact cache unless
+  it is switched off: its own `enableArtifactCache`, else the workspace's
+  (`LAKE_ARTIFACT_CACHE`, then the root package's setting), else on; a
+  package lakefile's `enableArtifactCache = true` wins over
+  `LAKE_ARTIFACT_CACHE=false`. The cache lives in `LAKE_CACHE_DIR`, else
+  under the toolchain, else `$XDG_CACHE_HOME/lake` or `~/.cache/lake`;
+  `LAKE_CACHE_DIR=""` does not disable it (`.lake/cache` is used), and
+  `--no-cache` / `LAKE_NO_CACHE` govern downloads only. A module restored
+  from it is reported `Reused` and its ``declaration uses `sorry` `` warning
+  is not printed: a cached module with a sorry builds with exit 0 and no
+  warning, so a sorry count scraped from the log reads 0. Lake prints a
+  `Reused` (or `Replayed`, `Unpacked`) job only when it has output or with
+  `-v`, so the defence is a fresh tree and an empty cache directory of the
+  job's own with `LAKE_ARTIFACT_CACHE=false`, which the `--template` and
+  `receipt systemd --run` set. `receipt slurm` and `receipt systemd`
+  (and `--check`) refuse a log showing a root-package module (its source
+  tracked at the commit, or its first name component a `lean_lib` name,
+  root or glob of the lakefile) `Reused`, `Replayed` or `Unpacked`, inside
+  the `lean-pkg-build:` markers when the log has them (the audit's
+  `lake lean` replays the modules it imports), and one whose
+  `lake-artifact-cache:` line says anything but `false`.
+- **LEAN_PATH order.** Lake lists the root package's lib directory last on
+  `LEAN_PATH`, and Lean loads a module whose first component is `R` from the
+  first entry holding `R/` or `R.olean`. Under `lake env lean FILE` a
+  dependency's build directory holding the package's namespace is loaded
+  instead of the package's own build (a planted copy of a module answered
+  `#print axioms` with its own axioms). `lake build` and `lake lean FILE`
+  pass explicit module paths and are not affected; run the audit with
+  `lake lean`. The template, `comparator-receipt` (after its build stage)
+  and both comparator scripts refuse when an entry other than the package's
+  own `.lake/build/lib/lean` holds a root namespace, naming the path.
 
 **Check the files first (`--check`).** A long job whose files miss a line
 cannot be receipted and must be run again. `--check` runs every check
@@ -315,7 +364,17 @@ systemd-run --user --unit=audit-gate.service -p RemainAfterExit=yes \
 
 The caps are the defaults; `--memory-max`, `--memory-swap-max`,
 `--cpu-quota` and `--runtime-max` change them, and each must be finite.
-`--setenv NAME=VALUE` adds a variable (`PATH` is always passed). A unit
+`--setenv NAME=VALUE` adds a variable (`PATH` is always passed). Lake's
+local artifact cache is isolated by default: unless `--setenv` names them,
+the unit gets `LAKE_CACHE_DIR` set to a fresh, empty temporary directory
+(removed after the run) and `LAKE_ARTIFACT_CACHE=false` (see
+[Fresh builds and LEAN_PATH](#fresh-builds-and-lean_path)). An explicit
+`--setenv LAKE_CACHE_DIR=DIR` is used as given (keep it empty);
+`LAKE_CACHE_DIR=` (empty: Lake then uses `.lake/cache`, it does not disable
+the cache) and a `LAKE_ARTIFACT_CACHE` other than `false`/`0` are usage
+errors. The unit builds in the working tree, so start from a clean build
+(`lake clean`): a log showing a root-package module `Replayed` is refused
+like one showing it `Reused`. A unit
 started with `--wait --collect` vanishes the moment it finishes, and its
 exit status and resource accounting with it; `RemainAfterExit=yes` keeps
 the finished unit loaded instead. lean-pkg polls `systemctl --user show`
