@@ -96,12 +96,23 @@ def _help(argv: list[str]) -> str:
     return p.stdout
 
 
+def _choices(text: str) -> set:
+    """Subcommand names in a help text: the {a,b} list plus any `name (alias)` aliases."""
+    m = re.search(r"\{([a-z,-]+)\}", text)
+    names = set(m.group(1).split(",")) if m else set()
+    return names | set(re.findall(r"^\s+[a-z-]+ \(([a-z-]+)\)", text, re.M))
+
+
 @functools.lru_cache(maxsize=None)
-def _cli_surface() -> tuple[set, dict, set]:
+def _cli_surface() -> tuple[set, dict, set, dict]:
     top = _help(CLI)
-    subs = set(re.search(r"\{([a-z,-]+)\}", top).group(1).split(","))
-    flags = {s: set(re.findall(r"--[a-z][a-z-]*", _help(CLI + [s]))) for s in subs}
-    return subs, flags, set(re.findall(r"--[a-z][a-z-]*", top))
+    subs = _choices(top)
+    helps = {s: _help(CLI + [s]) for s in subs}
+    flags = {s: set(re.findall(r"--[a-z][a-z-]*", h)) for s, h in helps.items()}
+    # nested subcommands (`receipt slurm`): their own flags, checked when quoted with them
+    nested = {(s, n): set(re.findall(r"--[a-z][a-z-]*", _help(CLI + [s, n])))
+              for s, h in helps.items() for n in _choices(h)}
+    return subs, flags, set(re.findall(r"--[a-z][a-z-]*", top)), nested
 
 
 def _code_snippets(text: str):
@@ -133,7 +144,7 @@ def _quoted_texts():
 
 
 def test_quoted_lean_pkg_commands_exist():
-    subs, flags, global_flags = _cli_surface()
+    subs, flags, global_flags, nested = _cli_surface()
     bad, seen = [], 0
     for md, text in _quoted_texts():
         for words in _commands(text, "lean-pkg"):
@@ -144,10 +155,13 @@ def test_quoted_lean_pkg_commands_exist():
             if sub not in subs:
                 bad.append(f"{md.name}: unknown subcommand {sub!r}")
                 continue
-            for w in words[1:]:
+            known, rest, name = flags[sub], words[1:], sub
+            if rest and (sub, rest[0]) in nested:
+                known, rest, name = nested[(sub, rest[0])], rest[1:], f"{sub} {rest[0]}"
+            for w in rest:
                 flag = w.split("=", 1)[0]
-                if flag.startswith("--") and flag not in flags[sub] | global_flags:
-                    bad.append(f"{md.name}: {sub} has no flag {flag}")
+                if flag.startswith("--") and flag not in known | global_flags:
+                    bad.append(f"{md.name}: {name} has no flag {flag}")
     assert seen >= 10, "the skills should quote lean-pkg commands"
     assert bad == [], "\n".join(bad)
 
