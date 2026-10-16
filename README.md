@@ -171,7 +171,25 @@ the [roadmap](ROADMAP.md); it is not implemented yet.
 
 Not sure what comes next for a package? `lean-pkg next NAME` prints the single recommended command and why; agents get the same answer with `--json`.
 
-Checking a learner's exercise, not a package? `lean-exercise check --challenge Challenge.lean --solution Solution.lean` judges each `sorry`'d theorem with `lake comparator` in its sandbox; no registry involved ([Checking Lean exercises](docs/exercise.md)).
+Checking a learner's exercise, not a package? `lean-exercise check --challenge Challenge.lean --solution Solution.lean` judges each `sorry`'d theorem with `lake comparator` in its sandbox; no registry involved ([Checking Lean exercises](docs/exercise.md)). On a machine without the sandbox, `--no-sandbox` checks your own work only: the result is labelled `self-check-only`, never a grade.
+
+Receipts from a cluster or a capped local unit: `lean-pkg receipt slurm` and
+`receipt systemd` turn a finished job into a lower-tier receipt, and
+`--compress-log` seals a very large log as deterministic gzip. The Slurm
+template (`receipt slurm --template`) builds the package with an empty,
+job-local Lake cache; `SRC_MODE=clone` gives the job a real `.git` at the
+commit, and `DEPS_TAR` restores prebuilt dependencies while the package
+itself still builds fresh
+([Receipts and trust](docs/receipts.md#a-lower-tier-receipt-from-a-slurm-job)).
+
+Writing the comparator configuration:
+`lean-pkg comparator config --from-claims NAME --claims-file claims.yaml`
+scaffolds entries from a working-copy claims file, and `--challenge-from-type` pre-fills statements with typed numerals, such as
+`(3 / 2 : ℝ)`, so they elaborate back to the original. `comparator-receipt`
+checks early that every configured module is a Lake target and that no
+dependency is a symlink its sandbox cannot see, and
+`lean-pkg comparator NAME --check --receipt R --repo DIR` pre-checks a
+receipt made in a worktree ([The comparator tier](docs/comparator.md#stages-and---prepare)).
 
 Something went wrong? `lean-pkg report --command "..."` drafts a bug report in this repository's issue format with every private path and address redacted; `--yes` files it.
 
@@ -182,10 +200,15 @@ Safety nets, before anything is public:
   names) for private strings, the whole repository when the package is a
   subdirectory of it; `promote` refuses while blocking hits remain, and
   `promote --yes` fetches origin's branches, tags and pull-request heads
-  first.
+  first. Before freezing a public candidate made from private history, add
+  the project's own terms (citation keys, working titles) to
+  `.lean-pkg-private-patterns`; the built-in patterns cannot know them
+  ([Before freezing a public candidate](docs/receipts.md#before-freezing-a-public-candidate)).
 - `lean-pkg release NAME --fresh-repo DIR` (or `--adopt-repo DIR`) gives a
   package incubated beside a paper a fresh public history; see
   [Publishing a package incubated beside private work](docs/receipts.md#publishing-a-package-incubated-beside-private-work).
+  Several checkpoint packages that become one public companion follow the
+  [consolidation recipe](docs/paper-companion.md#consolidate-several-checkpoint-packages-into-one).
 - `lean-pkg comparator host-check` says whether this machine can produce
   comparator receipts at all, before a long run.
 - `lean-pkg audit` reports expired leases, receipt drift and GitHub
@@ -194,7 +217,10 @@ Safety nets, before anything is public:
 Two files live in each package repository. `claims.yaml` (schema `claims/1`)
 names the results someone might reuse; `lean-pkg claims sync`, `claims list`
 and `claims check` cache and validate them, and `lean-pkg search` searches them
-with the index and public sources ([Prior-art search](docs/prior-art.md)).
+with the index and public sources ([Prior-art search](docs/prior-art.md)):
+`--loogle-query` sends Loogle a pattern of its own, `--require-complete`
+exits 1 when the search is incomplete (a source skipped, failed or capped),
+and `--cache-dir` keeps one search's cache apart ([Requiring a complete search](docs/prior-art.md#requiring-a-complete-search)).
 `formalization.yaml` is the mathlib-initiative self-report Palomar reads;
 `lean-pkg formalization NAME` renders it from the registry and the receipts
 ([formalization.yaml](docs/formalization.md)).
@@ -219,6 +245,11 @@ After the flip:
 | an agent | [llms.txt](llms.txt) · [AGENTS.md](AGENTS.md) · [Using lean-pkg with agents](docs/agents.md) · [Agent skills](skills/README.md) |
 | stuck | [FAQ](docs/faq.md) |
 
+From the terminal, `lean-pkg help` lists the commands and the help topics:
+`lean-pkg help exit-codes`, `help environment` and `help formatting` cover
+exit codes, environment variables and `--json` output
+([How to](docs/how-to.md#look-up-exit-codes-environment-variables-and-output-formats)).
+
 Documentation site: <https://lean-pkg.github.io/lean-pkg/>.
 
 ## For collaborators
@@ -242,7 +273,9 @@ machine can produce comparator receipts, and with which mechanism. With the
 toolchain mechanism (Lean v4.35.0-rc2 or later, what Palomar runs) a first
 run takes seconds once the Mathlib cache is in place. The legacy mechanism's
 first run builds the comparator tools once (about 25 minutes); later runs
-take seconds.
+take seconds. `lean-exercise check` needs Linux, `bwrap` able to create an
+unprivileged user namespace, and Lean v4.35.0-rc2 or later
+([Host](docs/exercise.md#host)).
 
 ## AI assistance
 
