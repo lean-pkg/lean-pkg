@@ -479,6 +479,7 @@ def add_parsers(sub, add_json) -> None:
                    help="evaluate the checkout DIR instead of the registered local_path, for this call only "
                         "(never saved; stderr note, JSON repo_override): for a host whose registered path "
                         "holds another branch. DIR must be a git work tree, and when it has remotes one must "
-                        "be the package's repo")
+                        "be the package's repo (Host:/p matches a local-path repo /p; the registered "
+                        "local_path itself needs no remote)")
     add_json(s)
     s.set_defaults(fn=cmd_next)

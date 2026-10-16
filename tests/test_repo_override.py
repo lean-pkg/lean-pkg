@@ -109,3 +109,51 @@ def test_writing_gate_refuses_repo(lp, env, capsys, tmp_path):
     rc, _, err = run(lp, env, capsys, "gate", "alpha", "--receipt", str(p), "--repo", str(env.repo_a))
     assert rc == 2 and "gate --repo goes with --check" in err
     assert env.registry.read_bytes() == before and read_events(env) == []
+
+
+def set_repo(env, url):
+    reg = read_reg(env)
+    reg["packages"]["alpha"]["repo"] = url
+    write_reg(env, reg)
+
+
+def test_scp_style_remote_matches_a_local_path_repo(lp, env, capsys, tmp_path):
+    """Field report: the registry's repo is the bare repo's path on the registry host; a checkout on
+    another host reaches it as `Host:<that path>`. Same repository, so the remote check passes."""
+    set_repo(env, "/srv/repos/alpha-lean.git")
+    clone = tmp_path / "alpha-clone"
+    shutil.copytree(env.repo_a, clone)
+    _git(clone, "remote", "add", "origin", "Registryhost:/srv/repos/alpha-lean.git")
+    rc, out, err = run(lp, env, capsys, "next", "alpha", "--repo", str(clone), "--json")
+    assert rc == 0 and json.loads(out)["repo_override"]["remote_match"] is True
+    for url in ("ssh://me@registryhost:22/srv/repos/alpha-lean", "file:///srv/repos/alpha-lean.git/"):
+        _git(clone, "remote", "set-url", "origin", url)
+        rc, out, _ = run(lp, env, capsys, "next", "alpha", "--repo", str(clone), "--json")
+        assert rc == 0 and json.loads(out)["repo_override"]["remote_match"] is True, url
+
+
+@pytest.mark.parametrize("url", ["Registryhost:/srv/repos/other-lean.git", "Registryhost:srv/repos/alpha-lean.git",
+                                 "Registryhost:~/srv/repos/alpha-lean.git", "/srv/repos/alpha-lean.git.bak"])
+def test_a_different_path_still_refuses(lp, env, capsys, tmp_path, url):
+    set_repo(env, "/srv/repos/alpha-lean.git")
+    clone = tmp_path / "alpha-clone"
+    shutil.copytree(env.repo_a, clone)
+    _git(clone, "remote", "add", "origin", url)
+    rc, out, _ = run(lp, env, capsys, "next", "alpha", "--repo", str(clone), "--json")
+    assert rc == 1 and "no git remote of it is the package's repo" in json.loads(out)["error"]
+
+
+def test_two_hosted_remotes_compare_exactly(lp):
+    assert not lp._same_remote("hostA:/srv/r.git", "hostB:/srv/r.git")
+    assert lp._same_remote("hostA:/srv/r.git", "hostA:/srv/r")
+    assert lp._same_remote("/srv/r.git", "hostB:/srv/r")
+
+
+def test_the_registered_checkout_needs_no_remote_proof(lp, env, capsys):
+    """Field report: --repo DIR where DIR IS the registered local_path refused because its remote spelled
+    the repo differently; the plain call (cwd = that checkout) passed. The registered path is trusted."""
+    set_repo(env, "git@github.com:example/somewhere-else.git")
+    _git(env.repo_a, "remote", "add", "origin", "git@github.com:example/alpha-mirror.git")
+    rc, out, err = run(lp, env, capsys, "next", "alpha", "--repo", str(env.repo_a), "--json")
+    assert rc == 0, out
+    assert json.loads(out)["repo_override"]["remote_match"] is None
