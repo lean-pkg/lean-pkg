@@ -438,6 +438,32 @@ changed, it prints `next: nothing to do`. `--json`: `bound_commit`, `head`, `cla
 `not_applicable`, `uncovered[]`, `config_changed`, `changed_configs[]`,
 `candidate` (`certifies: false`), `statement`, `next_commands[]`.
 
+When you plan the comparator slots for a module from its source, count by
+the kernel's classification, not by source keywords. A declaration written
+`instance` whose type is a proposition is stored as a theorem
+(`ConstantInfo.thmInfo`), and so is any other Prop-valued declaration that
+Lean elaborates as a theorem. Such declarations are theorem obligations, and a
+keyword tally of `theorem`/`lemma` undercounts them (field report: a topology
+module had 12 `theorem`s and 5 Prop-valued `instance`s, 17 theorem constants).
+List the theorem constants a module defines from a scratch file, built with
+`lake lean List.lean` (checked on Lean 4.35.0-rc2):
+
+```lean
+import Lean
+import MyPkg.Topology
+open Lean in
+#eval show CoreM Unit from do
+  let env ← getEnv
+  let some idx := env.getModuleIdx? `MyPkg.Topology | throwError "module not loaded"
+  for n in env.header.moduleData[idx.toNat]!.constNames do
+    if let some ci := env.find? n then
+      if ci.isTheorem then IO.println n
+```
+
+The list also holds theorems Lean generates, such as the field projections of
+a Prop-valued class (`MyPkg.P.h`); decide per name whether a generated
+constant is an obligation the comparator should state.
+
 ## What `comparator-check.sh` does
 
 The script is vendored unchanged from the Palomar verifier workflow. For

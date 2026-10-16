@@ -29,6 +29,9 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- docs/comparator.md: plan comparator slots from the kernel's classification, not source keywords (a
+  Prop-valued `instance` is a theorem constant), with a tested snippet listing a module's theorem constants
+  (field report).
 - The estimate (still schema `comparator-estimate/2`; additive fields) records `weights_found`, `olean_modules`
   and `weighted_slots`; when no slot has a weight the runner warns on stderr that the heaviest-first part was
   skipped and the text output says `weights_found false`. It also records `remaining_estimate_seconds` with
