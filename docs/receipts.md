@@ -104,6 +104,11 @@ satisfies it. The manifest check is skipped, and the output says so.
 **Stderr (`--stderr`).** The job's `.err` file must be empty. Without the
 flag the check is skipped, and the output says so.
 
+The commit's files (`lean-toolchain`, `lake-manifest.json`, the lakefile, the tracked tree) are read at the path of
+`--repo` inside its git repository, so a package in a subdirectory of a manuscript repository is read there. A copy
+of the package placed at another path of the same repository (a frozen review packet, say) is not the committed
+package and is refused; the refusal names the path that was read and where the commit holds a `lean-toolchain`.
+
 **The fields.**
 
 | Receipt field | Source |
