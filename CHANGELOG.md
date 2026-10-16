@@ -22,6 +22,16 @@ change the registry schema or receipt format, always with a migration).
   repository root given for a subdirectory package, was refused with no hint). Still refused; tests now cover
   subdirectory packages for both forms and `gate --check` on the result (field report).
 
+### Fixed
+
+- Docs-only descendants: the record's `build_inputs` globs no longer match paths under `.lean-receipts/`. An
+  extension-wide glob (`*.json`, `**/*.json`) or an "everything but README" glob turned a receipt JSON, redacted
+  log, `.log.gz` or unit-properties file committed after the receipt commit into a build input, so `gate`,
+  `gate --check`, `comparator`, `next`, `audit` and the claims ledger refused a HEAD that added evidence beside a
+  docs change. `.lean-receipts/` is never a build input whatever `build_inputs` says; a matching file outside it
+  still refuses, and symlinks, `claims.yaml`, the attribute files, the checker's files and the `formalization.yaml`
+  derived-keys rule are unchanged (field report #5).
+
 ## [0.7.51] - 2026-10-16
 
 ### Added

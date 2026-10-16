@@ -635,7 +635,13 @@ Build inputs, matched on paths relative to the package directory:
   `lean-toolchain`, at any depth;
 - every path matching a glob in the record's `build_inputs` (`fnmatch`, so
   `*` also crosses `/`; a glob without `/` also matches a file name at any
-  depth);
+  depth), except a path under `.lean-receipts/`: that directory is never a
+  build input whatever `build_inputs` says. It holds the evidence the gate
+  reads (receipt JSON, redacted logs, `.log.gz`, unit properties), which the
+  evidence-only rule already admits, so an extension-wide glob (`*.json`,
+  `**/*.json`) or an "everything but `README.md`" glob such as `[!R]*` does
+  not turn a newly committed receipt into a build input. A symlink into
+  `.lean-receipts/` stays refused (below);
 - best effort: each word of the receipt's `checker` text that names a file
   tracked at X (a `scripts/check.sh` named there, for example).
 

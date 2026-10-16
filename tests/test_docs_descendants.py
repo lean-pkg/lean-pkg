@@ -200,6 +200,78 @@ def test_opt_in_refuses_build_input_change(lp, env, tmp_path, capsys, case):
     assert env.registry.read_text() == before and read_events(env) == []
 
 
+# --- with the opt-in: .lean-receipts/ is never a build input, whatever build_inputs says (#5) -----------
+
+EVIDENCE_FILES = {".lean-receipts/abc123def456-slurm-9.json": "{\"verdict\": \"PASS\"}\n",
+                  ".lean-receipts/abc123def456-slurm-9.redacted.log": "redacted log\n",
+                  ".lean-receipts/abc123def456-slurm-9.log.gz": "gz bytes\n",
+                  ".lean-receipts/abc123def456-unit.properties": "MemoryMax=8G\n"}
+# extension-wide globs, and "everything but README" globs (fnmatch: [!R]* also matches .lean-receipts/...)
+WIDE_GLOBS = {"ext": ["*.json", "*.log", "*.gz", "*.properties"],
+              "ext-deep": ["**/*.json", "**/*.log", "**/*.gz", "**/*.properties"],
+              "all-but-readme": ["[!R]*"]}
+
+
+@pytest.mark.parametrize("style", sorted(WIDE_GLOBS))
+def test_opt_in_wide_build_inputs_admit_new_evidence(lp, env, tmp_path, capsys, style):
+    opt_in(env, build_inputs=WIDE_GLOBS[style])
+    r = make_receipt(env.repo_a)
+    head = commit_files(env.repo_a, {"README.md": "x\n", **EVIDENCE_FILES})
+    pkg = read_reg(env)["packages"]["alpha"]
+    ok, note, docs = lp.package_descendant(env.repo_a, r["commit"], head, pkg)
+    assert ok and docs == ["README.md"], note
+    # gate --check and gate agree, and the evidence is not listed as docs
+    p = write_receipt(tmp_path, r)
+    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check", "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["descendant_of"] == r["commit"] and data["docs_paths"] == ["README.md"]
+    assert gate_alpha(lp, env, tmp_path, r) == 0
+    assert f"✓ HEAD {head[:12]} is a docs-only descendant of {r['commit'][:12]}" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("style", sorted(WIDE_GLOBS))
+def test_opt_in_wide_build_inputs_still_refuse_a_matching_file_outside_evidence(lp, env, tmp_path, capsys,
+                                                                                 style):
+    commit_files(env.repo_a, {"data/table.json": "{\"n\": 1}\n", "docs/x.md": "a\n"}, "data")
+    opt_in(env, build_inputs=WIDE_GLOBS[style])
+    r = make_receipt(env.repo_a)
+    changed = "docs/x.md" if style == "all-but-readme" else "data/table.json"
+    head = commit_files(env.repo_a, {"README.md": "x\n", changed: "changed\n", **EVIDENCE_FILES})
+    pkg = read_reg(env)["packages"]["alpha"]
+    ok, note, docs = lp.package_descendant(env.repo_a, r["commit"], head, pkg)
+    assert not ok and docs is None, note
+    assert f"{changed} (build_inputs " in note and ".lean-receipts/" not in note.split("docs-only rule")[1], note
+    before = env.registry.read_text()
+    assert gate_alpha(lp, env, tmp_path, r) == 1
+    err = capsys.readouterr().err
+    assert "docs-only rule (opted in): build input(s) changed" in err and f"{changed} (build_inputs " in err
+    assert env.registry.read_text() == before and read_events(env) == []
+
+
+def test_opt_in_wide_build_inputs_symlink_into_evidence_still_refused(lp, env):
+    commit_files(env.repo_a, {".lean-receipts/data.json": "{}\n"}, "evidence")
+    os.symlink(".lean-receipts/data.json", env.repo_a / "data.json")
+    _git(env.repo_a, "add", "data.json")
+    _git(env.repo_a, "commit", "-m", "symlink into evidence")
+    bound = repo_head(env.repo_a)
+    head = commit_files(env.repo_a, {"README.md": "x\n", ".lean-receipts/data.json": "{\"x\": 2}\n"})
+    pkg = {**read_reg(env)["packages"]["alpha"], "docs_descendants": True, "build_inputs": ["**/*.json"]}
+    ok, note, docs = lp.package_descendant(env.repo_a, bound, head, pkg)
+    assert not ok and docs is None and "(target of symlink data.json)" in note, note
+
+
+def test_opt_in_wide_build_inputs_formalization_rule_unchanged(lp, env):
+    commit_files(env.repo_a, {"formalization.yaml": "project:\n  name: alpha\n  description: a\n"})
+    bound = repo_head(env.repo_a)
+    pkg = {**read_reg(env)["packages"]["alpha"], "docs_descendants": True,
+           "formalization_yaml": "formalization.yaml", "build_inputs": ["*.yaml"]}
+    head = commit_files(env.repo_a, {"formalization.yaml": "project:\n  name: other\n  description: a\n",
+                                     "README.md": "x\n", ".lean-receipts/r.yaml": "x: 1\n"})
+    ok, note, _ = lp.package_descendant(env.repo_a, bound, head, pkg)
+    assert not ok and "formalization.yaml (build_inputs *.yaml" in note, note
+    assert ".lean-receipts/r.yaml" not in note, note
+
+
 def test_opt_in_refuses_non_descendant(lp, env, tmp_path, capsys):
     opt_in(env)
     _git(env.repo_a, "checkout", "-q", "-b", "side")
@@ -320,6 +392,19 @@ def test_comparator_attach_admits_docs_only_descendant(lp, env, tmp_path, capsys
     assert data["descendant_of"] == r["commit"] and data["docs_paths"] == ["README.md"]
     ev = read_events(env)[-1]
     assert ev["event"] == "comparator-attached" and ev["docs_paths"] == ["README.md"]
+
+
+def test_comparator_attach_wide_build_inputs_admit_new_evidence(lp, env, tmp_path, capsys):
+    opt_in(env, build_inputs=["**/*.json", "**/*.gz"])
+    add_comparator_config(env.repo_a)
+    r = make_receipt(env.repo_a)
+    comp = make_comparator_receipt(env.repo_a)
+    assert gate_alpha(lp, env, tmp_path, r) == 0
+    capsys.readouterr()
+    head = commit_files(env.repo_a, {"README.md": "x\n", **EVIDENCE_FILES})
+    p = write_receipt(tmp_path, comp, "comp.json")
+    assert main(lp, env, "comparator", "alpha", "--receipt", str(p), "--check") == 0
+    assert f"✓ HEAD {head[:12]} is a docs-only descendant of {r['commit'][:12]}" in capsys.readouterr().out
 
 
 def test_comparator_attach_refused_without_opt_in(lp, env, tmp_path, capsys):
