@@ -9,6 +9,9 @@ change the registry schema or receipt format, always with a migration).
 
 ### Fixed
 
+- docs/comparator.md recommended a whole node (`--exclusive`) for type extraction on a shared cluster, against
+  the shipped lean-shared-cluster-verification skill; it now says lower threads and workers, log
+  `/proc/sys/fs/file-nr`, and size the allocation from a pilot's `sacct` (field report).
 - `--repo DIR` naming the registered local_path no longer prints the note "using --repo P instead of the
   registered local_path P" with the same path twice; JSON `repo_override` is unchanged (field report).
 
