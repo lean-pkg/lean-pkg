@@ -22,6 +22,14 @@ CHECKER = "gate.sh (lake build; #print axioms)"
 UNIT = "lp-verify.service"
 INV = "8adde655177b48ad86a75a9892431175"
 HOST = "node7"
+
+
+def host_label(name: str) -> str:
+    """The published host label, recomputed here independently of the code: h- + 12 hex of SHA-256."""
+    return "h-" + hashlib.sha256(name.lower().encode()).hexdigest()[:12]
+
+
+LABEL = host_label(HOST)          # the host as published: never the name itself
 STD_AXIOMS = ["propext", "Classical.choice", "Quot.sound"]
 PROPS = {
     "Id": UNIT, "LoadState": "loaded", "ActiveState": "active", "SubState": "exited", "Result": "success",
@@ -90,8 +98,20 @@ def assert_nothing_written(repo):
     assert not rdir(repo).exists() or list(rdir(repo).iterdir()) == []
 
 
-JOB_ID = f"systemd-user:{UNIT}:{INV}@{HOST}"
-SLUG = f"systemd-user-{UNIT}-{INV}-{HOST}"
+JOB_ID = f"systemd-user:{UNIT}:{INV}@{LABEL}"
+SLUG = f"systemd-user-{UNIT}-{INV}-{LABEL}"
+
+
+@pytest.fixture(autouse=True)
+def _fixed_identity(monkeypatch):
+    """The receipt scan blocks this machine's user and host names; the suite pins both, so a test never
+    depends on the name of the machine it runs on."""
+    import getpass
+    import socket
+    monkeypatch.setattr(getpass, "getuser", lambda: "idtester")
+    monkeypatch.setenv("USER", "idtester")
+    monkeypatch.setenv("LOGNAME", "idtester")
+    monkeypatch.setattr(socket, "gethostname", lambda: "idhost.example.org")
 
 
 # --------------------------------------------------------------------------
@@ -107,7 +127,7 @@ def test_happy_path_receipt_passes_gate_check(lp, env, repo, tmp_path, capsys):
     lg = rdir(repo) / f"{c12}-{SLUG}-verify.redacted.log"
     pf = rdir(repo) / f"{c12}-{SLUG}-unit.properties"
     assert out.splitlines()[0].startswith(f"receipt systemd: ok, job {JOB_ID}")
-    for needle in (f"✓ unit: {UNIT} invocation {INV[:12]}… on {HOST}: Result=success, exited 0",
+    for needle in (f"✓ unit: {UNIT} invocation {INV[:12]}… on {LABEL}: Result=success, exited 0",
                    "✓ seal: job stdout verify-log-sha256", "✓ manifest: pre = post", "✓ stderr: empty",
                    "✓ stdout: invocation-id = the unit's InvocationID", "✓ public-safety"):
         assert needle in out, needle
@@ -124,7 +144,8 @@ def test_happy_path_receipt_passes_gate_check(lp, env, repo, tmp_path, capsys):
     assert receipt["axioms"] == STD_AXIOMS and receipt["sorry_count"] == 0 and receipt["checker"] == CHECKER
     # the durable unit evidence: the recognised properties only, in a fixed order, the host last
     kept = pf.read_text()
-    assert kept == props_text() and "ExecStart" not in kept and "/home/" not in kept
+    assert kept == props_text(host=LABEL) and "ExecStart" not in kept and "/home/" not in kept
+    assert HOST not in out and not any(HOST in f.name or HOST in f.read_text() for f in rdir(repo).iterdir())
     assert f"- Unit properties: `{pf.name}`, SHA-256 `{sha(pf.read_bytes())}`" in out
     assert env.registry.read_bytes() == before
     assert lp.main(["--registry", str(env.registry), "gate", "alpha", "--check", "--receipt", str(rp)]) == 0
@@ -137,7 +158,7 @@ def test_local_alias_and_json_payload(lp, repo, tmp_path, capsys):
     assert data["ok"] is True and data["refusals"] == [] and data["job_id"] == JOB_ID and data["ran"] is False
     assert data["unit"]["result"] == "success" and data["unit"]["exec_main_code"] == "exited"
     assert data["unit"]["runtime_usec"] == 725000000 and data["unit"]["memory_peak"] == 3 << 29
-    assert data["unit"]["host"] == HOST and data["unit"]["invocation_id"] == INV
+    assert data["unit"]["host"] == LABEL and data["unit"]["invocation_id"] == INV
     assert data["seal"]["manifest_sha256"] == sha(MATHLIB_MANIFEST.encode())
     assert Path(data["receipt"]).is_file()
 
@@ -155,7 +176,7 @@ def test_live_systemctl_takes_the_host_from_this_system(lp, repo, tmp_path, monk
     monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}")
     monkeypatch.setattr(rs.socket, "gethostname", lambda: "box2")
     assert run(lp, repo, Unit(tmp_path), props=False) == 0
-    assert f"systemd-user:{UNIT}:{INV}@box2" in capsys.readouterr().out
+    assert f"systemd-user:{UNIT}:{INV}@{host_label('box2')}" in capsys.readouterr().out
     assert (bindir / "calls.txt").read_text().split()[:4] == ["--user", "show", UNIT, "-p"]
 
 
@@ -291,12 +312,43 @@ def test_home_and_checkout_paths_are_redacted_in_the_copied_log(lp, repo, tmp_pa
     assert run(lp, repo, Unit(tmp_path, foreign), "--redact", r"/home/someone/") == 0
 
 
-def test_private_hostname_is_refused_by_the_scan(lp, repo, tmp_path, capsys):
+def test_the_host_name_is_never_published(lp, repo, tmp_path, capsys):
+    """Review finding 6: the host name (often a user or site identifier) is published only as its label, so
+    a patterns file blocking it, or the scan's own local-host token, has nothing to find."""
     (repo / ".lean-pkg-private-patterns").write_text("block: node7\n")
-    assert run(lp, repo, Unit(tmp_path)) == 1
-    err = capsys.readouterr().err
-    assert "a private string remains in the receipt JSON" in err
-    assert_nothing_written(repo)
+    assert run(lp, repo, Unit(tmp_path)) == 0
+    out = capsys.readouterr().out
+    assert HOST not in out
+    assert not any(HOST in f.name or HOST in f.read_text() for f in rdir(repo).iterdir())
+
+
+def test_the_local_host_and_user_names_are_blocking_tokens(lp, repo, tmp_path, monkeypatch, capsys):
+    """Review finding 6: the receipt scan blocks this machine's user name and host name (full and short)
+    at a word boundary, and a bare home directory with no trailing slash."""
+    from lean_pkg import receipt
+    monkeypatch.setattr(receipt.getpass, "getuser", lambda: "kq7user")
+    monkeypatch.setattr(receipt.socket, "gethostname", lambda: "lab-kq7box.example.org")
+    for line, family in (("built by kq7user\n", "local user name"), ("node: lab-kq7box\n", "local host name"),
+                         ("node: lab-kq7box.example.org\n", "local host name"),
+                         ("elan-home: /home/someone\n", "home-path"), ("cache: /Users/someone\n", "home-path")):
+        assert run(lp, repo, Unit(tmp_path, LOG + line)) == 1, line
+        err = capsys.readouterr().err
+        assert f"redacted verify log ({family}" in err or f", {family}" in err, (line, err)
+        assert "kq7" not in err and "someone" not in err
+        assert_nothing_written(repo)
+    # a token is matched as a word: a longer name that merely contains it is not a hit
+    assert run(lp, repo, Unit(tmp_path, LOG + "built by kq7users-group\n")) == 0
+
+
+def test_identity_tokens_skip_short_and_common_names(monkeypatch):
+    from lean_pkg import receipt
+    monkeypatch.setattr(receipt.getpass, "getuser", lambda: "root")
+    monkeypatch.setenv("USER", "ab")
+    monkeypatch.setenv("LOGNAME", "runner")
+    monkeypatch.setattr(receipt.socket, "gethostname", lambda: "localhost")
+    assert receipt.local_identity() == {}
+    monkeypatch.setattr(receipt.socket, "gethostname", lambda: "kq7box.lab.example.org")
+    assert receipt.local_identity() == {"kq7box.lab.example.org": "local host name", "kq7box": "local host name"}
 
 
 # --------------------------------------------------------------------------
@@ -419,6 +471,44 @@ def test_run_refuses_source_changed_during_the_run(lp, repo, tmp_path, fake_syst
     assert_nothing_written(repo)
 
 
+def test_an_untracked_source_file_is_a_source_change(repo):
+    """Finding 4: an untracked file under the package directory can be imported by committed code, so the
+    run would build a tree that is not the commit; ignored files, .lean-receipts/ and .lake/ are not listed."""
+    from lean_pkg import receipt_systemd as rs
+    (repo / "Main.lean").write_text("import Extra\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "m")
+    head = repo_head(repo)
+    for rel in (".lean-receipts/old.json", ".lake/build/x.olean", "ignored/Extra.lean", "run.log"):
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text("x\n")
+    (repo / ".git" / "info" / "exclude").write_text("ignored/\n")
+    assert rs.source_problem(repo, head, "before the run", ["run.log"]) is None
+    (repo / "Extra.lean").write_text("theorem x : True := trivial\n")
+    why = rs.source_problem(repo, head, "before the run", ["run.log"])
+    assert why and "1 untracked file(s) under the package directory" in why and "Extra.lean" in why
+    assert "run.log" in rs.source_problem(repo, head, "before the run")
+
+
+def test_run_refuses_an_untracked_file_before_and_during_the_run(lp, repo, tmp_path, fake_systemd, capsys):
+    _props, calls_made = fake_systemd
+    (repo / "Extra.lean").write_text("theorem x : True := trivial\n")
+    rc, _d = run_live(lp, repo, tmp_path)
+    assert rc == 1 and calls_made() == []
+    assert "source changed before the run: 1 untracked file(s)" in capsys.readouterr().err
+    (repo / "Extra.lean").unlink()
+    rc, _d = run_live(lp, repo, tmp_path, touch="open('Extra.lean', 'w').write('-- during')", outdir="run2")
+    assert rc == 1
+    assert "source changed during the run: 1 untracked file(s)" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_run_outputs_inside_the_package_are_not_source_changes(lp, repo, tmp_path, fake_systemd, capsys):
+    rc, d = run_live(lp, repo, tmp_path, outdir=str(repo / "logs"))
+    assert rc == 0, capsys.readouterr().err
+    assert (d / "verify.log.unit.properties").is_file()
+
+
 @pytest.fixture()
 def nested(tmp_path) -> Path:
     """A package incubated beside a manuscript: the git repository is the article, the package is lean/."""
@@ -502,7 +592,7 @@ def test_help_names_the_sources_and_redactions(lp, capsys):
     with pytest.raises(SystemExit):
         lp.main(["receipt", "local", "--help"])
     out = " ".join(capsys.readouterr().out.split())
-    for needle in ("--properties-file", "--run", "RemainAfterExit", "systemd-user:<U>:<InvocationID>@<host>",
+    for needle in ("--properties-file", "--run", "RemainAfterExit", "systemd-user:<U>:<InvocationID>@<host label>",
                    "redacted to <repo>, <HOME>, /run/user/<UID>/"):
         assert needle in out, needle
 

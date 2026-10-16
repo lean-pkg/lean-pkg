@@ -56,6 +56,18 @@ def no_sacct(monkeypatch):
     monkeypatch.setattr(receipt.shutil, "which", lambda name, *a, **k: None if name == "sacct" else real(name, *a, **k))
 
 
+@pytest.fixture(autouse=True)
+def _fixed_identity(monkeypatch):
+    """The receipt scan blocks this machine's user and host names; the suite pins both, so a test never
+    depends on the name of the machine it runs on."""
+    import getpass
+    import socket
+    monkeypatch.setattr(getpass, "getuser", lambda: "idtester")
+    monkeypatch.setenv("USER", "idtester")
+    monkeypatch.setenv("LOGNAME", "idtester")
+    monkeypatch.setattr(socket, "gethostname", lambda: "idhost.example.org")
+
+
 T1, T2 = "2026-10-13T18:00:00+00:00", "2026-10-13T18:01:00+00:00"
 
 
@@ -331,7 +343,7 @@ def test_nonempty_stderr_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
 
 
 def test_in_log_seal_is_the_fallback_without_stdout(lp, repo, tmp_path, fake_sacct, capsys):
-    raw = LOG.encode()
+    raw = (f"commit: {repo_head(repo)}\n" + LOG).encode()
     sealed = (raw + f"verify-log-sha256: {sha(raw)}\n".encode()).decode()
     assert run(lp, repo, Job(tmp_path, sealed), stdout=False, stderr=False) == 0
     out = capsys.readouterr().out
@@ -515,7 +527,7 @@ def test_seal_evidence_is_persisted_with_stdout(lp, env, repo, tmp_path, fake_sa
 
 
 def test_no_seal_evidence_without_stdout(lp, repo, tmp_path, fake_sacct, capsys):
-    raw = LOG.encode()
+    raw = (f"commit: {repo_head(repo)}\n" + LOG).encode()
     sealed = (raw + f"verify-log-sha256: {sha(raw)}\n".encode()).decode()
     job = Job(tmp_path, sealed)
     assert run(lp, repo, job, "--json", stdout=False) == 0
@@ -833,3 +845,135 @@ def test_the_template_counts_a_backtick_sorry(lp, repo, tmp_path, capsys):
     assert lp.main(["receipt", "slurm", "--check", "--log", str(job.log), "--stdout", str(job.out),
                     "--stderr", str(job.err), "--commit", repo_head(repo), "--repo", str(repo)]) == 1
     assert "sorry count is 1; gate requires 0" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# trust-boundary review findings (receipts)
+
+def test_sorry_and_axioms_are_parsed_from_the_raw_log(lp, repo, tmp_path, fake_sacct, capsys):
+    """Finding 3: a --redact that covers Lean's sorry warning must not erase it before it is counted."""
+    log = LOG + "warning: /gpfs/u123/pkg/Demo.lean:3:8: declaration uses 'sorry'\n"
+    assert run(lp, repo, Job(tmp_path, log), "--redact", "/gpfs/.*") == 1
+    err = capsys.readouterr().err
+    assert "sorry count is 1; gate requires 0" in err
+    assert "redaction changed what the receipt is read from" in err and "`declaration uses sorry` warnings" in err
+    assert_nothing_written(repo)
+
+
+@pytest.mark.parametrize("line, redact, what", [
+    ("axioms: propext, Classical.choice, Quot.sound\n", "Classical\\.choice, ", "axioms"),
+    ("", "'Demo.helper' depends on axioms: \\[propext\\]", "`#print axioms` results"),
+    ("", "lake build: ok.*", "build-completion lines"),
+    ("sorry-count: 0\n", "sorry-count: 0", "sorry-count"),
+])
+def test_a_redaction_that_alters_a_parsed_line_is_refused(lp, repo, tmp_path, fake_sacct, capsys, line, redact, what):
+    assert run(lp, repo, Job(tmp_path, LOG + line), "--redact", redact) == 1
+    err = capsys.readouterr().err
+    assert "redaction changed what the receipt is read from" in err and what in err, err
+    assert_nothing_written(repo)
+
+
+def test_a_redaction_inside_a_sorry_line_that_keeps_it_is_accepted(lp, repo, tmp_path, fake_sacct, capsys):
+    """A path redacted inside a warning keeps the warning, so the counts agree (here the log has none left
+    after a passing build: the path is in another line)."""
+    log = LOG + "note: cache at /gpfs/u123/cache\n"
+    assert run(lp, repo, Job(tmp_path, log), "--redact", "/gpfs/u123") == 0
+    assert "<redacted>/cache" in next(rdir(repo).glob("*.log")).read_text()
+
+
+def test_a_redacted_checker_is_published_redacted(lp, repo, tmp_path, fake_sacct, capsys):
+    log = LOG + "checker: /gpfs/u123/verify.sh --all\n"
+    assert run(lp, repo, Job(tmp_path, log), "--redact", "/gpfs/u123", checker=False) == 0
+    receipt = json.loads(next(rdir(repo).glob("*.json")).read_text())
+    assert receipt["checker"] == "<redacted>/verify.sh --all"
+
+
+def test_no_commit_line_in_fallback_mode_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    """Finding 5: without --stdout only the log's own hash seals it, so a log with no `commit:` line is bound
+    to nothing and is refused; with a commit: line it passes."""
+    raw = LOG.encode()
+    sealed = (raw + f"verify-log-sha256: {sha(raw)}\n".encode()).decode()
+    assert run(lp, repo, Job(tmp_path, sealed), stdout=False) == 1
+    assert "no `commit:` line; with the in-log fallback seal" in capsys.readouterr().err
+    assert_nothing_written(repo)
+    raw = (f"commit: {repo_head(repo)}\n" + LOG).encode()
+    sealed = (raw + f"verify-log-sha256: {sha(raw)}\n".encode()).decode()
+    assert run(lp, repo, Job(tmp_path, sealed), stdout=False) == 0
+    assert "✓ log: `commit:` line = --commit" in capsys.readouterr().out
+
+
+def test_no_commit_line_with_stdout_warns_and_says_so_in_json(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path), "--json") == 0
+    out, err = capsys.readouterr()
+    data = json.loads(out)
+    assert data["log_commit_bound"] is False
+    assert ("WARN the verify log has no commit: line; it is bound to the commit only through lake-manifest.json"
+            in err)
+    for p in rdir(repo).iterdir():
+        p.unlink()
+    assert run(lp, repo, Job(tmp_path, f"commit: {repo_head(repo)}\n" + LOG), "--json") == 0
+    out, err = capsys.readouterr()
+    assert json.loads(out)["log_commit_bound"] is True and "no commit: line" not in err
+
+
+def test_a_disagreeing_commit_line_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path, "commit: " + "0" * 40 + "\n" + LOG)) == 1
+    assert "verify log: `commit:` '0000000000000000000000000000000000000000' is not --commit" in capsys.readouterr().err
+
+
+def test_preflight_refuses_a_fallback_log_without_commit_line(lp, repo, tmp_path, capsys):
+    raw = LOG.encode()
+    sealed = (raw + f"verify-log-sha256: {sha(raw)}\n".encode()).decode()
+    job = Job(tmp_path, sealed)
+    assert lp.main(["receipt", "slurm", "--check", "--log", str(job.log), "--commit", repo_head(repo),
+                    "--repo", str(repo), "--checker", CHECKER]) == 1
+    assert "no `commit:` line" in capsys.readouterr().out
+
+
+def test_non_utf8_readme_is_refused_before_anything_is_written(lp, repo, tmp_path, fake_sacct, capsys):
+    """Finding 10: --append-readme decodes README.md in the pre-write checks."""
+    rdir(repo).mkdir()
+    (rdir(repo) / "README.md").write_bytes(b"# Receipts\n\xff\xfe latin-1 junk\n")
+    assert run(lp, repo, Job(tmp_path), "--append-readme") == 1
+    assert "README.md beside the receipt cannot be read as UTF-8 text" in capsys.readouterr().err
+    assert sorted(p.name for p in rdir(repo).iterdir()) == ["README.md"]
+
+
+def test_a_symlinked_receipts_dir_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    os.symlink(outside, rdir(repo))
+    assert run(lp, repo, Job(tmp_path)) == 1
+    assert ".lean-receipts/ is a symlink; nothing written" in capsys.readouterr().err
+    assert list(outside.iterdir()) == []
+
+
+def test_a_symlink_into_the_receipts_dir_is_refused_at_the_commit(lp, repo, tmp_path, fake_sacct, capsys):
+    """Finding 1: a committed symlink resolving into .lean-receipts/ lets a later evidence-only commit change
+    what the build reads; the receipt refuses the commit, naming the symlink."""
+    rdir(repo).mkdir()
+    (rdir(repo) / "Core.lean").write_text("theorem t : True := trivial\n")
+    os.symlink(".lean-receipts/Core.lean", repo / "Core.lean")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "src via symlink")
+    (rdir(repo) / "Core.lean").unlink()
+    assert run(lp, repo, Job(tmp_path)) == 1
+    assert "symlinks at" in (err := capsys.readouterr().err) and "Core.lean -> .lean-receipts/Core.lean" in err
+
+
+@pytest.mark.parametrize("line", ["elan-home: /home/someone\n", "cache: /Users/someone\n"])
+def test_a_bare_home_directory_is_refused(lp, repo, tmp_path, fake_sacct, capsys, line):
+    """Finding 6: a home directory without a trailing slash is a hit too."""
+    assert run(lp, repo, Job(tmp_path, LOG + line)) == 1
+    err = capsys.readouterr().err
+    assert "redacted verify log (home-path)" in err and "someone" not in err
+    assert_nothing_written(repo)
+
+
+def test_the_local_user_name_is_a_blocking_token(lp, repo, tmp_path, fake_sacct, capsys, monkeypatch):
+    from lean_pkg import receipt
+    monkeypatch.setattr(receipt.getpass, "getuser", lambda: "kq7user")
+    assert run(lp, repo, Job(tmp_path, LOG + "work: /work/kq7user/lake-cache\n")) == 1
+    err = capsys.readouterr().err
+    assert "redacted verify log (local user name)" in err and "kq7user" not in err
+    assert run(lp, repo, Job(tmp_path, LOG + "work: /work/kq7user/lake-cache\n"), "--redact", "kq7user") == 0

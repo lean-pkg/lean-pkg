@@ -556,6 +556,18 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     p = git(repo, "diff", "--no-renames", "--name-only", "--relative", bound, head)
     paths = [x for x in p.stdout.splitlines() if x.strip()]
     foreign = [x for x in paths if not x.startswith(".lean-receipts/")]
+    # Outside a subdirectory package: .gitattributes/.gitmodules/.lfsconfig at the repository root or between
+    # it and the package still change the bytes the build sees (filters, eol, LFS); never evidence.
+    outside = ancestor_attribute_changes(repo, bound, head)
+    if outside:
+        return False, (f"HEAD {head[:12]} differs from {bound[:12]} in {', '.join(outside[:5])} "
+                       f"(outside the package directory; can change the bytes the build sees)")
+    # A committed symlink at the bound commit that resolves into .lean-receipts/ (or to the formalization file)
+    # would let an "evidence" edit change what the build reads.
+    linked = linked_evidence_changes(repo, bound, paths, formalization) if paths else []
+    if linked:
+        return False, (f"HEAD {head[:12]} differs from {bound[:12]} in evidence that a committed symlink "
+                       f"points to: {', '.join(linked[:5])}; a symlink target is never evidence")
     if prefix and not paths:
         return True, f"descendant of {bound[:12]} with no change under {prefix}"
     if formalization and formalization in foreign:
@@ -577,6 +589,91 @@ DOCS_ALWAYS_REFUSED = (".gitattributes", ".gitmodules", ".lfsconfig", "claims.ya
 # Files outside a subdirectory package that still change the bytes its build sees (filters, eol, LFS):
 # checked at the repository root and in every directory between it and the package directory.
 DOCS_ANCESTOR_FILES = (".gitattributes", ".gitmodules", ".lfsconfig")
+
+
+def resolve_tree_path(tree: dict[str, str], path: str) -> str | None:
+    """The package-relative path `path` reaches at a commit whose tree is `tree` (bound_tree), every
+    committed symlink on the way followed (a chain, or a directory symlink part-way, included); None when
+    it leaves the package directory (absolute target, `..` above the top) or loops."""
+    links = {p: m.split(":", 1)[1].replace("\\", "/") for p, m in tree.items() if m.startswith("120000:")}
+    todo = [c for c in path.split("/") if c not in ("", ".")]
+    done: list[str] = []
+    hops = 0
+    while todo:
+        c = todo.pop(0)
+        if c == "..":
+            if not done:
+                return None
+            done.pop()
+            continue
+        cand = "/".join(done + [c])
+        if cand in links:
+            hops += 1
+            target = links[cand]
+            if hops > 40 or target.startswith("/"):
+                return None
+            todo = [x for x in target.split("/") if x not in ("", ".")] + todo
+            continue
+        done.append(c)
+    return "/".join(done)
+
+
+def is_evidence_path(path: str, formalization: str | None = None) -> bool:
+    """A package-relative path the evidence-only rule treats as evidence: under .lean-receipts/ (or the
+    directory itself), or the package's formalization.yaml (derived keys may change)."""
+    return path == ".lean-receipts" or path.startswith(".lean-receipts/") or bool(
+        formalization and path == formalization)
+
+
+def evidence_symlinks(tree: dict[str, str], formalization: str | None = None) -> list[str]:
+    """`path -> target` for each committed symlink whose target resolves into .lean-receipts/ (or to the
+    formalization file): a later commit could change what it points to as an evidence-only edit."""
+    out = []
+    for path, mode in sorted(tree.items()):
+        if mode.startswith("120000:") and not is_evidence_path(path, formalization):
+            r = resolve_tree_path(tree, path)
+            if r is not None and is_evidence_path(r, formalization):
+                out.append(f"{path} -> {mode.split(':', 1)[1]}")
+    return out
+
+
+def symlink_targets(tree: dict[str, str]) -> dict[str, str]:
+    """{resolved package-relative target: symlink path} for every committed symlink that stays inside
+    the package directory and does not resolve to the package directory itself."""
+    out: dict[str, str] = {}
+    for path, mode in sorted(tree.items()):
+        if mode.startswith("120000:"):
+            r = resolve_tree_path(tree, path)
+            if r:
+                out.setdefault(r, path)
+    return out
+
+
+def linked_changes(targets: dict[str, str], paths: list[str]) -> list[str]:
+    """`path (target of symlink L)` for each changed path that is a symlink target or lies under one."""
+    out = []
+    for x in paths:
+        for t, link in targets.items():
+            if x == t or x.startswith(t + "/"):
+                out.append(f"{x} (target of symlink {link})")
+                break
+    return out
+
+
+def linked_evidence_changes(repo: pathlib.Path, bound: str, paths: list[str],
+                            formalization: str | None = None) -> list[str]:
+    """The changed evidence paths that a symlink committed at `bound` resolves to (fails closed: an
+    unreadable tree counts every changed evidence path)."""
+    ev = [x for x in paths if is_evidence_path(x, formalization)]
+    if not ev:
+        return []
+    try:
+        tree = bound_tree(repo, bound)
+    except Fail:
+        return [f"{x} (the tree at {bound[:12]} is unreadable)" for x in ev]
+    if not any(m.startswith("120000:") for m in tree.values()):
+        return []
+    return linked_changes(symlink_targets(tree), ev)
 
 
 def ancestor_attribute_changes(repo: pathlib.Path, bound: str, head: str) -> list[str]:
@@ -659,6 +756,7 @@ def docs_only_descendant(repo: pathlib.Path, bound: str, head: str, pkg: dict | 
     fz_rel = formalization_rel(pkg) or "formalization.yaml"
     refused: list[str] = []
     docs: list[str] = []
+    admitted: list[str] = []      # docs, evidence and formalization paths: none may be a symlink target
     i = 0
     while i + 1 < len(fields):
         meta, path = fields[i], fields[i + 1]
@@ -679,12 +777,19 @@ def docs_only_descendant(repo: pathlib.Path, bound: str, head: str, pkg: dict | 
             problem = formalization_derived_only(repo, bound, head, fz_rel)
             if problem:
                 refused.append(f"{path} ({problem})")
+            admitted.append(path)
             continue
+        admitted.append(path)
         if path.startswith(".lean-receipts/"):
             continue
         docs.append(path)
     refused += [f"{x} (outside the package directory; can change the bytes the build sees)"
                 for x in ancestor_attribute_changes(repo, bound, head)]
+    if admitted:   # a non-build file a committed symlink points to is read through that symlink
+        try:
+            refused += linked_changes(symlink_targets(bound_tree(repo, bound)), admitted)
+        except Fail as e:
+            refused.append(f"{len(admitted)} file(s) ({e})")
     if refused:
         return False, (f"build input(s) changed between {bound[:12]} and HEAD {head[:12]}: "
                        f"{'; '.join(refused[:3])}" + (f" (+{len(refused) - 3} more)" if len(refused) > 3 else "")
@@ -2388,9 +2493,14 @@ def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
                    f"the receipt must bind to HEAD or an evidence-only descendant "
                    f"({note})")
     check_toolchain_at(repo, commit, receipt["lean_toolchain"], "toolchain mismatch")
-    check_path_deps_at(repo, commit)
+    check_path_deps_at(repo, commit, formalization_rel(pkg))
     if not str(receipt["mathlib_rev"]).strip():
         raise Fail("receipt mathlib_rev is empty")
+    committed = committed_mathlib_rev(repo, commit)
+    if committed and not _same_rev(str(receipt["mathlib_rev"]).strip(), committed):
+        raise Fail(f"mathlib mismatch: receipt mathlib_rev={str(receipt['mathlib_rev']).strip()!r}, the mathlib "
+                   f"rev in lake-manifest.json committed at {commit[:12]}={committed!r}; the receipt must name "
+                   f"the Mathlib the bound commit pins")
     sc = receipt["sorry_count"]
     if isinstance(sc, bool) or not isinstance(sc, int):
         raise Fail(f"sorry_count must be an integer, got {sc!r}")
@@ -2554,7 +2664,19 @@ def path_dep_tree_problems(tree: dict[str, str], manifest: bytes) -> list[str]:
     return out
 
 
-def check_path_deps_at(repo: pathlib.Path, commit: str) -> None:
+def check_evidence_symlinks_at(repo: pathlib.Path, commit: str, formalization: str | None = None,
+                               tree: dict[str, str] | None = None) -> None:
+    """Refuse a bound commit with a committed symlink that resolves into .lean-receipts/ (or to the
+    package's formalization.yaml): the evidence-only rule admits later edits there, so the symlink would
+    let a source change pass as evidence."""
+    links = evidence_symlinks(tree if tree is not None else bound_tree(repo, commit), formalization)
+    if links:
+        raise Fail(f"symlinks at {commit[:12]} point into evidence the binding rule lets change later: "
+                   f"{', '.join(links)}. The receipt would not bind what they point to; replace them with the "
+                   f"files (outside .lean-receipts/), then a new commit and a new receipt")
+
+
+def check_path_deps_at(repo: pathlib.Path, commit: str, formalization: str | None = None) -> None:
     """Refuse a receipt whose bound commit lets the build read sources outside the package directory:
     a `path` dependency in lake-manifest.json (committed at the bound commit) that leaves the directory
     lexically, or that reaches through a symlink, a submodule or an untracked directory; and any
@@ -2567,6 +2689,7 @@ def check_path_deps_at(repo: pathlib.Path, commit: str) -> None:
         raise Fail(f"symlinks at {commit[:12]} can leave the package directory: {', '.join(links)}. The "
                    f"receipt does not bind what they point to; replace them with the files (or a target "
                    f"that only descends, with no `..`), then a new commit and a new receipt")
+    check_evidence_symlinks_at(repo, commit, formalization, tree)
     blob = git_show_bytes(repo, "./lake-manifest.json", commit)
     if blob is None:
         return
@@ -2677,6 +2800,7 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
         raise Fail(f"comparator commit {commit[:12]}… != lower-tier receipt commit "
                    f"{receipt_commit[:12]}… — both tiers must bind to one commit")
     check_toolchain_at(repo, commit, comp["lean_toolchain"], "comparator toolchain mismatch")
+    check_evidence_symlinks_at(repo, commit, formalization_rel(pkg))
     tools = comp["tools"]
     if not isinstance(tools, dict):
         raise Fail("comparator tools must be a mapping")
@@ -2808,13 +2932,19 @@ def binding_lines(pkg: dict, repo: pathlib.Path, commit: str, toolchain, checker
     out.append(f"✓ lean_toolchain {str(toolchain).strip()} = lean-toolchain committed at {commit[:12]}")
     if git_show_bytes(repo, "./lake-manifest.json", commit) is not None:
         out.append(f"✓ lake-manifest.json at {commit[:12]}: no path dependency outside the package directory")
-    out.append(f"✓ no symlink at {commit[:12]} leaves the package directory")
+    out.append(f"✓ no symlink at {commit[:12]} leaves the package directory or points into .lean-receipts/")
     return out
 
 
 def receipt_check_lines(pkg: dict, repo: pathlib.Path, receipt: dict) -> list[str]:
     allowed = sorted(set((pkg.get("gate") or {}).get("axioms_allowed") or DEFAULT_AXIOMS))
+    committed = committed_mathlib_rev(repo, receipt["commit"])
+    mathlib = (f"✓ mathlib_rev {str(receipt['mathlib_rev']).strip()} = the mathlib rev in lake-manifest.json "
+               f"committed at {receipt['commit'][:12]}" if committed
+               else f"· mathlib_rev not checked: no readable mathlib entry in lake-manifest.json at "
+                    f"{receipt['commit'][:12]}")
     return binding_lines(pkg, repo, receipt["commit"], receipt["lean_toolchain"], receipt.get("checker")) + [
+        mathlib,
         "✓ sorry_count 0",
         f"✓ axioms {sorted(receipt['axioms'])} within {allowed}",
         f"✓ mathlib_rev, report_sha256, job_id {receipt['job_id']}, checker, generated_at well-formed"]
@@ -2922,22 +3052,53 @@ def replaced_comparator_rel(repo: pathlib.Path, commit: str) -> str:
     return rel
 
 
-def copy_comparator(repo: pathlib.Path, commit: str, src: pathlib.Path,
-                    replace: bool = False) -> tuple[str, str, str | None]:
-    """(path of the receipt in the repo, note, where the replaced older receipt now lives or None)."""
+def evidence_dest_problem(repo: pathlib.Path, dest_rel: str) -> str | None:
+    """Why gate/comparator must not write `dest_rel` (under .lean-receipts/): .lean-receipts itself or the
+    destination is a symlink (a planted link would carry the write outside the repository), or the
+    directory is not a directory. None when the write may go ahead."""
+    d = repo / ".lean-receipts"
+    if d.is_symlink():
+        return f"{d} is a symlink; refusing to write evidence through it (nothing copied or recorded)"
+    if d.exists() and not d.is_dir():
+        return f"{d} is not a directory (nothing copied or recorded)"
+    dest = repo / dest_rel
+    if dest.is_symlink():
+        return f"{dest} is a symlink; refusing to write through it (remove it; nothing copied or recorded)"
+    if dest.exists() and not dest.is_file():
+        return f"{dest} is not a regular file (nothing copied or recorded)"
+    return None
+
+
+def plan_comparator_copy(repo: pathlib.Path, commit: str, src: pathlib.Path,
+                         replace: bool = False) -> dict:
+    """Every check copy_comparator makes, before anything is written (gate runs it before it copies the
+    lower-tier receipt, so a refusal writes nothing): {dest_rel, action: present | copy | replace, moved}."""
     dest_rel = f".lean-receipts/{commit[:12]}-comparator.json"
     dest = repo / dest_rel
-    moved = None
-    if dest.exists():
-        if recorded_json(repo, dest_rel) == json.loads(src.read_text()):
-            return dest_rel, f"comparator receipt already present at {dest_rel} (not re-copied)", None
-        if not replace:
-            raise Fail(f"{dest} already holds a different comparator receipt for commit {commit[:12]}; "
-                       f"to keep it, pass that file (--receipt {dest}); to record the newer one, re-run "
-                       f"with --replace (the older file is kept beside it as "
-                       f".lean-receipts/{commit[:12]}-comparator.replaced-<UTC stamp>.json and the event "
-                       f"is comparator-replaced)")
-        moved = replaced_comparator_rel(repo, commit)
+    why = evidence_dest_problem(repo, dest_rel)
+    if why:
+        raise Fail(why)
+    if not dest.exists():
+        return {"dest_rel": dest_rel, "action": "copy", "moved": None}
+    if recorded_json(repo, dest_rel) == json.loads(src.read_text()):
+        return {"dest_rel": dest_rel, "action": "present", "moved": None}
+    if not replace:
+        raise Fail(f"{dest} already holds a different comparator receipt for commit {commit[:12]}; "
+                   f"to keep it, pass that file (--receipt {dest}); to record the newer one, re-run "
+                   f"with --replace (the older file is kept beside it as "
+                   f".lean-receipts/{commit[:12]}-comparator.replaced-<UTC stamp>.json and the event "
+                   f"is comparator-replaced)")
+    moved = replaced_comparator_rel(repo, commit)
+    return {"dest_rel": dest_rel, "action": "replace", "moved": moved}
+
+
+def apply_comparator_copy(repo: pathlib.Path, plan: dict, src: pathlib.Path) -> tuple[str, str, str | None]:
+    """(path of the receipt in the repo, note, where the replaced older receipt now lives or None)."""
+    dest_rel, moved = plan["dest_rel"], plan["moved"]
+    dest = repo / dest_rel
+    if plan["action"] == "present":
+        return dest_rel, f"comparator receipt already present at {dest_rel} (not re-copied)", None
+    if moved:
         os.replace(dest, repo / moved)
     dest.parent.mkdir(exist_ok=True)
     shutil.copy2(src, dest)
@@ -2946,6 +3107,47 @@ def copy_comparator(repo: pathlib.Path, commit: str, src: pathlib.Path,
     if moved:
         note += f"; the older receipt for this commit is kept at {moved} (commit that too)"
     return dest_rel, note, moved
+
+
+def copy_comparator(repo: pathlib.Path, commit: str, src: pathlib.Path,
+                    replace: bool = False) -> tuple[str, str, str | None]:
+    """(path of the receipt in the repo, note, where the replaced older receipt now lives or None)."""
+    return apply_comparator_copy(repo, plan_comparator_copy(repo, commit, src, replace), src)
+
+
+REPORT_LOG_SUFFIX = "-verify.redacted.log"
+
+
+def report_log_check(repo: pathlib.Path, receipt: dict, receipt_path: pathlib.Path) -> tuple[str, dict]:
+    """report_sha256 against the redacted verify log `receipt slurm|systemd` writes beside the receipt
+    (<c12>-<job slug>-verify.redacted.log): looked for beside the --receipt file, in the package's
+    .lean-receipts/ and tracked there at HEAD. Every copy found must hash to report_sha256 (a mismatch
+    refuses); none found is a `·` line, not a refusal. (line, {checked, log, where})."""
+    name = f"{str(receipt['commit'])[:12]}-{receipt_job_slug(receipt['job_id'])}{REPORT_LOG_SUFFIX}"
+    want = str(receipt["report_sha256"]).lower()
+    found: list[tuple[str, bytes]] = []
+    seen: set[str] = set()
+    for where, path in (("beside the receipt", receipt_path.parent / name),
+                        (".lean-receipts/", repo / ".lean-receipts" / name)):
+        key = os.path.realpath(path)
+        if key in seen or not path.is_file():
+            continue
+        seen.add(key)
+        found.append((where, path.read_bytes()))
+    blob = git_show_bytes(repo, f"./.lean-receipts/{name}", "HEAD")
+    if blob is not None:
+        found.append(("tracked at HEAD", blob))
+    for where, data in found:
+        got = sha256_bytes(data)
+        if got != want:
+            raise Fail(f"report_sha256 mismatch: {name} ({where}) hashes to {got}, the receipt says {want}; the "
+                       f"redacted log is not the one the receipt binds")
+    if not found:
+        return ("· report_sha256 not checked (no redacted log beside the receipt)",
+                {"checked": False, "log": name, "where": []})
+    wheres = [w for w, _d in found]
+    return (f"✓ report_sha256 = sha256 of {name} ({', '.join(wheres)})",
+            {"checked": True, "log": name, "where": wheres})
 
 
 def receipt_private_strings(blobs: list[tuple[str, bytes]], refuse: bool,
@@ -3077,7 +3279,8 @@ def receipt_pin_changes(pkg: dict, repo: pathlib.Path, receipt: dict) -> tuple[d
     mathlib_rev (field report: a deliberate pin bump, gated, left `list` on the old pin). A receipt value is
     adopted only when it agrees with the file committed at the receipt's commit (`lean-toolchain`, the mathlib
     rev in `lake-manifest.json`); otherwise the recorded value is kept and `kept` says why, {field: {receipt,
-    manifest}}; never a refusal. mathlib_pin keeps register's 10-character form; revs that are prefixes of one
+    manifest}}; never a refusal. validate_receipt already refuses a mathlib_rev that disagrees with a readable
+    manifest, so `kept` for mathlib_pin is only the case of no readable mathlib entry (manifest None). mathlib_pin keeps register's 10-character form; revs that are prefixes of one
     another are equal."""
     changes, kept = {}, {}
     commit = str(receipt.get("commit") or "")
@@ -3093,10 +3296,11 @@ def receipt_pin_changes(pkg: dict, repo: pathlib.Path, receipt: dict) -> tuple[d
     old = str(pkg.get("mathlib_pin") or "")
     if rev and not _same_rev(rev, old):
         committed = committed_mathlib_rev(repo, commit) if commit else None
-        if committed and _same_rev(rev, committed):
+        if committed is None:
+            kept["mathlib_pin"] = {"receipt": rev, "manifest": None}
+        elif _same_rev(rev, committed):
             changes["mathlib_pin"] = {"from": pkg.get("mathlib_pin"), "to": rev[:10]}
-        else:
-            kept["mathlib_pin"] = {"receipt": rev, "manifest": committed}
+        # a disagreeing rev never reaches here: validate_receipt refuses it
     return changes, kept
 
 
@@ -3149,7 +3353,8 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
                                       refuse_private, private_sink)
     validate_receipt(pkg, repo, receipt)
     commit = receipt["commit"]
-    checks = receipt_check_lines(pkg, repo, receipt)
+    report_line, report_view = report_log_check(repo, receipt, rp)
+    checks = receipt_check_lines(pkg, repo, receipt) + [report_line]
     if comp is not None:
         validate_comparator(pkg, repo, comp, commit)
         checks += comparator_check_lines(pkg, repo, comp, commit, with_binding=False)
@@ -3192,7 +3397,7 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
                "head": git_head(repo), "status": status, "checks": checks,
                "comparator": ({"commit": comp["commit"], "configs": len(comp["configs"])} if comp else None),
                "private_strings": private, "dirty": dirty, "claims_schema": cs, "pins": pins,
-               "pins_kept": pins_kept, **docs_view}
+               "pins_kept": pins_kept, "report_log": report_view, **docs_view}
     if regate:
         payload["regate"] = regate_view
     return [msg] + [f"  {c}" for c in checks], payload
@@ -3254,6 +3459,7 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     was_public = pkg.get("status") == "public"
     validate_receipt(vpkg, repo, receipt)
     commit = receipt["commit"]
+    report_line, report_view = report_log_check(repo, receipt, rp)
     if comp is not None:
         validate_comparator(vpkg, repo, comp, commit)
     docs_view, docs_line = docs_admission(repo, commit, vpkg, receipt.get("checker"))
@@ -3284,12 +3490,18 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     job = receipt_job_slug(receipt["job_id"])
     dest_rel = f".lean-receipts/{commit[:12]}-{job}.json"
     dest = repo / dest_rel
-    out: list[str] = [claims_schema_line(cs)]
-    if dest.exists():
-        if recorded_json(repo, dest_rel) != receipt:
-            raise Fail(f"{dest} already holds a different receipt for commit {commit[:12]} and job "
-                       f"{receipt['job_id']}; pass that file (--receipt {dest}), or give the new run its own "
-                       f"job_id")
+    out: list[str] = [claims_schema_line(cs), report_line]
+    # Every precondition of both copies runs before either is written, so a refusal writes nothing.
+    why = evidence_dest_problem(repo, dest_rel)
+    if why:
+        raise Fail(why)
+    present = dest.exists()
+    if present and recorded_json(repo, dest_rel) != receipt:
+        raise Fail(f"{dest} already holds a different receipt for commit {commit[:12]} and job "
+                   f"{receipt['job_id']}; pass that file (--receipt {dest}), or give the new run its own "
+                   f"job_id")
+    comp_plan = plan_comparator_copy(repo, commit, cp) if comp is not None else None
+    if present:
         out.append(f"receipt already present at {dest_rel} (not re-copied)")
     else:
         dest.parent.mkdir(exist_ok=True)
@@ -3303,7 +3515,7 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
         out.append(docs_line)
     comp_rel = None
     if comp is not None:
-        comp_rel, note, _moved = copy_comparator(repo, commit, cp)
+        comp_rel, note, _moved = apply_comparator_copy(repo, comp_plan, cp)
         out.append(note)
         pkg["gate"]["comparator"] = comp_rel
         fields["comparator"] = comp_rel
@@ -3357,7 +3569,7 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
                "rl_hint": RL_REMINDER.format(name=name),
                "status_unchanged": was_public or regate, "private_strings": private, "dirty": dirty,
                "ignored_evidence": ignored, "claims_schema": cs, "pins": pins,
-               "pins_kept": pins_kept, **docs_view}
+               "pins_kept": pins_kept, "report_log": report_view, **docs_view}
     if regate:
         payload.update(previous_commit=prev_commit, non_descendant=non_descendant, reason=reason or "")
     if comp_rel:
@@ -5546,10 +5758,10 @@ claim     (alias: lease) CAS lease; refuses if another agent holds an unexpired 
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --ttl HOURS: 1..8760 (above: exit 2, nothing written). --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
-gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". gate/regate record the receipt's lean_toolchain and mathlib_rev[:10] into lean_toolchain/mathlib_pin when each agrees with lean-toolchain / lake-manifest.json at the receipt commit (a prefix match is unchanged; one "pins updated" line; event and JSON pins {field: {from, to}}); a disagreeing or unreadable one is kept, never a refusal: "NAME: pins kept: receipt mathlib_rev X does not match lake-manifest.json at <c12> (Y)", JSON pins_kept {field: {receipt, manifest}}; --check reports both, nothing written. --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine. Progress files (PROGRESS.md, state file, ledgers) live outside the package dir: any other change inside it needs a new receipt, unless the package opted in (update --accept-docs-descendants --reason R; record docs_descendants: true): then HEAD may also be a docs-only descendant of the receipt commit C, where no build input under the package dir changed (*.lean, lakefile.*, lake-manifest.json, lean-toolchain at any depth, the record's build_inputs globs, files the receipt's checker names; always refused: a symlink or gitlink added/changed/removed, .gitattributes, .gitmodules, .lfsconfig, claims.yaml, and for a subdirectory package a .gitattributes/.gitmodules/.lfsconfig at the repo root or in any directory between it and the package dir; formalization.yaml keeps its derived-keys rule). The gated commit stays C; text "✓ HEAD <c12> is a docs-only descendant of <c12> (N non-build file(s): ...; opted in)"; gate/regate/comparator events and --json (and --check) add descendant_of C and docs_paths[] (<= 50). Without the opt-in a refusal the docs rule would have admitted adds the hint `update NAME --accept-docs-descendants`.
+gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". gate/regate record the receipt's lean_toolchain and mathlib_rev[:10] into lean_toolchain/mathlib_pin when each agrees with lean-toolchain / lake-manifest.json at the receipt commit (a prefix match is unchanged; one "pins updated" line; event and JSON pins {field: {from, to}}); a receipt whose lean_toolchain or mathlib_rev (prefix-equal) disagrees with lean-toolchain / the mathlib rev in lake-manifest.json committed at its commit is refused; with no readable mathlib entry the rev is not checked and the pin is kept: "NAME: pins kept: receipt mathlib_rev X does not match lake-manifest.json at <c12> (unreadable)", JSON pins_kept {field: {receipt, manifest}}; --check reports both, nothing written. report_sha256 must equal the SHA-256 of <c12>-<job slug>-verify.redacted.log wherever found (beside the receipt, .lean-receipts/, tracked at HEAD), else refused; none found: "· report_sha256 not checked (no redacted log beside the receipt)"; JSON report_log {checked, log, where[]}. Every check of both copies runs before either is written (a refusal writes nothing); a symlinked .lean-receipts or destination file is refused. --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target, or one resolving into .lean-receipts/ or to the formalization.yaml pointer; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine. Progress files (PROGRESS.md, state file, ledgers) live outside the package dir: any other change inside it needs a new receipt, and so does a .gitattributes/.gitmodules/.lfsconfig changed at the repo root or between it and a subdirectory package, unless the package opted in (update --accept-docs-descendants --reason R; record docs_descendants: true): then HEAD may also be a docs-only descendant of the receipt commit C, where no build input under the package dir changed (*.lean, lakefile.*, lake-manifest.json, lean-toolchain at any depth, the record's build_inputs globs, files the receipt's checker names; always refused: a symlink or gitlink added/changed/removed, a changed file a committed symlink points to, .gitattributes, .gitmodules, .lfsconfig, claims.yaml, and for a subdirectory package a .gitattributes/.gitmodules/.lfsconfig at the repo root or in any directory between it and the package dir; formalization.yaml keeps its derived-keys rule). The gated commit stays C; text "✓ HEAD <c12> is a docs-only descendant of <c12> (N non-build file(s): ...; opted in)"; gate/regate/comparator events and --json (and --check) add descendant_of C and docs_paths[] (<= 50). Without the opt-in a refusal the docs rule would have admitted adds the hint `update NAME --accept-docs-descendants`.
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN "receipt field F contains a ... (kept: ...; --refuse-private refuses such a receipt)" + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines), --check --repo DIR (validate against the checkout DIR, not the registered local_path, this call only: never saved; stderr note; JSON repo_override {path, registered_path, remote_match}, null without it; DIR must be a git work tree and, when it has remotes, one must be the package's repo, else the caller vouches; a writing gate refuses --repo, exit 2: it binds the registered checkout, move that with update --path). Success (and promote --yes) ends with a results-ledger: line (JSON rl_reminder, rl_hint): lean-pkg keeps no results ledger, the outcome is in `status NAME` and `claims ledger NAME`; add it to the project's own results ledger if it keeps one (docs/lifecycle.md#results-ledger)
-  ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json   |   receipt slurm --job J --log PATH --commit SHA [--stdout JOB.out] [--stderr JOB.err] [--checker TEXT] [--repo DIR] [--redact REGEX]... [--sacct-file F] [--out PATH] [--append-readme] (no registry): writes the lower-tier receipt from a finished Slurm job; refuses (exit 1, nothing written) unless sacct's main job line is COMPLETED 0:0, the stdout's verify-log-sha256 = sha256(raw log) and pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at SHA) (no --stdout: the log's own `verify-log-sha256:` line = sha256 of the log minus that line), stderr is empty, lean_toolchain/mathlib_rev from SHA agree with any log line, sorry 0 and axioms from the log (sorry-count:/axioms: lines, else 'sorry' warnings/#print axioms output; a sorry-count: below the log's own 'sorry' warnings, or an axioms: line omitting an axiom its #print axioms output reports, is refused; universe suffixes .{u} ignored), a checker (--checker or checker:), and no public-safety blocking hit is left after redacting /tmp/<account>-job, /scratch/<user>/ and --redact; job_id slurm-<J>; writes .lean-receipts/<c12>-slurm-<J>.json + <c12>-slurm-<J>-verify.redacted.log (report_sha256; with --stdout also job_stdout_sha256 + manifest_sha256, additive keys gate ignores), prints the README entry (with --stdout a `- Seal:` line naming both; --append-readme: appended to .lean-receipts/README.md) and `gate NAME --check --receipt PATH`; --json {ok, receipt, log, report_sha256, job_id, sealed[] {role, path, sha256, receipt_key} (the exact files bound; systemd's `properties` is the raw unsealed capture), checks[], refusals[], ...}; --template (no other flag, no registry): print a minimal sbatch wrapper emitting every line the receipt reads (stdout seal lines, empty stderr, checker:/sorry-count:/axioms: in the log); --check --log PATH [--stdout] [--stderr] [--commit SHA] [--job J --sacct-file F]: preflight a job's files, every problem named, no sacct, nothing written, exit 0/1, --json {ok, checks[], problems[]}   |   receipt systemd (alias local) --unit U --log PATH --commit SHA [--properties-file F | --run [--memory-max 8G] [--memory-swap-max 0] [--cpu-quota 400%] [--runtime-max 4h] [--setenv K=V]... [--properties-out PATH] -- CMD...] + the same --stdout/--stderr/--checker/--repo/--redact/--out/--append-readme/--json: the same receipt from a finished systemd --user service unit; the unit state comes from --run (lean-pkg runs CMD bounded via systemd-run --user -p RemainAfterExit=yes, WorkingDirectory=--repo, so the finished unit stays loaded: properties are captured to <log>.unit.properties before it is stopped and reset; the checkout must be at SHA with no tracked change under the package dir before and after), --properties-file (saved `systemctl --user show U -p ...` + a Hostname= line) or live `systemctl --user show U`; refuses unless LoadState=loaded, Id=U, terminal (failed/inactive or active+exited), Result=success (oom-kill, timeout, signal named), ExecMainCode exited with ExecMainStatus 0, NRestarts 0, plus every receipt slurm seal/field/redaction check (optional stdout invocation-id = InvocationID); job_id systemd-user:<U>:<InvocationID>@<host> (host from the running system); also writes <c12>-<slug>-unit.properties (additive unit_properties_sha256); built-in redaction <repo>, <HOME>, /run/user/<UID>/
+  ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json   |   receipt slurm --job J --log PATH --commit SHA [--stdout JOB.out] [--stderr JOB.err] [--checker TEXT] [--repo DIR] [--redact REGEX]... [--sacct-file F] [--out PATH] [--append-readme] (no registry): writes the lower-tier receipt from a finished Slurm job; refuses (exit 1, nothing written) unless sacct's main job line is COMPLETED 0:0, the stdout's verify-log-sha256 = sha256(raw log) and pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at SHA) (no --stdout: the log's own `verify-log-sha256:` line = sha256 of the log minus that line), stderr is empty, lean_toolchain/mathlib_rev from SHA agree with any log line, sorry 0 and axioms from the log (sorry-count:/axioms: lines, else 'sorry' warnings/#print axioms output; a sorry-count: below the log's own 'sorry' warnings, or an axioms: line omitting an axiom its #print axioms output reports, is refused; universe suffixes .{u} ignored), a checker (--checker or checker:), a log commit: line equal to SHA (none: refused without --stdout; with --stdout a WARN "the verify log has no commit: line; it is bound to the commit only through lake-manifest.json", JSON log_commit_bound false), fields read from the RAW log (a redaction that removes or alters a sorry warning, #print axioms output, a build-completion line or a key: line other than checker: is refused; checker is published redacted), no committed symlink at SHA into .lean-receipts/, and no public-safety blocking hit is left after redacting /tmp/<account>-job, /scratch/<user>/ and --redact (blocking also this machine's user and host names and a bare /home/<x>, /Users/<x>); --append-readme: a symlinked or non-UTF-8 README.md refuses before writing; job_id slurm-<J>; writes .lean-receipts/<c12>-slurm-<J>.json + <c12>-slurm-<J>-verify.redacted.log (report_sha256; with --stdout also job_stdout_sha256 + manifest_sha256, additive keys gate ignores), prints the README entry (with --stdout a `- Seal:` line naming both; --append-readme: appended to .lean-receipts/README.md) and `gate NAME --check --receipt PATH`; --json {ok, receipt, log, report_sha256, job_id, sealed[] {role, path, sha256, receipt_key} (the exact files bound; systemd's `properties` is the raw unsealed capture), checks[], refusals[], ...}; --template (no other flag, no registry): print a minimal sbatch wrapper emitting every line the receipt reads (stdout seal lines, empty stderr, checker:/sorry-count:/axioms: in the log); --check --log PATH [--stdout] [--stderr] [--commit SHA] [--job J --sacct-file F]: preflight a job's files, every problem named, no sacct, nothing written, exit 0/1, --json {ok, checks[], problems[]}   |   receipt systemd (alias local) --unit U --log PATH --commit SHA [--properties-file F | --run [--memory-max 8G] [--memory-swap-max 0] [--cpu-quota 400%] [--runtime-max 4h] [--setenv K=V]... [--properties-out PATH] -- CMD...] + the same --stdout/--stderr/--checker/--repo/--redact/--out/--append-readme/--json: the same receipt from a finished systemd --user service unit; the unit state comes from --run (lean-pkg runs CMD bounded via systemd-run --user -p RemainAfterExit=yes, WorkingDirectory=--repo, so the finished unit stays loaded: properties are captured to <log>.unit.properties before it is stopped and reset; the checkout must be at SHA with no tracked change and no untracked file (less .lean-receipts/, .lake/ and the run's own files; ignored files are not bound) under the package dir before and after), --properties-file (saved `systemctl --user show U -p ...` + a Hostname= line) or live `systemctl --user show U`; refuses unless LoadState=loaded, Id=U, terminal (failed/inactive or active+exited), Result=success (oom-kill, timeout, signal named), ExecMainCode exited with ExecMainStatus 0, NRestarts 0, plus every receipt slurm seal/field/redaction check (optional stdout invocation-id = InvocationID); job_id systemd-user:<U>:<InvocationID>@<host label> (label h-<12 hex of sha256(lower-cased host name)>; the name itself is never written); also writes <c12>-<slug>-unit.properties (additive unit_properties_sha256); built-in redaction <repo>, <HOME>, /run/user/<UID>/
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op; another receipt for the same commit: --replace keeps the old one as <c12>-comparator.replaced-<stamp>.json, event comparator-replaced {replaced}. It is required by promote.
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in

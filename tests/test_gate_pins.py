@@ -92,36 +92,29 @@ def test_gate_check_reports_pins_and_writes_nothing(lp, env, tmp_path, capsys):
 OTHER_REV = "0123abcd" + "f" * 32
 
 
-def test_a_rev_not_in_the_committed_manifest_keeps_the_old_pin(lp, env, tmp_path, capsys):
-    """Coordinator review: gate must not copy an unverified pin into the record; it keeps the recorded one,
-    says why, and still gates."""
-    bump(env.repo_b, manifest_rev=OTHER_REV)
-    p = write_receipt(tmp_path, make_receipt(env.repo_b, job_id="slurm-2", mathlib_rev=NEW_REV))
-    n = len(read_events(env))
-    assert gate(lp, env, "beta", "--receipt", str(p), "--regate", "--json") == 0
-    data = json.loads(capsys.readouterr().out)
-    assert data["event"] == "regated"
-    assert data["pins"] == {"lean_toolchain": {"from": "leanprover/lean4:v4.32.0", "to": NEW_TC}}
-    assert data["pins_kept"] == {"mathlib_pin": {"receipt": NEW_REV, "manifest": OTHER_REV}}
-    pkg = read_reg(env)["packages"]["beta"]
-    assert pkg["mathlib_pin"] == "81a5d257c8" and pkg["lean_toolchain"] == NEW_TC
-    (ev,) = read_events(env)[n:]
-    assert "mathlib_pin" not in ev["pins"]
-
-
-def test_pins_kept_line_in_text_and_check(lp, env, tmp_path, capsys):
+def test_a_rev_not_in_the_committed_manifest_is_refused(lp, env, tmp_path, capsys):
+    """Review finding 8: the receipt's mathlib_rev is bound like lean_toolchain. A rev that disagrees with the
+    mathlib entry in lake-manifest.json committed at the receipt's commit is refused by gate, gate --regate and
+    gate --check; nothing is recorded and the pin stays."""
     bump(env.repo_b, manifest_rev=OTHER_REV)
     head = repo_head(env.repo_b)
     p = write_receipt(tmp_path, make_receipt(env.repo_b, job_id="slurm-2", mathlib_rev=NEW_REV))
-    want = (f"pins kept: receipt mathlib_rev {NEW_REV} does not match lake-manifest.json at {head[:12]} "
-            f"({OTHER_REV})")
     before = env.registry.read_text()
+    n = len(read_events(env))
+    for extra in ((), ("--check",)):
+        assert gate(lp, env, "beta", "--receipt", str(p), "--regate", *extra) == 1
+        err = capsys.readouterr().err
+        assert "mathlib mismatch" in err and NEW_REV in err and OTHER_REV in err and head[:12] in err
+    assert env.registry.read_text() == before and len(read_events(env)) == n
+    assert read_reg(env)["packages"]["beta"]["mathlib_pin"] == "81a5d257c8"
+    assert not list((env.repo_b / ".lean-receipts").glob(f"{head[:12]}-slurm-2*"))
+
+
+def test_a_prefix_of_the_committed_rev_is_accepted(lp, env, tmp_path, capsys):
+    bump(env.repo_b)
+    p = write_receipt(tmp_path, make_receipt(env.repo_b, job_id="slurm-2", mathlib_rev=NEW_REV[:12]))
     assert gate(lp, env, "beta", "--receipt", str(p), "--regate", "--check") == 0
-    out = capsys.readouterr().out
-    assert f"· {want}" in out and "mathlib_pin 81a5d257c8 ->" not in out
-    assert env.registry.read_text() == before
-    assert gate(lp, env, "beta", "--receipt", str(p), "--regate") == 0
-    assert f"beta: {want}" in capsys.readouterr().out
+    assert f"✓ mathlib_rev {NEW_REV[:12]} = the mathlib rev in lake-manifest.json" in capsys.readouterr().out
 
 
 def test_no_manifest_at_the_commit_keeps_the_pin_as_unreadable(lp, env, tmp_path, capsys):
@@ -131,3 +124,5 @@ def test_no_manifest_at_the_commit_keeps_the_pin_as_unreadable(lp, env, tmp_path
     assert data["event"] == "gate-passed" and data["pins"] == {}
     assert data["pins_kept"] == {"mathlib_pin": {"receipt": NEW_REV, "manifest": None}}
     assert read_reg(env)["packages"]["alpha"]["mathlib_pin"] == "81a5d257c8"
+    assert lp.main(["--registry", str(env.registry), "gate", "alpha", "--receipt", str(p), "--check"]) == 0
+    assert "· mathlib_rev not checked: no readable mathlib entry in lake-manifest.json" in capsys.readouterr().out

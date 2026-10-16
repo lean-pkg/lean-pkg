@@ -30,12 +30,16 @@ Checks, all run before anything is written (every failed check is listed; any on
    union of its `#print axioms` output (`depends on axioms: [...]`, `does not depend on any axioms`); none of
    either refuses. Names are compared without a universe suffix (`Classical.choice.{u}` is `Classical.choice`).
    `checker` is `--checker`, else the log's `checker:`.
-   Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse. Without `generated-at:` the
+   Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse. A log with no `commit:` line is
+   refused without --stdout (the in-log seal binds it to nothing) and WARNed with it (`log_commit_bound: false`).
+   Every field but `checker` is read from the RAW log. Without `generated-at:` the
    receipt is stamped with the time of writing; a re-run whose receipt matches the one already written in
    every other field keeps that file's `generated_at` (#85), anything else differing is refused.
 5. Redaction: the per-job temporary prefixes (DEFAULT_REDACTIONS) and every `--redact REGEX` are replaced
-   in the log text; the public-safety scanner then runs over the redacted log, the receipt JSON and the
-   README block. Any blocking hit refuses, naming the families only.
+   in the log text; a redaction that removes or alters a line the parser reads refuses (parse_raw_log). The
+   public-safety scanner (plus this machine's user and host names and a bare home directory, `_scanner`) then
+   runs over the redacted log, the receipt JSON and the README block. Any blocking hit refuses, naming the
+   families only. A committed symlink at the commit resolving into `.lean-receipts/` refuses (gate refuses it).
 
 Output: `job_id` is `slurm-<J>`; the redacted log `<c12>-slurm-<J>-verify.redacted.log` and the receipt
 `<c12>-slurm-<J>.json` (the name `gate` stores it under) go to `<repo>/.lean-receipts/` (`--out PATH` names
@@ -52,12 +56,14 @@ lines and extra evidence files.
 from __future__ import annotations
 
 import argparse
+import getpass
 import hashlib
 import json
 import os
 import pathlib
 import re
 import shutil
+import socket
 import subprocess
 import sys
 
@@ -427,6 +433,49 @@ def parse_log(text: str) -> tuple[dict, list[str]]:
     return out, refusals
 
 
+# The log keys whose value the receipt takes from the raw log; `checker:` alone is published as redacted.
+RAW_KEYS = ("lean-toolchain", "mathlib-rev", "sorry-count", "axioms", "commit", "job-id", "generated-at")
+
+
+def _evidence_counts(text: str) -> tuple[int, int, int, int]:
+    """(sorry warnings, `#print axioms` lists, no-axioms lines, build-completion lines) in a log text."""
+    return (len(_SORRY_RE.findall(text)), len(_DEPENDS_RE.findall(text)), len(_NO_AXIOMS_RE.findall(text)),
+            len(_BUILD_DONE_RE.findall(text)))
+
+
+def _key_lines(text: str, key: str) -> list[str]:
+    """The values of the log's `key:` lines, as written (a declared line removed by a redaction differs even
+    when the derived value happens to agree)."""
+    out = []
+    for line in text.splitlines():
+        m = _KEY_LINE.match(line.rstrip("\r"))
+        if m and m.group(1) == key:
+            out.append(m.group(2))
+    return out
+
+
+def parse_raw_log(raw_text: str, redacted: str) -> tuple[dict, list[str]]:
+    """parse_log on the RAW log (review finding 3: a broad --redact must never delete the sorry or axiom
+    evidence before it is counted), with `checker:` taken from the redacted log (the published text). A
+    redaction that removed or altered a line the parser reads (Lean's sorry warnings, `#print axioms` output,
+    a build-completion line, or any `key: value` line but `checker:`) refuses."""
+    fields, problems = parse_log(raw_text)
+    red_fields, _red_problems = parse_log(redacted)
+    if "checker" in red_fields:
+        fields["checker"] = red_fields["checker"]
+    else:
+        fields.pop("checker", None)
+    changed = [k for k in RAW_KEYS if fields.get(k) != red_fields.get(k)
+               or _key_lines(raw_text, k) != _key_lines(redacted, k)]
+    names = ("`declaration uses sorry` warnings", "`#print axioms` results", "`does not depend on any axioms` lines",
+             "build-completion lines")
+    changed += [n for n, a, b in zip(names, _evidence_counts(raw_text), _evidence_counts(redacted)) if a != b]
+    if changed:
+        problems.append(f"redaction changed what the receipt is read from: {', '.join(changed)} differ between the "
+                        f"raw and the redacted log; narrow the --redact pattern so it leaves those lines intact")
+    return fields, problems
+
+
 def _no_universe(name: str) -> str:
     """`Classical.choice.{u}` -> `Classical.choice`: Lean may print an axiom with its universe parameters; it is
     the same axiom, so lists are compared by the bare name."""
@@ -467,9 +516,49 @@ def resolve_commit(repo: pathlib.Path, sha: str) -> str | None:
     return p.stdout.strip() if p.returncode == 0 and p.stdout.strip() else None
 
 
+# Local identity tokens shorter than this, or in this list, are never blocking tokens (too common in logs).
+IDENTITY_MIN_LEN = 3
+IDENTITY_STOPWORDS = frozenset({
+    "admin", "build", "builder", "ci", "default", "docker", "false", "guest", "home", "host", "lean", "linux",
+    "local", "localhost", "localdomain", "main", "nobody", "none", "null", "root", "runner", "server", "test",
+    "true", "ubuntu", "user", "users", "worker"})
+# A home directory with or without a trailing slash (the shared built-in family needs the slash).
+HOME_DIR_RE = r"(?<![A-Za-z0-9_.-])/(?:home|Users)/[A-Za-z0-9._-]+(?![A-Za-z0-9._-])"
+
+
+def local_identity() -> dict[str, str]:
+    """{token: label}: this machine's user name (getpass.getuser(), $USER, $LOGNAME) and host name
+    (socket.gethostname(), full and its first label), derived when the receipt is written, never stored.
+    Labels name the source, never the value."""
+    found: dict[str, str] = {}
+    users = []
+    try:
+        users.append(getpass.getuser())
+    except Exception:          # no passwd entry and no environment variable: nothing to derive
+        pass
+    users += [os.environ.get("USER") or "", os.environ.get("LOGNAME") or ""]
+    try:
+        host = socket.gethostname() or ""
+    except OSError:
+        host = ""
+    for label, values in (("local user name", users), ("local host name", [host, host.split(".")[0]])):
+        for v in values:
+            v = (v or "").strip()
+            if (len(v) >= IDENTITY_MIN_LEN and v.casefold() not in IDENTITY_STOPWORDS
+                    and re.search(r"[A-Za-z]", v)):
+                found.setdefault(v, label)
+    return found
+
+
 def _scanner(repo: pathlib.Path) -> ps.Scanner:
     sc = ps.Scanner({}, repo, None)
     sc.emails = set()                  # a receipt declares no address: every one is a hit
+    extra = [ps.Pattern("home-path", "builtin", re.compile(HOME_DIR_RE))]   # same family as the shared one
+    for tok, label in local_identity().items():
+        rx = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(tok) + r"(?![A-Za-z0-9_])", re.I)
+        extra.append(ps.Pattern(label, "derived", rx))
+    sc.patterns = sc.patterns + extra
+    sc._active = {}
     for problem in sc.problems:
         print(f"lean-pkg: WARN {problem}", file=sys.stderr)
     return sc
@@ -658,6 +747,48 @@ def check_fields(fields: dict, *, commit: str | None, toolchain: str | None, man
     return mathlib, checker
 
 
+NO_COMMIT_LINE = ("the verify log has no commit: line; it is bound to the commit only through "
+                  "lake-manifest.json")
+
+
+def commit_line_binding(fields: dict, commit: str | None, stdout_seal: bool, refusals: list[str],
+                        checks: list[str]) -> bool | None:
+    """The verify log's own binding to --commit (review finding 5): a `commit:` line must equal --commit
+    (check_fields refuses a mismatch). Without one, the fallback seal (no --stdout: only the log's own hash)
+    binds the log to nothing, so it refuses; with --stdout the manifest seal is the only binding: `produce`
+    prints a stderr WARN and `log_commit_bound: false`. Returns True / False, None without a resolved commit."""
+    if commit is None:
+        return None
+    if "commit" in fields:
+        claimed = fields["commit"].lower()
+        if len(claimed) >= 7 and commit.startswith(claimed):
+            checks.append(f"✓ log: `commit:` line = --commit {commit[:12]}")
+            return True
+        return False                       # check_fields has refused the mismatch
+    if not stdout_seal:
+        refusals.append(f"verify log: no `commit:` line; with the in-log fallback seal (no --stdout) nothing "
+                        f"binds the log to --commit {commit[:12]} (print `commit: <sha>` in the log, as the "
+                        f"--template does, or pass the job's stdout with --stdout)")
+        return False
+    checks.append(f"· log: no `commit:` line; {NO_COMMIT_LINE.split('; ', 1)[1]}")
+    return False
+
+
+def evidence_symlink_problem(repo: pathlib.Path, commit: str | None) -> str | None:
+    """Review finding 1: a committed symlink at --commit that resolves into .lean-receipts/ (gate refuses it:
+    a later "evidence" edit would change what the build reads)."""
+    if commit is None:
+        return None
+    try:
+        links = core.evidence_symlinks(core.bound_tree(repo, commit))
+    except core.Fail as e:
+        return str(e)
+    if links:
+        return (f"symlinks at {commit[:12]} point into .lean-receipts/: {', '.join(links)}; gate refuses such a "
+                f"commit (the evidence-only rule would let the target change); replace them with the files")
+    return None
+
+
 def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.Pattern]) -> int:
     """The shared second half of every `receipt` form: commit facts, the seal, the verify log's fields, redaction,
     the public-safety scan, and (when nothing refused) the receipt, the redacted log, the executor's evidence
@@ -685,11 +816,15 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     raw_text = raw.decode("utf-8", errors="replace")
     redacted, n_redacted = redact(raw_text, extra, ev.redactions)
     n_diff = lines_differing(raw_text, redacted)
-    fields, problems = parse_log(redacted)
+    fields, problems = parse_raw_log(raw_text, redacted)
     refusals += problems
     mathlib, checker = check_fields(fields, commit=commit, toolchain=toolchain, manifest=manifest,
                                     checker_flag=args.checker, check_log_job_id=ev.check_log_job_id,
                                     refusals=refusals)
+    log_commit_bound = commit_line_binding(fields, commit, "--stdout" in paths, refusals, checks)
+    why = evidence_symlink_problem(repo, commit)
+    if why:
+        refusals.append(why)
 
     name12 = c12 or "0" * 12
     out = (pathlib.Path(args.out).expanduser() if args.out
@@ -750,8 +885,18 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
             if why:
                 refusals.append(why)
     readme = out.parent / "README.md"
-    if not refusals and args.append_readme and readme.is_symlink():
-        refusals.append("README.md beside the receipt is a symlink; nothing written")
+    if not refusals and out.parent.is_symlink():
+        refusals.append(f"{out.parent.name}/ is a symlink; nothing written")
+    readme_old = None
+    if not refusals and args.append_readme:
+        if readme.is_symlink():
+            refusals.append("README.md beside the receipt is a symlink; nothing written")
+        elif readme.exists():
+            try:
+                readme_old = readme.read_bytes().decode("utf-8")
+            except (OSError, UnicodeDecodeError) as e:
+                refusals.append(f"README.md beside the receipt cannot be read as UTF-8 text ({e.__class__.__name__}"
+                                f"); fix or move it, or drop --append-readme; nothing written")
 
     appended = False
     next_cmd = None
@@ -763,7 +908,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
             _write(path, data)
         _write(out, receipt_bytes)
         if args.append_readme:
-            old = readme.read_text(encoding="utf-8") if readme.is_file() else "# Receipts\n"
+            old = readme_old if readme_old is not None else "# Receipts\n"
             if f"`{out.name}`" in old:
                 checks.append(f"· README.md already lists {out.name}; not appended again")
             else:
@@ -775,7 +920,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
         payload = {"ok": not refusals, "receipt": None if refusals else str(out),
                    "log": None if refusals else str(log_out),
                    "report_sha256": None if refusals else report_sha, "raw_log_sha256": raw_sha,
-                   "job_id": ev.job_id, "seal": seal}
+                   "job_id": ev.job_id, "seal": seal, "log_commit_bound": log_commit_bound}
         payload.update(ev.json_extra)
         # The exact files this run wrote and bound, so a caller never guesses a sidecar by its name: the
         # receipt itself, the redacted log (report_sha256) and each evidence file with the receipt key that
@@ -789,6 +934,8 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
                         "readme_block": None if refusals else block, "readme_appended": appended,
                         "next": next_cmd, "refusals": refusals})
         core.print_json(payload)
+    if log_commit_bound is False and not refusals:
+        print(f"lean-pkg: WARN {NO_COMMIT_LINE}", file=sys.stderr)
     if refusals:
         verdict = f"{ev.verb}: refused, {len(refusals)} problem(s); nothing written"
         print(f"lean-pkg: {verdict}", file=sys.stderr)
@@ -869,8 +1016,9 @@ def preflight(args) -> int:
             manifest = core.git_show_bytes(repo, "./lake-manifest.json", commit)
     raw = paths["--log"].read_bytes()
     check_seal(paths, raw, manifest, commit[:12] if commit else None, problems, checks)
-    redacted, _n = redact(raw.decode("utf-8", errors="replace"), extra)
-    fields, found = parse_log(redacted)
+    raw_text = raw.decode("utf-8", errors="replace")
+    redacted, _n = redact(raw_text, extra)
+    fields, found = parse_raw_log(raw_text, redacted)
     problems += found
 
     def log_job_id(value: str) -> str | None:
@@ -880,6 +1028,14 @@ def preflight(args) -> int:
 
     check_fields(fields, commit=commit, toolchain=toolchain, manifest=manifest, checker_flag=args.checker,
                  check_log_job_id=log_job_id, refusals=problems)
+    if commit is not None:
+        commit_line_binding(fields, commit, "--stdout" in paths, problems, checks)
+        why = evidence_symlink_problem(repo, commit)
+        if why:
+            problems.append(why)
+    elif "commit" not in fields and "--stdout" not in paths:
+        problems.append("verify log: no `commit:` line; with the in-log fallback seal (no --stdout) the receipt "
+                        "is refused (print `commit: <sha>` in the log, or pass --stdout)")
     fams = blocking_families(_scanner(repo), redacted)
     if fams:
         problems.append(f"public-safety: a private string remains in the redacted verify log ({', '.join(fams)}); "
