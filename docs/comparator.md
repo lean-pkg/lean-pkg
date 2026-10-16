@@ -1104,7 +1104,8 @@ cannot unshare, and `unshare -Ur true` fails too. Such a node cannot run the
 that passes the full lower-tier gate (`lake build` plus the axiom audit) may
 still fail here. Run `lean-pkg comparator host-check` on every candidate
 host, compute nodes included, before planning a comparator run, and plan the
-`--prepare` and comparison on a host that passes `mechanism toolchain`.
+comparison on a host that passes `mechanism toolchain` (the build may come
+from elsewhere: see "A cluster without unprivileged user namespaces" below).
 `lean-pkg doctor` reports the same verdict on its `host` line, and its `tool comparator`
 line points at `host-check` when `bwrap` is missing. Which of your own hosts
 passes is a fact about your infrastructure: record it in your private registry
@@ -1116,6 +1117,77 @@ plus axiom audit) and comparator receipts (statement comparison and kernel
 replay) while lean-pkg was developed. A package whose receipts came from
 Easley acknowledges it in its README and in `formalization.yaml`'s
 `acknowledgements` with the official sentence: "This work was completed in part with resources provided by the Auburn University Easley Cluster."
+
+### A cluster without unprivileged user namespaces
+
+Both sandboxes are kernel features, not tools a user can bring along. The
+`toolchain` judge runs inside `bwrap`, which needs either an unprivileged
+user namespace (`unshare --user --map-root-user true` succeeds) or a
+`bwrap` the site installed setuid root; the `legacy` judge runs inside
+`landrun`, which needs Landlock (kernel 5.13 or later with `landlock` in the
+LSM list). On a cluster where `bwrap` is missing and
+`unshare --user --map-root-user true` fails with `Invalid argument` or
+`Operation not permitted`, and the kernel predates Landlock, neither
+mechanism can judge there.
+
+A container does not change that. Singularity and Apptainer containers share
+the host kernel: `--userns` and `--fakeroot` themselves need unprivileged
+user namespaces (or a setuid starter with `/etc/subuid` entries the site
+configured), a `bwrap` copied into the image still asks the host kernel for
+a user namespace, and a setuid `bwrap` inside the image gains nothing because
+the runtime starts the container with `no_new_privs`. There is no supported
+portable comparator container recipe. A container that passes
+`lean-pkg comparator host-check` with the job's own binds and `PATH` is
+fine; one that fails it cannot produce receipts. Never disable, stub or wrap
+the sandbox to get past the check (no fake `bwrap`, no
+`--mechanism legacy` on a kernel without Landlock, no test-only override
+variable outside the test suite): a receipt
+whose judge ran unsandboxed is not evidence.
+
+What is supported:
+
+1. Check, do not assume. Run the check where the job would run, inside the
+   image with the job's binds and `PATH` export, on a compute node as well
+   as the login node (they can differ):
+
+   ```bash
+   srun --time=00:05:00 --cpus-per-task=1 --mem=2G \
+     singularity exec --bind "$WORK" "$IMAGE" bash -c \
+     'export PATH=...; lean-pkg comparator host-check'
+   ```
+
+   `mechanism toolchain: ok` means this node can judge; anything else, read
+   the failing items it names.
+2. Build on the cluster, judge on a host that passes. The `build` stage
+   needs no sandbox, and `comparator-receipt --prepare` runs no judge, so it
+   may run in a cluster job. Copy the checkout's whole `.lake/build` to a
+   checkout of the same commit on the judging host (same `lean-toolchain`
+   and `lake-manifest.json`; see "Build provenance" above for why prebuilt
+   oleans cannot carry an unchecked proof into the verdict), then prepare
+   and judge there, declaring where the build came from:
+
+   ```bash
+   # cluster job, inside the image
+   cd "$CHECKOUT" && comparator-receipt --prepare
+   # judging host, same commit, after copying .lake/build across
+   lean-pkg comparator host-check            # must print mechanism toolchain: ok
+   export COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)"
+   export COMPARATOR_RECEIPT_BUILD_SOURCE="cluster job $JOB"
+   comparator-receipt --prepare              # compiles nothing: build: prebuilt
+   comparator-receipt --estimate             # judges a sample; read recommended_cap
+   systemd-run --user --scope -p MemoryMax=48G \
+     timeout "$CAP" comparator-receipt
+   ```
+
+   The judge (export and kernel replay) is the expensive part and runs on
+   the judging host either way; the split saves only the build. Size the
+   memory cap and `CAP` from `--estimate` and "Runtime" above. The receipt
+   records the judging host in `host`/`host_policy` and the cluster build
+   in `build_provenance.source`.
+3. Ask the site. A site that enables unprivileged user namespaces on its
+   compute nodes (and adds `bwrap` to the image), or installs a setuid
+   `bwrap` on the nodes for jobs run outside a container, makes the node a
+   judging host; re-run `host-check` there before relying on it.
 
 ## Tool pins
 
