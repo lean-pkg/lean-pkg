@@ -15,7 +15,7 @@ import pathlib
 import tempfile
 import urllib.parse
 
-from . import cache_dir, hit, http_get, matches, ok, skipped
+from . import cache_dir, hit, http_get, matches, note_cache_write, ok, skipped
 
 NAME = "palomar"
 URL = "https://data.palomar-registry.org/api/v1/results?order=registered"
@@ -135,6 +135,7 @@ def entries(timeout: float = 10) -> tuple[list | None, str | None, str | None]:
             json.dump({"schema": CACHE_SCHEMA, "revision": rev, "pages": pages,
                        "complete": True, "entries": rows, "entries_sha256": _rows_hash(rows)}, handle)
         os.replace(tmp, f)
+        note_cache_write("palomar", "snapshots-v1", f.name)
     except OSError:
         # A complete live result remains useful even when the cache is unwritable.
         pass

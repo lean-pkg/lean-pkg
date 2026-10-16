@@ -7,6 +7,26 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `search --loogle-query PATTERN`: Loogle gets PATTERN (a Lean name, term or pattern) instead of the term, whatever
+  the route, and every other source still gets the term (`--json` `loogle_query`). A Loogle parse error ("Unknown
+  identifier exponential", "expected end of input") now says that Loogle takes Lean syntax, not prose, and names the
+  option; the natural-language skip reason names it too (field report).
+- `search --require-complete`: exit 1 when the search is incomplete (`complete: false`), after printing the full
+  output; `--json` gets `ok: false` and `error` naming the skipped and truncated sources. Default unchanged (field
+  report).
+- `search` discloses cache writes: an online search refreshes the Palomar snapshot and the Reservoir index under
+  `$XDG_CACHE_HOME/lean-pkg` even without `--record`; each block's `cache_writes[]`, `--json` `cache` {`root`,
+  `writes[]`} (relative paths) and a `cache: wrote ...` line say so. `--cache-dir DIR` keeps one search's cache in
+  DIR (field report).
+- `search` `coverage.not_searched_reasons[].detail`: a `scan-error` package names git grep's exit status and a
+  fixed cause (`object missing or unreadable`, `pack file unreadable`, `repository owned by another user`, `too many
+  open files`, `out of memory`, a signal, ...), never git's stderr; the coverage line shows it. docs/prior-art.md
+  explains why coverage can differ between runs (checkouts and git grep outcomes; no shared cache) (field report).
+- docs/prior-art.md: "When a public library is not found": what the index, Reservoir and GitHub sources each
+  cover, and why a construction inside a third-party library is found by the library's own words (field report).
+
 ## [0.7.47] - 2026-10-16
 
 ### Added

@@ -110,10 +110,37 @@ def matches(term: str, *texts) -> bool:
     return bool(ws) and all(w in hay for w in ws)
 
 
-def cache_dir(*parts: str) -> pathlib.Path:
-    """$XDG_CACHE_HOME/lean-pkg/<parts> (default ~/.cache/lean-pkg/<parts>)."""
+# `search --cache-dir DIR` sets CACHE_ROOT for one run; otherwise $XDG_CACHE_HOME/lean-pkg, else ~/.cache/lean-pkg.
+CACHE_ROOT: pathlib.Path | None = None
+# What the adapters wrote under the cache root during the current source (paths relative to it): a search
+# without --record still refreshes Palomar's snapshot and Reservoir's index, and says so (field report).
+CACHE_WRITES: list[str] = []
+
+
+def cache_root() -> pathlib.Path:
+    """The lean-pkg cache directory: CACHE_ROOT (`--cache-dir`), else $XDG_CACHE_HOME/lean-pkg, else
+    ~/.cache/lean-pkg."""
+    if CACHE_ROOT is not None:
+        return pathlib.Path(CACHE_ROOT).expanduser()
     base = os.environ.get("XDG_CACHE_HOME", "").strip() or str(pathlib.Path.home() / ".cache")
-    return pathlib.Path(base).expanduser().joinpath("lean-pkg", *parts)
+    return pathlib.Path(base).expanduser() / "lean-pkg"
+
+
+def cache_root_source() -> str:
+    """Where the cache root came from: `--cache-dir`, `XDG_CACHE_HOME` or `default` (~/.cache/lean-pkg)."""
+    if CACHE_ROOT is not None:
+        return "--cache-dir"
+    return "XDG_CACHE_HOME" if os.environ.get("XDG_CACHE_HOME", "").strip() else "default"
+
+
+def cache_dir(*parts: str) -> pathlib.Path:
+    """<cache root>/<parts>: see cache_root()."""
+    return cache_root().joinpath(*parts)
+
+
+def note_cache_write(*parts: str) -> None:
+    """Record that an adapter wrote <cache root>/<parts> (relative, so no host path reaches the output)."""
+    CACHE_WRITES.append("/".join(parts))
 
 
 def docs_url(decl: str) -> str:

@@ -98,7 +98,8 @@ def test_json_coverage_and_not_searched(lp, unclaimed, capsys):
     assert p["coverage"] == {"claims": 1, "declaration_only": 1, "not_searched": ["demo-c"],
                              "not_searched_reasons": [{"package": "demo-c", "code": "no-checkout", "remedy":
                                  "local_path is not a directory on this host; see `lean-pkg status demo-c "
-                                 "--fields local_path,repo` and clone the repository there"}],
+                                 "--fields local_path,repo` and clone the repository there",
+                                 "detail": None}],
                              "declaration_hits_omitted": 0, "declaration_files_capped": []}
     assert p["sources"][0]["hits"] == []
 
@@ -251,8 +252,8 @@ def test_each_not_searched_package_carries_a_redacted_reason_and_remedy(lp, srch
     assert "fatal: something broke" not in out
     assert run_search(lp, unclaimed, "gumbel", "--offline") == 0
     text = capsys.readouterr().out
-    assert ("4 not searched (no path: demo-e; no checkout: demo-c; no git HEAD: demo-d; scan error: demo-f)"
-            in text)
+    assert ("4 not searched (no path: demo-e; no checkout: demo-c; no git HEAD: demo-d; scan error: demo-f "
+            "(git grep exit 128: cause not recognised))" in text)
 
 
 def test_the_record_groups_reasons_without_names(lp, unclaimed, tmp_path):
