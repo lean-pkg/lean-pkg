@@ -441,3 +441,13 @@ re-run, so describe it with `--body` and attach the tail of its log with `--from
 See [Using lean-pkg with agents](agents.md). Short version: the agent reads
 [llms.txt](llms.txt) (the same text as `lean-pkg llms`; `lean-pkg llms --short` is the 40-line version), always passes `--json`, asks `lean-pkg next NAME` when unsure what comes next, claims before working, and
 never calls `promote --yes` without a human reading the dry run.
+
+## Look up exit codes, environment variables and output formats
+
+```bash
+lean-pkg help                # the commands and the help topics
+lean-pkg help exit-codes     # 0/1/2, and what 1 means for each command that answers yes or no
+lean-pkg help environment    # every environment variable read, with its default
+lean-pkg help formatting     # --json, stdout vs stderr, named schemas, filtering with jq
+lean-pkg help gate           # the same text as `lean-pkg gate --help`
+```
