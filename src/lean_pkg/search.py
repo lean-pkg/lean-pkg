@@ -139,9 +139,11 @@ def _package_hit(name: str, pkg: dict, score: int, where: str) -> dict:
 
 
 def block(source: str, state: str, reason: str | None = None, revision: str | None = None,
-          hits: list | None = None, route: str | None = None, partial: list | None = None) -> dict:
+          hits: list | None = None, route: str | None = None, partial: list | None = None,
+          capped: list | None = None, cap_limit: int | None = None) -> dict:
     return {"source": source, "state": state, "reason": scrub_paths(reason) if reason else reason,
-            "revision": revision, "hits": hits or [], "route": route, "partial": list(partial or [])}
+            "revision": revision, "hits": hits or [], "route": route, "partial": list(partial or []),
+            "capped": list(capped or []), "cap_limit": cap_limit if capped else None}
 
 
 # --------------------------------------------------------------------------
@@ -474,8 +476,10 @@ def adapter_block(source: str, term: str, timeout: float = 10) -> dict:
     if r["state"] == "skipped":
         return block(source, "skipped", str(r.get("reason") or "unavailable"), r.get("revision"))
     partial = r.get("partial") if isinstance(r.get("partial"), list) else []
+    capped = r.get("capped") if isinstance(r.get("capped"), list) else []
+    limit = r.get("cap_limit") if isinstance(r.get("cap_limit"), int) else None
     return block(source, "ok", r.get("reason"), r.get("revision"), r["hits"],
-                 partial=[str(x) for x in partial])
+                 partial=[str(x) for x in partial], capped=[str(x) for x in capped], cap_limit=limit)
 
 
 # --------------------------------------------------------------------------
@@ -525,7 +529,8 @@ def do_search(term: str, *, reg_path: pathlib.Path, index_dir: pathlib.Path,
     truncated = ["registry"] if (cov or {}).get("declaration_files_capped") else []
     # A source that answered with one of its parts failed (GitHub code search rate-limited while the
     # repository search worked) is incomplete too, or its zero reads as an absence (field report).
-    truncated += [b["source"] for b in blocks if b["state"] == "ok" and b.get("partial")]
+    # A part that returned exactly its result limit (GitHub's 30) is truncated the same way (field report).
+    truncated += [b["source"] for b in blocks if b["state"] == "ok" and (b.get("partial") or b.get("capped"))]
     payload.update({"complete": not skipped and not truncated, "searched": len(blocks) - len(skipped),
                     "skipped_sources": skipped, "truncated_sources": truncated})
     return render_text(payload), payload
@@ -540,20 +545,28 @@ def state_text(b: dict) -> str:
 
 
 def consulted_state(b: dict) -> str:
-    """`ok, 3 hits`; `partial, 0 hits` when a part of the source failed; else `skipped: <reason>`."""
+    """`ok, 3 hits`; `partial, 0 hits` when a part of the source failed; `capped, 30 hits` when a part
+    returned its result limit; else `skipped: <reason>`."""
     if b["state"] != "ok":
         return state_text(b)
-    return ("partial, " if b.get("partial") else "ok, ") + _n(len(b["hits"]))
+    return ("partial, " if b.get("partial") else "capped, " if b.get("capped") else "ok, ") + _n(len(b["hits"]))
+
+
+def part_problems(b: dict) -> list[str]:
+    """`code search failed`, `code search returned its 30-result limit`: why a source answered in part."""
+    lim = f"{b['cap_limit']}-result" if b.get("cap_limit") else "result"
+    return ([f"{p} search failed" for p in b.get("partial") or []]
+            + [f"{p} search returned its {lim} limit" for p in b.get("capped") or []])
 
 
 def truncation_text(payload: dict) -> str:
     """Why each source in `truncated_sources` answered only in part, e.g. `registry hit a file cap (see the
-    coverage line); github: code search failed`."""
-    parts = {b["source"]: b.get("partial") or [] for b in payload["sources"]}
+    coverage line); github: code search failed` or `github: code search returned its 30-result limit`."""
+    parts = {b["source"]: part_problems(b) for b in payload["sources"]}
     out = []
     for src in payload.get("truncated_sources") or []:
         if parts.get(src):
-            out.append(f"{src}: {', '.join(parts[src])} search failed")
+            out.append(f"{src}: {', '.join(parts[src])}")
         else:
             out.append(f"{src} hit a file cap (see the coverage line)")
     return "; ".join(out)

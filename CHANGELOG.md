@@ -25,6 +25,13 @@ change the registry schema or receipt format, always with a migration).
   the seal, stderr, log-line, field and public-safety checks of the receipt, every problem named at once, nothing
   written, exit 0/1, `--json` `problems[]`. sacct is not run (a saved `--sacct-file` with `--job` is checked);
   the commit-side checks run only with `--commit` (field report).
+- `gate` and `gate --regate` record the receipt's `lean_toolchain` and `mathlib_rev` (first 10 characters) into
+  the package's `lean_toolchain` and `mathlib_pin`, which are receipt-bound facts at the gated commit; after a
+  deliberate pin bump `list` showed the old Mathlib pin. When either changes, one line `NAME: pins updated from
+  the receipt: ...` is printed and the `gate-passed`/`regated` event gains `pins` {field: {from, to}} (JSON
+  `pins`, `{}` when unchanged). A recorded pin that is a prefix of the receipt's rev, or the reverse, is
+  unchanged; an identical re-gate stays a no-op; `gate --check` reports `· pins: gate would record ...` and
+  writes nothing (field report).
 
 ### Changed
 
@@ -36,6 +43,20 @@ change the registry schema or receipt format, always with a migration).
   `lean-pkg status NAME`, `lean-pkg claims ledger NAME`, and the new "Results ledger" section of
   docs/lifecycle.md (lean-pkg keeps no results ledger; it is the project's own record). `--json` adds the line
   as `rl_hint` (field report).
+- The stderr `WARN` for a private-looking local path in a receipt field now says what happened to the receipt:
+  `WARN: receipt field F contains a private local path (kept: ...; --refuse-private refuses such a receipt)`.
+  It read `nothing copied (refused; reason below)` under `gate --check` (and after `comparator --replace`)
+  although the receipt was accepted; `nothing copied: refused for another reason, below` is now printed only
+  when the gate refused. The `--refuse-private` refusal text is unchanged (field report).
+
+### Fixed
+
+- `search`: a GitHub sub-search that returns exactly its result limit (`--limit 30`) is reported as truncated.
+  The source block gains `capped[]` (the parts at the cap, e.g. `["code"]`) and `cap_limit`, distinct from
+  `partial[]` (a part failed); the source is added to `truncated_sources` (`complete: false`), the `incomplete:`
+  line reads `github: code search returned its 30-result limit`, `consulted:` says `github (capped, 30 hits)`,
+  and the `--record` page marks it `capped: ...` in its Sources table with an `Incomplete: ... more matches may
+  exist than the ones listed.` sentence. A query that returned 30 code hits read as complete (field report).
 
 ## [0.7.41] - 2026-10-15
 

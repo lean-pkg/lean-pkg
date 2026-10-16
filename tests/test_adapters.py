@@ -382,6 +382,22 @@ def test_github_with_both_searches_answering_is_not_partial(monkeypatch):
     assert "partial" not in gh.search("Gumbel")
 
 
+def test_github_code_search_at_its_limit_is_capped(monkeypatch):
+    """Field report: code search returned exactly 30 hits with nothing marking the cap."""
+    gh = mod("github")
+    code = [{"repository": {"nameWithOwner": "example/r"}, "path": f"F{i}.lean", "url": None} for i in range(30)]
+    monkeypatch.setattr(gh, "runner", fake_search([], code=(0, code)))
+    r = gh.search("Gumbel")
+    assert r["state"] == "ok" and r["capped"] == ["code"] and r["cap_limit"] == 30 and "partial" not in r
+    assert len(r["hits"]) == 31
+
+
+def test_github_below_its_limit_is_not_capped(monkeypatch):
+    gh = mod("github")
+    monkeypatch.setattr(gh, "runner", fake_search([]))
+    assert "capped" not in gh.search("Gumbel")
+
+
 def test_github_both_failing_is_skipped(monkeypatch):
     gh = mod("github")
     monkeypatch.setattr(gh, "runner", fake_search([], repos=(1, None), code=(1, None)))

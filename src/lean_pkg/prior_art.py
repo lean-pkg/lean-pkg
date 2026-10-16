@@ -122,8 +122,9 @@ def render_record(payload: dict, *, withheld: int, private_claims: bool) -> str:
              "| Source | Revision | State | Hits |", "|---|---|---|---|"]
     for b in payload["sources"]:
         state = "ok" if b["state"] == "ok" else f"skipped: {b['reason']}"
-        if b["state"] == "ok" and b.get("partial"):
-            state = f"partial: {', '.join(b['partial'])} search failed"
+        if b["state"] == "ok" and (b.get("partial") or b.get("capped")):
+            from . import search as srch   # local: search imports this module
+            state = ("partial: " if b.get("partial") else "capped: ") + ", ".join(srch.part_problems(b))
         w = b.get("withheld") or 0
         hits = (f"{len(b['hits'])} shown (+{w} withheld)" if w else str(len(b["hits"]))) if b["state"] == "ok" else "-"
         lines.append(f"| {b['source']} | {_cell(b['revision'] or '-')} | {_cell(state)} | {hits} |")
@@ -134,6 +135,11 @@ def render_record(payload: dict, *, withheld: int, private_claims: bool) -> str:
     cs = coverage_sentence(payload)
     if cs:
         lines += [cs, ""]
+    capped = [b for b in payload["sources"] if b["state"] == "ok" and b.get("capped")]
+    if capped:   # a source at its result limit lists only the first matches (field report)
+        from . import search as srch
+        lines += ["Incomplete: " + "; ".join(f"{b['source']}: {', '.join(srch.part_problems(b))}" for b in capped)
+                  + "; more matches may exist than the ones listed.", ""]
     lines += ["A skipped source was not searched: it is not a zero. Zero hits do not prove absence.", ""]
     if withheld:
         lines += [f"{withheld} registry claim(s) of other private packages matched and are not listed here.", ""]

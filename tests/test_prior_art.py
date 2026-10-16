@@ -206,6 +206,21 @@ def test_record_never_reports_a_partly_failed_source_as_not_found(lp, srch, sear
     assert "Not found in github at live (code search failed, not searched) on " in text
 
 
+def test_record_names_a_source_at_its_result_limit(lp, srch, searchable, monkeypatch, capsys):
+    """Field report: GitHub code search returned its 30-result limit; the record must not read as complete."""
+    s = searchable
+    capped = {"state": "ok", "reason": None, "revision": "live", "capped": ["code"], "cap_limit": 30,
+              "hits": [{"name": f"example/r:F{i}.lean", "summary": "", "url": None, "extra": {"kind": "code"}}
+                       for i in range(30)]}
+    monkeypatch.setattr(srch.ADAPTERS["github"], "search", lambda term, timeout=10: capped)
+    assert run_search(lp, s, "zz capped term", "--sources", "github", "--package", "beta", "--record") == 0
+    text = record_file(s.env.repo_b, today(lp), "zz-capped-term").read_text()
+    assert "| github | live | capped: code search returned its 30-result limit | 30 |" in text
+    assert ("Incomplete: github: code search returned its 30-result limit; more matches may exist than the "
+            "ones listed.") in text
+    assert "Not found in" not in text
+
+
 def test_a_repository_without_mkdocs_gets_no_nav_note(lp, searchable, capsys):
     """Field report: plain Lean repositories have no MkDocs tree, so the nav note was noise."""
     s = searchable

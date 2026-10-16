@@ -251,3 +251,42 @@ def test_a_malformed_partial_field_is_ignored(lp, srch, searchable, monkeypatch,
     assert run_search(lp, searchable, "Doob maximal inequality", "--json", "--loogle") == 0
     p = json.loads(capsys.readouterr().out)
     assert p["complete"] is True and p["truncated_sources"] == []
+
+
+GH_CAPPED = {"state": "ok", "reason": None, "revision": "live", "capped": ["code"], "cap_limit": 30,
+             "hits": [{"name": f"example/r:F{i}.lean", "summary": "", "url": None, "extra": {"kind": "code"}}
+                      for i in range(30)]}
+
+
+def test_a_source_at_its_result_limit_marks_the_search_incomplete(lp, srch, searchable, monkeypatch, capsys):
+    """Field report: GitHub code search returned exactly 30 hits (its --limit) with partial: [] and
+    truncated_sources: [], so `complete: true` hid the truncation."""
+    stub_adapters(srch, monkeypatch, [], {"github": GH_CAPPED})
+    assert run_search(lp, searchable, "Doob maximal inequality", "--json", "--loogle") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["complete"] is False and p["skipped_sources"] == [] and p["truncated_sources"] == ["github"]
+    gh = next(b for b in p["sources"] if b["source"] == "github")
+    assert gh["capped"] == ["code"] and gh["cap_limit"] == 30 and gh["partial"] == []
+    assert all(b["capped"] == [] and b["cap_limit"] is None for b in p["sources"] if b["source"] != "github")
+    assert run_search(lp, searchable, "Doob maximal inequality", "--loogle") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-2] == ("incomplete: github: code search returned its 30-result limit; "
+                         "a zero here is not a negative result")
+    assert "github (capped, 30 hits)" in lines[-1]
+
+
+def test_a_failed_and_a_capped_part_are_both_named(lp, srch, searchable, monkeypatch, capsys):
+    both = dict(GH_CAPPED, partial=["repository"], reason="repository search failed: HTTP 403")
+    stub_adapters(srch, monkeypatch, [], {"github": both})
+    assert run_search(lp, searchable, "Doob maximal inequality", "--loogle") == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[-2] == ("incomplete: github: repository search failed, code search returned its 30-result "
+                         "limit; a zero here is not a negative result")
+    assert "github (partial, 30 hits)" in lines[-1]
+
+
+def test_a_malformed_capped_field_is_ignored(lp, srch, searchable, monkeypatch, capsys):
+    stub_adapters(srch, monkeypatch, [], {"github": dict(GH_CAPPED, capped="code")})
+    assert run_search(lp, searchable, "Doob maximal inequality", "--json", "--loogle") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["complete"] is True and p["truncated_sources"] == []
