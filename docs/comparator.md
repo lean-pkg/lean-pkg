@@ -197,6 +197,7 @@ directory imports the claim's module (from its `file`) and `Lean`, and runs
 set_option pp.fullNames true
 set_option pp.proofs true
 set_option pp.analyze true
+set_option pp.numericTypes true
 open Lean Elab Command in
 #eval show CommandElabM Unit from do
   let env ← getEnv
@@ -222,8 +223,30 @@ prints the declared universe names (so the Challenge is
 constant in the type, and the type with all binders, implicit and instance
 ones included. `pp.analyze` adds the annotations a pretty-printed term
 needs to elaborate back to the same term (for instance
-`Eq.{u + 1} (α := α) Inhabited.default Inhabited.default`), and
-`pp.proofs true` prints proofs inside types rather than `⋯`.
+`Eq.{u + 1} (α := α) Inhabited.default Inhabited.default`),
+`pp.proofs true` prints proofs inside types rather than `⋯`, and
+`pp.numericTypes true` prints the type of every numeral.
+
+Why `pp.numericTypes` (field report #5): without it a numeral's type is
+left to elaboration, which picks `ℕ` or another type than the original
+one. On Mathlib toys (19 statements) the options above without it printed
+12 statements that did not elaborate back to the declaration's type:
+
+| original | printed without `pp.numericTypes` | printed with it |
+| --- | --- | --- |
+| `x ^ ((3:ℝ)/2)` | `x ^ (3 / 2)` | `x ^ (3 / 2 : ℝ)` |
+| `(1:ℝ) ^ (1:ℝ) * a` | `1 ^ 1 * a` | `(1 : ℝ) ^ (1 : ℝ) * a` |
+| `((1:ℕ) : ℝ) ≤ n + 1` | `↑1 ≤ ↑n + 1` | `↑(1 : ℕ) ≤ ↑n + (1 : ℝ)` |
+| `((2:ENNReal) • μ) s` | `(2 • μ) s` | `((2 : ENNReal) • μ) s` |
+| `∃ M : Matrix (Fin n) (Fin n) ℝ, M = 1` | `∃ M, M = 1` | `∃ M, M = (1 : Matrix (Fin n) (Fin n) ℝ)` |
+| `∫ x in Set.Icc (0:ℝ) 1, x` | `... (Set.Icc 0 1) ...` (does not elaborate) | `... (Set.Icc (0 : ℝ) (1 : ℝ)) ...` |
+
+With it all 19 re-elaborated to a syntactically equal type. Adding
+`pp.coercions.types true` as well made two of them worse
+(`(c • μ : Set ℝ → ENNReal) s`, a coercion ascription that elaborates to a
+definitionally equal but different term), so it
+is off; `pp.explicit` round-trips but prints every instance and is not
+readable as a Challenge.
 
 The pretty-printer does not guarantee a round trip, even with these options:
 on a real package it dropped coercion targets (`↑n + 1` for an integer cast),
@@ -240,12 +263,22 @@ universe u_1 v
 example :
     (T) :=
   @_root_.Demo.wow
+-- LEANPKG-EXACT
+#guard_expr (T) =ₛ type_of% @_root_.Demo.wow.{u_1, v}
 ```
 
-which passes only when `T` elaborates (no auto-bound names) and the
+The `example` passes only when `T` elaborates (no auto-bound names) and the
 declaration inhabits it, i.e. `T` is definitionally equal to the declaration's
-type. Only an exit status of 0 makes the result `ok` (`round_trip: "ok"`); a
-non-zero one makes it `status: "error"`, `failure: "round_trip"`,
+type; the `#guard_expr` passes only when `T` elaborates to the declaration's
+type itself (syntactic equality after instantiating metavariables), the
+statement comparator will compare. Exit status 0 makes the result `ok` with
+`round_trip: "ok"` and `round_trip_exact: true`. When the only errors are at
+the `#guard_expr` (after the `-- LEANPKG-EXACT` line), the result is still
+`ok` but `round_trip_exact: false`, with Lean's message in
+`round_trip_exact_error` and a count in `summary.round_trip_inexact`; such an
+entry is pre-filled (its Challenge elaborates) and marked
+`needs_restatement`, since a type that is only definitionally equal may read
+differently from the claim. Any other non-zero exit makes it `status: "error"`, `failure: "round_trip"`,
 `round_trip: "failed"`, with `round_trip_rc` and the error, and
 `summary.round_trip_failed` counts them (they are not extraction failures and
 do not change the exit status). The check runs with the declaration's own
@@ -307,8 +340,9 @@ runs on. It defaults `LEAN_NUM_THREADS` to 1 and keeps an explicit value (see
               "rc": 1, "failure": "extraction", "output_tail": "...last lines of lake env lean..."}]}
 ```
 
-`levels`, `modules`, `summary`, `rc`, `failure`, `output_tail`, `round_trip`
-and `round_trip_rc` are additive; a result without `modules` is marked `needs_restatement`. `--from-output F` refuses (nothing written) a file whose
+`levels`, `modules`, `summary`, `rc`, `failure`, `output_tail`, `round_trip`,
+`round_trip_rc`, `round_trip_exact`, `round_trip_exact_error`,
+`summary.round_trip_inexact` and `summary.resumed` are additive; a result without `modules` is marked `needs_restatement`. `--from-output F` refuses (nothing written) a file whose
 `schema` is not `comparator-types/1`, whose `package` is another package, or
 whose `commit` is not the checkout's HEAD; a declaration with no result in the
 file falls back to the TODO lines with a `type_error`. `--challenge-from-type`
@@ -370,6 +404,31 @@ pausing `LEAN_PKG_TYPES_BACKOFF_SECONDS` (default 5) times the round number
 before each. `summary.backoff` lists the rounds
 (`{"round", "jobs", "retried", "recovered"}`); what still fails counts as an
 extraction failure.
+
+**Progress and resuming a long run.** The driver prints one line to stderr
+as each declaration finishes (in completion order), and the backoff rounds
+print their own counter:
+
+```text
+lean-pkg types: [1/339] SWE.R6.amplitude_identity ok
+lean-pkg types: [2/339] SWE.R6.flux_bound fail (round_trip)
+lean-pkg types: [3/339] SWE.R6.energy ok (defeq, not syntactically equal)
+lean-pkg types: [retry 1: 1/4] SWE.R6.mass fail (resource)
+```
+
+It appends every finished result to `OUT.json.checkpoint.jsonl` beside the
+output (a header line binding the package, commit, Lake directory and the
+two Lean snippets, then one JSON line per result, flushed as it is written).
+Run the same driver again with the same `OUT.json` after a timeout, a killed
+job or a run with extraction failures, and it reuses the settled results
+(`ok`, declaration errors, round-trip failures) and runs only the rest;
+extraction and resource failures run again. It prints
+`resumed K of N result(s)`, and `summary.resumed` records K. A checkpoint
+written for another commit or by another driver is ignored (the run starts
+afresh), a line cut short by a killed run is skipped, and
+`LEAN_PKG_TYPES_RESUME=0` ignores the checkpoint. The checkpoint is removed
+once a run ends with no extraction failure; the output JSON keeps its
+schema either way.
 
 **On shared cluster nodes.** The file table is per node, not per job: on a
 Slurm cluster whose nodes share a filesystem, Lake and Lean processes from

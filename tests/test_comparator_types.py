@@ -44,6 +44,12 @@ src = open(args[2], encoding="utf-8").read()
 rt = re.search(r"^-- LEANPKG-ROUNDTRIP (\S+)$", src, re.M)
 if rt:                                             # the round-trip check (#31)
     assert "set_option autoImplicit false" in src and "@_root_." + rt.group(1) in src, src
+    with open(log + ".rt", "a") as f:
+        f.write(json.dumps({"decl": rt.group(1), "src": src}) + "\n")
+    if rt.group(1) in os.environ.get("FAKE_LAKE_RT_INEXACT", "").split(","):
+        n = next(i for i, l in enumerate(src.splitlines(), 1) if l.startswith("#guard_expr"))
+        print(args[2] + ":" + str(n) + ":0: error: Failed: `(True)` is not syntactically equal to `type_of% @_root_.x`")
+        sys.exit(1)
     if rt.group(1) in os.environ.get("FAKE_LAKE_RT_REJECT", "").split(","):
         print(args[2] + ":6:5: error: type mismatch")
         print("  " + rt.group(1))
@@ -81,6 +87,8 @@ elif decl == "Demo.wow":
     print("∀ {α : Type u_1} (s : Demo.Thing α),")
     print("  s = s")
     print("LEANPKG-TYPE-END")
+elif os.environ.get("FAKE_LAKE_ALL_OK"):
+    print("LEANPKG-LEVELS \nLEANPKG-MODULES Init.Prelude\nLEANPKG-TYPE-BEGIN\nTrue\nLEANPKG-TYPE-END")
 else:
     print(args[2] + ":1:0: error: unknown module prefix 'Demo'")
     print("No directory 'Demo' or file 'Demo.olean' in the search path")
@@ -104,7 +112,8 @@ def fake_lake(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_LAKE_LOG", str(tmp_path / "lake.log"))
     monkeypatch.setenv("LEAN_PKG_TYPES_BACKOFF_SECONDS", "0")
     for v in ("LEAN_PKG_TYPES_JOBS", "LEAN_PKG_TYPES_TIMEOUT", "FAKE_LAKE_FAIL_ALL", "LEAN_NUM_THREADS",
-              "FAKE_LAKE_ENFILE_FIRST", "FAKE_LAKE_RT_REJECT"):
+              "FAKE_LAKE_ENFILE_FIRST", "FAKE_LAKE_RT_REJECT", "FAKE_LAKE_RT_INEXACT", "FAKE_LAKE_ALL_OK",
+              "LEAN_PKG_TYPES_RESUME"):
         monkeypatch.delenv(v, raising=False)
     return bindir
 
@@ -252,7 +261,8 @@ def test_emit_then_ingest_equals_local_mode(lp, env, fake_lake, tmp_path, capsys
     doc = json.loads(out.read_text())
     assert doc["summary"] == {"ok": False, "total": 3, "filled": 2, "errors": 1, "round_trip_failed": 0,
                               "declaration_errors": 0,
-                              "jobs": min(2, len(os.sched_getaffinity(0))), "backoff": []}
+                              "jobs": min(2, len(os.sched_getaffinity(0))), "backoff": [],
+                              "round_trip_inexact": 0, "resumed": 0}
     zap = doc["results"][1]
     assert zap["rc"] == 1 and zap["failure"] == "extraction" and "Demo.olean" in zap["output_tail"]
     assert doc["schema"] == "comparator-types/1" and doc["package"] == "beta"
@@ -567,3 +577,183 @@ def test_emitted_driver_defaults_lean_threads_to_one_and_keeps_an_explicit_value
     monkeypatch.delenv("LEAN_NUM_THREADS")
     cc(lp, env, capsys, "--challenge-from-type", "--dry-run", "--allow-partial")
     assert {c["threads"] for c in lake_calls(tmp_path)} == {None}
+
+
+# Field report #5: type fidelity of the printed statements, progress and checkpoint/resume.
+
+def test_driver_prints_numeral_types_and_checks_the_round_trip_syntactically(lp, env, fake_lake, tmp_path,
+                                                                            capsys):
+    """pp.numericTypes keeps `(3 / 2 : ℝ)`, `(1 : ℝ) ^ (1 : ℝ)`, `↑(1 : ℕ)` typed; pp.coercions.types stays off
+    (it makes `(c • μ : Set ℝ → ENNReal) s`, which re-elaborates to another term)."""
+    synced(lp, env, capsys)
+    script = tmp_path / "d.sh"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    text = script.read_text()
+    for opt in ("pp.fullNames true", "pp.proofs true", "pp.analyze true", "pp.numericTypes true"):
+        assert "set_option " + opt in text, opt
+    assert "pp.coercions.types" not in text and "pp.explicit" not in text
+    run_driver(env, script, tmp_path / "out.json")
+    rts = {json.loads(x)["decl"]: json.loads(x)["src"] for x in (tmp_path / "lake.log.rt").read_text().splitlines()}
+    wow = rts["Demo.wow"].splitlines()
+    assert wow.index("-- LEANPKG-EXACT") < next(i for i, l in enumerate(wow) if l.startswith("#guard_expr"))
+    assert "universe u_1 v" in wow
+    assert any(l.startswith("#guard_expr (∀ {α : Type u_1}") for l in wow)
+    assert wow[-1].endswith(" =ₛ type_of% @_root_.Demo.wow.{u_1, v}")
+    assert rts["Demo.baz"].splitlines()[-1] == "#guard_expr (True) =ₛ type_of% @_root_.Demo.baz"
+
+
+def test_defeq_but_not_syntactically_equal_is_filled_but_flagged(lp, env, fake_lake, tmp_path, monkeypatch, capsys):
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    monkeypatch.setenv("FAKE_LAKE_RT_INEXACT", "Demo.baz")
+    p = run_driver(env, script, out)
+    assert "Demo.baz ok (defeq, not syntactically equal)" in p.stderr and "(1 only defeq" in p.stderr
+    doc = json.loads(out.read_text())
+    baz, wow = doc["results"][0], doc["results"][2]
+    assert (baz["status"], baz["round_trip"], baz["round_trip_exact"]) == ("ok", "ok", False)
+    assert "not syntactically equal" in baz["round_trip_exact_error"]
+    assert wow["round_trip_exact"] is True and doc["summary"]["round_trip_inexact"] == 1
+    rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--allow-partial", "--json")
+    assert rc == 0, cap.err
+    baz = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/baz"]
+    assert baz["needs_restatement"] is True and "round_trip_exact false" in baz["restatement_reason"]
+    assert "exact @_root_.Demo.baz" in baz["solution"]          # still pre-filled: it elaborates
+
+
+def test_error_before_the_exact_check_is_still_a_round_trip_failure(lp, env, fake_lake, tmp_path, monkeypatch,
+                                                                    capsys):
+    """Negative control: an error at the `example` (the type does not elaborate, or is not defeq) is a
+    failure even though the `#guard_expr` after it fails too."""
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    monkeypatch.setenv("FAKE_LAKE_RT_REJECT", "Demo.baz")
+    run_driver(env, script, out)
+    baz = json.loads(out.read_text())["results"][0]
+    assert (baz["status"], baz["failure"], baz["round_trip"]) == ("error", "round_trip", "failed")
+    assert "round_trip_exact" not in baz
+
+
+def test_driver_reports_progress_and_resumes_from_its_checkpoint(lp, env, fake_lake, tmp_path, monkeypatch,
+                                                                 capsys):
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    ckpt = tmp_path / "types.json.checkpoint.jsonl"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    p = run_driver(env, script, out)
+    assert p.returncode == 1                                  # zap: extraction failure
+    prog = [l for l in p.stderr.splitlines() if l.startswith("lean-pkg types: [")]
+    assert sorted(l.split("] ", 1)[1] for l in prog) == ["Demo.baz ok", "Demo.wow ok", "Demo.zap fail (extraction)"]
+    assert {l.split("]")[0].split("[")[1] for l in prog} == {"1/3", "2/3", "3/3"}
+    lines = ckpt.read_text().splitlines()
+    assert json.loads(lines[0])["checkpoint"] == "comparator-types-checkpoint/1" and len(lines) == 4
+    assert "kept " + str(ckpt) in p.stderr
+    first = json.loads(out.read_text())
+    # rerun: baz and wow are settled, only zap runs again (now it succeeds); a clean run drops the checkpoint
+    (tmp_path / "lake.log").unlink()
+    with ckpt.open("a") as f:
+        f.write('{"index": 1, "decl": "Demo.z')               # a line cut short by a killed run
+    monkeypatch.setenv("FAKE_LAKE_ALL_OK", "1")
+    p = run_driver(env, script, out)
+    assert p.returncode == 0, p.stderr
+    assert "resumed 2 of 3 result(s)" in p.stderr and "[3/3] Demo.zap ok" in p.stderr
+    assert [c["args"][2].endswith("d00001.lean") for c in lake_calls(tmp_path)] == [True]
+    doc = json.loads(out.read_text())
+    assert doc["summary"]["resumed"] == 2 and doc["summary"]["filled"] == 3 and doc["summary"]["errors"] == 0
+    assert doc["results"][0] == first["results"][0] and doc["results"][2] == first["results"][2]
+    assert not ckpt.exists()
+    # the final JSON keeps its schema: the same keys as a run without a checkpoint, plus the additive ones
+    assert set(doc) == {"schema", "package", "commit", "toolchain", "summary", "results"}
+
+
+def test_checkpoint_from_another_run_or_resume_off_starts_afresh(lp, env, fake_lake, tmp_path, monkeypatch,
+                                                                 capsys):
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    ckpt = tmp_path / "types.json.checkpoint.jsonl"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    run_driver(env, script, out)
+    assert ckpt.exists()
+    (tmp_path / "lake.log").unlink()
+    monkeypatch.setenv("LEAN_PKG_TYPES_RESUME", "0")
+    p = run_driver(env, script, out)
+    assert "resumed" not in p.stderr and len(lake_calls(tmp_path)) == 3
+    assert json.loads(out.read_text())["summary"]["resumed"] == 0
+    monkeypatch.delenv("LEAN_PKG_TYPES_RESUME")
+    lines = ckpt.read_text().splitlines()
+    head = json.loads(lines[0])
+    head["key"] = "0" * 64                                      # another commit or another driver
+    ckpt.write_text("\n".join([json.dumps(head)] + lines[1:]) + "\n")
+    (tmp_path / "lake.log").unlink()
+    p = run_driver(env, script, out)
+    assert "is for another run" in p.stderr and len(lake_calls(tmp_path)) == 3
+
+
+LEAN_TOY = """namespace Toy
+theorem cast_one (n : Nat) : ((1 : Nat) : Int) ≤ (n : Int) + 1 := by omega
+theorem int_sub (n : Nat) : ((n : Int) - 1) + 1 = n := by omega
+theorem int_div : (2 : Int) / 2 = 1 := by decide
+theorem int_pow (z : Int) : (1 : Int) ^ 1 * z = z := by simp
+def double (n : Nat) : Nat := n + n
+theorem double_eq (n : Nat) : double n = n + n := rfl
+theorem univ_poly {α : Type u} (a : α) : a = a := rfl
+end Toy
+"""
+REAL_TOOLCHAIN = os.environ.get("LEAN_PKG_TEST_TOOLCHAIN", "leanprover/lean4:v4.35.0-rc2")
+
+
+def _elan_home():
+    return os.path.expanduser(os.environ.get("ELAN_HOME") or "~/.elan")
+
+
+def _have_toolchain():
+    tc = REAL_TOOLCHAIN.replace("/", "--").replace(":", "---")
+    return (os.path.isfile(os.path.join(_elan_home(), "bin", "lake"))
+            and os.path.isdir(os.path.join(_elan_home(), "toolchains", tc)))
+
+
+@pytest.mark.skipif(not _have_toolchain(), reason=f"real Lean test: elan with {REAL_TOOLCHAIN} not installed")
+def test_real_lean_printed_types_re_elaborate_to_the_original(tmp_path):
+    """Slow (real `lake env lean`, core only, no network): the emitted driver's printed statements
+    re-elaborate to the declarations' own types, syntactically; without pp.numericTypes (negative
+    control) the numerals and casts lose their types and the round trip fails."""
+    from lean_pkg import comparator_types as ct
+    pkg = tmp_path / "toy"
+    (pkg / "Toy").mkdir(parents=True)
+    (pkg / "lean-toolchain").write_text(REAL_TOOLCHAIN + "\n")
+    (pkg / "lakefile.lean").write_text("import Lake\nopen Lake DSL\npackage toy\n@[default_target] lean_lib Toy\n")
+    (pkg / "Toy.lean").write_text("import Toy.Main\n")
+    (pkg / "Toy" / "Main.lean").write_text(LEAN_TOY)
+    (pkg / ".gitignore").write_text(".lake\n")
+    genv = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    genv.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid", GIT_COMMITTER_NAME="t",
+                GIT_COMMITTER_EMAIL="t@example.invalid",
+                PATH=os.path.join(_elan_home(), "bin") + os.pathsep + genv.get("PATH", ""))
+    for cmd in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "commit", "-qm", "toy"], ["lake", "build"]):
+        subprocess.run(cmd, cwd=pkg, env=genv, check=True, capture_output=True, timeout=600)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=pkg, env=genv, capture_output=True, text=True).stdout.strip()
+    decls = ["cast_one", "int_sub", "int_div", "int_pow", "double_eq", "univ_poly"]
+    claims = [{"decl": "Toy." + d, "id": "toy/" + d, "file": "Toy/Main.lean"} for d in decls]
+
+    def run(cfg, name):
+        script, out = tmp_path / (name + ".sh"), tmp_path / (name + ".json")
+        script.write_text(ct.driver_script(cfg))
+        p = subprocess.run(["bash", str(script), str(out)], cwd=pkg, env=genv, capture_output=True, text=True,
+                           timeout=1200)
+        assert p.returncode == 0, p.stderr
+        return p, {r["decl"]: r for r in json.loads(out.read_text())["results"]}
+
+    cfg = ct.driver_config("toy", head, ".", claims, 2, 300)
+    p, res = run(cfg, "new")
+    assert all(r["status"] == "ok" and r["round_trip_exact"] is True for r in res.values()), res
+    assert res["Toy.cast_one"]["type"] == "∀ (n : Nat), ↑(1 : Nat) ≤ ↑n + (1 : Int)"
+    assert res["Toy.int_div"]["type"] == "(2 / 2 : Int) = (1 : Int)"
+    assert res["Toy.univ_poly"]["levels"] == ["u"]
+    assert "[6/6]" in p.stderr
+    old = dict(cfg, snippet=cfg["snippet"].replace("set_option pp.numericTypes true\n", ""))
+    _, res = run(old, "old")
+    assert res["Toy.cast_one"]["type"] == "∀ (n : Nat), ↑1 ≤ ↑n + 1"
+    bad = sorted(d for d, r in res.items() if r["status"] != "ok")
+    assert bad == ["Toy.cast_one", "Toy.int_div", "Toy.int_sub"]
+    assert all(res[d]["failure"] == "round_trip" for d in bad)

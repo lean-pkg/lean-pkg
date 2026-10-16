@@ -166,6 +166,9 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("LEAN_PKG_TYPES_BACKOFF_SECONDS",
          "pause before a retry with fewer workers after `too many open files`",
          "5"),
+        ("LEAN_PKG_TYPES_RESUME",
+         "0: ignore OUT.json.checkpoint.jsonl and run every declaration again",
+         "1 (resume from a matching checkpoint)"),
     ]),
     ("SHARED", [
         ("HOME",

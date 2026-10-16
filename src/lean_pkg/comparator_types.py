@@ -22,10 +22,18 @@ mentions) are additive; an ingested result without `modules` is marked `needs_re
 Also additive: `summary` {ok, total, filled, errors, round_trip_failed, declaration_errors, jobs,
 backoff} and per result `rc`, `failure` (declaration | resource | extraction | round_trip),
 `output_tail`, `round_trip` ("ok" | "failed") and `round_trip_rc` (#30, #31). A result is `ok` only
-when its printed type passed the round-trip check (ROUNDTRIP_SNIPPET).
+when its printed type passed the round-trip check (ROUNDTRIP_SNIPPET). Also additive (field report
+#5): per result `round_trip_exact` (true when the re-elaborated type is syntactically the
+declaration's, `#guard_expr ... =ₛ ...`; false when it is only definitionally equal, with
+`round_trip_exact_error`), and `summary.round_trip_inexact` / `summary.resumed`.
 
-The driver writes only to a temp dir (its Lean scratch files) and to the output path; it never
-writes into the checkout.
+The driver prints `[k/N] DECL ok|fail` progress lines to stderr and appends every finished result
+to `OUT.json.checkpoint.jsonl`; a rerun with the same OUT.json (same package, commit and snippets)
+reuses the settled results there and runs only the rest (LEAN_PKG_TYPES_RESUME=0 starts afresh). The
+checkpoint is removed once a run ends with no extraction failure.
+
+The driver writes only to a temp dir (its Lean scratch files), the output path and its checkpoint
+beside it; it never writes into the checkout.
 """
 
 from __future__ import annotations
@@ -57,6 +65,7 @@ import Lean
 set_option pp.fullNames true
 set_option pp.proofs true
 set_option pp.analyze true
+set_option pp.numericTypes true
 open Lean Elab Command in
 #eval show CommandElabM Unit from do
   let env ← getEnv
@@ -76,6 +85,9 @@ open Lean Elab Command in
 
 # The round-trip check (#31): the printed type must elaborate, in the declaration's own module context
 # with no auto-bound implicits, to a type the declaration itself inhabits (defeq). Exit status decides.
+# The `#guard_expr` after it (field report #5) asks more: the re-elaborated type is syntactically the
+# declaration's (`=ₛ`, Expr equality after instantiating metavariables). An error only at or after the
+# LEANPKG-EXACT line means defeq but not syntactically equal (round_trip_exact false).
 ROUNDTRIP_SNIPPET = """\
 __IMPORTS__
 set_option autoImplicit false
@@ -84,10 +96,12 @@ __UNIVERSES__
 example :
     (__TYPE__) :=
   @_root_.__IDENT__
+-- LEANPKG-EXACT
+#guard_expr (__TYPE__) =ₛ type_of% @_root_.__IDENT____LEVELS__
 """
 
 DRIVER_PY = r'''
-import concurrent.futures, errno, json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
+import concurrent.futures, errno, hashlib, json, os, pathlib, re, shutil, subprocess, sys, tempfile, time
 
 CONFIG = json.loads(__CONFIG__)
 DEFAULT_JOBS = CONFIG["default_jobs"]
@@ -95,6 +109,9 @@ SNIPPET = CONFIG["snippet"]
 ROUNDTRIP = CONFIG["roundtrip_snippet"]
 SIMPLE = re.compile(r"^[A-Za-z_][A-Za-z0-9_']*$")
 DIAG = re.compile(r"^.*?:\d+:\d+: (error|warning|info)(\([^)]*\))?: ?")
+ERRLINE = re.compile(r"^.*?:(\d+):\d+: error")
+CHECKPOINT = "comparator-types-checkpoint/1"
+SETTLED = (None, "declaration", "round_trip")      # failures a rerun would only repeat
 # File-table exhaustion (ENFILE 23 / EMFILE 24), common with many Lean processes on Lustre/NFS (#30).
 RESOURCE = re.compile(r"too many open files|\bENFILE\b|\bEMFILE\b", re.I)
 RESOURCE_ERRNOS = (errno.ENFILE, errno.EMFILE)
@@ -224,8 +241,11 @@ def round_trip(res, entry, module, work, lake_dir, timeout):
     src = (ROUNDTRIP.replace("__IMPORTS__", "import " + lean_ident(module))
            .replace("__DECL__", res["decl"])
            .replace("__UNIVERSES__", ("universe " + " ".join(res["levels"])) if res["levels"] else "")
+           .replace("__LEVELS__", (".{" + ", ".join(res["levels"]) + "}") if res["levels"] else "")
            .replace("__IDENT__", lean_ident(res["decl"]))
            .replace("__TYPE__", res["type"].replace("\n", "\n      ")))
+    marks = [i for i, l in enumerate(src.splitlines(), 1) if l.strip() == "-- LEANPKG-EXACT"]
+    exact_from = marks[0] if marks else None
     f = pathlib.Path(work) / ("r%05d.lean" % entry["index"])
     try:
         f.write_text(src, encoding="utf-8")
@@ -243,6 +263,17 @@ def round_trip(res, entry, module, work, lake_dir, timeout):
     res["round_trip_rc"] = p.returncode
     if p.returncode == 0:
         res.update(status="ok", failure=None, round_trip="ok")
+        if exact_from is not None:
+            res["round_trip_exact"] = True
+        return res
+    errs = [int(m.group(1)) for m in (ERRLINE.match(l) for l in out.splitlines()) if m]
+    if exact_from is not None and errs and min(errs) > exact_from and not RESOURCE.search(out):
+        # The `example` elaborated (defeq), only the syntactic `#guard_expr` failed.
+        lines = [l.rstrip() for l in out.splitlines() if l.strip()]
+        first = next(i for i, l in enumerate(lines) if ERRLINE.match(l))
+        msg = " | ".join([DIAG.sub("", lines[first])] + lines[first + 1:first + 4])
+        res.update(status="ok", failure=None, round_trip="ok", round_trip_exact=False,
+                   round_trip_exact_error=msg[:800])
         return res
     res["output_tail"] = tail(out)
     if RESOURCE.search(out):
@@ -265,16 +296,111 @@ def safe_one(entry, work, lake_dir, timeout):
                 "failure": "resource" if getattr(e, "errno", None) in RESOURCE_ERRNOS else "extraction"}
 
 
-def run_pool(entries, workers, work, lake_dir, timeout):
+def verdict(res):
+    if res.get("status") == "ok":
+        return "ok" if res.get("round_trip_exact") is not False else "ok (defeq, not syntactically equal)"
+    return "fail (%s)" % (res.get("failure") or "error")
+
+
+def run_pool(entries, workers, work, lake_dir, timeout, done=None):
+    """Results in `entries` order; `done(entry, result)` runs in this thread as each one finishes."""
+    out = [None] * len(entries)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
-        return list(ex.map(lambda e: safe_one(e, work, lake_dir, timeout), entries))
+        futs = {ex.submit(safe_one, e, work, lake_dir, timeout): i for i, e in enumerate(entries)}
+        for f in concurrent.futures.as_completed(futs):
+            i = futs[f]
+            out[i] = f.result()
+            if done is not None:
+                done(entries[i], out[i])
+    return out
 
 
-def run_all(entries, jobs, work, lake_dir, timeout, pause):
+class Checkpoint:
+    """OUT.json.checkpoint.jsonl: a header line naming what the results belong to, then one line per
+    finished result (a later line for the same index replaces an earlier one)."""
+
+    def __init__(self, path, key):
+        self.path, self.key, self.fh = path, key, None
+
+    def load(self, entries):
+        """{index: result} of the settled results a matching checkpoint holds."""
+        if os.environ.get("LEAN_PKG_TYPES_RESUME", "1").strip() == "0" or not self.path.is_file():
+            return {}
+        got = {}
+        try:
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+            head = json.loads(lines[0]) if lines else {}
+            if head.get("checkpoint") != CHECKPOINT or head.get("key") != self.key:
+                sys.stderr.write("lean-pkg types: %s is for another run (package, commit or driver); "
+                                 "starting afresh\n" % self.path)
+                return {}
+            for l in lines[1:]:
+                try:
+                    rec = json.loads(l)
+                except ValueError:            # a line cut short by a killed run
+                    continue
+                i = rec.get("index")
+                if isinstance(i, int) and 0 <= i < len(entries) and rec.get("decl") == entries[i]["decl"] \
+                        and isinstance(rec.get("result"), dict):
+                    got[i] = rec["result"]
+        except (OSError, ValueError, IndexError) as e:
+            sys.stderr.write("lean-pkg types: cannot read %s (%s); starting afresh\n" % (self.path, e))
+            return {}
+        return {i: r for i, r in got.items() if r.get("failure") in SETTLED}
+
+    def open(self, kept):
+        """Rewrite the file with the header and the results kept from it, then append from here on."""
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"checkpoint": CHECKPOINT, "key": self.key}) + "\n")
+            for i in sorted(kept):
+                fh.write(json.dumps({"index": i, "decl": kept[i]["decl"], "result": kept[i]},
+                                    ensure_ascii=False) + "\n")
+        tmp.replace(self.path)
+        self.fh = open(self.path, "a", encoding="utf-8")
+
+    def add(self, entry, res):
+        self.fh.write(json.dumps({"index": entry["index"], "decl": entry["decl"], "result": res},
+                                 ensure_ascii=False) + "\n")
+        self.fh.flush()
+        os.fsync(self.fh.fileno())
+
+    def close(self, remove):
+        if self.fh is not None:
+            self.fh.close()
+        if remove:
+            try:
+                self.path.unlink()
+            except OSError:
+                pass
+
+
+def run_all(entries, jobs, work, lake_dir, timeout, pause, ckpt=None):
     """Run every entry with `jobs` workers; while some fail on file-table exhaustion, halve the workers
-    and retry only those (at least two retry rounds, the last ones with one worker). -> (results,
-    backoff rounds)."""
-    results = run_pool(entries, jobs, work, lake_dir, timeout)
+    and retry only those (at least two retry rounds, the last ones with one worker). Entries a matching
+    checkpoint already settled are not run again. -> (results, backoff rounds, resumed count)."""
+    kept = ckpt.load(entries) if ckpt is not None else {}
+    if ckpt is not None:
+        ckpt.open(kept)
+    total = len(entries)
+    if kept:
+        sys.stderr.write("lean-pkg types: resumed %d of %d result(s) from %s\n" % (len(kept), total, ckpt.path))
+    state = {"n": len(kept), "tag": ""}
+
+    def done(entry, res):
+        state["n"] += 1
+        sys.stderr.write("lean-pkg types: [%s%d/%d] %s %s\n" % (state["tag"], state["n"], state["total"],
+                                                                 entry["decl"], verdict(res)))
+        sys.stderr.flush()
+        if ckpt is not None:
+            ckpt.add(entry, res)
+
+    todo = [e for e in entries if e["index"] not in kept]
+    state["total"] = total
+    ran = run_pool(todo, jobs, work, lake_dir, timeout, done)
+    results = [kept.get(i) for i in range(total)]
+    for e, r in zip(todo, ran):
+        results[e["index"]] = r
     backoff, workers, rnd = [], jobs, 0
     while True:
         idx = [i for i, r in enumerate(results) if r.get("failure") == "resource"]
@@ -285,12 +411,13 @@ def run_all(entries, jobs, work, lake_dir, timeout, pause):
         sys.stderr.write("lean-pkg types: %d declaration(s) hit 'too many open files'; retry %d with %d "
                          "worker(s)\n" % (len(idx), rnd, workers))
         time.sleep(pause * rnd)
-        redo = run_pool([entries[i] for i in idx], workers, work, lake_dir, timeout)
+        state.update(n=0, total=len(idx), tag="retry %d: " % rnd)
+        redo = run_pool([entries[i] for i in idx], workers, work, lake_dir, timeout, done)
         for i, r in zip(idx, redo):
             results[i] = r
         backoff.append({"round": rnd, "jobs": workers, "retried": len(idx),
                         "recovered": sum(1 for r in redo if r.get("failure") != "resource")})
-    return results, backoff
+    return results, backoff, len(kept)
 
 
 def default_jobs():
@@ -302,13 +429,20 @@ def default_jobs():
     return max(1, min(DEFAULT_JOBS, cpus))
 
 
-def summarize(results, jobs, backoff=()):
+def summarize(results, jobs, backoff=(), resumed=0):
     filled = sum(1 for r in results if r["status"] == "ok")
     rt = sum(1 for r in results if r["status"] != "ok" and r.get("failure") == "round_trip")
     errors = sum(1 for r in results if r["status"] != "ok" and r.get("failure") not in ("declaration", "round_trip"))
+    inexact = sum(1 for r in results if r["status"] == "ok" and r.get("round_trip_exact") is False)
     return {"ok": errors == 0, "total": len(results), "filled": filled, "errors": errors,
             "round_trip_failed": rt, "declaration_errors": len(results) - filled - errors - rt, "jobs": jobs,
-            "backoff": list(backoff)}
+            "backoff": list(backoff), "round_trip_inexact": inexact, "resumed": resumed}
+
+
+def checkpoint_key():
+    """What a checkpoint's results depend on: the package, commit, Lake dir and the two Lean snippets."""
+    basis = {k: CONFIG.get(k) for k in ("schema", "package", "commit", "lake_dir", "snippet", "roundtrip_snippet")}
+    return hashlib.sha256(json.dumps(basis, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def main():
@@ -342,21 +476,29 @@ def main():
     except ValueError as e:
         refuse("LEAN_PKG_TYPES_JOBS / _TIMEOUT / _BACKOFF_SECONDS: %s" % e)
     work = tempfile.mkdtemp(prefix="lean-pkg-types-")
+    ckpt = Checkpoint(out.with_name(out.name + ".checkpoint.jsonl"), checkpoint_key())
     try:
         entries = [dict(e, index=i) for i, e in enumerate(CONFIG["decls"])]
-        results, backoff = run_all(entries, jobs, work, lake_dir, timeout, pause)
+        results, backoff, resumed = run_all(entries, jobs, work, lake_dir, timeout, pause, ckpt)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-    summary = summarize(results, jobs, backoff)
+        if ckpt.fh is not None:
+            ckpt.fh.close()
+            ckpt.fh = None
+    summary = summarize(results, jobs, backoff, resumed)
     doc = {"schema": CONFIG["schema"], "package": CONFIG["package"], "commit": head, "toolchain": toolchain,
            "summary": summary, "results": results}
     tmp = out.with_name(out.name + ".tmp")
     tmp.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     tmp.replace(out)
-    sys.stderr.write("lean-pkg types: %d of %d filled, %d extraction error(s), %d round-trip failure(s), "
-                     "%d declaration error(s) -> %s\n" % (summary["filled"], summary["total"], summary["errors"],
-                                                          summary["round_trip_failed"],
-                                                          summary["declaration_errors"], out))
+    ckpt.close(remove=summary["errors"] == 0)
+    sys.stderr.write("lean-pkg types: %d of %d filled (%d only defeq, not syntactically equal), %d extraction "
+                     "error(s), %d round-trip failure(s), %d declaration error(s) -> %s\n"
+                     % (summary["filled"], summary["total"], summary["round_trip_inexact"], summary["errors"],
+                        summary["round_trip_failed"], summary["declaration_errors"], out))
+    if summary["errors"]:
+        sys.stderr.write("lean-pkg types: kept %s; a rerun with the same OUT.json runs only the unsettled "
+                         "declarations\n" % ckpt.path)
     if summary["errors"]:
         sys.stderr.write("lean-pkg types: extraction failed for %d declaration(s) (see results[].rc, error, "
                          "output_tail); `--from-output` refuses this file unless --allow-partial\n" % summary["errors"])
@@ -389,7 +531,9 @@ def driver_script(config: dict, *, lean_threads: bool = True) -> str:
             "# Needs python3, git and elan's lake; build the package first (`lake build`). Writes only a\n"
             "# temp dir and OUT.json. LEAN_PKG_TYPES_JOBS / LEAN_PKG_TYPES_TIMEOUT override the defaults;\n"
             "# on 'too many open files' it halves the workers and retries. Exit 0 ok, 1 some extraction\n"
-            "# failed, 2 nothing filled (or refused).\n"
+            "# failed, 2 nothing filled (or refused). Progress: `[k/N] DECL ok|fail` on stderr; finished\n"
+            "# results go to OUT.json.checkpoint.jsonl, and a rerun with the same OUT.json resumes from it\n"
+            "# (LEAN_PKG_TYPES_RESUME=0 starts afresh).\n"
             "set -euo pipefail\n"
             + (LEAN_THREADS_LINES if lean_threads else "") +
             'if [ "$#" -ne 1 ]; then echo "usage: bash $0 OUT.json" >&2; exit 2; fi\n'
@@ -588,6 +732,9 @@ def fill(entry: dict, result: dict | None, summary: str, source: str) -> dict:
         reason = "the printed type has inaccessible names or elided proofs and will not re-elaborate"
     if reason is None and result.get("round_trip") != "ok":
         reason = "the output has no round-trip check of the printed type (a driver older than #31); re-run it"
+    if reason is None and result.get("round_trip_exact") is False:
+        reason = ("the printed type is only definitionally equal to the declaration's, not syntactically "
+                  "(round_trip_exact false); check it states what the claim states")
     head = f"theorem {tname}" + (".{" + ", ".join(levels) + "}" if levels else "")
     body = typ.strip()
     doc = summary.replace("-/", "- /").replace("\n", " ").strip()

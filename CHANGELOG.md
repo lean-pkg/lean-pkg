@@ -25,6 +25,23 @@ change the registry schema or receipt format, always with a migration).
   gate (owned names, claim ids, negative controls and witnesses, comparator configuration), `register --like`,
   fresh gate and comparator receipts, and two environment pitfalls (file modes under `umask 002`, hashing elan's
   `lake` proxy instead of the toolchain binary) (field report).
+- `comparator config --challenge-from-type` / `--emit-script` driver: progress lines on stderr
+  (`lean-pkg types: [k/N] DECL ok|fail (...)`) and a checkpoint, `OUT.json.checkpoint.jsonl`, appended as each
+  declaration finishes; a rerun with the same OUT.json (same package, commit, Lake directory and Lean snippets)
+  reuses its settled results and runs only the rest (extraction and resource failures run again). Removed after
+  a run with no extraction failure; `LEAN_PKG_TYPES_RESUME=0` starts afresh. Additive JSON: `summary.resumed`
+  (field report #5).
+- The round-trip check also asks for syntactic equality: `#guard_expr (T) =ₛ type_of% @_root_.D.{u..}` after the
+  `example`. Per result `round_trip_exact` (and `round_trip_exact_error` when false), `summary.round_trip_inexact`.
+  A type that is only definitionally equal is still pre-filled but marked `needs_restatement` (field report #5).
+
+### Fixed
+
+- `comparator config --challenge-from-type` / `--emit-script`: printed types lost the types of numerals, so the
+  Challenge did not elaborate to the original statement (`x ^ (3 / 2)` for a real power, `1 ^ 1` read as `Nat`,
+  an ambiguous `↑1`, an `ENNReal` scalar `2 • μ`, `∃ M, M = 1` for a `Matrix`). The driver now prints with
+  `pp.numericTypes true` as well (`x ^ (3 / 2 : ℝ)`, `↑(1 : ℕ)`, `(2 : ENNReal) • μ`); `pp.coercions.types` stays
+  off, since it makes some statements re-elaborate to another term (field report #5).
 
 ### Fixed
 
