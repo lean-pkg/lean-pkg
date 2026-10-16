@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.49] - 2026-10-16
+
 ### Added
 
 - `comparator-receipt` Lake target readiness: at the end of the `checkout` stage (dependencies present, before
@@ -42,6 +44,7 @@ change the registry schema or receipt format, always with a migration).
   `--registry` abbreviation prefix. `make goldens` re-records the help and JSON goldens after an intended change.
   No behaviour change.
 
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.48] - 2026-10-16
 
