@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.42] - 2026-10-16
+
 ### Added
 
 - `next --repo DIR` and `gate --check --repo DIR`: evaluate another checkout than the registered `local_path` for
@@ -60,6 +62,8 @@ change the registry schema or receipt format, always with a migration).
   line reads `github: code search returned its 30-result limit`, `consulted:` says `github (capped, 30 hits)`,
   and the `--record` page marks it `capped: ...` in its Sources table with an `Incomplete: ... more matches may
   exist than the ones listed.` sentence. A query that returned 30 code hits read as complete (field report).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.41] - 2026-10-15
 
