@@ -690,7 +690,8 @@ def run_template_job(lp, capsys, repo, tmp_path, build: str, axioms: str) -> Job
     out_dir.mkdir()
     env = {**os.environ, "SLURM_JOB_ID": "123", "SLURM_TMPDIR": str(tmp_path / "node"), "PKG_DIR": str(repo),
            "OUT_DIR": str(out_dir), "VERIFY_CMD": f"cat {tmp_path / 'build.txt'}",
-           "AXIOMS_CMD": f"cat {tmp_path / 'axioms.txt'}", "CHECKER": CHECKER}
+           "AXIOMS_CMD": f"cat {tmp_path / 'axioms.txt'}", "CHECKER": CHECKER,
+           "LEAN_PATH_CMD": "true"}     # the template's LEAN_PATH shadow check: no Lake here (test_lake_hygiene)
     p = subprocess.run(["bash", str(path)], capture_output=True, text=True, env=env, cwd=out_dir)
     assert p.returncode == 0, p.stderr
     job = Job.__new__(Job)
