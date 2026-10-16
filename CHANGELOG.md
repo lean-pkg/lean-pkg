@@ -89,6 +89,9 @@ Zenodo version DOI: [10.5281/zenodo.23408819](https://doi.org/10.5281/zenodo.234
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
+Zenodo version DOI: none. Zenodo's GitHub archive was unreachable when this release was published, so no
+version record exists; cite 0.7.42 or the concept DOI [10.5281/zenodo.23272098](https://doi.org/10.5281/zenodo.23272098).
+
 ## [0.7.40] - 2026-10-15
 
 ### Added
