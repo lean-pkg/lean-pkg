@@ -27,6 +27,9 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["board", "--no-claims"], "board", False, False, True),
     (["list"], "list", False, False, False),
     (["list"], "list", False, False, True),
+    (["help"], "help", False, False, False),               # help never reads the registry
+    (["help", "exit-codes"], "help", False, False, False),
+    (["help", "gate"], "help", False, False, False),
     (["status", "demo"], "status", False, False, False),
     (["init"], "init", True, True, False),
     (["init", "--force"], "init", True, True, False),
