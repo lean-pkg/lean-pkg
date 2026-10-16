@@ -36,10 +36,10 @@ Cluster; packages verified there carry the acknowledgment "This work was complet
 |---|---|
 | `commit` | 40 lowercase hex; HEAD, or HEAD is an evidence-only descendant of it (or, for a package that opted in, a [docs-only descendant](#docs-only-descendants-opt-in)) |
 | `lean_toolchain` | equals the `lean-toolchain` file committed at `commit`, stripped (an uncommitted edit never counts) |
-| `mathlib_rev` | nonempty |
+| `mathlib_rev` | nonempty; prefix-equal to the `mathlib` rev in `lake-manifest.json` committed at `commit` (not checked when that file has no readable `mathlib` entry) |
 | `sorry_count` | integer, must be 0 |
 | `axioms` | list of strings, subset of `gate.axioms_allowed` (default `propext`, `Quot.sound`, `Classical.choice`) |
-| `report_sha256` | 64 hex characters: the frozen verification report |
+| `report_sha256` | 64 hex characters: the frozen verification report; when the redacted verify log `<commit12>-<job slug>-verify.redacted.log` that `receipt slurm`/`systemd` writes is found (beside the receipt file, in the package's `.lean-receipts/`, or tracked there at HEAD), every copy must hash to it, else `gate` refuses; none found prints `· report_sha256 not checked (no redacted log beside the receipt)` |
 | `job_id`, `checker`, `generated_at` | nonempty: the executor's terminal job identity, the exact checker mode, and an ISO-8601 time that must parse. The stored copy is named `<commit12>-<job_id>.json`, with characters outside `[A-Za-z0-9._-]` replaced by `-` and leading dots and dashes dropped |
 
 The frozen report named by `report_sha256` is expected to bind the candidate
@@ -124,16 +124,35 @@ with the commit refuses, and so do optional `commit:` (at least 7 hex, a
 prefix of `--commit`) and `job-id:` lines that disagree with the flags.
 The receipt carries exactly the nine schema fields.
 
-**Redaction and the public-safety check.** The log text is redacted before
-any field is read: the per-job temporary account prefix
+**The log's own binding to the commit.** A `commit:` line binds the log to
+`--commit` (the `--template` prints one). Without it, the in-log fallback
+seal binds the log to nothing, so it is refused there (no `--stdout`); with
+`--stdout` the log is bound only through the `lake-manifest.json` hashes, and
+the run prints a stderr WARN that the verify log has no `commit:` line and is
+bound to the commit only through `lake-manifest.json` (JSON
+`log_commit_bound: false`).
+
+**Redaction and the public-safety check.** Every field but `checker` is
+read from the raw log, so a redaction can never delete the evidence it is
+read from; `checker` is published as redacted. A redaction that removes or
+alters a line the parser reads (Lean's sorry warnings, `#print axioms`
+output, a build-completion line, or any `key:` line but `checker:`) refuses:
+narrow the pattern. The text published is the redacted one: the per-job temporary account prefix
 (`/tmp/user-job-123/` or `/tmp/user-job123/`, regex
 `/tmp/[^/\s<>]+?-job(?=[-\d])`) becomes `/tmp/<USER>-job...`,
 `/scratch/user/` becomes `/scratch/<USER>/`, and every `--redact REGEX`
 match becomes `<redacted>`. The public-safety scanner (the built-in
 families, plus the checkout's `.lean-pkg-private-patterns` when it has one;
-every e-mail address is a hit) then runs over the redacted log, the receipt
-JSON and the README entry. A blocking hit refuses and names the families,
-never the string: add a `--redact` for it.
+every e-mail address is a hit; this machine's user name (`getpass.getuser()`,
+`$USER`, `$LOGNAME`) and host name (full and its first label), derived at
+receipt time, at a word boundary, except names shorter than 3 characters and
+common ones such as `root`, `runner`, `localhost`; a home directory
+`/home/<x>` or `/Users/<x>` with or without a trailing slash) then runs over
+the redacted log, the receipt JSON and the README entry. A blocking hit
+refuses and names the families, never the string: add a `--redact` for it.
+
+A committed symlink at the commit that resolves into `.lean-receipts/` is
+refused (gate refuses it too: see [the rule](#evidence-binding-the-evidence-only-descendant-rule)).
 
 **What is written.** The redacted log
 `<commit12>-slurm-<J>-verify.redacted.log` and the receipt
@@ -161,6 +180,8 @@ absent; an entry already naming the receipt is not repeated):
 `--readme-heading TEXT` replaces the heading after the short commit,
 `--tar-sha256 HEX` adds the frozen source tarball's hash (the clause is
 left out without it), and each `--readme-line TEXT` adds a line at the end.
+A `README.md` that is a symlink or not UTF-8 text, or a `.lean-receipts/`
+that is a symlink, refuses before anything is written.
 
 **A job that meets the contract (`--template`).**
 `lean-pkg receipt slurm --template` prints a minimal sbatch wrapper (bash)
@@ -246,9 +267,14 @@ until the unit is terminal, writes its properties and this host's name to
 receipt is refused, so the run's evidence is never lost), and only then
 stops and resets the unit. `--log`, `--stdout`, `--stderr` and that file
 must not exist before the run. A local run verifies the working tree, so
-the checkout must be at `--commit` with no change to a tracked file under
-the package directory (`--repo`) before the run (else nothing is run) and
-still after it. For a package in a subdirectory of a manuscript repository,
+the checkout must be at `--commit` with no change to a tracked file and no
+untracked file under the package directory (`--repo`) before the run (else
+nothing is run) and still after it: an untracked file there can be imported
+by committed code, so the build would not be the commit's. Untracked means
+listed by `git ls-files --others --exclude-standard`, less `.lean-receipts/`,
+`.lake/` (Lake's build state) and the run's own `--log`, `--stdout`,
+`--stderr` and properties files. Files git ignores are not checked, so they
+are not bound: keep sources out of ignored paths. For a package in a subdirectory of a manuscript repository,
 edits elsewhere in that repository do not count, as for the evidence-only
 rule below. Over ssh, when the
 session lacks them, `XDG_RUNTIME_DIR=/run/user/$UID` and
@@ -265,7 +291,7 @@ ExecMainExitTimestampMonotonic,NRestarts,MemoryPeak,CPUUsageNSec,MemoryMax,Memor
 RuntimeMaxUSec,OOMPolicy; echo "Hostname=$(hostname)"; } > unit.properties
 ```
 
-The `Hostname=` line names the host the unit ran on; it is part of
+The `Hostname=` line names the host the unit ran on; its label is part of
 `job_id`. Without either flag the unit is read now with
 `systemctl --user show`, and the host is this system's name, never a
 configured one.
@@ -300,9 +326,13 @@ match `<redacted>`; a home path left over refuses until a `--redact`
 clears it.
 
 **What is written.** `job_id` is
-`systemd-user:<unit>:<InvocationID>@<host>`; the receipt, the redacted log
+`systemd-user:<unit>:<InvocationID>@<host label>`, the host label being
+`h-` and the first 12 hex digits of the SHA-256 of the lower-cased host
+name: distinct hosts stay distinct and anyone who knows the name can
+recompute the label, but the name itself (often a user or site identifier,
+which the scan blocks) is never written. The receipt, the redacted log
 and `<commit12>-<slug>-unit.properties` (the recognised properties only,
-in a fixed order, the host last) go to `.lean-receipts/`, where `<slug>`
+in a fixed order, the host last, as its label) go to `.lean-receipts/`, where `<slug>`
 is the job_id as `gate` names the stored file (`:` and `@` become `-`).
 The receipt gains the additive key `unit_properties_sha256`, which `gate`
 ignores, beside the seal keys. The README entry's first lines name the
@@ -335,7 +365,10 @@ A config whose file at the bound commit has a non-empty `definition_names` must 
 Validation fails closed on the first miss and names the field. A file already
 at the canonical `.lean-receipts/` path that differs from the receipt being
 recorded is refused, so a registry pointer can never silently refer to
-different bytes.
+different bytes. Every check on both copies (the lower-tier receipt and the
+comparator receipt) runs before either is written, so a refusal leaves
+`.lean-receipts/` as it was; a `.lean-receipts` or destination file that is
+a symlink is refused, never written through.
 
 ## Evidence binding: the evidence-only descendant rule
 
@@ -345,6 +378,18 @@ can never be tracked at the commit it names. The rule:
 > A receipt bound to commit X is accepted at HEAD H when H = X, or when H
 > descends from X and `git diff --name-only X H` is non-empty and contains
 > only paths under `.lean-receipts/`. Any other difference is drift.
+
+Two exceptions keep "evidence" from changing what the build reads:
+
+- For a package in a subdirectory of its repository, a `.gitattributes`,
+  `.gitmodules` or `.lfsconfig` changed at the repository root or in any
+  directory between it and the package is drift, named in the refusal, even
+  when nothing under the package directory changed (filters, eol and LFS
+  change the bytes the build sees).
+- No committed symlink at X may resolve into `.lean-receipts/` or to the
+  recorded `formalization_yaml` (chains and directory symlinks are followed):
+  `gate`, `comparator` and `receipt` refuse such a symlink at X, naming it,
+  and a changed evidence path that a symlink at X points to is drift.
 
 One more path may differ (#23.5): the package's recorded `formalization_yaml`
 (usually `formalization.yaml`). Its `status.evidence` cites the receipt, so,
@@ -417,6 +462,8 @@ Always refused under the opt-in, whatever `build_inputs` says:
 
 - a symlink (mode 120000) or a gitlink/submodule (mode 160000) added,
   changed or removed anywhere under the package directory;
+- a change to a file (or under a directory) that a symlink committed at X
+  points to: the build reads it through the symlink;
 - any change to `.gitattributes`, `.gitmodules` or `.lfsconfig`;
 - for a package in a subdirectory of its repository, any change to a
   `.gitattributes`, `.gitmodules` or `.lfsconfig` at the repository root or in

@@ -16,8 +16,10 @@ Where the unit's terminal state comes from (one of three, like sacct / --sacct-f
   terminal, captures UNIT_PROPS (plus `Hostname=` of this system) to --properties-out (default
   `<log>.unit.properties`, written even when the receipt is later refused), and only then stops and
   resets the unit. `--wait --collect` is not used: with --collect the unit and its properties vanish the moment
-  it finishes. The checkout must be at --commit with no tracked change under the package
-  directory before the run, and still be after it.
+  it finishes. The checkout must be at --commit with no tracked change and no untracked file under the
+  package directory before the run, and still be after it (untracked: what `git ls-files --others
+  --exclude-standard` lists, less .lean-receipts/, .lake/ and the run's own output files; files git ignores
+  are not checked, so they are not bound).
 - `--properties-file F`: the output of `systemctl --user show U -p <UNIT_PROPS>` saved before the unit was
   collected, plus a `Hostname=` line naming the host it ran on (the host is part of job_id).
 - neither: `systemctl --user show U` now, on this host (the unit must still be loaded, i.e. not --collect).
@@ -30,15 +32,18 @@ dumped: the signal is named); NRestarts 0. Then everything `receipt slurm` check
 optional stdout `invocation-id` line equal to InvocationID, empty --stderr, toolchain / mathlib / sorry /
 axioms / checker / commit: lines, redaction and the public-safety scan.
 
-Output: job_id `systemd-user:<U>:<InvocationID>@<host>`; beside the receipt `<c12>-<slug>.json` and redacted log,
-the normalised properties `<c12>-<slug>-unit.properties` (its SHA-256 in the additive receipt key
-`unit_properties_sha256`, gate ignores it) and a README entry with Result, exit, runtime, CPU, memory peak and
+Output: job_id `systemd-user:<U>:<InvocationID>@<host label>`, the host label being `h-` and the first 12 hex
+digits of the SHA-256 of the lower-cased host name (`host_label`; the name itself is never written, and the
+public-safety scan blocks this host's name); beside the receipt `<c12>-<slug>.json` and redacted log, the
+normalised properties `<c12>-<slug>-unit.properties` (Hostname as its label; its SHA-256 in the additive receipt
+key `unit_properties_sha256`, gate ignores it) and a README entry with Result, exit, runtime, CPU, memory peak and
 the caps. Built-in redactions: the checkout's absolute path -> `<repo>`, $HOME -> `<HOME>`, `/run/user/N/` ->
 `/run/user/<UID>/`, then every --redact.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import pathlib
 import re
@@ -126,10 +131,18 @@ def parse_properties(text: str) -> tuple[dict, list[str]]:
     return props, refusals
 
 
+def host_label(name: str) -> str:
+    """The host as published (job_id, README, the properties evidence): `h-` and the first 12 hex digits of
+    the SHA-256 of the lower-cased host name. Distinct hosts stay distinct and anyone holding the name can
+    recompute the label, but the name itself (often a user or site identifier) is never written; the
+    receipt's public-safety scan blocks this host's name."""
+    return "h-" + hashlib.sha256(name.strip().lower().encode("utf-8")).hexdigest()[:12]
+
+
 def normalised(props: dict) -> bytes:
-    """The evidence file: the recognised properties in UNIT_PROPS order, then Hostname."""
+    """The evidence file: the recognised properties in UNIT_PROPS order, then Hostname as its label."""
     keys = [k for k in UNIT_PROPS + (HOST_KEY,) if k in props]
-    return "".join(f"{k}={props[k]}\n" for k in keys).encode("utf-8")
+    return "".join(f"{k}={host_label(props[k]) if k == HOST_KEY else props[k]}\n" for k in keys).encode("utf-8")
 
 
 def _int(value) -> int | None:
@@ -188,16 +201,18 @@ def check_unit(props: dict, unit: str) -> tuple[dict | None, list[str], list[str
     if restarts:
         refusals.append(f"unit {unit}: NRestarts={restarts}; a receipt binds one run of the unit")
     start = _int(props.get("ExecMainStartTimestampMonotonic"))
-    summary = {"id": props["Id"], "invocation_id": inv, "host": host or None, "active_state": active,
+    summary = {"id": props["Id"], "invocation_id": inv, "host": None, "active_state": active,
                "sub_state": subst, "result": result, "exec_main_code": code or props["ExecMainCode"],
                "exec_main_status": props["ExecMainStatus"],
                "runtime_usec": exited_at - start if start and exited_at >= start else None,
                "cpu_usage_nsec": _int(props.get("CPUUsageNSec")), "memory_peak": _int(props.get("MemoryPeak")),
                "memory_max": props.get("MemoryMax"), "memory_swap_max": props.get("MemorySwapMax"),
                "cpu_quota_per_sec": props.get("CPUQuotaPerSecUSec"), "runtime_max": props.get("RuntimeMaxUSec")}
+    if host and _HOST_RE.fullmatch(host):
+        summary["host"] = host_label(host)       # the name itself is never published
     checks = []
     if not refusals:
-        checks.append(f"✓ unit: {unit} invocation {inv[:12]}… on {host}: Result=success, exited 0")
+        checks.append(f"✓ unit: {unit} invocation {inv[:12]}… on {summary['host']}: Result=success, exited 0")
     checks.append(f"· resources: {resources(summary)}")
     return summary, refusals, checks
 
@@ -262,25 +277,56 @@ def redactions(repo: pathlib.Path) -> list[tuple[str, str]]:
 # --------------------------------------------------------------------------
 # --run
 
-def tree_state(repo: pathlib.Path) -> tuple[str | None, str]:
-    """(HEAD, porcelain status of tracked files) of the package directory `repo`. The pathspec `.` scopes
-    the status to it: a package incubated in a subdirectory of a manuscript repository is not made dirty
-    by an edit outside it, as the evidence-only rule ignores those paths too."""
+# Untracked paths under the package directory that a local run may leave without changing the source: the
+# evidence directory and Lake's build state. Ignored files (.gitignore) are not listed and not bound.
+UNTRACKED_OK = (".lean-receipts/", ".lake/")
+
+
+def tree_state(repo: pathlib.Path, exclude=()) -> tuple[str | None, str, list[str]]:
+    """(HEAD, porcelain status of tracked files, untracked files) of the package directory `repo`. The
+    pathspec `.` scopes both to it: a package incubated in a subdirectory of a manuscript repository is not
+    made dirty by an edit outside it, as the evidence-only rule ignores those paths too. Untracked files are
+    the ones git does not ignore (`git ls-files --others --exclude-standard`, package-relative), less
+    UNTRACKED_OK and the package-relative paths in `exclude` (the run's own log, stdout, stderr and
+    properties files)."""
     head = core.git_head(repo)
     p = core.git(repo, "status", "--porcelain", "--untracked-files=no", "--", ".")
-    return head, (p.stdout if p.returncode == 0 else f"git status failed: {p.stderr.strip()}")
+    dirty = p.stdout if p.returncode == 0 else f"git status failed: {p.stderr.strip()}"
+    u = core.git(repo, "ls-files", "-z", "--others", "--exclude-standard", "--", ".")
+    if u.returncode != 0:
+        return head, dirty or f"git ls-files failed: {u.stderr.strip()}", []
+    skip = set(exclude)
+    untracked = [x for x in u.stdout.split("\0") if x and x not in skip and not x.startswith(UNTRACKED_OK)]
+    return head, dirty, untracked
 
 
-def source_problem(repo: pathlib.Path, commit: str | None, when: str) -> str | None:
+def run_outputs(repo: pathlib.Path, files) -> list[str]:
+    """The package-relative paths of the files a run writes that lie inside the package directory."""
+    out = []
+    root = repo.resolve()
+    for f in files:
+        try:
+            out.append(pathlib.Path(os.path.abspath(f)).resolve().relative_to(root).as_posix())
+        except (ValueError, OSError):
+            pass
+    return out
+
+
+def source_problem(repo: pathlib.Path, commit: str | None, when: str, exclude=()) -> str | None:
     if commit is None:
         return None                        # produce() refuses the unknown commit
-    head, dirty = tree_state(repo)
+    head, dirty, untracked = tree_state(repo, exclude)
     if head != commit:
         return (f"source changed {when}: the checkout's HEAD is {(head or 'unknown')[:12]}, not --commit "
                 f"{commit[:12]}; a local run verifies the working tree, so it must be the commit")
     if dirty.strip():
         n = len(dirty.strip().splitlines())
         return f"source changed {when}: {n} tracked file(s) differ from --commit {commit[:12]}"
+    if untracked:
+        shown = ", ".join(untracked[:5]) + (f" (+{len(untracked) - 5} more)" if len(untracked) > 5 else "")
+        return (f"source changed {when}: {len(untracked)} untracked file(s) under the package directory, "
+                f"which the build can read but --commit {commit[:12]} does not hold: {shown}; commit, remove "
+                f"or .gitignore them (ignored files are not bound)")
     return None
 
 
@@ -294,7 +340,8 @@ def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathli
                         "elsewhere and pass its saved properties with --properties-file")
         return None
     commit = rc.resolve_commit(repo, args.commit_sha)
-    why = source_problem(repo, commit, "before the run")
+    outputs = run_outputs(repo, [*paths.values(), props_out])
+    why = source_problem(repo, commit, "before the run", outputs)
     if why:
         refusals.append(why + "; nothing was run")
         return None
@@ -338,7 +385,7 @@ def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathli
         text = None
     _quiet([ctl, "--user", "stop", unit])            # RemainAfterExit kept it loaded until now
     _quiet([ctl, "--user", "reset-failed", unit])
-    why = source_problem(repo, commit, "during the run")
+    why = source_problem(repo, commit, "during the run", outputs)
     if why:
         refusals.append(why)
     return text
@@ -361,7 +408,7 @@ def _refuse_early(args, job_id: str | None, refusals: list[str], checks: list[st
     if args.json_out:
         payload = {"ok": False, "receipt": None, "log": None, "report_sha256": None, "raw_log_sha256": None,
                    "sealed": [],
-                   "job_id": job_id, "seal": None}
+                   "job_id": job_id, "seal": None, "log_commit_bound": None}
         payload.update(json_extra)
         payload.update({"redactions": 0, "lines_redacted": 0, "checks": checks, "readme_block": None,
                         "readme_appended": False, "next": None, "refusals": refusals})
@@ -501,7 +548,7 @@ def add_parser(rsub) -> None:
                              "--run, or its saved properties), its verify log and its stdout seal")
     s.add_argument("--unit", required=True, metavar="U",
                    help="the service unit (`.service` added when absent); job_id becomes "
-                        "systemd-user:<U>:<InvocationID>@<host>")
+                        "systemd-user:<U>:<InvocationID>@<host label> (h- + 12 hex of the host name's SHA-256)")
     s.add_argument("--log", required=True, metavar="PATH",
                    help="the raw verify log the unit writes; when it has no `checker:` line, --checker TEXT is "
                         "required")
@@ -538,6 +585,6 @@ def add_parser(rsub) -> None:
     s.add_argument("--redact", action="append", default=[], metavar="REGEX",
                    help=f"also replace matches with {rc.REDACT_TOKEN} (repeatable); the checkout's path, $HOME "
                         "and /run/user/N/ are always redacted to <repo>, <HOME>, /run/user/<UID>/ instead")
-    rc.add_common_flags(s, "systemd unit U", "systemd-user-<U>-<InvocationID>-<host>")
+    rc.add_common_flags(s, "systemd unit U", "systemd-user-<U>-<InvocationID>-<host label>")
     s.add_argument("command", nargs="*", metavar="-- CMD", help="with --run: the command the unit runs")
     s.set_defaults(fn=cmd_receipt_systemd)

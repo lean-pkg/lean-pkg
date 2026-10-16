@@ -114,6 +114,15 @@ are not source changes of this package, so H is accepted even when nothing
 under the package directory changed. At the repository root the rule is
 exactly the one quoted above.
 
+Two exceptions keep "evidence" from changing what the build reads. For a
+package in a subdirectory, a `.gitattributes`, `.gitmodules` or `.lfsconfig`
+changed at the repository root or in any directory between it and the package
+is drift (filters, eol and LFS change the bytes the build sees). And no
+committed symlink may resolve into `.lean-receipts/` (or to the recorded
+`formalization_yaml`): `gate` and `comparator` refuse such a symlink at X,
+naming it, and a changed evidence path that a symlink at X points to is drift
+(chains and directory symlinks are followed).
+
 One more path may differ (#23.5): the package's recorded `formalization_yaml`
 (usually `formalization.yaml`). Its `status.evidence` cites the receipt, so,
 like the receipt, it cannot be inside X. It is accepted when it was already
@@ -133,6 +142,18 @@ the promote checklist, and to the `receipt-drift` / `comparator-drift`
 findings of `audit`. Comparator configurations are read at the bound commit
 X, not at H.
 
+What else the lower-tier receipt is checked against at X: `lean_toolchain`
+must equal `lean-toolchain` committed at X, and `mathlib_rev` must equal
+(prefix-equal) the `mathlib` rev in `lake-manifest.json` committed at X (no
+readable `mathlib` entry: not checked, and `gate` keeps the recorded pin).
+`report_sha256` must equal the SHA-256 of the redacted verify log
+`<c12>-<job slug>-verify.redacted.log` wherever it is found (beside the
+receipt, in `.lean-receipts/`, tracked there at HEAD); when no copy is found
+the check is reported as not made. The verify log itself is bound to X by
+its `commit:` line when it has one (a different commit refuses); without one
+it is bound only through the `lake-manifest.json` seal of the job stdout, and
+`receipt` refuses it in the in-log fallback mode (no `--stdout`).
+
 ### Docs-only descendants (opt-in per package)
 
 A package whose record has `docs_descendants: true` (set with
@@ -140,7 +161,8 @@ A package whose record has `docs_descendants: true` (set with
 when H descends from X and no build input under the package directory
 changed: `*.lean`, `lakefile.*`, `lake-manifest.json`, `lean-toolchain` at any
 depth, the record's `build_inputs` globs and the files the receipt's `checker`
-names. A symlink or gitlink change, `.gitattributes`, `.gitmodules`,
+names. A symlink or gitlink change, a changed file that a committed symlink
+points to, `.gitattributes`, `.gitmodules`,
 `.lfsconfig` and `claims.yaml` are always refused, and for a package in a
 subdirectory so is a `.gitattributes`, `.gitmodules` or `.lfsconfig` at the
 repository root or in any directory between it and the package (filters, eol

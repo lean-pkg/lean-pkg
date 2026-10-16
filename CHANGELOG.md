@@ -62,6 +62,49 @@ change the registry schema or receipt format, always with a migration).
 - `scrub_paths` (search reasons, excerpts, package repos) also redacts cluster and system roots where a path
   starts: `/scratch/<x>`, `/work/<x>`, `/gpfs/<x>`, `/srv/<x>`, `/mnt/<x>`, `/tmp/<x>`, `/lustre/<x>`; URLs and
   relative paths are left alone (review finding).
+- Trust boundary of receipts and `gate` (review findings):
+  - A committed symlink that resolves into `.lean-receipts/` (or to the recorded `formalization_yaml`) let a later
+    commit change a source file as an "evidence-only" edit. `gate`, `comparator` and `receipt slurm|systemd`
+    refuse such a symlink at the bound commit, naming it (chains and directory symlinks followed); the
+    evidence-only and docs-only rules refuse a changed path that a symlink at the bound commit points to.
+  - The plain evidence-only rule accepted, for a package in a subdirectory, a changed `.gitattributes`,
+    `.gitmodules` or `.lfsconfig` at the repository root or in a directory between it and the package. It now
+    refuses it, naming the file, as the docs-only rule already did (tightening for every package).
+  - `receipt` parsed `sorry-count`, the sorry warnings and the axioms after `--redact`, so a broad redaction could
+    delete a sorry warning. Every field but `checker` is read from the raw log now, and a redaction that removes or
+    alters a line the parser reads refuses.
+  - `receipt systemd --run` checked only tracked files, so an untracked file imported by committed code built a
+    tree that was not the commit. Untracked files under the package directory refuse now, before and after the
+    run (`.lean-receipts/`, `.lake/` and the run's own output files excepted; ignored files are not bound).
+  - The receipt public-safety scan did not know this machine's user and host names and missed a home directory
+    without a trailing slash. It blocks the local user name and host name (full and short, at a word boundary;
+    names under 3 characters and common ones such as `root`, `runner`, `localhost` excepted) and
+    `/home/<x>`, `/Users/<x>` with or without the slash.
+  - `gate` never checked `report_sha256` against a file. When the redacted verify log
+    `<c12>-<job slug>-verify.redacted.log` is beside the receipt, in `.lean-receipts/` or tracked there at HEAD,
+    every copy must hash to `report_sha256`; when none is found `gate` says
+    `· report_sha256 not checked (no redacted log beside the receipt)`. JSON `report_log` {checked, log, where}.
+  - `gate --comparator` copied the lower-tier receipt into `.lean-receipts/` before a comparator refusal. Every
+    check on both copies runs first now, so a refusal writes nothing.
+  - `receipt slurm|systemd --append-readme` crashed on a non-UTF-8 `README.md` after writing the receipt. The README
+    is decoded in the pre-write checks and refuses before anything is written; a symlinked `.lean-receipts/` refuses
+    too.
+  - `gate` and `comparator` wrote through a planted (even dangling) symlink at the destination in
+    `.lean-receipts/`, outside the repository. A symlinked destination or `.lean-receipts` is refused.
+
+### Changed
+
+- `gate` refuses a receipt whose `mathlib_rev` is not prefix-equal to the `mathlib` rev in `lake-manifest.json`
+  committed at its commit, like `lean_toolchain` (review finding). With no readable `mathlib` entry it is not
+  checked and the recorded pin is kept, so `pins_kept` for `mathlib_pin` is now only that case.
+- The verify log's own binding to the commit (review finding): a `commit:` line must equal `--commit` as before;
+  without one, `receipt` refuses in the in-log fallback mode (no `--stdout`), and with `--stdout` prints
+  `WARN the verify log has no commit: line; it is bound to the commit only through lake-manifest.json`. `--json`
+  gains `log_commit_bound` (true, false; null when no commit resolved). The `--template` prints `commit:` already.
+- `receipt systemd` publishes the host as a label, never its name: `job_id` is
+  `systemd-user:<U>:<InvocationID>@h-<12 hex>`, the first 12 hex digits of the SHA-256 of the lower-cased host
+  name, and the stored `unit.properties` carries the label in `Hostname=` (the receipt scan now blocks this host's
+  name, review finding). Receipts already written keep their names.
 
 ## [0.7.43] - 2026-10-16
 
