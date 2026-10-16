@@ -81,7 +81,9 @@ SACCT_TIMEOUT = 60
 _KEY_LINE = re.compile(r"^([a-z0-9-]+):[ \t]*(.*?)[ \t]*$")
 _SHA_LINE = re.compile(rb"^" + SHA_KEY.encode() + rb":[ \t]*([0-9A-Fa-f]{64})[ \t]*\r?$")
 _HEX64 = re.compile(r"[0-9a-fA-F]{64}")
-_SORRY_RE = re.compile(r"declaration uses 'sorry'")
+# Lean 4 prints ``declaration uses `sorry` `` (backticks, every toolchain from v4.29 on); older or
+# re-quoted logs use 'sorry'. Matching only the quoted form left real warnings uncounted (review finding).
+_SORRY_RE = re.compile(r"declaration uses ['`]sorry['`]")
 # Evidence that the build ran to the end, so the absence of sorry warnings is a measured 0 (#82): Lake's own
 # summary line, or the `lake build: ok` line the lab's verify script prints.
 _BUILD_DONE_RE = re.compile(r"Build completed successfully|^lake build: ok\b", re.M)
@@ -163,8 +165,8 @@ $RUN bash -c "$AXIOMS_CMD" >>"$LOG" 2>&1
 echo "fs-file-nr-after: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)" >>"$LOG"
 
 # The key lines, from Lean's own output in the log: sorry-count may not be lower than the
-# `declaration uses 'sorry'` warnings, and axioms may not leave out a `#print axioms` result.
-sorry=$(grep -c "declaration uses 'sorry'" "$LOG" || true)
+# `declaration uses `sorry`` warnings (either quote style), and axioms may not leave out a `#print axioms` result.
+sorry=$(grep -c -E "declaration uses ['\`]sorry['\`]" "$LOG" || true)
 # (newlines joined first: Lean wraps a long axiom list over several lines)
 axioms=$(tr '\n' ' ' <"$LOG" | grep -o 'depends on axioms: \[[^]]*\]' | sed -e 's/^[^[]*\[//' -e 's/\]$//' \
   | tr ',' '\n' | tr -d ' ' | grep -v '^$' | sort -u | paste -sd, - || true)

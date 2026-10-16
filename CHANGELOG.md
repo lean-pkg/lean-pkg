@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `receipt slurm|systemd` counts Lean's real sorry warning. Lean 4 prints ``declaration uses `sorry` `` with
+  backticks (every toolchain checked, v4.29 to v4.35-rc2); only `declaration uses 'sorry'` was matched, so a log
+  with a real sorry warning was counted as 0, a declared `sorry-count: 0` could hide it (#108's check never fired on
+  real output), and `receipt slurm --template` wrote `sorry-count: 0`. Both quote styles are counted now. An audit
+  of the 39 receipt logs in the lab registry found sorry warnings only in comparator Challenge modules (which
+  contain `sorry` by design), none in a lower-tier verify log (review finding).
+
 ### Added
 
 - Skill `lean-shared-cluster-verification`: using a shared cluster (Slurm or similar) for Lean gates without

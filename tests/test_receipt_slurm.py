@@ -801,3 +801,35 @@ def test_template_and_check_need_their_flags(lp, repo, tmp_path, capsys):
     assert "--check needs --log" in capsys.readouterr().err
     assert lp.main(["receipt", "slurm", "--log", str(Job(tmp_path).log)]) == 2
     assert "needs --job, --commit" in capsys.readouterr().err
+
+
+# Review finding: Lean 4 (every toolchain from v4.29 to v4.35-rc2 checked) prints ``declaration uses `sorry` ``
+# with backticks. Only the quoted form was matched, so real sorry warnings were never counted: a log with one
+# got sorry_count 0, and a declared `sorry-count: 0` could hide it. Both quote styles count.
+REAL_SORRY = "warning: Demo.lean:3:8: declaration uses `sorry`\n"
+
+
+def test_leans_real_backtick_sorry_warning_is_refused(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path, LOG + REAL_SORRY)) == 1
+    assert "sorry count is 1; gate requires 0" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_a_declared_zero_may_not_hide_a_backtick_sorry(lp, repo, tmp_path, fake_sacct, capsys):
+    assert run(lp, repo, Job(tmp_path, LOG + "sorry-count: 0\n" + REAL_SORRY)) == 1
+    assert "`sorry-count: 0` but the log has 1" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_both_quote_styles_are_counted_together(lp, repo, tmp_path, fake_sacct, capsys):
+    two = REAL_SORRY + "warning: Other.lean:5:8: declaration uses 'sorry'\n"
+    assert run(lp, repo, Job(tmp_path, LOG + two)) == 1
+    assert "sorry count is 2; gate requires 0" in capsys.readouterr().err
+
+
+def test_the_template_counts_a_backtick_sorry(lp, repo, tmp_path, capsys):
+    job = run_template_job(lp, capsys, repo, tmp_path, REAL_SORRY, "'Demo.x' does not depend on any axioms\n")
+    assert "sorry-count: 1" in job.log.read_text()
+    assert lp.main(["receipt", "slurm", "--check", "--log", str(job.log), "--stdout", str(job.out),
+                    "--stderr", str(job.err), "--commit", repo_head(repo), "--repo", str(repo)]) == 1
+    assert "sorry count is 1; gate requires 0" in capsys.readouterr().out
