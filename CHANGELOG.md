@@ -7,6 +7,15 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `gate --check --repo DIR` and `next --repo DIR` refused a checkout whose remote is the scp-style
+  `Host:/path/repo.git` when the registry's `repo` is that bare repo's local path `/path/repo.git` (field
+  report: same repository, reached from another host). A local-path repo now matches `Host:/p`,
+  `ssh://[user@]Host[:port]/p` and `file:///p` with the same absolute path; two remotes that both name a host
+  still compare exactly, and a relative or `~` path never matches. `--repo` naming the registered local_path
+  itself no longer needs a matching remote.
+
 ## [0.7.44] - 2026-10-16
 
 ### Fixed
