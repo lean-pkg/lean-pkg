@@ -310,7 +310,7 @@ def test_rejected_push_with_conflict_aborts_and_keeps_commit(lp, env, shared, mo
     _race(lp, monkeypatch, b, "claim", "alpha", "--workspace", "w4", "--agent", "otto")
     rc, cap = run(lp, a, capsys, *CLAIM, "--push")
     assert rc == 1
-    assert "kept the local commit" in cap.err and "run: git push origin main" in cap.err
+    assert "kept the local commit" in cap.err and "run: git pull --rebase origin main, then git push origin main" in cap.err
     assert _subject(a.root) == "lean-pkg: claimed alpha" and _clean(a.root)
     assert not (a.root / ".git" / "rebase-merge").exists()
     assert read_reg(a)["packages"]["alpha"]["lease"]["agent"] == "vera"
@@ -331,7 +331,7 @@ def test_rejected_push_with_other_local_commits_is_not_rebased(lp, env, shared, 
     tip = None
     rc, cap = run(lp, a, capsys, *CLAIM, "--push")
     assert rc == 1 and "push rejected" not in cap.err
-    assert "lean-pkg: push failed: origin/main: " in cap.err and "run: git push origin main" in cap.err
+    assert "lean-pkg: push failed: origin/main: " in cap.err and "run: git pull --rebase origin main, then git push origin main" in cap.err
     assert _subject(a.root) == "lean-pkg: claimed alpha"
     assert _git(a.root, "log", "-1", "--format=%s", "HEAD~1").stdout.strip() == "unpushed"
     assert tip is None
@@ -580,7 +580,7 @@ def test_rebase_conflict_aborts_and_leaves_the_clone_as_it_was(lp, env, shared, 
     assert rc == 1
     assert "rebase conflict in lean-package-events.jsonl, lean-packages.yaml" in cap.err, cap.err
     assert "lean-pkg: push failed: origin/main: " in cap.err and "; rebase conflict in lean-package-events.jsonl, lean-packages.yaml" in cap.err
-    assert "run: git push origin main" in cap.err
+    assert "run: git pull --rebase origin main, then git push origin main" in cap.err
     assert _head(a.root) == seen["head"] and _clean(a.root)
     assert not (a.root / ".git" / "rebase-merge").exists() and not (a.root / ".git" / "rebase-apply").exists()
     assert _git(a.root, "rev-list", "--count", "origin/main..HEAD").stdout.strip() == "1"

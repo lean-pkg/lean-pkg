@@ -7,6 +7,29 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `claim`/`renew --ttl` is bounded at 8760 hours (one year); a larger value is a usage error (exit 2) with nothing
+  written. `--ttl 100000000` used to save the lease and its event, then fail on the expiry computation
+  (`OverflowError`, an internal error) and, in committed mode, leave the registry files uncommitted, blocking every
+  later committed writer. The board's TTL prompt has the same bound. `audit` and `audit --fix` report a lease whose
+  expiry overflows as `lease-invalid` instead of crashing (review finding).
+- A write checks that its event log can be appended to before the registry file is replaced: a read-only log or
+  an `--events` path that is a directory refuses (exit 1, nothing written). The YAML change used to persist while
+  the event line was lost; a failed event-log write now also keeps the queued lines (review finding).
+- Committed mode with a registry path that git quotes (a space or a non-ASCII character in a directory name)
+  failed with `pathspec ... did not match any files`; the modified files are read from `git status --porcelain -z`
+  now (review finding).
+- Push recovery rebases with `--autostash`: an unrelated modified file in the registry clone (allowed by the
+  preflight) made the rebase refuse with `You have unstaged changes`. After a rejected push the printed recovery is
+  `git pull --rebase origin <branch>, then git push origin <branch>` (a bare `git push` would be rejected again).
+  The rebased registry is validated before the push: a schema error that neither side had refuses the push and
+  resets the clone to the local commit (review finding).
+- Tests: the conftest's autouse isolation fixtures have public names (`no_user_default_registry`,
+  `home_outside_tmp_path`, `no_real_io_in_search_adapters`), so a scratch `from tests.conftest import *` keeps
+  them; with underscore names it silently dropped them and could write to the caller's real registry (review
+  finding).
+
 ## [0.7.43] - 2026-10-16
 
 ### Fixed

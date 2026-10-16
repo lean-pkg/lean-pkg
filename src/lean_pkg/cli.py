@@ -181,6 +181,10 @@ UPSTREAM_TARGETS = ["none", "mathlib", "palomar"]
 TRACKS = ("palomar", "doi-only")
 DEFAULT_AXIOMS = ["propext", "Quot.sound", "Classical.choice"]
 DEFAULT_TTL_HOURS = 24
+# Upper bound for --ttl (claim/renew) and the board's TTL prompt: one year. A larger value is a usage
+# error (exit 2) refused before anything is written; an unbounded one overflowed the expiry computation
+# after the lease was already saved.
+MAX_TTL_HOURS = 8760
 
 # The package record, one row per top-level key: (key, tier, meaning). The single source of truth for
 # `status --help`, `status --fields` validation, docs/cli.md "Package record" (tests keep them equal) and
@@ -945,11 +949,14 @@ def _umask() -> int:
 
 def save_registry(path: pathlib.Path, data: dict) -> None:
     """Atomic save (private temp file in the same directory, fsync, os.replace; the old file's mode is
-    kept), then the event lines record() queued on `data` are appended. Under the registry lock."""
+    kept), then the event lines record() queued on `data` are appended. Under the registry lock. Every
+    event log with queued lines is checked appendable first: one that is not (read-only, a directory)
+    refuses the save with nothing written, so a YAML change never lands without its event line."""
     path = pathlib.Path(path)
     target = path.resolve() if path.is_symlink() else path
     text = yaml.safe_dump(data, sort_keys=False, default_flow_style=False, allow_unicode=True, width=120)
     with registry_lock(target):
+        check_event_logs_appendable(data)
         fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=target.name + ".", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -1172,9 +1179,45 @@ def append_event(events_p: pathlib.Path, ts: str, name, event: str, **fields) ->
 _PENDING_EVENTS: dict[int, tuple[dict, list[tuple[pathlib.Path, str]]]] = {}
 
 
+def _event_log_problem(p: pathlib.Path) -> str | None:
+    """Why the event log `p` cannot be appended to, or None. Nothing is created: an existing file is
+    opened for append and closed (its content and mtime unchanged); a missing one needs its nearest
+    existing ancestor to be a writable directory (_write_event_lines creates the rest)."""
+    try:
+        if p.exists() or p.is_symlink():
+            if p.is_dir():
+                return "is a directory"
+            with open(p, "a", encoding="utf-8"):
+                pass
+            return None
+        anc = p.parent
+        while not anc.exists():
+            if anc.parent == anc:
+                break
+            anc = anc.parent
+        if not anc.is_dir():
+            return f"{anc} is not a directory"
+        if not os.access(anc, os.W_OK | os.X_OK):
+            return f"{anc} is not writable"
+        return None
+    except OSError as e:
+        return e.strerror or type(e).__name__
+
+
+def check_event_logs_appendable(reg: dict) -> None:
+    """Fail (nothing written) when an event log with lines queued on `reg` cannot be appended to."""
+    entry = _PENDING_EVENTS.get(id(reg))
+    for p in dict.fromkeys(p for p, _ in (entry[1] if entry else [])):
+        why = _event_log_problem(p)
+        if why:
+            raise Fail(f"event log {p} cannot be appended to ({why}); nothing written — fix the event "
+                       f"log (or pass --events PATH) and re-run")
+
+
 def flush_events(reg: dict) -> None:
-    """Append the lines queued on `reg` (one write + fsync per event log) and forget them."""
-    entry = _PENDING_EVENTS.pop(id(reg), None)
+    """Append the lines queued on `reg` (one write + fsync per event log) and forget them. A log that
+    cannot be written raises with its lines (and those of the logs not yet reached) still queued."""
+    entry = _PENDING_EVENTS.get(id(reg))
     if not entry:
         return
     by_path: dict[pathlib.Path, list[str]] = {}
@@ -1182,6 +1225,8 @@ def flush_events(reg: dict) -> None:
         by_path.setdefault(p, []).append(line)
     for p, lines in by_path.items():
         _write_event_lines(p, lines)
+        entry[1][:] = [(q, line) for q, line in entry[1] if q != p]
+    _PENDING_EVENTS.pop(id(reg), None)
 
 
 # #21.3: the agent a gate/comparator/record/promote --yes/claims sync/search --record invocation acts as
@@ -1541,6 +1586,18 @@ def contact_field(lease: dict) -> dict:
     return {"contact": lease["contact"]} if lease.get("contact") else {}
 
 
+def check_ttl(ttl) -> None:
+    """--ttl for claim/renew, checked before anything is written: None (no --ttl) passes; <= 0 is a
+    refusal (exit 1); above MAX_TTL_HOURS a usage error (exit 2)."""
+    if ttl is None:
+        return
+    if ttl <= 0:
+        raise Fail("--ttl must be a positive number of hours")
+    if ttl > MAX_TTL_HOURS:
+        raise UsageError(f"--ttl {ttl} exceeds the maximum of {MAX_TTL_HOURS} hours (one year); "
+                         f"renew the lease instead of claiming it for longer")
+
+
 def refresh_lease(reg_path, reg, events_p, pkg, lease, agent, ttl, workspace, reason, contact=None,
                   clear_contact=False):
     """Restart a live lease held by `agent` from now with `ttl` hours; event claim-refreshed (with the
@@ -1576,8 +1633,7 @@ def do_renew(reg_path, reg, events_p, name, agent, ttl, workspace, reason, conta
     if no_contact and contact is not None:
         raise UsageError("--contact and --no-contact are mutually exclusive")
     contact = check_contact(contact)
-    if ttl is not None and ttl <= 0:
-        raise Fail("--ttl must be a positive number of hours")
+    check_ttl(ttl)
     pkg = get_pkg(reg, name)
     now = dt.datetime.now(dt.timezone.utc)
     lease = pkg.get("lease")
@@ -1601,8 +1657,7 @@ def do_claim(reg_path, reg, events_p, name, workspace, agent, ttl, reason, force
     lease's current ttl_hours, as renew does. `contact` is stored in a new lease; on a refresh it
     replaces the lease's, and None keeps it."""
     contact = check_contact(contact)
-    if ttl is not None and ttl <= 0:
-        raise Fail("--ttl must be a positive number of hours")
+    check_ttl(ttl)
     if force and not reason:
         raise Fail("--force requires --reason")
     pkg = get_pkg(reg, name)
@@ -4399,7 +4454,7 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
         if lease:
             try:
                 lease_expiry(lease)
-            except (TypeError, ValueError, KeyError, AttributeError) as e:
+            except LEASE_PARSE_ERRORS as e:
                 bad_lease.add(name)
                 note("lease-invalid", name,
                      f"lease cannot be parsed ({type(e).__name__}: {e}); not swept")
@@ -5023,6 +5078,8 @@ def parse_ttl_hours(text: str) -> int | None:
         raise Fail(f"ttl must be a whole number of hours, got {t!r}")
     if ttl <= 0:
         raise Fail(f"ttl must be a positive number of hours, got {t!r}")
+    if ttl > MAX_TTL_HOURS:
+        raise Fail(f"ttl must be at most {MAX_TTL_HOURS} hours (one year), got {t!r}")
     return ttl
 
 
@@ -5448,7 +5505,7 @@ STANDING RULES
 - Claim before working: one package = one workspace. Default TTL 24h; `audit --fix` sweeps expired leases. Work longer than the TTL: `renew` before it lapses (`leases --agent A --expiring 2`). gate, comparator, record, promote --yes, claims sync, search --record: pass --agent A (another agent's live lease refuses; A is the event's `actor`); without it a live lease only warns.
 - Mutating ops are dry-run by default unless a flag says otherwise: promote --yes, audit --fix.
 - Fully non-interactive: pass flags, never wait for a prompt. Use --json for machine parsing.
-- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (a transient transport error such as a connection reset, timeout or HTTP 5xx is retried with backoff: LEAN_PKG_PUSH_RETRIES, default 4, delays LEAN_PKG_PUSH_RETRY_DELAY doubling from 5 s; rejected as non-fast-forward: fetch + rebase of that one commit + push again, an event-log-only conflict merges as a union in timestamp order, any other conflict aborts the rebase with the clone as before, `; rebase conflict in FILES` in the error; a failed push: `push failed: origin/BRANCH: ERR`, commit kept, exit 1; a --push write refuses while the clone is ahead of origin/BRANCH); --no-commit overrides; a committed-mode write refuses over modified registry files, naming the uncommitted event (event, package, agent, time), the package's lease holder and the git commit that clears it; a write without committed mode that leaves the registry files in a git clone modified ends with stderr `NOT COMMITTED: FILES modified in CLONE; every --commit/--push write to this registry refuses until they are committed: ...` (--json + registry_uncommitted [files]). stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "registry_commit": {sha, pushed, error, push_error, push_attempts, rebased} (also as "commit" unless the payload has its own, e.g. gate's source commit).
+- Shared registry in git: --commit (env LEAN_PKG_COMMIT=1) pulls --ff-only, writes, commits the yaml + event log together; --push (LEAN_PKG_PUSH=1) also pushes (a transient transport error such as a connection reset, timeout or HTTP 5xx is retried with backoff: LEAN_PKG_PUSH_RETRIES, default 4, delays LEAN_PKG_PUSH_RETRY_DELAY doubling from 5 s; rejected as non-fast-forward: fetch + `rebase --autostash` of that one commit + push again, an event-log-only conflict merges as a union in timestamp order, any other conflict aborts the rebase with the clone as before, `; rebase conflict in FILES` in the error; a rebased registry with a schema error neither side had is not pushed (reset to the local commit, `; rebased registry fails validation (...)`); a failed push: `push failed: origin/BRANCH: ERR`, commit kept, exit 1, recovery printed (after a rejection: git pull --rebase origin BRANCH, then git push origin BRANCH); a write whose event log cannot be appended to (read-only, a directory) refuses before the registry is replaced, nothing written; a --push write refuses while the clone is ahead of origin/BRANCH); --no-commit overrides; a committed-mode write refuses over modified registry files, naming the uncommitted event (event, package, agent, time), the package's lease holder and the git commit that clears it; a write without committed mode that leaves the registry files in a git clone modified ends with stderr `NOT COMMITTED: FILES modified in CLONE; every --commit/--push write to this registry refuses until they are committed: ...` (--json + registry_uncommitted [files]). stderr: `committed SHA on BRANCH: MSG` (+ `(committed mode: env VAR=1)` when the env, not a flag, turned it on), `pushed origin/BRANCH (SHA)`; `CMD --help` says `set now` when a variable is set. Every write is covered (index add, formalization --write, claims sync, search --record, board TUI keys); dry runs and read-only commands never fetch (an explicit --commit there: stderr "ignored"). Reports on stderr; a --json payload gains "registry_commit": {sha, pushed, error, push_error, push_attempts, rebased} (also as "commit" unless the payload has its own, e.g. gate's source commit).
 
 STATUS ENUM AND TRANSITIONS (evidence required)
 scratch -> active                  owner_project named
@@ -5485,10 +5542,10 @@ update    set fields (--notes over non-empty notes: exit 2, nothing written, unl
   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
 claim     (alias: lease) CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Any other command naming a package whose lease has lapsed, or lapses within 2h, prints stderr `WARN: NAME lease: EXPIRED ... | expires in ...` with the claim/renew that keeps it (not claim/renew/release/leases/audit/status). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
-  flags: --workspace W --agent A (required) [--ttl HOURS: 24 new; a holder's re-claim keeps its TTL] [--reason TEXT] [--contact TEXT: address of the holding session (e.g. lab-desk/n14-paper, @lean-ops), stored as lease.contact; one line, <= 200 chars, else exit 2; a re-claim without it keeps it] [--force (needs --reason)]
+  flags: --workspace W --agent A (required) [--ttl HOURS: 1..8760, 24 new; a holder's re-claim keeps its TTL; above 8760: exit 2, nothing written] [--reason TEXT] [--contact TEXT: address of the holding session (e.g. lab-desk/n14-paper, @lean-ops), stored as lease.contact; one line, <= 200 chars, else exit 2; a re-claim without it keeps it] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
-renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
+renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --ttl HOURS: 1..8760 (above: exit 2, nothing written). --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
 gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". gate/regate record the receipt's lean_toolchain and mathlib_rev[:10] into lean_toolchain/mathlib_pin when each agrees with lean-toolchain / lake-manifest.json at the receipt commit (a prefix match is unchanged; one "pins updated" line; event and JSON pins {field: {from, to}}); a disagreeing or unreadable one is kept, never a refusal: "NAME: pins kept: receipt mathlib_rev X does not match lake-manifest.json at <c12> (Y)", JSON pins_kept {field: {receipt, manifest}}; --check reports both, nothing written. --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine. Progress files (PROGRESS.md, state file, ledgers) live outside the package dir: any other change inside it needs a new receipt, unless the package opted in (update --accept-docs-descendants --reason R; record docs_descendants: true): then HEAD may also be a docs-only descendant of the receipt commit C, where no build input under the package dir changed (*.lean, lakefile.*, lake-manifest.json, lean-toolchain at any depth, the record's build_inputs globs, files the receipt's checker names; always refused: a symlink or gitlink added/changed/removed, .gitattributes, .gitmodules, .lfsconfig, claims.yaml, and for a subdirectory package a .gitattributes/.gitmodules/.lfsconfig at the repo root or in any directory between it and the package dir; formalization.yaml keeps its derived-keys rule). The gated commit stays C; text "✓ HEAD <c12> is a docs-only descendant of <c12> (N non-build file(s): ...; opted in)"; gate/regate/comparator events and --json (and --check) add descendant_of C and docs_paths[] (<= 50). Without the opt-in a refusal the docs rule would have admitted adds the hint `update NAME --accept-docs-descendants`.
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN "receipt field F contains a ... (kept: ...; --refuse-private refuses such a receipt)" + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines), --check --repo DIR (validate against the checkout DIR, not the registered local_path, this call only: never saved; stderr note; JSON repo_override {path, registered_path, remote_match}, null without it; DIR must be a git work tree and, when it has remotes, one must be the package's repo, else the caller vouches; a writing gate refuses --repo, exit 2: it binds the registered checkout, move that with update --path). Success (and promote --yes) ends with a results-ledger: line (JSON rl_reminder, rl_hint): lean-pkg keeps no results ledger, the outcome is in `status NAME` and `claims ledger NAME`; add it to the project's own results ledger if it keeps one (docs/lifecycle.md#results-ledger)
@@ -6213,8 +6270,20 @@ def _count_lines(p: pathlib.Path) -> int:
 
 
 def _dirty(ctx: dict) -> list[str]:
-    porcelain = registry_git(ctx["root"], "status", "--porcelain", "--", *ctx["files"]).stdout.splitlines()
-    return [line[3:] for line in porcelain if line.strip()]
+    """The registry files (repository-relative, as git spells them) with uncommitted changes. Parsed from
+    `status --porcelain -z`: plain --porcelain C-quotes a path with a space or a non-ASCII character
+    ("my reg/lean-packages.yaml"), and the quoted form is no pathspec git add/commit can match."""
+    out = registry_git(ctx["root"], "status", "--porcelain", "-z", "--", *ctx["files"]).stdout or ""
+    entries, paths, i = out.split("\0"), [], 0
+    while i < len(entries):
+        e = entries[i]
+        i += 1
+        if len(e) < 4:
+            continue
+        paths.append(e[3:])
+        if e[0] in "RC":   # a rename or copy: the source path follows as its own entry
+            i += 1
+    return paths
 
 
 def registry_work_tree(args) -> tuple[pathlib.Path, list[str]] | None:
@@ -6518,7 +6587,10 @@ def _rebase_onto_origin(ctx: dict) -> tuple[bool, str | None]:
     if err is not None:
         return False, f"fetch failed: {err}"
     ident = _identity_args(root)
-    rb = registry_git(root, *ident, "rebase", "--quiet", upstream)
+    pre = registry_git(root, "rev-parse", "HEAD").stdout.strip()
+    # --autostash: commit_preflight allows unrelated modified files in the clone (only the registry files
+    # must be clean), and a plain rebase refuses to start over them ("You have unstaged changes").
+    rb = registry_git(root, *ident, "rebase", "--autostash", "--quiet", upstream)
     while rb.returncode != 0 and _rebase_in_progress(root):
         files = _conflicted(root)
         if files == [ctx["files"][-1]] and _resolve_event_log_conflict(ctx):
@@ -6534,9 +6606,52 @@ def _rebase_onto_origin(ctx: dict) -> tuple[bool, str | None]:
         why = f"rebase failed ({_first_line(rb, 'rebase failed')})"
         print(f"lean-pkg: rebase onto origin/{branch}: {why}; kept the local commit", file=sys.stderr)
         return False, why
+    bad = rebased_registry_errors(ctx, pre, upstream)
+    if bad:
+        ctx["rebase_invalid"] = True
+        reset = registry_git(root, "reset", "-q", "--keep", pre)
+        kept = ("reset to the local commit" if reset.returncode == 0
+                else f"could not reset to the local commit {pre[:12]} ({_first_line(reset, 'reset failed')})")
+        why = (f"rebased registry fails validation ({len(bad)} new error(s): {'; '.join(bad[:3])}"
+               + (" ..." if len(bad) > 3 else "") + ")")
+        print(f"lean-pkg: rebase onto origin/{branch}: {why}; not pushed, {kept}", file=sys.stderr)
+        return False, why
     short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip()
     print(f"lean-pkg: rebased onto origin/{branch} ({short}); pushing again", file=sys.stderr)
     return True, None
+
+
+def _registry_errors_at(root: pathlib.Path, rev: str, reg_rel: str) -> list[str] | None:
+    """validate_registry on the registry file as committed at `rev`; None when it cannot be read or parsed."""
+    q = registry_git(root, "show", f"{rev}:{reg_rel}")
+    if q.returncode != 0:
+        return None
+    try:
+        return validate_registry(yaml.safe_load(q.stdout))
+    except yaml.YAMLError:
+        return None
+
+
+def rebased_registry_errors(ctx: dict, pre: str, upstream: str) -> list[str]:
+    """The schema errors the rebased registry (HEAD) has that neither side had: not origin/<branch>'s, not our
+    pre-rebase commit's (an error either side already carried is not the merge's doing). An unparseable
+    merged file is one error."""
+    root, reg_rel = ctx["root"], ctx["files"][0]
+    merged = _registry_errors_at(root, "HEAD", reg_rel)
+    if merged is None:
+        return [f"{reg_rel} at the rebased commit cannot be read or parsed"]
+    allowed: collections.Counter = collections.Counter()
+    for rev in (upstream, pre):
+        errs = _registry_errors_at(root, rev, reg_rel) or []
+        allowed |= collections.Counter(_err_key(e) for e in errs)
+    new = []
+    for e in merged:
+        k = _err_key(e)
+        if allowed[k] > 0:
+            allowed[k] -= 1
+        else:
+            new.append(e)
+    return new
 
 
 def push_with_recovery(ctx: dict) -> tuple[subprocess.CompletedProcess, str | None]:
@@ -6580,16 +6695,25 @@ def _push_error_line(p: subprocess.CompletedProcess) -> str:
     return (useful or lines or [f"git push exited {p.returncode}"])[0]
 
 
-def _push_failed(ctx: dict, why: str) -> int:
+def _push_failed(ctx: dict, why: str, rejected: bool = False) -> int:
     """A push that did not land (#54): the commit is kept, the clone is ahead of origin/<branch>; stderr names
-    the remote branch, the git error and the recovery, the --json `commit` gets pushed false + push_error."""
+    the remote branch, the git error and the recovery, the --json `commit` gets pushed false + push_error.
+    `rejected` (origin moved on): a plain `git push` would be rejected again, so the recovery integrates
+    origin first (`git pull --rebase`); a rebase whose result failed validation is reconciled by hand."""
     root, branch, res = ctx["root"], ctx["branch"], ctx["result"]
     res["pushed"] = False
     res["push_error"] = why
     res["error"] = f"push failed: origin/{branch}: {why}"
     short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "HEAD"
+    if ctx.get("rebase_invalid"):
+        fix = (f"reconcile lean-packages.yaml with origin/{branch} by hand (lean-pkg validate), then "
+               f"git push origin {branch}")
+    elif rejected:
+        fix = f"git pull --rebase origin {branch}, then git push origin {branch}"
+    else:
+        fix = f"git push origin {branch}"
     print(f"lean-pkg: push failed: origin/{branch}: {why}", file=sys.stderr)
-    print(f"lean-pkg: kept commit {short}; the clone is ahead of origin/{branch}; run: git push origin {branch} "
+    print(f"lean-pkg: kept commit {short}; the clone is ahead of origin/{branch}; run: {fix} "
           f"(until then lean-pkg refuses the next committed-mode push)", file=sys.stderr)
     return 1
 
@@ -6643,7 +6767,7 @@ def commit_finish(ctx: dict, rc: int) -> int:
             return _push_failed(ctx, "no origin remote")
         p, why = push_with_recovery(ctx)
         if p.returncode != 0:
-            return _push_failed(ctx, _push_error_line(p) + (f"; {why}" if why else ""))
+            return _push_failed(ctx, _push_error_line(p) + (f"; {why}" if why else ""), _push_rejected(p))
         res["pushed"] = True
         short = registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or short
         print(f"lean-pkg: pushed origin/{branch} ({short})", file=sys.stderr)
@@ -7128,8 +7252,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--workspace", required=True)
     s.add_argument("--agent", required=True)
     s.add_argument("--ttl", type=int, default=None, metavar="HOURS",
-                   help=f"lease TTL (default: {DEFAULT_TTL_HOURS} for a new claim; a holder's re-claim keeps "
-                        f"the lease's current ttl_hours)")
+                   help=f"lease TTL, 1..{MAX_TTL_HOURS} (default: {DEFAULT_TTL_HOURS} for a new claim; a holder's "
+                        f"re-claim keeps the lease's current ttl_hours; above {MAX_TTL_HOURS}: exit 2)")
     s.add_argument("--reason", default="")
     s.add_argument("--contact", default=None, metavar="TEXT",
                    help=f"address of the holding session (e.g. an amsg address such as lab-desk/n14-paper or "
@@ -7179,7 +7303,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("name")
     s.add_argument("--agent", required=True)
     s.add_argument("--ttl", type=int, default=None, metavar="HOURS",
-                   help="new TTL (default: the lease's current ttl_hours)")
+                   help=f"new TTL, 1..{MAX_TTL_HOURS} (default: the lease's current ttl_hours; above "
+                        f"{MAX_TTL_HOURS}: exit 2)")
     s.add_argument("--workspace", default=None, help="move the lease to this workspace")
     s.add_argument("--reason", default="")
     s.add_argument("--contact", default=None, metavar="TEXT",
