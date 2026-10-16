@@ -977,3 +977,65 @@ def test_the_local_user_name_is_a_blocking_token(lp, repo, tmp_path, fake_sacct,
     err = capsys.readouterr().err
     assert "redacted verify log (local user name)" in err and "kq7user" not in err
     assert run(lp, repo, Job(tmp_path, LOG + "work: /work/kq7user/lake-cache\n"), "--redact", "kq7user") == 0
+
+
+# --- compressed sealed log (field report: a 740 MiB redacted log over GitHub's 100 MiB file limit) ---------
+
+def test_compress_log_writes_deterministic_gzip_and_keeps_report_sha256(lp, env, repo, tmp_path, fake_sacct, capsys):
+    """--compress-log writes <...>.log.gz (no plain .log); report_sha256 stays the SHA-256 of the UNCOMPRESSED
+    log, report_compressed binds the .gz, sealed[] names the .gz with its own hash, and gate --check verifies it
+    by decompressing. A re-run writes the same bytes (deterministic) and is accepted."""
+    import gzip
+    assert run(lp, repo, Job(tmp_path), "--compress-log", "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    c12 = repo_head(repo)[:12]
+    plain = rdir(repo) / f"{c12}-slurm-123-verify.redacted.log"
+    gz = rdir(repo) / f"{c12}-slurm-123-verify.redacted.log.gz"
+    assert gz.is_file() and not plain.exists() and data["log"] == str(gz)
+    blob = gz.read_bytes()
+    assert blob[3] == 0 and blob[4:8] == b"\0\0\0\0"          # no FNAME/other flags, mtime 0
+    text = gzip.decompress(blob)
+    receipt = json.loads((rdir(repo) / f"{c12}-slurm-123.json").read_text())
+    assert receipt["report_sha256"] == sha(text) != sha(blob)
+    assert receipt["report_compressed"] == {"format": "gzip", "sha256": sha(blob), "bytes": len(text)}
+    assert data["report_compressed"] == receipt["report_compressed"] and data["report_sha256"] == sha(text)
+    entry = [x for x in data["sealed"] if x["role"] != "receipt"][0]
+    assert entry == {"role": "redacted-log.gz", "path": str(gz), "sha256": sha(blob),
+                     "receipt_key": "report_compressed.sha256", "uncompressed_sha256": sha(text)}
+    assert f"`gzip -dc {gz.name} > {plain.name}`" in data["readme_block"]
+    assert run(lp, repo, Job(tmp_path), "--compress-log") == 0          # identical re-run: same bytes
+    assert gz.read_bytes() == blob
+    capsys.readouterr()
+    reg = ["--registry", str(env.registry)]
+    assert lp.main(reg + ["gate", "alpha", "--check", "--json", "--receipt", data["receipt"]]) == 0
+    view = json.loads(capsys.readouterr().out)["report_log"]
+    assert view["checked"] is True and view["where"] == ["beside the receipt, decompressed from .gz"]
+
+
+def test_large_log_without_compress_warns_and_keeps_the_plain_log(lp, repo, tmp_path, fake_sacct, capsys,
+                                                                 monkeypatch):
+    from lean_pkg import receipt
+    monkeypatch.setattr(receipt, "LARGE_LOG_WARN_BYTES", 10)
+    assert run(lp, repo, Job(tmp_path)) == 0
+    err = capsys.readouterr().err
+    assert "WARN the redacted log is" in err and "--compress-log" in err
+    c12 = repo_head(repo)[:12]
+    assert (rdir(repo) / f"{c12}-slurm-123-verify.redacted.log").is_file()
+    assert not (rdir(repo) / f"{c12}-slurm-123-verify.redacted.log.gz").exists()
+
+
+def test_compress_log_refuses_a_stale_plain_log_beside_it(lp, repo, tmp_path, fake_sacct, capsys):
+    c12 = repo_head(repo)[:12]
+    rdir(repo).mkdir()
+    (rdir(repo) / f"{c12}-slurm-123-verify.redacted.log").write_text("another log\n")
+    assert run(lp, repo, Job(tmp_path), "--compress-log") == 1
+    assert "already exists with a different log" in capsys.readouterr().err
+    assert sorted(x.name for x in rdir(repo).iterdir()) == [f"{c12}-slurm-123-verify.redacted.log"]
+
+
+def test_compress_log_flag_is_offered_by_both_receipt_forms(lp, capsys):
+    for form in ("slurm", "systemd"):
+        with pytest.raises(SystemExit):
+            lp.main(["receipt", form, "--help"])
+        out = capsys.readouterr().out
+        assert "--compress-log" in out and "gzip -dc" in out, form

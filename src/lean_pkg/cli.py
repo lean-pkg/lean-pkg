@@ -88,6 +88,7 @@ import copy
 import datetime as dt
 import fnmatch
 import fcntl
+import gzip
 import hashlib
 import io
 import json
@@ -105,6 +106,7 @@ import traceback
 import unicodedata
 import urllib.error
 import urllib.request
+import zlib
 
 import yaml
 
@@ -3116,38 +3118,160 @@ def copy_comparator(repo: pathlib.Path, commit: str, src: pathlib.Path,
 
 
 REPORT_LOG_SUFFIX = "-verify.redacted.log"
+# A compressed sealed log (`receipt slurm|systemd --compress-log`) is `<log name>.gz`: deterministic gzip
+# (level 9, mtime 0, no file name in the header). report_sha256 stays the SHA-256 of the UNCOMPRESSED log;
+# the receipt's additive `report_compressed` {format: gzip, sha256: <of the .gz>, bytes: <uncompressed
+# length>} binds the .gz itself and bounds its decompression.
+REPORT_GZ_SUFFIX = ".gz"
+REPORT_GZ_LEVEL = 9
+# The decompression bound for a .gz whose receipt records no `report_compressed.bytes` (a log compressed by
+# hand for an older receipt): output past it is refused, never hashed further (gzip-bomb guard).
+REPORT_GZ_DEFAULT_CAP = 4 << 30
+_CHUNK = 1 << 20
+
+
+def gzip_deterministic(data: bytes) -> bytes:
+    """`data` as gzip with a fixed header (no file name, mtime 0, OS byte 255) at level 9: the same bytes
+    for the same input and zlib, on every host and at every time."""
+    buf = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", compresslevel=REPORT_GZ_LEVEL, fileobj=buf, mtime=0) as g:
+        g.write(data)
+    return buf.getvalue()
+
+
+def gunzip_digest(src, limit: int, what: str) -> tuple[str, int]:
+    """(sha256, length) of the decompressed stream of `src` (a path or bytes), read in chunks and never
+    past `limit` bytes of output: more refuses (gzip-bomb guard), and so does a stream that is not valid
+    gzip (bad header, CRC or length check, truncated)."""
+    h, n = hashlib.sha256(), 0
+    try:
+        with (open(src, "rb") if isinstance(src, (str, os.PathLike)) else io.BytesIO(src)) as raw, \
+                gzip.GzipFile(fileobj=raw, mode="rb") as g:
+            while True:
+                chunk = g.read(min(_CHUNK, limit - n + 1))
+                if not chunk:
+                    break
+                n += len(chunk)
+                if n > limit:
+                    raise Fail(f"{what} decompresses to more than the {limit} bytes the receipt allows "
+                               f"(report_compressed.bytes); refused without reading further")
+                h.update(chunk)
+    except (OSError, EOFError, zlib.error) as e:
+        raise Fail(f"{what} is not a valid gzip stream ({e.__class__.__name__}: {e}); the compressed log "
+                   f"cannot be checked against report_sha256") from None
+    return h.hexdigest(), n
+
+
+def report_compressed_bound(receipt: dict) -> tuple[int, str | None]:
+    """(decompression limit, the .gz SHA-256 or None) from the receipt's optional `report_compressed`;
+    a malformed value refuses. It never replaces report_sha256, which is always the uncompressed hash."""
+    rc = receipt.get("report_compressed")
+    if rc is None:
+        return REPORT_GZ_DEFAULT_CAP, None
+    if not isinstance(rc, dict) or rc.get("format") != "gzip":
+        raise Fail("report_compressed must be {format: \"gzip\", sha256, bytes}, got "
+                   f"{json.dumps(rc)[:80]}")
+    gz_sha, size = rc.get("sha256"), rc.get("bytes")
+    if not (isinstance(gz_sha, str) and re.fullmatch(r"[0-9a-fA-F]{64}", gz_sha)):
+        raise Fail("report_compressed.sha256 must be 64 hex chars (the SHA-256 of the .gz file)")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        raise Fail("report_compressed.bytes must be a non-negative integer (the uncompressed log's length)")
+    if gz_sha.lower() == str(receipt.get("report_sha256", "")).lower():
+        raise Fail("report_compressed.sha256 equals report_sha256: report_sha256 must be the SHA-256 of the "
+                   "uncompressed log, never of the .gz")
+    return size, gz_sha.lower()
+
+
+def _file_sha256(path: pathlib.Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(_CHUNK), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def report_log_name(receipt: dict) -> str:
+    return f"{str(receipt['commit'])[:12]}-{receipt_job_slug(receipt['job_id'])}{REPORT_LOG_SUFFIX}"
 
 
 def report_log_check(repo: pathlib.Path, receipt: dict, receipt_path: pathlib.Path) -> tuple[str, dict]:
     """report_sha256 against the redacted verify log `receipt slurm|systemd` writes beside the receipt
-    (<c12>-<job slug>-verify.redacted.log): looked for beside the --receipt file, in the package's
-    .lean-receipts/ and tracked there at HEAD. Every copy found must hash to report_sha256 (a mismatch
-    refuses); none found is a `·` line, not a refusal. (line, {checked, log, where})."""
-    name = f"{str(receipt['commit'])[:12]}-{receipt_job_slug(receipt['job_id'])}{REPORT_LOG_SUFFIX}"
+    (<c12>-<job slug>-verify.redacted.log, or that name + .gz with --compress-log): looked for beside the
+    --receipt file, in the package's .lean-receipts/ and tracked there at HEAD. Every copy found must hash
+    to report_sha256 (a mismatch refuses); a .gz copy is stream-decompressed (bounded by
+    report_compressed.bytes) and its UNCOMPRESSED bytes must hash to report_sha256, with that length, and
+    the .gz itself to report_compressed.sha256 when recorded. None found is a `·` line, not a refusal.
+    (line, {checked, log, where})."""
+    name = report_log_name(receipt)
+    gz = name + REPORT_GZ_SUFFIX
     want = str(receipt["report_sha256"]).lower()
-    found: list[tuple[str, bytes]] = []
+    limit, gz_want = report_compressed_bound(receipt)
+    found: list[tuple[str, str, object]] = []      # (where, file name, path or bytes)
     seen: set[str] = set()
-    for where, path in (("beside the receipt", receipt_path.parent / name),
-                        (".lean-receipts/", repo / ".lean-receipts" / name)):
-        key = os.path.realpath(path)
-        if key in seen or not path.is_file():
+    for where, base in (("beside the receipt", receipt_path.parent), (".lean-receipts/", repo / ".lean-receipts")):
+        for fname in (name, gz):
+            path = base / fname
+            key = os.path.realpath(path)
+            if key in seen or not path.is_file():
+                continue
+            seen.add(key)
+            found.append((where, fname, path))
+    for fname in (name, gz):
+        blob = git_show_bytes(repo, f"./.lean-receipts/{fname}", "HEAD")
+        if blob is not None:
+            found.append(("tracked at HEAD", fname, blob))
+    wheres = []
+    for where, fname, src in found:
+        if fname == name:
+            got = _file_sha256(src) if isinstance(src, pathlib.Path) else sha256_bytes(src)
+            if got != want:
+                raise Fail(f"report_sha256 mismatch: {name} ({where}) hashes to {got}, the receipt says {want}; "
+                           f"the redacted log is not the one the receipt binds")
+            wheres.append(where)
             continue
-        seen.add(key)
-        found.append((where, path.read_bytes()))
-    blob = git_show_bytes(repo, f"./.lean-receipts/{name}", "HEAD")
-    if blob is not None:
-        found.append(("tracked at HEAD", blob))
-    for where, data in found:
-        got = sha256_bytes(data)
+        if gz_want is not None:
+            got = _file_sha256(src) if isinstance(src, pathlib.Path) else sha256_bytes(src)
+            if got != gz_want:
+                raise Fail(f"report_compressed.sha256 mismatch: {gz} ({where}) hashes to {got}, the receipt says "
+                           f"{gz_want}; the compressed log is not the one the receipt binds")
+        got, n = gunzip_digest(src, limit, f"{gz} ({where})")
         if got != want:
-            raise Fail(f"report_sha256 mismatch: {name} ({where}) hashes to {got}, the receipt says {want}; the "
-                       f"redacted log is not the one the receipt binds")
+            raise Fail(f"report_sha256 mismatch: {gz} ({where}) decompresses to bytes hashing to {got}, the receipt "
+                       f"says {want}; the redacted log is not the one the receipt binds (report_sha256 is the "
+                       f"SHA-256 of the uncompressed log, never of the .gz)")
+        if gz_want is not None and n != limit:
+            raise Fail(f"report_compressed.bytes mismatch: {gz} ({where}) decompresses to {n} bytes, the receipt "
+                       f"says {limit}")
+        wheres.append(f"{where}, decompressed from .gz")
     if not found:
         return ("· report_sha256 not checked (no redacted log beside the receipt)",
                 {"checked": False, "log": name, "where": []})
-    wheres = [w for w, _d in found]
     return (f"✓ report_sha256 = sha256 of {name} ({', '.join(wheres)})",
             {"checked": True, "log": name, "where": wheres})
+
+
+def plan_report_log_copy(repo: pathlib.Path, receipt: dict, receipt_path: pathlib.Path) -> list[tuple[pathlib.Path, str]]:
+    """The sealed log copies `gate` adds beside the canonical receipt .lean-receipts/<c12>-<job>.json, so
+    that copy still verifies (field report: a receipt passed from a nested or outside path left its log
+    behind): each form (.log, .log.gz) found beside the --receipt file, when .lean-receipts/ holds neither.
+    Run after report_log_check (which verified every copy). [(source, dest_rel)]; refusals as for the
+    receipt copy (a symlinked .lean-receipts or destination)."""
+    name = report_log_name(receipt)
+    canon = repo / ".lean-receipts"
+    src_dir = receipt_path.parent
+    if canon.is_dir() and os.path.realpath(src_dir) == os.path.realpath(canon):
+        return []
+    forms = (name, name + REPORT_GZ_SUFFIX)
+    plan = [(src_dir / f, f".lean-receipts/{f}") for f in forms if (src_dir / f).is_file()]
+    if not plan:
+        return []
+    for f in forms:
+        why = evidence_dest_problem(repo, f".lean-receipts/{f}")
+        if why:
+            raise Fail(why)
+    if any((canon / f).exists() for f in forms):
+        return []
+    return plan
 
 
 def receipt_private_strings(blobs: list[tuple[str, bytes]], refuse: bool,
@@ -3354,7 +3478,12 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
     validate_receipt(pkg, repo, receipt)
     commit = receipt["commit"]
     report_line, report_view = report_log_check(repo, receipt, rp)
+    log_copy = plan_report_log_copy(repo, receipt, rp)
+    report_view["copy"] = [d for _s, d in log_copy]
     checks = receipt_check_lines(pkg, repo, receipt) + [report_line]
+    if log_copy:
+        checks.append(f"· gate would also copy {', '.join(report_view['copy'])} beside the canonical receipt "
+                      f"(the log beside --receipt; .lean-receipts/ holds no copy)")
     if comp is not None:
         validate_comparator(pkg, repo, comp, commit)
         checks += comparator_check_lines(pkg, repo, comp, commit, with_binding=False)
@@ -3495,6 +3624,8 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
     why = evidence_dest_problem(repo, dest_rel)
     if why:
         raise Fail(why)
+    log_copy = plan_report_log_copy(repo, receipt, rp)
+    report_view["copy"] = [d for _s, d in log_copy]
     present = dest.exists()
     if present and recorded_json(repo, dest_rel) != receipt:
         raise Fail(f"{dest} already holds a different receipt for commit {commit[:12]} and job "
@@ -3508,6 +3639,10 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
         shutil.copy2(rp, dest)
         out.append(f"receipt copied to {dest} — NOT committed there; "
                    f"commit it in the verified repo yourself")
+    for src, log_rel in log_copy:   # the sealed log follows the receipt, so the canonical copy verifies
+        shutil.copy2(src, repo / log_rel)
+        out.append(f"sealed log copied to {repo / log_rel} beside the receipt — NOT committed there; "
+                   f"commit it with the receipt")
     pkg.setdefault("gate", {})["receipt"] = dest_rel
     fields = dict(commit=commit, job_id=str(receipt["job_id"]),
                   checker=str(receipt["checker"]), receipt=dest_rel, **docs_view)
@@ -5818,10 +5953,10 @@ claim     (alias: lease) CAS lease; refuses if another agent holds an unexpired 
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
 release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --ttl HOURS: 1..8760 (above: exit 2, nothing written). --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
-gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". gate/regate record the receipt's lean_toolchain and mathlib_rev[:10] into lean_toolchain/mathlib_pin when each agrees with lean-toolchain / lake-manifest.json at the receipt commit (a prefix match is unchanged; one "pins updated" line; event and JSON pins {field: {from, to}}); a receipt whose lean_toolchain or mathlib_rev (prefix-equal) disagrees with lean-toolchain / the mathlib rev in lake-manifest.json committed at its commit is refused; with no readable mathlib entry the rev is not checked and the pin is kept: "NAME: pins kept: receipt mathlib_rev X does not match lake-manifest.json at <c12> (unreadable)", JSON pins_kept {field: {receipt, manifest}}; --check reports both, nothing written. report_sha256 must equal the SHA-256 of <c12>-<job slug>-verify.redacted.log wherever found (beside the receipt, .lean-receipts/, tracked at HEAD), else refused; none found: "· report_sha256 not checked (no redacted log beside the receipt)"; JSON report_log {checked, log, where[]}. Every check of both copies runs before either is written (a refusal writes nothing); a symlinked .lean-receipts or destination file is refused. --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target, or one resolving into .lean-receipts/ or to the formalization.yaml pointer; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine. Progress files (PROGRESS.md, state file, ledgers) live outside the package dir: any other change inside it needs a new receipt, and so does a .gitattributes/.gitmodules/.lfsconfig changed at the repo root or between it and a subdirectory package, unless the package opted in (update --accept-docs-descendants --reason R; record docs_descendants: true): then HEAD may also be a docs-only descendant of the receipt commit C, where no build input under the package dir changed (*.lean, lakefile.*, lake-manifest.json, lean-toolchain at any depth, the record's build_inputs globs, files the receipt's checker names; always refused: a symlink or gitlink added/changed/removed, a changed file a committed symlink points to, .gitattributes, .gitmodules, .lfsconfig, claims.yaml, and for a subdirectory package a .gitattributes/.gitmodules/.lfsconfig at the repo root or in any directory between it and the package dir; formalization.yaml keeps its derived-keys rule). The gated commit stays C; text "✓ HEAD <c12> is a docs-only descendant of <c12> (N non-build file(s): ...; opted in)"; gate/regate/comparator events and --json (and --check) add descendant_of C and docs_paths[] (<= 50). Without the opt-in a refusal the docs rule would have admitted adds the hint `update NAME --accept-docs-descendants`.
+gate      validate receipt; gate-pending -> verified-private; identical re-gate = no-op "already gated". gate/regate record the receipt's lean_toolchain and mathlib_rev[:10] into lean_toolchain/mathlib_pin when each agrees with lean-toolchain / lake-manifest.json at the receipt commit (a prefix match is unchanged; one "pins updated" line; event and JSON pins {field: {from, to}}); a receipt whose lean_toolchain or mathlib_rev (prefix-equal) disagrees with lean-toolchain / the mathlib rev in lake-manifest.json committed at its commit is refused; with no readable mathlib entry the rev is not checked and the pin is kept: "NAME: pins kept: receipt mathlib_rev X does not match lake-manifest.json at <c12> (unreadable)", JSON pins_kept {field: {receipt, manifest}}; --check reports both, nothing written. report_sha256 must equal the SHA-256 of <c12>-<job slug>-verify.redacted.log wherever found (beside the receipt, .lean-receipts/, tracked at HEAD), else refused; a <name>.gz copy (receipt --compress-log) is stream-decompressed and its UNCOMPRESSED bytes must hash to report_sha256 (never the .gz hash), the .gz to report_compressed.sha256 and the length equal report_compressed.bytes when recorded, output past that refused (gzip-bomb guard); none found: "· report_sha256 not checked (no redacted log beside the receipt)"; JSON report_log {checked, log, where[], copy[]}; the sealed log beside --receipt is copied beside the canonical .lean-receipts/<c12>-<job>.json when no copy is there, so it verifies on its own. Every check of both copies runs before either is written (a refusal writes nothing); a symlinked .lean-receipts or destination file is refused. --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target, or one resolving into .lean-receipts/ or to the formalization.yaml pointer; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine. Progress files (PROGRESS.md, state file, ledgers) live outside the package dir: any other change inside it needs a new receipt, and so does a .gitattributes/.gitmodules/.lfsconfig changed at the repo root or between it and a subdirectory package, unless the package opted in (update --accept-docs-descendants --reason R; record docs_descendants: true): then HEAD may also be a docs-only descendant of the receipt commit C, where no build input under the package dir changed (*.lean, lakefile.*, lake-manifest.json, lean-toolchain at any depth, the record's build_inputs globs, files the receipt's checker names; always refused: a symlink or gitlink added/changed/removed, a changed file a committed symlink points to, .gitattributes, .gitmodules, .lfsconfig, claims.yaml, and for a subdirectory package a .gitattributes/.gitmodules/.lfsconfig at the repo root or in any directory between it and the package dir; formalization.yaml keeps its derived-keys rule). The gated commit stays C; text "✓ HEAD <c12> is a docs-only descendant of <c12> (N non-build file(s): ...; opted in)"; gate/regate/comparator events and --json (and --check) add descendant_of C and docs_paths[] (<= 50). Without the opt-in a refusal the docs rule would have admitted adds the hint `update NAME --accept-docs-descendants`.
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN "receipt field F contains a ... (kept: ...; --refuse-private refuses such a receipt)" + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines), --check --repo DIR (validate against the checkout DIR, not the registered local_path, this call only: never saved; stderr note; JSON repo_override {path, registered_path, remote_match}, null without it; DIR must be a git work tree and, when it has remotes, one must be the package's repo (a local-path repo /p also matches Host:/p, ssh://Host/p, file:///p; DIR = the registered local_path needs no remote), else the caller vouches; a writing gate refuses --repo, exit 2: it binds the registered checkout, move that with update --path). Success (and promote --yes) ends with a results-ledger: line (JSON rl_reminder, rl_hint): lean-pkg keeps no results ledger, the outcome is in `status NAME` and `claims ledger NAME`; add it to the project's own results ledger if it keeps one (docs/lifecycle.md#results-ledger)
-  ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json   |   receipt slurm --job J --log PATH --commit SHA [--stdout JOB.out] [--stderr JOB.err] [--checker TEXT] [--repo DIR] [--redact REGEX]... [--sacct-file F] [--out PATH] [--append-readme] (no registry): writes the lower-tier receipt from a finished Slurm job; refuses (exit 1, nothing written) unless sacct's main job line is COMPLETED 0:0, the stdout's verify-log-sha256 = sha256(raw log) and pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at SHA) (no --stdout: the log's own `verify-log-sha256:` line = sha256 of the log minus that line), stderr is empty, lean_toolchain/mathlib_rev from SHA agree with any log line, sorry 0 and axioms from the log (sorry-count:/axioms: lines, else 'sorry' warnings/#print axioms output; a sorry-count: below the log's own 'sorry' warnings, or an axioms: line omitting an axiom its #print axioms output reports, is refused; universe suffixes .{u} ignored), a checker (--checker or checker:), a log commit: line equal to SHA (none: refused without --stdout; with --stdout a WARN "the verify log has no commit: line; it is bound to the commit only through lake-manifest.json", JSON log_commit_bound false), fields read from the RAW log (a redaction that removes or alters a sorry warning, #print axioms output, a build-completion line or a key: line other than checker: is refused; checker is published redacted), no committed symlink at SHA into .lean-receipts/, and no public-safety blocking hit is left after redacting /tmp/<account>-job, /scratch/<user>/ and --redact (blocking also this machine's user and host names and a bare /home/<x>, /Users/<x>); --append-readme: a symlinked or non-UTF-8 README.md refuses before writing; job_id slurm-<J>; writes .lean-receipts/<c12>-slurm-<J>.json + <c12>-slurm-<J>-verify.redacted.log (report_sha256; with --stdout also job_stdout_sha256 + manifest_sha256, additive keys gate ignores), prints the README entry (with --stdout a `- Seal:` line naming both; --append-readme: appended to .lean-receipts/README.md) and `gate NAME --check --receipt PATH`; --json {ok, receipt, log, report_sha256, job_id, sealed[] {role, path, sha256, receipt_key} (the exact files bound; systemd's `properties` is the raw unsealed capture), checks[], refusals[], ...}; --template (no other flag, no registry): print a minimal sbatch wrapper emitting every line the receipt reads (stdout seal lines, empty stderr, checker:/sorry-count:/axioms: in the log); --check --log PATH [--stdout] [--stderr] [--commit SHA] [--job J --sacct-file F]: preflight a job's files, every problem named, no sacct, nothing written, exit 0/1, --json {ok, checks[], problems[]}   |   receipt systemd (alias local) --unit U --log PATH --commit SHA [--properties-file F | --run [--memory-max 8G] [--memory-swap-max 0] [--cpu-quota 400%] [--runtime-max 4h] [--setenv K=V]... [--properties-out PATH] -- CMD...] + the same --stdout/--stderr/--checker/--repo/--redact/--out/--append-readme/--json: the same receipt from a finished systemd --user service unit; the unit state comes from --run (lean-pkg runs CMD bounded via systemd-run --user -p RemainAfterExit=yes, WorkingDirectory=--repo, so the finished unit stays loaded: properties are captured to <log>.unit.properties before it is stopped and reset; the checkout must be at SHA with no tracked change and no untracked file (less .lean-receipts/, .lake/ and the run's own files; ignored files are not bound) under the package dir before and after), --properties-file (saved `systemctl --user show U -p ...` + a Hostname= line) or live `systemctl --user show U`; refuses unless LoadState=loaded, Id=U, terminal (failed/inactive or active+exited), Result=success (oom-kill, timeout, signal named), ExecMainCode exited with ExecMainStatus 0, NRestarts 0, plus every receipt slurm seal/field/redaction check (optional stdout invocation-id = InvocationID); job_id systemd-user:<U>:<InvocationID>@<host label> (label h-<12 hex of sha256(lower-cased host name)>; the name itself is never written); also writes <c12>-<slug>-unit.properties (additive unit_properties_sha256); built-in redaction <repo>, <HOME>, /run/user/<UID>/
+  ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json   |   receipt slurm --job J --log PATH --commit SHA [--stdout JOB.out] [--stderr JOB.err] [--checker TEXT] [--repo DIR] [--redact REGEX]... [--sacct-file F] [--out PATH] [--append-readme] (no registry): writes the lower-tier receipt from a finished Slurm job; refuses (exit 1, nothing written) unless sacct's main job line is COMPLETED 0:0, the stdout's verify-log-sha256 = sha256(raw log) and pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at SHA) (no --stdout: the log's own `verify-log-sha256:` line = sha256 of the log minus that line), stderr is empty, lean_toolchain/mathlib_rev from SHA agree with any log line, sorry 0 and axioms from the log (sorry-count:/axioms: lines, else 'sorry' warnings/#print axioms output; a sorry-count: below the log's own 'sorry' warnings, or an axioms: line omitting an axiom its #print axioms output reports, is refused; universe suffixes .{u} ignored), a checker (--checker or checker:), a log commit: line equal to SHA (none: refused without --stdout; with --stdout a WARN "the verify log has no commit: line; it is bound to the commit only through lake-manifest.json", JSON log_commit_bound false), fields read from the RAW log (a redaction that removes or alters a sorry warning, #print axioms output, a build-completion line or a key: line other than checker: is refused; checker is published redacted), no committed symlink at SHA into .lean-receipts/, and no public-safety blocking hit is left after redacting /tmp/<account>-job, /scratch/<user>/ and --redact (blocking also this machine's user and host names and a bare /home/<x>, /Users/<x>); --append-readme: a symlinked or non-UTF-8 README.md refuses before writing; job_id slurm-<J>; writes .lean-receipts/<c12>-slurm-<J>.json + <c12>-slurm-<J>-verify.redacted.log (report_sha256; --compress-log: <...>.log.gz instead, deterministic gzip, report_sha256 still of the uncompressed log, additive report_compressed {format gzip, sha256 of .gz, bytes}, restore gzip -dc X.log.gz > X.log; without it a log over 90 MiB WARNs naming the flag; with --stdout also job_stdout_sha256 + manifest_sha256, additive keys gate ignores), prints the README entry (with --stdout a `- Seal:` line naming both; --append-readme: appended to .lean-receipts/README.md) and `gate NAME --check --receipt PATH`; --json {ok, receipt, log, report_sha256, job_id, sealed[] {role, path, sha256, receipt_key} (the exact files bound; systemd's `properties` is the raw unsealed capture), checks[], refusals[], ...}; --template (no other flag, no registry): print a minimal sbatch wrapper emitting every line the receipt reads (stdout seal lines, empty stderr, checker:/sorry-count:/axioms: in the log); --check --log PATH [--stdout] [--stderr] [--commit SHA] [--job J --sacct-file F]: preflight a job's files, every problem named, no sacct, nothing written, exit 0/1, --json {ok, checks[], problems[]}   |   receipt systemd (alias local) --unit U --log PATH --commit SHA [--properties-file F | --run [--memory-max 8G] [--memory-swap-max 0] [--cpu-quota 400%] [--runtime-max 4h] [--setenv K=V]... [--properties-out PATH] -- CMD...] + the same --stdout/--stderr/--checker/--repo/--redact/--out/--append-readme/--json: the same receipt from a finished systemd --user service unit; the unit state comes from --run (lean-pkg runs CMD bounded via systemd-run --user -p RemainAfterExit=yes, WorkingDirectory=--repo, so the finished unit stays loaded: properties are captured to <log>.unit.properties before it is stopped and reset; the checkout must be at SHA with no tracked change and no untracked file (less .lean-receipts/, .lake/ and the run's own files; ignored files are not bound) under the package dir before and after), --properties-file (saved `systemctl --user show U -p ...` + a Hostname= line) or live `systemctl --user show U`; refuses unless LoadState=loaded, Id=U, terminal (failed/inactive or active+exited), Result=success (oom-kill, timeout, signal named), ExecMainCode exited with ExecMainStatus 0, NRestarts 0, plus every receipt slurm seal/field/redaction check (optional stdout invocation-id = InvocationID); job_id systemd-user:<U>:<InvocationID>@<host label> (label h-<12 hex of sha256(lower-cased host name)>; the name itself is never written); also writes <c12>-<slug>-unit.properties (additive unit_properties_sha256); built-in redaction <repo>, <HOME>, /run/user/<UID>/
 comparator <name> --receipt PATH   attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op; another receipt for the same commit: --replace keeps the old one as <c12>-comparator.replaced-<stamp>.json, event comparator-replaced {replaced}. It is required by promote.
   The receipt is written by comparator-receipt on a host its policy allows (a Slurm job, a host in
