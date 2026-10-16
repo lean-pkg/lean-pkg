@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.50] - 2026-10-16
+
 ### Added
 
 - `comparator NAME --check --receipt R --repo DIR`: pre-check a comparator receipt made in a worktree or on a
@@ -42,6 +44,8 @@ change the registry schema or receipt format, always with a migration).
   `lake-manifest.json`, a `lakefile.toml` require/target there, a `lakefile.lean` naming it, or a symlink into it
   keeps it a build input, and the refusal names the reason. Unregistered nested directories count as before
   (field report).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.49] - 2026-10-16
 
