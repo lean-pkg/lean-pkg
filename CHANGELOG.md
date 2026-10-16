@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.46] - 2026-10-16
+
 ### Fixed
 
 - docs/comparator.md recommended a whole node (`--exclusive`) for type extraction on a shared cluster, against
@@ -20,6 +22,8 @@ change the registry schema or receipt format, always with a migration).
   line names the same module; a module only ever restored, or shown restored before its `Built`, is still
   refused. The `--template` shell check and comparator `build_provenance.cache_reused` use the same order
   rule (field report).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.45] - 2026-10-16
 
