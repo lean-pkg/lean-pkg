@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.48] - 2026-10-16
+
 ### Added
 
 - `search --loogle-query PATTERN`: Loogle gets PATTERN (a Lean name, term or pattern) instead of the term, whatever
@@ -35,6 +37,8 @@ change the registry schema or receipt format, always with a migration).
   (exit 2) before anything is written. `--no-sandbox` is a labelled self-check (`"trust": "self-check-only"`).
   Refused: a Challenge that declares definitions (shared ones go in `--defs FILE`), axioms outside the standard
   three, Mathlib imports (v1 is Mathlib-free). See docs/exercise.md.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.47] - 2026-10-16
 
