@@ -7,6 +7,13 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- README: concise overview mentions, each linking to its docs page, of `lean-exercise check` and `--no-sandbox`, `lean-pkg help`
+  and its topics, `receipt slurm`/`systemd` with `--compress-log` and the Slurm template's `SRC_MODE=clone` and `DEPS_TAR`,
+  comparator configuration and readiness checks, `search` flags, the pre-freeze check and the consolidation recipe; Requirements
+  states `lean-exercise`'s host needs.
+
 ## [0.7.51] - 2026-10-16
 
 ### Added
