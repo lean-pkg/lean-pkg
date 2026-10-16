@@ -346,10 +346,15 @@ extraction failure.
 **On shared cluster nodes.** The file table is per node, not per job: on a
 Slurm cluster whose nodes share a filesystem, Lake and Lean processes from
 several jobs placed on one node can still exhaust it together (ENFILE), even
-though each driver caps and backs off its own workers. Request a whole node
-(`--exclusive`) or arrange one such job per node, set `LEAN_NUM_THREADS=1` (or
-another small value) in the Slurm script, and keep `LEAN_PKG_TYPES_JOBS` (or
-`--jobs`) at 2 or less. The emitted driver honours both: it reads
+though each driver caps and backs off its own workers. The answer is fewer
+threads and workers, not a bigger allocation: set `LEAN_NUM_THREADS=1` (or
+another small value) in the Slurm script, keep `LEAN_PKG_TYPES_JOBS` (or
+`--jobs`) at 2 or less, and log `/proc/sys/fs/file-nr` so a failure shows
+the node's table. Do not request a whole node (`--exclusive`) and do not
+`--exclude` the node: size CPUs and memory from a pilot's `sacct`
+(`TotalCPU / Elapsed`, `MaxRSS`) instead, as the
+[lean-shared-cluster-verification](../skills/lean-shared-cluster-verification/SKILL.md)
+skill describes. The emitted driver honours both settings: it reads
 `LEAN_PKG_TYPES_JOBS`, and near its top it runs
 `export LEAN_NUM_THREADS="${LEAN_NUM_THREADS:-1}"`, so its Lean processes use
 one thread unless the job script sets another value, which is kept. (The
@@ -357,9 +362,12 @@ one-shot `--challenge-from-type` run on a workstation leaves
 `LEAN_NUM_THREADS` as it finds it.)
 
 ```bash
-#SBATCH --exclusive
+#SBATCH --cpus-per-task=4          # from a pilot's sacct, not a whole node
+#SBATCH --mem=16G                  # likewise
 export LEAN_NUM_THREADS=1 LEAN_PKG_TYPES_JOBS=2
+cat /proc/sys/fs/file-nr
 cd ~/lean/beta && lake build && bash /scratch/beta-types.sh /scratch/beta-types.json
+cat /proc/sys/fs/file-nr
 ```
 
 The smallest complete pair, from a smoke test:
