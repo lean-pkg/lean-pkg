@@ -33,7 +33,8 @@ Checks, all run before anything is written (every failed check is listed; any on
    (`Reused`, `Replayed`, `Unpacked`; inside the template's `lean-pkg-build:` markers when present; not after
    the module's own `Built` line, which is a warning replay) refuses: its sorry warning need not be in the log
    (lake_hygiene, `lake_cache_check`).
-   Optional log lines `commit:`, `job-id:`, `generated-at:` must agree / parse. A log with no `commit:` line is
+   Optional log lines `commit:`, `job-id:`, `generated-at:`, `src-head:` (the template's SRC_MODE=clone: the
+   full SHA, must be --commit) must agree / parse. A log with no `commit:` line is
    refused without --stdout (the in-log seal binds it to nothing) and WARNed with it (`log_commit_bound: false`).
    Every field but `checker` is read from the RAW log. Without `generated-at:` the
    receipt is stamped with the time of writing; a re-run whose receipt matches the one already written in
@@ -83,7 +84,7 @@ SHA_KEY = "verify-log-sha256"
 LARGE_LOG_WARN_BYTES = 90 << 20
 PRE_KEY, POST_KEY = "pre-manifest-sha256", "post-manifest-sha256"
 LOG_KEYS = ("lean-toolchain", "mathlib-rev", "checker", "sorry-count", "axioms", "commit", "job-id",
-            "generated-at")
+            "generated-at", "src-head")
 # (regex, replacement): the per-job temporary account prefix and the scratch user directory a Slurm verify
 # script prints (`/tmp/<account>-job-...`, `/tmp/<account>-job123/`, `/scratch/<user>/`).
 USER_TOKEN = "<USER>"
@@ -148,6 +149,18 @@ LEAN_PATH_CMD=${LEAN_PATH_CMD:-"lake env printenv LEAN_PATH"}
 CHECKER=${CHECKER:-"verify.sbatch (lake build; #print axioms)"}
 # Run the tools inside the job container when the node needs one, e.g. RUN="apptainer exec lean.sif".
 RUN=${RUN:-}
+# How the tree committed at COMMIT reaches the work directory. archive (the default): `git archive`, so the
+# job's tree has no .git. clone: a new repository there holding only COMMIT and its history (fetched over the
+# file transport from the submitting checkout, never the network; its own object store, so nothing is shared
+# with the checkout and no untracked or ignored file comes along), checked out at COMMIT; the job fails unless
+# HEAD is COMMIT and `git status` is empty. Use clone for a VERIFY_CMD that reads `git rev-parse HEAD`.
+SRC_MODE=${SRC_MODE:-archive}
+# Optional: a tarball (any compression tar reads) holding .lake/packages, the dependencies' checkouts and
+# builds, restored before the build so the job need not fetch and build Mathlib again. Only .lake/packages is
+# taken from it (anything else in it is ignored); the job fails when the restore changed anything else in the
+# tree, or when a dependency's build directory holds one of the package's root namespaces. The package itself
+# is still compiled fresh: the checks below are unchanged. The log records the tarball's sha256, never its path.
+DEPS_TAR=${DEPS_TAR:-}
 
 JOB=${SLURM_JOB_ID:?run this under sbatch}
 PKG_DIR=${PKG_DIR:-${SLURM_SUBMIT_DIR:-$PWD}}
@@ -158,16 +171,17 @@ LOG="$OUT_DIR/verify-$JOB.log"
 # Node-local work directory. The receipt redacts /tmp/<user>-job<J> and /scratch/<user>/ by itself; a
 # path elsewhere that appears in the log needs `--redact REGEX` at receipt time.
 WORK=${SLURM_TMPDIR:-/tmp/${USER:-user}-job-$JOB}
-SRC="$WORK/src"
+STAGE="$WORK/src"
+DEPS_STAGE="$WORK/deps"
 # Lake's local artifact cache restores a module built earlier (`Reused`) without its sorry warning, so the job
 # gets an empty cache of its own and the cache switched off. LAKE_CACHE_DIR="" would NOT disable it (Lake then
 # uses .lake/cache), and a lakefile's `enableArtifactCache = true` wins over LAKE_ARTIFACT_CACHE=false: the
 # empty directory leaves it nothing to restore. (--no-cache / LAKE_NO_CACHE only govern downloads.)
 export LAKE_CACHE_DIR="$WORK/lake-cache"
 export LAKE_ARTIFACT_CACHE=false
-rm -rf "$SRC" "$LAKE_CACHE_DIR"
-mkdir -p "$SRC" "$LAKE_CACHE_DIR"
-trap 'rm -rf "$SRC" "$LAKE_CACHE_DIR"' EXIT
+rm -rf "$STAGE" "$DEPS_STAGE" "$LAKE_CACHE_DIR"
+mkdir -p "$STAGE" "$LAKE_CACHE_DIR"
+trap 'rm -rf "$STAGE" "$DEPS_STAGE" "$LAKE_CACHE_DIR"' EXIT
 # Stage the Lean runtime (the elan toolchain) and the Mathlib cache node-local before the build, e.g.
 # copy the toolchain under "$WORK/elan" and export ELAN_HOME="$WORK/elan" PATH="$WORK/elan/bin:$PATH";
 # a shared filesystem under many parallel readers is slow and can fail the build.
@@ -177,9 +191,32 @@ export MATHLIB_CACHE_DIR=${MATHLIB_CACHE_DIR:-$WORK/mathlib-cache}
 export LEAN_NUM_THREADS=${LEAN_NUM_THREADS:-3}
 
 # The committed tree at COMMIT, never the working tree.
-git -C "$PKG_DIR" archive --format=tar "$COMMIT:./" | tar -xf - -C "$SRC"
+case "$SRC_MODE" in
+  archive)
+    git -C "$PKG_DIR" archive --format=tar "$COMMIT:./" | tar -xf - -C "$STAGE"
+    SRC="$STAGE"
+    ;;
+  clone)
+    COMMIT=$(git -C "$PKG_DIR" rev-parse --verify --quiet "$COMMIT^{commit}")
+    prefix=$(git -C "$PKG_DIR" rev-parse --show-prefix)
+    # No template hooks, no hooks at checkout, only the file transport.
+    git init -q --template= "$STAGE"
+    GIT_ALLOW_PROTOCOL=file git -C "$STAGE" -c protocol.version=2 fetch -q --no-tags --no-recurse-submodules \
+      "$(git -C "$PKG_DIR" rev-parse --show-toplevel)" "$COMMIT"
+    git -C "$STAGE" -c core.hooksPath=/dev/null -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
+    SRC="$STAGE${prefix:+/${prefix%/}}"
+    ;;
+  *)
+    echo "error: SRC_MODE is archive or clone, not '$SRC_MODE'" >&2
+    exit 1
+    ;;
+esac
 cd "$SRC"
 echo "pre-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
+deps_restore=none
+if [ -n "$DEPS_TAR" ]; then
+  deps_restore="tar $(sha256sum "$DEPS_TAR" | cut -d' ' -f1)"
+fi
 
 {
   echo "commit: $COMMIT"
@@ -190,12 +227,69 @@ echo "pre-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
   echo "fs-file-nr-before: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)"
   echo "lake-cache-dir: fresh (empty, job-local)"
   echo "lake-artifact-cache: $LAKE_ARTIFACT_CACHE"
+  echo "src-mode: $SRC_MODE"
+  if [ "$SRC_MODE" = clone ]; then
+    echo "src-head: $(git rev-parse HEAD)"
+  fi
+  echo "deps-restore: $deps_restore"
 } >"$LOG"
+if [ "$SRC_MODE" = clone ]; then
+  if [ "$(git rev-parse HEAD)" != "$COMMIT" ]; then
+    echo "error: the clone's HEAD is not COMMIT $COMMIT" >>"$LOG"
+    exit 1
+  fi
+  if [ -n "$(git -C "$STAGE" status --porcelain --untracked-files=all --ignored)" ]; then
+    echo "error: the clone at COMMIT is not clean (git status --porcelain is not empty)" >>"$LOG"
+    exit 1
+  fi
+fi
+""" + lh.SHADOW_CHECK_SH + r"""# The dependency restore may change .lake/packages and nothing else: a listing and the content hashes of the
+# rest of the tree (.lake itself aside, which it may create) are compared before and after. (No directory
+# sizes or times: creating .lake changes those of the package directory on some filesystems.)
+deps_snapshot() {
+  find . -path ./.lake/packages -prune -o -path ./.lake -o -printf '%y %m %p -> %l\n' | LC_ALL=C sort
+  find . -path ./.lake/packages -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum
+}
+if [ -n "$DEPS_TAR" ]; then
+  if [ -L .lake ] || [ -e .lake/packages ] || [ -L .lake/packages ]; then
+    echo "error: DEPS_TAR: the committed tree already holds .lake/packages (or .lake is a symlink)" >>"$LOG"
+    exit 1
+  fi
+  before=$(deps_snapshot | sha256sum)
+  mkdir -p "$DEPS_STAGE"
+  tar -xf "$DEPS_TAR" -C "$DEPS_STAGE" --no-same-owner
+  if [ -L "$DEPS_STAGE/.lake" ] || [ -L "$DEPS_STAGE/.lake/packages" ] || [ ! -d "$DEPS_STAGE/.lake/packages" ]; then
+    echo "error: DEPS_TAR holds no .lake/packages directory (a symlink is not one)" >>"$LOG"
+    exit 1
+  fi
+  mkdir -p .lake
+  mv "$DEPS_STAGE/.lake/packages" .lake/packages
+  rm -rf "$DEPS_STAGE"
+  if [ "$(deps_snapshot | sha256sum)" != "$before" ]; then
+    echo "error: DEPS_TAR: the restore changed the tree outside .lake/packages" >>"$LOG"
+    exit 1
+  fi
+  # A dependency's build directory holding a root namespace would shadow the package (see LEAN_PATH below).
+  shadowed=""
+  for r in $(lake_root_namespaces); do
+    hit=$(find .lake/packages \( -path "*/build/lib/lean/$r" -o -path "*/build/lib/lean/$r.olean" \
+      -o -path "*/build/lib/lean/$r.ilean" \) -print -quit)
+    if [ -n "$hit" ]; then
+      echo "deps-restore-shadow: $hit" >>"$LOG"
+      shadowed="$shadowed $r"
+    fi
+  done
+  if [ -n "$shadowed" ]; then
+    echo "error: DEPS_TAR: a dependency's build directory holds the package's root namespace(s):$shadowed" >>"$LOG"
+    exit 1
+  fi
+  echo "deps-restore-check: ok (only .lake/packages changed; no root namespace in it)" >>"$LOG"
+fi
 if [ -e .lake/build ] || [ -n "$(ls -A "$LAKE_CACHE_DIR")" ]; then
   echo "error: not a fresh build: the committed tree holds .lake/build, or the Lake cache is not empty" >>"$LOG"
   exit 1
 fi
-""" + lh.SHADOW_CHECK_SH + r"""echo "lean-pkg-build: begin" >>"$LOG"
+echo "lean-pkg-build: begin" >>"$LOG"
 $RUN bash -c "$VERIFY_CMD" >>"$LOG" 2>&1
 echo "lean-pkg-build: end" >>"$LOG"
 # A root-package module Lake restored instead of compiling fails the job: its sorry warning need not be in the
@@ -490,7 +584,8 @@ def parse_log(text: str) -> tuple[dict, list[str]]:
 
 
 # The log keys whose value the receipt takes from the raw log; `checker:` alone is published as redacted.
-RAW_KEYS = ("lean-toolchain", "mathlib-rev", "sorry-count", "axioms", "commit", "job-id", "generated-at")
+RAW_KEYS = ("lean-toolchain", "mathlib-rev", "sorry-count", "axioms", "commit", "job-id", "generated-at",
+            "src-head")
 
 
 def _evidence_counts(text: str) -> tuple[int, int, int, int]:
@@ -817,6 +912,10 @@ def check_fields(fields: dict, *, commit: str | None, toolchain: str | None, man
         claimed = fields["commit"].lower()
         if len(claimed) < 7 or not commit.startswith(claimed):
             refusals.append(f"verify log: `commit:` {fields['commit']!r} is not --commit {c12}")
+    # `src-head:` (the template's SRC_MODE=clone): the HEAD of the job's clone, a full SHA that must be --commit.
+    if commit is not None and "src-head" in fields and fields["src-head"].lower() != commit.lower():
+        refusals.append(f"verify log: `src-head:` {fields['src-head']!r} is not --commit {c12} (the job's clone "
+                        f"was not checked out at the commit)")
     if "job-id" in fields and check_log_job_id is not None:
         why = check_log_job_id(fields["job-id"])
         if why:
