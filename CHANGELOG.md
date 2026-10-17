@@ -23,6 +23,25 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   CONTRIBUTING.md. The bug and field-report templates ask which track the
   reporter is on: a paper, or a Lean package (a Mathlib contribution or a
   public GitHub repository with no manuscript).
+- docs: `docs/trust-model.md`, the published trust model. One table says what
+  each artifact certifies and does not (lower-tier, Slurm, systemd and
+  comparator receipts, the olean manifest, the definition-hole sign-off,
+  `coverage.yaml` and R11, the page, the index entry, Palomar, publication
+  holds) and whom it trusts; then the trust chain, the threats covered and the
+  ones where lean-pkg relies on honesty (validation never re-runs Lean; a
+  `slurm-<J>` job id cannot be corroborated from outside the cluster), and
+  "Re-verify a page yourself": clone, check the pins, check the receipt
+  hashes with `index check` through a scratch index, rebuild, and re-run the
+  comparator, tested end to end on a small package with no registry. Linked
+  from the index, receipts, page and index docs.
+
+### Fixed
+
+- `page` and `coverage`: a `comparator-receipt/2` receipt, what
+  `comparator-receipt` writes, is now listed in the page's Evidence table, and
+  one run inside a Slurm job (its `host_policy` names the job) backs that job
+  for the Easley acknowledgment. Both used to recognise only schema 1, so a
+  current comparator receipt was missing from the table.
 
 ## [0.9.0] - 2026-10-17
 

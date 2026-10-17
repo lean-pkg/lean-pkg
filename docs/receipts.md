@@ -28,6 +28,10 @@ This work was completed in part with resources provided by the [Auburn Universit
 
 ## What a passing pair does and does not prove
 
+The full account, with the trusted parties, the threats covered and not
+covered, and how a third party re-verifies a page, is the
+[Trust model](trust-model.md).
+
 | Proves | Does not prove |
 |---|---|
 | the listed theorems compile, sorry-free, with `propext`, `Quot.sound`, `Classical.choice` only | that the Lean statement matches the paper's intent (human fidelity review) |
