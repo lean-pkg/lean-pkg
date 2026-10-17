@@ -19,3 +19,5 @@ changes:
       transport").
     breaking: false
     changelog: Added
+# Read for this record, nothing for a package author: proposal 0004, a math LTS stack, as a draft (#238).
+no_author_change: [238]
