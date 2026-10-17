@@ -51,7 +51,7 @@ Output: `job_id` is `slurm-<J>`; the redacted log `<c12>-slurm-<J>-verify.redact
 the receipt, the log goes beside it). `report_sha256` is the SHA-256 of the redacted log as written. With
 `--compress-log` the log is written as `<...>-verify.redacted.log.gz` (deterministic gzip) instead: `report_sha256`
 is still the SHA-256 of the uncompressed log, and the additive `report_compressed` {format: gzip, sha256 of the
-.gz, bytes uncompressed} binds the .gz (restore: `gzip -dc X.log.gz > X.log`). A
+.gz, bytes = the decoded length, not the .gz size} binds the .gz (restore: `gzip -dc X.log.gz > X.log`). A
 differing file already at either path is refused. The README entry block is printed, and with
 `--append-readme` appended to `README.md` beside the receipt. With `--stdout` the seal evidence is persisted
 (#72): the receipt gains the additive keys `job_stdout_sha256` (the job stdout file) and `manifest_sha256`
@@ -1997,7 +1997,7 @@ def add_common_flags(s, kind: str, name_hint: str) -> None:
                    help="write the redacted log as deterministic gzip <...>-verify.redacted.log.gz (level 9, mtime 0, "
                         "no file name) instead of the plain .log; report_sha256 stays the SHA-256 of the "
                         "uncompressed log and the receipt gains report_compressed {format: gzip, sha256 of the .gz, "
-                        "bytes uncompressed}; gate decompresses (bounded) and checks report_sha256. Restore: "
+                        "bytes = decoded length, not the .gz size}; gate decompresses (bounded) and checks report_sha256. Restore: "
                         "gzip -dc X.log.gz > X.log. Without it, a log over 90 MiB prints a WARN naming this flag")
     s.add_argument("--append-readme", action="store_true",
                    help="append the entry block to README.md beside the receipt (created if absent; an entry "

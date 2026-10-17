@@ -3524,7 +3524,7 @@ def copy_comparator(repo: pathlib.Path, commit: str, src: pathlib.Path,
 REPORT_LOG_SUFFIX = "-verify.redacted.log"
 # A compressed sealed log (`receipt slurm|systemd --compress-log`) is `<log name>.gz`: deterministic gzip
 # (level 9, mtime 0, no file name in the header). report_sha256 stays the SHA-256 of the UNCOMPRESSED log;
-# the receipt's additive `report_compressed` {format: gzip, sha256: <of the .gz>, bytes: <uncompressed
+# the receipt's additive `report_compressed` {format: gzip, sha256: <of the .gz>, bytes: <decoded (uncompressed)
 # length>} binds the .gz itself and bounds its decompression.
 REPORT_GZ_SUFFIX = ".gz"
 REPORT_GZ_LEVEL = 9

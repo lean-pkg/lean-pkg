@@ -100,6 +100,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- docs/receipts.md, "Checking a compressed log yourself": the three bindings of
+  a `--compress-log` receipt in one table (`report_compressed.sha256` hashes
+  the `.gz`; `report_sha256` hashes the decoded bytes; `report_compressed.bytes`
+  is the decoded length, not the `.gz` size), the supported check
+  (`gate NAME --check`, `receipt check`) and a stand-alone stdlib snippet with
+  a bounded read, run in a test. The `report_compressed` field text in the
+  receipt docs and in `receipt slurm|systemd --compress-log --help` now says
+  "decoded length". No behaviour change.
 - FAQ: "What does lean-pkg add now that Lean has `lake check --paranoid`?"
   Lean v4.35.0 already ships `lake check`, `lake comparator` and the
   bundled kernels behind `--paranoid`; the entry separates that from what
