@@ -472,3 +472,66 @@ def test_validate_accepts_the_fields_and_rejects_bad_values(lp, env):
     errs = lp.validate_registry(reg)
     assert any("docs_descendants: must be true or false" in e for e in errs)
     assert sum("build_inputs" in e for e in errs) == 2
+
+
+# --- with the opt-in: Lake build caches and compiled artifacts are build inputs (#5) --------------------
+# Lake reads .lake/ (oleans, traces, hashes, packages and their builds) and compiled artifacts; a committed
+# one is never a docs-only change, whatever build_inputs says, and not as evidence under .lean-receipts/.
+
+LAKE_CACHE_CASES = {
+    "olean": ".lake/build/lib/lean/Injected.olean",
+    "trace": ".lake/build/lib/lean/Alpha.trace",
+    "hash": ".lake/build/lib/lean/Alpha.olean.hash",
+    "packages": ".lake/packages/dep/.lake/build/lib/lean/Dep.olean",
+    "packages-src": ".lake/packages/dep/README.md",
+    "nested-package": "sub/.lake/build/lib/lean/Sub.ilean",
+    "lake-dir-text": ".lake/notes.md",
+    "top-olean": "Foo.olean",
+    "olean-private": "lib/Foo.olean.private",
+    "olean-server": "Foo.olean.server",
+    "ir": "build/ir/Foo.c",
+    "ir-sig": "Foo.ir.sig",
+    "ltar": "Foo.ltar",
+    "bc-o": "Foo.bc.o",
+    "shared-lib": "libFoo.so",
+    "dylib": "libFoo.dylib",
+    "static-lib": "libFoo.a",
+    "case-folded": ".LAKE/build/lib/lean/X.OLEAN",
+    "evidence-lake": ".lean-receipts/.lake/build/lib/lean/X.olean",
+    "evidence-olean": ".lean-receipts/X.olean",
+}
+
+
+@pytest.mark.parametrize("globs", [None, ["**/*.lean"], ["*.lean", "lean/**"]])
+@pytest.mark.parametrize("case", sorted(LAKE_CACHE_CASES))
+def test_opt_in_refuses_lake_cache_and_compiled_artifacts(lp, env, case, globs):
+    opt_in(env, build_inputs=globs)
+    r = make_receipt(env.repo_a)
+    path = LAKE_CACHE_CASES[case]
+    head = commit_files(env.repo_a, {"README.md": "x\n", path: "cache bytes\n"}, "add cache")
+    pkg = read_reg(env)["packages"]["alpha"]
+    ok, note, docs = lp.package_descendant(env.repo_a, r["commit"], head, pkg)
+    assert not ok and docs is None, note
+    assert f"{path} (build cache/artifact" in note, note
+
+
+@pytest.mark.parametrize("case", ["evidence-lake", "evidence-olean"])
+def test_evidence_only_rule_refuses_lake_cache_under_lean_receipts(lp, env, case):
+    r = make_receipt(env.repo_a)
+    path = LAKE_CACHE_CASES[case]
+    head = commit_files(env.repo_a, {path: "cache bytes\n"}, "add cache")
+    ok, note = lp.evidence_only_descendant(env.repo_a, r["commit"], head)
+    assert not ok and f"{path} (build cache/artifact" in note, note
+
+
+def test_opt_in_lake_rule_still_admits_docs_and_evidence(lp, env):
+    opt_in(env, build_inputs=["**/*.lean"])
+    r = make_receipt(env.repo_a)
+    head = commit_files(env.repo_a, {"README.md": "x\n", "docs/lake.md": "about .lake and *.olean\n",
+                                     "docs/lakefile-notes.md": "y\n", **EVIDENCE_FILES})
+    pkg = read_reg(env)["packages"]["alpha"]
+    ok, note, docs = lp.package_descendant(env.repo_a, r["commit"], head, pkg)
+    assert ok and docs == ["README.md", "docs/lake.md", "docs/lakefile-notes.md"], note
+    ev = commit_files(env.repo_a, {".lean-receipts/abc123def456-slurm-10.json": "{}\n"}, "evidence")
+    ok, note = lp.evidence_only_descendant(env.repo_a, head, ev)
+    assert ok, note
