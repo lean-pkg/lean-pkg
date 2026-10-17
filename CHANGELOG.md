@@ -22,6 +22,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   expected-reason check. `ok` and the exit code do not change; `*.lean`,
   `*.olean` and `*.ilean` are not matched (#239).
 
+### Fixed
+
+- `lean_pkg.dup_constants` resolves a project's dependencies from
+  lake-manifest.json as Lake lays them out: a `path` package at its `dir`
+  (relative to the manifest's directory, e.g. `vendor/NAME`) and a `git`
+  package at `<packagesDir>/<name>/<subDir>` when it has a `subDir`. Before,
+  every package was looked up at `<packagesDir>/<name>`, so a project with
+  vendored path dependencies was refused before the duplicate audit. A
+  `dir`, `subDir` or `packagesDir` that is absolute, leaves its base or
+  goes through a symlink is refused; no lakefile is run.
+
 ## [0.12.0] - 2026-10-17
 
 ### Added
