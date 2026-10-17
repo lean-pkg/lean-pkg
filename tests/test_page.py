@@ -281,6 +281,93 @@ def test_a_non_slurm_receipt_never_backs_easley(lp, env, capsys):
     assert rc == 1 and "compute[0].jobs" in err
 
 
+def test_slurm_job_of_accepts_only_a_slurm_spelling_or_a_corroborated_comparator_job():
+    from lean_pkg.coverage import slurm_job_of
+    assert slurm_job_of({"job_id": "slurm-5581013"}) == "slurm-5581013"
+    assert slurm_job_of({"job_id": "slurm-5581013_3"}) == "slurm-5581013_3"
+    # a bare number says nothing about where it ran; a lower-tier receipt has no field to corroborate it
+    assert slurm_job_of({"job_id": "5581013", "sorry_count": 0, "axioms": []}) is None
+    for junk in ("slurm-abc", "slurm-", "5581013x", "easley-5581013", "local-host-5581013", "", None, 5581013):
+        assert slurm_job_of({"job_id": junk}) is None
+    comp = {"schema": "comparator-receipt/1", "job_id": "5581013"}
+    assert slurm_job_of(comp) is None                                   # no host policy: not corroborated
+    assert slurm_job_of({**comp, "host_policy": "Slurm job 5581013 (SLURM_JOB_ID set)"}) == "slurm-5581013"
+    assert slurm_job_of({**comp, "host_policy": "Slurm job 999 (SLURM_JOB_ID set)"}) is None
+
+
+def test_a_bare_numeric_job_id_never_backs_easley_and_the_refusal_names_it(lp, env, capsys):
+    prepare(env, easley=True, job="slurm-5581013", receipt_job="5581013")
+    rc, _out, err = run(lp, env, capsys, "page", "beta")
+    assert rc == 1 and "no Slurm receipt" in err and "slurm-5581013" in err
+    assert "-5581013.json has job_id '5581013', a bare number" in err
+    assert "lean-pkg receipt slurm --job 5581013" in err
+    rc, data = cov_check(lp, env, capsys)
+    assert rc == 1 and any("a bare number" in e for e in data["errors"])
+    data, line = publish(lp, env, capsys)                  # the reason reaches the checklist, not a count
+    assert line[0]["status"] == "fail" and "a bare number" in line[0]["label"]
+    assert "no Slurm receipt" in line[0]["label"] and any("a bare number" in p for p in data["page"]["problems"])
+
+
+def test_a_junk_job_id_is_refused_without_a_bare_number_hint(lp, env, capsys):
+    prepare(env, easley=True, job="slurm-5581013", receipt_job="5581013x")
+    rc, _out, err = run(lp, env, capsys, "page", "beta")
+    assert rc == 1 and "no Slurm receipt" in err and "bare number" not in err
+
+
+def _gated_root_with_easley_readme(env, job: str = "slurm-5581013") -> str:
+    """beta as an adopted repository ships: the gated root already carries a README with the lean-pkg credit
+    and an Easley sentence, but no coverage.yaml and no page block; both receipts are bound to the root and
+    committed in evidence-only descendants."""
+    from lean_pkg.page import CREDIT, EASLEY
+    repo = env.repo_b
+    shutil.rmtree(repo / ".lean-receipts")
+    (repo / ".lean-receipts").mkdir()
+    files = {"CITATION.cff": CITATION, "LICENSE": MIT_TEXT, "lake-manifest.json": MATHLIB_MANIFEST,
+             "README.md": f"# beta\n\n{CREDIT}\n\n{EASLEY}\n"}
+    for rel, text in files.items():
+        (repo / rel).write_text(text)
+    _git(repo, "add", "-A", "--", *files)
+    _git(repo, "commit", "-q", "-m", "root")
+    root = repo_head(repo)
+    comp = f".lean-receipts/{root[:12]}-comparator.json"
+    (repo / comp).write_text(json.dumps(make_comparator_receipt(repo), indent=2))
+    lower = f".lean-receipts/{root[:12]}-{job}.json"
+    (repo / lower).write_text(json.dumps(make_receipt(repo, job_id=job), indent=2))
+    _git(repo, "add", "-f", lower)
+    _git(repo, "commit", "-q", "-m", "gate receipt")
+    _git(repo, "add", "-f", ".lean-receipts")
+    _git(repo, "commit", "-q", "-m", "comparator receipt")
+    reg = read_reg(env)
+    reg["packages"]["beta"]["gate"].update(receipt=lower, comparator=comp)
+    reg["packages"]["beta"].update(license_spdx="MIT")
+    write_reg(env, reg)
+    return root
+
+
+def test_an_adopted_root_with_an_easley_readme_adopts_the_page_after_the_gate(lp, env, capsys):
+    """No chicken-and-egg: coverage.yaml and the page block are committed after the receipts, and the
+    docs-only opt-in keeps both tiers bound to the gated root (docs/page.md)."""
+    root = _gated_root_with_easley_readme(env)
+    data, line = publish(lp, env, capsys)                  # not adopted, Easley sentence unbacked: fail
+    assert line[0]["status"] == "fail" and "no Slurm receipt backs it" in line[0]["label"]
+    assert "--accept-docs-descendants" in line[0]["label"]  # the route is named
+    assert run(lp, env, capsys, "update", "beta", "--accept-docs-descendants", "--reason",
+               "README and coverage.yaml follow the gate")[0] == 0
+    data, line = publish(lp, env, capsys)
+    assert line[0]["status"] == "fail" and "--accept-docs-descendants" not in line[0]["label"]
+    doc = json.loads(json.dumps(COVERAGE))
+    doc["compute"] = [{"cluster": "easley", "jobs": ["slurm-5581013"]}]
+    (env.repo_b / "coverage.yaml").write_text(yaml.safe_dump(doc, sort_keys=False))
+    _git(env.repo_b, "add", "coverage.yaml")
+    _git(env.repo_b, "commit", "-q", "-m", "coverage")
+    assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
+    _git(env.repo_b, "commit", "-q", "-am", "page block")
+    data, line = publish(lp, env, capsys)
+    assert line[0]["status"] == "pass" and data["page"] == {"status": "pass", "adopted": True, "problems": []}
+    bound = [c for c in data["checklist"] if c["label"].startswith("gate receipt bound to HEAD")]
+    assert bound and bound[0]["status"] == "pass" and f"docs-only descendant of {root[:12]}" in bound[0]["label"]
+
+
 # --- coverage check -------------------------------------------------------------------------------
 
 def cov_check(lp, env, capsys, *argv):

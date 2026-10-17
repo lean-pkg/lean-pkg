@@ -340,6 +340,20 @@ def slurm_jobs_at_head(repo: pathlib.Path) -> dict[str, str]:
     return out
 
 
+def bare_job_receipts(repo: pathlib.Path) -> dict[str, str]:
+    """{slurm-<J>: receipt path} for each receipt tracked at HEAD whose job_id is the bare number J and that
+    slurm_job_of does not accept: a near miss to name in a refusal, never backing. A bare number says
+    nothing about where it ran (a process id is a number too); `receipt slurm` writes `slurm-<J>` only
+    after sacct shows the job COMPLETED."""
+    out: dict[str, str] = {}
+    for rel in tracked_receipts(repo):
+        rec, _raw = receipt_at_head(repo, rel)
+        job = rec.get("job_id") if rec else None
+        if isinstance(job, str) and re.fullmatch(r"\d+(?:_\d+)?", job) and not slurm_job_of(rec):
+            out.setdefault(f"slurm-{job}", rel)
+    return out
+
+
 def compute_backing(doc: dict, repo: pathlib.Path) -> tuple[dict[str, list[str]], list[str]]:
     """({cluster: [backed job ids]}, problems): every listed job must be a Slurm receipt tracked at HEAD."""
     jobs = slurm_jobs_at_head(repo)
@@ -348,8 +362,13 @@ def compute_backing(doc: dict, repo: pathlib.Path) -> tuple[dict[str, list[str]]
     for c in doc.get("compute") or []:
         missing = [j for j in c["jobs"] if j not in jobs]
         if missing:
+            near = bare_job_receipts(repo)
+            hint = "".join(
+                f"; {near[j]} has job_id {j.removeprefix('slurm-')!r}, a bare number, which is not accepted as a "
+                f"Slurm job: write the receipt with `lean-pkg receipt slurm --job {j.removeprefix('slurm-')}` "
+                f"(it checks sacct and writes job_id {j})" for j in missing if j in near)
             problems.append(f"compute ({c['cluster']}): no Slurm receipt tracked at HEAD under .lean-receipts/ "
-                            f"has job_id {', '.join(missing)} (commit the receipt, or drop the job)")
+                            f"has job_id {', '.join(missing)} (commit the receipt, or drop the job){hint}")
         else:
             backed[c["cluster"]] = list(c["jobs"])
     return backed, problems

@@ -11,6 +11,22 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `publish --dry-run`: the `page cannot be rendered` line now carries the
+  reasons, not only the count line of a multi-line refusal (it showed
+  `coverage.yaml at HEAD: 1 problem(s):` and nothing after it). JSON
+  `page.problems` lists every reason.
+- `page` / `coverage check` / `publish --dry-run`: an Easley `compute` job
+  `slurm-<J>` with no Slurm receipt now names the committed receipt whose
+  `job_id` is the bare number `<J>`, if one exists. It says that a bare
+  number is not accepted as a Slurm job and points at `lean-pkg receipt slurm
+  --job <J>`. A bare number still never backs the sentence. Only `slurm-<J>`
+  does, or a comparator receipt whose `host_policy` names Slurm job `<J>`.
+- `publish --dry-run`: for a package without a page whose README has an
+  unbacked Easley sentence, the line names the docs-only opt-in
+  (`update NAME --accept-docs-descendants`) when the package lacks it. That
+  opt-in lets README.md and coverage.yaml be committed after the gated
+  commit. The ✗ is unchanged. docs/page.md describes this route for
+  adopted repositories.
 - `gate` / `gate --check` / `comparator`: `comparator log missing: <rel>`
   now names the package checkout and the absolute path tried, says that
   comparator logs resolve relative to the checkout only (never beside the

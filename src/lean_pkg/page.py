@@ -736,14 +736,23 @@ def publish_item(pkg: dict, repo) -> tuple[tuple[str, str], dict]:
         problems = [p for p in problems if "no page block" not in p] or []
         easley = [p for p in problems if "Easley" in p]
         mark = "✗" if easley else "WARN"
+        # The route: adopt the page (coverage.yaml with compute, then --write); committing README.md and
+        # coverage.yaml after the gated commit keeps the receipts binding only under the docs-only opt-in.
+        hint = (f"; README.md and coverage.yaml committed after the gated commit keep the receipts binding only "
+                f"with the docs-only opt-in (`lean-pkg update {name} --accept-docs-descendants --reason TEXT`)"
+                if easley and pkg.get("docs_descendants") is not True else "")
         label = (f"no verification page: `lean-pkg page {name} --write` (docs/page.md)"
-                 + (f"; {'; '.join(problems)}" if problems else ""))
+                 + (f"; {'; '.join(problems)}" if problems else "") + hint)
         return (mark, label), {"status": "fail" if easley else "warn", "adopted": False, "problems": problems}
     try:
         block, facts, _w = render(pkg, repo)
     except (core.Fail, core.UsageError) as e:
-        msg = str(e).split("\n", 1)[0]
-        return ("✗", f"page cannot be rendered: {msg[:200]}"), {"status": "fail", "adopted": True, "problems": [msg]}
+        # A multi-line refusal (coverage.yaml's) puts only a count on its first line: show the reasons too.
+        lines = [x.strip() for x in str(e).splitlines() if x.strip()] or [type(e).__name__]
+        reasons = lines[1:] or lines
+        shown = " ".join(lines[:1] + ["; ".join(lines[1:])] if len(lines) > 1 else lines)
+        label = "page cannot be rendered: " + (shown if len(shown) <= 600 else shown[:597] + "...")
+        return ("✗", label), {"status": "fail", "adopted": True, "problems": reasons}
     problems = readme_problems(readme, block, facts["easley"]["backed"])
     if problems:
         return ("✗", f"page: {'; '.join(problems)}"), {"status": "fail", "adopted": True, "problems": problems}
