@@ -11,11 +11,13 @@
 # --- set up -----------------------------------------------------------------------------------------
 
 lean-pkg new:
-  - cmd: lean-pkg new my-proof
-    say: Scaffold the package my-proof (library MyProof, Mathlib) in ./my-proof and git init it; the quickstart takes it from there.
+  - cmd: lean-pkg new my-paper-lean
+    say: Scaffold a companion to a paper (kind paper, the default; library MyPaperLean, Mathlib) in ./my-paper-lean and git init it; its coverage.yaml waits for the paper's title and rows, then `formalization anchor`.
     output: |
-      created my-proof/: package my-proof, library MyProof, v4.35.0-rc2, Mathlib v4.35.0-rc2; 13 files, git initialized, nothing committed, no registry read or written
-  - cmd: lean-pkg new my-proof --no-mathlib --author "Ada Lovelace" --license MIT
+      created my-paper-lean/: package my-paper-lean (kind paper), library MyPaperLean, v4.35.0-rc2, Mathlib v4.35.0-rc2; 15 files, git initialized, nothing committed, no registry read or written
+  - cmd: lean-pkg new my-proof --kind library
+    say: Scaffold a library (its coverage.yaml lists the example as the main result); the quickstart takes it from there.
+  - cmd: lean-pkg new my-proof --kind library --no-mathlib --author "Ada Lovelace" --license MIT
     say: The same in core Lean, with the author and the license named.
 
 lean-pkg registry init:

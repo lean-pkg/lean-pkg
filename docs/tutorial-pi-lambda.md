@@ -73,11 +73,12 @@ measures agree form a λ-system containing 𝒫.
 
 ```bash
 cd ~/src
-lean-pkg new pi-lambda --author "A. Mathematician"
+lean-pkg new pi-lambda --kind library --author "A. Mathematician"
 ```
 
 ```text
-created pi-lambda/: package pi-lambda, library PiLambda, v4.35.0-rc2, Mathlib v4.35.0-rc2; 13 files, git initialized, nothing committed, no registry read or written
+created pi-lambda/: package pi-lambda (kind library), library PiLambda, v4.35.0-rc2, Mathlib v4.35.0-rc2; 15 files, git initialized, nothing committed, no registry read or written
+author: A. Mathematician (from --author; CITATION.cff, REUSE.toml)
 next:
   cd pi-lambda
   lake update && lake exe cache get
@@ -87,6 +88,8 @@ next:
 then verify and render the page: docs/quickstart.md (https://lean-pkg.github.io/lean-pkg/quickstart.html)
 ```
 
+`--kind library` because a textbook theorem is not a paper of yours: the Lean
+package is the product (section 10 shows the paper kind, the default).
 ([`lean-pkg new`](commands/new.md) in the command reference.) Run the
 `lake update && lake exe cache get` line now, in the new directory: it fetches
 Mathlib at the pinned version and its prebuilt files, so nothing of Mathlib
@@ -608,7 +611,7 @@ lean-pkg publish pi-lambda --dry-run
 ```text
 publish checklist for pi-lambda (<home>/.../pi-lambda) — dry run, nothing written:
   ✓  status verified-private
-  ✗  reuse lint failed: # MISSING COPYRIGHT AND LICENSING INFORMATION
+  ✓  reuse lint passed
   ✓  gate receipt bound to HEAD 7d1a2365638b (docs-only descendant of ff6e3c27425b (1 non-build file(s): README.md; opted in))
   ✓  comparator PASS bound to HEAD 7d1a2365638b (1 config(s): config and log bytes match the receipt, PASS line present; not re-run)
   ✓  claims ledger ready: 2 required claim(s) verified (sha256:7b772a33c624…)
@@ -620,9 +623,10 @@ publish checklist for pi-lambda (<home>/.../pi-lambda) — dry run, nothing writ
 not ready: the checklist has failures
 ```
 
-The remaining ✗ lines are about publishing, not about the mathematics: REUSE
-licence headers for every file, a pushed GitHub repository, and a recorded
-consent of the author. Run `lean-pkg public-safety pi-lambda` too
+The remaining ✗ lines are about publishing, not about the mathematics: a
+pushed GitHub repository and a recorded consent of the author. (The REUSE
+licence lint passes because `lean-pkg new` wrote `REUSE.toml` and
+`LICENSES/`, which cover every file, the receipts included.) Run `lean-pkg public-safety pi-lambda` too
 ([`public-safety`](commands/public-safety.md)): on this run it flagged the
 comparator receipt's `host`, `host_policy` and `job_id` fields, which record
 the machine's name. Decide about those before anything is public; [Scan for
@@ -666,7 +670,12 @@ words) and a *Not formalized* section in place of *Main results*. `same-assumpti
 the paper's hypotheses; a result proved under an extra hypothesis is
 `inputs-supplied`, with the hypothesis named, and an unformalized one is
 `outside`. Everything else (Challenge, Solution, receipts, gate) is the same.
-`lean-pkg new` writes `kind: library` today; edit the file to switch.
+`lean-pkg new` writes this kind by default (`--kind paper`, which this
+tutorial overrode in step 2): a `kind: paper` file with
+`manuscript.version: unposted` and `FILL-ME` markers, refused by
+`coverage check` until you fill them in, then bound to the posted version
+by `formalization anchor`:
+`lean-pkg formalization anchor NAME --arxiv <id>v<N> ... --write`.
 [Develop a paper with its Lean companion](paper-companion.md) is the paper
 track in full, and [A library with no manuscript](page.md#a-library-with-no-manuscript)
 the library rules.

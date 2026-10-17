@@ -288,7 +288,6 @@ UNTIL_THEN = {
     "new": "registry init, then register NAME --url URL --path DIR",
     "verify": "receipt systemd --run ..., comparator-receipt ..., then gate NAME --receipt R",
     "publish --yes": "promote NAME --yes",
-    "new --kind": "new NAME, then set kind in coverage.yaml",
 }
 
 # (step, track P: the paper is the product, track L: the Lean package is the product)

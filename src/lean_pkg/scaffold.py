@@ -1,5 +1,6 @@
 # lean-pkg new -- scaffold a minimal Lean package that the check, verify and page path accepts unchanged
-"""`lean-pkg new NAME [--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT] [--json]`.
+"""`lean-pkg new NAME [--kind paper|library] [--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT]
+[--license Apache-2.0|MIT] [--json]`.
 
 Writes a new directory (refused when it exists and is not empty) holding the project of
 docs/getting-started.md, "Start from scratch" (the same files, byte for byte, for NAME my-proof), plus the
@@ -14,11 +15,22 @@ writes lake-manifest.json first), nothing is fetched or built, and no registry i
     MOD/Axioms.lean         `#print axioms` of the theorem: what the lower-tier receipt reads
     comparator.json         the Palomar comparator configuration of that theorem
     claims.yaml             claims/1: the theorem as one reusable claim
-    coverage.yaml           coverage/1, kind library: one main result naming that claim
-    CITATION.cff            title NAME, one author (--author, else git config user.name)
+    coverage.yaml           coverage/1 of --kind (below)
+    CITATION.cff            title NAME, one author (--author, else git config user.name; a name without a
+                            space is warned about: it looks like a handle)
     LICENSE                 --license (default Apache-2.0, the official text; MIT with the year and author)
+    LICENSES/<SPDX>.txt     the same text, where REUSE looks for it
+    REUSE.toml              every file, present and future (receipts, logs), under that license and the
+                            author's copyright: `reuse lint` (publish --dry-run) passes on the scaffold
     README.md               a title and the lean-pkg credit line `page --check` requires
     verify.sh               the lower-tier check, in the log shape `lean-pkg receipt systemd --run` reads
+
+--kind paper (the default, as in the 1.0 command tree): the paper is the product. Its coverage.yaml is
+incomplete on purpose: the manuscript block carries `version: unposted` and FILL-ME markers that
+`coverage check` (and so `page`) refuses until the author names the paper and its results; `formalization
+anchor NAME --arxiv <id>v<N> ... --write` then sets the posted version. No manuscript is invented.
+--kind library: the Lean package is the product; coverage.yaml is kind library with one main result
+naming the example claim, and passes `coverage check` as written.
 
 --no-mathlib is the same project in core Lean (`Nat` for `ℕ`, no `public import Mathlib`): no Mathlib
 download, but `comparator-receipt` then needs COMPARATOR_RECEIPT_NO_MATHLIB=1, and Palomar expects
@@ -45,6 +57,7 @@ MODULE_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 NAME_MAX = 64
 RESERVED_MODULES = {"Init", "Std", "Lean", "Lake", "Mathlib", "Batteries", "Aesop", "Qq", "Plausible"}
 LICENSES = ("Apache-2.0", "MIT")
+KINDS = ("paper", "library")
 MIT = """\
 MIT License
 
@@ -131,6 +144,30 @@ rows:
   - title: "n <= 2 * n for every natural number n"
     claims: [{name}/{slug}]
 """
+# kind paper: honestly incomplete. No manuscript is invented: `unposted` and the FILL-ME markers say the
+# author has not named it yet, and coverage check refuses every marker (a placeholder never reaches a page).
+COVERAGE_PAPER = """\
+schema: coverage/1
+package: {name}
+kind: paper
+# Incomplete until you name the paper (written by `lean-pkg new`; `lean-pkg coverage check {name}` lists
+# what is missing). Replace each FILL-ME. Once the paper is posted, bind this file to that version:
+#   lean-pkg formalization anchor {name} --arxiv <id>v<N> --from-file E-PRINT --compare-tex PAPER.tex --write
+# sets manuscript.version (and eprint_sha256). Until then version stays unposted: a private draft, which
+# `coverage check` and `page` accept only with --allow-private-manuscript, and mark.
+manuscript:
+  title: "FILL-ME: the paper's title"
+  version: unposted
+summary: "FILL-ME: one sentence on which results of the paper are formalized."
+rows:
+  # one row per numbered result of the paper; the example theorem stands in for the first one
+  - paper: {{number: "FILL-ME: its number, e.g. Theorem 1.2", title: "FILL-ME: its title"}}
+    class: same-assumptions
+    claims: [{name}/{slug}]
+  # what is not formalized (or drop this row and state nothing_excluded: {{reason: ...}})
+  - paper: {{number: "FILL-ME: a result left out", title: "FILL-ME: its title"}}
+    class: outside
+"""
 CITATION = """\
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
@@ -144,8 +181,27 @@ README = """\
 A Lean 4 package, scaffolded with `lean-pkg new`. Replace the example theorem in
 `{module}/Challenge.lean` (the trusted statement) and `{module}/Solution.lean` (its
 proof), and keep `comparator.json`, `claims.yaml` and `coverage.yaml` in step.
-
+{paper}
 {credit}
+"""
+README_PAPER = """
+This package formalizes results of a paper. `coverage.yaml` does not name the paper yet: write its
+title and one row per numbered result in place of the FILL-ME markers (`lean-pkg coverage check {name}`
+lists what is missing), and once the paper is posted bind the file to that version with
+`lean-pkg formalization anchor {name} --arxiv <id>v<N> --from-file E-PRINT --compare-tex PAPER.tex --write`.
+The verification page is rendered only after that.
+"""
+REUSE_TOML = """\
+# REUSE (https://reuse.software): every file of this package, including the receipts and logs added later,
+# is under {spdx} with this copyright; `reuse lint` reads it (written by `lean-pkg new`).
+version = 1
+SPDX-PackageName = {name}
+
+[[annotations]]
+path = ["**"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = {copyright}
+SPDX-License-Identifier = "{spdx}"
 """
 VERIFY = """\
 #!/bin/bash
@@ -216,7 +272,7 @@ def license_text(spdx: str, author: str, year: int) -> str:
 
 
 def files(name: str, module: str, author: str, mathlib: bool = True, license_spdx: str = "Apache-2.0",
-          year: int = 2026) -> dict[str, str]:
+          year: int = 2026, kind: str = "paper") -> dict[str, str]:
     """The scaffold, relative path -> text. With mathlib, the files docs/getting-started.md writes by hand
     (lean-toolchain, .gitignore, lakefile.toml, Challenge, Solution, comparator.json) are byte-identical to
     that template for NAME my-proof (tests/test_new.py holds them together)."""
@@ -234,10 +290,14 @@ def files(name: str, module: str, author: str, mathlib: bool = True, license_spd
         f"{module}/Axioms.lean": AXIOMS_FILE.format(module=module, theorem=THEOREM),
         "comparator.json": COMPARATOR.format(module=module, theorem=THEOREM),
         "claims.yaml": CLAIMS.format(name=name, module=module, theorem=THEOREM, slug=slug),
-        "coverage.yaml": COVERAGE.format(name=name, slug=slug),
+        "coverage.yaml": (COVERAGE_PAPER if kind == "paper" else COVERAGE).format(name=name, slug=slug),
         "CITATION.cff": CITATION.format(title=_yaml_str(name), author=_yaml_str(author)),
         "LICENSE": license_text(license_spdx, author, year),
-        "README.md": README.format(name=name, module=module, credit=page_mod.CREDIT),
+        f"LICENSES/{license_spdx}.txt": license_text(license_spdx, author, year),
+        "REUSE.toml": REUSE_TOML.format(name=_yaml_str(name), spdx=license_spdx,
+                                        copyright=_yaml_str(f"{year} {author}")),
+        "README.md": README.format(name=name, module=module, credit=page_mod.CREDIT,
+                                   paper=README_PAPER.format(name=name) if kind == "paper" else ""),
         "verify.sh": VERIFY.format(name=name, module=module, mathlib_line="" if mathlib else NO_MATHLIB_LINE),
     }
 
@@ -252,6 +312,14 @@ def _git_author() -> str | None:
     return p.stdout.strip() or None
 
 
+def author_warnings(author: str) -> list[str]:
+    """A CITATION.cff author is a person's name: one without a space looks like a login or handle."""
+    if " " not in author:
+        return [f"CITATION.cff author {author!r} has no space: it looks like a handle, not a name; fix it in "
+                f"CITATION.cff and REUSE.toml (and LICENSE for MIT), or rerun with --author 'Given Family'"]
+    return []
+
+
 def next_commands(dir_arg: str, module: str, mathlib: bool) -> list[str]:
     fetch = "lake update && lake exe cache get" if mathlib else "lake update"
     return [f"cd {dir_arg}", fetch, f"lake build {module}.Solution {module}.Axioms",
@@ -259,7 +327,7 @@ def next_commands(dir_arg: str, module: str, mathlib: bool) -> list[str]:
 
 
 def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, author: str | None,
-           license_spdx: str = "Apache-2.0") -> tuple[list[str], dict]:
+           license_spdx: str = "Apache-2.0", kind: str = "paper") -> tuple[list[str], dict]:
     if not NAME_RE.match(name) or len(name) > NAME_MAX:
         raise core.UsageError(f"package name {name!r}: lower-case letters, digits and single hyphens, starting "
                               f"with a letter, at most {NAME_MAX} characters (e.g. my-proof)")
@@ -270,10 +338,14 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
     if module in RESERVED_MODULES:
         raise core.UsageError(f"library {module!r} is the root namespace of Lean or a Mathlib dependency; choose "
                               f"another NAME or pass --module")
+    if kind not in KINDS:
+        raise core.UsageError(f"--kind {kind!r}: one of {', '.join(KINDS)}")
+    source = "--author" if author is not None else "git config user.name"
     author = (author if author is not None else _git_author() or "").strip()
     if not author or "\n" in author:
         raise core.UsageError("CITATION.cff needs an author: pass --author 'Given Family' (or set git config "
                               "user.name)")
+    warnings = author_warnings(author)
     if shutil.which("git") is None:
         raise core.Fail("git is not on PATH; lean-pkg binds every receipt to a git commit")
     dir_arg = dir_arg or name
@@ -282,7 +354,7 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
         raise core.Fail(f"{dir_arg} exists and is not a directory; nothing written")
     if target.is_dir() and any(target.iterdir()):
         raise core.Fail(f"{dir_arg} exists and is not empty; nothing written (choose a new directory with --dir)")
-    scaffold = files(name, module, author, mathlib, license_spdx, dt.date.today().year)
+    scaffold = files(name, module, author, mathlib, license_spdx, dt.date.today().year, kind)
     target.mkdir(parents=True, exist_ok=True)
     for rel, text in scaffold.items():
         f = target / rel
@@ -295,23 +367,35 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
         raise core.Fail(f"git init {dir_arg} failed: {(p.stderr or p.stdout).strip()} (the files are written)")
     nxt = next_commands(dir_arg, module, mathlib)
     dep = f"Mathlib {MATHLIB_REV}" if mathlib else "no Mathlib"
-    out = [f"created {dir_arg}/: package {name}, library {module}, {TOOLCHAIN.split(':')[1]}, {dep}; "
-           f"{len(scaffold)} files, git initialized, nothing committed, no registry read or written",
+    out = [f"created {dir_arg}/: package {name} (kind {kind}), library {module}, {TOOLCHAIN.split(':')[1]}, "
+           f"{dep}; {len(scaffold)} files, git initialized, nothing committed, no registry read or written",
+           f"author: {author} (from {source}; CITATION.cff, REUSE.toml)",
            "next:"] + [f"  {c}" for c in nxt]
     if mathlib:
         out.append("(the first `lake exe cache get` downloads Mathlib's build cache: several GB)")
     else:
         out.append("(comparator-receipt on a project without Mathlib needs COMPARATOR_RECEIPT_NO_MATHLIB=1)")
+    if kind == "paper":
+        out += ["coverage.yaml (kind paper) is incomplete until you name the paper: replace its FILL-ME markers "
+                "(the title, one row per numbered result), then, once the paper is posted and the package "
+                "registered:",
+                f"  lean-pkg formalization anchor {name} --arxiv <id>v<N> --from-file E-PRINT "
+                f"--compare-tex PAPER.tex --write",
+                "(the receipts and the gate do not need it; the page does. No paper? --kind library)"]
     out.append("then verify and render the page: docs/quickstart.md "
                "(https://lean-pkg.github.io/lean-pkg/quickstart.html)")
-    payload = {"ok": True, "name": name, "dir": str(target), "module": module, "mathlib": mathlib,
-               "lean_toolchain": TOOLCHAIN, "license_spdx": license_spdx, "files": sorted(scaffold), "git_init": True, "committed": False,
-               "registry_touched": False, "next_commands": nxt}
+    payload = {"ok": True, "name": name, "dir": str(target), "kind": kind, "module": module, "mathlib": mathlib,
+               "lean_toolchain": TOOLCHAIN, "license_spdx": license_spdx, "author": author, "author_source": source,
+               "files": sorted(scaffold), "git_init": True, "committed": False, "registry_touched": False,
+               "coverage_complete": kind == "library", "next_commands": nxt, "warnings": warnings}
     return out, payload
 
 
 def cmd_new(args) -> int:
-    out, payload = do_new(args.name, args.dir, args.module, not args.no_mathlib, args.author, args.license)
+    out, payload = do_new(args.name, args.dir, args.module, not args.no_mathlib, args.author, args.license,
+                          args.kind)
+    for w in payload["warnings"]:
+        print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
     if args.json_out:
         core.print_json(payload)
     else:
@@ -325,10 +409,15 @@ def add_parsers(sub, add_json) -> None:
                                    "coverage, verify.sh) in a new directory and git init it; no registry, "
                                    "no network",
                        description="Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, "
-                                   "gate and page accept unchanged, then `git init` it. Nothing is committed, "
+                                   "gate and reuse lint accept unchanged (and page, for --kind library; a paper's "
+                                   "coverage.yaml waits for the paper), then `git init` it. Nothing is committed, "
                                    "fetched or built; no registry is read or written. Next steps: "
                                    "docs/quickstart.md.")
     s.add_argument("name", help="the package name: lower-case letters, digits, single hyphens (e.g. my-proof)")
+    s.add_argument("--kind", default="paper", choices=KINDS,
+                   help="paper (default): the paper is the product; coverage.yaml stays incomplete until you name "
+                        "the paper and `formalization anchor` binds its posted version. library: the Lean package "
+                        "is the product; coverage.yaml lists the example as its main result")
     s.add_argument("--dir", default=None, metavar="DIR",
                    help="where to write it (default ./NAME); refused when it exists and is not empty")
     s.add_argument("--module", default=None, metavar="MOD",

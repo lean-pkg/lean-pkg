@@ -2819,12 +2819,16 @@ def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
     check_toolchain_at(repo, commit, receipt["lean_toolchain"], "toolchain mismatch")
     check_path_deps_at(repo, commit, formalization_rel(pkg))
     if not str(receipt["mathlib_rev"]).strip():
-        raise Fail("receipt mathlib_rev is empty")
-    committed = committed_mathlib_rev(repo, commit)
-    if committed and not _same_rev(str(receipt["mathlib_rev"]).strip(), committed):
-        raise Fail(f"mathlib mismatch: receipt mathlib_rev={str(receipt['mathlib_rev']).strip()!r}, the mathlib "
-                   f"rev in lake-manifest.json committed at {commit[:12]}={committed!r}; the receipt must name "
-                   f"the Mathlib the bound commit pins")
+        raise Fail(f"receipt mathlib_rev is empty (a package without Mathlib says {NO_MATHLIB!r})")
+    committed = committed_mathlib(repo, commit)
+    rev = str(receipt["mathlib_rev"]).strip()
+    if committed not in (None, NO_MATHLIB) and not _same_rev(rev, committed):
+        raise Fail(f"mathlib mismatch: receipt mathlib_rev={rev!r}, the mathlib rev in lake-manifest.json "
+                   f"committed at {commit[:12]}={committed!r}; the receipt must name the Mathlib the bound commit "
+                   f"pins" + (f" ({NO_MATHLIB!r} is the value of a package without Mathlib)" if rev == NO_MATHLIB
+                              else ""))
+    # committed == NO_MATHLIB with another value: a receipt written before `none` was a checked value; it is
+    # read as before (not checked, receipt_check_lines says so), never refused
     sc = receipt["sorry_count"]
     if isinstance(sc, bool) or not isinstance(sc, int):
         raise Fail(f"sorry_count must be an integer, got {sc!r}")
@@ -3295,11 +3299,17 @@ def binding_lines(pkg: dict, repo: pathlib.Path, commit: str, toolchain, checker
 
 def receipt_check_lines(pkg: dict, repo: pathlib.Path, receipt: dict) -> list[str]:
     allowed = sorted(set((pkg.get("gate") or {}).get("axioms_allowed") or DEFAULT_AXIOMS))
-    committed = committed_mathlib_rev(repo, receipt["commit"])
-    mathlib = (f"✓ mathlib_rev {str(receipt['mathlib_rev']).strip()} = the mathlib rev in lake-manifest.json "
-               f"committed at {receipt['commit'][:12]}" if committed
-               else f"· mathlib_rev not checked: no readable mathlib entry in lake-manifest.json at "
-                    f"{receipt['commit'][:12]}")
+    committed = committed_mathlib(repo, receipt["commit"])
+    rev, c12 = str(receipt["mathlib_rev"]).strip(), receipt["commit"][:12]
+    if committed == NO_MATHLIB:
+        mathlib = (f"✓ mathlib_rev {NO_MATHLIB}: lake-manifest.json committed at {c12} has no mathlib package"
+                   if rev == NO_MATHLIB else
+                   f"· mathlib_rev {rev} not checked: lake-manifest.json committed at {c12} has no mathlib "
+                   f"package (a receipt written now says {NO_MATHLIB!r})")
+    elif committed:
+        mathlib = f"✓ mathlib_rev {rev} = the mathlib rev in lake-manifest.json committed at {c12}"
+    else:
+        mathlib = f"· mathlib_rev not checked: no readable mathlib entry in lake-manifest.json at {c12}"
     return binding_lines(pkg, repo, receipt["commit"], receipt["lean_toolchain"], receipt.get("checker")) + [
         mathlib,
         "✓ sorry_count 0",
@@ -3826,17 +3836,37 @@ def _same_rev(a: str, b: str) -> bool:
     return bool(a and b) and (a.startswith(b) or b.startswith(a))
 
 
-def committed_mathlib_rev(repo: pathlib.Path, commit: str) -> str | None:
-    """The mathlib package's rev in lake-manifest.json committed at `commit`; None when unreadable."""
-    blob = git_show_bytes(repo, "./lake-manifest.json", commit)
+# The explicit mathlib_rev of a package without Mathlib: its lake-manifest.json is readable and lists no
+# `mathlib` package. A value, not a sentinel: it is compared with the manifest like any rev.
+NO_MATHLIB = "none"
+
+
+def manifest_mathlib(blob: bytes | None) -> str | None:
+    """The mathlib rev a lake-manifest.json pins; NO_MATHLIB when it is readable and lists no `mathlib`
+    package; None when it is absent or unreadable (or lists mathlib without a rev)."""
     try:
         data = json.loads(blob.decode("utf-8")) if blob is not None else None
     except (ValueError, UnicodeDecodeError):
         return None
-    for p in (data.get("packages") or []) if isinstance(data, dict) else []:
-        if isinstance(p, dict) and str(p.get("name", "")).lower() in ("mathlib", "«mathlib»") and p.get("rev"):
-            return str(p["rev"]).strip()
-    return None
+    pkgs = data.get("packages") if isinstance(data, dict) else None
+    if not isinstance(pkgs, list):
+        return None
+    for p in pkgs:
+        if isinstance(p, dict) and str(p.get("name", "")).casefold() in ("mathlib", "«mathlib»"):
+            return str(p["rev"]).strip() if p.get("rev") else None
+    return NO_MATHLIB
+
+
+def committed_mathlib(repo: pathlib.Path, commit: str) -> str | None:
+    """manifest_mathlib of lake-manifest.json committed at `commit`."""
+    return manifest_mathlib(git_show_bytes(repo, "./lake-manifest.json", commit))
+
+
+def committed_mathlib_rev(repo: pathlib.Path, commit: str) -> str | None:
+    """The mathlib package's rev in lake-manifest.json committed at `commit`; None when unreadable or when
+    the package has no Mathlib (committed_mathlib tells the two apart)."""
+    rev = committed_mathlib(repo, commit)
+    return None if rev == NO_MATHLIB else rev
 
 
 def receipt_pin_changes(pkg: dict, repo: pathlib.Path, receipt: dict) -> tuple[dict, dict]:
@@ -3859,8 +3889,13 @@ def receipt_pin_changes(pkg: dict, repo: pathlib.Path, receipt: dict) -> tuple[d
             kept["lean_toolchain"] = {"receipt": tc, "manifest": committed}
     rev = str(receipt.get("mathlib_rev") or "").strip()
     old = str(pkg.get("mathlib_pin") or "")
-    if rev and not _same_rev(rev, old):
-        committed = committed_mathlib_rev(repo, commit) if commit else None
+    committed = committed_mathlib(repo, commit) if commit and rev else None
+    if committed == NO_MATHLIB:
+        # no Mathlib at the receipt's commit: the pin is null (what register records), whatever the receipt
+        # says; a legacy value other than `none` is not checked, and never becomes a pin
+        if pkg.get("mathlib_pin"):
+            changes["mathlib_pin"] = {"from": pkg.get("mathlib_pin"), "to": None}
+    elif rev and not _same_rev(rev, old):
         if committed is None:
             kept["mathlib_pin"] = {"receipt": rev, "manifest": None}
         elif _same_rev(rev, committed):
@@ -3880,7 +3915,7 @@ def pins_kept_lines(name: str, kept: dict, commit: str) -> list[str]:
 
 
 def pin_changes_text(changes: dict) -> str:
-    return ", ".join(f"{f} {v['from'] or '-'} -> {v['to']}" for f, v in changes.items())
+    return ", ".join(f"{f} {v['from'] or '-'} -> {v['to'] or '-'}" for f, v in changes.items())
 
 
 def do_gate(reg_path, reg, events_p, name, receipt_arg,
@@ -6539,7 +6574,7 @@ SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push 
 board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
 status    full record + last 5 history entries (a lease adds derived expires_at, UTC; a lapsed lease ends the output with `lease: EXPIRED ...`, one lapsing within 2h with `lease: expires in ...`; --json lease_state {state live|expiring|expired|invalid|none, seconds_left}); --fields a,b.c: only those keys (dotted paths; lease.contact: null when unset; aliases = the table columns: pin, vis, reaudit, expires|lease.expires, lease.claimed; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). Without --fields: a `scope:` text block and --json scope {gate {receipt, commit, head, head_is_gated_commit, readable}, publication {status, visibility, publication_hold, github}, product {kind paper|library|null, source, note}, comparator null|{receipt, readable, commit, mechanism, configs[], theorem_names[], definition_names[], claimed_theorems, claimed_theorems_covered, reusable_theorems, reusable_theorems_covered, whole_package false, note}, claims {total, by_status, synced_commit, note}}: the gated source commit, recorded privacy + hold (offline: gh not queried), the product (kind in coverage.yaml at HEAD; paper when absent; not the DOI track), the exact declarations the comparator receipt compared and the claimed theorems/lemmas they cover (never the whole package), claim counts by status (not completion percentages). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
-new       scaffold a minimal Lean package in a new directory (refused when it exists and is not empty) and git init it; no registry read or written, nothing committed, fetched or built: lean-toolchain (v4.35.0-rc2), .gitignore, lakefile.toml (library MOD = NAME in CamelCase, --module MOD; requires Mathlib unless --no-mathlib), MOD/Challenge.lean (sorry) + MOD/Solution.lean (module-headed, the getting-started template) + MOD/Axioms.lean (#print axioms), comparator.json, claims.yaml (one reusable claim), coverage.yaml (kind library), CITATION.cff (--author, else git user.name), LICENSE (--license Apache-2.0|MIT), README.md (the lean-pkg credit), verify.sh (the log `receipt systemd --run` reads; --no-mathlib: a `mathlib-rev: none` line); NAME [a-z][a-z0-9]*(-[a-z0-9]+)*, at most 64 (else exit 2); --json {ok, name, dir, module, mathlib, lean_toolchain, license_spdx, files[], git_init, committed, registry_touched, next_commands[]}. ex: lean-pkg new my-proof; the path to a page: docs/quickstart.md
+new       scaffold a minimal Lean package in a new directory (refused when it exists and is not empty) and git init it; no registry read or written, nothing committed, fetched or built: lean-toolchain (v4.35.0-rc2), .gitignore, lakefile.toml (library MOD = NAME in CamelCase, --module MOD; requires Mathlib unless --no-mathlib), MOD/Challenge.lean (sorry) + MOD/Solution.lean (module-headed, the getting-started template) + MOD/Axioms.lean (#print axioms), comparator.json, claims.yaml (one reusable claim), coverage.yaml (--kind paper, the default: kind paper, manuscript version unposted and FILL-ME markers that coverage check refuses until the author names the paper and `formalization anchor --write` binds the posted version, no manuscript invented; --kind library: one main result, passes coverage check), CITATION.cff (--author, else git user.name; a name with no space warns: it looks like a handle), LICENSE + LICENSES/<SPDX>.txt (--license Apache-2.0|MIT), REUSE.toml (every file, receipts and logs included, under that license: reuse lint passes), README.md (the lean-pkg credit), verify.sh (the log `receipt systemd --run` reads; --no-mathlib: a `mathlib-rev: none` line, which the receipt also derives from a lake-manifest.json with no mathlib package); NAME [a-z][a-z0-9]*(-[a-z0-9]+)*, at most 64 (else exit 2); --json {ok, name, dir, kind, module, mathlib, lean_toolchain, license_spdx, author, author_source, files[], git_init, committed, registry_touched, coverage_complete, next_commands[], warnings[]}. ex: lean-pkg new my-proof (a paper), lean-pkg new my-lib --kind library; the path to a page: docs/quickstart.md
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent; a legacy literal ~/x local_path is rewritten $HOME-relative). ex: lean-pkg migrate --dry-run
@@ -6619,7 +6654,7 @@ RECEIPT SCHEMA (JSON object; `gate` enforces every line)
 commit         40 lowercase hex; MUST equal HEAD, or HEAD must be an evidence-only descendant of it
                (only .lean-receipts/ paths differ between the two commits)
 lean_toolchain string; MUST equal the lean-toolchain file committed at `commit`, stripped (the working tree never counts)
-mathlib_rev    nonempty string (full mathlib rev)
+mathlib_rev    nonempty string (full mathlib rev; `none` for a package whose lake-manifest.json lists no mathlib)
 sorry_count    integer; MUST be 0
 axioms         list of strings; subset of gate.axioms_allowed (default exactly: propext, Quot.sound, Classical.choice)
 report_sha256  64 hex chars; SHA-256 of the verification report
