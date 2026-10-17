@@ -110,6 +110,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - Docs: the quickstart, the π-λ tutorial, the README and getting-started use
   `new --kind library` for their example and explain the paper default;
   docs/design/two-tracks.md shows today's paths for both kinds.
+- Docs: the workflow diagram's arrows are smaller and lighter: arrowheads
+  about half their former size (11 by 9 units, not 20 by 20), connector lines
+  2 units in a lighter grey, and every shaft ends at its head's base with the
+  tip on the box edge. Boxes and colours are unchanged; the start box now
+  reads `--kind paper|library · paper is the default`, since `new --kind`
+  has shipped (the sample workflow page says so too).
 - Soundness: a comparator receipt's Slurm claim (`job_id` J, `host_policy`
   `Slurm job J ...`, both from `SLURM_JOB_ID`, which any shell can set) no
   longer backs a `coverage.yaml` `compute` job, and so the Easley sentence,

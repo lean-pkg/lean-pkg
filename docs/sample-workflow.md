@@ -10,8 +10,9 @@ The diagram covers both products lean-pkg certifies, a verified paper (Track P)
 and a reusable Lean library (Track L); see [Two tracks](design/two-tracks.md).
 Only the start and the end differ; the numbered steps are shared and match the
 sections below. Commands are today's, with the 1.0 name noted where it changes
-([1.0 command tree](design/1.0-command-tree.md)): `new` has shipped without
-`--kind`, `verify` has not, and `publish NAME --yes` will replace `promote --yes`.
+([1.0 command tree](design/1.0-command-tree.md)): `new --kind paper|library`
+has shipped (paper is the default), `verify` has not, and `publish NAME --yes`
+will replace `promote --yes`.
 
 A session on a real package, start to finish. The package is small on
 purpose: a consumer of Scott Armstrong's
