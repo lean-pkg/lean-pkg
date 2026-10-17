@@ -57,6 +57,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   prints the follow-ups (`lake build`, `palomar check`, a new gate for a
   gated package). The rules were checked on Lean v4.35.0-rc2, and a test
   ports and builds a multi-file project on that toolchain when installed.
+  `palomar check` names the command in the fix of `source.module_required`.
 
 - `receipt slurm --template`: an exact-runtime preflight before any tool
   runs (field report #5). The wrapper sets `LC_ALL=C LANG=C PYTHONUTF8=1`

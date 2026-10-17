@@ -214,7 +214,7 @@ def _gap(code: str, severity: str, detail: str, fix: str, paths: list[str] | Non
     return {"code": code, "severity": severity, "paths": sorted(paths or []), "detail": detail, "fix": fix}
 
 
-def source_gaps(tree: Tree, policy: dict) -> tuple[list[dict], dict]:
+def source_gaps(tree: Tree, policy: dict, name: str = "NAME") -> tuple[list[dict], dict]:
     """Every tracked .lean file in the repository (Palomar scans the whole submitted repository,
     contained projects and unused files included), outside the excluded directories."""
     ls = policy["lean_sources"]
@@ -242,9 +242,10 @@ def source_gaps(tree: Tree, policy: dict) -> tuple[list[dict], dict]:
         gaps.append(_gap("source.module_required", "error",
                          f"{len(no_module)} of {len(regular)} tracked .lean file(s) do not begin with a `module` "
                          f"header (ordinary comments may precede it; lakefile.lean is exempt)",
-                         "port the files to the module system: `module` first, `public import` where the public "
-                         "interface needs the import, `public`/`@[expose]` for what other modules use; rebuild, "
-                         "commit, re-gate", no_module))
+                         f"port the files to the module system (`lean-pkg palomar port-modules {name}` plans the "
+                         "mechanical part as a diff, `--write` applies it): `module` first, `public import` where "
+                         "the public interface needs the import, `public`/`@[expose]` for what other modules use; "
+                         "rebuild, commit, re-gate", no_module))
     if too_long:
         gaps.append(_gap("source.file_too_long", "error",
                          f"{len(too_long)} .lean file(s) longer than {cap:,} lines",
@@ -570,7 +571,7 @@ def resolve_commit(pkg: dict, repo: pathlib.Path, rev: str | None) -> tuple[str,
 def check(pkg: dict, repo: pathlib.Path, commit: str, policy: dict, source: dict,
           config: str | None = None) -> dict:
     tree = Tree(repo, commit)
-    gaps, facts = source_gaps(tree, policy)
+    gaps, facts = source_gaps(tree, policy, pkg["name"])
     tc_gaps, tc = toolchain_gaps(tree, policy)
     gaps += tc_gaps + layout_gaps(tree)
     cg, configs = comparator_gaps(tree, policy, config)

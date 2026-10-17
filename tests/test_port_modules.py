@@ -249,6 +249,10 @@ def test_palomar_check_reports_no_module_gap_after_the_port(lp, tmp_path, capsys
     lp.main(["--registry", str(reg), "palomar", "check", "gamma", "--json"])
     before = json.loads(capsys.readouterr().out)
     assert "source.module_required" in codes(before)
+    assert "`lean-pkg palomar port-modules gamma`" in codes(before)["source.module_required"]["fix"]
+    lp.main(["--registry", str(reg), "palomar", "check", "gamma"])
+    assert "fix: port the files to the module system (`lean-pkg palomar port-modules gamma` plans" \
+        in capsys.readouterr().out
     port(lp, reg, capsys, "--write")
     _git(repo, "commit", "-qam", "port")
     lp.main(["--registry", str(reg), "palomar", "check", "gamma", "--json"])
