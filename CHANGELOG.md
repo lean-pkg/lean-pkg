@@ -172,6 +172,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   prepared (none of those that remain changed), the setup stages run again
   and the comparison judges the oleans that build records; a changed olean,
   or a setup named with `--from-prepared`, is still refused.
+- `lean-pkg page` shows the Lean statement of a theorem compared through an
+  umbrella Challenge module (one holding only `import` lines). 0.11.0 looked
+  for the theorem in the Challenge file alone, so every result of such a
+  package said its statement "could not be read reliably" and linked the
+  umbrella. The page now follows the Challenge's imports through the
+  package's own files committed at the gate-bound commit (Lake's module to
+  file convention, never outside the package, each file once, at most 32
+  levels and 1000 files), copies the statement from the one file that
+  declares the fully qualified name, and links that file at the
+  declaration's line. A name declared in no file or in more than one, a cut
+  walk or a module name that could leave the package keeps the fallback.
+  Comments inside binders (`(x : ℝ /- [definition] -/ )`) are kept verbatim,
+  as before. Pages written by 0.11.0 for a package with an umbrella
+  Challenge are stale: re-render them once (`lean-pkg page NAME --write`,
+  then commit the README). Other pages do not change.
 
 ## [0.11.0] - 2026-10-17
 

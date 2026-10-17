@@ -86,6 +86,29 @@ page shows the linked name and says the statement could not be read, rather
 than a guess. Like every other output, the copied text passes the
 public-safety scan.
 
+An *umbrella* Challenge module, one that holds only `import` lines, declares
+none of the compared theorems itself. The page then follows the Challenge's
+imports through the package's own files: each module name maps to its file by
+Lake's convention (`A.B.C` is `A/B/C.lean`, a `«quoted»` component is one path
+component), only files committed at the gate-bound commit are read, a module
+outside the package (Mathlib, say) is not followed, each file is read once (an
+import cycle ends there), and the walk stops at 32 import levels or 1000 files.
+A module name that could leave the package directory (a `..`, `.` or empty
+component, a path separator) is never read. When exactly one file of that
+closure declares the theorem's fully qualified name (namespace plus name), the
+statement is copied from that file and linked at the line of its keyword
+(`Challenge/Reference/Airy/Core.lean#L1147`). When the name is declared in no
+file or in more than one, or the walk was cut short or met a module name it
+refused, the page keeps the fallback above and links the Challenge module.
+
+Comments inside a statement are kept verbatim, as Lean has them in the source:
+a binder such as `(x : ℝ /- [definition] -/ )` is shown with its comment. The
+end of the statement and its brackets are found with every comment (`/- ... -/`,
+nested as Lean nests them, and `--` to the end of the line) and every string
+literal blanked out, so a `:=`, a bracket or a `-/` inside a comment, a doc
+comment or a string neither ends the statement nor unbalances it. A block
+comment that is never closed leaves no `:=` to find, and the page falls back.
+
 ### The paper's statement
 
 `paper.statement` (and `statement` on a library row) is optional TeX, up to
