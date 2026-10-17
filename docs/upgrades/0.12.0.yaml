@@ -118,4 +118,4 @@ changes:
 # and the preflight follow-up (#228: moved options in doctor --upgrade-from, which first ships in this
 # release under doctor-upgrade-preflight, plus this record and test rows), and this record's completion
 # with the pull request template's checkbox (#229), and docs on disabled negative fixtures (#231).
-no_author_change: [220, 221, 224, 225, 227, 228, 229, 231, 232]
+no_author_change: [220, 221, 224, 225, 227, 228, 229, 231, 232, 235]
