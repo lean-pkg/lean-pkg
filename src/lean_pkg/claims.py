@@ -799,7 +799,7 @@ def _emit(args, out: list[str], payload: dict, rc: int = 0) -> int:
 def cmd_claims(args) -> int:
     fn = getattr(args, "claims_fn", None)
     if fn is None:
-        raise core.UsageError("claims needs an action: sync | list | check | migrate | ledger")
+        raise core.UsageError("claims needs an action: sync | list | check | migrate | ledger | mark | rebase")
     return fn(args)
 
 
@@ -858,7 +858,8 @@ def run_ledger(args) -> int:
 
 
 def add_parsers(sub, add_json) -> None:
-    s = sub.add_parser("claims", help="claims.yaml: sync | list | check | migrate | ledger (named reusable results)")
+    s = sub.add_parser("claims", help="claims.yaml: sync | list | check | migrate | ledger | mark | rebase (named reusable "
+                                     "results)")
     add_json(s)
     s.set_defaults(fn=cmd_claims, claims_fn=None)
     csub = s.add_subparsers(dest="claims_cmd")
@@ -902,3 +903,5 @@ def add_parsers(sub, add_json) -> None:
     led.set_defaults(fn=cmd_claims, claims_fn=run_ledger)
     from .claims_mark import add_parser as add_mark_parser   # #6: lives in claims_mark.py
     add_mark_parser(csub, add_json, cmd_claims)
+    from . import rebase
+    rebase.add_parser(csub, add_json, cmd_claims)

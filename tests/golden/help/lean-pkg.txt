@@ -36,8 +36,8 @@ positional arguments:
     help                help topics (exit-codes, environment, formatting) or a command's --help
     wiki                render a Markdown status page
     index               the public catalog: add | check | render | migrate
-    claims              claims.yaml: sync | list | check | migrate | ledger (named reusable
-                        results)
+    claims              claims.yaml: sync | list | check | migrate | ledger | mark | rebase (named
+                        reusable results)
     search              prior-art search over claims, the index and public sources
     formalization       render formalization.yaml (v0.4, what Palomar reads) from the registry and
                         the repo at HEAD; stdout unless --write/--out

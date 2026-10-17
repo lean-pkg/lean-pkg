@@ -1,0 +1,35 @@
+usage: lean-pkg claims rebase [-h] --from-tex OLD.tex --to-tex NEW.tex --to-aux NEW.aux
+                              [--from-aux OLD.aux] [--from-sha256 HEX] [--to-version arXiv:IDvN]
+                              [--to-commit HEX] [--to-repo URL] [--unwrap-macro NAME]
+                              [--claims-file PATH] [--coverage-file PATH] [--out-dir DIR] [--json]
+                              [--commit] [--push] [--no-commit]
+                              name
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --from-tex OLD.tex    the (flattened) TeX the claims were written against; its SHA-256 must
+                        match coverage.yaml's manuscript sha256 (an arXiv version: a .tex of its
+                        source-baseline record), or --from-sha256 when none is recorded
+  --to-tex NEW.tex      the new version's (flattened) TeX
+  --to-aux NEW.aux      the .aux of a full build of NEW.tex: new numbers and pages come from it
+  --from-aux OLD.aux    the old .aux: resolves references written as numbers (Lemma 4.2, (3.7)) to
+                        TeX labels
+  --from-sha256 HEX     the SHA-256 of OLD.tex, required when coverage.yaml records none (checked,
+                        never trusted)
+  --to-version arXiv:IDvN
+                        the new manuscript.version for the proposed coverage.yaml
+  --to-commit HEX       or: the manuscript repo commit of NEW.tex (sha256 is NEW.tex's)
+  --to-repo URL         with --to-commit: the manuscript repo (default: coverage.yaml's)
+  --unwrap-macro NAME   also read \NAME{X} as X (a revision-highlight macro); repeatable
+  --claims-file PATH    a working-copy claims file instead of the one committed at HEAD
+  --coverage-file PATH  a working-copy coverage file instead of coverage.yaml committed at HEAD
+  --out-dir DIR         write the proposals, the report and the review packet here (a new or empty
+                        directory); without it nothing is written
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

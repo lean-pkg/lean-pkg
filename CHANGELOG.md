@@ -124,6 +124,25 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   configuration with definition holes. The trust boundary now names who
   judged each hole's body. docs/page.md maps each lean-scope-page rule to its
   lean-pkg check.
+- `claims rebase NAME --from-tex OLD.tex --to-tex NEW.tex --to-aux NEW.aux`
+  (#6): moves `claims.yaml` and `coverage.yaml` to a new manuscript version.
+  For every label the package refers to (coverage rows, manuscript finding
+  locations, labels in a citation; `--from-aux` resolves references written
+  as numbers) it compares the enclosing statement or equation environment
+  after a fixed, listed normalization (comments, colour macros,
+  `--unwrap-macro`, `~`, whitespace, trailing punctuation) and classifies it
+  `unchanged` (carried, number/page/line re-keyed from NEW.aux), `changed`,
+  `missing`, `moved-into-proof`, `not-in-old`, `unsupported` or `unnumbered`.
+  It never writes in place, never changes a claim status and never sets
+  `fixed_in`: `--out-dir` (new or empty) gets the proposed files, a JSON and
+  Markdown report with old/new excerpts, the excerpts and diffs, and a
+  `MANIFEST.sha256`; deterministic. Refused: OLD.tex's SHA-256 not the
+  manuscript sha256 coverage.yaml records, nor a `.tex` hash of the
+  source-baseline record of its arXiv version (none recorded:
+  `--from-sha256`),
+  TeX that is not UTF-8 or has unbalanced environments, and a referenced
+  label defined twice. Docs: prior-art.md, "Move to a new manuscript
+  version", and the paper-companion guide.
 
 - `formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT | --fetch) [--compare-tex LOCAL.tex
   [--accept-diff REASON]] [--main-tex PATH] [--write] [--agent A] [--json]` (feature request #6): bind a
