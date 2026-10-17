@@ -50,6 +50,19 @@ change the registry schema or receipt format, always with a migration).
   printable runs and listed as `binary (gzip-decoded)`. New JSON keys
   `decoded[]` and `gzip_limit`. A `receipt --compress-log` sealed log is
   decoded and scanned like any other gzip file.
+- `audit` reports Palomar readiness gaps as the warning `palomar-not-ready`
+  (the `error`-gap count, codes and `lean-pkg palomar check NAME`; JSON
+  `palomar {errors, codes, commit, command}`), only for packages aiming at
+  Palomar (`upstream_target: palomar` or a recorded `palomar` entry; not
+  `scratch`, `archived` or `upstreamed`). Other packages, and packages with
+  `warn` gaps only, stay quiet.
+
+### Changed
+
+- `palomar prepare` refuses (exit 1, nothing written, `--dry-run` too) when
+  `palomar check` finds any `error` gap at HEAD, listing each with its fix;
+  `warn` gaps print as warnings and never block. JSON adds
+  `palomar_check {ready, commit, errors, warns, codes, command}`.
 
 ### Changed
 

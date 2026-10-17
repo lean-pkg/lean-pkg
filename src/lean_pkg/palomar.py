@@ -13,8 +13,9 @@ The bundle (default `<checkout>/.lean-receipts/palomar-<HEAD12>/`):
 - `MANIFEST.sha256`: `sha256  path` for every other file (`sha256sum -c` checks it).
 
 Refusals (exit 1, nothing written): a missing receipt, a receipt not bound to HEAD, no consent
-recorded, a render that fails the schema, blocking public-safety hits in the bundle, an existing
-target. The event `palomar-prepared` {commit, bundle, bundle_sha256} (the sha256 of
+recorded, a render that fails the schema, any error-severity gap `palomar check` finds at HEAD (each
+listed; its warn gaps are warnings, never a refusal), blocking public-safety hits in the bundle, an
+existing target. The event `palomar-prepared` {commit, bundle, bundle_sha256} (the sha256 of
 MANIFEST.sha256) goes to history and the event log. `--dry-run` runs every check and prints the
 plan; it writes nothing.
 """
@@ -102,6 +103,19 @@ def build(pkg: dict, repo: pathlib.Path, stage: pathlib.Path) -> tuple[list[str]
     if errors:
         raise core.Fail(f"{name}: the rendered formalization.yaml fails the {fz.SCHEMA_VERSION} schema "
                         f"({mode}):\n  " + "\n  ".join(errors))
+    from . import palomar_check   # error gaps refuse (#163 follow-up); warn gaps never do
+    try:
+        policy, source = palomar_check.load_rules(None)
+        rep = palomar_check.check(pkg, repo, head, policy, source)
+    except (core.Fail, OSError, ValueError) as e:
+        raise core.Fail(f"{name}: the Palomar readiness check could not run at HEAD {head[:12]} ({e}); "
+                        f"nothing written") from None
+    if errs := palomar_check.error_gaps(rep):
+        raise core.Fail(f"{name}: not Palomar-ready at HEAD {head[:12]}: {len(errs)} error gap(s) need a new "
+                        f"commit; nothing written (see lean-pkg palomar check {name} --rev {head[:12]}):\n"
+                        + "\n".join(palomar_check.gap_lines(errs)))
+    warnings = list(warnings) + [f"palomar check: {g['code']}: {g['detail']}"
+                                 for g in rep["gaps"] if g["severity"] == "warn"]
     placeholders = fz.find_placeholders(doc)
     warnings = list(warnings) + [f"placeholder at {p} (formalization.yaml is not Palomar-ready)"
                                  for p in placeholders]
@@ -132,6 +146,9 @@ def build(pkg: dict, repo: pathlib.Path, stage: pathlib.Path) -> tuple[list[str]
     facts = {"commit": head, "configs": configs, "files": files + ["MANIFEST.sha256"],
              "manuscript_findings": ledger_mod.package_findings(pkg, repo),
              "bundle_sha256": hashlib.sha256(manifest.encode()).hexdigest(), "placeholders": placeholders,
+             "palomar_check": {"ready": True, "commit": head, "errors": 0, "warns": rep["counts"]["warn"],
+                               "codes": sorted({g["code"] for g in rep["gaps"]}),
+                               "command": f"lean-pkg palomar check {name} --rev {head[:12]}"},
              "public_safety": {"block_hits": nblock, "warn_hits": scan["warn_hits"]}}
     return warnings, facts
 
