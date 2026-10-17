@@ -633,8 +633,12 @@ def check(pkg: dict, repo: pathlib.Path, commit: str, policy: dict, source: dict
     fg, doc = formalization_gaps(pkg, tree, policy)
     gaps += cg + hg + fg + license_gaps(pkg, tree, doc) + repository_gaps(pkg, tree)
     errors = sum(g["severity"] == "error" for g in gaps)
+    # #237: a warning, never a gap (Palomar's rules have no such list); an unreadable list matches nothing
+    from . import toolchain_advisories
+    advisories, _problem = toolchain_advisories.lookup(tc)
     return {"ready": errors == 0, "commit": commit, "project_path": tree.prefix.rstrip("/") or ".",
-            "lean_toolchain": tc, "configs": configs, "headline": headline, **facts,
+            "lean_toolchain": tc, "toolchain_advisories": advisories, "configs": configs, "headline": headline,
+            **facts,
             "counts": {"error": errors, "warn": len(gaps) - errors}, "gaps": gaps,
             "rules": {**source, "toolchain_minimum": policy["toolchain"]["minimum"]},
             "not_checked": NOT_CHECKED}
@@ -651,6 +655,8 @@ def verdict(name: str, rep: dict) -> str:
 def report_lines(name: str, rep: dict, commit_source: str) -> list[str]:
     src = {"gate": "the gate-bound commit", "head": "HEAD", "rev": "--rev"}[commit_source]
     lines = [verdict(name, rep) + f" [{src}]"]
+    from .toolchain_advisories import warn_line
+    lines += [f"  {warn_line(v)}" for v in rep.get("toolchain_advisories") or []]
     for g in rep["gaps"]:
         mark = "✗" if g["severity"] == "error" else "WARN"
         lines.append(f"  {mark}  {g['code']}: {g['detail']}")

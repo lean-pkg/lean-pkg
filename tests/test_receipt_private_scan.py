@@ -20,7 +20,7 @@ def _gate(lp, env, tmp_path, *extra, **overrides):
 def test_gate_warns_on_private_string_and_still_copies(lp, env, tmp_path, capsys):
     assert _gate(lp, env, tmp_path, checker=PRIVATE) == 0
     cap = capsys.readouterr()
-    warn = [line for line in cap.err.splitlines() if line.startswith("WARN")]
+    warn = _warns(cap.err)
     assert len(warn) == 1 and "receipt.checker" in warn[0] and "private local path" in warn[0], cap.err
     assert PRIVATE not in cap.err + cap.out          # the string itself is never echoed
     pkg = read_reg(env)["packages"]["alpha"]
@@ -36,7 +36,7 @@ def test_gate_json_lists_private_strings(lp, env, tmp_path, capsys):
 def test_gate_clean_receipt_has_empty_private_strings(lp, env, tmp_path, capsys):
     assert _gate(lp, env, tmp_path, "--json") == 0
     cap = capsys.readouterr()
-    assert json.loads(cap.out)["private_strings"] == [] and "WARN" not in cap.err
+    assert json.loads(cap.out)["private_strings"] == [] and _warns(cap.err) == []
 
 
 def test_gate_refuse_private_refuses_and_copies_nothing(lp, env, tmp_path, capsys):
@@ -120,8 +120,10 @@ def test_index_private_strings_in_scans_keys_without_echo(idx):
 # --- review pass: the WARN wording matches what happened to the receipt
 
 def _warns(err):
-    """The private-string WARN lines (gate --check also prints the advisory `WARN: palomar:` line)."""
-    return [line for line in err.splitlines() if line.startswith("WARN") and not line.startswith("WARN: palomar:")]
+    """The private-string WARN lines (gate --check also prints the advisory `WARN: palomar:` line, and gate the
+    `WARN: toolchain advisory` lines for the fixture toolchain, #237)."""
+    return [line for line in err.splitlines() if line.startswith("WARN")
+            and not line.startswith(("WARN: palomar:", "WARN: toolchain advisory "))]
 
 
 def test_warn_wording_on_copy(lp, env, tmp_path, capsys):

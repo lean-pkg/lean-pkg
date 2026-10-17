@@ -62,6 +62,23 @@ changes:
       without links (cp -r --no-preserve=links) before packing.
     breaking: false
     changelog: Fixed
+  - pr: 246
+    id: toolchain-advisories
+    kind: behavior
+    area: gate, receipt check, palomar check, page
+    summary: >-
+      gate, gate --check, receipt check and palomar check print one WARN line per entry of the shipped
+      toolchain advisories list (src/lean_pkg/data/toolchain-advisories.yaml) that names the receipt's
+      lean_toolchain (any release before v4.34.1, and v4.35.0-rc1 and -rc2), and their --json gains
+      toolchain_advisories[]; never a refusal. page --write adds a Toolchain advisory line under How
+      this was checked; page --check leaves advisory lines out of its comparison, so an existing page
+      stays current, and prints a non-failing NOTE per advisory the page does not show yet.
+    action: >-
+      Nothing is required. The next page --write shows the advisory line; rebuilding on the fixed
+      release and re-gating removes the warning. Scripts that match gate's stderr may see the new WARN
+      lines.
+    breaking: false
+    changelog: Added
 # Read for this record, nothing for a package author: two draft proposals (#238, a math LTS stack;
 # #242, conditional claims and discharge), the record follow-up for #238 (#248), and the FAQ entries on
 # `lake check --paranoid` and AI provers with the trust model's positioning paragraph, which also lets a
