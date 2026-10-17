@@ -79,7 +79,7 @@ def test_host_policy_refuses_unlisted_host_outside_slurm(cr):
 
 def test_host_policy_refuses_with_no_allowlist(cr):
     ok, why = cr.host_policy_ok(None, False, hostname="login01")
-    assert ok is False and "login01" in why
+    assert ok is False and "login01" not in why and cr.hashed_host_label("login01") in why
 
 
 def test_host_policy_allows_slurm_job_on_any_host(cr):
@@ -90,7 +90,7 @@ def test_host_policy_allows_slurm_job_on_any_host(cr):
 def test_host_policy_allows_listed_host(cr):
     ok, why = cr.host_policy_ok(None, False, hostname="buildbox",
                                 allowed_hosts={"buildbox", "other"})
-    assert ok is True and "buildbox" in why
+    assert ok is True and "buildbox" not in why and cr.hashed_host_label("buildbox") in why
     assert "COMPARATOR_RECEIPT_ALLOWED_HOSTS" in why
 
 
@@ -203,7 +203,9 @@ def test_runner_allows_listed_host_and_records_reason(project: Path):
     assert r.returncode == 0, r.stderr
     head = git(project, "rev-parse", "HEAD")
     rec = json.loads((project / ".lean-receipts" / f"{head[:12]}-comparator.json").read_text())
-    assert rec["host_policy"] == f"host {host} listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS"
+    label = load_module().hashed_host_label(host)
+    assert rec["host_policy"] == f"host {label} listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS"
+    assert rec["host"] == rec["host_label"] == label
 
 
 def test_runner_allows_slurm_job(project: Path):

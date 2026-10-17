@@ -36,6 +36,25 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   the entry was lost when the command reference was split into pages), and
   docs/design/two-tracks.md shows each track's path with the commands of
   0.10.0, where `new` scaffolds a library only.
+- Privacy: `comparator-receipt` no longer writes the machine's host name into
+  the receipt, which is committed into the package repository and goes public
+  with it. `host`, the host in `job_id` (`local-<host>-<pid>-<stamp>`) and in
+  `host_policy` (`Slurm job J on <host>`, `host <host> listed in ...`), this
+  host's name in `COMPARATOR_RECEIPT_BUILD_SOURCE`, and the runner's output
+  now name the host by its label: `h-` and 12 hex digits of the SHA-256 of
+  the lower-cased host name, the label `receipt systemd` already publishes
+  for the same host, or the operator's `--host-label`. `host_label` is now
+  always written (before, only with `--host-label`). The schema stays
+  `comparator-receipt/2`: no validator reads these fields' values, and
+  receipts that name the host still validate. `COMPARATOR_RECEIPT_ALLOWED_HOSTS`
+  accepts a host's name (any case) or its label; a refusal names the label.
+- `public-safety` reports a committed comparator receipt that names its host
+  (written by lean-pkg 0.10.0 or earlier without `--host-label`), in the tree
+  or the history, as the blocking `receipt-raw-host` hit, read from the
+  receipt's own `host` field. Before, such a receipt was caught only when the
+  host name was also a registry-derived user or workspace name. An `allow:`
+  line matching the name exempts it. docs/comparator.md ("Host policy") says
+  what owners of already-committed receipts can do.
 
 ## [0.10.0] - 2026-10-17
 

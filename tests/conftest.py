@@ -230,8 +230,9 @@ def make_comparator_receipt(repo: Path, cfg_rel: str = "comparator.json",
         "lean_toolchain": (repo / "lean-toolchain").read_text().strip(),
         "tools": {"comparator": "5" * 40, "lean4export": "6" * 40,
                   "nanoda": "7" * 40, "landrun": "8" * 40},
-        "host": "build-host",
-        "job_id": "local-build-host-4242-20261005T120000Z",
+        "host": "h-1f2e3d4c5b6a",           # a host label: a receipt never names its host
+        "host_label": "h-1f2e3d4c5b6a",
+        "job_id": "local-h-1f2e3d4c5b6a-4242-20261005T120000Z",
         "generated_at": "2026-10-05T12:00:00+00:00",
         "result": "pass",
         "configs": [{

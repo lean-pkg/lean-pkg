@@ -84,7 +84,8 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
     ]),
     ("COMPARATOR-RECEIPT", [
         ("COMPARATOR_RECEIPT_ALLOWED_HOSTS",
-         "comma-separated host names allowed to run outside Slurm (host policy, recorded in host_policy)",
+         "comma-separated host names or labels allowed to run outside Slurm (host policy, recorded in "
+         "host_policy by the label)",
          "none (only a Slurm job may run)"),
         ("COMPARATOR_RECEIPT_ALLOW_HOST",
          "1: allow this host whatever its name (an override, visible in the receipt's host_policy)",
@@ -93,8 +94,8 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
          "inside a Slurm job: the host policy allows the run and the receipt's job_id is this value",
          "job_id local-<host>-<pid>-<time>"),
         ("COMPARATOR_RECEIPT_HOST_LABEL",
-         "label that replaces the host name in the receipt and in the runner's output",
-         "the host name"),
+         "label that names the host in the receipt and in the runner's output (the host name never does)",
+         "h- + 12 hex of the SHA-256 of the lower-cased host name"),
         ("COMPARATOR_CHECK",
          "comparator-check.sh to run; --check wins",
          "the copy shipped inside the lean_pkg package"),
