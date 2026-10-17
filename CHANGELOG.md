@@ -11,6 +11,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- LTS stacks, stage 0 of proposal 0004 (accepted 2026-10-17; open
+  question 6 stays open): `docs/stacks/` with the first stack,
+  `lts-2026.10` (Lean `v4.35.0`, Mathlib tag `v4.35.0` at
+  `56a005855ea1`, lean-pkg `>=0.12.0,<1.0`, supported until 2028-04-30),
+  as `lts-2026.10.yaml` (schema `lean-pkg-stack/1`, closed keys, validated
+  by `tests/test_stacks.py`) and its page. The stack pins the comparator
+  tools of the toolchain mechanism as `v4.35.0` ships them (NanoDa
+  `3a2407216ee8`, con-ron `dd8d8218892c`, and the SHA-256 of each bundled
+  binary). The page records the stage 0 matrix as far as it ran (the
+  `new --kind paper` scaffold moves with no source change and builds; the
+  other five entries are pending) and a read-only survey of the lab's
+  packages. RELEASING.md gains step 3a, "the supported stacks' matrix
+  passes", for declared stacks. No CLI change (#PRNUM).
+
 - `lean-pkg-extract plan` warns about disabled Lean sources: every file
   under a root whose name is `*.lean.<suffix>` (`Foo.lean.disabled`,
   `.lean.off`, `.lean.skip`) that the plan excludes or refuses as

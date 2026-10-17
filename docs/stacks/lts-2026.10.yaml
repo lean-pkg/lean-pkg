@@ -1,0 +1,68 @@
+# A lean-pkg LTS stack (schema lean-pkg-stack/1; proposal 0004, docs/proposals/0004-math-lts-stack.md).
+# The human page is lts-2026.10.md. Closed keys: tests/test_stacks.py refuses any key not listed there.
+# `published` stays null until the stage 0 matrix passes (proposal 0004, "Cadence and choice": a stack
+# is declared after its matrix passes, with the date of the run).
+schema: lean-pkg-stack/1
+name: lts-2026.10
+defined: 2026-10-17                # stage 0 approved by the maintainer; the pins below are fixed
+published: null                    # the declaration date, once the matrix passes
+lean_toolchain: leanprover/lean4:v4.35.0
+lean_commit: eb6cafb7290e8bd5f2937522d8d804f58f02bafc   # tag v4.35.0 of leanprover/lean4
+mathlib:
+  rev: v4.35.0                     # a Mathlib tag, never a branch
+  commit: 56a005855ea17e0b0958f73ec801ae140b0a1679      # what the tag resolves to; a moved tag is reported against this
+lean_pkg: ">=0.12.0,<1.0"          # the lean-pkg releases that promise to support the stack
+palomar_floor:
+  minimum: v4.35.0-rc2             # palomar_check's pinned rules (the first toolchain with `lake comparator`)
+  satisfied: true                  # v4.35.0-rc2 <= v4.35.0
+comparator_tools:                  # what the comparator receipt runs on this toolchain
+  mechanism: toolchain             # `lake comparator` with the toolchain's bundled kernels (docs/comparator.md)
+  sources:                         # pinned in src/CMakeLists.txt of leanprover/lean4 at lean_commit
+    lake_comparator: in-tree       # src/lake (Lake/CLI/Check.lean), built with the toolchain
+    leanexport: in-tree            # src/LeanExport
+    leanchecker: in-tree
+    nanoda_lib: 3a2407216ee84a75f9e1aead6803d0578be06ae7  # github.com/ammkrn/nanoda_lib (nanoda_bin)
+    con_ron: dd8d8218892c871276b1e569d3decbb368bba1b6     # github.com/leanprover/con-ron
+  release_asset:
+    name: lean-4.35.0-linux.tar.zst
+    sha256: 7289597a44543246c9227b8cae501767e095ce17f6d448b95fc4a8dc97268f6d
+  binaries_sha256:                 # linux x86_64, from release_asset; the receipt keys of COMPARATOR_TOOLCHAIN_DIGESTS
+    lake: 8ba83c98f76562d03b8dbc33f1057151ba6cbb121679dde76b2260ccc90495e1
+    leanexport: f6a6483d518a11b323c28b9bac176d2220df0e9fc3230833815db9586669c074
+    leanchecker: 12c38901cdbfab178f1bf6145dd30012e9a3b2c11ca695292a5884fa3cbaddb6
+    nanoda_bin: cbf13950fc4a48f635a0beceeb5ed32dd82568b870cfd081b6391c1f2cf02ba5
+    con-ron: 60f4ca9fb9436c323789fa49aae33af6dcd1b9b54b43a66b461779ce79fd8eec
+supported_until: 2028-04-30        # about 18 months (proposal 0004, open question 3, decided)
+successor: null                    # lts-2027.04 once it exists
+tested:                            # the stage 0 matrix (proposal 0004, "How a stack is tested"); see the page
+  - package: new --kind paper (lean-pkg 0.12.0 scaffold)
+    commit: null
+    moved: pins only               # lean-toolchain and the Mathlib require rev; no source change
+    build: ok
+    result: built                  # verify not run: the comparator receipt needs an authorized host
+  - package: new --kind library (lean-pkg 0.12.0 scaffold)
+    commit: null
+    moved: null
+    build: null
+    result: pending
+  - package: pi-lambda tutorial (docs/tutorial-pi-lambda.md)
+    commit: null
+    moved: null
+    build: null
+    result: pending
+  - package: gromov-filling-lean (index)
+    commit: ba787a3eb26eaa88752d06d91f17763478233eab
+    moved: null
+    build: null
+    result: pending
+  - package: markovprocess-pilot (index)
+    commit: 05d99d75df8235e79902220f0fe13e07e81867ca
+    moved: null
+    build: null
+    result: pending
+  - package: total-coloring-lean (index)
+    commit: 533f9430cb4595faa9878bf2eecb8350ce57a068
+    moved: null
+    build: null
+    result: pending
+advisories: []                     # entries of the toolchain advisory list (#237) that apply
