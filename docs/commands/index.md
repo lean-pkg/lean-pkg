@@ -28,6 +28,7 @@ real package.
 
 | Command | Purpose |
 |---|---|
+| [`lean-pkg new`](new.md) | scaffold a new Lean package (Challenge/Solution, comparator.json, claims, coverage, verify.sh) in a new directory and git init it; no registry, no network |
 | [`lean-pkg init`](init.md) | bootstrap an empty registry and its event log |
 | [`lean-pkg migrate`](migrate.md) | upgrade the registry schema in place (additive; idempotent) |
 | [`lean-pkg doctor`](doctor.md) | installation, registry, index and tool diagnostics; exit 1 when the registry is unreadable or its schema version is unsupported |

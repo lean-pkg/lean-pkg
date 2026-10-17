@@ -18,6 +18,10 @@ lean-pkg init:
   - cmd: lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
     say: The same with the registry file named explicitly; the global --registry flag goes before the command.
 
+lean-pkg new:
+  - cmd: lean-pkg new my-proof --no-mathlib
+    say: Scaffold a minimal Lean package without Mathlib; the command initializes Git but does not build, commit, or access the registry.
+
 lean-pkg doctor:
   - cmd: lean-pkg doctor
     say: Check the installation, the registry, the index and the tools in one line each; exit 1 when the registry is unreadable or its schema version is unsupported.

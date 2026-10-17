@@ -19,7 +19,7 @@ intro: |
   real package.
 groups:
   - title: Set up and get help
-    commands: [init, migrate, doctor, help, llms]
+    commands: [new, init, migrate, doctor, help, llms]
   - title: See the registry
     commands: [board, list, status, leases, next, wiki, validate, audit]
   - title: Register, lease and edit packages
