@@ -143,6 +143,8 @@ below the floor, and every file must carry a `module` header. Of the 447
 entries registered by 2026-10-05, none is below v4.30.0, and every entry
 since 2026-09-24 is at v4.35.0-rc2 or rc3. A v4.29 package has to be
 upgraded first; lean-pkg's lifecycle is unaffected by the pin.
+`lean-pkg palomar check NAME` reports both gaps (see
+[Palomar readiness](#palomar-readiness)).
 
 **Which Lean version do I need?**
 Whatever your package pins. For a package you intend to register in
@@ -173,6 +175,74 @@ version the registry file plus its event log. See
 **How do I cite a verified result?**
 By the package's Zenodo version DOI, cut at the commit Palomar registered,
 plus the `PALOMAR-…` id with its version. Both name the same bytes.
+
+## Palomar readiness
+
+**How do I know a package is Palomar-submittable before I release it?**
+Run `lean-pkg palomar check NAME`. It is read-only and offline: it reads the
+git objects of one commit (`--rev REV`, else the commit the gate receipt
+binds, else HEAD), never the working tree, and lists every gap as
+`{code, severity, paths, detail, fix}`. `error` gaps need a new commit, and
+so a re-gate; `warn` gaps are submission steps (make the repository public,
+push the commit) or advice. Exit 0 when there is no `error`, 1 when there
+is, 2 on a usage error. Run it before the gated waves: a package can pass
+every lean-pkg gate and still be refused by Palomar, and porting to the
+module system changes build inputs. `gate --check` and `publish --dry-run`
+print a `palomar:` warning with the gap count and the command (JSON
+`palomar_check`); it never changes their verdict.
+
+**Which rules does it check, and where do they come from?**
+Palomar's own repository,
+[PalomarSubmission](https://github.com/PalomarRegistry/PalomarSubmission),
+at commit `d4e41c1d5b0d` (committed 2026-10-05, read 2026-10-16):
+`browser-preflight-policy.json`, `toolchains.json` and the README sections
+"Required source layout" and "Lean source requirements". Palomar's floor
+moves; when it does, download the newer `browser-preflight-policy.json` and
+pass it with `--rules FILE` (lean-pkg never fetches it). The checks:
+
+- every tracked `.lean` file of the repository (contained projects and
+  unused files included; `.git` and `.lake` excluded) begins with `module`;
+  ordinary comments may precede it, module documentation (`/-! -/`) and doc
+  comments may not; `lakefile.lean` is exempt; at most 10,000 lines; no
+  symbolic links; valid UTF-8 (codes `source.module_required`,
+  `source.file_too_long`, `source.symlink_not_allowed`,
+  `source.invalid_utf8`, as Palomar names them);
+- `lean-toolchain` is `leanprover/lean4:vX.Y.Z[-rcN]` at or above v4.35.0-rc2
+  (`toolchain.unsupported`); a Lake configuration and no Git submodules;
+- each comparator configuration (or the one `--config PATH` names: Palomar
+  verifies only the configuration a submission names) has the required keys
+  and no other key than `challenge_module`, `solution_module`,
+  `theorem_names`, `definition_names`, `permitted_axioms` and
+  `enable_nanoda`, permits only the standard axioms, has its module sources
+  tracked, and its Challenge is at most 1,000 lines and 100 KiB; non-empty
+  `definition_names` is a warning (compared by type, never by body);
+- `formalization.yaml` is tracked, valid v0.4, free of placeholders, and has
+  Palomar's metadata minimum (description, responsible maintainers, one to
+  eight arXiv classes, sources with relationships, automation methods,
+  review status);
+- exactly one licence file at the repository root, matching `license_spdx`;
+- a GitHub repository, public, with the commit pushed (local refs).
+
+It does not run Lean's header parser, licensee, the taxonomy and ORCID
+lookups, the Challenge import and shadowing checks, or the build and
+comparator run; the JSON `not_checked` lists them. Like Palomar's browser
+preflight it predicts, it does not decide.
+
+**`palomar check` says `judged_as` is an unknown key. Is my configuration wrong?**
+For Palomar, yes: its verifier refuses any configuration key outside the six
+above, and lean-pkg's definition-hole rule puts the human sign-off in
+`judged_as`. A configuration with definition holes cannot be submitted as it
+stands; keep `definition_names` empty where you can. A scaffold with a
+`lean_pkg_scaffold` key still has TODO entries.
+
+**What is planned next?**
+`palomar check` as a warning in `audit` and a refusal in `palomar prepare`
+(small); module-headed files from `lean-pkg init` and the templates (small);
+`palomar port-modules --dry-run`, which inserts headers, rewrites imports to
+`public import` and builds to report definitions needing `@[expose]`, never
+committing (large); a sign-off beside the configuration instead of
+`judged_as` inside it (medium); an optional `comparator.headline.json` that
+feeds `status.main_results` (medium).
 
 ## Reservoir
 

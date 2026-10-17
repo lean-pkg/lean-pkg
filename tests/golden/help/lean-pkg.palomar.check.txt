@@ -1,0 +1,21 @@
+usage: lean-pkg palomar check [-h] [--rev REV] [--config PATH] [--rules FILE] [--repo DIR]
+                              [--json] [--commit] [--push] [--no-commit]
+                              name
+
+positional arguments:
+  name
+
+options:
+  -h, --help     show this help message and exit
+  --rev REV      the commit to judge (default: the gate-bound commit, else HEAD)
+  --config PATH  judge only this comparator configuration (Palomar verifies the one a submission
+                 names); default: every configuration tracked at the commit
+  --rules FILE   a newer PalomarSubmission browser-preflight-policy.json (schema 1) downloaded by
+                 hand; default: the rules pinned at PalomarSubmission d4e41c1d5b0d (read
+                 2026-10-16)
+  --repo DIR     judge the checkout DIR instead of the registered local_path (never saved)
+  --json         machine-readable JSON on stdout
+  --commit       write commands: pull --ff-only, then commit the registry files (default:
+                 $LEAN_PKG_COMMIT=1)
+  --push         --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit    never commit or push (overrides the env)

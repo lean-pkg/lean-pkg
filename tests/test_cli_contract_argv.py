@@ -93,6 +93,9 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["public-safety", "demo"], "public-safety", False, False, False),
     (["palomar", "prepare", "demo"], "palomar prepare", True, True, False),
     (["palomar", "prepare", "demo", "--dry-run"], "palomar prepare", False, False, False),
+    (["palomar", "check", "demo"], "palomar check", False, False, False),            # read-only, offline
+    (["palomar", "check", "demo", "--rev", "HEAD", "--config", "c.json", "--rules", "p.json", "--repo", "d"],
+     "palomar check", False, False, False),
     (["next", "demo"], "next", False, False, False),
     (["report", "--command", "x"], "report", False, False, False),
     (["report", "--command", "x", "--yes"], "report", False, False, False),   # files an issue, not a registry write

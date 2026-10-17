@@ -23,6 +23,20 @@ change the registry schema or receipt format, always with a migration).
   and carry it as JSON `manuscript_findings`. No status changes. A claims
   file without the keys normalizes, caches and digests exactly as before; an
   older lean-pkg refuses a file that uses them (unknown keys).
+- `palomar check NAME [--rev REV] [--config PATH] [--rules FILE] [--repo DIR] [--json]` (feature request #6):
+  read-only, offline Palomar readiness at one commit (default the gate-bound commit, else HEAD; git objects, never
+  the working tree). Lists every gap as `{code, severity, paths, detail, fix}` against Palomar's mechanical rules,
+  pinned at PalomarSubmission `d4e41c1d5b0d` (committed 2026-10-05, read 2026-10-16; `--rules FILE` takes a newer
+  `browser-preflight-policy.json`): a `module` header in every tracked `.lean` file of the repository, with the
+  exact list of files without one; the 10,000-line cap; no `.lean` symlinks; the toolchain floor v4.35.0-rc2; a Lake
+  configuration and no submodules; comparator configurations with only Palomar's six keys (so `judged_as` and
+  `lean_pkg_scaffold` are gaps), standard axioms, tracked module sources and a Challenge within 1,000 lines and
+  100 KiB; `formalization.yaml` tracked, v0.4-valid, without placeholders and with Palomar's metadata minimum; one
+  root licence file matching `license_spdx`; a public GitHub repository with the commit pushed (warnings). Exit 0
+  ready, 1 error gaps, 2 usage. Rules, source and date: docs/faq.md, "Palomar readiness".
+- `gate --check` and `publish --dry-run` print a `palomar:` warning with the error-gap count and the
+  `palomar check` command when the check finds gaps (stderr for `gate --check`, a `WARN` checklist item for
+  `publish`); additive JSON `palomar_check` {ready, commit, errors, warns, codes, command}. Never a refusal.
 
 ## [0.7.53] - 2026-10-16
 

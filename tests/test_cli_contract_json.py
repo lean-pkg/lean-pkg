@@ -50,6 +50,7 @@ CASES = {
     "comparator-coverage": ["comparator", "config", "--coverage", "beta"],
     "formalization": ["formalization", "beta"],
     "publish-dry-run": ["publish", "beta", "--dry-run"],
+    "palomar-check": ["palomar", "check", "beta"],
     "promote-dry-run": ["promote", "beta", "--skip-public-safety"],
     "register-dry-run": lambda e, t: ["register", "gamma", "--repo", "git@github.com:example/gamma.git",
                                       "--path", _gamma(e, t), "--dry-run"],
