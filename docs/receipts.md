@@ -323,6 +323,37 @@ the top of the wrapper):
   fresh: the empty Lake cache, the `.lake/build` refusal and the
   `Reused`/`Replayed`/`Unpacked` check are unchanged. The sha256 identifies
   the tarball; it is not what makes the build trustworthy.
+
+  The job restores the tarball and builds the package; it does not build
+  what only the audit imports. A tarball holding the dependency builds of
+  the library target's import cone passes `lake build` and then fails at
+  the audit when an audit file imports more, such as the `Mathlib`
+  umbrella (Lean reports that the object file `Mathlib.olean` of module
+  `Mathlib` does not exist). Check the tarball before submitting, on the
+  login node:
+
+  ```bash
+  lean-pkg receipt slurm --preflight-deps --deps-tar deps.tar.gz --commit SHA \
+    --entries 'Verify/**/*.lean' --entries 'Audit/**/*.lean'
+  ```
+
+  The rule is fail-closed. The entry files are the committed `.lean` files
+  at `SHA` matching `--entries` (the default list covers `Verify/`,
+  `Audit/`, `OwnedAudit/` and the `AxiomCheck`, `TypeCheck` and `Examples`
+  files). Their `import` lines are followed through the package's own
+  committed modules and then through the dependencies' sources inside the
+  tarball, so `import Mathlib` requires `Mathlib.olean` and the `.olean` of
+  every module `Mathlib.lean` imports, transitively. Every external module
+  in that closure must have its `.olean` and `.ilean` as regular files in
+  exactly one package of `lake-manifest.json` (a symlink does not count),
+  and its source must be there too, or its imports could not be followed.
+  A module no package provides is a problem unless its root is a toolchain
+  one (`Init`, `Std`, `Lean`, `Lake`). Every git package of the manifest
+  must be in the tarball, checked out at the manifest's `rev`
+  (`.git/HEAD`): a stripped checkout or another rev is a problem. Nothing
+  is built, extracted or written; the exit code is 0 or 1 and every
+  problem is listed (`--json` lists the missing modules, the first 500).
+  `--deps-dir DIR` checks a directory holding `.lake/packages` instead.
 - **`ARTIFACTS_DIR=DIR`**: the artifact seal, for a job whose build or
   audit leaves files that matter beyond the log (native executables,
   generated certificates). `DIR` is relative to the job's package tree

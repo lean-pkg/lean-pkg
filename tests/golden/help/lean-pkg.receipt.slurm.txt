@@ -1,9 +1,10 @@
 usage: lean-pkg receipt slurm [-h] [--job J] [--log PATH] [--commit SHA] [--template] [--check]
-                              [--stdout PATH] [--stderr PATH] [--redact REGEX] [--sacct-file F]
-                              [--artifacts DIR] [--artifacts-manifest NAME] [--checker TEXT]
-                              [--repo DIR] [--out PATH] [--compress-log] [--append-readme]
-                              [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
-                              [--json]
+                              [--preflight-deps] [--deps-tar PATH] [--deps-dir DIR]
+                              [--entries GLOB] [--stdout PATH] [--stderr PATH] [--redact REGEX]
+                              [--sacct-file F] [--artifacts DIR] [--artifacts-manifest NAME]
+                              [--checker TEXT] [--repo DIR] [--out PATH] [--compress-log]
+                              [--append-readme] [--readme-heading TEXT] [--readme-line TEXT]
+                              [--tar-sha256 HEX] [--json]
 
 options:
   -h, --help            show this help message and exit
@@ -18,6 +19,20 @@ options:
   --check               preflight the files of a finished (trial) job: every seal, stderr and log-
                         line check, each problem named; no sacct (unless --sacct-file), commit
                         checks only with --commit; writes nothing, exit 0/1
+  --preflight-deps      before submitting: check that the staged dependency cache (--deps-tar or
+                        --deps-dir) holds, at the lake-manifest.json pins committed at --commit
+                        (default HEAD), the built .olean and .ilean of every external module in
+                        the import closure of the entry files the verifier elaborates (--entries);
+                        reads the committed tree, builds and writes nothing, exit 0/1
+  --deps-tar PATH       with --preflight-deps: the DEPS_TAR tarball the job will restore (gzip,
+                        bzip2, xz or plain; read in one pass, never extracted)
+  --deps-dir DIR        with --preflight-deps: a directory holding .lake/packages, instead of
+                        --deps-tar
+  --entries GLOB        with --preflight-deps: a glob (relative to the package directory; ** = any
+                        directories) of the .lean files the verifier elaborates, repeatable;
+                        replaces the default Verify/**/*.lean, Audit/**/*.lean,
+                        OwnedAudit/**/*.lean, **/AxiomCheck*.lean, **/TypeCheck*.lean,
+                        **/Examples*.lean, **/OwnedAudit*.lean
   --stdout PATH         the job's stdout (.out): verify-log-sha256 = sha256(raw log), pre-
                         manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at the
                         commit); without it the log must carry its own seal

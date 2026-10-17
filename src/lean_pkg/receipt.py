@@ -164,6 +164,9 @@ SRC_MODE=${SRC_MODE:-archive}
 # taken from it (anything else in it is ignored); the job fails when the restore changed anything else in the
 # tree, or when a dependency's build directory holds one of the package's root namespaces. The package itself
 # is still compiled fresh: the checks below are unchanged. The log records the tarball's sha256, never its path.
+# The tarball must hold what the audit imports, not only the build target's cone (`import Mathlib` needs every
+# Mathlib module built); check it before submitting, on the login node (reads, builds and writes nothing):
+#   lean-pkg receipt slurm --preflight-deps --deps-tar T --commit SHA [--entries 'Verify/**/*.lean' ...]
 DEPS_TAR=${DEPS_TAR:-}
 # Optional artifact seal: ARTIFACTS_DIR, a directory relative to the job's package tree ($SRC; relative to $WORK
 # with ARTIFACTS_BASE=work) that the build or the audit fills. After the audit every regular file under it is
@@ -1584,13 +1587,23 @@ def preflight(args) -> int:
 
 
 def cmd_receipt_slurm(args) -> int:
+    modes = [f for f, v in (("--template", args.template), ("--check", args.check),
+                            ("--preflight-deps", args.preflight_deps)) if v]
+    if len(modes) > 1:
+        raise core.UsageError(f"{' and '.join(modes)} do not combine")
+    if not args.preflight_deps:
+        given = [f for f, v in (("--deps-tar", args.deps_tar), ("--deps-dir", args.deps_dir),
+                                ("--entries", args.entries)) if v]
+        if given:
+            raise core.UsageError(f"{', '.join(given)}: only with --preflight-deps")
     if args.template:
-        if args.check:
-            raise core.UsageError("--template and --check do not combine")
         sys.stdout.write(SBATCH_TEMPLATE)
         return 0
     if args.check:
         return preflight(args)
+    if args.preflight_deps:
+        from . import deps_closure
+        return deps_closure.cmd(args)
     missing = [f for f, v in (("--job", args.job), ("--log", args.log), ("--commit", args.commit_sha)) if v is None]
     if missing:
         raise core.UsageError(f"receipt slurm needs {', '.join(missing)} (or --template, or --check on a job's files)")
@@ -1687,6 +1700,22 @@ def add_parsers(sub, add_json) -> None:
                    help="preflight the files of a finished (trial) job: every seal, stderr and log-line check, "
                         "each problem named; no sacct (unless --sacct-file), commit checks only with --commit; "
                         "writes nothing, exit 0/1")
+    s.add_argument("--preflight-deps", action="store_true",
+                   help="before submitting: check that the staged dependency cache (--deps-tar or --deps-dir) "
+                        "holds, at the lake-manifest.json pins committed at --commit (default HEAD), the built "
+                        ".olean and .ilean of every external module in the import closure of the entry files "
+                        "the verifier elaborates (--entries); reads the committed tree, builds and writes "
+                        "nothing, exit 0/1")
+    s.add_argument("--deps-tar", default=None, metavar="PATH",
+                   help="with --preflight-deps: the DEPS_TAR tarball the job will restore (gzip, bzip2, xz or "
+                        "plain; read in one pass, never extracted)")
+    s.add_argument("--deps-dir", default=None, metavar="DIR",
+                   help="with --preflight-deps: a directory holding .lake/packages, instead of --deps-tar")
+    s.add_argument("--entries", action="append", default=[], metavar="GLOB",
+                   help="with --preflight-deps: a glob (relative to the package directory; ** = any directories) "
+                        "of the .lean files the verifier elaborates, repeatable; replaces the default "
+                        "Verify/**/*.lean, Audit/**/*.lean, OwnedAudit/**/*.lean, **/AxiomCheck*.lean, "
+                        "**/TypeCheck*.lean, **/Examples*.lean, **/OwnedAudit*.lean")
     s.add_argument("--stdout", default=None, metavar="PATH",
                    help=f"the job's stdout (.out): {SHA_KEY} = sha256(raw log), {PRE_KEY} = {POST_KEY} = "
                         "sha256(lake-manifest.json at the commit); without it the log must carry its own seal")
