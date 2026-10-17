@@ -685,14 +685,28 @@ what writes the raw data):
 ```bash
 #!/usr/bin/env bash
 # pack-artifacts.sh RAW OUT: run BY THE JOB, after RAW is complete. OUT becomes the job's ARTIFACTS_DIR and
-# must not exist yet; RAW must not be inside it (the seal would read the raw data again).
+# must not exist yet; RAW and OUT must not overlap (OUT inside RAW would pack its own output, RAW inside OUT
+# would make the seal read the raw data again).
 set -euo pipefail
 raw=$1 out=$2
+r=$(realpath -m -- "$raw") o=$(realpath -m -- "$out")
+r=${r%/}/ o=${o%/}/
+case $o in "$r"*) echo "pack: OUT $out is RAW $raw or inside it; put OUT next to RAW" >&2; exit 1;; esac
+case $r in "$o"*) echo "pack: RAW $raw is inside OUT $out; put OUT next to RAW" >&2; exit 1;; esac
 if [ -n "$(find "$raw" ! -type f ! -type d -print -quit)" ]; then
   echo "pack: $raw holds a symlink or special file" >&2; exit 1
 fi
 if [ -n "$(find "$raw" -name $'*[\n\r\\\\]*' -print -quit)" ]; then
   echo "pack: $raw holds a file name with a newline or backslash" >&2; exit 1
+fi
+# hardlinks: two paths in RAW for one file would become a tar link member, which unpack-verify.py refuses
+links=$(find "$raw" -type f -links +1 -printf '%D:%i %P\n' | LC_ALL=C sort | awk '{k = $1; sub(/^[^ ]+ /, "")
+  n[k]++; s[k] = s[k] (n[k] > 1 ? ", " : "") $0} END {for (k in n) if (n[k] > 1) print s[k]}' | LC_ALL=C sort)
+if [ -n "$links" ]; then
+  { echo "pack: $raw holds hardlinked files (tar would store links, which the collector refuses):"
+    sed -n 1,5p <<<"$links"
+    echo "pack: copy RAW without links first (cp -r --no-preserve=links RAW RAW.copy) and pack the copy"; } >&2
+  exit 1
 fi
 mkdir "$out"
 # 1. the inner manifest: `<path> <size> <sha256>` per logical file, sorted by path (C locale)
@@ -706,6 +720,19 @@ tar -C "$raw" --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --mode=
 echo "inner-manifest: $(wc -l <"$out/logical.sha256") file(s), $(du -sb "$raw" | cut -f1) bytes," \
   "sha256 $(sha256sum "$out/logical.sha256" | cut -d' ' -f1)"
 ```
+
+The script refuses, before it creates `OUT`: an `OUT` that is `RAW` or
+lies inside it (the manifest and the archive would be written into the
+tree being inventoried and archived), a `RAW` inside `OUT`, a symlink or
+special file, a file name the manifest cannot hold, and two paths in `RAW`
+that are hardlinks of one file. Paths are compared after `realpath -m`,
+so a symlinked or `..` spelling of the same directory is caught. A
+hardlink is refused rather than stored with `tar --hard-dereference`:
+that would silently store the data once per path, so the archive outgrows
+the size you measured (`du` counts a linked file once), and a tar link
+member is what the collector refuses. Copy `RAW` without links
+(`cp -r --no-preserve=links`) and pack the copy, or narrow `RAW`. A file
+whose other link lies outside `RAW` is packed as an ordinary file.
 
 Submit with, for example,
 `AXIOMS_CMD="lake lean Verify/Axioms.lean && bash scripts/pack-artifacts.sh raw sealed"`,

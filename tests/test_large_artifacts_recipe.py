@@ -138,6 +138,63 @@ def test_documented_pack_is_deterministic_and_refuses_what_it_cannot_bind(tmp_pa
     assert p.returncode == 1 and "symlink or special file" in p.stderr and not (tmp_path / "o3").exists()
 
 
+def write_raw(raw: Path) -> None:
+    for k, v in RAW.items():
+        (raw / k).parent.mkdir(parents=True, exist_ok=True)
+        (raw / k).write_bytes(v)
+
+
+def tree(d: Path) -> list[str]:
+    return sorted(str(x.relative_to(d)) for x in d.rglob("*"))
+
+
+@pytest.mark.parametrize("raw_rel, out_rel, needle", [
+    ("raw", "raw/sealed", "is RAW raw or inside it"),               # field report: OUT nested under RAW
+    ("raw", "raw/sub/deep/sealed", "is RAW raw or inside it"),
+    ("raw", "raw", "is RAW raw or inside it"),
+    ("raw", "raw/", "is RAW raw or inside it"),
+    ("raw", "other/../raw/sealed", "is RAW raw or inside it"),      # a `..` spelling
+    ("raw", "alias/sealed", "is RAW raw or inside it"),            # alias -> raw: a symlinked spelling
+    ("outer/raw", "outer", "is inside OUT outer"),
+])
+def test_documented_pack_refuses_overlapping_raw_and_output(tmp_path, scripts, raw_rel, out_rel, needle):
+    pack, _ = scripts
+    raw = tmp_path / raw_rel
+    write_raw(raw)
+    (tmp_path / "alias").symlink_to("raw" if raw_rel == "raw" else raw_rel)
+    before = tree(tmp_path)
+    p = subprocess.run(["bash", str(pack), raw_rel, out_rel], cwd=tmp_path, capture_output=True, text=True)
+    assert p.returncode == 1 and needle in p.stderr, p.stderr
+    assert tree(tmp_path) == before                                 # refused before any mkdir or write
+
+
+def test_documented_pack_refuses_hardlinks_inside_raw(tmp_path, scripts):
+    pack, _ = scripts
+    raw = tmp_path / "raw"
+    write_raw(raw)
+    (raw / "sub" / "twin.txt").hardlink_to(raw / "a.txt")          # two paths in RAW, one file
+    p = subprocess.run(["bash", str(pack), str(raw), str(tmp_path / "o")], capture_output=True, text=True)
+    assert p.returncode == 1, p.stderr
+    assert "hardlinked files" in p.stderr and "a.txt, sub/twin.txt" in p.stderr, p.stderr
+    assert "--no-preserve=links" in p.stderr and not (tmp_path / "o").exists()
+
+
+@pytest.mark.skipif(shutil.which("zstd") is None, reason="zstd not installed")
+def test_documented_pack_accepts_a_link_whose_twin_is_outside_raw(tmp_path, scripts):
+    """Only two paths inside RAW make a tar link member; a file also linked from elsewhere packs as a file."""
+    pack, unpack = scripts
+    raw = tmp_path / "raw"
+    write_raw(raw)
+    (tmp_path / "outside.txt").hardlink_to(raw / "a.txt")
+    out = tmp_path / "o"
+    p = subprocess.run(["bash", str(pack), str(raw), str(out)], capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    assert (out / "logical.sha256").read_bytes() == manifest_for(RAW)
+    stream = subprocess.run(["zstd", "-dc", str(out / "raw.tar.zst")], capture_output=True, check=True).stdout
+    r = unpack_verify(unpack, out / "logical.sha256", tmp_path / "dest", stream)
+    assert r.returncode == 0 and b"ok: 4 file(s)" in r.stdout, r.stdout + r.stderr
+
+
 # --------------------------------------------------------------------------
 # the collector refuses hostile or mismatched archives
 
