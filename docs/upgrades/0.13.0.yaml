@@ -100,5 +100,7 @@ changes:
 # `lake check --paranoid` and AI provers with the trust model's positioning paragraph, which also lets a
 # record start with `changes: []` (#247); the first LTS stack, lts-2026.10, as docs under docs/stacks
 # with its test and no CLI change (#249), this record's follow-up for #249 (#251), and the page row for
-# #250 (#252 and #253, both landed), and its duplicate page row removed (#254).
-no_author_change: [238, 242, 247, 248, 249, 251, 252, 253, 254]
+# #250 (#252 and #253, both landed), its duplicate page row removed (#254), and the three bindings of a
+# compressed receipt log documented with a test and the help text (#255), and
+# this record line for #255 (#256).
+no_author_change: [238, 242, 247, 248, 249, 251, 252, 253, 254, 255, 256]
