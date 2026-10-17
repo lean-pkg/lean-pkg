@@ -14,7 +14,8 @@ Every `lean-pkg` command and subcommand, with its usage line, every flag, its ex
 [CLI overview](../cli.md). Older spellings (`claim`, `init`, `audit`, ...) keep working; see
 [Command aliases](aliases.md).
 
-**New here?** The usual path through the commands is
+**New here?** The [quickstart](../quickstart.md) takes a new package from
+[`new`](new.md) to a verified page. The usual path through the commands is
 [`registry init`](registry.md#lean-pkg-registry-init) (once) → [`register`](register.md) → [`lease claim`](lease.md#lean-pkg-lease-claim) →
 work → [`receipt slurm`](receipt.md#lean-pkg-receipt-slurm) or
 [`receipt systemd`](receipt.md#lean-pkg-receipt-systemd) → [`gate`](gate.md) →
@@ -58,7 +59,7 @@ The lower tier (`receipt`, `gate`) moves a package to verified-private; the comp
 
 | Command | Purpose |
 |---|---|
-| [`lean-pkg receipt`](receipt.md) | produce lower-tier receipts (writes files in the package checkout, never the registry) |
+| [`lean-pkg receipt`](receipt.md) | produce lower-tier receipts (slurm, systemd: write files in the package checkout, never the registry); check a published package's receipts from git alone (check) |
 | [`lean-pkg gate`](gate.md) | validate a lower-tier receipt; gate-pending -&gt; verified-private; records the receipt's lean_toolchain and mathlib_rev as the package's pins |
 | [`comparator-receipt`](comparator-receipt.md) | run comparator-check.sh and write a comparator receipt |
 | [`lean-pkg comparator`](comparator.md) | comparator receipts: attach (or --check) one to a gated package; config (write a configuration from claims); host-check |
