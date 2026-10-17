@@ -187,6 +187,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   Palomar (`upstream_target: palomar` or a recorded `palomar` entry; not
   `scratch`, `archived` or `upstreamed`). Other packages, and packages with
   `warn` gaps only, stay quiet.
+- `comparator config --migrate-signoff PATH [--write]` moves a
+  configuration's deprecated inline `judged_as` and `lean_pkg_scaffold` keys
+  into `lean-pkg-signoff.json` (dry run by default; no registry). It never
+  changes the Palomar keys or their values, refuses an inline sign-off that
+  fails the rule or a conflicting sidecar entry, and says that the file's
+  bytes change, so a gated package needs a new comparator receipt.
 
 ### Changed
 
@@ -194,6 +200,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `palomar check` finds any `error` gap at HEAD, listing each with its fix;
   `warn` gaps print as warnings and never block. JSON adds
   `palomar_check {ready, commit, errors, warns, codes, command}`.
+- Comparator configurations now hold only Palomar's six keys. The
+  definition-hole sign-off and the scaffold's TODO markers live in a sidecar,
+  `lean-pkg-signoff.json` at the package root (schema `lean-pkg-signoff/1`,
+  strict; keyed by configuration path and definition name; each sign-off has
+  `reviewer`, `date` and a `judged_as` text, and `config_sha256` binds it to
+  the configuration's bytes, so a changed configuration invalidates it). The
+  receipt runner, `comparator-check.sh`, the receipt validators,
+  `formalization`, `coverage check` (R12), `page`, `comparator config
+  --coverage`, `--from-claims`, the claims ledger and `palomar check` read it.
+  The runner records the sign-off in the receipt as `signoff`, which
+  validators require to equal the sidecar. Configurations that still carry
+  `judged_as` or `lean_pkg_scaffold` keep working for lean-pkg's own checks,
+  with a deprecation warning naming the migration command; `palomar check`
+  still refuses them, now with that command as the fix. `--from-claims`
+  refuses to write to such a configuration until it is migrated.
 
 ### Changed
 

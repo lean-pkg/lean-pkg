@@ -149,6 +149,27 @@
     "rc": "host",
     "type": "object"
   },
+  "comparator-migrate-signoff": {
+    "keys": [
+      "config",
+      "config_sha256_after",
+      "config_sha256_before",
+      "config_text",
+      "dropped",
+      "dry_run",
+      "moved",
+      "next_commands",
+      "ok",
+      "other_keys",
+      "palomar_keys_unchanged",
+      "receipt_impact",
+      "sidecar",
+      "signoff",
+      "written"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
   "coverage-check": {
     "keys": [
       "counts",

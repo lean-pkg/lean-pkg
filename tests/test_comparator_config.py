@@ -47,12 +47,17 @@ def test_dry_run_prints_the_would_be_json_and_writes_nothing(lp, env, capsys):
     rc, cap = cc(lp, env, capsys, "--dry-run")
     assert rc == 0
     assert "5 claim(s): 1 already configured, 2 added, 2 skipped" in cap.out
-    cfg = json.loads(cap.out[cap.out.index("{"):])
+    dec = json.JSONDecoder()
+    cfg, end = dec.raw_decode(cap.out, cap.out.index("{"))
+    side, _ = dec.raw_decode(cap.out, cap.out.index("{", end))
     assert cfg["theorem_names"] == ["BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.baz", "BetaAudit.Demo.zap"]
-    todo = cfg["lean_pkg_scaffold"]["todo"]
+    assert "lean_pkg_scaffold" not in cfg                     # the config keeps Palomar's keys only
+    assert "--- lean-pkg-signoff.json (dry run, nothing written):" in cap.out
+    todo = side["configs"]["comparator.json"]["scaffold"]["todo"]
     assert [t["claim"] for t in todo] == ["beta/baz", "beta/zap"]
     assert all(t["challenge"].startswith("TODO: ") and t["solution"].startswith("TODO: ") for t in todo)
     assert (env.repo_b / "comparator.json").read_text() == before
+    assert not (env.repo_b / "lean-pkg-signoff.json").exists()
     assert env.registry.read_text() == before_reg and read_events(env) == before_ev
 
 
@@ -150,7 +155,7 @@ def test_config_flags_elsewhere_are_a_usage_error(lp, env, capsys):
 def test_todo_names_stay_out_of_formalization_main_results(lp, env, capsys):
     synced(lp, env, capsys)
     assert cc(lp, env, capsys)[0] == 0
-    _git(env.repo_b, "add", "comparator.json")
+    _git(env.repo_b, "add", "comparator.json", "lean-pkg-signoff.json")
     _git(env.repo_b, "commit", "-q", "-m", "scaffold")
     assert lp.main(["--registry", str(env.registry), "formalization", "beta", "--json"]) == 0
     out = capsys.readouterr()

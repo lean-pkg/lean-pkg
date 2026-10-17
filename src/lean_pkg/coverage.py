@@ -424,8 +424,10 @@ def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.
     R8/R9, every claim a row names has its `file` committed at HEAD (the page links the declaration
     there); R10/R11, every theorem the recorded comparator receipt compares is the declaration of a claim
     some row names (the page says how many theorems were compared, so each must be accounted for);
-    R12, every comparator configuration with definition holes carries judged_as.reviewer (the page names
-    who judged the bodies)."""
+    R12, every comparator configuration with definition holes carries a sign-off reviewer (the page names
+    who judged the bodies): the receipt's `signoff` copy of lean-pkg-signoff.json, else its deprecated
+    `judged_as` copy (holes.receipt_judged)."""
+    from .holes import receipt_judged
     from . import claims as claims_mod
     from . import comparator_config as cc
     errors: list[str] = []
@@ -450,11 +452,12 @@ def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.
                 errors.append(f"comparator theorem {t!r} ({where}, recorded comparator receipt) is the declaration "
                               f"of no claim a row names: map it to its paper result (a row's claims), or drop it "
                               f"from the configuration")
-        judged = c.get("judged_as") if isinstance(c.get("judged_as"), dict) else {}
+        judged = receipt_judged(c)
         if c.get("definition_names") and not str(judged.get("reviewer") or "").strip():
             errors.append(f"comparator configuration {where} (recorded comparator receipt) has definition holes "
-                          f"{', '.join(map(str, c['definition_names']))} without judged_as.reviewer: comparator "
-                          f"never compares a hole's body, so the page must name the human who did")
+                          f"{', '.join(map(str, c['definition_names']))} without a sign-off reviewer (signoff, from "
+                          f"lean-pkg-signoff.json; or the deprecated judged_as.reviewer): comparator never compares "
+                          f"a hole's body, so the page must name the human who did")
     return errors
 
 

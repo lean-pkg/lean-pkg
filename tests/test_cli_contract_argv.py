@@ -70,6 +70,9 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["comparator", "config", "--from-claims", "demo", "--challenge-from-type", "--claims-file", "c.yaml"],
      "comparator config", False, False, False),
     (["comparator", "config", "--coverage", "demo"], "comparator config", False, False, False),
+    (["comparator", "config", "--migrate-signoff", "comparator.json"], "comparator config", False, False, False),
+    (["comparator", "config", "--migrate-signoff", "comparator.json", "--write"], "comparator config",
+     False, False, False),                                  # writes the checkout's files only, never the registry
     (["comparator", "config", "--receipt", R], "comparator", True, True, False),
     (["promote", "demo"], "promote", False, False, False),
     (["promote", "demo", "--yes"], "promote", True, True, False),

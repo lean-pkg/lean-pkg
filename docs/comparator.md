@@ -97,7 +97,9 @@ lean-pkg comparator config --from-claims NAME               # extend comparator.
 For every claim of kind `theorem` or `lemma` (not `superseded`) that no
 tracked configuration covers yet, it appends a Challenge name
 `<Package>Audit.<decl>` to `theorem_names` (`--challenge-namespace NS`
-changes the prefix) and records, under `lean_pkg_scaffold.todo`, the claim,
+changes the prefix) and records, under `configs[<config>].scaffold.todo` in
+`lean-pkg-signoff.json` (never in the configuration, which keeps Palomar's six
+keys; see [Definition holes](#definition-holes-need-a-human-sign-off)), the claim,
 the declaration, its file and two `TODO:` lines: the Challenge statement a
 human must write in Mathlib vocabulary, and the Solution bridge to the
 project theorem. A claim counts as covered only by its full declaration
@@ -146,10 +148,15 @@ lean-pkg comparator config --from-claims beta --claims-file claims.yaml --challe
 
 Until each Challenge and Solution exists, comparator fails on the TODO
 names, which is the point: nothing is certified by scaffolding. Remove an
-entry from `lean_pkg_scaffold.todo` once both are written, and the key once
-the list is empty; comparator ignores unknown keys, but do not submit a
-configuration that still carries the key to Palomar. Names still listed
-there are left out of `status.main_results` in `formalization.yaml`.
+entry from the sidecar's `scaffold.todo` once both are written, and the
+`scaffold` block once the list is empty; commit `lean-pkg-signoff.json` with
+the configuration. Names still listed there are left out of
+`status.main_results` in `formalization.yaml`. A configuration that still
+carries the deprecated inline `lean_pkg_scaffold` key is read as before but
+refused for writing until migrated (`--migrate-signoff`, below). A
+configuration whose holes are signed off with `config_sha256` bound to its
+current bytes loses that binding when the scaffold appends names; the command
+says so.
 
 ### Pre-filling statements from the elaborated types
 
@@ -187,7 +194,7 @@ module) keeps its `TODO:` lines, gets `needs_restatement: true`, and records
 failed (`lake env lean` exited non-zero, for instance a module not built, or
 timed out) fails the whole run instead; see "Exit codes and partial runs"
 below. Every entry stays under
-`lean_pkg_scaffold.todo` until its Challenge and Solution are written into the
+`scaffold.todo` until its Challenge and Solution are written into the
 modules.
 
 How a type is obtained: for each declaration, a scratch file in a temp
@@ -423,7 +430,7 @@ file counts as one. `--allow-partial` ingests it anyway: the filled entries
 are pre-filled as usual, and the failed ones keep their `TODO:` lines with
 `needs_restatement: true`, `restatement_reason: "extraction_failed"` and the
 `type_error`. A later run skips names already scaffolded, so to retry them
-remove those entries from `theorem_names` and `lean_pkg_scaffold.todo` first.
+remove those entries from `theorem_names` and the sidecar's `scaffold.todo` first.
 Output written by an older driver has no `failure`: there a non-zero `rc`, or
 an error other than an unknown constant, counts as an extraction failure.
 
@@ -731,31 +738,84 @@ supply. comparator checks such a hole by name, universes, type and safety only
 must be checked by an additional, potentially human, verifier. So a
 configuration with a non-empty `definition_names` is refused — by
 `comparator-check.sh`, by `comparator-receipt` before anything is built, and by
-`gate --comparator`, `comparator` and `promote` against the file at the bound
-commit — unless it records that verifier:
+`gate --comparator`, `comparator` and `promote` against the files at the bound
+commit — unless that verifier is recorded.
+
+The record lives beside the configuration, never inside it: Palomar's verifier
+refuses any configuration key outside its six (`challenge_module`,
+`solution_module`, `theorem_names`, `definition_names`, `permitted_axioms`,
+`enable_nanoda`), so a configuration that carried lean-pkg's sign-off could
+not be submitted. lean-pkg keeps its own comparator metadata in one sidecar
+file at the package root, `lean-pkg-signoff.json` (deliberately not
+`comparator*.json`, which the runner and Palomar would read as a
+configuration), keyed by configuration path and definition name:
 
 ```json
 {
-  "definition_names": ["MyProof.witness"],
-  "judged_as": {
-    "reviewer": "Le Chen",
-    "date": "2026-10-07",
-    "definitions": ["MyProof.witness"],
-    "basis": "solution body compared with the challenge statement side by side"
+  "schema": "lean-pkg-signoff/1",
+  "configs": {
+    "comparator.json": {
+      "config_sha256": "<sha256 of comparator.json's bytes>",
+      "definitions": {
+        "MyProof.witness": {
+          "reviewer": "Le Chen",
+          "date": "2026-10-07",
+          "judged_as": "the solution body is the paper's witness; compared side by side"
+        }
+      }
+    }
   }
 }
 ```
 
-`reviewer` must be a non-empty human name; a value containing a model or agent
-token (`claude`, `codex`, `gpt`, `opus`, `sonnet`, `fable`, `agent`, `bot`,
+The schema is strict: exactly these keys, no duplicate JSON keys, every
+`configs` key a comparator configuration path. Each `definitions` entry needs a
+non-empty human `reviewer`; a value containing a model or agent token
+(`claude`, `codex`, `gpt`, `opus`, `sonnet`, `fable`, `agent`, `bot`,
 `opencode`, `assistant`, `llm`, `ai`, as a whole word or `-`/`_` token, any
-case) is refused. `date` is `YYYY-MM-DD`. `definitions` must cover every
-`definition_names` entry. `basis` is free text. This is a declaration, not a
-verification: the tool records who signed, it cannot compare the bodies.
-comparator's `Config` derives `Lean.FromJson`, which ignores unknown fields, so
-`judged_as` may stay in the file; `comparator-check.sh` strips it from the copy
-it hands to comparator anyway. The runner copies `judged_as` into the receipt's
-config entry when present.
+case) is refused. `date` is `YYYY-MM-DD`; `judged_as` is free text saying what
+the body was judged to be, and how. The entries must cover every
+`definition_names` entry, and a sign-off for a name that is no longer a hole is
+refused as stale. `config_sha256` binds the sign-off to the configuration's
+bytes: change the configuration (even by adding a theorem name) and the
+sign-off is refused until a human re-judges the bodies and sets
+`config_sha256` to the new file's `sha256sum`; the refusal prints that value.
+This is a declaration, not a verification: the tool records who signed, it
+cannot compare the bodies. The runner copies the sign-off into the receipt's
+config entry as `signoff` (`{source, definitions}`); validators re-read the
+sidecar at the bound commit and refuse a receipt whose copy differs.
+
+The same file holds the scaffold's TODO markers (`configs[<path>].scaffold`,
+written by `comparator config --from-claims`, below).
+
+### Migrating from inline `judged_as` / `lean_pkg_scaffold`
+
+Earlier releases put the sign-off in a `judged_as` object
+(`{reviewer, date, definitions[], basis?}`) and the scaffold in a
+`lean_pkg_scaffold` key, both inside the configuration. Those configurations
+keep working for lean-pkg's own checks: the inline keys are read as a fallback,
+with a deprecation warning naming the migration command (a sidecar entry for
+the configuration wins when both exist). `palomar check` keeps refusing them.
+Move them with:
+
+```bash
+lean-pkg comparator config --migrate-signoff comparator.json           # dry run: prints both files
+lean-pkg comparator config --migrate-signoff comparator.json --write   # writes the sidecar, then the config
+```
+
+The command needs no registry. It refuses an inline sign-off that would fail
+the rule, and a sidecar entry that already signs a hole differently. It
+removes only `judged_as` and `lean_pkg_scaffold`: the Palomar keys and their
+values are unchanged (a key that is neither is left for you and named).
+`basis` becomes each definition's `judged_as` text, and `config_sha256` is
+bound to the migrated file.
+
+The configuration's bytes do change, and a comparator receipt binds each
+configuration's bytes (`configs[].sha256`). For a gated package the recorded
+comparator receipt therefore stops validating once the migration is
+committed: commit both files, run `comparator-receipt` at the new HEAD, re-gate
+(the lower-tier receipt must bind the same commit), and attach the new
+comparator receipt. The command prints this and the commands.
 
 Background: OpenAI's 2026-10-06 mathematics release lists 42 concrete challenge
 definitions as holes across 9 of its 405 configurations, one of them a whole
@@ -766,7 +826,8 @@ definitions as holes across 9 of its 405 configurations, one of them a whole
 - `--configs <glob>` (repeatable, relative to the project): check these files
   instead of the default `comparator*.json` / `comparator/config*.json`.
 - `--lint-configs`: only the configuration rules above (axiom subset,
-  definition-hole sign-off); needs just `jq`, no toolchain or build.
+  definition-hole sign-off, read from `lean-pkg-signoff.json` in the project
+  directory); needs just `jq` and `sha256sum`, no toolchain or build.
 - `LEAN4EXPORT_COMMIT=<40-hex>`: use this lean4export source instead of the
   release tag named after the project's Lean version.
 - `LEAN4EXPORT_ALLOW_TOOLCHAIN_MISMATCH=1` (with `LEAN4EXPORT_COMMIT`): when

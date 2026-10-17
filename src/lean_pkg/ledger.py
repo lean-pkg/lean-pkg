@@ -187,7 +187,8 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
             limitations.append(f"claims file unreadable: {e}")
             claims, source = [], "unreadable"
         if bound:
-            names, todo = cc._names(cc._configs_at(repo, bound)) if stage == "promote" else (set(), set())
+            names, todo = (cc._names(cc._configs_at(repo, bound), cc._sidecar_at(repo, bound))
+                           if stage == "promote" else (set(), set()))
             read = claims_mod._reader(repo, bound)
             qualified = cc.qualified_decls(read, claims) if stage == "promote" else set()
 

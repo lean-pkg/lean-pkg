@@ -36,6 +36,8 @@ import re
 import subprocess
 
 from . import cli as core
+from .holes import INLINE_KEYS, SIDECAR, check_definition_holes, migrate_command, parse_sidecar
+from .holes import summary as signoff_summary
 
 RULES_SOURCE = {
     "repository": "https://github.com/PalomarRegistry/PalomarSubmission",
@@ -336,13 +338,16 @@ def comparator_gaps(tree: Tree, policy: dict, only: str | None) -> tuple[list[di
                              "add the keys; commit, re-run comparator-receipt, re-gate", [path]))
         unknown = sorted(cfg.keys() - allowed)
         if unknown:
-            note = (" (lean-pkg's definition-hole rule needs judged_as when definition_names is non-empty: such "
-                    "a configuration cannot be submitted as it stands)" if "judged_as" in unknown else "")
+            ours = [k for k in INLINE_KEYS if k in unknown]
+            note = (f" ({' and '.join(ours)}: lean-pkg's own metadata, deprecated inside a configuration; it "
+                    f"belongs in {SIDECAR})" if ours else "")
+            fix = (f"`{migrate_command(rel)}` moves {' and '.join(ours)} to {SIDECAR} (the configuration's "
+                   f"Palomar keys unchanged)" + ("; remove the other key(s)" if set(unknown) - set(ours) else "")
+                   + "; commit, re-run comparator-receipt (the config's bytes change), re-gate") if ours else \
+                "remove them from the configuration you submit; commit, re-run comparator-receipt, re-gate"
             gaps.append(_gap("comparator.unknown_key", "error",
                              f"{rel} has key(s) Palomar refuses: {', '.join(unknown)} (allowed: "
-                             f"{', '.join(sorted(allowed))}){note}",
-                             "remove them from the configuration you submit (a `lean_pkg_scaffold` key means the "
-                             "scaffold still has TODO entries); commit, re-run comparator-receipt, re-gate", [path]))
+                             f"{', '.join(sorted(allowed))}){note}", fix, [path]))
         names = cfg.get("theorem_names")
         if not isinstance(names, list) or not names or not all(isinstance(x, str) and x for x in names):
             gaps.append(_gap("comparator.invalid", "error", f"{rel}: theorem_names must be a non-empty list of names",
@@ -370,9 +375,15 @@ def comparator_gaps(tree: Tree, policy: dict, only: str | None) -> tuple[list[di
                              "state fewer or shorter declarations in the Challenge", [tree.project(csrc)]))
         holes = cfg.get("definition_names") or []
         if isinstance(holes, list) and holes:
+            try:
+                so = check_definition_holes(cfg, rel, cfg_rel=rel, cfg_bytes=tree.blob(path) or b"",
+                                            sidecar=parse_sidecar(tree.blob(tree.project(SIDECAR))))
+                signed = f"; lean-pkg sign-off: {signoff_summary(so)['reviewer']} ({so['source']})"
+            except ValueError as e:
+                signed = f"; lean-pkg sign-off: none valid ({str(e).split(': ', 1)[-1][:160]})"
             gaps.append(_gap("comparator.definition_holes", "warn",
                              f"{rel}: {len(holes)} definition_names entr(y/ies); comparator compares them by name "
-                             f"and type, never by body, so reviewers must judge the bodies",
+                             f"and type, never by body, so reviewers must judge the bodies{signed}",
                              "keep definition_names empty where you can; otherwise justify each in the submission",
                              [path]))
     return gaps, configs

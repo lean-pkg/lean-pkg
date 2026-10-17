@@ -248,7 +248,7 @@ def test_scope_r12_definition_holes_name_their_reviewer(lp, env, capsys):
     comp["configs"][0]["definition_names"] = ["Demo.weight"]
     (env.repo_b / rel).write_text(json.dumps(comp))
     _git(env.repo_b, "commit", "-q", "-am", "a hole without a reviewer")
-    assert any("without judged_as.reviewer" in e for e in cov_errors(lp, env, capsys))
+    assert any("without a sign-off reviewer" in e for e in cov_errors(lp, env, capsys))
     comp["configs"][0]["judged_as"] = {"reviewer": "Jane Doe", "date": "2026-10-01", "basis": "read both"}
     (env.repo_b / rel).write_text(json.dumps(comp))
     _git(env.repo_b, "commit", "-q", "-am", "the hole is judged")

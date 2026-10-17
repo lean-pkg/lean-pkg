@@ -40,6 +40,17 @@ def _gamma(env, tmp_path) -> str:
     return str(repo)
 
 
+def _inline_config(tmp_path) -> str:
+    """A configuration with the deprecated inline judged_as (the migration's dry run reads it)."""
+    d = tmp_path / "migrate"
+    d.mkdir(exist_ok=True)
+    cfg = {"challenge_module": "Challenge", "solution_module": "Solution", "theorem_names": ["foo"],
+           "definition_names": ["Foo.bar"], "permitted_axioms": [], "enable_nanoda": True,
+           "judged_as": {"reviewer": "Jane Doe", "date": "2026-10-17", "definitions": ["Foo.bar"]}}
+    (d / "comparator.json").write_text(json.dumps(cfg))
+    return str(d / "comparator.json")
+
+
 # case id -> argv after `--registry REG --json` (callables get (env, tmp_path) for paths)
 CASES = {
     "list": ["list"],
@@ -60,6 +71,7 @@ CASES = {
     "public-safety": ["public-safety", "beta"],
     "version": ["--version"],
     "comparator-coverage": ["comparator", "config", "--coverage", "beta"],
+    "comparator-migrate-signoff": lambda e, t: ["comparator", "config", "--migrate-signoff", _inline_config(t)],
     "formalization": ["formalization", "beta"],
     "formalization-anchor": lambda e, t: ["formalization", "anchor", "beta", "--arxiv", _ANCHOR_ID,
                                           "--from-file", _eprint(t)],

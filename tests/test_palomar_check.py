@@ -238,6 +238,7 @@ def test_comparator_keys_palomar_refuses(lp, tmp_path, capsys):
     c = codes(data)
     assert rc == 1
     assert "judged_as, lean_pkg_scaffold" in c["comparator.unknown_key"]["detail"]
+    assert "--migrate-signoff comparator.json --write" in c["comparator.unknown_key"]["fix"]
     assert c["comparator.definition_holes"]["severity"] == "warn"
 
 

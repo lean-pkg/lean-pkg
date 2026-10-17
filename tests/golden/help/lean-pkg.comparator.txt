@@ -1,6 +1,7 @@
 usage: lean-pkg comparator [-h] [--receipt RECEIPT] [--check] [--refuse-private] [--refuse-dirty]
-                           [--replace] [--from-claims NAME] [--coverage NAME] [--out OUT]
-                           [--dry-run] [--challenge-namespace CHALLENGE_NAMESPACE] [--agent AGENT]
+                           [--replace] [--from-claims NAME] [--coverage NAME]
+                           [--migrate-signoff PATH] [--write] [--out OUT] [--dry-run]
+                           [--challenge-namespace CHALLENGE_NAMESPACE] [--agent AGENT]
                            [--challenge-from-type] [--emit-script F] [--from-output F]
                            [--checkout DIR] [--claims-file PATH] [--repo DIR] [--no-registry]
                            [--allow-partial] [--lake-env DIR] [--jobs JOBS] [--timeout TIMEOUT]
@@ -28,6 +29,12 @@ options:
   --coverage NAME       `comparator config --coverage NAME`: read-only; claims covered by the
                         comparator config tracked at the gate-bound commit, and why a changed
                         config needs a new gate
+  --migrate-signoff PATH
+                        `comparator config --migrate-signoff PATH`: move the deprecated inline
+                        judged_as / lean_pkg_scaffold keys of that configuration into lean-pkg-
+                        signoff.json (dry run unless --write); the Palomar keys are unchanged, the
+                        file's bytes (and so its receipt hash) change
+  --write               with config --migrate-signoff: write both files
   --out OUT             with config: the configuration to extend or create (default
                         comparator.json)
   --dry-run             with config: print the would-be JSON; write nothing
