@@ -111,6 +111,7 @@ compute:                              # optional; see the Easley acknowledgment
 |---|---|
 | `schema`, `package` | `coverage/1`; the package name |
 | `manuscript.version` | a posted version: `arXiv:<id>v<N>`, or `{repo, commit, sha256}` (a public https repository, a full commit, the SHA-256 of the manuscript file). `unposted` (a private draft) is refused unless `--allow-private-manuscript` is passed; the page then says the numbers cannot be checked yet |
+| `manuscript.eprint_sha256` | optional, only beside an `arXiv:<id>v<N>` version: the SHA-256 of that version's e-print. `lean-pkg formalization anchor` writes it with the record `data/source-baselines/arXiv-<id>v<N>.json`; `coverage check` refuses a value that differs from the record committed at `HEAD` and warns when no record is committed. An older lean-pkg refuses the key (coverage/1 is strict) |
 | `summary` | one line: the capsule's only hand-written sentence |
 | `rows[].class` | `same-assumptions` (the Lean statement carries the paper's hypotheses), `inputs-supplied` (it also takes the named `inputs` as hypotheses), `outside` (no Lean counterpart) |
 | `rows[].claims` | ids in `claims.yaml` at `HEAD`; at least one for the first two classes, none for `outside`; a superseded claim is refused |

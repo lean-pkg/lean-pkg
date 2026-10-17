@@ -130,6 +130,18 @@ lock, and `--commit` is ignored; when the pointer is unset it prints the
 Nothing requires a clean tree: the generator reads tracked bytes at HEAD and
 the written file itself dirties the tree.
 
+## Anchoring the source to an arXiv version
+
+`lean-pkg formalization anchor NAME` (with `--arxiv <id>v<N>`,
+`--from-file E-PRINT`, `--compare-tex LOCAL.tex` and `--write`) sets the `id` of the source entry that names
+the paper (else the single `formalizes` entry without an id) to
+`arXiv:<id>v<N>`, validates the result against v0.4, and records the
+e-print's hashes in `data/source-baselines/`. `sources` is a kept key, so a
+later render keeps the id. The acknowledgements line still follows the
+registry's `source_paper`; the command prints the `update` that aligns it. The
+whole flow, its refusals and the record: [Anchoring to an arXiv
+version](paper-companion.md#anchoring-to-an-arxiv-version).
+
 ## Validation
 
 The rendered document is validated before anything is printed or written.

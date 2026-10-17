@@ -249,6 +249,18 @@ The mathlib-initiative v0.4 report Palomar reads, derived from the registry,
 the comparator configurations and the receipts; `audit` reports drift. Derived
 versus kept keys: [formalization.yaml](formalization.md).
 
+## Anchor a companion to an arXiv version
+
+```bash
+lean-pkg formalization anchor my-proof --arxiv <id>v<N> --from-file e-print.tar.gz --compare-tex paper.tex
+lean-pkg formalization anchor my-proof --arxiv <id>v<N> --from-file e-print.tar.gz --compare-tex paper.tex --write
+```
+
+Hashes the posted e-print, compares its main `.tex` with yours and records
+both under `data/source-baselines/`; `--write` pins `coverage.yaml` and
+`formalization.yaml` to that version. `--fetch` downloads the e-print instead:
+[Anchoring to an arXiv version](paper-companion.md#anchoring-to-an-arxiv-version).
+
 ## Commit the evidence without invalidating it
 
 Commit only the `.lean-receipts/` files after the run. The new HEAD is then

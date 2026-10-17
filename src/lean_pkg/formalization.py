@@ -668,7 +668,36 @@ def audit_findings(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
     return []
 
 
+ANCHOR_CMD = "anchor"
+ANCHOR_ONLY = (("arxiv", "--arxiv"), ("from_file", "--from-file"), ("fetch", "--fetch"),
+               ("compare_tex", "--compare-tex"), ("accept_diff", "--accept-diff"), ("main_tex", "--main-tex"))
+RENDER_ONLY = (("out", "--out"), ("force", "--force"), ("reason", "--reason"), ("author", "--author"),
+               ("no_registry", "--no-registry"))
+
+
+def is_anchor(args) -> bool:
+    """`lean-pkg formalization anchor NAME ...`: the keyword form (never a registry write)."""
+    return getattr(args, "name", None) == ANCHOR_CMD
+
+
 def cmd_formalization(args) -> int:
+    if is_anchor(args):
+        given = [flag for dest, flag in RENDER_ONLY if getattr(args, dest, None)]
+        if given:
+            raise core.UsageError(f"formalization anchor: {', '.join(given)} belong(s) to the render form "
+                                  f"(`lean-pkg formalization NAME`)")
+        if not getattr(args, "package", None):
+            raise core.UsageError("formalization anchor: name the package: "
+                                  "`lean-pkg formalization anchor NAME --arxiv <id>v<N> --from-file E-PRINT`")
+        if not getattr(args, "arxiv", None):
+            raise core.UsageError("formalization anchor: --arxiv <id>v<N> is required")
+        from .anchor import cmd_anchor
+        return cmd_anchor(args)
+    given = [flag for dest, flag in ANCHOR_ONLY if getattr(args, dest, None)]
+    if getattr(args, "package", None) or given:
+        raise core.UsageError(f"formalization {args.name}: "
+                              + (f"{', '.join(given)} go(es) with" if given else "a second name needs")
+                              + " the anchor form: `lean-pkg formalization anchor NAME --arxiv <id>v<N> ...`")
     reg_path, events_p = core.registry_path(args), core.events_path(args)
     lines, payload, warnings = do_formalization(
         reg_path, core.load_registry(reg_path), events_p, args.name, write=args.write,
@@ -687,10 +716,14 @@ def add_parsers(sub, add_json) -> None:
     s = sub.add_parser("formalization",
                        help=f"render formalization.yaml ({SCHEMA_VERSION}, what Palomar reads) "
                             f"from the registry and the repo at HEAD; stdout unless --write/--out")
-    s.add_argument("name")
+    s.add_argument("name", help="the package; or `anchor` followed by the package (the anchor form)")
+    s.add_argument("package", nargs="?", default=None,
+                   help="anchor form only: the package to anchor")
     s.add_argument("--write", action="store_true",
                    help="write <repo>/<formalization_yaml or formalization.yaml> and set the "
-                        "registry pointer (event updated); refuses a differing file without --force")
+                        "registry pointer (event updated); refuses a differing file without --force. "
+                        "Anchor form: write the source-baseline record, coverage.yaml manuscript.version and "
+                        "the formalization.yaml source id (never the registry; not committed)")
     s.add_argument("--no-registry", action="store_true",
                    help="with --write: write the file only; the registry is not updated (no pointer, no "
                         "event), so this is not a registry write (no lock, no --commit)")
@@ -706,5 +739,28 @@ def add_parsers(sub, add_json) -> None:
                    help="project.authors entry (repeatable); otherwise kept from the file, else "
                         "consent[] owners/authors, else a placeholder")
     s.add_argument("--agent", default=None, help="lease holder, if one is live (for the registry update)")
+    a = s.add_argument_group(
+        "anchor form", "`lean-pkg formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT | --fetch) "
+        "[--compare-tex LOCAL.tex [--accept-diff REASON]] [--main-tex PATH] [--write]`: bind the companion to one "
+        "posted arXiv version. Reads the e-print (gzip'd tar, gzip'd .tex or tar; PDF-only is refused) in memory, "
+        "hashes it and its .tex/.bib/.bbl/.sty files, finds the main .tex (\\documentclass), compares it with "
+        "LOCAL.tex and records it all in data/source-baselines/arXiv-<id>v<N>.json. Without --write: a dry run. "
+        "--write refuses unless the e-print is tied to the manuscript coverage.yaml is bound to (same version, a "
+        "matching bound sha256, or --compare-tex identical / --accept-diff); a move to another version prints the "
+        "`claims rebase` command. Never writes the registry; never commits")
+    a.add_argument("--arxiv", default=None, metavar="ID",
+                   help="the arXiv id WITH its version (<id>v<N> or arXiv:<id>v<N>); unversioned ids are refused")
+    a.add_argument("--from-file", dest="from_file", default=None, metavar="E-PRINT",
+                   help="the e-print as downloaded from arxiv.org/e-print/<id>v<N> (offline; no network)")
+    a.add_argument("--fetch", action="store_true",
+                   help="download the e-print over HTTPS (60 s timeout, 64 MiB cap) and the arXiv API entry of "
+                        "that version; the only network access this command makes")
+    a.add_argument("--compare-tex", dest="compare_tex", default=None, metavar="LOCAL.tex",
+                   help="compare this local .tex with the e-print's main .tex (line endings and trailing "
+                        "whitespace normalised); the differing lines are shown")
+    a.add_argument("--accept-diff", dest="accept_diff", default=None, metavar="REASON",
+                   help="with --compare-tex: anchor although the files differ; the reason is recorded")
+    a.add_argument("--main-tex", dest="main_tex", default=None, metavar="PATH",
+                   help="the e-print's main .tex when more than one file carries \\documentclass")
     add_json(s)
     s.set_defaults(fn=cmd_formalization)

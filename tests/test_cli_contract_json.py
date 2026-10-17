@@ -23,6 +23,16 @@ def _gate_receipt(env, tmp_path):
     return str(write_receipt(tmp_path, make_receipt(env.repo_a)))
 
 
+_ANCHOR_ID = ".".join(("2501", "01234")) + "v1"   # built at run time (latex-label scanner)
+
+
+def _eprint(tmp_path) -> str:
+    from .test_formalization_anchor import MAIN, tar_gz
+    p = tmp_path / "eprint.tar.gz"
+    p.write_bytes(tar_gz({"main.tex": MAIN.encode()}))
+    return str(p)
+
+
 def _gamma(env, tmp_path) -> str:
     repo = tmp_path / "gamma-repo"
     if not repo.exists():
@@ -49,6 +59,8 @@ CASES = {
     "version": ["--version"],
     "comparator-coverage": ["comparator", "config", "--coverage", "beta"],
     "formalization": ["formalization", "beta"],
+    "formalization-anchor": lambda e, t: ["formalization", "anchor", "beta", "--arxiv", _ANCHOR_ID,
+                                          "--from-file", _eprint(t)],
     "publish-dry-run": ["publish", "beta", "--dry-run"],
     "palomar-check": ["palomar", "check", "beta"],
     "promote-dry-run": ["promote", "beta", "--skip-public-safety"],

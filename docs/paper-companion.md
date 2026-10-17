@@ -164,6 +164,66 @@ the schema and an example.
 Update the file at every checkpoint, and run `lean-pkg page NAME --check`:
 the map is what tells a reader where the certificate stops.
 
+### Anchoring to an arXiv version
+
+A companion is released against one posted version of the paper, and a reader
+should be able to check that the TeX the claims were written against is that
+version's source. `lean-pkg formalization anchor` does the comparison and
+records it:
+
+```bash
+# offline: the e-print you downloaded from https://arxiv.org/e-print/<id>v<N>
+lean-pkg formalization anchor NAME --arxiv <id>v<N> --from-file <id>v<N>.tar.gz --compare-tex paper.tex
+# or let lean-pkg download it (the only network access; HTTPS, 60 s timeout, 64 MiB cap)
+lean-pkg formalization anchor NAME --arxiv <id>v<N> --fetch --compare-tex paper.tex
+```
+
+The version is required: an unversioned id is whatever arXiv serves today.
+The e-print is read in memory, never unpacked to disk. A gzip'd tar, a gzip'd
+single `.tex` and a plain tar are read; a PDF-only submission is refused (it
+has no source to anchor to; pin `manuscript.version` by hand). An archive with
+an absolute path, a `..` component, a link or a device member, or more members
+or bytes than the caps allow, is refused whole.
+
+The command prints the e-print's SHA-256, its main `.tex` (the file with
+`\documentclass`; `--main-tex PATH` when several have one), how it relates to
+the manuscript `coverage.yaml` is bound to, and, with `--compare-tex`, whether
+your `.tex` is identical after normalising line endings, trailing whitespace
+and trailing blank lines, or the differing lines. Without `--write` nothing is
+written.
+
+`--write` writes three files and commits none of them:
+
+- `data/source-baselines/arXiv-<id>v<N>.json` (`source-baseline/1`,
+  deterministic JSON): the id and version; where the bytes came from (the
+  file name, or the URL and `retrieved_at` when fetched); the e-print's
+  SHA-256, size, format and member count; the SHA-256 of every `.tex`, `.bib`,
+  `.bbl` and `.sty`; `main_tex`; the comparison (`identical`,
+  `differing_lines`, `accepted_diff`); and, when fetched, `arxiv_api`
+  `{published, updated}` as the arXiv API reports them (submission times:
+  arXiv's announce date is not in the API, so it is not recorded);
+- `coverage.yaml`: `manuscript.version: "arXiv:<id>v<N>"` and
+  `manuscript.eprint_sha256`, every other line (comments included) kept;
+  `coverage check` compares the hash with the committed record;
+- `formalization.yaml`: the `id` of the source entry that names the paper
+  (or the one `formalizes` entry without an id).
+
+It refuses an anchor nothing ties to the ledger: `--write` needs
+`coverage.yaml` already bound to that version, a bound
+`{repo, commit, sha256}` whose SHA-256 is one of the e-print's files, or
+`--compare-tex` showing the files identical. When they differ (a changed
+`\bibliographystyle` line, say), read the differences and pass
+`--accept-diff "REASON"`; the reason goes into the record. A second record for
+the same version with other e-print bytes is refused: posted versions do not
+change. The registry is never written; when its `source_paper.arxiv` differs,
+the command prints the `lean-pkg update NAME --source-paper-arxiv <id>v<N>` to
+run.
+
+Moving to a later version (`v2` after `v1`) is a re-anchor: the old record
+stays, the files are re-pointed, and the command prints the claims-ledger
+step, `lean-pkg claims rebase NAME --from-tex OLD.tex --to-tex NEW.tex`, so
+theorem numbers and labels follow the new text.
+
 ## 7. Finish
 
 At submission the deliverable is:

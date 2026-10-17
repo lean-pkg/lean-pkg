@@ -108,11 +108,13 @@ _NESTED_DESTS = ("index_cmd", "claims_cmd", "reservoir_cmd", "palomar_cmd", "rec
 
 def canonical(args, ap: argparse.ArgumentParser | None = None) -> str:
     """The canonical command a parsed invocation selects: primary names, aliases resolved, the comparator
-    keyword forms named (`comparator host-check`, `comparator config`); "board" for a bare `lean-pkg`."""
+    keyword forms named (`comparator host-check`, `comparator config`, `formalization anchor`); "board" for a bare `lean-pkg`."""
     lp = cli()
     cmd = getattr(args, "cmd", None)
     if cmd is None:
         return "board"
+    if cmd == "formalization" and getattr(args, "name", None) == "anchor":
+        return "formalization anchor"
     if cmd == "comparator":
         if lp.is_host_check(args):
             return f"comparator {lp.HOST_CHECK}"

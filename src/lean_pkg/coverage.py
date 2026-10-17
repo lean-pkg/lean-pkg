@@ -12,6 +12,8 @@ formalized" list and the status capsule from it; this module only parses and val
       title: TEXT
       version: "arXiv:<id>v<N>"                 # or {repo: https://..., commit: 40hex, sha256: 64hex}
                                                 # or "unposted" (needs --allow-private-manuscript)
+      eprint_sha256: 64hex                      # optional, with an arXiv version: the e-print's SHA-256
+                                                # (`formalization anchor` writes it and its source baseline)
     summary: ONE SENTENCE                        # the capsule's hand-written sentence
     rows:
       - paper: {number: "Theorem 1.2", title: "Main estimate", label: "T:main"}   # label optional
@@ -149,8 +151,13 @@ def manuscript_kind(version) -> str:
 
 
 def _manuscript_errors(m, errors: list[str]) -> None:
-    if not _keys(m, ("title", "version"), (), "manuscript", errors):
+    if not _keys(m, ("title", "version"), ("eprint_sha256",), "manuscript", errors):
         return
+    if "eprint_sha256" in m:   # additive (formalization anchor): only beside an arXiv version
+        if not (isinstance(m["eprint_sha256"], str) and HEX64.match(m["eprint_sha256"])):
+            errors.append("manuscript.eprint_sha256: must be the 64-hex SHA-256 of the arXiv e-print")
+        if not (isinstance(m["version"], str) and ARXIV_VERSION_RE.match(m["version"])):
+            errors.append("manuscript.eprint_sha256: goes with an arXiv version (arXiv:<id>v<N>)")
     if not _text(m["title"]):
         errors.append("manuscript.title: must be a one-line string")
     v = m["version"]
@@ -405,6 +412,9 @@ def check_against(doc: dict, claims: dict[str, dict], claims_rel: str, repo: pat
     if repo is not None:
         _backed, problems = compute_backing(doc, repo)
         errors += problems
+        from .anchor import baseline_problems
+        e, w = baseline_problems(doc, repo)
+        errors, warnings = errors + e, warnings + w
     p, w = version_doi_problems(doc)
     return errors + p, warnings + w
 
