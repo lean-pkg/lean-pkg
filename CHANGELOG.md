@@ -135,6 +135,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `lean-pkg llms` (and llms.txt) printed the `status` line twice since the
+  merge of `lean-pkg new`; the command reference's `new` page now carries the
+  full form table, both examples and the quickstart link from the index.
 - `page` and `coverage`: a `comparator-receipt/2` receipt, what
   `comparator-receipt` writes, is now listed in the page's Evidence table, and
   one run inside a Slurm job (its `host_policy` names the job) backs that job

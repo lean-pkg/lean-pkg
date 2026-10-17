@@ -34,7 +34,9 @@ Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate 
 
 ## Details
 
-| `new NAME` | scaffold a minimal Lean package in a new directory (or `--dir DIR`) and initialize Git; nothing is committed, fetched or built, and no registry is read or written. Includes a Mathlib-backed project by default, or core Lean with `--no-mathlib`, plus a verification script and the files needed for a package page. See the [quickstart](../quickstart.md). | `[--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT] [--license Apache-2.0\|MIT] [--json]` |
+| Form | What it does | Key flags |
+|---|---|---|
+| `new NAME` | scaffold a minimal Lean 4 package in `./NAME` (or `--dir DIR`; refused when it exists and is not empty) and `git init` it, for the [quickstart](../quickstart.md): the [getting-started template](../getting-started.md#start-from-scratch) (`lean-toolchain`, `.gitignore`, `lakefile.toml`, `MOD/Challenge.lean`, `MOD/Solution.lean`, `comparator.json`) plus `MOD/Axioms.lean` (`#print axioms`), `claims.yaml` (one reusable claim), `coverage.yaml` (`kind: library`), `CITATION.cff`, `LICENSE`, a `README.md` carrying the lean-pkg credit, and `verify.sh`, the lower-tier check whose log [`receipt systemd --run`](receipt.md#lean-pkg-receipt-systemd) reads. Nothing is committed, fetched or built, and no registry is read or written. `--no-mathlib`: core Lean only (`comparator-receipt` then needs `COMPARATOR_RECEIPT_NO_MATHLIB=1`; `verify.sh` logs `mathlib-rev: none`). The name: lower-case letters, digits and single hyphens, starting with a letter; a library named like Lean's or a Mathlib dependency's root namespace is refused (exit 2) | `[--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT] [--license Apache-2.0\|MIT] [--json]` |
 
 ## Exit codes
 
@@ -42,8 +44,20 @@ Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate 
 
 ## Examples
 
-Scaffold a minimal Lean package without Mathlib; the command initializes Git but does not build, commit, or access the registry.
+Scaffold the package my-proof (library MyProof, Mathlib) in ./my-proof and git init it; the quickstart takes it from there.
 
 ```bash
-lean-pkg new my-proof --no-mathlib
+lean-pkg new my-proof
+```
+
+Sample output:
+
+```text
+created my-proof/: package my-proof, library MyProof, v4.35.0-rc2, Mathlib v4.35.0-rc2; 13 files, git initialized, nothing committed, no registry read or written
+```
+
+The same in core Lean, with the author and the license named.
+
+```bash
+lean-pkg new my-proof --no-mathlib --author "Ada Lovelace" --license MIT
 ```
