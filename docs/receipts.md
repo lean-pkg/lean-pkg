@@ -1140,7 +1140,8 @@ the working tree of `--repo` is never read or changed. It checks:
 | Check | What passes |
 |---|---|
 | `receipts` | at least one lower-tier receipt tracked under `.lean-receipts/` at REF binds X; a receipt file named for X that binds another commit fails |
-| `binding` | REF is X or an evidence-only descendant of it; with `--docs-descendants`, also a docs-only one ([Docs-only descendants](#docs-only-descendants-opt-in)) |
+| `receipt <file>` | each `*.json` directly under `.lean-receipts/` whose name starts with X's 12-character prefix is a receipt that binds X; otherwise it fails, unless it is one of the comparator runner's own records (see the naming rule below), which is `skip` |
+| `binding` | REF is X or an evidence-only descendant of it, with `gate`'s `formalization.yaml` exemption (below); with `--docs-descendants`, also a docs-only one ([Docs-only descendants](#docs-only-descendants-opt-in)) |
 | `lower <receipt>` | `gate`'s validator: every receipt key, the binding, `lean_toolchain` and `mathlib_rev` against `lean-toolchain` and `lake-manifest.json` at X, no path dependency outside the package, `sorry_count` 0, axioms within `propext`, `Quot.sound`, `Classical.choice` |
 | `... report log` | `report_sha256` is the SHA-256 of the committed redacted log (or of its `.gz`, decompressed); a missing log fails |
 | `... evidence files` | `manifest_sha256`, `artifacts_manifest_sha256`, `unit_properties_sha256` against the files they name, when present; `job_stdout_sha256` is not checkable (the job's stdout is not published) |
@@ -1158,6 +1159,45 @@ author's registry record, which the reader cannot see, so `--docs-descendants`
 is the reader's own choice; the result prints which rule was applied.
 Re-running Lean is not part of it: see
 [Re-verify a page yourself](trust-model.md#re-verify-a-page-yourself).
+
+**`formalization.yaml` after X.** An evidence commit has to refresh
+`formalization.yaml`: its `status.evidence` cites the receipt, so the file
+cannot be inside the commit the receipt binds. `gate` admits that change in an
+evidence-only descendant when only the file's derived keys changed (the keys
+`lean-pkg formalization` regenerates: `version`, `project.name`,
+`project.license`, `automation.notes`, `status.sorry_count`, `status.axioms`,
+`status.evidence`, `status.main_results`, and `alignment`), compared as YAML
+data. None of them is read by the build, so they cannot change what was
+verified. `receipt check` applies the same rule with no registry, to the one
+path it can know from the repository: `formalization.yaml` at the package
+root (the renderer's default). The file must be tracked at X (a
+`formalization.yaml` first committed after X is never exempt), and a change
+to any other key (`project.description`, `fidelity`, a hand-written
+`acknowledgements` line) fails the binding. When the exemption was needed,
+the `binding` line says so (it ends with `exemption applied: ...`), an
+`exemption:` line follows the rule line, and `--json` lists it under `exemptions`. A package whose registry
+records another `formalization_yaml` path gets the strict reading for that
+file here: commit it at the default path, or the reader passes
+`--docs-descendants`.
+
+**Naming rule for `.lean-receipts/`.** Every `*.json` file directly under
+`.lean-receipts/` whose name starts with the bound commit's 12-character
+prefix must be a receipt that binds that commit: a lower-tier receipt
+(`sorry_count` and `axioms`) or a comparator receipt (`schema`
+`comparator-receipt/N`). The only exception is a record the comparator runner
+itself writes, identified by its exact `schema`: `comparator-stages/1`
+(`stages.json`), `olean-manifest/1`, `comparator-attempt/1`,
+`comparator-partial/1`, `comparator-slot/1` and `comparator-estimate/2`.
+Such a file is listed as `skip` (`not a receipt: ...`) and under `skipped_records` in `--json`, and only when it is not
+receipt-shaped: a file with `sorry_count` and `axioms` is checked as a
+receipt whatever its `schema`. Any other JSON named for the commit (no
+`schema`, an unknown one, a receipt schema this version cannot read, or
+invalid JSON) fails. Absence of a field is never a reason to skip, because
+a truncated or hand-edited receipt looks exactly like that. Keep other data
+under a name that does not start with the commit prefix, under another
+extension (`.txt`, `.log`, `.sha256`), or outside `.lean-receipts/`. `gate`
+reads only the receipt paths its record names, so the rule does not change
+what it accepts.
 
 ### Sealed logs and whitespace checks
 

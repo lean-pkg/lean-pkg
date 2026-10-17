@@ -219,7 +219,10 @@ checkout, at X and at HEAD (`--at REF` for a tag or another ref), and prints
 one line per check, `PASS`, `FAIL` or `SKIP` (not applicable, with the
 reason), then the verdict. `receipt check: PASS NAME at <X> (tier comparator; ...)`
 means: the lower-tier and comparator receipts bind X, HEAD is X or an
-evidence-only descendant of it, the toolchain and Mathlib pins agree with
+evidence-only descendant of it (only `.lean-receipts/` changed, and
+`formalization.yaml` in its derived keys only, the same exemption `gate`
+applies; the result prints `exemption applied: ...` when it was needed), the
+toolchain and Mathlib pins agree with
 `lean-toolchain` and `lake-manifest.json` at X, every configuration, log and
 redacted log hashes to what the receipts say and each log has its PASS line,
 the comparator configurations at X name every reusable theorem claim,
@@ -228,7 +231,9 @@ states exactly what the receipts record. The table of checks is in
 [Checking a published package's receipts](receipts.md#checking-a-published-packages-receipts-receipt-check).
 Exit 0 only when no check fails.
 
-A package that committed its README or notes after the evidence (a docs-only
+A tag on the evidence commit itself passes without any option, even though
+that commit refreshed `formalization.yaml`. A package that committed its
+README, `coverage.yaml` or notes after the evidence (a docs-only
 descendant) fails the `binding` check: the author's opt-in to the docs-only
 rule is in their registry, which you cannot read. Look at step 1's list
 yourself; if every path there is a file the build does not read, re-run with
@@ -277,7 +282,8 @@ challenge module) against the paper: that last step is the one no tool does.
   the receipts instead; the prose around them is the author's.
 - **The docs-only opt-in.** It is recorded in the author's registry, not in
   the repository. `receipt check` and `index check` without that registry
-  apply the stricter evidence-only rule; `receipt check --docs-descendants`
+  apply the stricter evidence-only rule (`receipt check` with `gate`'s
+  derived-keys exemption for `formalization.yaml` at the package root); `receipt check --docs-descendants`
   applies the docs-only rule when you have judged the later commits yourself
   (step 1).
 - **The olean manifest.** It describes the author's build directory, which is

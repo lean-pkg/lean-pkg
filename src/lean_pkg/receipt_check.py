@@ -14,9 +14,13 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
 - receipts: the JSON files tracked directly under .lean-receipts/ at REF; those whose `commit` is X are the
   ones checked (a comparator receipt has a comparator-receipt/N schema; a lower-tier receipt has sorry_count
   and axioms). At least one lower-tier receipt must bind X; a receipt file named for X that binds another
-  commit fails. A comparator `.replaced-` copy is history and is skipped.
-- binding: REF is X, or an evidence-only descendant of X (only .lean-receipts/ changed; formalization.yaml
-  keeps the stricter reading, since its pointer lives in the author's registry). With --docs-descendants the
+  commit fails. A comparator `.replaced-` copy is history and is skipped. A JSON file named for X that is not
+  receipt-shaped fails, unless its `schema` is one of the comparator runner's own non-receipt records
+  (NON_RECEIPT_SCHEMAS: stages.json and its kin), which is skipped and printed as skipped.
+- binding: REF is X, or an evidence-only descendant of X (only .lean-receipts/ changed, and formalization.yaml
+  at the package root, the renderer's default path, in its derived keys only: gate's own exemption, #23.5,
+  applied to the fixed path because the registry pointer is not readable here; the exemption is printed when
+  it was needed). With --docs-descendants the
   referee also accepts a docs-only descendant (no build input changed: the docs-only rule of
   docs/receipts.md). That opt-in lives in the author's registry today, which a referee cannot read, so it is
   the referee's choice here and is printed with the result.
@@ -63,6 +67,16 @@ RERUN_NOTE = ("this command never runs Lean and never uses the network: rebuildi
 EVIDENCE_FILE_KEYS = {"artifacts_manifest_sha256": "artifacts.sha256",
                       "unit_properties_sha256": "unit.properties"}
 PASS, FAIL, SKIP = "pass", "fail", "skip"
+# The one formalization.yaml path the evidence-only rule exempts without a registry: the renderer's default
+# (formalization.DEFAULT_PATH), package-relative. A package whose registry records another path keeps the
+# strict reading here (or the referee's --docs-descendants).
+FORMALIZATION_REL = "formalization.yaml"
+# JSON records the comparator runner writes beside its receipt (comparator_receipt, comparator_stage). One of
+# these under .lean-receipts/ named for X is not a receipt: it is skipped (and printed), never failed. Only an
+# exact `schema` value skips a file, and only a file that is not receipt-shaped (tier_of None): a truncated or
+# hand-edited receipt has no such schema and still fails as unreadable.
+NON_RECEIPT_SCHEMAS = ("comparator-stages/1", "olean-manifest/1", "comparator-attempt/1",
+                       "comparator-partial/1", "comparator-slot/1", "comparator-estimate/2")
 
 
 # --------------------------------------------------------------------------
@@ -105,14 +119,16 @@ def open_source(repo_dir: str, commit: str, at: str | None, tmp: pathlib.Path) -
     clone = dest / prefix if prefix else dest
     if not clone.is_dir():
         raise core.Fail(f"the package directory {prefix}/ does not exist at {ref[:12]}")
-    return {"clone": clone, "commit": x, "at": ref, "prefix": prefix}
+    return {"clone": clone, "root": dest, "commit": x, "at": ref, "prefix": prefix}
 
 
 def referee_pkg(name: str, docs_descendants: bool, comparator_rel: str | None = None) -> dict:
     """The package record the validators read, built from nothing but the referee's choices: the default
-    axioms, the default claims file, no formalization.yaml pointer (the stricter evidence rule), the docs-only
-    opt-in only when the referee passed --docs-descendants."""
-    pkg = {"name": name, "gate": {"axioms_allowed": list(DEFAULT_AXIOMS), "comparator": comparator_rel}}
+    axioms, the default claims file, the default formalization.yaml path (FORMALIZATION_REL; gate's
+    derived-keys rule decides from the file at X and at REF, and a file not tracked at X is never exempt), the
+    docs-only opt-in only when the referee passed --docs-descendants."""
+    pkg = {"name": name, "gate": {"axioms_allowed": list(DEFAULT_AXIOMS), "comparator": comparator_rel},
+           "formalization_yaml": FORMALIZATION_REL}
     if docs_descendants:
         pkg["docs_descendants"] = True
     return pkg
@@ -143,11 +159,11 @@ def tier_of(rec: dict | None) -> str | None:
 
 
 def discover(repo: pathlib.Path, x: str) -> dict:
-    """{lower: [view], comparator: [view], other: [view], misnamed: [view], unreadable: [rel]} for the receipt
-    JSON files tracked directly under .lean-receipts/ at HEAD (REF). view: {path, sha256, commit, tier,
-    data}."""
+    """{lower: [view], comparator: [view], other: [view], misnamed: [view], unreadable: [rel], sidecar:
+    [{path, schema}]} for the receipt JSON files tracked directly under .lean-receipts/ at HEAD (REF). view:
+    {path, sha256, commit, tier, data}. sidecar: files named for X that are a NON_RECEIPT_SCHEMAS record."""
     from . import coverage as cov
-    out: dict = {"lower": [], "comparator": [], "other": [], "misnamed": [], "unreadable": []}
+    out: dict = {"lower": [], "comparator": [], "other": [], "misnamed": [], "unreadable": [], "sidecar": []}
     for rel in cov.tracked_receipts(repo):
         name = rel.rsplit("/", 1)[-1]
         if ".replaced-" in name:          # `comparator --replace` keeps the older receipt beside it: history
@@ -155,6 +171,10 @@ def discover(repo: pathlib.Path, x: str) -> dict:
         data, raw = _json_at(repo, rel)
         tier = tier_of(data)
         if raw is None or tier is None:
+            if data is not None and tier is None and data.get("schema") in NON_RECEIPT_SCHEMAS:
+                if name.startswith(x[:12]):
+                    out["sidecar"].append({"path": rel, "schema": data["schema"]})
+                continue
             if name.startswith(x[:12]):
                 out["unreadable"].append(rel)
             continue
@@ -183,11 +203,26 @@ def toolchain_at(repo: pathlib.Path, rev: str) -> str | None:
 # the checks
 
 class Checks:
-    def __init__(self) -> None:
+    def __init__(self, clone: pathlib.Path | None = None, root: pathlib.Path | None = None) -> None:
         self.items: list[dict] = []
+        self.exemptions: list[str] = []   # the binding exemptions the verdict needed (formalization.yaml)
+        # The private clone lives in a temporary directory that is gone when the command ends: a validator's
+        # message that names a path inside it (report_log_missing names where it looked) is rewritten to the
+        # package-relative path, so the output shows no temporary path (#213).
+        self._paths: list[tuple[str, str]] = []
+        for base, label in ((clone, "."), (root, "<repository root>")):
+            if base is None:
+                continue
+            for form in dict.fromkeys((str(base.absolute()), str(base.resolve()))):
+                self._paths.append((form, label))
+
+    def relative(self, text: str) -> str:
+        for form, label in self._paths:
+            text = text.replace(form + "/", "" if label == "." else label + "/").replace(form, label)
+        return text
 
     def add(self, cid: str, verdict: str, detail: str) -> None:
-        self.items.append({"id": cid, "verdict": verdict, "detail": detail})
+        self.items.append({"id": cid, "verdict": verdict, "detail": self.relative(detail)})
 
     def run(self, cid: str, fn, ok_detail: str) -> bool:
         """Run fn(); pass with ok_detail, or fail with the refusal's text."""
@@ -209,12 +244,35 @@ def check_binding(c: Checks, repo: pathlib.Path, x: str, ref: str, pkg: dict, ch
         what = ("the published ref is the bound commit" if x == ref
                 else f"{note} (accepted with --docs-descendants)" if docs is not None
                 else note)
+        exempt = formalization_exemption(repo, x, ref, pkg)
+        if exempt:
+            what += f"; exemption applied: {exempt}"
+            c.exemptions.append(exempt)
         c.add("binding", PASS, what)
     else:
         c.add("binding", FAIL, f"{ref[:12]} is not {x[:12]} or an evidence-only"
               + (" or docs-only" if pkg.get("docs_descendants") else "") + f" descendant of it: {note}; the "
               f"receipts certify {x[:12]}, not this tree (check the tree they bind with --at {x[:12]}, or an "
               f"evidence commit after it)")
+
+
+def formalization_exemption(repo: pathlib.Path, x: str, ref: str, pkg: dict) -> str | None:
+    """The exemption text when the binding passed although formalization.yaml differs between X and REF (gate's
+    derived-keys rule admitted it); None when that file did not change."""
+    rel = core.formalization_rel(pkg)
+    if not rel or x == ref:
+        return None
+    p = core.git(repo, "diff", "--no-renames", "--name-only", "--relative", x, ref, "--", rel)
+    if rel not in p.stdout.splitlines():
+        return None
+    return (f"{rel} differs from {x[:12]} only in derived keys ({', '.join(fz_derived_keys())}), the keys "
+            f"`lean-pkg formalization` regenerates after a receipt; they cannot change what was verified "
+            f"(gate's evidence-only rule, #23.5)")
+
+
+def fz_derived_keys() -> tuple[str, ...]:
+    from .formalization import DERIVED_KEYS
+    return DERIVED_KEYS
 
 
 def evidence_file_checks(c: Checks, repo: pathlib.Path, view: dict, x: str) -> None:
@@ -453,7 +511,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
         found = discover(repo, x)
         comp_rel = found["comparator"][0]["path"] if found["comparator"] else None
         pkg = referee_pkg(pkg_name, docs_descendants, comp_rel)
-        c = Checks()
+        c = Checks(repo, src["root"])
         bound = len(found["lower"]) + len(found["comparator"])
         if not found["lower"]:
             c.add("receipts", FAIL, f"no lower-tier receipt tracked under {RECEIPTS_DIR}/ at {ref[:12]} binds "
@@ -465,9 +523,15 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                   f"receipt(s) bind {x[:12]}")
         for v in found["misnamed"]:
             c.add(f"receipt {v['path']}", FAIL, f"named for {x[:12]} but binds {v['commit'][:12] or '?'}")
+        for v in found["sidecar"]:
+            c.add(f"receipt {v['path']}", SKIP, f"not a receipt: a {v['schema']} record the comparator runner "
+                  f"writes (only an exact non-receipt schema is skipped; any other non-receipt JSON named for "
+                  f"the commit fails)")
         for rel in found["unreadable"]:
             c.add(f"receipt {rel}", FAIL, "named for the commit but not a readable receipt (not JSON, or neither "
-                  "a lower-tier nor a comparator receipt)")
+                  "a lower-tier nor a comparator receipt, nor a comparator runner record whose schema is one of "
+                  f"{', '.join(NON_RECEIPT_SCHEMAS)}); rename a non-receipt file so it does not start with "
+                  f"{x[:12]}, or keep it outside {RECEIPTS_DIR}/")
         checker = found["lower"][0]["data"].get("checker") if found["lower"] else None
         check_binding(c, repo, x, ref, pkg, checker)
         for v in found["lower"]:
@@ -514,6 +578,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
     lines = [summary,
              f"  commit {x} (published ref {ref[:12]}{', the same commit' if ref == x else ''})",
              f"  rule: {rule}",
+             *[f"  exemption: {e}" for e in c.exemptions],
              f"  note: {RERUN_NOTE}"]
     lines += [f"  {i['verdict'].upper():4} {i['id']}: {i['detail']}" for i in c.items]
     lines.append(summary)
@@ -523,7 +588,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
     payload = {"ok": ok, "name": pkg_name, "commit": x, "at": ref, "prefix": src["prefix"] or None,
                "docs_descendants": bool(docs_descendants), "rule": rule, "tier": tier, "runs_lean": False,
                "network": False, "note": RERUN_NOTE, "receipts": receipts, "bound_receipts": bound,
-               "counts": counts, "checks": c.items}
+               "counts": counts, "exemptions": c.exemptions,
+               "skipped_records": [v["path"] for v in found["sidecar"]], "checks": c.items}
     return lines, payload, 0 if ok else 1
 
 
