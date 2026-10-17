@@ -10,6 +10,8 @@ a partial clone are disabled, so a missing object is a refusal). The only write 
 which must lie outside SRC. Every file under a declared root is classified, default deny; anything
 that cannot be classified, any unsafe path or link, a missing or floating pin, an unpinned
 dependency, an invalid claims file and an unresolved import is a refusal, all listed together.
+Files adopted from another project whose license is not carried into the target are a warning
+(manifest `adopted`, and a heuristic for a LICENSE left behind); warnings never change the verdict.
 
 Exit codes: 0 the plan is clean, 1 refused (every reason listed), 2 usage (argparse, SRC is not a
 git repository). Output is deterministic: sorted, no timestamps, no host paths.
@@ -37,7 +39,7 @@ MANIFEST_SCHEMA = "lean-pkg-extract/1"
 PLAN_SCHEMA = "lean-pkg-extract-plan/1"
 ROOT_KINDS = ("lean-package", "verification", "docs", "data")
 MANIFEST_KEYS = ("schema", "source_commit", "roots", "pins", "exclude", "allow_private", "lean_libs",
-                 "dependency_namespaces", "allow_unresolved_imports")
+                 "dependency_namespaces", "allow_unresolved_imports", "adopted")
 REQUIRED_KEYS = ("schema", "roots", "pins")
 ROOT_KEYS = ("from", "to", "kind")
 PIN_KEYS = ("lean_toolchain", "lake_manifest", "claims", "verification")
@@ -45,6 +47,12 @@ REQUIRED_PINS = ("lean_toolchain", "lake_manifest")
 RULE_KEYS = ("path", "reason")
 LIB_KEYS = ("name", "src_dir", "roots")
 UNRESOLVED_KEYS = ("import", "reason")
+ADOPTED_KEYS = ("paths", "upstream", "upstream_commit", "upstream_license_file", "license", "license_file",
+                "provenance")
+ADOPTED_REQUIRED = ("paths", "upstream", "upstream_commit", "upstream_license_file", "license")
+SPDX_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*")
+# a license file that governs the files beside and below it (the heuristic for undeclared adoption)
+DIR_LICENSE = re.compile(r"^(LICEN[SC]E|COPYING)([.-][A-Za-z0-9.-]+)?$", re.I)
 HEX40 = re.compile(r"[0-9a-f]{40}")
 
 CORE_NAMESPACES = ("Init", "Std", "Lean", "Lake")
@@ -327,10 +335,46 @@ def validate_manifest(m, commit: str, refusals: list[str]) -> dict | None:
                 refusals.append(f"{w}.reason must be a one-line, non-empty string")
             else:
                 unresolved.append({"index": i, "import": r["import"], "reason": r["reason"].strip()})
+    adopted = []
+    lst = m.get("adopted", [])
+    if not isinstance(lst, list):
+        refusals.append("manifest.adopted must be a list")
+    else:
+        for i, a in enumerate(lst):
+            w = f"adopted[{i}]"
+            if not _keys(a, ADOPTED_KEYS, ADOPTED_REQUIRED, w, refusals):
+                continue
+            bad = []
+            paths = a["paths"]
+            if not (isinstance(paths, list) and paths and all(
+                    isinstance(g, str) and g and ".." not in g.split("/") for g in paths)):
+                bad.append(f"{w}.paths must be a non-empty list of path globs without `..`")
+            if not _reason(a["upstream"]):
+                bad.append(f"{w}.upstream must be a one-line, non-empty string (the upstream repository URL)")
+            if not (isinstance(a["upstream_commit"], str) and HEX40.fullmatch(a["upstream_commit"])):
+                bad.append(f"{w}.upstream_commit must be the full 40-hex upstream commit, got "
+                           f"{a['upstream_commit']!r}")
+            if not (isinstance(a["upstream_license_file"], str) and not xp.bad_rel_path(a["upstream_license_file"])):
+                bad.append(f"{w}.upstream_license_file must be a relative path in the upstream repository, "
+                           f"got {a['upstream_license_file']!r}")
+            if not (isinstance(a["license"], str) and SPDX_ID.fullmatch(a["license"])):
+                bad.append(f"{w}.license must be an SPDX identifier (MIT, Apache-2.0, LicenseRef-...), "
+                           f"got {a['license']!r}")
+            for k in ("license_file", "provenance"):
+                if k in a and not (isinstance(a[k], str) and not xp.bad_rel_path(a[k])):
+                    bad.append(f"{w}.{k} must be a relative path in the source repository, got {a[k]!r}")
+            if bad:
+                refusals.extend(bad)
+                continue
+            adopted.append({"index": i, "paths": list(paths), "rxs": [ps.glob_regex(g) for g in paths],
+                            "upstream": a["upstream"].strip(), "upstream_commit": a["upstream_commit"],
+                            "upstream_license_file": a["upstream_license_file"], "license": a["license"],
+                            "license_file": a.get("license_file"), "provenance": a.get("provenance")})
     if not ok:
         return None
     return {"roots": roots, "pins": pins, "exclude": rules["exclude"], "allow_private": rules["allow_private"],
-            "lean_libs": libs, "dependency_namespaces": dep_ns, "allow_unresolved_imports": unresolved}
+            "lean_libs": libs, "dependency_namespaces": dep_ns, "allow_unresolved_imports": unresolved,
+            "adopted": adopted}
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -415,7 +459,7 @@ def build_plan(repo: pathlib.Path, commit_arg: str, manifest_bytes: bytes) -> di
     plan = {"schema": PLAN_SCHEMA, "ok": False, "source": {"commit": None,
             "manifest_sha256": _sha(manifest_bytes)}, "roots": [], "included": [], "excluded": [],
             "allowed_private": [], "weakened": [], "modules": [], "unowned_lean_files": [], "claims": [],
-            "pins": {}, "refusals": refusals, "totals": {}}
+            "pins": {}, "adopted": [], "refusals": refusals, "warnings": [], "totals": {}}
     commit = resolve_commit(repo, commit_arg)
     if not commit:
         refusals.append(f"--commit {commit_arg!r} is not a commit of the source repository")
@@ -741,6 +785,8 @@ def build_plan(repo: pathlib.Path, commit_arg: str, manifest_bytes: bytes) -> di
             refusals.extend(f"claim {p}" for p in cl.decl_problems(files.get, ok_claims))
             plan["claims"].sort(key=lambda x: x["id"])
 
+    license_checks(plan, man["adopted"], tree, by_src, excluded, blobs, commit)
+
     plan["included"] = [included[k] for k in sorted(included)]
     plan["excluded"] = sorted(excluded, key=lambda x: x["from"])
     plan["allowed_private"].sort(key=lambda x: x["to"])
@@ -748,15 +794,130 @@ def build_plan(repo: pathlib.Path, commit_arg: str, manifest_bytes: bytes) -> di
     return _finish(plan)
 
 
+# ----------------------------------------------------------------------------------------------------
+# licenses of adopted (vendored) files: warnings, never refusals
+
+LIST_CAP = 10
+
+
+def _listed(paths: list[str]) -> str:
+    """paths joined, at most LIST_CAP of them, the rest counted (the cap is stated, never silent)."""
+    head = ", ".join(paths[:LIST_CAP])
+    return head if len(paths) <= LIST_CAP else f"{head} (and {len(paths) - LIST_CAP} more)"
+
+
+def scoped_license_name(upstream: str, spdx: str) -> str:
+    """The REUSE-valid scoped license path recommended for an upstream: LICENSES/LicenseRef-<Upstream>-<SPDX>.txt
+    (a LicenseRef- id, because the file keeps the upstream's own copyright line byte for byte)."""
+    if spdx.startswith("LicenseRef-"):
+        return f"LICENSES/{spdx}.txt"
+    tail = upstream.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+    slug = re.sub(r"[^A-Za-z0-9.-]+", "-", tail).strip("-.") or "Upstream"
+    return f"LICENSES/LicenseRef-{slug}-{spdx}.txt"
+
+
+def _why_not_carried(src: str, tree: dict, excluded: list[dict], commit: str) -> str:
+    if src not in tree:
+        return f"missing at {commit[:12]}"
+    x = next((x for x in excluded if x["from"] == src), None)
+    return f"excluded, {x['class']}: {x['reason']}" if x else "outside every root"
+
+
+def license_checks(plan: dict, adopted: list[dict], tree: dict, by_src: dict, excluded: list[dict],
+                   blobs: dict, commit: str) -> None:
+    """Warn when included files come from a source whose license the extract does not carry.
+
+    Declared adoption (manifest `adopted`): the upstream license must be carried as an included
+    `license_file`, and an optional `provenance` list must name every adopted file. Undeclared: an
+    included file whose nearest LICENSE/COPYING (in its own source directory or above) is not
+    included. Warnings only: the plan's verdict and exit code do not change."""
+    warn = plan["warnings"]
+    covered: set[str] = set()
+    for a in adopted:
+        own = {a["license_file"], a["provenance"]} - {None}
+        files = sorted((e for s, e in by_src.items() if s not in own and any(rx.match(s) for rx in a["rxs"])),
+                       key=lambda e: e["to"])
+        covered.update(e["from"] for e in files)
+        w = f"adopted[{a['index']}]"
+        up = f"{a['upstream']} @ {a['upstream_commit'][:12]} ({a['license']}, {a['upstream_license_file']})"
+        tos = [e["to"] for e in files]
+        rec = {"index": a["index"], "paths": a["paths"], "upstream": a["upstream"],
+               "upstream_commit": a["upstream_commit"], "upstream_license_file": a["upstream_license_file"],
+               "license": a["license"], "files": tos, "license_file": None, "provenance": None}
+        if not files:
+            warn.append(f"{w} {a['paths']}: matches no included file (a stale adoption entry)")
+        lf = a["license_file"]
+        if lf is None:
+            if files:
+                warn.append(f"{w}: {len(files)} file(s) adopted from {up} are extracted without the upstream "
+                            f"license: {_listed(tos)}. Copy {a['upstream_license_file']} at "
+                            f"{a['upstream_commit'][:12]} byte for byte to "
+                            f"{scoped_license_name(a['upstream'], a['license'])}, list the files it covers, "
+                            f"and name it in license_file")
+        elif lf not in by_src:
+            warn.append(f"{w}: license_file {lf} is not carried into the target "
+                        f"({_why_not_carried(lf, tree, excluded, commit)}); the {len(files)} file(s) adopted "
+                        f"from {up} would ship without their license: {_listed(tos)}")
+        else:
+            to = by_src[lf]["to"]
+            rec["license_file"] = {"from": lf, "to": to, "sha256": by_src[lf]["sha256"]}
+            parent, stem = posixpath.basename(posixpath.dirname(to)), posixpath.splitext(posixpath.basename(to))[0]
+            if parent == "LICENSES" and stem != a["license"] and not stem.startswith("LicenseRef-"):
+                warn.append(f"{w}: license_file {to} is under LICENSES/ but its name is neither the SPDX id "
+                            f"{a['license']!r} nor a LicenseRef- id; `reuse lint` reports it as a bad license. Name it "
+                            f"{scoped_license_name(a['upstream'], a['license'])} and use that id in REUSE.toml")
+        pv = a["provenance"]
+        if pv is not None:
+            if pv not in by_src:
+                warn.append(f"{w}: provenance {pv} is not carried into the target "
+                            f"({_why_not_carried(pv, tree, excluded, commit)})")
+            else:
+                text = (blobs.get(by_src[pv]["blob"]) or b"").decode("utf-8", "replace")
+                missing = [e["to"] for e in files if e["to"] not in text and e["from"] not in text]
+                if missing:
+                    warn.append(f"{w}: provenance {by_src[pv]['to']} does not list {len(missing)} adopted "
+                                f"file(s): {_listed(missing)}")
+                rec["provenance"] = {"from": pv, "to": by_src[pv]["to"], "sha256": by_src[pv]["sha256"]}
+        plan["adopted"].append(rec)
+
+    # undeclared: the nearest license file above an included file is not carried
+    licenses: dict[str, list[str]] = {}
+    for path in tree:
+        if DIR_LICENSE.match(posixpath.basename(path)) and tree[path]["mode"] != GIT_LINK:
+            licenses.setdefault(posixpath.dirname(path), []).append(path)
+    license_paths = {p for group in licenses.values() for p in group}
+    orphaned: dict[tuple[str, ...], list[str]] = {}
+    for src, e in by_src.items():
+        if src in covered or src in license_paths:
+            continue
+        d = posixpath.dirname(src)
+        while True:
+            if d in licenses:
+                if not any(p in by_src for p in licenses[d]):
+                    orphaned.setdefault(tuple(sorted(licenses[d])), []).append(e["to"])
+                break
+            if not d:
+                break
+            d = posixpath.dirname(d)
+    for lic, tos in sorted(orphaned.items()):
+        where = "the source repository's license" if not posixpath.dirname(lic[0]) else "the license"
+        whys = "; ".join(f"{p}: {_why_not_carried(p, tree, excluded, commit)}" for p in lic)
+        warn.append(f"{', '.join(lic)}: {where} over {len(tos)} included file(s) is not carried into the target "
+                    f"({whys}): {_listed(sorted(tos))}. If these files were adopted from another project, "
+                    f"declare them under `adopted` and carry the upstream license as a scoped LICENSES/ file; "
+                    f"otherwise include or replace the license deliberately")
+
+
 def _finish(plan: dict) -> dict:
     ref = sorted(set(plan["refusals"]))
     plan["refusals"] = ref
+    plan["warnings"] = sorted(set(plan.get("warnings", [])))
     plan["ok"] = not ref
     plan["totals"] = {"included_files": len(plan["included"]),
                       "included_bytes": sum(e["size"] or 0 for e in plan["included"]),
                       "excluded_files": len(plan["excluded"]), "allowed_private": len(plan["allowed_private"]),
                       "weakened": len(plan["weakened"]), "modules": len(plan["modules"]),
-                      "claims": len(plan["claims"]), "refusals": len(ref)}
+                      "claims": len(plan["claims"]), "refusals": len(ref), "warnings": len(plan["warnings"])}
     return plan
 
 
@@ -767,9 +928,10 @@ def verdict(plan: dict) -> str:
     t = plan["totals"]
     head = "plan: OK" if plan["ok"] else f"plan: REFUSED ({t['refusals']} refusal(s))"
     commit = plan["source"]["commit"] or "unresolved"
+    warned = f", {t['warnings']} warning(s)" if t.get("warnings") else ""
     return (f"{head}: {t['included_files']} file(s) included ({t['included_bytes']} bytes), "
             f"{t['excluded_files']} excluded, {t['allowed_private']} allowed private, {t['modules']} module(s), "
-            f"{t['claims']} claim(s), {t['weakened']} weakening(s); source commit {commit}")
+            f"{t['claims']} claim(s), {t['weakened']} weakening(s){warned}; source commit {commit}")
 
 
 def render(plan: dict) -> str:
@@ -777,6 +939,9 @@ def render(plan: dict) -> str:
     if plan["refusals"]:
         out.append("refusals:")
         out += [f"  - {r}" for r in plan["refusals"]]
+    if plan["warnings"]:
+        out.append("warnings (reported, not refused):")
+        out += [f"  - {w}" for w in plan["warnings"]]
     if plan["included"]:
         out.append("included (to <- from, size, sha256, blob, mode, class):")
         out += [f"  {e['to']} <- {e['from']}  {e['size']}  {e['sha256']}  {e['blob']}  {e['mode']}  {e['class']}"
@@ -797,6 +962,14 @@ def render(plan: dict) -> str:
     if plan["unowned_lean_files"]:
         out.append("lean files owned by no library (import-checked, not modules):")
         out += [f"  {f}" for f in plan["unowned_lean_files"]]
+    if plan["adopted"]:
+        out.append("adopted files (upstream @ commit, license; license file carried; provenance):")
+        for a in plan["adopted"]:
+            lf = a["license_file"]["to"] if a["license_file"] else "NOT CARRIED"
+            pv = a["provenance"]["to"] if a["provenance"] else "none"
+            out.append(f"  adopted[{a['index']}] {a['upstream']} @ {a['upstream_commit']}, {a['license']} "
+                       f"({a['upstream_license_file']}); license file {lf}; provenance {pv}")
+            out += [f"    {f}" for f in a["files"]]
     if plan["claims"]:
         out.append("claims (id -> decl -> file):")
         out += [f"  {c['id']} -> {c['decl']} -> {c['file']}" for c in plan["claims"]]

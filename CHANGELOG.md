@@ -23,6 +23,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   TEXT] [--file F] [--line N] [--json]`, exit 0/1/2. docs/negative-tests.md
   lists the traps (coded vs uncoded errors, Lake dropping codes, warnings vs
   errors, `sorry`, multi-line messages, wrong-reason failures).
+- `lean-pkg-extract plan` checks the licenses of adopted (vendored) files.
+  A new manifest key `adopted` declares files taken from another project
+  (`paths`, `upstream`, `upstream_commit`, `upstream_license_file`,
+  `license`, optional `license_file` and `provenance`); the plan lists them
+  under `adopted[]` and warns when the upstream license is not carried into
+  the target (naming the files, the upstream license file and the commit,
+  and the scoped `LICENSES/LicenseRef-<Upstream>-<SPDX>.txt` to copy it to),
+  when the license or provenance file is excluded or missing, when the
+  provenance list misses a file, and when a `LICENSES/` file name is not a
+  REUSE license id. Without a declaration it warns when the nearest
+  `LICENSE`/`COPYING` above an included file is left behind. These are
+  warnings (`warnings[]`, `totals.warnings`, `N warning(s)` in the verdict):
+  the verdict and the exit code do not change, and only a malformed
+  `adopted` entry is refused. docs/extract.md, "Licenses of adopted files",
+  documents the scoped, REUSE-compatible pattern (field report).
 - `lean-pkg new NAME --kind paper|library`, paper by default (the 1.0 command
   tree). `--kind paper` writes a `coverage.yaml` of `kind: paper` that is
   incomplete on purpose: `manuscript.version: unposted` and `FILL-ME`
@@ -40,6 +55,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - `lean-pkg new` warns when the CITATION.cff author (`--author`, else `git
   config user.name`) has no space and so looks like a handle, and prints
   which source it used.
+- `lean-pkg formalization kept [--repo DIR] [--file REL] [--at REV]
+  [--against REV2] [--json]`: the canonical kept view of
+  `formalization.yaml` (every key `formalization render` derives removed,
+  `formalization.DERIVED_PATHS` and the renderer's acknowledgements lines)
+  and the SHA-256 of its canonical JSON bytes, so a package's own
+  release-input audit can pin what a person wrote without tripping over a
+  derived-key refresh after a new receipt. `--against REV2` lists the
+  changed kept keys (the evidence-only rule's `changed_kept_keys`) and
+  exits 1 when any changed. Read-only, no registry; JSON schema
+  `formalization-kept/1`. The recipe (YAML 1.1 safe schema with timestamps
+  kept as strings, JSON `sort_keys`, separators `,` `:`, UTF-8, no
+  trailing newline) is documented in docs/formalization.md, "The kept
+  view", precisely enough to reproduce without lean-pkg; a test pins it
+  byte for byte and against `jq -cjS` (field request).
 - `comparator-receipt --seal-sacct RECEIPT [--sacct-file F] [--user NAME]
   [--json]`: after a Slurm job finished, corroborate a comparator receipt's
   Slurm claim with the job's sacct record (main line `COMPLETED`, exit
@@ -108,6 +137,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - Docs: the quickstart, the π-λ tutorial, the README and getting-started use
   `new --kind library` for their example and explain the paper default;
   docs/design/two-tracks.md shows today's paths for both kinds.
+- Docs: the workflow diagram's arrows are smaller and lighter: arrowheads
+  about half their former size (11 by 9 units, not 20 by 20), connector lines
+  2 units in a lighter grey, and every shaft ends at its head's base with the
+  tip on the box edge. Boxes and colours are unchanged; the start box now
+  reads `--kind paper|library · paper is the default`, since `new --kind`
+  has shipped (the sample workflow page says so too).
 - Soundness: a comparator receipt's Slurm claim (`job_id` J, `host_policy`
   `Slurm job J ...`, both from `SLURM_JOB_ID`, which any shell can set) no
   longer backs a `coverage.yaml` `compute` job, and so the Easley sentence,

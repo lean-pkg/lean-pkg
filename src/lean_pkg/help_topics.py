@@ -303,6 +303,7 @@ Some read-only commands use 1 for a negative answer rather than a refusal:
   public-safety NAME             1: a blocking hit (--strict: any hit)
   reservoir check NAME           1: not eligible for Reservoir
   claims check [NAME]            1: invalid claims, or none synced
+  formalization kept --against  1: a kept (hand-written) key changed
   claims ledger NAME             1: the ledger is not ready
   index check / render --check   1: an entry fails its checks / README.md is stale
   search TERM --require-complete 1: a source was skipped or answered in part

@@ -805,7 +805,7 @@ def add_parsers(sub, add_json) -> None:
     n = sub.add_parser("formalization",
                        help=f"formalization.yaml ({SCHEMA_VERSION}, what Palomar reads): render it from the registry "
                             f"and the repo at HEAD; anchor the companion to one arXiv version")
-    fsub = n.add_subparsers(dest="formalization_cmd", required=True, metavar="{render,anchor}")
+    fsub = n.add_subparsers(dest="formalization_cmd", required=True, metavar="{render,anchor,kept}")
     s = fsub.add_parser("render",
                         help=f"render formalization.yaml ({SCHEMA_VERSION}, what Palomar reads) "
                              f"from the registry and the repo at HEAD; stdout unless --write/--out "
@@ -870,3 +870,5 @@ def add_parsers(sub, add_json) -> None:
     core._hidden_copies(render, a)
     a.set_defaults(fn=cmd_formalization, name=ANCHOR_CMD)
     render.set_defaults(fn=cmd_formalization)
+    from .formalization_kept import add_parser as add_kept   # the kept view and its hash (read-only)
+    add_kept(fsub, add_json)
