@@ -1,9 +1,9 @@
 # lean-pkg: local gates. No tab characters: recipes use '>' as the prefix.
 # `make check` is the release gate; hosted CI runs the same targets once the repository is public.
 .RECIPEPREFIX := >
-.PHONY: check test boundary tabs versions reuse history public-safety release cut-release record-doi docs goldens
+.PHONY: check test boundary tabs versions changelog reuse history public-safety release cut-release record-doi docs goldens
 
-check: test boundary tabs versions reuse
+check: test boundary tabs versions changelog reuse
 > @echo "check: all gates green"
 
 # A private bytecode cache per run: concurrent runs never share pytest's rewritten .pyc files.
@@ -24,6 +24,10 @@ tabs:
 
 versions:
 > python3 scripts/check-versions.py
+
+# Each released `## [X.Y.Z]` section reads as it did at tag vX.Y.Z (record-doi's DOI line aside); no network.
+changelog:
+> python3 scripts/check-changelog-releases.py
 
 # REUSE 3.3 compliance (gate G3 of the public-flip checklist); skipped, not passed, when the tool is absent.
 reuse:

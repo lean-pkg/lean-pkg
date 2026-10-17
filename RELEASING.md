@@ -194,7 +194,11 @@ is refused before anything is written. The steps by hand:
 ## Gates
 
 `make check` runs the test suite, the private-boundary check, the tab scan,
-and the version-agreement check. The gate is safe to run concurrently: `make test` gives
+the version-agreement check, and the released-sections check
+(`scripts/check-changelog-releases.py`: each `## [X.Y.Z]` section of
+`CHANGELOG.md` reads as it did at tag `vX.Y.Z`, record-doi's `Zenodo version
+DOI:` line aside; the newest section is skipped until its tag exists, so
+step 4 passes). The gate is safe to run concurrently: `make test` gives
 each run a private bytecode cache (`PYTHONPYCACHEPREFIX` in a fresh temporary directory,
 removed afterwards), so two sessions never share pytest's rewritten `.pyc` files. Hosted CI runs the same targets once the
 repository is public; until then the maintainer runs them locally and the
