@@ -821,6 +821,62 @@ Background: OpenAI's 2026-10-06 mathematics release lists 42 concrete challenge
 definitions as holes across 9 of its 405 configurations, one of them a whole
 `MainStatement : Prop`, with no reviewer named.
 
+## Headline configuration: the paper's main results
+
+A companion often compares far more than the paper's main results: one field
+package compares 83 theorems in `comparator.json`, 12 of which are the
+paper's main results. Palomar reads `status.main_results` from
+`formalization.yaml`, which by default lists every theorem of every tracked
+configuration. A *headline configuration* names the main results instead,
+while the comparator receipt and the gate still bind the full comparison.
+
+Which file, first match wins:
+
+1. `lean-pkg formalization NAME --headline-config PATH` for that call
+   (`--write` also records it in the registry);
+2. the registry field `headline_config` (`lean-pkg update NAME --headline-config PATH`;
+   `''` clears it);
+3. the convention: `comparator.headline.json` tracked at the package root.
+
+The file holds only Palomar's six configuration keys; any other key is
+refused (sign-offs live in `lean-pkg-signoff.json`). It is a
+repository-relative `.json` tracked at HEAD. At a comparator configuration
+path (`comparator*.json`, `comparator/config*.json`, so the convention name
+too) the runner compares it like any other configuration and the receipt must
+list it. Anywhere else (say `paper/headline.json`) it is not compared on its
+own and needs no receipt entry of its own.
+
+The subset rule, judged against the comparator receipt the gate records,
+validated at HEAD as `gate --check` validates it:
+
+- every headline theorem name must be covered, by the same rule as
+  `--coverage` (the same full name, or `<Prefix>.<name>`; a shared last
+  component never covers), by the `theorem_names` of a receipted
+  configuration with the **same** `challenge_module` and `solution_module` (a
+  different module pair compares a different statement). A headline
+  configuration that is itself receipted covers itself;
+- every headline `definition_names` entry must be signed off in
+  `lean-pkg-signoff.json` (at the receipt's commit) under a receipted
+  configuration with the same module pair that lists it as a hole: the
+  headline's own entry first when it is itself receipted (the receipt
+  validator already requires that entry), else the main configuration's. A
+  sign-off is never borrowed across module pairs.
+
+A judged headline that breaks either rule is refused, naming every uncovered
+name and unsigned hole (`formalization`, and `palomar check` as the error gap
+`comparator.headline_uncovered`, so `palomar prepare` refuses too). When no
+comparator receipt is recorded, or the recorded one does not validate at HEAD
+(not gated yet, or a new commit awaiting a re-gate), the headline cannot be
+judged: it is not applied, a warning says why (`comparator.headline_unjudged`
+in `palomar check`), and `status.main_results` keeps the default. It is never
+applied unjudged.
+
+Palomar takes exactly one configuration per submission ("one configuration
+becomes one Palomar entry") at any repository path, so `palomar prepare` puts
+the headline configuration in the bundle's `configs/` as well and README.txt
+names it for the main-results entry; the other configurations are submitted
+separately.
+
 ## `comparator-check.sh` options and overrides
 
 - `--configs <glob>` (repeatable, relative to the project): check these files

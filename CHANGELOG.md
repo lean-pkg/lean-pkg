@@ -11,6 +11,27 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- Headline comparator configuration (Palomar follow-up item 5): a
+  configuration naming the paper's main results, declared by
+  `lean-pkg formalization NAME --headline-config PATH` (`--write` records
+  it), the registry field `headline_config` (`lean-pkg update NAME
+  --headline-config PATH`, `''` clears) or the convention
+  `comparator.headline.json`. Palomar's six keys only. `formalization.yaml`
+  `status.main_results` then lists its theorems only, while the receipt and
+  the gate keep binding the full comparison. Subset rule against the
+  gate-bound comparator receipt validated at HEAD: every name covered (the
+  `--coverage` rule) by a receipted configuration with the same Challenge and
+  Solution modules, every definition hole signed in `lean-pkg-signoff.json`
+  by such a configuration (the headline's own entry first; a main
+  configuration's sign-off covers the same hole in the same modules); else
+  refused, naming them. No receipt validating at HEAD: not applied, a
+  warning, the old behaviour. `palomar check` runs the configuration checks
+  on it and adds `comparator.headline_uncovered` (error) /
+  `comparator.headline_unjudged` (warn), JSON `headline`; `palomar prepare`
+  bundles it under `configs/` and README.txt names it for the main-results
+  entry (Palomar: one configuration per submission). `formalization --json`
+  gains `headline`. docs/comparator.md#headline-configuration-the-papers-main-results
+
 - `comparator host-check --routes [--json]`: host and cluster planning
   before `sbatch` (field report #5). Per route (`judge`: `lake comparator`
   in `bwrap`; `prepare`: `comparator-receipt --prepare`; `transfer`: build

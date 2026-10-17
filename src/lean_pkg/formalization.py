@@ -17,7 +17,8 @@ Two kinds of keys:
   ``status.sorry_count`` / ``status.axioms`` / ``status.evidence`` (the
   lower-tier gate receipt), ``status.main_results`` (every tracked comparator
   configuration: one entry per ``theorem_names`` item, ``judged_as`` carried
-  for definition holes), and ``alignment`` when ``claims.yaml`` is tracked.
+  for definition holes; or, when a headline configuration is declared and
+  judged, its theorems only: headline.py), and ``alignment`` when ``claims.yaml`` is tracked.
 * **Kept** keys are read from the existing file and preserved verbatim
   (``project.description``, ``project.authors``, ``sources``,
   ``related_formalizations``, ``classification``, ``automation.methods``,
@@ -231,8 +232,69 @@ def find_placeholders(obj, path: str = "") -> list[str]:
 # --------------------------------------------------------------------------
 # derived parts
 
-def main_results(repo: pathlib.Path, warnings: list[str]) -> list[dict]:
-    """One entry per theorem of every comparator configuration tracked at HEAD."""
+def headline_results(pkg: dict | None, repo: pathlib.Path, warnings: list[str], override: str | None = None,
+                     info: dict | None = None) -> list[dict] | None:
+    """The main_results entries of the headline configuration (headline.py), when one is declared and
+    judged against the gate-bound comparator receipt; None (the default applies) when none is declared
+    or it cannot be judged (a warning says why). A judged headline that is not a subset refuses."""
+    from . import headline as hl
+    rel, source = hl.declared(pkg or {}, repo, override)
+    if info is not None:
+        info.clear()
+        info.update({"config": rel, "source": source, "applied": False, "reason": None, "receipt": None,
+                     "theorems": 0})
+    if rel is None:
+        return None
+    cfg = hl.load(repo, rel)
+    res = hl.judge(pkg or {}, repo, rel, cfg)
+    if info is not None:
+        info.update(receipt=res["receipt"], theorems=len(cfg["theorem_names"]))
+    if not res["judged"]:
+        warnings.append(f"headline configuration {rel} ({source}) not applied: {res['reason']}; "
+                        f"status.main_results lists every tracked comparator configuration until a comparator "
+                        f"receipt the gate records validates at HEAD")
+        if info is not None:
+            info["reason"] = res["reason"]
+        return None
+    why = hl.refusal(rel, res)
+    if why:
+        raise core.Fail(why)
+    solution, challenge = module_path(cfg["solution_module"]), module_path(cfg["challenge_module"])
+    if core.git_show_bytes(repo, solution) is None:
+        warnings.append(f"{rel}: solution module file {solution} is not tracked at HEAD "
+                        f"(main_results.file uses the conventional module path)")
+    try:
+        sidecar = core.sidecar_at(repo)
+    except ValueError as e:
+        raise core.Fail(str(e))
+    from .comparator_config import scaffold_todo_names
+    todo = scaffold_todo_names(cfg, rel, sidecar) if hl.is_config_path(rel) else set()
+    names = cfg["theorem_names"]
+    if todo & set(names):
+        warnings.append(f"{rel}: {len(todo & set(names))} theorem name(s) still marked TODO in the "
+                        f"scaffold; left out of status.main_results")
+    holes = list(cfg.get("definition_names") or [])
+    out = []
+    for name in names:
+        if name in todo:
+            continue
+        entry = {"comparator_config": rel, "declaration": name, "file": solution, "challenge_file": challenge}
+        if holes:
+            entry["definition_holes"] = holes
+            entry["judged_as"] = res["judged_as"]
+        out.append(entry)
+    if info is not None:
+        info["applied"] = True
+    return out
+
+
+def main_results(repo: pathlib.Path, warnings: list[str], pkg: dict | None = None,
+                 headline: str | None = None, info: dict | None = None) -> list[dict]:
+    """The headline configuration's theorems when one is declared and judged (headline_results); else
+    one entry per theorem of every comparator configuration tracked at HEAD."""
+    picked = headline_results(pkg, repo, warnings, headline, info)
+    if picked is not None:
+        return picked
     out: list[dict] = []
     for rel in core.head_comparator_configs(repo):
         raw = core.git_show_bytes(repo, rel)
@@ -329,8 +391,10 @@ def alignment_from_claims(pkg: dict, repo: pathlib.Path) -> dict | None:
 # render
 
 def render_doc(pkg: dict, repo: pathlib.Path, existing: dict | None,
-               authors: list[str] | None = None) -> tuple[dict, list[str]]:
-    """The document and its warnings (placeholders are reported by the caller)."""
+               authors: list[str] | None = None, headline: str | None = None,
+               info: dict | None = None) -> tuple[dict, list[str]]:
+    """The document and its warnings (placeholders are reported by the caller). `headline`: the
+    --headline-config override; `info` (when given) receives the headline view (headline_results)."""
     warnings: list[str] = []
     name = pkg["name"]
     doc: dict = dict(existing or {})
@@ -381,7 +445,7 @@ def render_doc(pkg: dict, repo: pathlib.Path, existing: dict | None,
     facts = receipt_facts(pkg, repo)
     if facts:
         status.update(facts)
-    status["main_results"] = main_results(repo, warnings)
+    status["main_results"] = main_results(repo, warnings, pkg, headline, info)
     doc["status"] = _ordered(status, STATUS_ORDER)
 
     automation = _section(existing, "automation")
@@ -559,24 +623,27 @@ def target_rel(pkg: dict) -> str:
     return pkg.get("formalization_yaml") or DEFAULT_PATH
 
 
-def render_for(pkg: dict, repo: pathlib.Path, authors: list[str] | None = None
-               ) -> tuple[str, dict, list[str], str | None]:
+def render_for(pkg: dict, repo: pathlib.Path, authors: list[str] | None = None, headline: str | None = None,
+               info: dict | None = None) -> tuple[str, dict, list[str], str | None]:
     """(rendered text, doc, warnings, existing text) for the package's target path."""
     existing_text, existing = load_existing(repo / target_rel(pkg))
-    doc, warnings = render_doc(pkg, repo, existing, authors)
+    doc, warnings = render_doc(pkg, repo, existing, authors, headline, info)
     return dump_doc(doc), doc, warnings, existing_text
 
 
 def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: str | None,
                      force: bool, authors: list[str] | None, agent: str | None,
-                     reason: str = "", no_registry: bool = False) -> tuple[list[str], dict, list[str]]:
+                     reason: str = "", no_registry: bool = False,
+                     headline: str | None = None) -> tuple[list[str], dict, list[str]]:
     """(stdout lines, payload, stderr warnings). The YAML text is in payload['yaml'].
 
     --write checks before it writes: the lease (a live lease held by another agent refuses unless
     --force --reason) and a dry run of the registry update, so a refusal leaves formalization.yaml
     untouched. --force alone overwrites a differing file; with --reason it also overrides the lease.
     no_registry (--write --no-registry, #22.8): write the file only; the registry is read, never written
-    (no pointer update, no event), so the invocation is not a registry write."""
+    (no pointer update, no event), so the invocation is not a registry write. headline (--headline-config PATH):
+    the headline configuration for this render (headline.py); --write also records it in the registry
+    field headline_config."""
     pkg = core.get_pkg(reg, name)
     repo = core.repo_path(pkg)
     if not repo.is_dir():
@@ -589,7 +656,8 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
         raise core.UsageError("--no-registry needs --write (a render without --write never touches the registry)")
 
     rel = target_rel(pkg)
-    text, doc, warnings, existing_text = render_for(pkg, repo, authors)
+    hinfo: dict = {}
+    text, doc, warnings, existing_text = render_for(pkg, repo, authors, headline, hinfo)
     mode, errors = validate_doc(doc)
     if errors:
         raise core.Fail(f"{name}: the rendered formalization.yaml fails the {SCHEMA_VERSION} "
@@ -599,10 +667,12 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
                            for p in placeholders]
     n_results = len(doc["status"]["main_results"])
     payload = {"ok": True, "name": name, "path": rel, "validation": mode,
-               "main_results": n_results, "placeholders": placeholders,
-               "warnings": warnings, "written": False, "unchanged": False,
+               "main_results": n_results, "headline": hinfo if hinfo.get("config") else None,
+               "placeholders": placeholders, "warnings": warnings, "written": False, "unchanged": False,
                "registry_updated": False, "yaml": text}
-    summary = f"{n_results} main result(s); validation: {mode} OK; {len(placeholders)} placeholder(s)"
+    summary = (f"{n_results} main result(s)"
+               + (f" from the headline configuration {hinfo['config']}" if hinfo.get("applied") else "")
+               + f"; validation: {mode} OK; {len(placeholders)} placeholder(s)")
 
     if out:
         outp = pathlib.Path(out)
@@ -617,7 +687,10 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
 
     target = repo / rel
     lease_force = bool(force and reason)
-    needs_update = pkg.get("formalization_yaml") != rel
+    sets = {"formalization_yaml": rel}
+    if headline and pkg.get("headline_config") != headline:
+        sets["headline_config"] = headline   # --headline-config: recorded, so re-renders (audit) agree
+    needs_update = any(pkg.get(k) != v for k, v in sets.items())
     if needs_update or existing_text != text:   # something will be written: the lease decides first
         core.refuse_invalid_lease(name, pkg.get("lease"))
         lease = pkg.get("lease")
@@ -626,7 +699,7 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
             holder = lease.get("agent")
             raise core.Fail(f"{name}: lease held by {holder} — pass --agent {holder}, or --force --reason "
                             f"TEXT to override it; nothing written")
-    update_kw = dict(sets={"formalization_yaml": rel}, status=None,
+    update_kw = dict(sets=sets, status=None,
                      reason=reason or "lean-pkg formalization --write", redetect=False,
                      agent=agent, force=lease_force)
     if no_registry:
@@ -645,8 +718,11 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
         payload["written"] = True
         lines = [f"{name}: wrote {target} ({summary}) — not committed; commit it yourself"]
     if needs_update and no_registry:
-        lines.append(f"{name}: registry untouched (--no-registry); the formalization_yaml pointer is not "
-                     f"set: run `lean-pkg update {name} --formalization-yaml {rel}` when the registry is open")
+        unset = {k: v for k, v in sets.items() if pkg.get(k) != v}
+        lines.append(f"{name}: registry untouched (--no-registry); "
+                     + " and ".join(f"{k} is not set" for k in unset) + ": run `lean-pkg update " + name
+                     + "".join(f" --{k.replace('_', '-')} {v}" for k, v in unset.items())
+                     + "` when the registry is open")
     elif needs_update:
         up_lines, _ = core.do_update(reg_path, reg, events_p, name, **update_kw)
         lines += up_lines
@@ -677,7 +753,7 @@ ANCHOR_CMD = "anchor"
 ANCHOR_ONLY = (("arxiv", "--arxiv"), ("from_file", "--from-file"), ("fetch", "--fetch"),
                ("compare_tex", "--compare-tex"), ("accept_diff", "--accept-diff"), ("main_tex", "--main-tex"))
 RENDER_ONLY = (("out", "--out"), ("force", "--force"), ("reason", "--reason"), ("author", "--author"),
-               ("no_registry", "--no-registry"))
+               ("no_registry", "--no-registry"), ("headline_config", "--headline-config"))
 
 
 def is_anchor(args) -> bool:
@@ -703,11 +779,16 @@ def cmd_formalization(args) -> int:
         raise core.UsageError(f"formalization {args.name}: "
                               + (f"{', '.join(given)} go(es) with" if given else "a second name needs")
                               + " the anchor form: `lean-pkg formalization anchor NAME --arxiv <id>v<N> ...`")
+    headline = getattr(args, "headline_config", None)
+    if headline is not None and not headline.strip():
+        raise core.UsageError("--headline-config needs a path (clear the registry field with "
+                              "`lean-pkg update NAME --headline-config ''`)")
     reg_path, events_p = core.registry_path(args), core.events_path(args)
     lines, payload, warnings = do_formalization(
         reg_path, core.load_registry(reg_path), events_p, args.name, write=args.write,
         out=args.out, force=args.force, authors=args.author, agent=args.agent,
-        reason=getattr(args, "reason", "") or "", no_registry=getattr(args, "no_registry", False))
+        reason=getattr(args, "reason", "") or "", no_registry=getattr(args, "no_registry", False),
+        headline=headline)
     for w in warnings:
         print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
     if getattr(args, "json_out", False):
@@ -743,6 +824,11 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--author", action="append", default=None, metavar="NAME",
                    help="project.authors entry (repeatable); otherwise kept from the file, else "
                         "consent[] owners/authors, else a placeholder")
+    s.add_argument("--headline-config", dest="headline_config", default=None, metavar="PATH",
+                   help="the headline comparator configuration (the paper's main results) for this render; "
+                        "--write also records it (registry headline_config). Default: the registry field, else "
+                        "comparator.headline.json when tracked. status.main_results then lists its theorems "
+                        "only, each covered by the gate-bound comparator receipt (else refused)")
     s.add_argument("--agent", default=None, help="lease holder, if one is live (for the registry update)")
     a = s.add_argument_group(
         "anchor form", "`lean-pkg formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT | --fetch) "
