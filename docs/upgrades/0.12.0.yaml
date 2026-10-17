@@ -117,6 +117,8 @@ changes:
 # changelog layout (#224), the released-CHANGELOG check of make check and CI, a maintainer gate (#227),
 # and the preflight follow-up (#228: moved options in doctor --upgrade-from, which first ships in this
 # release under doctor-upgrade-preflight, plus this record and test rows), and this record's completion
-# with the pull request template's checkbox (#229), docs on disabled negative fixtures (#231), and two
-# shipped skills (#233: a linter-clean instance snippet and a Mathlib pre-PR checklist).
-no_author_change: [220, 221, 224, 225, 227, 228, 229, 231, 233]
+# with the pull request template's checkbox (#229), docs on disabled negative fixtures (#231), the record
+# fixes for #230 (#232, #235), two shipped skills (#233: a linter-clean instance snippet and a Mathlib pre-PR
+# checklist), and the large-artifact sizing and packaging recipe in docs/receipts.md with its tests (#234:
+# docs only, the artifact seal and receipt format are unchanged).
+no_author_change: [220, 221, 224, 225, 227, 228, 229, 231, 232, 233, 234, 235]
