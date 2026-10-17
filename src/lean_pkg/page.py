@@ -223,7 +223,7 @@ def _evidence(repo, gate: dict) -> tuple[list[dict], dict, dict]:
         rec, raw = cov.receipt_at_head(repo, rel)
         if rec is None or not _c12(rec.get("commit")):
             continue
-        if rec.get("schema") == "comparator-receipt/1":
+        if rec.get("schema") in core.COMPARATOR_SCHEMAS:   # /2 is what the runner writes; /1 still validates
             tier = "comparator"
         elif "sorry_count" in rec and "axioms" in rec:
             tier = "lower tier"

@@ -38,6 +38,9 @@ root that does not exist.
 | `comparator` | a comparator receipt (`comparator --check`'s validator) | the named theorems match the trusted statements; the table shows the mechanism, and `legacy` is not predictive of Palomar acceptance |
 | `palomar` | a Palomar id, verified against `data.palomar-registry.org` when the network is reachable | the result is registered in Palomar |
 
+What each level does not prove, and how to re-derive an entry without a
+registry, is in the [Trust model](trust-model.md).
+
 Trust is computed, never typed: `index add` derives it from the evidence
 present, and `index check` recomputes it and refuses an entry whose stated
 trust differs from its evidence.

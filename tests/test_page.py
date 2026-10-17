@@ -295,6 +295,26 @@ def test_slurm_job_of_accepts_only_a_slurm_spelling_or_a_corroborated_comparator
     assert slurm_job_of({**comp, "host_policy": "Slurm job 999 (SLURM_JOB_ID set)"}) is None
 
 
+def test_a_schema_2_comparator_receipt_is_listed_and_backs_its_slurm_job(lp, env, capsys):
+    # comparator-receipt writes schema 2; the Evidence table and the Easley rule once knew only schema 1
+    from lean_pkg.coverage import slurm_job_of
+    comp2 = {"schema": "comparator-receipt/2", "mechanism": "toolchain", "job_id": "5581013",
+             "host_policy": "Slurm job 5581013 on node-1"}
+    assert slurm_job_of(comp2) == "slurm-5581013"
+    assert slurm_job_of({**comp2, "host_policy": "allowed by COMPARATOR_RECEIPT_ALLOW_HOST=1"}) is None
+    head = prepare(env)
+    rel = f".lean-receipts/{head[:12]}-comparator.json"
+    p = env.repo_b / rel
+    rec = json.loads(p.read_text())
+    rec.update(schema="comparator-receipt/2", mechanism="legacy")
+    p.write_text(json.dumps(rec, indent=2))
+    _git(env.repo_b, "commit", "-q", "-am", "schema 2 comparator receipt")
+    rc, data = page_json(lp, env, capsys)
+    assert rc == 0
+    row = next(x for x in data["markdown"].splitlines() if x.startswith(f"| `{rel}`"))
+    assert "(recorded) | comparator |" in row
+
+
 def test_a_bare_numeric_job_id_never_backs_easley_and_the_refusal_names_it(lp, env, capsys):
     prepare(env, easley=True, job="slurm-5581013", receipt_job="5581013")
     rc, _out, err = run(lp, env, capsys, "page", "beta")

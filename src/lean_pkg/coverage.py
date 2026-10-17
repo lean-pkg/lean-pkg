@@ -421,7 +421,7 @@ def slurm_job_of(rec: dict) -> str | None:
     job = rec.get("job_id")
     if isinstance(job, str) and SLURM_JOB_RE.match(job):
         return job
-    if rec.get("schema") == "comparator-receipt/1" and isinstance(job, str) and re.fullmatch(r"\d+(?:_\d+)?", job) \
+    if rec.get("schema") in core.COMPARATOR_SCHEMAS and isinstance(job, str) and re.fullmatch(r"\d+(?:_\d+)?", job) \
             and str(rec.get("host_policy") or "").startswith(f"Slurm job {job} "):
         return f"slurm-{job}"
     return None

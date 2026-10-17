@@ -58,7 +58,7 @@ span on GitHub, in MkDocs or in the HTML file.
 | Verification status | the `summary` sentence from `coverage.yaml`; the manuscript version; the number of paper rows by class and how many formalized rows the ledger closes; the ledger's package status; the registry status |
 | Paper ↔ Lean map | one row per paper result: number and title, correspondence class, declarations (linked at the gate-bound commit when the repository is on GitHub), the ledger word, inputs and notes |
 | Not formalized | every `outside` row, or the `nothing_excluded` reason |
-| Trust boundary | what the gate receipt and the comparator receipt record, and a fixed paragraph on what neither checks |
+| Trust boundary | what the gate receipt and the comparator receipt record, and a fixed paragraph on what neither checks (the full account: [Trust model](trust-model.md)) |
 | Reproduce | toolchain, Mathlib revision, a command template (clone, checkout of the gate-bound commit, `lake exe cache get` when Mathlib is a dependency, `lake build`), the expected `#print axioms` result |
 | Evidence | one row per receipt: path, tier, commit, date, Slurm job, SHA-256 |
 | Citation | authors, title, version and DOI from `CITATION.cff`, and the manuscript |
