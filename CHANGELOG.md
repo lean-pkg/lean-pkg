@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.53] - 2026-10-16
+
 ### Fixed
 
 - `comparator config --challenge-from-type` / `--emit-script`: fewer printed statements fail the round trip
@@ -24,6 +26,8 @@ change the registry schema or receipt format, always with a migration).
   unification in a `have` type.
 - `test_cut_release_runs_every_step_in_order` no longer fails when a run crosses midnight: `scripts/cut-release.py`
   stamps `LEAN_PKG_RELEASE_DATE` (YYYY-MM-DD, set only by the tests) when set, so the test and the script share one date.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.52] - 2026-10-16
 
