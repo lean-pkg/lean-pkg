@@ -35,34 +35,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   comparator, tested end to end on a small package with no registry. Linked
   from the index, receipts, page and index docs.
 
-### Fixed
-
-- `page` and `coverage`: a `comparator-receipt/2` receipt, what
-  `comparator-receipt` writes, is now listed in the page's Evidence table, and
-  one run inside a Slurm job (its `host_policy` names the job) backs that job
-  for the Easley acknowledgment. Both used to recognise only schema 1, so a
-  current comparator receipt was missing from the table.
-
-### Fixed
-
-- `claims mark --from-comparator`: when theorem names match no claim (or
-  only some), the output now states the matching rule. A name covers a claim
-  only when it ends in the claim's whole fully qualified `decl`: the decl
-  itself, or `<Prefix>.<decl>`. A name that differs from exactly one claim's
-  decl only in its leading namespace component gets a hint naming that decl
-  and the covering name. For example `ChemoAudit.Hopf.thm` for the decl
-  `Chemo.Hopf.thm`, the root replaced by the prefix, should be
-  `ChemoAudit.Chemo.Hopf.thm`. Before, 83 such names reported `0 claim(s)
-  covered` and nothing said why. When every hint has the same shape, one
-  line says so. The `claims ledger` detail of a `no-comparator-config`
-  claim, `comparator config --coverage` and the R11
-  error of `coverage check` / `page --check` carry the same hint. A hint is
-  never applied and credits nothing: the rule itself is unchanged, and every
-  consumer still uses it. A name with a different suffix gets no hint. JSON:
-  `claims mark` adds `rule` and `hints[]` {name, decl, shape, rename_to,
-  hint}, and `--coverage` adds `hints[]`. docs/comparator.md, "How a theorem
-  name maps to a claim"; docs/page.md R11.
-
 - `lean-exercise` for course use (docs/exercise.md, "Course use").
   `--project DIR` allows `import Mathlib...` when `DIR` is a Lake project
   whose `lean-toolchain` and `lake-manifest.json` pin Mathlib and whose
@@ -82,6 +54,48 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   judges every `*.lean` file of a directory into one CSV row per file
   (identified by its file name only) and one log per file, JSON schema
   `exercise-batch/1`; `--no-sandbox` is refused in batch mode.
+
+### Changed
+
+- `page`: the public page no longer prints the line `lean-pkg registry
+  status: ...`. The registry status is mutable (promote changes it) while
+  the page is committed at one commit, so the line went stale on promote and
+  forced a re-render; it stays in `lean-pkg status` and the JSON outputs.
+  Re-render a page made by 0.9.0 or earlier (`lean-pkg page NAME --write`):
+  `page --check` reports the old block as stale.
+
+### Fixed
+
+- `page` and `coverage`: a `comparator-receipt/2` receipt, what
+  `comparator-receipt` writes, is now listed in the page's Evidence table, and
+  one run inside a Slurm job (its `host_policy` names the job) backs that job
+  for the Easley acknowledgment. Both used to recognise only schema 1, so a
+  current comparator receipt was missing from the table.
+
+- `claims mark --from-comparator`: when theorem names match no claim (or
+  only some), the output now states the matching rule. A name covers a claim
+  only when it ends in the claim's whole fully qualified `decl`: the decl
+  itself, or `<Prefix>.<decl>`. A name that differs from exactly one claim's
+  decl only in its leading namespace component gets a hint naming that decl
+  and the covering name. For example `ChemoAudit.Hopf.thm` for the decl
+  `Chemo.Hopf.thm`, the root replaced by the prefix, should be
+  `ChemoAudit.Chemo.Hopf.thm`. Before, 83 such names reported `0 claim(s)
+  covered` and nothing said why. When every hint has the same shape, one
+  line says so. The `claims ledger` detail of a `no-comparator-config`
+  claim, `comparator config --coverage` and the R11
+  error of `coverage check` / `page --check` carry the same hint. A hint is
+  never applied and credits nothing: the rule itself is unchanged, and every
+  consumer still uses it. A name with a different suffix gets no hint. JSON:
+  `claims mark` adds `rule` and `hints[]` {name, decl, shape, rename_to,
+  hint}, and `--coverage` adds `hints[]`. docs/comparator.md, "How a theorem
+  name maps to a claim"; docs/page.md R11.
+
+- `page`, `kind: library`: lean-pkg's own wording on a library page no longer
+  uses the word *manuscript* ("Library: each row below is a main result of
+  the library ..." in the README block, verification.md and the HTML file;
+  "Library: each row is a main result of the library." in coverage.md), so a
+  package whose `.lean-pkg-private-patterns` blocks that word (or *private*)
+  can write its page. A paper page keeps its wording.
 
 ## [0.9.0] - 2026-10-17
 
