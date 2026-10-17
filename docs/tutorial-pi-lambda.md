@@ -22,7 +22,7 @@ precisely, in Lean, *which* theorem was proved, and to let lean-pkg record the
 evidence that the proof checks.
 
 Every command below was run on one Linux workstation (16 cores, 2026-10-17,
-lean-pkg 0.9.0, Lean `v4.35.0-rc2`) and the outputs are real, trimmed. Home
+lean-pkg 0.9.0, and 0.10.0 for the reader's check; Lean `v4.35.0-rc2`) and the outputs are real, trimmed. Home
 directories, host names and run ids are replaced by `<home>`, `<host>` and
 `<id>`.
 
@@ -541,6 +541,29 @@ trust boundary twice: the page says *verified* about the Lean statements, and
 says in so many words that it does not check that a title matches its
 statement. [The verification page](page.md) explains every section, and the
 [trust model](trust-model.md) says what a reader may and may not conclude.
+
+### A reader's check
+
+A referee who clones the repository does not need your registry. Since
+lean-pkg 0.10.0, `lean-pkg receipt check` re-checks the committed receipts
+against the committed bytes, with no registry, no network and no Lean run:
+
+```bash
+lean-pkg receipt check --repo pi-lambda --commit ff6e3c27425b --docs-descendants
+```
+
+```text
+receipt check: PASS pi-lambda at ff6e3c27425b (tier comparator; 14 passed, 0 skipped)
+  PASS receipts: 1 lower-tier and 1 comparator receipt(s) bind ff6e3c27425b
+  PASS binding: docs-only descendant of ff6e3c27425b (1 non-build file(s): README.md; opted in) (accepted with --docs-descendants)
+  ...
+  PASS coverage: coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim a row names (R11)
+  PASS page: trust boundary: sorry count, axioms and comparator counts as the receipts record them
+```
+
+Rebuilding and re-running the comparator are the remaining steps of [Re-verify
+a page yourself](trust-model.md#re-verify-a-page-yourself). And the referee,
+like you, still reads `Challenge.lean` against the book.
 
 ## 9. Before publishing: the dry run
 
