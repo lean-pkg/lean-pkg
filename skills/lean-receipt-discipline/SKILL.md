@@ -93,7 +93,7 @@ that can need far more memory than the build. After two out-of-memory kills
 of the same replay on a shared machine, stop and move it to a bigger host.
 
 With lean-pkg, the lower tier is the gate receipt and the top layer is
-produced by `comparator-receipt`; see `lean-pkg-agent`.
+produced by `lean-pkg receipt comparator`; see `lean-pkg-agent`.
 
 ## Anti-patterns
 

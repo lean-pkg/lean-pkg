@@ -48,7 +48,9 @@ def test_every_command_has_a_page_section(gen, pages):
                if (n.path or n.program != "lean-pkg") and f"\n# {n.key}\n" not in text
                and not re.search(r"\n#{2,6} " + re.escape(n.key) + "\n", text)]
     assert missing == [], missing
-    assert "Also spelled: `lean-pkg claim`, `lean-pkg lease NAME`" in pages[COMMANDS / "lease.md"]
+    assert "Also spelled: `lean-pkg claim`, `lean-pkg lease NAME`" in pages[COMMANDS / "lease-claim.md"]
+    assert "Also run as the program `comparator-receipt`" in pages[COMMANDS / "receipt-comparator.md"]
+    assert "`lean-pkg release NAME --fresh-repo DIR`" in pages[COMMANDS / "repo-export.md"]
 
 
 def test_aliases_page_lists_every_alias_from_one_table(gen, pages):
@@ -56,10 +58,35 @@ def test_aliases_page_lists_every_alias_from_one_table(gen, pages):
     table = gen.alias_table(trees)
     assert table[("claim",)] == ("lease", "claim") and table[("receipt", "local")] == ("receipt", "systemd")
     text = pages[COMMANDS / "aliases.md"]
+    assert table[("promote",)] == ("publish",) and table[tuple("release NAME --fresh-repo DIR".split())] == \
+        ("repo", "export")
     for alias, canonical in table.items():
         assert f"| `lean-pkg {' '.join(alias)}` | [`lean-pkg {' '.join(canonical)}`]" in text, alias
         assert f"`lean-pkg {' '.join(alias)}`" in "\n".join(pages.values()).replace(text, ""), alias
     assert not (COMMANDS / "claim.md").exists()   # a page per canonical name, never per alias
+    assert not (COMMANDS / "promote.md").exists() and not (COMMANDS / "comparator-receipt.md").exists()
+    assert "| `comparator-receipt` (program) | [`lean-pkg receipt comparator`](receipt-comparator.md) |" in text
+
+
+def test_one_page_per_canonical_node(gen, pages):
+    """Every canonical parser node has its own page, named by its path (lease-claim.md), its H1 the command."""
+    trees = gen.all_trees()
+    aliases = gen.alias_table(trees)
+    for node in gen.all_nodes(trees["lean-pkg"]):
+        if node.path and node.path not in aliases:
+            page = COMMANDS / gen.page_name(node)
+            assert page in pages and f"\n# {node.key}\n" in pages[page], node.key
+
+
+def test_index_groups_come_from_the_parser_tiers(gen, pages):
+    from lean_pkg import command_tree
+    text = pages[COMMANDS / "index.md"]
+    heads = [line[3:] for line in text.splitlines() if line.startswith("## ")]
+    assert heads[:3] == [gen.md_text(t) for t in command_tree.TIER_TITLES.values()]
+    start = text.index(gen.md_text(command_tree.TIER_TITLES["newcomer"]))
+    first = text[start:text.index(gen.md_text(command_tree.TIER_TITLES["author"]))]
+    for verb in ("new", "verify", "status", "page", "publish"):
+        assert f"[`lean-pkg {verb}`]({verb}.md)" in first, verb
 
 
 def test_a_stage_one_alias_table_is_read(gen, monkeypatch):
@@ -89,7 +116,8 @@ def test_commands_without_examples_are_reported(gen):
     trees = gen.all_trees()
     runnable = [n.key for t in trees.values() for n in gen.all_nodes(t) if n.runnable]
     assert set(missing) <= set(runnable)
-    for key in ("lean-pkg init", "lean-pkg gate", "lean-pkg page", "lean-pkg receipt slurm"):
+    for key in ("lean-pkg registry init", "lean-pkg gate", "lean-pkg page", "lean-pkg receipt slurm", "lean-pkg verify",
+                "lean-pkg receipt comparator", "lean-pkg publish"):
         assert key not in missing, key
 
 
@@ -109,10 +137,7 @@ def test_curated_notes_and_groups_name_existing_commands(gen):
     files = {gen.intro_file(n) for t in trees.values() for n in gen.all_nodes(t)} - {None}
     orphans = sorted(p.name for p in (gen.SRC / "intro").glob("*.md") if p not in files)
     assert orphans == [], f"notes for commands the parser no longer has: {orphans}"
-    names = {c.path[0] for c in trees["lean-pkg"].children} | set(gen.OTHER_PROGRAMS)
-    grouped = [c for g in gen.groups()["groups"] for c in g["commands"]]
-    assert sorted(set(grouped) - names) == [], "groups.yaml names unknown commands"
-    assert len(grouped) == len(set(grouped)), "a command is in two groups"
+    assert "groups" not in gen.groups(), "the index groups are the parser's tiers, not a list in groups.yaml"
 
 
 def test_pages_are_jekyll_safe(pages):

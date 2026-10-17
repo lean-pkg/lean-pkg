@@ -11,7 +11,7 @@ title: Receipts and trust
 | Tier | Produced by | Validated by | Proves |
 |---|---|---|---|
 | **Lower** | any executor: `lake build`, sorry scan, `#print axioms`, frozen report | `gate --receipt`; from git alone, `receipt check` | the package builds at the pinned toolchain with `sorry_count = 0` and only the permitted axioms, at one commit |
-| **Comparator** | `comparator-receipt` running `comparator-check.sh` | `gate --comparator`, `comparator`, `promote`; from git alone, `receipt check` | each `Solution` theorem has exactly the statement of its trusted `Challenge` namesake, uses only the permitted axioms, and replays in the independent `nanoda` kernel |
+| **Comparator** | `lean-pkg receipt comparator` running `comparator-check.sh` | `gate --comparator`, `comparator`, `promote`; from git alone, `receipt check` | each `Solution` theorem has exactly the statement of its trusted `Challenge` namesake, uses only the permitted axioms, and replays in the independent `nanoda` kernel |
 
 The comparator tier is optional at `gate`, so exploratory packages do not pay
 its cost. It is required at `promote`, so nothing becomes public without it.
@@ -460,7 +460,7 @@ against the Lake and Lean sources of v4.35.0-rc2):
   instead of the package's own build (a planted copy of a module answered
   `#print axioms` with its own axioms). `lake build` and `lake lean FILE`
   pass explicit module paths and are not affected; run the audit with
-  `lake lean`. The template, `comparator-receipt` (after its build stage)
+  `lake lean`. The template, `lean-pkg receipt comparator` (after its build stage)
   and both comparator scripts refuse when an entry other than the package's
   own `.lake/build/lib/lean` holds a root namespace, naming the path.
 
@@ -818,7 +818,7 @@ what moved was the package's internal sources.
 | `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601. `host`, and the host in `job_id` (`local-<host>-<pid>-<stamp>` outside Slurm), is the host's label, never its name: `h-` and 12 hex digits of the SHA-256 of the lower-cased host name (the label `receipt systemd` uses) or the runner's `--host-label`; a receipt written by lean-pkg 0.10.0 or earlier may name the host itself (still valid; `public-safety` reports it as `receipt-raw-host`, see [Comparator](comparator.md#host-policy)) |
 | `host_label` | the label in `host` (always written since host labels; before, only with `--host-label`); not validated |
 | `host_policy` | the runner's host-policy reason (an override run is visible here), naming the host by its label |
-| `slurm_sacct` | optional, additive: the sacct seal of a Slurm claim (`job_id` J, `host_policy` `Slurm job J ...`), written after the job by `comparator-receipt --seal-sacct`: `{schema: slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source}`, `file` the normalized record `.lean-receipts/<commit12>-comparator-sacct.txt` it hashes. Only a sealed claim backs a `coverage.yaml` `compute` job; see [Comparator](comparator.md#seal-the-slurm-claim-with-sacct) |
+| `slurm_sacct` | optional, additive: the sacct seal of a Slurm claim (`job_id` J, `host_policy` `Slurm job J ...`), written after the job by `lean-pkg receipt comparator --seal-sacct`: `{schema: slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source}`, `file` the normalized record `.lean-receipts/<commit12>-comparator-sacct.txt` it hashes. Only a sealed claim backs a `coverage.yaml` `compute` job; see [Comparator](comparator.md#seal-the-slurm-claim-with-sacct) |
 | `stack_limit` | optional, additive, not validated: `{soft_kb, hard_kb, source}`, the soft stack limit the runner's `lake`/`lean` children ran under (`soft_kb`/`hard_kb` an integer or `unlimited`; `source` `inherited` or `COMPARATOR_RECEIPT_STACK`); see [Comparator](comparator.md#stages-and---prepare) |
 | `lean_threads` | optional, additive, not validated: the `LEAN_NUM_THREADS` the runner gave its `lake`/`lean` children (`COMPARATOR_RECEIPT_LEAN_THREADS`), or `null` when unset; see [Comparator](comparator.md#stages-and---prepare) |
 | `judges`, `unit_size` | optional, additive, not validated (toolchain mechanism): the judge pool width (`--judges`, `LEAN_PKG_COMPARATOR_JOBS`) and the names per judge unit (`--unit-size`, `LEAN_PKG_COMPARATOR_UNIT_SIZE`), `unit_size` `null` when each configuration was cut into `judges` shards (the default); see [Comparator](comparator.md#stages-and---prepare) |
@@ -829,7 +829,7 @@ what moved was the package's internal sources.
 | `result` | `"pass"` (the runner writes a receipt only on PASS) |
 | `configs[]` | exactly the `comparator*.json` / `comparator/config*.json` files tracked at the bound commit, no omissions, no extras. Each entry: `path`; `sha256` of the file's bytes at the bound commit; `challenge_module`, `solution_module`, `theorem_names` (non-empty), `definition_names`, `permitted_axioms` (each equal to the file); `signoff` (present when the configuration has definition holes: `{source: sidecar|inline, definitions: {<hole>: {reviewer, date, judged_as}}}`, the runner's copy of the sign-off it linted); `judged_as` (only for a deprecated inline sign-off, copied from the file); `log` = `.lean-receipts/<commit12>-comparator-<cfgname>.log` where `cfgname` is the path without `.json` and with `/` replaced by `_`; `log_sha256`; `result: "pass"`. The log must contain the full line `Your solution is okay!` for both mechanisms (`lake comparator` prints it last, after the per-kernel acceptance lines; the runner and the validator share one predicate). Symlinked evidence is refused |
 
-A config whose file at the bound commit has a non-empty `definition_names` must be signed off in `lean-pkg-signoff.json` at that commit, its `config_sha256` equal to the config's bytes (deprecated fallback, with a warning: an inline `judged_as` in the config; see [Comparator](comparator.md#definition-holes-need-a-human-sign-off)); the rule is judged against the tracked bytes, never the receipt's copy, and a `signoff` copy in the receipt must equal it. Because the receipt binds each config's bytes, migrating a config's inline keys to the sidecar (`comparator config --migrate-signoff`) needs a new comparator receipt.
+A config whose file at the bound commit has a non-empty `definition_names` must be signed off in `lean-pkg-signoff.json` at that commit, its `config_sha256` equal to the config's bytes (deprecated fallback, with a warning: an inline `judged_as` in the config; see [Comparator](comparator.md#definition-holes-need-a-human-sign-off)); the rule is judged against the tracked bytes, never the receipt's copy, and a `signoff` copy in the receipt must equal it. Because the receipt binds each config's bytes, migrating a config's inline keys to the sidecar (`comparator migrate-signoff`) needs a new comparator receipt.
 
 Validation fails closed on the first miss and names the field. A file already
 at the canonical `.lean-receipts/` path that differs from the receipt being
@@ -1286,7 +1286,7 @@ current tree is clean. The sequence:
 2. Fix the hits. A hit only in the tree is fixed with a commit, followed by
    a new gate, since the gate-bound commit changes. A hit in the history
    needs a history rewrite, or, simpler, a fresh-history export:
-   `lean-pkg release NAME --fresh-repo DIR [--remote URL] --dry-run`, then
+   `lean-pkg repo export NAME DIR [--remote URL] --dry-run`, then
    the same without `--dry-run`. It exports the gate-bound tree (internal
    files and the patterns file dropped) into a new repository with one
    commit, scans it, and moves the registry entry there. The patterns file's
@@ -1299,11 +1299,11 @@ current tree is clean. The sequence:
    the source commit. When the publishable tree was cleaned by hand (files
    removed or edited) and is not a commit of the source repository, which
    must stay untouched, export the working tree instead:
-   `lean-pkg release NAME --fresh-repo DIR --from-tree SRCDIR`. It applies
+   `lean-pkg repo export NAME DIR --from-tree SRCDIR`. It applies
    the same exclusions and scan (SRCDIR's `.gitignore` is honoured) and
    records "source commit: none (hand-cleaned tree)" in the one commit. If
    the public repository was already built by hand, adopt it as it is:
-   `lean-pkg release NAME --adopt-repo DIR [--remote URL]` scans its tree
+   `lean-pkg repo adopt NAME DIR [--remote URL]` scans its tree
    and whole history, refuses more than one commit unless
    `--allow-history`, makes no new commit, and relocates the entry the same
    way.
@@ -1312,10 +1312,10 @@ current tree is clean. The sequence:
    are provenance only, because a receipt binds one exact commit and the
    export commit is not a descendant of the old one.
 4. Run the comparator on the new commit:
-   `comparator-receipt --project DIR --prepare`, then the run, then
-   `lean-pkg comparator NAME --receipt ...`.
+   `lean-pkg receipt comparator --project DIR --prepare`, then the run, then
+   `lean-pkg comparator attach NAME --receipt ...`.
 5. `lean-pkg publish NAME --dry-run --public-safety`, push the new
-   repository, and `lean-pkg promote NAME` (dry run first, then `--yes`).
+   repository, and `lean-pkg publish NAME --yes --dry-run` (dry run first, then `--yes`).
 
 ### Paper-incubated packages
 
@@ -1374,9 +1374,9 @@ label or a path; add a `block:` line for the phrasing you use, or rewrite
 those doc-comments to state the result itself.
 
 Then run `lean-pkg public-safety NAME --strict` before
-`lean-pkg release NAME --fresh-repo DIR`: under `--strict` every warning is
+`lean-pkg repo export NAME DIR`: under `--strict` every warning is
 blocking, so the run exits 0 only when nothing manuscript-shaped is left.
-`release --fresh-repo` itself refuses only on blocking hits and lists the
+`repo export` itself refuses only on blocking hits and lists the
 warnings in its plan.
 
 public-safety is necessary, not sufficient: a second release audit found two
@@ -1434,7 +1434,7 @@ Before freezing a candidate made from private history:
    `git log --all --format=%B | grep -cE '<your-key-regex>'` for commit
    messages. A non-zero count with 0 scan hits means a pattern is missing.
 4. When the history holds private material, do not try to clean it commit by
-   commit: prefer `lean-pkg release NAME --fresh-repo DIR` (one fresh commit
+   commit: prefer `lean-pkg repo export NAME DIR` (one fresh commit
    of the gate-bound tree, or of `--source-commit SHA`) or, for a tree cleaned
    by hand, `--fresh-repo DIR --from-tree SRCDIR`. The export is scanned with
    the source checkout's patterns file. After the export the registry entry
@@ -1446,7 +1446,7 @@ Before freezing a candidate made from private history:
    lists the private strings: when it is tracked, `public-safety` reports a
    blocking `patterns-file` hit and a `WARN` naming the fix
    (`git rm --cached .lean-pkg-private-patterns`, then add it to
-   `.gitignore`), and `release --fresh-repo` never exports it. A copy left
+   `.gitignore`), and `repo export` never exports it. A copy left
    in an old commit is a history hit like any other.
 
 Next: [The comparator tier](comparator.md).

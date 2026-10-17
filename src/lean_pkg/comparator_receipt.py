@@ -21,8 +21,11 @@ comparator-stages/attempts/NNN/ (numbers never reused; never deleted or read bac
 
 Host policy: the run is allowed iff SLURM_JOB_ID is set (inside a Slurm job),
 OR this host's name or its label is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
-(comma-separated), OR COMPARATOR_RECEIPT_ALLOW_HOST=1. The reason is recorded
-in the receipt's host_policy field. SLURM_JOB_ID is any shell's to set: a Slurm
+(comma-separated), OR COMPARATOR_RECEIPT_ALLOW_HOST=1, OR (the workstation
+default) the allow-list is unset, COMPARATOR_RECEIPT_WORKSTATION_DEFAULT is not 0
+and this machine has no Slurm (no sbatch/srun/slurmd on PATH, no slurm.conf, no
+SLURM_CONF): the machine running the command, named by its label. The reason is
+recorded in the receipt's host_policy field. SLURM_JOB_ID is any shell's to set: a Slurm
 claim backs a coverage.yaml compute job only after `--seal-sacct RECEIPT` sealed
 the job's sacct record into it (receipt.seal_comparator_sacct).
 
@@ -392,13 +395,48 @@ def resolve_toolchain(project: pathlib.Path, toolchain: str) -> dict:
 
 # ---------------------------------------------------------------------------
 # Host policy. Heavy Lean work should run where the operator intends it to:
-# inside a Slurm job, or on a host the operator lists explicitly. No host or
-# user names are built in. COMPARATOR_RECEIPT_ALLOW_HOST=1 overrides for tests
+# inside a Slurm job, on a host the operator lists explicitly, or (the
+# workstation default) on the machine running the command when it has no Slurm
+# and no allow-list is set: a solo author's own computer. No host or user names
+# are built in. COMPARATOR_RECEIPT_ALLOW_HOST=1 overrides for tests
 # and explicitly authorized runs; the reason is recorded in the receipt's
 # host_policy field.
 
 ALLOWED_HOSTS_ENV = "COMPARATOR_RECEIPT_ALLOWED_HOSTS"
 ALLOW_HOST_ENV = "COMPARATOR_RECEIPT_ALLOW_HOST"
+WORKSTATION_ENV = "COMPARATOR_RECEIPT_WORKSTATION_DEFAULT"   # 0: no workstation default (an operator's opt-out)
+# A machine with a Slurm client or daemon is treated as a cluster node (a login node runs no heavy job), never
+# as a workstation.
+SLURM_PROGRAMS = ("sbatch", "srun", "slurmd", "slurmctld")
+SLURM_CONFIGS = ("/etc/slurm/slurm.conf", "/etc/slurm-llnl/slurm.conf", "/usr/local/etc/slurm.conf")
+
+
+def slurm_here() -> str | None:
+    """What makes this machine a Slurm cluster node (a program on PATH, a config file, SLURM_CONF), else None."""
+    if os.environ.get("SLURM_CONF", "").strip():
+        return "SLURM_CONF is set"
+    for prog in SLURM_PROGRAMS:
+        if shutil.which(prog):
+            return f"{prog} is on PATH"
+    for conf in SLURM_CONFIGS:
+        if os.path.exists(conf):
+            return f"{conf} exists"
+    return None
+
+
+def workstation_default(env=None) -> tuple[bool, str]:
+    """(applies, why): the workstation default allows the machine running the command, by its label, when
+    nothing narrower was said: no allow-list in the environment (set at all, even empty, it is the operator's
+    list), no opt-out, and no Slurm on this machine."""
+    env = os.environ if env is None else env
+    if ALLOWED_HOSTS_ENV in env:
+        return False, f"{ALLOWED_HOSTS_ENV} is set (the allow-list decides)"
+    if str(env.get(WORKSTATION_ENV, "")).strip() == "0":
+        return False, f"{WORKSTATION_ENV}=0"
+    slurm = slurm_here()
+    if slurm:
+        return False, f"this machine is a Slurm node ({slurm})"
+    return True, "no Slurm on this machine and no allow-list set"
 
 
 def parse_allowed_hosts(value: str | None) -> set[str]:
@@ -409,9 +447,10 @@ def parse_allowed_hosts(value: str | None) -> set[str]:
 def host_policy_ok(slurm_job: str | None, allow: bool,
                    hostname: str | None = None,
                    allowed_hosts: set[str] | None = None,
-                   label: str | None = None) -> tuple[bool, str]:
+                   label: str | None = None, workstation: bool = False) -> tuple[bool, str]:
     """(allowed, reason). An allow-list entry may be the host's name (any case) or its label (the hashed
-    `h-...` label or the operator's --host-label); the reason names the label only, never the name."""
+    `h-...` label or the operator's --host-label); the reason names the label only, never the name.
+    `workstation` (workstation_default): with no allow-list, the machine running the command is allowed."""
     hostname = hostname or socket.gethostname()
     label = label or published_host(hostname)
     allowed_hosts = allowed_hosts or set()
@@ -422,6 +461,9 @@ def host_policy_ok(slurm_job: str | None, allow: bool,
     names = {hostname.strip().lower(), label, hashed_host_label(hostname)}
     if any(h.lower() in names or h in names for h in allowed_hosts):
         return True, f"host {label} listed in {ALLOWED_HOSTS_ENV}"
+    if workstation and not allowed_hosts:
+        return True, (f"host {label}: the machine running the command (workstation default: no Slurm here, "
+                      f"{ALLOWED_HOSTS_ENV} unset)")
     return False, (f"this host ({label}) is not an allowed host: run inside a Slurm job "
                    f"(SLURM_JOB_ID set), list this host's name or its label {label} in {ALLOWED_HOSTS_ENV} "
                    f"(comma-separated), or set {ALLOW_HOST_ENV}=1 for an "
@@ -866,6 +908,16 @@ def olean_manifest_diff(old: bytes | None, new: bytes) -> str:
         if names:
             parts.append(f"{len(names)} {what} ({', '.join(names[:5])}{' …' if len(names) > 5 else ''})")
     return "; ".join(parts) or "same files, different manifest bytes"
+
+
+def only_removed(old: bytes | None, new: bytes) -> bool:
+    """No file both manifests list differs in size or hash, and some recorded file is gone: a build tree that
+    was (partly) deleted and rebuilt since (verify.sh's `rm -rf .lake/build`), with nothing recorded changed."""
+    if old is None:
+        return False
+    rows = lambda b: dict(line.partition(" ")[::2] for line in b.decode("utf-8", "replace").splitlines())  # noqa: E731
+    a, b = rows(old), rows(new)
+    return any(k not in b for k in a) and all(a[k] == v for k, v in b.items() if k in a)
 
 
 def check_oleans(project: pathlib.Path, recorded: dict, recorded_text: bytes | None, when: str) -> None:
@@ -1951,23 +2003,32 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
     stack_lines += thread_lines
     stages = Stages(evidence, binding, prepare)
     stages.resolution = resolution
+    recorded = recorded_text = None
     if mismatch is None:
         when = str(prior.get("updated_at") or "")
         # the olean manifest is checked before anything is written: a refused run must not overwrite the
         # stages.json that records it
         recorded = prior.get("olean_manifest")
-        recorded_text = None
         if isinstance(recorded, dict) and recorded.get("sha256"):
             prior_dir = prior_src if (prior_src / OLEAN_MANIFEST_FILE).is_file() else prior_src / STAGES_DIR
             recorded_text = read_olean_manifest(prior_dir)
             try:
                 check_oleans(project, recorded, recorded_text, f"since the setup was prepared ({when})")
             except RunnerError as e:
-                raise RunnerError(f"{e} (prepared state: {redact(str(prior_src))}; to rebuild, remove its "
-                                  f"{STAGES_DIR}/{STAGES_FILE} and the package's .lake/build/lib, then "
-                                  f"run comparator-receipt --prepare)") from None
+                gone = from_prepared is None and only_removed(recorded_text, olean_manifest_text(project))
+                if not gone:   # a changed olean, or a setup named explicitly: refused, never silently redone
+                    raise RunnerError(f"{e} (prepared state: {redact(str(prior_src))}; to rebuild, remove its "
+                                      f"{STAGES_DIR}/{STAGES_FILE} and the package's .lake/build/lib, then "
+                                      f"run comparator-receipt --prepare)") from None
+                # this run's own resume state went stale: compiled modules were removed since (verify.sh
+                # starts with `rm -rf .lake/build`), none that remain changed. The setup runs again, its build
+                # stage rebuilds them, and the comparison judges the oleans that build records.
+                mismatch = (f"compiled modules removed since the setup was prepared ({when}): "
+                            f"{olean_manifest_diff(recorded_text, olean_manifest_text(project))}")
+                recorded = recorded_text = None
         else:
             recorded = None
+    if mismatch is None:
         by = {e.get("stage"): e for e in prior.get("stages") or [] if isinstance(e, dict)}
         for s in SETUP_STAGES:
             e = by[s]
@@ -2230,10 +2291,10 @@ def raw_host_problem(rec: dict) -> str | None:
     return "names its host in `host` (no `host_label`): a receipt written before host labels"
 
 
-def resume_command(argv: list[str]) -> str:
+def resume_command(argv: list[str], prog: str = "comparator-receipt") -> str:
     """The command that resumes this run: the same arguments; completed setup and slots are reused."""
     import shlex
-    return shlex.join(["comparator-receipt", *[a for a in argv if a != "--no-resume"]])
+    return shlex.join([*shlex.split(prog), *[a for a in argv if a != "--no-resume"]])
 
 
 def verify_oleans(project: pathlib.Path, where: pathlib.Path) -> dict:
@@ -2341,14 +2402,12 @@ def seal_sacct_main(args) -> int:
           f"(user {b['checks']['user']}, node {b['checks']['node']})")
     print(f"  record   {res['sacct']} (sha256 {b['sha256'][:12]}...)")
     print("commit both under .lean-receipts/; a receipt already recorded is recorded again with "
-          "`lean-pkg comparator NAME --receipt R --replace`")
+          "`lean-pkg comparator attach NAME --receipt R --replace`")
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(
-        prog="comparator-receipt",
-        description="run comparator-check.sh and write a comparator receipt")
+def add_arguments(ap: argparse.ArgumentParser) -> None:
+    """The flags of `comparator-receipt`, also `lean-pkg receipt comparator` (the same code, the same flags)."""
     ap.add_argument("--project", default=".",
                     help="Lake project directory (default: cwd)")
     ap.add_argument("--check",
@@ -2442,7 +2501,20 @@ def main(argv: list[str] | None = None) -> int:
                          f"output (env {HOST_LABEL_ENV}); default: h- and 12 hex digits of the SHA-256 of "
                          f"the lower-cased host name, the label `receipt systemd` uses; the host name itself "
                          f"is never written")
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        prog="comparator-receipt",
+        description="run comparator-check.sh and write a comparator receipt (also `lean-pkg receipt comparator`)")
+    add_arguments(ap)
     args = ap.parse_args(argv)
+    return run_main(args, argv if argv is not None else sys.argv[1:])
+
+
+def run_main(args, argv: list[str], prog: str = "comparator-receipt") -> int:
+    """The run of parsed `args`; argv (the flags as typed, after the program or command name) is what the
+    printed resume command repeats, as `prog ARGV`."""
     if args.host_label is not None:
         if not args.host_label.strip():
             print("comparator-receipt: --host-label must not be empty", file=sys.stderr)
@@ -2515,7 +2587,8 @@ def main(argv: list[str] | None = None) -> int:
                              os.environ.get(ALLOW_HOST_ENV) == "1",
                              hostname=socket.gethostname(),
                              allowed_hosts=parse_allowed_hosts(
-                                 os.environ.get(ALLOWED_HOSTS_ENV)))
+                                 os.environ.get(ALLOWED_HOSTS_ENV)),
+                             workstation=workstation_default()[0])
     why = replace_host(why)       # the label replaces the host name everywhere a receipt or its output names it
     if not ok:
         print(f"comparator-receipt: refusing: {why}", file=sys.stderr)
@@ -2533,7 +2606,7 @@ def main(argv: list[str] | None = None) -> int:
             verify = pathlib.Path(args.verify).resolve() if args.verify else pathlib.Path(verify_default).resolve()
             res = run(project, check, host_policy=why, mechanism=args.mechanism, verify=verify,
                       evidence=evidence, prepare=args.prepare, from_prepared=prepared,
-                      resume_command=resume_command(argv if argv is not None else sys.argv[1:]),
+                      resume_command=resume_command(argv, prog),
                       resume=not args.no_resume, judges=judges, slot_spec=args.slots,
                       estimate=(args.sample or ESTIMATE_MIN_SAMPLE) if args.estimate else None,
                       unit_size=unit_size, sample_explicit=args.sample is not None,
@@ -2581,16 +2654,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"PARTIAL comparator receipt written: {res['receipt']} ({res['slots']} of "
               f"{res['slots_total']} slot(s), commit {res['commit'][:12]})")
         print("it is diagnostic only: marked partial: true, kept out of the repository, and refused as "
-              "evidence by `lean-pkg comparator`, `gate --comparator` and `promote`")
+              "evidence by `lean-pkg comparator`, `gate --comparator` and `publish --yes`")
         print(f"the judged slots are cached: a full run at this commit skips them (stage logs: {res['stages']})")
         return 0
     print(f"comparator receipt written: {res['receipt']} ({res['configs']} config(s), "
           f"commit {res['commit'][:12]}, host policy: {why})")
     print(f"stage logs: {res['stages']}")
-    print("commit .lean-receipts/ in this repo, then record it:")
-    print(f"  lean-pkg comparator <name> --receipt {res['receipt']}")
-    print(f"  (or at gate time: lean-pkg gate <name> --receipt R.json "
-          f"--comparator {res['receipt']})")
+    print("next: the lower-tier receipt at this same commit (commit nothing in between: both must bind it), "
+          "then the gate:")
+    print(f"  lean-pkg gate <name> --receipt R.json --comparator {res['receipt']}")
+    print(f"  (a package already gated at this commit: lean-pkg comparator attach <name> --receipt {res['receipt']}; "
+          f"`lean-pkg verify <name>` runs both receipts and the gate in order)")
     return 0
 
 

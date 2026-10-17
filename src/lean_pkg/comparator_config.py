@@ -784,9 +784,9 @@ def do_migrate_signoff(path: str, write: bool) -> tuple[list[str], dict, str | N
 
 USAGE = ("usage: lean-pkg comparator config --from-claims NAME [--out comparator.json] [--dry-run] "
          "[--challenge-namespace NS] [--agent A] [--challenge-from-type | --emit-script F | --from-output F] "
-         "[--allow-partial] [--checkout DIR] [--claims-file PATH] [--no-registry --out FILE] "
-         "[--lake-env DIR] [--jobs N] [--timeout S]  |  lean-pkg comparator config --coverage NAME  |  "
-         "lean-pkg comparator config --migrate-signoff PATH [--write]")
+         "[--allow-partial] [--repo DIR] [--claims-file PATH] [--no-registry --out FILE] "
+         "[--lake-env DIR] [--jobs N] [--timeout S]  |  lean-pkg comparator coverage NAME  |  "
+         "lean-pkg comparator migrate-signoff PATH [--write]")
 
 
 def types_mode(args) -> dict | None:

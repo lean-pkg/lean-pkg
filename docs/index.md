@@ -84,13 +84,13 @@ many independent research repositories:
 pipx install git+https://github.com/lean-pkg/lean-pkg.git
 mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init
-lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
 # ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
 ```
 
 Continue with [Getting started](getting-started.md) for the initial registry
-commit, receipts, and promotion dry run. A future `lean-pkg init --global`
+commit, receipts, and promotion dry run. A future `lean-pkg registry init --global`
 will automate the registry bootstrap; it is not implemented yet.
 
 ## Pages

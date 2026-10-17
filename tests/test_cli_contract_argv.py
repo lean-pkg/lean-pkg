@@ -47,9 +47,10 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["lease", "demo", "--workspace", "w", "--agent", "a"], "lease claim", True, True, False),       # alias
     (["release", "demo"], "lease release", True, True, False),
     (["release", "demo", "--dry-run"], "lease release", False, False, False),
-    (["release", "demo", "--fresh-repo", "d"], "lease release", True, True, False),
-    (["release", "demo", "--fresh-repo", "d", "--dry-run"], "lease release", False, False, False),
-    (["release", "demo", "--adopt-repo", "d"], "lease release", True, True, False),
+    (["release", "demo", "--fresh-repo", "d"], "repo export", True, True, False),          # mode alias
+    (["release", "demo", "--fresh-repo", "d", "--dry-run"], "repo export", False, False, False),
+    (["release", "demo", "--adopt-repo", "d"], "repo adopt", True, True, False),            # mode alias
+    (["release", "demo", "--adopt-repo=d", "--dry-run"], "repo adopt", False, False, False),
     (["renew", "demo", "--agent", "a"], "lease renew", True, True, False),
     (["leases"], "lease list", False, False, False),
     (["update", "demo", "--notes", "n"], "update", True, True, False),
@@ -64,8 +65,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["gate", "demo", "--receipt", R, "--regate"], "gate", True, True, False),
     (["gate", "demo", "--receipt", R, "--comparator", R], "gate", True, True, False),
     (["comparator", "demo", "--receipt", R], "comparator attach", True, True, False),
-    (["comparator", "demo", "--receipt", R, "--check"], "comparator attach", False, False, False),
-    (["comparator", "demo", "--receipt", R, "--check", "--repo", "d"], "comparator attach", False, False, False),
+    (["comparator", "demo", "--receipt", R, "--check"], "comparator check", False, False, False),
+    (["comparator", "demo", "--receipt", R, "--check", "--repo", "d"], "comparator check", False, False, False),
     (["comparator", "demo", "--receipt", R, "--replace"], "comparator attach", True, True, False),
     (["comparator", "host-check"], "comparator host-check", False, False, False),
     (["comparator", "host-check", "--routes"], "comparator host-check", False, False, False),
@@ -76,13 +77,15 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
      False, False, False),
     (["comparator", "config", "--from-claims", "demo", "--challenge-from-type", "--claims-file", "c.yaml"],
      "comparator config", False, False, False),
-    (["comparator", "config", "--coverage", "demo"], "comparator config", False, False, False),
-    (["comparator", "config", "--migrate-signoff", "comparator.json"], "comparator config", False, False, False),
-    (["comparator", "config", "--migrate-signoff", "comparator.json", "--write"], "comparator config",
+    (["comparator", "config", "--coverage", "demo"], "comparator coverage", False, False, False),     # mode alias
+    (["comparator", "config", "--migrate-signoff", "comparator.json"], "comparator migrate-signoff", False, False,
+     False),                                                                                         # mode alias
+    (["comparator", "config", "--migrate-signoff", "comparator.json", "--write"], "comparator migrate-signoff",
      False, False, False),                                  # writes the checkout's files only, never the registry
     (["comparator", "config", "--receipt", R], "comparator attach", True, True, False),
-    (["promote", "demo"], "promote", False, False, False),
-    (["promote", "demo", "--yes"], "promote", True, True, False),
+    (["promote", "demo"], "publish", False, False, False),               # alias: publish --yes --dry-run
+    (["promote", "demo", "--yes"], "publish", True, True, False),        # alias: publish --yes
+    (["promote", "demo", "--skip-public-safety"], "publish", False, False, False),
     (["audit"], "registry audit", False, False, False),
     (["audit", "--fix"], "registry audit", True, True, False),
     (["validate"], "registry validate", False, False, False),
@@ -122,6 +125,11 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["formalization", "anchor", "demo", "--arxiv", "X", "--fetch", "--compare-tex", "t", "--accept-diff", "r"],
      "formalization anchor", False, False, False),
     (["publish", "demo", "--dry-run"], "publish", False, False, False),
+    (["publish", "demo"], "publish", False, False, False),              # the checklist, read-only by default
+    (["publish", "demo", "--public-safety"], "publish", False, False, False),
+    (["publish", "demo", "--yes"], "publish", True, True, False),       # the GitHub repository goes public
+    (["publish", "demo", "--yes", "--dry-run"], "publish", False, False, False),   # the promotion checklist only
+    (["publish", "demo", "--yes", "--agent", "a", "--skip-public-safety"], "publish", True, True, False),
     (["coverage", "check", "demo"], "coverage check", False, False, False),
     (["coverage", "check", "demo", "--file", "f", "--allow-private-manuscript"], "coverage check", False, False, False),
     (["page", "demo"], "page", False, False, False),
@@ -160,6 +168,18 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["receipt", "systemd", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),
     (["receipt", "local", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),   # alias
     (["receipt", "check", "--repo", "d", "--commit", "c"], "receipt check", False, False, False),   # no registry
+    (["verify-receipts", "--repo", "d", "--commit", "c"], "receipt check", False, False, False),     # alias
+    (["receipt", "comparator"], "receipt comparator", False, False, False),        # writes .lean-receipts only
+    (["receipt", "comparator", "--project", "d", "--judges", "2", "--json"], "receipt comparator", False, False,
+     False),
+    (["receipt", "comparator", "--estimate", "--sample", "3"], "receipt comparator", False, False, False),
+    # verify: its registry steps (the status move, the gate) are invocations of their own (own lock, own commit)
+    (["verify", "demo"], "verify", False, False, False),
+    (["verify", "demo", "--dry-run"], "verify", False, False, False),
+    (["verify", "demo", "--agent", "a", "--work-dir", "w", "--unit", "u", "--judges", "2"], "verify", False, False,
+     False),
+    (["register", "demo", "--url", "r", "--path", "p", "--license-spdx", "Apache-2.0"], "register", True, True,
+     False),
     (["receipt", "check", "--repo", "d", "--commit", "c", "--at", "v1", "--docs-descendants", "--name", "n",
       "--json"], "receipt check", False, False, False),
     # the 1.0 canonical spellings (docs/design/1.0-command-tree.md); the rows above are their permanent aliases
@@ -178,14 +198,28 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["lease", "renew", "demo", "--agent", "a"], "lease renew", True, True, False),
     (["lease", "release", "demo"], "lease release", True, True, False),
     (["lease", "release", "demo", "--dry-run"], "lease release", False, False, False),
-    (["lease", "release", "demo", "--fresh-repo", "d"], "lease release", True, True, False),
-    (["lease", "release", "demo", "--fresh-repo", "d", "--dry-run"], "lease release", False, False, False),
+    (["lease", "release", "demo", "--fresh-repo", "d"], "repo export", True, True, False),        # mode alias
+    (["lease", "release", "demo", "--fresh-repo", "d", "--dry-run"], "repo export", False, False, False),
+    (["lease", "release", "demo", "--adopt-repo", "d"], "repo adopt", True, True, False),          # mode alias
+    (["repo", "export", "demo", "d"], "repo export", True, True, False),
+    (["repo", "export", "demo", "d", "--remote", "u", "--keep-receipts"], "repo export", True, True, False),
+    (["repo", "export", "demo", "d", "--from-tree", "s", "--dry-run"], "repo export", False, False, False),
+    (["repo", "adopt", "demo", "d"], "repo adopt", True, True, False),
+    (["repo", "adopt", "demo", "d", "--allow-history", "--dry-run"], "repo adopt", False, False, False),
     (["lease", "list"], "lease list", False, False, False),
     (["repo", "move", "demo", "p", "--reason", "r"], "repo move", True, True, False),
     (["repo", "move", "demo", "p", "--reason", "r", "--dry-run"], "repo move", False, False, False),
     (["update", "demo", "--path", "p", "--reason", "r"], "update", True, True, False),
     (["comparator", "attach", "demo", "--receipt", R], "comparator attach", True, True, False),
-    (["comparator", "attach", "demo", "--receipt", R, "--check"], "comparator attach", False, False, False),
+    (["comparator", "attach", "demo", "--receipt", R, "--check"], "comparator check", False, False, False),  # mode
+    (["comparator", "check", "demo", "--receipt", R], "comparator check", False, False, False),
+    (["comparator", "check", "demo", "--receipt", R, "--repo", "d"], "comparator check", False, False, False),
+    (["comparator", "check", "--receipt", R], "comparator attach", True, True, False),     # a package named so
+    (["comparator", "coverage", "demo"], "comparator coverage", False, False, False),
+    (["comparator", "coverage", "--receipt", R], "comparator attach", True, True, False),  # a package named so
+    (["comparator", "migrate-signoff", "comparator.json"], "comparator migrate-signoff", False, False, False),
+    (["comparator", "migrate-signoff", "comparator.json", "--write"], "comparator migrate-signoff", False, False,
+     False),                                                # the checkout's files only, never the registry
     (["comparator", "attach", "host-check", "--receipt", R], "comparator attach", True, True, False),
     (["comparator", "config", "--from-claims", "demo", "--repo", "d"], "comparator config", False, False, False),
     (["comparator", "config", "--from-claims", "demo", "--checkout", "d"], "comparator config", False, False,
@@ -261,6 +295,9 @@ def test_argv_table_covers_every_alias(ap):
     for noun, iv in ct.IMPLIED_VERBS.items():
         if not any(row[0][:1] == [noun] and len(row[0]) > 1 and row[0][1] not in iv.verbs for row in ARGV_TABLE):
             missing.append(f"{noun} NAME")
+    for m in ct.MODE_ALIASES:
+        if not any(m.flag in " ".join(row[0]) and row[1] == " ".join(m.new) for row in ARGV_TABLE):
+            missing.append(f"{' '.join(m.command)} {m.flag}")
     for fa in ct.FLAG_ALIASES:
         if not any(fa.old in row[0] and row[1] == " ".join(fa.command) for row in ARGV_TABLE):
             missing.append(f"{' '.join(fa.command)} {fa.old}")
@@ -274,7 +311,8 @@ def test_every_write_has_a_dry_or_read_counterpart_row():
     listed with all its write-switching flags; keep the table honest when a flag is added."""
     writes = {row[1] for row in ARGV_TABLE if row[2]}
     assert writes == {"registry board", "registry init", "registry migrate", "record", "register", "lease claim",
-                      "lease release", "lease renew", "update", "repo move", "gate", "comparator attach", "promote",
+                      "lease release", "lease renew", "update", "repo move", "repo export", "repo adopt", "gate",
+                      "comparator attach", "publish",
                       "registry audit", "index add", "claims sync", "search", "formalization render",
                       "palomar prepare"}
 
@@ -315,6 +353,23 @@ ALIAS_PAIRS: list[tuple[list[str], list[str]]] = [
      ["comparator", "config", "--from-claims", "demo", "--repo", "d"]),
     (["report", "--command", "x", "--repo", "o/n"], ["report", "--command", "x", "--target-repo", "o/n"]),
     (["registry", "audit", "--fix"], ["registry", "audit", "--write"]),
+    # the 1.0 command tree, stage 2: split modes and folded commands
+    (["release", "demo", "--fresh-repo", "d", "--remote", "u", "--dry-run"],
+     ["repo", "export", "demo", "d", "--remote", "u", "--dry-run"]),
+    (["release", "demo", "--fresh-repo=d", "--keep-receipts"], ["repo", "export", "demo", "d", "--keep-receipts"]),
+    (["lease", "release", "demo", "--fresh-repo", "d"], ["repo", "export", "demo", "d"]),
+    (["release", "demo", "--adopt-repo", "d", "--allow-history"], ["repo", "adopt", "demo", "d", "--allow-history"]),
+    (["lease", "release", "demo", "--adopt-repo", "d"], ["repo", "adopt", "demo", "d"]),
+    (["comparator", "attach", "demo", "--receipt", R, "--check", "--repo", "d"],
+     ["comparator", "check", "demo", "--receipt", R, "--repo", "d"]),
+    (["comparator", "config", "--coverage", "demo", "--json"], ["comparator", "coverage", "demo", "--json"]),
+    (["comparator", "config", "--migrate-signoff", "c.json", "--write"],
+     ["comparator", "migrate-signoff", "c.json", "--write"]),
+    (["promote", "demo"], ["publish", "demo", "--yes", "--dry-run"]),
+    (["promote", "demo", "--yes", "--agent", "a"], ["publish", "demo", "--yes", "--agent", "a"]),
+    (["promote", "demo", "--skip-public-safety", "--json"],
+     ["publish", "demo", "--yes", "--dry-run", "--skip-public-safety", "--json"]),
+    (["verify-receipts", "--repo", "d", "--commit", "c"], ["receipt", "check", "--repo", "d", "--commit", "c"]),
 ]
 
 
@@ -332,6 +387,8 @@ def test_alias_pairs_cover_every_alias():
                 if not any(o[:1] == [n] and o[1] not in iv.verbs for o in olds if len(o) > 1)]
     missing += [f"{' '.join(fa.command)} {fa.old}" for fa in ct.FLAG_ALIASES
                 if not any(fa.old in o and tuple(o[:len(fa.command)]) == fa.command for o in olds)]
+    missing += [f"{' '.join(m.command)} {m.flag}" for m in ct.MODE_ALIASES
+                if not any(any(w == m.flag or w.startswith(m.flag + "=") for w in o) for o in olds)]
     assert missing == []
 
 

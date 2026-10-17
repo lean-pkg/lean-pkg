@@ -53,7 +53,7 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
          "is used (old spellings are permanent aliases; --json never prints the note)",
          "off (one note per old spelling used, text mode only)"),
         ("LEAN_PKG_NOTIFY_CMD",
-         "command run (split shell-style, no shell) with a notification on stdin when `promote --yes` "
+         "command run (split shell-style, no shell) with a notification on stdin when `publish --yes` "
          "makes a package public",
          "unset (no notification)"),
     ]),
@@ -89,8 +89,17 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
     ("COMPARATOR-RECEIPT", [
         ("COMPARATOR_RECEIPT_ALLOWED_HOSTS",
          "comma-separated host names or labels allowed to run outside Slurm (host policy, recorded in "
-         "host_policy by the label)",
-         "none (only a Slurm job may run)"),
+         "host_policy by the label); set at all, even empty, it replaces the workstation default",
+         "unset: the workstation default"),
+        ("COMPARATOR_RECEIPT_WORKSTATION_DEFAULT",
+         "0: no workstation default (the host policy then allows only a Slurm job, a listed host or "
+         "COMPARATOR_RECEIPT_ALLOW_HOST=1); otherwise, with no allow-list set, a machine without Slurm runs the "
+         "comparator as the machine running the command, named by its label",
+         "on"),
+        ("SLURM_CONF",
+         "set: this machine is a Slurm node, so the comparator's workstation default does not apply (as with "
+         "sbatch, srun or slurmd on PATH, or a slurm.conf)",
+         "unset"),
         ("COMPARATOR_RECEIPT_ALLOW_HOST",
          "1: allow this host whatever its name (an override, visible in the receipt's host_policy)",
          "unset"),
@@ -195,8 +204,9 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
          "temporary files; the prefix redacted to <tmp> in stage logs; lean-exercise's work directory",
          "/tmp"),
         ("XDG_STATE_HOME",
-         "lean-exercise's work directory when TMPDIR is unset",
-         "the system temporary directory"),
+         "lean-exercise's work directory when TMPDIR is unset; `verify`'s work directory (log and unit output) "
+         "is $XDG_STATE_HOME/lean-pkg/verify/NAME/...",
+         "the system temporary directory; for verify ~/.local/state"),
         ("GIT_DIR",
          "repository-selecting Git variables (also GIT_WORK_TREE, GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY, "
          "GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_COMMON_DIR, GIT_NAMESPACE): removed from every git call on "

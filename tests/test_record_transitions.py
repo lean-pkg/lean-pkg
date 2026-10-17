@@ -203,7 +203,7 @@ def test_public_stays_one_way_and_refusal_lists_allowed_moves(lp, env, capsys):
     assert "allowed from public: archived, upstreamed" in capsys.readouterr().err
     assert run(lp, env, "update", "alpha", "--status", "public", "--reason", "x") == 1     # alpha: gate-pending
     err = capsys.readouterr().err
-    assert "use lean-pkg promote --yes" in err
+    assert "use lean-pkg publish --yes" in err
     assert "allowed from gate-pending: active, archived, verified-private (via lean-pkg gate --receipt R)" in err
 
 

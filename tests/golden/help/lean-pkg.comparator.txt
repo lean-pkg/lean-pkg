@@ -1,11 +1,20 @@
-usage: lean-pkg comparator [-h] {attach,config,host-check} ...
+usage: lean-pkg comparator [-h] {attach,check,config,coverage,migrate-signoff,host-check} ...
 
 positional arguments:
-  {attach,config,host-check}
+  {attach,check,config,coverage,migrate-signoff,host-check}
     attach              attach a comparator receipt to a gated package; no status change
                         (`comparator NAME --receipt R` is the same)
-    config              write a comparator configuration from claims (--from-claims), report its
-                        coverage (--coverage), or move inline sign-off keys (--migrate-signoff)
+    check               validate a comparator receipt against the package; read-only, records
+                        nothing, works at any status (`comparator NAME --receipt R --check` is the
+                        same)
+    config              write a comparator configuration from claims (--from-claims); coverage and
+                        migrate-signoff are verbs of their own
+    coverage            read-only: the claims covered by the comparator configuration tracked at
+                        the gate-bound commit, and why a changed one needs a new gate (`comparator
+                        config --coverage NAME` is the same)
+    migrate-signoff     move the deprecated inline judged_as / lean_pkg_scaffold keys of a
+                        configuration into lean-pkg-signoff.json; dry run unless --write
+                        (`comparator config --migrate-signoff PATH` is the same)
     host-check          can this host run the comparator; read-only
 
 options:

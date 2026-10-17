@@ -8,7 +8,7 @@ title: lean-pkg repo
 
 # lean-pkg repo
 
-the package's checkout: move (relocate the record to another checkout).
+the package's checkout: move (relocate the record), export (a new single-commit public repository), adopt (an existing one).
 
 ## Usage
 
@@ -18,32 +18,10 @@ lean-pkg repo [--json] COMMAND
 
 ## Subcommands
 
-- [`lean-pkg repo move`](#lean-pkg-repo-move): relocate: point the record at another checkout, keeping name, history and claims (the same as `update NAME --path PATH`)
+- [`lean-pkg repo move`](repo-move.md): relocate: point the record at another checkout, keeping name, history and claims (the same as `update NAME --path PATH`)
+- [`lean-pkg repo export`](repo-export.md): export the gate-bound commit's tree (or --from-tree SRCDIR) as a NEW single-commit repository at DIR, then move the package there (`release NAME --fresh-repo DIR` is the same)
+- [`lean-pkg repo adopt`](repo-adopt.md): adopt the existing repository at DIR as the public history, then move the package there (`release NAME --adopt-repo DIR` is the same)
 
 ## Exit codes
 
 0 success (dry runs and no-ops included), 1 refused or failed, 2 usage error; see [Exit codes](../cli.md#exit-codes).
-
-## lean-pkg repo move
-
-relocate: point the record at another checkout, keeping name, history and claims (the same as `update NAME --path PATH`).
-
-### Usage
-
-```text
-lean-pkg repo move [--reason REASON] [--agent AGENT] [--force] [--dry-run]
-                   [common flags] NAME HOME-RELATIVE
-```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
-
-### Arguments and flags
-
-| Argument or flag | Description |
-|---|---|
-| `NAME` |   |
-| `HOME-RELATIVE` | the new checkout (event relocated; commit-bound evidence not bound to the new HEAD is cleared) |
-| `--reason REASON` | required |
-| `--agent AGENT` | lease holder, if one is live |
-| `--force` | override a live lease held by another agent; needs --reason |
-| `--dry-run` | print the would-be changes, write nothing |

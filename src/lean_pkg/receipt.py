@@ -1929,10 +1929,10 @@ def add_common_flags(s, kind: str, name_hint: str) -> None:
 def add_parsers(sub, add_json) -> None:
     del add_json   # its --commit flag (committed mode) would collide with `receipt slurm --commit SHA`
     from . import receipt_check, receipt_systemd
-    r = sub.add_parser("receipt", help="produce lower-tier receipts (slurm, systemd: write files in the package "
-                                       "checkout, never the registry); check a published package's receipts "
-                                       "from git alone (check)")
-    rsub = r.add_subparsers(dest="receipt_cmd", metavar="{slurm,systemd,check}", required=True)
+    r = sub.add_parser("receipt", help="produce receipts (slurm, systemd: the lower tier; comparator: the "
+                                       "comparator run; each writes files in the package checkout, never the "
+                                       "registry); check a published package's receipts from git alone (check)")
+    rsub = r.add_subparsers(dest="receipt_cmd", metavar="{slurm,systemd,comparator,check}", required=True)
     s = rsub.add_parser("slurm", help="a lower-tier receipt from a finished Slurm job, its verify log and "
                                       "its stdout seal (--template: an sbatch wrapper that meets it; --check: "
                                       "preflight the job's files)")
@@ -1986,4 +1986,21 @@ def add_parsers(sub, add_json) -> None:
     add_common_flags(s, "Slurm job J", "slurm-<J>")
     s.set_defaults(fn=cmd_receipt_slurm)
     receipt_systemd.add_parser(rsub)
+    from . import comparator_receipt
+    s = rsub.add_parser("comparator", help="run the comparator on a Lake project and write the comparator receipt "
+                                           "(the `comparator-receipt` program: the same code and flags)",
+                        description="Run comparator-check.sh and write a comparator receipt. The same code and flags "
+                                    "as the `comparator-receipt` program, which stays.")
+    comparator_receipt.add_arguments(s)
+    s.set_defaults(fn=cmd_receipt_comparator)
     receipt_check.add_parser(rsub)
+
+
+def cmd_receipt_comparator(args) -> int:
+    """`receipt comparator ...`: comparator_receipt.run_main on the parsed flags; the resume command it prints
+    repeats this command's own flags (the argv after `receipt comparator`)."""
+    from . import comparator_receipt
+    argv = list(getattr(args, "command_argv", None) or [])
+    at = next((i for i in range(len(argv) - 1) if argv[i:i + 2] == ["receipt", "comparator"]), None)
+    tail = argv[at + 2:] if at is not None else []
+    return comparator_receipt.run_main(args, tail, prog="lean-pkg receipt comparator")

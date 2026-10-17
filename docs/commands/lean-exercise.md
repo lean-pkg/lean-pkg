@@ -18,8 +18,8 @@ lean-exercise COMMAND
 
 ## Subcommands
 
-- [`lean-exercise check`](#lean-exercise-check): judge each sorry'd theorem of the Challenge against the Solution
-- [`lean-exercise batch`](#lean-exercise-batch): judge every .lean file of a directory: one CSV row and one log per file
+- [`lean-exercise check`](lean-exercise.md): judge each sorry'd theorem of the Challenge against the Solution
+- [`lean-exercise batch`](lean-exercise.md): judge every .lean file of a directory: one CSV row and one log per file
 
 ## More from --help
 

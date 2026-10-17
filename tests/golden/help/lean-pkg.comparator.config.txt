@@ -1,5 +1,4 @@
-usage: lean-pkg comparator config [-h] [--from-claims NAME] [--coverage NAME]
-                                  [--migrate-signoff PATH] [--write] [--out OUT] [--dry-run]
+usage: lean-pkg comparator config [-h] [--from-claims NAME] [--out OUT] [--dry-run]
                                   [--challenge-namespace CHALLENGE_NAMESPACE] [--agent AGENT]
                                   [--challenge-from-type] [--emit-script F] [--from-output F]
                                   [--repo DIR] [--claims-file PATH] [--no-registry]
@@ -10,14 +9,6 @@ options:
   -h, --help            show this help message and exit
   --from-claims NAME    add a TODO theorem_names entry per synced claim (theorem/lemma) no
                         comparator configuration covers yet; never overwrites
-  --coverage NAME       read-only; claims covered by the comparator config tracked at the gate-
-                        bound commit, and why a changed config needs a new gate
-  --migrate-signoff PATH
-                        move the deprecated inline judged_as / lean_pkg_scaffold keys of that
-                        configuration into lean-pkg-signoff.json (dry run unless --write); the
-                        Palomar keys are unchanged, the file's bytes (and so its receipt hash)
-                        change
-  --write               with --migrate-signoff: write both files
   --out OUT             the configuration to extend or create (default comparator.json)
   --dry-run             print the would-be JSON; write nothing
   --challenge-namespace CHALLENGE_NAMESPACE

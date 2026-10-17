@@ -223,7 +223,7 @@ that for `challenge_file`, `definition_holes`, `judged_as`,
 
 ## Audit
 
-For every package whose `formalization_yaml` is set, `lean-pkg audit`
+For every package whose `formalization_yaml` is set, `lean-pkg registry audit`
 reports `formalization-missing` when the file is gone and
 `formalization-drift` when it no longer equals what the generator emits
 today (a new or changed comparator configuration, a receipt, a registry

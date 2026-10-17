@@ -131,7 +131,7 @@ Yes, if you list it: `COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)"`. The
 policy exists because a first legacy-mechanism run builds tools for about 25
 minutes and a full comparator run can be heavy; inside a Slurm job it is always allowed.
 
-**Why did `comparator-receipt` write nothing?**
+**Why did `lean-pkg receipt comparator` write nothing?**
 Because at least one configuration failed, the tree was dirty, or a log
 lacked the PASS line. It writes evidence only when everything passed, so a
 failed run can never be mistaken for a receipt. Read its stderr.
@@ -193,7 +193,7 @@ print a `palomar:` warning with the gap count and the command (JSON
 `palomar_check`); it never changes their verdict.
 
 **Where else does the check run?**
-`lean-pkg audit` runs it for every package that aims at Palomar: one whose
+`lean-pkg registry audit` runs it for every package that aims at Palomar: one whose
 record says `upstream_target: palomar`, or that already has a `palomar`
 entry, and whose status is not `scratch`, `archived` or `upstreamed`. A
 package with `error` gaps gets a `palomar-not-ready` warning naming the gap
@@ -251,7 +251,7 @@ declared `public theorem`), since `lake comparator` cannot export a private
 declaration; `@[expose]` on a shared definition whose body a proof unfolds.
 The project template in [Getting started](getting-started.md#start-from-scratch)
 is written that way and `palomar check` finds no source gap in it.
-`lean-pkg init` creates only the registry and its event log; the only
+`lean-pkg registry init` creates only the registry and its event log; the only
 command that writes `.lean` files is `palomar port-modules --write`, below.
 
 **How do I port an existing project to the module system?**
@@ -274,7 +274,7 @@ the scaffold's TODO markers live in `lean-pkg-signoff.json` beside the
 configuration ([Comparator](comparator.md#definition-holes-need-a-human-sign-off)).
 A configuration written by an earlier release still carries `judged_as` or
 `lean_pkg_scaffold`; lean-pkg reads them with a deprecation warning, and
-`lean-pkg comparator config --migrate-signoff comparator.json --write` moves
+`lean-pkg comparator migrate-signoff comparator.json --write` moves
 them out without touching the Palomar keys. The file's bytes change, so a
 gated package then needs a new comparator receipt (and a re-gate at that
 commit). Keep `definition_names` empty where you can: Palomar's reviewers
@@ -330,7 +330,7 @@ HTTP 200 (404 means not listed yet); then record it with
 lean-pkg stores the fact; it does not record it for you, but
 `lean-pkg reservoir check NAME` checks these criteria and the API and prints
 the `record` command once the package is listed.
-Before `promote --yes`, the items only promote can satisfy are marked
+Before `publish --yes`, the items only promote can satisfy are marked
 `pending promote`, and a release-candidate or nightly `lean-toolchain` is a
 warning (Reservoir may display it poorly).
 
