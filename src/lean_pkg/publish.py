@@ -267,6 +267,10 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
     tags = tags_at_head(repo)
     items.append(("✓", f"tag at HEAD: {', '.join(tags)}") if tags else
                  ("WARN", f"no tag at HEAD {head[:12]} (tag the release after promote)"))
+    from . import palomar_check   # advisory (feature request #6): a WARN item, never a ✗
+    palomar = palomar_check.summary(pkg, repo, head)
+    if warning := palomar_check.summary_warning(palomar):
+        items.append(("WARN", warning))
     ready = not any(i[0] == "✗" for i in items)
     cmds = next_commands(pkg, repo, ready, tags)
     from . import ledger as ledger_mod
@@ -282,7 +286,8 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
     payload = {"ok": ready, "name": name, "dry_run": True, "ready": ready, "head": head,
                "checklist": [dict({"status": core._MARK_TO_STATUS[i[0]], "label": i[1]},
                                   **({"reason": i[2]} if len(i) > 2 else {})) for i in items],
-               "next": cmds, "ignored_evidence": ignored, "claims_ledger": led, "manuscript_findings": findings}
+               "next": cmds, "ignored_evidence": ignored, "claims_ledger": led, "manuscript_findings": findings,
+               "palomar_check": palomar}
     if safety is not None:
         payload["public_safety"] = safety
     return lines, 0 if ready else 1, payload

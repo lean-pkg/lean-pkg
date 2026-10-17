@@ -324,6 +324,7 @@ that reads the message from stdin.
 ```bash
 lean-pkg publish my-proof --dry-run          # read-only checklist from verified-private to listed
 lean-pkg reservoir check my-proof            # would Reservoir list it? exit 0 eligible, 1 not
+lean-pkg palomar check my-proof              # read-only: every gap to Palomar's rules; exit 0 ready, 1 gaps
 lean-pkg palomar prepare my-proof --dry-run  # the submission bundle; nothing is sent
 lean-pkg record my-proof palomar-submitted --field KEY=VALUE   # each external step, its required fields
 ```
@@ -331,6 +332,13 @@ lean-pkg record my-proof palomar-submitted --field KEY=VALUE   # each external s
 `record` takes the fields each event requires (see the
 [CLI reference](cli.md) row). Reservoir's criteria are in the
 [FAQ](faq.md#reservoir).
+
+Run `palomar check` early, before the gated waves, not only before the
+release: Palomar's verifier needs a `module` header in every `.lean` file of
+the repository, and porting to the module system (`module`, `public import`,
+`@[expose]`) changes build inputs, so it forces a re-gate. `gate --check` and
+`publish --dry-run` print a `palomar:` warning with the gap count. The rules,
+their source and their date: [FAQ](faq.md#palomar-readiness).
 
 ## Add an entry to the index
 

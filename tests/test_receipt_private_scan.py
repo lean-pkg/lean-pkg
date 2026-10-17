@@ -120,7 +120,8 @@ def test_index_private_strings_in_scans_keys_without_echo(idx):
 # --- review pass: the WARN wording matches what happened to the receipt
 
 def _warns(err):
-    return [line for line in err.splitlines() if line.startswith("WARN")]
+    """The private-string WARN lines (gate --check also prints the advisory `WARN: palomar:` line)."""
+    return [line for line in err.splitlines() if line.startswith("WARN") and not line.startswith("WARN: palomar:")]
 
 
 def test_warn_wording_on_copy(lp, env, tmp_path, capsys):

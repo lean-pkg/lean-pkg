@@ -45,7 +45,8 @@ positional arguments:
     reservoir           Reservoir: check (read-only listing criteria)
     public-safety       read-only: scan the package's tree and git history for private patterns
                         (exit 1 on hits; promote runs it)
-    palomar             Palomar: prepare (build a submission bundle; no network)
+    palomar             Palomar: prepare (build a submission bundle), check (read-only readiness);
+                        no network
     next                read-only: the single recommended next command for a package, with a one-
                         line reason (exit 0 a command to run, 1 blocked)
     report              read-only: a redacted bug report in the repository's issue format; dry run

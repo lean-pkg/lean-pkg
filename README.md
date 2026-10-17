@@ -230,8 +230,12 @@ After the flip:
 
 - **Reservoir:** `lean-pkg reservoir check NAME` checks the listing criteria
   before you wait for Reservoir to list the package.
-- **Palomar:** `lean-pkg palomar prepare NAME` builds the submission bundle
-  locally; nothing is sent.
+- **Palomar:** `lean-pkg palomar check NAME` lists every gap to Palomar's
+  mechanical rules (a `module` header in every `.lean` file, the toolchain
+  floor, the comparator configuration keys, formalization.yaml, the licence),
+  read-only; run it before the gated waves, since fixing a gap changes build
+  inputs and forces a re-gate. `lean-pkg palomar prepare NAME` then builds the
+  submission bundle locally; nothing is sent.
 - **Zenodo:** archive each GitHub release for a DOI and record it with
   `lean-pkg record NAME doi-minted`; lean-pkg itself is archived under
   [10.5281/zenodo.23272098](https://doi.org/10.5281/zenodo.23272098).
