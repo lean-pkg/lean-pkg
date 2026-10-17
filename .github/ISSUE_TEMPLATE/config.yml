@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security or soundness report (private)
+    url: https://github.com/lean-pkg/lean-pkg/security/advisories/new
+    about: A way to get a false "verified", or a private string leaking into a public artifact. Report it privately (SECURITY.md).

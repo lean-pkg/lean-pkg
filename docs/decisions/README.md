@@ -3,6 +3,8 @@
 Small, dated records of the choices that shape lean-pkg: the context, the
 decision, and its consequences. Numbered, never edited after acceptance; a
 reversal is a new decision that supersedes the old one.
+Changes to the tool's formats, commands and trust rules are designed in
+[proposals](../proposals/README.md) instead.
 
 | # | Title | Date | Status |
 |---|---|---|---|

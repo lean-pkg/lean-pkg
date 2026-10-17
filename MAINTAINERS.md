@@ -11,7 +11,9 @@ for 30 days (decision [0002](docs/decisions/0002-benevolent-maintainer-with-depu
 The maintainer's GitHub account successor remains a second line of succession
 (decision [0005](docs/decisions/0005-github-account-successor-until-a-deputy-is-named.md)).
 
-Contact: open an issue in this repository.
+Contact: open an issue in this repository (a security report goes privately,
+by [SECURITY.md](SECURITY.md)). Roles and how a maintainer is added:
+[GOVERNANCE.md](GOVERNANCE.md).
 
 Area maintainers (stochastic analysis, random matrices, analysis) and a
 reaudit cadence will be listed here as the catalog grows.

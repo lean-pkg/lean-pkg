@@ -33,7 +33,7 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 | **declaring or searching results** | [`claims.yaml` and `lean-pkg search`](how-to.md#declare-reusable-results-and-search-before-building), and [formalization.yaml](how-to.md#render-formalizationyaml) |
 | **testing it from scratch** | [Stranger test](stranger-test.md): run it from the docs alone and record what happened |
 | **a coding agent** | [Using lean-pkg with agents](agents.md), [llms.txt](llms.txt), and the [agent skills](skills.md) |
-| **contributing** | [CONTRIBUTING](https://github.com/lean-pkg/lean-pkg/blob/main/CONTRIBUTING.md) and [MAINTAINERS](https://github.com/lean-pkg/lean-pkg/blob/main/MAINTAINERS.md) |
+| **contributing** | [CONTRIBUTING](https://github.com/lean-pkg/lean-pkg/blob/main/CONTRIBUTING.md), [GOVERNANCE](https://github.com/lean-pkg/lean-pkg/blob/main/GOVERNANCE.md) and [MAINTAINERS](https://github.com/lean-pkg/lean-pkg/blob/main/MAINTAINERS.md); a format or command change starts as a [design proposal](proposals/README.md); a soundness bug goes privately by [SECURITY](https://github.com/lean-pkg/lean-pkg/blob/main/SECURITY.md) |
 
 ## In one paragraph
 
@@ -96,6 +96,7 @@ will automate the registry bootstrap; it is not implemented yet.
 - [Using lean-pkg with agents](agents.md): the LLM entry.
 - [Agent skills](skills.md): lessons for agents on statement fidelity, evidence and publication, with an installer.
 - [Decisions](decisions/README.md): dated records of the choices that shape the tool.
+- [Design proposals](proposals/README.md): how a schema, command-removal or trust-model change is proposed, decided and implemented.
 
 ## Citation
 

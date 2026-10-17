@@ -9,6 +9,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- Docs: open governance. GOVERNANCE.md (roles, including what the AI
+  operations agent may and may not do, how decisions are made, how a second
+  maintainer is added); a design-proposal process for schema, command-removal
+  and trust-model changes (docs/proposals/README.md and its template);
+  CONTRIBUTING.md now covers the `make` targets, tests, goldens, public
+  safety, CHANGELOG entries, bug reports and how a field report becomes pull
+  requests; SECURITY.md routes reports, a false "verified" first among them,
+  through the repository's private security advisories; issue templates for
+  field reports and proposals, and a pull-request checklist that mirrors
+  CONTRIBUTING.md. The bug and field-report templates ask which track the
+  reporter is on: a paper, or a Lean package (a Mathlib contribution or a
+  public GitHub repository with no manuscript).
+
 ## [0.9.0] - 2026-10-17
 
 ### Added
