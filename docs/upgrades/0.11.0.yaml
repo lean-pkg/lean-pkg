@@ -1,0 +1,183 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1): the behaviour changes of the next release
+# that a mechanical diff of the two source trees cannot show. Read by `lean-pkg doctor --upgrade-from`;
+# an entry applies when its PR's squash commit, subject ending "(#N)", lies in OLD..NEW.
+# Keys: pr, id, kind (behavior | format | command | requirement), area, summary, action, breaking
+# (true: something that passed before can now be refused, or a published artifact goes stale),
+# changelog (the CHANGELOG.md heading of the entry). The human page is docs/upgrades/0.11.0.md.
+schema: lean-pkg-upgrade-record/1
+version: 0.11.0
+changes:
+  - pr: 201
+    id: command-tree-stage-1
+    kind: command
+    area: cli
+    summary: >-
+      New canonical spellings (lease claim|renew|release|list, registry init|migrate|validate|audit|board|wiki,
+      repo move, comparator attach, formalization render; flags --doi-track, --receipt-commit, --url, --repo,
+      --target-repo, registry audit --write). Every old spelling is a permanent alias; in text mode it prints
+      one stderr note. comparator config, comparator host-check and formalization anchor are real
+      subcommands: a flag of another form is now a usage error (exit 2).
+    action: >-
+      Nothing is required. Scripts that parse stderr text should set LEAN_PKG_NO_ALIAS_NOTE=1 or use --json;
+      move scripts to the new spellings at leisure (lean-pkg help aliases).
+    breaking: false
+    changelog: Changed
+  - pr: 201
+    id: bare-lean-pkg-newcomer-page
+    kind: behavior
+    area: cli
+    summary: >-
+      lean-pkg with no command prints the newcomer page when stdout is not a terminal or no registry exists
+      (it opened the board before); lean-pkg --json still prints the board's JSON.
+    action: A script that ran a bare `lean-pkg` for the board text should run `lean-pkg registry board`.
+    breaking: true
+    changelog: Changed
+  - pr: 202
+    id: receipt-sealed-log-required
+    kind: behavior
+    area: receipts
+    summary: >-
+      A lower-tier receipt whose sealed verify log (<c12>-<job>-verify.redacted.log or .gz) is missing or
+      unreadable is refused by gate, gate --check and every consumer of a recorded receipt (claims ledger
+      code report-log-missing, promote, publish, next, comparator, palomar prepare, index add/check); it was
+      accepted with "report_sha256 not checked". No bypass flag.
+    action: >-
+      Commit the sealed log next to each receipt (restore it byte-exact: docs/receipts.md, "Restoring
+      preserved evidence"), or run and gate a new receipt. A gated package stays recorded, but its ledger is
+      not ready until then.
+    breaking: true
+    changelog: Fixed
+  - pr: 202
+    id: slurm-claim-needs-sacct-seal
+    kind: behavior
+    area: comparator receipts, page
+    summary: >-
+      A comparator receipt's Slurm claim (job_id from SLURM_JOB_ID) no longer backs a coverage.yaml compute
+      job, and so the Easley sentence, unless sealed with comparator-receipt --seal-sacct; page, coverage
+      check, receipt check and the publish checklist rehash the sealed record at HEAD. The schema stays
+      comparator-receipt/2 (slurm_sacct is additive).
+    action: >-
+      Run comparator-receipt --seal-sacct R where sacct sees the job (or --sacct-file), commit the receipt
+      and the record, and re-record it with lean-pkg comparator NAME --receipt R --replace.
+    breaking: true
+    changelog: Changed
+  - pr: 205
+    id: page-for-mathematicians
+    kind: behavior
+    area: page
+    summary: >-
+      The README verification section is rewritten for mathematicians (statements first, receipts last), so
+      every published page is stale under this version; receipt check still reads both wordings.
+    action: Run lean-pkg page NAME --write (and --site/--html if shipped) once and commit the result.
+    breaking: true
+    changelog: Changed
+  - pr: 207
+    id: receipt-producer-fingerprint
+    kind: behavior
+    area: receipts
+    summary: >-
+      receipt systemd --run (alias receipt local --run) fingerprints the running lean-pkg (its package
+      files, dist-info, interpreter and entry point) and refuses at final collection, writing nothing, when
+      any of it changed during the run.
+    action: >-
+      Do not pull or edit the lean-pkg checkout a long run uses; freeze the producer for long runs
+      (docs/receipts.md, "Long runs: freeze the producer").
+    breaking: true
+    changelog: Added
+  - pr: 208
+    id: comparator-host-label
+    kind: format
+    area: comparator receipts, public-safety
+    summary: >-
+      comparator-receipt names the host by its label (h- and 12 hex of the SHA-256 of the lower-cased host
+      name, or --host-label) in host, job_id, host_policy and its output, and always writes host_label. The
+      schema stays comparator-receipt/2. public-safety reports a committed receipt whose host field names
+      its host as the blocking receipt-raw-host hit, tree and history.
+    action: >-
+      For an already-committed receipt written by 0.10.0 or earlier without --host-label: regenerate it, or
+      add an allow: line if the host name is public on purpose (docs/comparator.md, "Host policy").
+      COMPARATOR_RECEIPT_ALLOWED_HOSTS accepts the name or the label.
+    breaking: true
+    changelog: Fixed
+  - pr: 210
+    id: seal-sacct-node-label
+    kind: behavior
+    area: comparator receipts
+    summary: >-
+      comparator-receipt --seal-sacct compares the receipt's h- host label with the label of the sacct
+      NodeList entry again; a mismatch refuses.
+    action: Seal on records of the job that wrote the receipt; nothing to do otherwise.
+    breaking: false
+    changelog: Fixed
+  - pr: 211
+    id: coverage-paper-statement
+    kind: format
+    area: coverage.yaml
+    summary: >-
+      coverage/1 gains an optional paper.statement (paper rows) and statement (library rows), TeX, at most
+      2000 characters; page shows it beside the Lean statement. An older lean-pkg refuses a file that uses
+      the key.
+    action: >-
+      Optional. Once a coverage.yaml uses the key, every reader (CI, coauthors) needs this lean-pkg or
+      newer.
+    breaking: false
+    changelog: Added
+  - pr: 213
+    id: receipt-check-formalization-exemption
+    kind: behavior
+    area: receipt check
+    summary: >-
+      receipt check applies gate's derived-keys-only exemption to formalization.yaml at the package root
+      (tracked at the bound commit), so a tag on an evidence commit that refreshed it passes; it skips the
+      comparator runner's own records named for the commit (schema comparator-stages/1 and siblings).
+    action: >-
+      Nothing required; a published commit that needed --docs-descendants only for formalization.yaml no
+      longer does.
+    breaking: false
+    changelog: Fixed
+  - pr: 215
+    id: new-kind-paper-default
+    kind: command
+    area: new
+    summary: >-
+      lean-pkg new NAME scaffolds a paper companion by default (--kind paper: a coverage.yaml of kind paper
+      that coverage check and page refuse until the paper is named); --kind library is the previous
+      scaffold. new also writes REUSE.toml and LICENSES/.
+    action: A script that ran `lean-pkg new NAME` for a library adds --kind library.
+    breaking: true
+    changelog: Added
+  - pr: 215
+    id: mathlib-rev-none-checked
+    kind: behavior
+    area: receipts
+    summary: >-
+      mathlib_rev none is a checked value: receipts derive it from a lake-manifest.json that lists no
+      mathlib package; none beside a manifest that pins Mathlib, or another log value beside a
+      Mathlib-free manifest, is refused. Older receipts are still read.
+    action: Nothing for existing receipts; a new receipt of a Mathlib-free package records none.
+    breaking: false
+    changelog: Added
+  - pr: 216
+    id: formalization-kept-view
+    kind: command
+    area: formalization.yaml
+    summary: >-
+      lean-pkg formalization kept prints the canonical kept view of formalization.yaml (derived keys removed)
+      and its SHA-256 (formalization-kept/1); --against REV exits 1 when a kept key changed.
+    action: Optional. A release-input audit can pin the kept-view hash instead of the file's.
+    breaking: false
+    changelog: Added
+  - pr: 218
+    id: extract-adopted-licenses
+    kind: behavior
+    area: lean-pkg-extract
+    summary: >-
+      lean-pkg-extract plan reads a new manifest key adopted and warns when an adopted file's upstream
+      license is not carried into the target; warnings only, a malformed adopted entry is refused.
+    action: Declare vendored files under adopted and copy their license as the warning says.
+    breaking: false
+    changelog: Added
+# Merged in this release and read for this record: no change a package author has to act on or know
+# (documentation, tutorials, proposals, decision records). Listed so that `uncurated` stays empty only
+# when every PR of the range has been looked at.
+no_author_change: [200, 203, 204, 206, 209, 212, 214, 217]

@@ -1,11 +1,21 @@
-usage: lean-pkg doctor [-h] [--fetch] [--json] [--commit] [--push] [--no-commit]
+usage: lean-pkg doctor [-h] [--fetch] [--upgrade-from OLD] [--to NEW] [--source DIR] [--json]
+                       [--commit] [--push] [--no-commit]
 
 options:
-  -h, --help   show this help message and exit
-  --fetch      git fetch origin in the tool checkout and the registry repo before comparing
-               (default: local refs)
-  --json       machine-readable JSON on stdout
-  --commit     write commands: pull --ff-only, then commit the registry files (default:
-               $LEAN_PKG_COMMIT=1)
-  --push       --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit  never commit or push (overrides the env)
+  -h, --help          show this help message and exit
+  --fetch             git fetch origin in the tool checkout and the registry repo before comparing
+                      (default: local refs)
+  --upgrade-from OLD  instead of the diagnostics: what changed for a package author since OLD (a
+                      version, 0.9.0 / v0.9.0, or any commit of the lean-pkg repository): formats,
+                      on-disk keys, commands, flags, --json keys, aliases, Python floor, packaged
+                      files, and the curated behaviour changes of docs/upgrades/; read-only
+                      (docs/design/upgrade-preflight.md)
+  --to NEW            with --upgrade-from: the newer version or commit (default HEAD of the
+                      source)
+  --source DIR        with --upgrade-from: the lean-pkg git checkout to read both trees from
+                      (default: the checkout this lean-pkg runs from)
+  --json              machine-readable JSON on stdout
+  --commit            write commands: pull --ff-only, then commit the registry files (default:
+                      $LEAN_PKG_COMMIT=1)
+  --push              --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit         never commit or push (overrides the env)
