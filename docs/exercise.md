@@ -229,8 +229,8 @@ downloaded:
   the real `bwrap`. A Solution that tries to write into Mathlib's build gets
   `read-only file system`; it cannot poison the oleans the next student is
   judged against.
-- The wrapper also drops `--share-net`, the one network grant `lake
-  comparator` makes (for dependency resolution). Judging never downloads:
+- The wrapper also drops `--share-net`, the one network grant
+  `lake comparator` makes (for dependency resolution). Judging never downloads:
   if Lake would need to fetch anything, the run fails as a `tool_error`.
 - The wrapper refuses to run (exit 125, a `tool_error`) when the command line
   `lake comparator` hands it does not have the shape it expects, rather than
@@ -277,8 +277,8 @@ theorem's proof term:
 
 The verdict is `forbidden_constant`, with the first constant reached in
 `constant`, all of them in `constants`, and the chain of helpers in the
-detail (`uses the forbidden constant MeasurableSpace.induction_on_inter
-(through helper)`). If the export or the walk fails, the theorem is a
+detail, for example
+`uses the forbidden constant MeasurableSpace.induction_on_inter (through helper)`. If the export or the walk fails, the theorem is a
 `tool_error`, never `accepted`. Theorems the comparator already rejected are
 not walked.
 
