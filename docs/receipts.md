@@ -575,6 +575,295 @@ refused, never repaired in place:
 Steps 1 to 3 are the harness's; steps 4 and 5 are lean-pkg's checks, which
 judge only the files they are given.
 
+### Large artifacts: size first, then package inside the job
+
+The artifact seal reads every byte under `ARTIFACTS_DIR` several times, and
+so does the collector. A field report: a 110-module gate finished compiling
+but timed out in its final reconciliation step: 22.7 GB of raw artifacts
+(the largest file 5.7 GB), hashed twice (about 45 GB of reads) with 68 s
+of walltime left. The job had not been sized. Size the artifact set before
+the run; when it holds many files or compresses well, package it inside
+the job, and the existing seal then covers an archive and its inner
+manifest, with no new receipt format.
+
+**Size it.** On a previous run's output, or a pilot's:
+
+```bash
+D=path/to/artifacts                                     # what ARTIFACTS_DIR would name
+du -sb "$D" | cut -f1                                   # S: total bytes
+find "$D" -type f | wc -l                               # N: file count
+find "$D" -type f -printf '%s %p\n' | sort -n | tail -1  # L: the largest file, bytes first
+find "$D" ! -type f ! -type d                           # must print nothing (the seal refuses these)
+time sha256sum "$(find "$D" -type f -printf '%s %p\n' | sort -n | tail -1 | cut -d' ' -f2-)"
+```
+
+The last line measures `H`, the hash throughput of that filesystem on that
+node (bytes of the largest file over the elapsed time); run it on the
+compute node's filesystem, not the login node's, and on a file not read in
+the last minutes (a cached file reads faster than the job will).
+
+**What the seal costs.** With `S` bytes under `ARTIFACTS_DIR`, the
+template's seal reads `S` to write `artifacts.sha256`, copies it to
+`ARTIFACTS_OUT` (read `S`, write `S`) and rehashes the copy (read `S`):
+`3S` read and `S` written, inside the job's walltime, before the stdout
+seal is printed. The collector then transfers `S`, and
+`receipt slurm --artifacts` rehashes `S` once per run. Roughly, with `H` the hash
+throughput and `W` the write throughput:
+
+```text
+job seal      T_seal    ~ 3S/H + S/W                  (inside the walltime)
+collector     T_collect ~ S/transfer rate + k*S/H     (k = receipt slurm runs with --artifacts)
+```
+
+Hashing is one stream per file, so a single large file takes at least
+`L/H` and cannot be spread over cores. Per file, the template's manifest
+step starts a few processes, which adds up at hundreds of thousands of
+small files. `receipt slurm` (writing) runs every check, the artifact
+rehash included, before it writes anything, so for a large set run it
+once instead of `--check` and then the write (`k = 1`); a refusal still
+writes nothing.
+
+Measured once on an 8-core desktop with a local NVMe SSD, 4 GiB of
+incompressible data (one 3 GiB file and 256 files of 4 MiB):
+
+| step | time | throughput |
+| --- | --- | --- |
+| `receipt slurm --artifacts`' rehash (Python, 1 MiB chunks), cold cache | 3.4 s | 1.3 GB/s |
+| the same, warm cache | 2.8 s | 1.5 GB/s |
+| `sha256sum` (the template's manifest), cold / warm | 3.1 s / 2.5 s | 1.4 / 1.7 GB/s |
+| `cp -R` and `sync` (the template's copy), cold | 2.9 s | 1.5 GB/s |
+| `tar` piped to `zstd -1 -T0` | 4.5 s | 1.0 GB/s |
+| `tar` piped to `gzip -1` (one core) | 95 s | 45 MB/s |
+
+The rehash of a 3 GiB file peaks at about 30 MB of process memory: memory
+does not grow with file size, time grows linearly. A shared cluster filesystem is
+usually much slower than a local SSD; use the `H` you measured. For the
+field report's set at `H` = 1 GB/s, the seal alone is about 90 s
+(68 GB read, 22.7 GB written); at 200 MB/s it is about 8 minutes.
+
+**What packaging buys.** With `A` the archive's size: in the job, the
+packing step reads `S` twice (the inner manifest, then `tar`; the second
+read comes from the page cache when the node's memory holds `S`) and
+writes `A`, and the seal then costs `3A/H + A/W`. The collector transfers
+`A`, rehashes `A`, and unpacks in one streaming pass that writes and
+hashes `S` (below). Packaging pays when the data compresses (`A` well
+below `S`) or holds many files. For a few large files that do not
+compress it adds a read of `S` inside the job: there, narrow
+`ARTIFACTS_DIR` or request more walltime instead.
+
+**Leave margin.** Request walltime for the compile, the audit and twice
+the estimated `T_seal`, plus a fixed reserve (15 minutes is a reasonable
+floor). A job that times out during the seal prints no stdout seal lines,
+so it yields no receipt at all. A reconciliation step the harness runs in
+a job of its own needs its own `T_collect` margin.
+
+**Narrow, compress, package, split.** In this order:
+
+- *Narrow* `ARTIFACTS_DIR` to the files the receipt has to bind (the
+  executable, the certificate), never a whole build tree.
+- *Package* many files into one archive (below): the seal and the
+  collector then handle two files, the archive and its inner manifest,
+  and the per-file cost is paid once, in the job.
+- *Compress* when the data compresses (logs, text certificates).
+  `zstd -T0` runs on every core; `gzip` runs on one and is about twenty times
+  slower on data that does not compress. Already compressed or random
+  data does not shrink: use `zstd -1` there, only to package.
+- *Split* an archive larger than what the collector can copy in one go
+  (a dropped connection restarts the file):
+  `... | zstd -q -T0 | split -d -b 2G - "$OUT/raw.tar.zst.part-"`. Every
+  part is an ordinary sealed file; the collector joins them in name order
+  (`cat raw.tar.zst.part-* | zstd -dc | ...`).
+
+**Package inside the job.** The job, not the collector, writes the inner
+manifest: it is the only party that saw the raw files. A collector that
+hashes what it received binds only its own copy, and those hashes must
+never be promoted to job-side seals. Commit a script like this one with
+the package (the job runs the committed tree, so the commit binds it) and
+make it the last step of `AXIOMS_CMD` (or `VERIFY_CMD`, if the build is
+what writes the raw data):
+
+```bash
+#!/usr/bin/env bash
+# pack-artifacts.sh RAW OUT: run BY THE JOB, after RAW is complete. OUT becomes the job's ARTIFACTS_DIR and
+# must not exist yet; RAW must not be inside it (the seal would read the raw data again).
+set -euo pipefail
+raw=$1 out=$2
+if [ -n "$(find "$raw" ! -type f ! -type d -print -quit)" ]; then
+  echo "pack: $raw holds a symlink or special file" >&2; exit 1
+fi
+if [ -n "$(find "$raw" -name $'*[\n\r\\\\]*' -print -quit)" ]; then
+  echo "pack: $raw holds a file name with a newline or backslash" >&2; exit 1
+fi
+mkdir "$out"
+# 1. the inner manifest: `<path> <size> <sha256>` per logical file, sorted by path (C locale)
+(cd "$raw" && find . -type f -print0 | LC_ALL=C sort -z | while IFS= read -r -d '' f; do
+   printf '%s %s %s\n' "${f#./}" "$(stat -c %s "$f")" "$(sha256sum <"$f" | cut -d' ' -f1)"
+ done) >"$out/logical.sha256"
+# 2. a deterministic archive: sorted names, fixed mtime, owner and mode bits, POSIX format, no atime/ctime
+tar -C "$raw" --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --mode=go-w --format=posix \
+  --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime -cf - . \
+  | zstd -q -3 -T0 -o "$out/raw.tar.zst"
+echo "inner-manifest: $(wc -l <"$out/logical.sha256") file(s), $(du -sb "$raw" | cut -f1) bytes," \
+  "sha256 $(sha256sum "$out/logical.sha256" | cut -d' ' -f1)"
+```
+
+Submit with, for example,
+`AXIOMS_CMD="lake lean Verify/Axioms.lean && bash scripts/pack-artifacts.sh raw sealed"`,
+`ARTIFACTS_DIR=sealed` and `RUN_TOOLS=zstd` (the job checks that `zstd`
+exists before it builds; with `RUN` set, inside the container). For
+`gzip`, replace the `zstd` line with `gzip -n -6 >"$out/raw.tar.gz"`
+(`-n`: no name or time in the header). The script's last line goes to the
+verify log, which the stdout seal binds. The chain of seals is then:
+
+- the job stdout's `artifacts-manifest-sha256` (bound by the stdout seal
+  and `sacct`) is the SHA-256 of the outer `artifacts.sha256`;
+- the outer manifest lists `logical.sha256` and `raw.tar.zst` with their
+  sizes and SHA-256 (the template rehashes its own copy before the job may
+  finish);
+- `logical.sha256` lists every raw file with its size and SHA-256, as the
+  job read it.
+
+No extra stdout line and no new receipt key are needed: the inner manifest
+is bound because it is an ordinary file of the sealed set. Determinism
+(the same raw tree gives the same archive bytes with the same tar and
+compressor versions, level and `-T` setting) makes reruns comparable; the
+proof is the seal chain, not the determinism.
+
+**Collect: the outer seal first, then unpack and check.**
+
+1. Collect into a fresh attempt directory and keep to the
+   [collection barrier](#recollecting-a-finished-job).
+2. Check the outer seal and write the receipt in one run (it writes
+   nothing when a check fails):
+
+   ```bash
+   lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" --log attempt-2/verify-123.log \
+     --stdout attempt-2/verify-123.out --stderr attempt-2/verify-123.err --artifacts attempt-2/artifacts-123
+   ```
+
+3. Only then unpack, into a new directory, with the inner manifest from
+   the directory that was just checked (never a copy from elsewhere):
+
+   ```bash
+   set -o pipefail
+   zstd -dc attempt-2/artifacts-123/raw.tar.zst \
+     | python3 -I unpack-verify.py attempt-2/artifacts-123/logical.sha256 attempt-2/raw-123
+   ```
+
+   `unpack-verify.py` is the collector's (keep it outside the attempt
+   directory). It never runs a tar extraction: it reads the stream member
+   by member, refuses an absolute path, a `..` component, a symlink, a
+   hardlink, a device or FIFO and a duplicate name, writes each regular
+   file with `O_EXCL` while hashing it, and exits 0 only when the unpacked
+   files are exactly the inner manifest's, size and SHA-256:
+
+   ```python
+   #!/usr/bin/env python3
+   """zstd -dc raw.tar.zst | python3 -I unpack-verify.py logical.sha256 DEST
+
+   Unpack a job's archive into DEST (which must not exist) and check every file against the job's inner
+   manifest. Only plain relative paths, regular files and directories are accepted: an absolute path, a `..`
+   component, a symlink, a hardlink, a device, a FIFO or a duplicate name refuses. Exit 0 only when the
+   unpacked files are exactly the manifest's."""
+   import hashlib
+   import os
+   import re
+   import sys
+   import tarfile
+
+   LINE = re.compile(rb"(.+) (0|[1-9][0-9]*) ([0-9a-f]{64})")
+
+
+   def bad(name: str) -> bool:
+       parts = name.split("/")
+       return (not name or name.startswith("/") or "\\" in name or "\0" in name
+               or any(p in ("", ".", "..") for p in parts))
+
+
+   def read_manifest(path: str) -> dict[str, tuple[int, str]]:
+       data = open(path, "rb").read()
+       if data and not data.endswith(b"\n"):
+           raise ValueError("the manifest has no final newline")
+       want: dict[str, tuple[int, str]] = {}
+       prev = None
+       for raw in data.splitlines():
+           m = LINE.fullmatch(raw)
+           if not m or bad(m.group(1).decode()) or (prev is not None and m.group(1) <= prev):
+               raise ValueError(f"manifest line {raw[:80]!r}: malformed, unsorted, duplicate or unsafe")
+           prev = m.group(1)
+           want[m.group(1).decode()] = (int(m.group(2)), m.group(3).decode())
+       return want
+
+
+   def unpack(stream, dest: str) -> dict[str, tuple[int, str]]:
+       os.mkdir(dest)                                    # an existing DEST refuses
+       got: dict[str, tuple[int, str]] = {}
+       with tarfile.open(fileobj=stream, mode="r|") as tf:
+           for member in tf:
+               name = member.name[2:] if member.name.startswith("./") else member.name
+               if member.isdir() and name in ("", "."):
+                   continue
+               if bad(name):
+                   raise ValueError(f"unsafe member name {member.name!r}")
+               path = os.path.join(dest, name)
+               if member.isdir():
+                   os.makedirs(path, exist_ok=True)
+                   continue
+               if not member.isfile():                   # symlink, hardlink, device, FIFO, ...
+                   raise ValueError(f"{name}: not a regular file or directory (tar type {member.type!r})")
+               os.makedirs(os.path.dirname(path), exist_ok=True)
+               fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+               h, n, src = hashlib.sha256(), 0, tf.extractfile(member)
+               with os.fdopen(fd, "wb") as f:
+                   while chunk := src.read(1 << 20):
+                       h.update(chunk)
+                       n += len(chunk)
+                       f.write(chunk)
+               got[name] = (n, h.hexdigest())
+       return got
+
+
+   def main(manifest: str, dest: str) -> int:
+       try:
+           want = read_manifest(manifest)
+           got = unpack(sys.stdin.buffer, dest)
+       except (OSError, ValueError, tarfile.TarError) as e:
+           print(f"refused: {e}")
+           return 1
+       problems = {"missing": sorted(set(want) - set(got)), "extra": sorted(set(got) - set(want)),
+                   "changed": sorted(k for k in set(want) & set(got) if want[k] != got[k])}
+       for kind, names in problems.items():
+           if names:
+               print(f"refused: {len(names)} {kind} file(s): {', '.join(names[:5])}")
+       if any(problems.values()):
+           return 1
+       print(f"ok: {len(got)} file(s), {sum(n for n, _ in got.values())} bytes, as the job's manifest says")
+       return 0
+
+
+   if __name__ == "__main__":
+       if len(sys.argv) != 3:
+           sys.exit(__doc__)
+       sys.exit(main(sys.argv[1], sys.argv[2]))
+   ```
+
+4. A refusal leaves a partial directory: delete it, never use or repair
+   it, and unpack again from the sealed archive.
+
+The hashes `unpack-verify.py` computes are the collector's: they are
+compared with the job's inner manifest and then thrown away. Never write
+them into an `artifacts.sha256`, a `logical.sha256` or a receipt as if the
+job had sealed them. Artifacts of an older job that ran without
+`ARTIFACTS_DIR` stay provenance only: no later hashing turns them into
+sealed evidence (see [Recollecting a finished job](#recollecting-a-finished-job)).
+
+**Two rehashes of one file that disagree** point at the host before the
+file. On a host with faulty memory, a page of the file in the page cache
+can hold a flipped bit: a cold read (from the disk) and a warm read (from
+memory) then give different SHA-256 for a file nobody wrote to. Do not
+rehash until the numbers agree; check the host (its kernel log for
+segfaults and machine-check errors) and repeat on another one.
+
 ## A lower-tier receipt from a systemd unit
 
 `lean-pkg receipt systemd` (alias `receipt local`) writes the same receipt
