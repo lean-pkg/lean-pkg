@@ -14,6 +14,21 @@ public without two receipts, and the second one is re-derived from bytes.
 Source and issues: <https://github.com/lean-pkg/lean-pkg>. License:
 Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 
+## Choose your track
+
+lean-pkg leads to one of two final products, and the page certifies each one:
+
+- **Track P, a paper**: an arXiv or journal paper whose results are formally
+  verified. The page maps every numbered result of the paper to Lean, says
+  which are not formalized, and is anchored to a posted version. Start with
+  [Develop a paper with its Lean companion](paper-companion.md).
+- **Track L, a Lean library**: a reusable library, published on Reservoir or
+  upstreamed to Mathlib. The page certifies the library's main results
+  (`kind: library`). Start with [A library with no manuscript](page.md#a-library-with-no-manuscript).
+
+[Two tracks](design/two-tracks.md) maps the commands to each track, gives each
+its success gate, and lists what is still missing.
+
 ## Choose your door
 
 | You are | Start with |
