@@ -195,6 +195,9 @@ the Slurm route.
 
 ### 4.6 Threat model: a CI receipt against an sacct-checked Slurm receipt
 
+The general trust model, what every receipt certifies and where lean-pkg relies on honesty, is
+[The trust model](../trust-model.md); this section only compares the two compute receipts.
+
 | Question | Slurm receipt (`slurm-<J>`) | GitHub Actions receipt (`gha-<run>-<attempt>`) |
 |---|---|---|
 | Who checked the job finished cleanly? | `receipt slurm`, run by the author, against sacct on the cluster | The runner itself; anyone can re-read the conclusion from the public API |
