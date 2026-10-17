@@ -72,7 +72,8 @@ def test_gate_refuse_dirty_refuses_and_copies_nothing(lp, env, tmp_path, capsys)
 def test_gate_clean_tree_has_no_dirty_warn(lp, env, tmp_path, capsys):
     assert gate(lp, env, make_receipt(env.repo_a), tmp_path, "--json") == 0
     out = capsys.readouterr()
-    assert "WARN" not in out.err and json.loads(out.out)["dirty"] == []
+    warns = [x for x in out.err.splitlines() if "WARN" in x and not x.startswith("WARN: toolchain advisory ")]
+    assert warns == [] and json.loads(out.out)["dirty"] == []   # the fixture toolchain's advisories aside (#237)
 
 
 def test_comparator_toolchain_checked_at_the_bound_commit(lp, env):

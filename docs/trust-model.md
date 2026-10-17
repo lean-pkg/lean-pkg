@@ -54,24 +54,37 @@ with what it is trusted for.
 3. **The toolchain pin.** `lean-toolchain` at the bound commit names the Lean
    release; every validator compares the receipt against it
    (`cli.check_toolchain_at`). The toolchain itself is downloaded by elan and
-   trusted as released.
-4. **The Mathlib pin.** `lake-manifest.json` at the bound commit pins Mathlib
+   trusted as released, kernel included.
+4. **The toolchain advisories.** Lean releases occasionally ship with a
+   kernel or runtime soundness bug that a later point release fixes. lean-pkg
+   ships a dated list of them,
+   [`toolchain-advisories.yaml`](../src/lean_pkg/data/toolchain-advisories.yaml),
+   each entry citing the Lean release notes and the lean4 issue or pull
+   request. `gate`, `gate --check`, `receipt check` and `palomar check` print a
+   WARN line (and list `toolchain_advisories` in `--json`) when the toolchain
+   is on it, and the page says so under *How this was checked* (never a
+   reason for `page --check` to call a page stale). A warning,
+   never a refusal: the proofs may well be sound, and the comparator tier's
+   independent kernels catch several of these bugs. The list is trusted to be
+   complete only as far as its maintainers have read upstream; a toolchain not
+   on it is not thereby certified.
+5. **The Mathlib pin.** `lake-manifest.json` at the bound commit pins Mathlib
    to a commit. Mathlib's own proofs are checked by the same kernels when the
    package is built against it; its definitions are trusted to mean what
    their names say, which is the same trust every Mathlib user extends.
-5. **The person running the gate.** The lower-tier receipt is written from a
+6. **The person running the gate.** The lower-tier receipt is written from a
    log the executor's script produced. lean-pkg checks the log's internal
    consistency and binding, not that Lean produced it. A Challenge statement
    is chosen by a person, and its fidelity to the paper is a human judgement.
-6. **The host.** The receipts were produced on some machine. A compromised
+7. **The host.** The receipts were produced on some machine. A compromised
    host can produce any log. The systemd and comparator receipts name the
    host (as a hashed label or a chosen public label), which identifies it but
    does not vouch for it.
-7. **Git history.** Commits are identified by SHA-1 object names, and every
+8. **Git history.** Commits are identified by SHA-1 object names, and every
    binding (receipt to commit, descendant rules, config and log bytes) is
    judged on git objects, never on the working tree. lean-pkg does not check
    commit signatures.
-8. **The git host and Zenodo.** The public repository host keeps the commits
+9. **The git host and Zenodo.** The public repository host keeps the commits
    available; `index add` refuses a pin no public branch contains. A Zenodo
    DOI names an archived release and the commit it was cut from; lean-pkg
    records the DOI and that commit and checks their form, but does not

@@ -88,6 +88,42 @@ edit a released section; the maintainer moves Unreleased into a version at
 release time, and the sections decide the version number (RELEASING.md,
 "When to tag"). Refactors and docs polish need no entry.
 
+## Toolchain advisories
+
+[`src/lean_pkg/data/toolchain-advisories.yaml`](src/lean_pkg/data/toolchain-advisories.yaml)
+lists Lean releases with a known kernel or runtime soundness bug; `gate`,
+`receipt check`, `palomar check` and the page warn on them
+([receipts](docs/receipts.md#checking-a-published-packages-receipts-receipt-check)).
+To add an entry, when a Lean point release fixes such a bug:
+
+1. **Primary sources only.** The Lean release notes
+   (`https://lean-lang.org/doc/reference/latest/releases/vX.Y.Z/`) and the
+   lean4 issue and pull request they cite (labels `soundness`,
+   `runtime-soundness`). A forum post, a third party's changelog or a
+   summary is a pointer, not a source: confirm it upstream or leave the entry
+   out. List the release notes first; the WARN line links the first link.
+2. **One entry per fixed release**, `id` `lean-vX.Y.Z-<topic>`, `fixed_in`
+   the first stable release with the fix, `summary` one factual paragraph in
+   the release notes' own terms (what it lets through, and whether
+   comparator or an independent kernel catches it), `date_added` today.
+3. **Which releases lack the fix.** `affected.below` is normally `fixed_in`.
+   Then list in `affected.also` every rc of a later line cut before the fix
+   was backported to it: for each tag `vA.B.C-rcN` at or above `below`, check
+   whether the fix PR's merge commit is an ancestor of the tag (`git merge-base --is-ancestor SHA TAG`) or a backport commit naming the PR is in
+   the tag's history since its fork from master. `affected.nightlies_through`
+   is the day the last fix of the entry merged into master.
+4. **Gates.** `python3 -m pytest -q tests/test_toolchain_advisories.py`: the
+   file is validated strictly when loaded (closed keys; a malformed file
+   fails the tests, never a user's command), and the version table in that
+   test gets the new entry's rows. Add a CHANGELOG `### Changed` line (the
+   warning now names more toolchains). No page goes stale because of it:
+   `page --check` leaves advisory lines out of its comparison and prints a
+   NOTE, and the next `page --write` shows the line, so authors need not act.
+
+Never remove an entry because a newer release exists: receipts made on the
+affected toolchain stay affected. Correct an entry only when upstream
+corrects its notes, and say so in the CHANGELOG.
+
 ## Reporting a bug
 
 Run `lean-pkg report --command "ARGS"` (add `--package NAME` when it

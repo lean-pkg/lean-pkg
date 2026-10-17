@@ -512,6 +512,32 @@ def _container_clause(value) -> str:
     return f"; run in a container ({ctr.LABELS[value['engine']]}), {kind} `{digest}`"
 
 
+ADVISORIES_URL = "https://github.com/lean-pkg/lean-pkg/blob/main/src/lean_pkg/data/toolchain-advisories.yaml"
+
+
+ADVISORY_PREFIX = "- Toolchain advisory: "
+
+
+def _advisory_lines(toolchain, warnings: list[str], ctx: dict | None = None) -> list[str]:
+    """One factual line per toolchain advisory (#237) the build check's toolchain is affected by, linked
+    to the upstream release notes; each also becomes a page warning for the author. The matches are kept
+    in ctx["toolchain_advisories"]; with ctx["advisories"] False (the staleness baseline) no line is made."""
+    from . import toolchain_advisories as ta
+    tc = _safe(str(toolchain or "").strip())
+    found, _problem = ta.lookup(tc)
+    if ctx is not None:
+        ctx["toolchain_advisories"] = found
+        if not ctx.get("advisories", True):
+            return []
+    out = []
+    for v in found:
+        out.append(f"{ADVISORY_PREFIX}the build check ran on Lean `{tc}`, which has a known soundness bug "
+                   f"fixed in `{v['fixed_in']}` ([{v['id']}]({v['links'][0]}); lean-pkg's "
+                   f"[toolchain advisories]({ADVISORIES_URL})).")
+        warnings.append(f"toolchain advisory {v['id']}: the build check ran on {tc}; fixed in {v['fixed_in']}")
+    return out
+
+
 def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_verified: int
                ) -> tuple[list[str], dict]:
     """What the checks establish, How this was checked, and the citation, license and acknowledgments."""
@@ -564,6 +590,7 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
                   f"{sc if isinstance(sc, int) else '(not recorded)'}; axioms used: "
                   f"{', '.join(f'`{a}`' for a in _names(lower.get('axioms'))) or 'none'}"
                   f"{_container_clause(lower.get('container'))}.")
+        md += _advisory_lines(lower.get("lean_toolchain"), warnings, ctx)
     if comp and configs:
         thms = sum(len(c.get("theorem_names") or []) for c in configs)
         permitted = sorted({a for c in configs for a in _names(c.get("permitted_axioms"))})
@@ -633,7 +660,8 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
              # not to collide with these keys), and `sites` for every profile, the package's own included
              **{n: f for n, f in site_facts.items() if n in sites.builtin()},
              "sites": site_facts,
-             "receipts": len(ev_rows)}
+             "receipts": len(ev_rows),
+             "toolchain_advisories": list(ctx.get("toolchain_advisories") or [])}
     return md, {"facts": facts, "warnings": warnings}
 
 
@@ -708,11 +736,14 @@ def _scan(pkg: dict, repo, outputs: dict[str, str]) -> None:
                         + "\n  ".join(f"{w} line {n}: {ex}" for w, (n, _p, ex) in hits[:10]))
 
 
-def render_all(pkg: dict, repo, allow_private: bool = False) -> tuple[dict[str, str], dict, list[str]]:
+def render_all(pkg: dict, repo, allow_private: bool = False, advisories: bool = True
+               ) -> tuple[dict[str, str], dict, list[str]]:
     """({'readme': block, 'verification.md', 'coverage.md', 'html'}: every output, each with a final
-    newline; the facts for --json; warnings). One context feeds them all; all are scanned together."""
+    newline; the facts for --json; warnings). One context feeds them all; all are scanned together.
+    advisories=False leaves the toolchain advisory lines out: the baseline `--check` compares against."""
     from . import page_html
     ctx = _context(pkg, repo, allow_private)
+    ctx["advisories"] = advisories
     name = ctx["name"]
     body, extra = _body(ctx, "readme")
     block = "\n".join([BEGIN, GENERATED_NOTE.format(name=name), "", *body, "", END]) + "\n"
@@ -778,12 +809,27 @@ def readme_problems(readme: str | None, block: str, backed: frozenset[str], prof
         problems.append(f"{README} has unbalanced or repeated page markers ({BEGIN} / {END})")
     elif parts[1] is None:
         problems.append(f"{README} has no page block (`lean-pkg page NAME --write` appends it)")
-    elif parts[1] != block:
+    elif strip_advisories(parts[1]) != strip_advisories(block):
         problems.append(f"{README}: the page block is stale (`lean-pkg page NAME --write`)")
     if LEAN_PKG_URL not in readme or CONCEPT_DOI not in readme:
         problems.append(f"{README} lacks the lean-pkg credit ({LEAN_PKG_URL}, doi:{CONCEPT_DOI})")
     problems += unbacked_site_problems(readme, backed, profiles)
     return problems
+
+
+def strip_advisories(text: str) -> str:
+    """The text without its toolchain advisory lines (#237): an advisory added to lean-pkg's list never
+    makes a page stale; the next `--write` shows it."""
+    return "".join(x for x in text.splitlines(keepends=True) if not x.startswith(ADVISORY_PREFIX))
+
+
+def advisory_notes(facts: dict, readme: str | None) -> list[str]:
+    """The non-failing NOTE lines of `--check`: one per advisory that applies and the README page block
+    does not show yet."""
+    parts = split_block(readme) if readme is not None else None
+    shown = parts[1] if parts and parts[1] is not None else ""
+    return [f"NOTE: toolchain advisory {v['id']} applies; the next page --write will show it"
+            for v in facts.get("toolchain_advisories") or [] if f"[{v['id']}](" not in shown]
 
 
 def replace_block(readme: str | None, block: str) -> str:
@@ -830,8 +876,20 @@ def _site_targets(site: str | None, html: str | None) -> list[tuple[str, "object
     return out
 
 
-def site_status(targets, outputs: dict[str, str]) -> list[tuple[str, str, str | None]]:
-    """[(shown path, current|missing|stale|refused, problem or None)] for `--check --site/--html`."""
+def site_status(targets, outputs: dict[str, str], baseline: dict[str, str] | None = None
+                ) -> list[tuple[str, str, str | None]]:
+    """[(shown path, current|missing|stale|refused, problem or None)] for `--check --site/--html`. A file is
+    current when it equals the output, or the baseline without toolchain advisory lines (#237); a Markdown
+    file is compared with its advisory lines left out."""
+    def same(p, key) -> bool:
+        have = p.read_bytes()
+        cands = [outputs[key]] + ([baseline[key]] if baseline else [])
+        if any(have == c.encode("utf-8") for c in cands):
+            return True
+        if key != "html":
+            text = have.decode("utf-8", "replace")
+            return any(strip_advisories(text) == strip_advisories(c) for c in cands)
+        return False
     out = []
     for shown, p, key in targets:
         problem = _target_problem(p)
@@ -839,7 +897,7 @@ def site_status(targets, outputs: dict[str, str]) -> list[tuple[str, str, str | 
             out.append((shown, "refused", problem))
         elif not p.is_file():
             out.append((shown, "missing", f"{shown} is missing (`lean-pkg page NAME --site DIR` / `--html PATH`)"))
-        elif p.read_bytes() != outputs[key].encode("utf-8"):
+        elif not same(p, key):
             out.append((shown, "stale", f"{shown} is stale (`lean-pkg page NAME --site DIR` / `--html PATH`)"))
         else:
             out.append((shown, "current", None))
@@ -914,16 +972,20 @@ def do_page(reg: dict, name: str, *, write: bool, check: bool, out: str | None, 
         payload.update(written=True, out=str(outp))
         return site_lines + [f"{name}: wrote the page block to {outp}; {README} untouched"], payload, warnings, 0
     if check:
-        problems = readme_problems(_read_readme(repo), block, backed_sites(facts), sites.for_repo(repo))
-        status = site_status(targets, outputs)
+        readme = _read_readme(repo)
+        problems = readme_problems(readme, block, backed_sites(facts), sites.for_repo(repo))
+        baseline = render_all(pkg, repo, allow_private, advisories=False)[0] if facts.get("toolchain_advisories") \
+            else None
+        status = site_status(targets, outputs, baseline)
         payload["site_files"] = [{"path": shown, "status": st} for shown, st, _p in status]
         problems += [x for _s, _st, x in status if x]
         payload.update(ok=not problems, current=not problems, problems=problems)
         where = README + "".join(f", {shown}" for shown, _p, _k in targets)
+        notes = [f"  {n}" for n in advisory_notes(facts, readme)]   # #237: never a staleness reason
         if problems:
             return ([f"{name}: page: STALE ({len(problems)} problem(s))"] + [f"  {p}" for p in problems]
-                    + [f"{name}: page: STALE"]), payload, warnings, 1
-        return [f"{name}: page: current ({where})"], payload, warnings, 0
+                    + notes + [f"{name}: page: STALE"]), payload, warnings, 1
+        return [f"{name}: page: current ({where})"] + notes, payload, warnings, 0
     if not write:
         if targets:
             return site_lines, payload, warnings, 0
