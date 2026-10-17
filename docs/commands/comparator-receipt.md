@@ -42,7 +42,7 @@ comparator-receipt [--project PROJECT] [--check CHECK]
 | `--verify-oleans [DIR]` | read-only, no host policy: rehash the package's compiled modules under .lake/build/lib and compare them with the olean manifest the setup recorded in DIR (an evidence directory, its comparator-stages/ or its stages.json; default: the evidence directory); the recorded commit must be HEAD; exit 0 same, 1 different or nothing recorded; writes nothing |
 | `--attempts [DIR]` | read-only, no host policy: list the earlier runs kept under comparator-stages/attempts/NNN/ (verdict, failed stage, commit, times, files, whether every kept file still matches its recorded sha256) in DIR (an evidence directory, its comparator-stages/ or its attempts/; default: the evidence directory); exit 0, or 1 when a kept file changed or went missing; writes nothing |
 | `--json` | --estimate, --verify-oleans or --attempts: print JSON |
-| `--host-label LABEL` | name the host LABEL instead of its host name in the receipt (host, host_label, job_id, host_policy) and the output (env COMPARATOR_RECEIPT_HOST_LABEL) |
+| `--host-label LABEL` | name the host LABEL in the receipt (host, host_label, job_id, host_policy) and the output (env COMPARATOR_RECEIPT_HOST_LABEL); default: h- and 12 hex digits of the SHA-256 of the lower-cased host name, the label `receipt systemd` uses; the host name itself is never written |
 
 ## Details
 

@@ -177,7 +177,7 @@ def test_receipt_fields_outside_the_allow_list_never_reach_the_site(lp, env, cap
     prepare(env)
     assert site(lp, env, capsys, tmp_path)[0] == 0
     text = b"".join(files(tmp_path).values()).decode()
-    for private in ("secret-host-xyz", "/home/someone", "verify.sh", "build-host"):
+    for private in ("secret-host-xyz", "/home/someone", "verify.sh", "h-1f2e3d4c5b6a"):
         assert private not in text
     assert "slurm-12345" in text
 

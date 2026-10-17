@@ -135,7 +135,7 @@ def test_receipt_fields_outside_the_allow_list_never_appear(lp, env, capsys):
     prepare(env)
     rc, a = page_json(lp, env, capsys)
     md = a["markdown"]
-    for private in ("secret-host-xyz", "/home/someone", "verify.sh", "build-host", "local-build-host"):
+    for private in ("secret-host-xyz", "/home/someone", "verify.sh", "h-1f2e3d4c5b6a"):
         assert private not in md
     assert "slurm-12345" in md                                           # a Slurm job id is allowed
 
