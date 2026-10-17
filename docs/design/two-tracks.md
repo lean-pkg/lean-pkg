@@ -27,6 +27,12 @@ lean-pkg serves two kinds of author, and each has its own final product.
 The two tracks share most of the machinery. They differ in what the page is
 anchored to and in what happens after the public flip.
 
+<img src="../assets/workflow.svg" alt="One workflow, two tracks: lean-pkg new, then Track P (anchor the paper, a row per numbered result, Not formalized) or Track L (a library, Main results, no manuscript); both rejoin the shared seven steps of the sample workflow (register and claim, prove-build-audit, state the claim, comparator receipt, gate, commit the evidence, promote dry run) with the verification page before step 7; after --yes, Track P goes to Reservoir, Palomar and Zenodo and is cited in the paper, Track L to a version tag, a Reservoir listing and Mathlib pull requests" style="max-width:100%;height:auto">
+
+The diagram is the [sample workflow](../sample-workflow.md)'s, extended: the
+fork after `new` and the fork after `--yes` are the only track-specific steps,
+and the shared core is drawn once.
+
 A word on naming: the package record already has a field called `track`, the
 DOI track (`palomar` or `doi-only`, see the [CLI reference](../cli.md)). This
 document says "Track P" and "Track L" for the two product tracks. The tool
