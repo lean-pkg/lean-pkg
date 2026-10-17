@@ -99,4 +99,6 @@ changes:
 # #242, conditional claims and discharge), the record follow-up for #238 (#248), and the FAQ entries on
 # `lake check --paranoid` and AI provers with the trust model's positioning paragraph, which also lets a
 # record start with `changes: []` (#247).
-no_author_change: [238, 242, 247, 248]
+# Also read: the first LTS stack, lts-2026.10, as docs under docs/stacks with its test (#249), and this
+# record's page row for #250 (#PRSELF).
+no_author_change: [238, 242, 247, 248, 249, PRSELF]
