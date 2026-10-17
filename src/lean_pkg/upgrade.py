@@ -494,7 +494,11 @@ def preflight(repo: pathlib.Path, old_rev: str, new_rev: str) -> dict:
         raise core.Fail(f"{old_rev} ({old.commit[:12]}) is not an ancestor of {new_rev} ({new.commit[:12]}); "
                         f"compare an older revision with a newer one")
     s_old, s_new = surface(old), surface(new)
-    entries, problems = load_records(new)
+    # Records are read at the checkout's HEAD when it descends from NEW (a record written after a release
+    # still describes it), else at NEW.
+    head = Tree(repo, "HEAD")
+    rec_tree = head if core.git(repo, "merge-base", "--is-ancestor", new.commit, head.commit).returncode == 0 else new
+    entries, problems = load_records(rec_tree)
     prs = merged_prs(repo, old.commit, new.commit)
     applies = [{**e, "commit": prs[e["pr"]]["commit"]} for e in entries if isinstance(e.get("pr"), int)
                and e["pr"] in prs and not e.get("no_author_change")]
@@ -511,6 +515,7 @@ def preflight(repo: pathlib.Path, old_rev: str, new_rev: str) -> dict:
         "breaking": [e["id"] for e in sorted(applies, key=lambda e: e["pr"]) if e.get("breaking")],
         "uncurated": uncurated,
         "record_problems": problems,
+        "records_at": rec_tree.commit,
         "not_derivable": ["what a refusal rule accepts or refuses (curated: behavior[])",
                           "the meaning of a key whose name is unchanged",
                           "reader compatibility (which old format versions are still accepted)"],

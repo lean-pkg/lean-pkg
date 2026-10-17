@@ -72,10 +72,12 @@ every `id` and PR number of the record appears on the page.
 
 **Which entries apply.** An entry applies when its pull request's squash
 commit (subject ending `(#N)`, the form every merge on main has) lies in
-`OLD..NEW`. The record is read at NEW. So a comparison between two commits
+`OLD..NEW`. The records are read at the source checkout's `HEAD` when it
+descends from NEW (a record completed after a release still describes
+it), else at NEW; `records_at` names the commit. So a comparison between two commits
 of the same version gets exactly the entries merged in between, and a
-comparison across several releases gets the entries of every record in
-NEW's tree. Version strings are never compared.
+comparison across several releases gets the applying entries of every
+record. Version strings are never compared.
 
 **Completeness is visible.** Every pull request in the range that no record
 names, neither under `changes` nor under `no_author_change`, is listed in
@@ -125,7 +127,7 @@ lean-pkg doctor --upgrade-from 0.9.0 --source ~/src/lean-pkg
 | `behavior[]` | the applying record entries, each with `record`, `release`, `commit` |
 | `breaking[]` | the ids of the applying entries with `breaking: true` |
 | `uncurated[]` | `{pr, commit, subject}` |
-| `record_problems[]` | validation problems of the records at NEW |
+| `record_problems[]`, `records_at` | validation problems of the records, and the commit they were read at |
 | `not_derivable[]` | what the mechanical half cannot see |
 
 ## Limits and later work

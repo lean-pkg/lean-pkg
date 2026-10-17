@@ -180,12 +180,23 @@ def test_curated_entries_apply_only_inside_the_range(lp, capsys, src):
     assert out["breaking"] == ["receipts-stricter"]
     assert [u["pr"] for u in out["uncurated"]] == [6]                     # 7 is listed as no change
     assert out["record_problems"] == []
-    # a range that stops before PR 5: no entry, and the record is read at NEW, so none is known
+    # a range that stops before PR 5: no entry applies (the record is read at HEAD, PR 5 is outside)
     rc, out = preflight(lp, capsys, src, "1.0.0", "--to", "HEAD~3")
     assert out["behavior"] == [] and out["uncurated"] == [] and out["to"]["version"] == "1.0.0"
     # commit to commit inside one version string (here: after the release, across #6 and #7)
     rc, out = preflight(lp, capsys, src, "HEAD~2")
     assert out["same_version"] is True and out["behavior"] == [] and [u["pr"] for u in out["uncurated"]] == [6]
+
+
+def test_records_are_read_at_head_for_an_older_range(lp, capsys, src):
+    # A record completed after a release still describes it: --to the PR 5 commit, records from HEAD.
+    put(src, {"docs/upgrades/1.1.0.yaml": yaml.safe_dump({**RECORD, "no_author_change": [6, 7]})})
+    git(src, "commit", "-qam", "record: 6 needs nothing")
+    head = git(src, "rev-parse", "HEAD")
+    rc, out = preflight(lp, capsys, src, "1.0.0", "--to", "HEAD~3")
+    assert [e["id"] for e in out["behavior"]] == ["receipts-stricter"] and out["records_at"] == head
+    rc, out = preflight(lp, capsys, src, "1.0.0", "--to", "HEAD~1")
+    assert out["uncurated"] == []
 
 
 def test_the_same_tree_twice_is_an_empty_delta(lp, capsys, src):
