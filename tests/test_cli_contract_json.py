@@ -64,7 +64,15 @@ CASES = {
     "gate-check": lambda e, t: ["gate", "alpha", "--receipt", _gate_receipt(e, t), "--check"],
     "gate": lambda e, t: ["gate", "alpha", "--receipt", _gate_receipt(e, t)],
     "usage-error": ["gate", "alpha", "--no-such-flag"],
+    # last: these commit page inputs and receipts to beta's checkout (tests/test_page.py prepare)
+    "page": lambda e, t: (_page_ready(e), ["page", "beta"])[1],
+    "coverage-check": ["coverage", "check", "beta"],
 }
+
+
+def _page_ready(env) -> None:
+    from .test_page import prepare
+    prepare(env)
 
 # cases that need beta's or alpha's lease held first (renew/release act on the holder's lease)
 LEASED = {

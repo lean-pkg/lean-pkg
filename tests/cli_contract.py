@@ -103,7 +103,7 @@ def comparator_keywords() -> tuple[str, ...]:
     return (lp.HOST_CHECK, lp.CONFIG_CMD)
 
 
-_NESTED_DESTS = ("index_cmd", "claims_cmd", "reservoir_cmd", "palomar_cmd", "receipt_cmd")
+_NESTED_DESTS = ("index_cmd", "claims_cmd", "reservoir_cmd", "palomar_cmd", "receipt_cmd", "coverage_cmd")
 
 
 def canonical(args, ap: argparse.ArgumentParser | None = None) -> str:

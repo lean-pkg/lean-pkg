@@ -47,6 +47,34 @@ change the registry schema or receipt format, always with a migration).
   its pinned rev. Fail-closed, read-only (the tarball is read in one pass, never extracted), exit 0/1, `--json`.
   The template's comment on DEPS_TAR names it; every check inside the job is unchanged.
 
+- `lean-pkg coverage check NAME [--file PATH] [--allow-private-manuscript]`: the paper-centric coverage file
+  `coverage.yaml` (schema `coverage/1`, in the package directory): a citable manuscript version (`arXiv:IDvN` or
+  `{repo, commit, sha256}`; `unposted` only with the flag, which marks the output), a one-line summary, one row per
+  paper result with its class (`same-assumptions`, `inputs-supplied` with named inputs, `outside`) and the claim ids
+  of `claims.yaml` at `HEAD`, a non-empty `outside` set or `nothing_excluded: {reason}`, and an optional `compute`
+  declaration whose jobs must be Slurm receipts committed under `.lean-receipts/`. Strict: exact key sets, closed
+  enums, duplicate keys refused. Read-only; exit 0/1 (docs/page.md).
+- `lean-pkg page NAME [--write | --check | --out PATH]`: the README verification section, rendered between
+  `<!-- lean-pkg:page:begin -->` and `<!-- lean-pkg:page:end -->` from `coverage.yaml`, `claims.yaml`, the claims
+  ledger (a row says *verified* only when the ledger closes every claim it names), the receipts committed under
+  `.lean-receipts/` (allow-listed fields only: never hosts, paths or user names), `lean-toolchain`,
+  `lake-manifest.json`, `CITATION.cff` (authors required) and the registry: status capsule, paper-to-Lean map, Not
+  formalized, trust boundary, reproduce, evidence, citation, license and acknowledgments. The acknowledgments always
+  carry the lean-pkg credit with the concept DOI, and carry the Easley sentence only when `coverage.yaml` declares
+  `compute: [{cluster: easley, jobs: [...]}]` and every job is a committed Slurm receipt (receipts record no cluster
+  identity). Deterministic; the public-safety scanner and the package's `.lean-pkg-private-patterns` run over the
+  block, and a blocking hit refuses. `--write` replaces only the marked block (hand prose outside it is untouched),
+  never commits and never writes the registry. `--check` exits 1 when the block is missing or stale, the lean-pkg
+  credit is missing, or the README mentions the Easley Cluster without a backing receipt (docs/page.md).
+- `publish NAME --dry-run`: one checklist line for `page --check` (a WARN while the package has neither
+  `coverage.yaml` nor a page block, a failure for an unbacked Easley sentence); additive JSON key `page {status,
+  adopted, problems}`.
+
+### Changed
+
+- docs/paper-companion.md: the coverage map is `coverage.yaml` rendered by `lean-pkg page`, no longer a hand-written
+  `COVERAGE.md` table.
+
 ### Fixed
 
 - Docs-only and evidence-only descendant rules: a committed Lake build cache or compiled artifact is now refused

@@ -2,7 +2,7 @@
 """`lean-pkg publish NAME --dry-run` (#22.1): one checklist for the whole path from a
 verified-private package to a public, tagged, listed one, composed from checks that
 already exist elsewhere (the promote checklist, the index license check, the
-formalization renderer, the claims cache), plus the exact next commands.
+formalization renderer, the claims cache, `page --check`), plus the exact next commands.
 
 Read-only: nothing is written, the registry is not locked, `--commit` is ignored.
 `publish` without `--dry-run` is refused in this version: the steps it would take
@@ -261,6 +261,9 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
     items += license_items(pkg, repo)
     items += formalization_items(pkg, repo)
     items.append(claims_item(pkg, repo, head))
+    from . import page as page_mod
+    item, page_state = page_mod.publish_item(pkg, repo)
+    items.append(item)
     lake_name = lakefile_package_name(repo)
     items.append(("✓", f"lakefile package name {lake_name}") if lake_name else
                  ("✗", "no package name in lakefile.lean or lakefile.toml (Reservoir indexes the Lake package)"))
@@ -287,7 +290,7 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
                "checklist": [dict({"status": core._MARK_TO_STATUS[i[0]], "label": i[1]},
                                   **({"reason": i[2]} if len(i) > 2 else {})) for i in items],
                "next": cmds, "ignored_evidence": ignored, "claims_ledger": led, "manuscript_findings": findings,
-               "palomar_check": palomar}
+               "palomar_check": palomar, "page": page_state}
     if safety is not None:
         payload["public_safety"] = safety
     return lines, 0 if ready else 1, payload
