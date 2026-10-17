@@ -9,6 +9,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- docs/upgrades/0.13.0.yaml and its page docs/upgrades/0.13.0.md: the
+  upgrade record for the next release, started with proposal 0004 (#238).
+
 ## [0.12.0] - 2026-10-17
 
 ### Added

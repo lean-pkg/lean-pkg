@@ -1,0 +1,8 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.12.0. Same keys as 0.12.0.yaml; the human page is docs/upgrades/0.13.0.md.
+schema: lean-pkg-upgrade-record/1
+version: 0.13.0
+changes: []
+# Read for this record, nothing for a package author: proposal 0004, a math LTS stack, as a draft
+# (#238), and this record's start (#PRSELF).
+no_author_change: [238, PRSELF]
