@@ -435,7 +435,8 @@ class Progress:
 # ---------------------------------------------------------------------------
 # Resume (#39): a slot judged and accepted is cached under 04-slots/<slot-hash>.json, keyed by
 # everything that decides its verdict: commit, config hash (every configuration's path and bytes),
-# lean-toolchain, mechanism, the judge script's digest, the configuration path and the slot name.
+# lean-toolchain, mechanism, the judge script's digest, the configuration path and the slot name, and
+# the olean manifest's digest when the setup recorded one (the compiled modules the judge read).
 # The unit log that accepted it is kept content-addressed in 04-slots/logs/ and re-checked (digest
 # and PASS line) before a cached slot is trusted; anything missing or different is judged again.
 
@@ -444,9 +445,12 @@ SLOT_SCHEMA = "comparator-slot/1"
 
 
 def slot_key(binding: dict, mechanism: str, judge_sha256: str, slot: Slot) -> dict:
-    return {"commit": binding.get("commit"), "config_hash": binding.get("config_hash"),
-            "lean_toolchain": binding.get("lean_toolchain"), "mechanism": mechanism,
-            "judge_sha256": judge_sha256, "config": slot.config, "name": slot.name}
+    key = {"commit": binding.get("commit"), "config_hash": binding.get("config_hash"),
+           "lean_toolchain": binding.get("lean_toolchain"), "mechanism": mechanism,
+           "judge_sha256": judge_sha256, "config": slot.config, "name": slot.name}
+    if binding.get("olean_manifest_sha256"):   # the oleans the slot was judged against (olean manifest)
+        key["olean_manifest_sha256"] = binding["olean_manifest_sha256"]
+    return key
 
 
 def slot_hash(key: dict) -> str:

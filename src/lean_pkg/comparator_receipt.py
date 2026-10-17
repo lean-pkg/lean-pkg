@@ -11,6 +11,10 @@ Stages (#26.1): checkout, cache-get, build (the setup stages), comparator, recei
 <evidence-dir>/comparator-stages/<NN>-<stage>.log with stages.json beside it, kept on failure.
 --prepare runs only the setup stages; a later run with the same commit, toolchain and config hash
 skips them.
+The setup ends by hashing the package's own compiled modules (comparator-stages/03-build.oleans.sha256,
+stages.json olean_manifest); a reused setup whose oleans changed is refused, and the comparator stage fails
+when they change during the comparison. `comparator-receipt --verify-oleans [DIR] [--json]` is the read-only
+check (exit 0 same, 1 different or not recorded).
 
 Host policy: the run is allowed iff SLURM_JOB_ID is set (inside a Slurm job),
 OR this host's name is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
@@ -752,6 +756,101 @@ def carried_provenance(prior: dict | None) -> dict:
     return bp
 
 
+# Olean manifest. build_provenance says whether the build compiled; it does not bind the bytes the judge then
+# reads. The judge (lean4export and the kernel replay) consumes the root package's compiled modules under
+# <project>/.lake/build/lib/ (git-ignored, so the clean-tree check cannot see them): a module copied in from
+# another host, or rewritten between `--prepare` and the comparison, would change the judged environment with
+# HEAD, lean-toolchain and the configurations unchanged. The setup stages therefore end by hashing every such
+# file (`*.olean`, `*.olean.server`, `*.olean.private`; regular files only) into
+# comparator-stages/03-build.oleans.sha256 (sorted `<path under .lake/build/lib> <size> <sha256>` lines) and
+# record its digest, with the lean-toolchain and lake-manifest.json digests, as stages.json `olean_manifest`.
+# The comparator stage rehashes before the first judge starts and again after the last one exits; any
+# difference fails the stage, nothing written. The digest also keys the per-slot cache, so a slot accepted
+# against other oleans is judged again. Dependencies under .lake/packages/ are not the package's own modules
+# and are not hashed (lake-manifest.json pins their commits). `--verify-oleans [DIR]` is the read-only check.
+OLEAN_MANIFEST_FILE = "03-build.oleans.sha256"
+OLEAN_MANIFEST_SCHEMA = "olean-manifest/1"
+OLEAN_SUFFIXES = (".olean", ".olean.server", ".olean.private")
+
+
+def olean_manifest_text(project: pathlib.Path) -> bytes:
+    """The manifest lines of the root package's compiled modules; a symlink or a non-regular file among them
+    is refused (the manifest binds regular files only)."""
+    root = project / ".lake" / "build" / "lib"
+    rows, odd = [], []
+    if root.is_dir():
+        for d, dirs, names in os.walk(root):
+            dirs.sort()
+            for n in sorted(names):
+                if not n.endswith(OLEAN_SUFFIXES):
+                    continue
+                p = pathlib.Path(d) / n
+                rel = p.relative_to(root).as_posix()
+                if p.is_symlink() or not p.is_file():
+                    odd.append(rel)
+                    continue
+                h = hashlib.sha256()
+                with open(p, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        h.update(chunk)
+                rows.append(f"{rel} {p.stat().st_size} {h.hexdigest()}\n")
+    if odd:
+        raise RunnerError(f"compiled module(s) under .lake/build/lib that are not regular files: "
+                          f"{', '.join(odd[:5])}{' …' if len(odd) > 5 else ''}; the olean manifest binds regular "
+                          f"files only (replace each symlink with a copy of its target); nothing written")
+    return "".join(sorted(rows)).encode()
+
+
+def olean_manifest(project: pathlib.Path, toolchain: str, captured: str) -> tuple[dict, bytes]:
+    """(stages.json / receipt `olean_manifest`, manifest bytes)."""
+    text = olean_manifest_text(project)
+    lm = project / "lake-manifest.json"
+    return ({"schema": OLEAN_MANIFEST_SCHEMA, "files": text.count(b"\n"),
+             "sha256": hashlib.sha256(text).hexdigest(), "lean_toolchain": toolchain,
+             "lake_manifest_sha256": sha256_file(lm) if lm.is_file() else None,
+             "captured": captured}, text)
+
+
+def olean_manifest_diff(old: bytes | None, new: bytes) -> str:
+    """Which files differ between two manifests (at most five named per kind)."""
+    if old is None:
+        return "the recorded manifest file is not there to compare file by file"
+
+    def rows(b: bytes) -> dict[str, str]:
+        out = {}
+        for line in b.decode("utf-8", "replace").splitlines():
+            rel, _, rest = line.partition(" ")
+            out[rel] = rest
+        return out
+    a, b = rows(old), rows(new)
+    parts = []
+    for what, names in (("changed", [k for k in a if k in b and a[k] != b[k]]),
+                        ("missing", [k for k in a if k not in b]), ("new", [k for k in b if k not in a])):
+        if names:
+            parts.append(f"{len(names)} {what} ({', '.join(names[:5])}{' …' if len(names) > 5 else ''})")
+    return "; ".join(parts) or "same files, different manifest bytes"
+
+
+def check_oleans(project: pathlib.Path, recorded: dict, recorded_text: bytes | None, when: str) -> None:
+    """Refuse when the package's oleans no longer match the recorded manifest."""
+    now, text = olean_manifest(project, str(recorded.get("lean_toolchain")), when)
+    if now["sha256"] != recorded.get("sha256"):
+        raise RunnerError(f"the package's compiled oleans changed {when}: the olean manifest is now "
+                          f"{now['sha256'][:12]}… ({now['files']} file(s)), recorded "
+                          f"{str(recorded.get('sha256'))[:12]}… ({recorded.get('files')} file(s)) "
+                          f"when captured ({recorded.get('captured')}); {olean_manifest_diff(recorded_text, text)}; "
+                          f"rebuild (comparator-receipt --no-resume after removing the evidence directory, or "
+                          f"a fresh --prepare) so the judged modules are the ones the build stage produced; "
+                          f"nothing written")
+
+
+def read_olean_manifest(stages_dir: pathlib.Path) -> bytes | None:
+    try:
+        return (stages_dir / OLEAN_MANIFEST_FILE).read_bytes()
+    except OSError:
+        return None
+
+
 class StageError(RunnerError):
     def __init__(self, msg: str, code: int | None = None):
         super().__init__(msg)
@@ -818,6 +917,7 @@ class Stages:
         self.resolution: dict | None = None  # toolchain_resolution {source, lake, version} (#41)
         self.build_provenance: dict | None = None   # #56: {compiled, modules_built, prebuilt, source}
         self.pool: dict | None = None        # #60: stage 04's {judges, unit_size} (toolchain mechanism)
+        self.olean_manifest: dict | None = None   # the root package's compiled modules after setup
 
     def log(self, stage: str) -> pathlib.Path:
         return self.dir / f"{STAGES.index(stage) + 1:02d}-{stage}.log"
@@ -839,6 +939,7 @@ class Stages:
                 **({"progress": self.progress} if self.progress is not None else {}),
                 **({"toolchain_resolution": self.resolution} if self.resolution is not None else {}),
                 **({"build_provenance": self.build_provenance} if self.build_provenance is not None else {}),
+                **({"olean_manifest": self.olean_manifest} if self.olean_manifest is not None else {}),
                 **(self.pool or {}),
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         tmp = self.json.with_name(STAGES_FILE + ".tmp")
@@ -949,8 +1050,30 @@ def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> N
         stages.run("build", lambda log: no_lake if not lakefile else
                    ("skipped", None, "no challenge/solution module configured"))
         stages.build_provenance = build_provenance(None, None, "", build_source())
-    stages.save()
+    capture_oleans(project, stages, "build")
     print(f"comparator-receipt: {build_provenance_line(stages.build_provenance)}", file=sys.stderr)
+
+
+def capture_oleans(project: pathlib.Path, stages: Stages, captured: str) -> None:
+    """Write comparator-stages/03-build.oleans.sha256 and record its digest (stages.json olean_manifest)."""
+    summary, text = olean_manifest(project, stages.binding["lean_toolchain"], captured)
+    path = stages.dir / OLEAN_MANIFEST_FILE
+    tmp = path.with_name(OLEAN_MANIFEST_FILE + ".tmp")
+    tmp.write_bytes(text)
+    os.replace(tmp, path)
+    stages.olean_manifest = summary
+    stages.save()
+    print(f"comparator-receipt: {olean_manifest_line(summary)}", file=sys.stderr)
+
+
+def olean_manifest_line(om: dict) -> str:
+    return (f"olean manifest: {om.get('files')} compiled module file(s) of the package, sha256 "
+            f"{str(om.get('sha256'))[:12]}… (captured at {om.get('captured')})")
+
+
+def verify_judged_oleans(project: pathlib.Path, stages: Stages, when: str) -> None:
+    """The comparator stage's check: the oleans are still the ones the setup recorded."""
+    check_oleans(project, stages.olean_manifest or {}, read_olean_manifest(stages.dir), when)
 
 
 # Lake target readiness (C1). A configured module outside every [[lean_lib]]'s roots/globs passes direct
@@ -1432,7 +1555,9 @@ def run_estimate(project, configs, mechanism, check, verify, stages, commit, jud
                      resume_command, resume=False, judges=1, subset=sample, isolate=True)
 
         def body(stage_log: pathlib.Path):
+            verify_judged_oleans(project, stages, "before the comparison")
             status, code, note = st.run(stage_log)
+            verify_judged_oleans(project, stages, "during the comparison")
             return status, code, f"estimate: {note}"
 
         stages.run("comparator", body)
@@ -1623,14 +1748,36 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
     stages.resolution = resolution
     if mismatch is None:
         when = str(prior.get("updated_at") or "")
+        # the olean manifest is checked before anything is written: a refused run must not overwrite the
+        # stages.json that records it
+        recorded = prior.get("olean_manifest")
+        recorded_text = None
+        if isinstance(recorded, dict) and recorded.get("sha256"):
+            prior_dir = prior_src if (prior_src / OLEAN_MANIFEST_FILE).is_file() else prior_src / STAGES_DIR
+            recorded_text = read_olean_manifest(prior_dir)
+            try:
+                check_oleans(project, recorded, recorded_text, f"since the setup was prepared ({when})")
+            except RunnerError as e:
+                raise RunnerError(f"{e} (prepared state: {redact(str(prior_src))}; to rebuild, remove its "
+                                  f"{STAGES_DIR}/{STAGES_FILE} and the package's .lake/build/lib, then "
+                                  f"run comparator-receipt --prepare)") from None
+        else:
+            recorded = None
         by = {e.get("stage"): e for e in prior.get("stages") or [] if isinstance(e, dict)}
         for s in SETUP_STAGES:
             e = by[s]
             stages.entries[s] = {**e, "status": "prepared",
                                  "note": f"setup done {when} ({e.get('status')}) in {prior_src}"}
         stages.build_provenance = carried_provenance(prior)   # #56: as recorded when it was built
+        stages.olean_manifest = recorded
         stages.clear(STAGES[3:])
+        if recorded_text is not None and read_olean_manifest(stages.dir) != recorded_text:
+            (stages.dir / OLEAN_MANIFEST_FILE).write_bytes(recorded_text)   # --from-prepared: kept beside
         stages.save()
+        if recorded is not None:
+            print(f"comparator-receipt: {olean_manifest_line(recorded)}; unchanged since then", file=sys.stderr)
+        else:                                  # a prepared state from before the olean manifest
+            capture_oleans(project, stages, "reuse (the prepared setup recorded no olean manifest)")
         if prepare:
             print(f"already prepared at {commit[:12]} ({when}); nothing to do; stages: {stages.json}")
             return {"prepared": True, "commit": commit, "stages": str(stages.json), "reused": True}
@@ -1651,6 +1798,9 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         if dirty:
             raise RunnerError(f"the setup stages changed the tree ({', '.join(dirty[:10])}); commit the "
                               f"change and rerun; nothing written (stages: {stages.json})")
+    if stages.olean_manifest is not None:     # a slot accepted against other oleans is judged again
+        stages.binding = {**stages.binding, "olean_manifest_sha256": stages.olean_manifest["sha256"]}
+        stages.save()
     if prepare:
         print(f"prepared at {commit[:12]}: setup stages done; stages: {stages.json}")
         print("next: comparator-receipt (same commit; the setup stages are skipped)")
@@ -1666,13 +1816,17 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
             stages.pool = {"judges": judges, "unit_size": unit_size}
 
         def comparator_stage(stage_log: pathlib.Path):
+            verify_judged_oleans(project, stages, "before the comparison")
             st = Stage04(project, configs, mechanism, check, verify, stages, log_dir, resume_command,
                          resume=resume, judges=judges, subset=subset, unit_size=unit_size)
             result["stage04"] = st
             status, code, note = st.run(stage_log)
+            verify_judged_oleans(project, stages, "during the comparison")
             result["extra"] = {"stack_limit": stack_limit, "lean_threads": lean_threads,
                                **({"build_provenance": stages.build_provenance}
                                   if stages.build_provenance is not None else {}),
+                               **({"olean_manifest": stages.olean_manifest}
+                                  if stages.olean_manifest is not None else {}),
                                **({"judges": judges, "unit_size": unit_size} if mechanism == "toolchain"
                                   else {}),
                                **({"toolchain_resolution": resolution} if resolution else {}),
@@ -1818,6 +1972,53 @@ def resume_command(argv: list[str]) -> str:
     return shlex.join(["comparator-receipt", *[a for a in argv if a != "--no-resume"]])
 
 
+def verify_oleans(project: pathlib.Path, where: pathlib.Path) -> dict:
+    """--verify-oleans: {ok, commit, recorded, current, problem}; never writes."""
+    set_redactions(project, evidence=where)
+    data = read_stages(where)
+    if data is None:
+        raise RunnerError(f"--verify-oleans: no comparator-stages/stages.json in {redact(str(where))}")
+    head = git(project, "rev-parse", "HEAD").stdout.strip()
+    rec = data.get("olean_manifest")
+    out = {"ok": False, "commit": head, "recorded_commit": data.get("commit"), "recorded": rec,
+           "current": None, "problem": None}
+    if data.get("commit") != head:
+        out["problem"] = (f"recorded for commit {str(data.get('commit'))[:12]}, HEAD is {head[:12]}; "
+                          f"the manifest binds the oleans of that commit only")
+        return out
+    if not isinstance(rec, dict) or not rec.get("sha256"):
+        out["problem"] = "no olean manifest recorded there (a setup prepared before the olean manifest)"
+        return out
+    sdir = where if (where / OLEAN_MANIFEST_FILE).is_file() else \
+        (where.parent if where.is_file() else where / STAGES_DIR)
+    now, text = olean_manifest(project, str(rec.get("lean_toolchain")), "verify")
+    out["current"] = {k: now[k] for k in ("files", "sha256")}
+    if now["sha256"] != rec["sha256"]:
+        out["problem"] = olean_manifest_diff(read_olean_manifest(sdir), text)
+        return out
+    out["ok"] = True
+    return out
+
+
+def verify_oleans_main(args) -> int:
+    project = pathlib.Path(args.project).resolve()
+    where = pathlib.Path(args.verify_oleans).expanduser().resolve() if args.verify_oleans else \
+        (pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else project / DEFAULT_EVIDENCE)
+    try:
+        res = verify_oleans(project, where)
+    except RunnerError as e:
+        print(f"comparator-receipt: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(redact_json(res), indent=2, sort_keys=True))
+    elif res["ok"]:
+        print(f"oleans: same as recorded: {res['current']['files']} file(s), sha256 "
+              f"{res['current']['sha256'][:12]}… (captured at {res['recorded'].get('captured')}); nothing written")
+    else:
+        print(f"oleans: DIFFERENT from the recorded manifest: {res['problem']}; nothing written")
+    return 0 if res["ok"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="comparator-receipt",
@@ -1881,7 +2082,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--force-sample", action="store_true",
                     help="--estimate: accept a --sample (or --slots) below the floor; the estimate warns "
                          "and records sample_forced: true")
-    ap.add_argument("--json", action="store_true", help="--estimate: print the estimate as JSON")
+    ap.add_argument("--verify-oleans", nargs="?", const="", default=None, metavar="DIR",
+                    help="read-only, no host policy: rehash the package's compiled modules under "
+                         ".lake/build/lib and compare them with the olean manifest the setup recorded in DIR "
+                         "(an evidence directory, its comparator-stages/ or its stages.json; default: the "
+                         "evidence directory); the recorded commit must be HEAD; exit 0 same, 1 different or "
+                         "nothing recorded; writes nothing")
+    ap.add_argument("--json", action="store_true", help="--estimate or --verify-oleans: print JSON")
     ap.add_argument("--host-label", default=None, metavar="LABEL",
                     help=f"name the host LABEL instead of its host name in the receipt (host, host_label, "
                          f"job_id, host_policy) and the output (env {HOST_LABEL_ENV})")
@@ -1891,6 +2098,14 @@ def main(argv: list[str] | None = None) -> int:
             print("comparator-receipt: --host-label must not be empty", file=sys.stderr)
             return 2
         os.environ[HOST_LABEL_ENV] = args.host_label.strip()
+    if args.verify_oleans is not None:
+        other = [f for f, v in (("--prepare", args.prepare), ("--from-prepared", args.from_prepared),
+                                ("--estimate", args.estimate), ("--slots", args.slots)) if v]
+        if other:
+            print(f"comparator-receipt: --verify-oleans is a read-only check; not with {', '.join(other)}",
+                  file=sys.stderr)
+            return 2
+        return verify_oleans_main(args)
     if (args.sample is not None or args.json or args.force_sample) and not args.estimate:
         print("comparator-receipt: --sample, --force-sample and --json go with --estimate", file=sys.stderr)
         return 2
