@@ -38,6 +38,15 @@ change the registry schema or receipt format, always with a migration).
   `palomar check` command when the check finds gaps (stderr for `gate --check`, a `WARN` checklist item for
   `publish`); additive JSON `palomar_check` {ready, commit, errors, warns, codes, command}. Never a refusal.
 
+- `receipt slurm --preflight-deps --deps-tar T` (or `--deps-dir D`) `[--commit SHA] [--entries GLOB]...`: before
+  submitting a job, check that the staged dependency cache holds every external module the verifier's own entry
+  files import, not only the build target's cone (field report #5: a DEPS_TAR built for the library passed
+  `lake build`, then the audit file's `import Mathlib` failed on the missing `Mathlib.olean`). The import closure of
+  the entry files committed at SHA is followed through the package's modules and the dependencies' sources in the
+  cache; every external module needs its `.olean` and `.ilean` there, and every manifest git package must be at
+  its pinned rev. Fail-closed, read-only (the tarball is read in one pass, never extracted), exit 0/1, `--json`.
+  The template's comment on DEPS_TAR names it; every check inside the job is unchanged.
+
 ### Fixed
 
 - Docs-only and evidence-only descendant rules: a committed Lake build cache or compiled artifact is now refused

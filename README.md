@@ -179,7 +179,8 @@ Receipts from a cluster or a capped local unit: `lean-pkg receipt slurm` and
 template (`receipt slurm --template`) builds the package with an empty,
 job-local Lake cache; `SRC_MODE=clone` gives the job a real `.git` at the
 commit, and `DEPS_TAR` restores prebuilt dependencies while the package
-itself still builds fresh
+itself still builds fresh; `receipt slurm --preflight-deps` checks before
+submission that the tarball holds every module the audit files import
 ([Receipts and trust](docs/receipts.md#a-lower-tier-receipt-from-a-slurm-job)).
 
 Writing the comparator configuration:
