@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.54] - 2026-10-16
+
 ### Added
 
 - `claims/1` accepts two optional claim keys for what a formalization finds in
@@ -86,6 +88,8 @@ change the registry schema or receipt format, always with a migration).
   `.bc.o`, `.o`, `.ltar`, `.so`, `.dylib`, `.dll`, `.a`, `.lib`, `.exe`; case-insensitive), is now a build input
   before any `build_inputs` or evidence admission; the refusal names the path and says `build cache/artifact`.
   Ordinary docs and `.lean-receipts/` evidence are still admitted (docs/receipts.md).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.53] - 2026-10-16
 
