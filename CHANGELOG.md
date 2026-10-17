@@ -116,6 +116,10 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   not receipt-shaped is skipped; any other non-receipt JSON named for the
   commit still fails, and the message now gives the naming rule
   (docs/receipts.md, "Naming rule for `.lean-receipts/`").
+- `receipt check` names files by their package-relative path: the
+  missing-log refusal (and any other message naming a file of the private
+  clone) printed the clone's temporary directory, which is gone when the
+  command ends.
 - `comparator-receipt --seal-sacct` compares the node again: since host
   labels, every receipt carries `host_label`, so the seal had skipped the
   node check. A receipt's `h-` host label is now compared with the label of

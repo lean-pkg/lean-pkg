@@ -119,7 +119,7 @@ def open_source(repo_dir: str, commit: str, at: str | None, tmp: pathlib.Path) -
     clone = dest / prefix if prefix else dest
     if not clone.is_dir():
         raise core.Fail(f"the package directory {prefix}/ does not exist at {ref[:12]}")
-    return {"clone": clone, "commit": x, "at": ref, "prefix": prefix}
+    return {"clone": clone, "root": dest, "commit": x, "at": ref, "prefix": prefix}
 
 
 def referee_pkg(name: str, docs_descendants: bool, comparator_rel: str | None = None) -> dict:
@@ -203,12 +203,26 @@ def toolchain_at(repo: pathlib.Path, rev: str) -> str | None:
 # the checks
 
 class Checks:
-    def __init__(self) -> None:
+    def __init__(self, clone: pathlib.Path | None = None, root: pathlib.Path | None = None) -> None:
         self.items: list[dict] = []
         self.exemptions: list[str] = []   # the binding exemptions the verdict needed (formalization.yaml)
+        # The private clone lives in a temporary directory that is gone when the command ends: a validator's
+        # message that names a path inside it (report_log_missing names where it looked) is rewritten to the
+        # package-relative path, so the output shows no temporary path (#213).
+        self._paths: list[tuple[str, str]] = []
+        for base, label in ((clone, "."), (root, "<repository root>")):
+            if base is None:
+                continue
+            for form in dict.fromkeys((str(base.absolute()), str(base.resolve()))):
+                self._paths.append((form, label))
+
+    def relative(self, text: str) -> str:
+        for form, label in self._paths:
+            text = text.replace(form + "/", "" if label == "." else label + "/").replace(form, label)
+        return text
 
     def add(self, cid: str, verdict: str, detail: str) -> None:
-        self.items.append({"id": cid, "verdict": verdict, "detail": detail})
+        self.items.append({"id": cid, "verdict": verdict, "detail": self.relative(detail)})
 
     def run(self, cid: str, fn, ok_detail: str) -> bool:
         """Run fn(); pass with ok_detail, or fail with the refusal's text."""
@@ -497,7 +511,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
         found = discover(repo, x)
         comp_rel = found["comparator"][0]["path"] if found["comparator"] else None
         pkg = referee_pkg(pkg_name, docs_descendants, comp_rel)
-        c = Checks()
+        c = Checks(repo, src["root"])
         bound = len(found["lower"]) + len(found["comparator"])
         if not found["lower"]:
             c.add("receipts", FAIL, f"no lower-tier receipt tracked under {RECEIPTS_DIR}/ at {ref[:12]} binds "

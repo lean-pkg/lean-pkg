@@ -440,3 +440,22 @@ def test_a_receipt_shaped_file_with_a_record_schema_is_still_checked_as_a_receip
     _git(repo, "commit", "-q", "-m", "a receipt in disguise")
     rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--docs-descendants")
     assert rc == 1 and verdicts(a)[f"lower {rel}"] == "fail" and a["skipped_records"] == []
+
+
+def test_a_missing_log_is_named_by_its_repository_relative_path(lp, env, capsys, tmp_path):
+    """The missing-log refusal names where it looked; in receipt check that is the private clone, a temporary
+    directory that is gone afterwards, so the output gives the package-relative path instead."""
+    x = publish_fixture(lp, env, capsys)
+    repo = env.repo_b
+    _git(repo, "rm", "-q", f".lean-receipts/{x[:12]}-{JOB}-verify.redacted.log")
+    _git(repo, "commit", "-q", "-m", "lose the sealed log")
+    clone = referee_clone(env, tmp_path)
+    rc, a = check(lp, capsys, clone, x, "--docs-descendants")
+    detail = next(c["detail"] for c in a["checks"] if c["id"] == f"lower .lean-receipts/{x[:12]}-{JOB}.json: report log")
+    assert rc == 1 and detail.startswith("report log missing: ")
+    assert "looked beside the receipt (.lean-receipts), in .lean-receipts and tracked there at HEAD" in detail
+    capsys.readouterr()
+    assert lp.main(["receipt", "check", "--repo", str(clone), "--commit", x, "--docs-descendants"]) == 1
+    out = capsys.readouterr().out
+    assert "lean-pkg-receipt-check-" not in out and "/pkg/" not in out
+    assert "lean-pkg-receipt-check-" not in json.dumps(a)
