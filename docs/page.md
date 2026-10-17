@@ -26,7 +26,7 @@ lean-pkg page my-companion --site docs --html docs/verification.html   # docs pa
 
 | Input | Read how | Feeds |
 |---|---|---|
-| `coverage.yaml` | committed at `HEAD`, schema `coverage/1` ([below](#coverageyaml)) | the summary sentence, one block per paper result (number, title, the hypotheses), Not formalized, the manuscript reference, the compute acknowledgment (for a [library](#a-library-with-no-manuscript): the main results, no manuscript) |
+| `coverage.yaml` | committed at `HEAD`, schema `coverage/1` ([below](#coverageyaml)) | the summary sentence, one block per paper result (number, title, the paper's statement when `paper.statement` gives it, the hypotheses), Not formalized, the manuscript reference, the compute acknowledgment (for a [library](#a-library-with-no-manuscript): the main results, no manuscript) |
 | `claims.yaml` | committed at `HEAD` | the Lean declarations of each row |
 | the Lean sources | the claim's `file`, or the Challenge module of the comparator configuration that compares it, at the gate-bound commit | the Lean statement shown beside the paper's ([below](#the-lean-statement)) |
 | the claims ledger | `lean-pkg claims ledger NAME`, promote stage | the word *verified*, per row and in the capsule |
@@ -61,7 +61,7 @@ results, then what the checks establish, and only then the receipts.
 | Section | What it says |
 |---|---|
 | Verification at a glance | one fixed line, *How to read this page*: Lean has checked every step; it cannot check that a Lean statement says what the paper says, so the reader compares, for each result, the paper's statement with the Lean statement. Then the `summary` sentence, the manuscript, the number of results by class and how many the ledger closes. The registry status is not shown: it changes on promote, while the page is committed at one commit |
-| The paper's results in Lean (*Main results* for a library) | one block per formalized result, headed by its number and title: whether it is verified; **In the paper** (a pointer to the result in the paper; the paper's own text needs a new `coverage.yaml` field, [designed but not yet accepted](design/page-for-mathematicians.md#the-paper-statement-a-new-field)); **In Lean** (the declaration, linked at the gate-bound commit, and its statement in a `lean` code block); **Hypotheses** (the paper's own, or the paper's plus the named `inputs`); **Definitions checked by a person** (definition holes and who signed them off); **Axioms**; **Note** |
+| The paper's results in Lean (*Main results* for a library) | one block per formalized result, headed by its number and title: whether it is verified; **In the paper** (the `paper.statement` TeX in a `latex` code block, or a pointer to the paper); **In Lean** (the declaration, linked at the gate-bound commit, and its statement in a `lean` code block); **Hypotheses** (the paper's own, or the paper's plus the named `inputs`); **Definitions checked by a person** (definition holes and who signed them off); **Axioms**; **Note** |
 | Not formalized | every `outside` row, or the `nothing_excluded` reason |
 | What the checks establish | in plain words: every proof is checked by Lean (no `sorry`, which axioms); the statements shown are the ones proved (the comparator); and what no tool checks. The full account: [Trust model](trust-model.md) |
 | How this was checked | the claims ledger with its digest; the build check and the statement comparison, with their commits; *Receipts*: one row per receipt committed under `.lean-receipts/` (path, check, commit, date, Slurm job, SHA-256); *Reproduce*: toolchain, Mathlib revision, the commands, the expected `#print axioms` result |
@@ -85,6 +85,15 @@ top-level `:=` (an equation-compiler form) or is longer than 40 lines, the
 page shows the linked name and says the statement could not be read, rather
 than a guess. Like every other output, the copied text passes the
 public-safety scan.
+
+### The paper's statement
+
+`paper.statement` (and `statement` on a library row) is optional TeX, up to
+2000 characters, several lines allowed. The page shows it as written in a
+`latex` code block: it is not rendered, so a reader sees exactly the
+transcription the authors made, and no data can inject Markdown or HTML. It is
+the authors' transcription of the manuscript; nothing checks it against the
+paper.
 
 The status words are tied to the ledger. A row says *verified* only when
 `lean-pkg claims ledger NAME` (promote stage, so the comparator tier as well
@@ -134,6 +143,7 @@ compute:                              # optional; see the Easley acknowledgment
 | `manuscript.version` | a posted version: `arXiv:<id>v<N>`, or `{repo, commit, sha256}` (a public https repository, a full commit, the SHA-256 of the manuscript file). `unposted` (a private draft) is refused unless `--allow-private-manuscript` is passed; the page then says the numbers cannot be checked yet |
 | `manuscript.eprint_sha256` | optional, only beside an `arXiv:<id>v<N>` version: the SHA-256 of that version's e-print. `lean-pkg formalization anchor` writes it with the record `data/source-baselines/arXiv-<id>v<N>.json`; `coverage check` refuses a value that differs from the record committed at `HEAD` and warns when no record is committed. An older lean-pkg refuses the key (coverage/1 is strict) |
 | `summary` | one line: the capsule's only hand-written sentence |
+| `rows[].paper.statement` | optional: the result as the paper states it, TeX, at most 2000 characters, several lines allowed; no line may start a code fence. Shown beside the Lean statement. An older lean-pkg refuses the key (coverage/1 is strict) |
 | `rows[].class` | `same-assumptions` (the Lean statement carries the paper's hypotheses), `inputs-supplied` (it also takes the named `inputs` as hypotheses), `outside` (no Lean counterpart) |
 | `rows[].claims` | ids in `claims.yaml` at `HEAD`; at least one for the first two classes, none for `outside`; a superseded claim is refused |
 | `rows[].inputs` | required for `inputs-supplied`, refused for `same-assumptions` |
@@ -181,6 +191,7 @@ compute:                                       # optional; the Easley rule is th
 | Rule | |
 |---|---|
 | refused | `manuscript` and `nothing_excluded` (each would state a manuscript), and a row's `paper`, `class` or `inputs` |
+| `rows[].statement` | optional TeX, as `paper.statement` for a paper; shown as **In words** |
 | `rows[].title`, `rows[].claims`, `rows[].note` | one line each; at least one claim id, each in `claims.yaml` at `HEAD`, none superseded, each claim's `file` committed |
 | comparator | as for a paper: every theorem the recorded comparator receipt compares is the declaration of a claim some row names, so the rows account for everything the page says was compared |
 | `compute`, `lean_pkg_version`, `summary` | as above |
@@ -286,7 +297,8 @@ generator) from the same data as the README block:
 `--html PATH` writes one HTML file holding both pages: no script, no
 external stylesheet, font or image, a few lines of inline CSS (light and dark;
 a serif text face, a 48rem measure, the Lean and TeX statements in marked code
-blocks).
+blocks). TeX is shown as source, not typeset: typesetting needs MathJax or
+KaTeX, a script, which this file never carries.
 It is rendered from the same Markdown, so it says exactly what the pages say.
 Links are kept only to https targets and in-page anchors.
 
