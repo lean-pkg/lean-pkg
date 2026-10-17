@@ -240,6 +240,24 @@ def test_scope_r11_every_compared_theorem_is_mapped(lp, env, capsys):
     assert len(errs) == 1 and "'BetaAudit.Demo.unmapped_thm'" in errs[0] and "no claim a row names" in errs[0]
 
 
+def test_scope_r11_a_root_namespace_near_miss_is_named_never_credited(lp, env, capsys):
+    """#6: a Challenge name with the decl's root namespace replaced (`DemoAudit.foo_le_bar` for the decl
+    `Demo.foo_le_bar`) is still unmapped; the error names the near miss and the covering name."""
+    prepare(env)
+    reg = read_reg(env)
+    rel = reg["packages"]["beta"]["gate"]["comparator"]
+    comp = json.loads((env.repo_b / rel).read_text())
+    comp["configs"][0]["theorem_names"] += ["DemoAudit.foo_le_bar", "DemoAudit.unrelated_thm"]
+    (env.repo_b / rel).write_text(json.dumps(comp))
+    _git(env.repo_b, "commit", "-q", "-am", "receipt compares root-dropped names")
+    errs = cov_errors(lp, env, capsys)
+    near = [e for e in errs if "'DemoAudit.foo_le_bar'" in e]
+    assert len(errs) == 2 and len(near) == 1 and "no claim a row names" in near[0]
+    assert "hint: DemoAudit.foo_le_bar looks like the decl Demo.foo_le_bar" in near[0]
+    assert "DemoAudit.Demo.foo_le_bar" in near[0]
+    assert all("hint:" not in e for e in errs if "unrelated_thm" in e)     # a different suffix: no hint
+
+
 def test_scope_r12_definition_holes_name_their_reviewer(lp, env, capsys):
     prepare(env)
     reg = read_reg(env)

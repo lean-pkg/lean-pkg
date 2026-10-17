@@ -125,9 +125,14 @@ def do_claims_mark(reg: dict, name: str, config: str, status: str, write: bool,
     lines += [f"  {'set' if m['changed'] else 'kept'} {m['id']} ({m['decl']}): {m['from']} -> {m['to']}"
               for m in matched]
     lines += [f"  unmatched theorem name: {n} (covers no claim's fully qualified decl)" for n in unmatched]
+    hints = cc.name_hints(unmatched, [(str(c.get("decl") or ""), str(c.get("decl") or "") in qualified)
+                                      for c in claims]) if unmatched else []
+    if unmatched:                           # #6: say the rule, and the near misses it explains
+        lines.append(f"  rule: {cc.COVER_RULE}")
+        lines += cc.hint_lines(hints)
     payload = {"ok": True, "name": name, "file": rel, "config": str(config), "status": status,
                "matched": matched, "changed": len(changes), "unmatched": unmatched, "written": False,
-               "reformatted": False}
+               "reformatted": False, "rule": cc.COVER_RULE, "hints": hints}
     if not changes:
         lines.append(f"{name}: nothing to change; nothing written")
         return lines, payload
