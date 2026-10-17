@@ -144,7 +144,8 @@ entries registered by 2026-10-05, none is below v4.30.0, and every entry
 since 2026-09-24 is at v4.35.0-rc2 or rc3. A v4.29 package has to be
 upgraded first; lean-pkg's lifecycle is unaffected by the pin.
 `lean-pkg palomar check NAME` reports both gaps (see
-[Palomar readiness](#palomar-readiness)).
+[Palomar readiness](#palomar-readiness)); the header each file needs is in
+[Getting started](getting-started.md#the-module-header).
 
 **Which Lean version do I need?**
 Whatever your package pins. For a package you intend to register in
@@ -243,6 +244,16 @@ lookups, the Challenge import and shadowing checks, or the build and
 comparator run; the JSON `not_checked` lists them. Like Palomar's browser
 preflight it predicts, it does not decide.
 
+**What header does a file need?**
+`module` as its first command, `public import` for every import its
+statements use, and its theorems inside `public section` ... `end` (or each
+declared `public theorem`), since `lake comparator` cannot export a private
+declaration; `@[expose]` on a shared definition whose body a proof unfolds.
+The project template in [Getting started](getting-started.md#start-from-scratch)
+is written that way and `palomar check` finds no source gap in it.
+`lean-pkg init` creates only the registry and its event log; lean-pkg writes
+no `.lean` file into your project.
+
 **`palomar check` says `judged_as` is an unknown key. Is my configuration wrong?**
 For Palomar, yes: its verifier refuses any configuration key outside the six
 above, and lean-pkg's definition-hole rule puts the human sign-off in
@@ -251,7 +262,6 @@ stands; keep `definition_names` empty where you can. A scaffold with a
 `lean_pkg_scaffold` key still has TODO entries.
 
 **What is planned next?**
-Module-headed files from `lean-pkg init` and the templates (small);
 `palomar port-modules --dry-run`, which inserts headers, rewrites imports to
 `public import` and builds to report definitions needing `@[expose]`, never
 committing (large); a sign-off beside the configuration instead of

@@ -514,21 +514,41 @@ cd ~/lean/beta && lake build && bash /scratch/beta-types.sh /scratch/beta-types.
 cat /proc/sys/fs/file-nr
 ```
 
-The smallest complete pair, from a smoke test:
+The smallest complete pair, from a smoke test, in the module form Palomar
+requires (built and judged with `lake comparator` on Lean v4.35.0-rc2):
 
 ```lean
 -- Challenge.lean
-import Mathlib
+module
+
+public import Mathlib
+
+public section
 
 theorem two_mul_le (n : ℕ) : n ≤ 2 * n := by sorry
+
+end
 ```
 
 ```lean
 -- Solution.lean
-import Mathlib
+module
+
+public import Mathlib
+
+public section
 
 theorem two_mul_le (n : ℕ) : n ≤ 2 * n := by omega
+
+end
 ```
+
+`public import` because the statements use Mathlib, and `public section`
+because a declaration of a module is private otherwise and the comparator
+cannot export it (`Constant two_mul_le not found in environment`). A shared
+definition whose body a proof unfolds also needs `@[expose]`.
+[Getting started](getting-started.md#the-module-header) explains each line and
+the form for a toolchain below v4.35.0-rc2.
 
 A realistic Challenge states, for example, that Brownian motion stopped at a
 truncated exit time has mean equal to its start point, with the law and the

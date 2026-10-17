@@ -93,6 +93,19 @@ change the registry schema or receipt format, always with a migration).
   a tag or a link. A README block rendered by 0.7.54 from such text reads as
   stale once; render it again with `page NAME --write`.
 
+- The project template in docs/getting-started.md ("Start from scratch") and
+  the smallest Challenge/Solution pair in docs/comparator.md are written in
+  Lean's module system, which Palomar requires of every tracked `.lean` file:
+  `module` first, `public import Mathlib`, the theorems inside
+  `public section` ... `end` (`lake comparator` cannot export a private
+  theorem of a module), and `@[expose]` for a shared definition a proof
+  unfolds. The template builds and passes `lake comparator` on Lean
+  v4.35.0-rc2, and `palomar check` finds no source gap in it; a new section,
+  "The module header", explains each line and the form for older
+  toolchains. `lean-pkg init` writes only the registry and its event log and
+  lean-pkg scaffolds no `.lean` file, so the FAQ no longer plans
+  "module-headed files from `lean-pkg init`".
+
 ### Fixed
 
 - `lean-exercise` reads module-headed files: the import rules now cover
