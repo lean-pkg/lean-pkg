@@ -60,6 +60,11 @@ differing file already at either path is refused. The README entry block is prin
 sha256(DIR/artifacts.sha256) must be the stdout's `artifacts-manifest-sha256` line and every file under DIR is
 rehashed against that manifest (check_artifacts); the receipt gains `artifacts_manifest_sha256` and the manifest
 is written beside it as an evidence file. Without the flag nothing changes.
+Container (#236, container.py): when the log has the template's `container-engine:`, `container-image:` and
+`container-image-sha256:` (a SIF file) or `container-oci-digest:` (an OCI image) lines, the receipt gains the
+additive `container` {engine, image_sha256 or oci_digest, ref (a home directory shown as ~)}; with --stdout the
+job stdout must carry the same digest line exactly once (an edited line on either side refuses). A log without
+container lines gives a receipt without the key, as before.
 Everything after the executor's own terminal-state check (2. to 5. and the output) is `produce`, shared with
 `receipt systemd` (receipt_systemd.py), which hands it an `Evidence` with its job identity, check lines, README
 lines and extra evidence files.
@@ -81,6 +86,7 @@ import subprocess
 import sys
 
 from . import cli as core
+from . import container as ctr
 from . import lake_hygiene as lh
 from . import public_safety as ps
 
@@ -90,7 +96,7 @@ SHA_KEY = "verify-log-sha256"
 LARGE_LOG_WARN_BYTES = 90 << 20
 PRE_KEY, POST_KEY = "pre-manifest-sha256", "post-manifest-sha256"
 LOG_KEYS = ("lean-toolchain", "mathlib-rev", "checker", "sorry-count", "axioms", "commit", "job-id",
-            "generated-at", "src-head")
+            "generated-at", "src-head", *ctr.LOG_KEYS)
 # (regex, replacement): the per-job temporary account prefix and the scratch user directory a Slurm verify
 # script prints (`/tmp/<account>-job-...`, `/tmp/<account>-job123/`, `/scratch/<user>/`).
 USER_TOKEN = "<USER>"
@@ -126,6 +132,7 @@ SBATCH_TEMPLATE = r"""#!/bin/bash
 # Run --check on the files of a short trial job before the long one: it names every line still missing.
 # What the receipt reads; keep these lines as they are:
 #   stdout (.out): exactly one line each of pre-manifest-sha256, post-manifest-sha256, verify-log-sha256
+#                  (and container-image-sha256 or container-oci-digest when the tools run in a container)
 #   stderr (.err): empty, so every tool writes into the log, never to the job's stderr
 #   the log: one line each of checker:, sorry-count:, axioms: (and lean-toolchain:, commit:, job-id:,
 #            generated-at:, which must agree with the commit and the job), the build between the
@@ -162,6 +169,13 @@ LEAN_PATH_CMD=${LEAN_PATH_CMD:-"lake env printenv LEAN_PATH"}
 CHECKER=${CHECKER:-"verify.sbatch (lake build; #print axioms)"}
 # Run the tools inside the job container when the node needs one, e.g. RUN="apptainer exec lean.sif".
 RUN=${RUN:-}
+# The container image the tools run in, recorded in the log and on stdout (the receipt's `container` key).
+# CONTAINER_IMAGE: the Apptainer or Singularity .sif file (default: the first word of RUN ending in .sif), or an
+# OCI image name for podman or docker. CONTAINER_ENGINE: apptainer, singularity, podman or docker (default: the
+# first word of RUN). Before the build the job takes the SIF file's sha256, or the OCI image's digest
+# (`podman image inspect`, `docker image inspect`); the log names the image with a home directory shown as ~.
+CONTAINER_IMAGE=${CONTAINER_IMAGE:-}
+CONTAINER_ENGINE=${CONTAINER_ENGINE:-}
 # How the tree committed at COMMIT reaches the work directory. archive (the default): `git archive`, so the
 # job's tree has no .git. clone: a new repository there holding only COMMIT and its history (fetched over the
 # file transport from the submitting checkout, never the network; its own object store, so nothing is shared
@@ -243,6 +257,54 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+# The container image identity, before anything runs in it (CONTAINER_IMAGE above).
+if [ -z "$CONTAINER_IMAGE" ]; then
+  for w in $RUN; do
+    case "$w" in *.sif) CONTAINER_IMAGE=$w; break ;; esac
+  done
+fi
+container_key=""
+if [ -n "$CONTAINER_IMAGE" ]; then
+  if [ -z "$CONTAINER_ENGINE" ]; then
+    for w in $RUN; do CONTAINER_ENGINE=${w##*/}; break; done
+  fi
+  case "$CONTAINER_ENGINE" in
+    apptainer|singularity)
+      if [ ! -f "$CONTAINER_IMAGE" ]; then
+        echo "error: CONTAINER_IMAGE: no SIF file $CONTAINER_IMAGE" >&2
+        exit 1
+      fi
+      container_key=container-image-sha256
+      container_digest=$(sha256sum "$CONTAINER_IMAGE" | cut -d' ' -f1)
+      ;;
+    podman)
+      container_key=container-oci-digest
+      container_digest=$(podman image inspect --format '{{.Digest}}' "$CONTAINER_IMAGE")
+      ;;
+    docker)
+      container_key=container-oci-digest
+      container_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$CONTAINER_IMAGE")
+      container_digest=${container_digest##*@}
+      ;;
+    *)
+      echo "error: CONTAINER_ENGINE is apptainer, singularity, podman or docker, not '$CONTAINER_ENGINE'" >&2
+      exit 1
+      ;;
+  esac
+  case "$container_key $container_digest" in
+    "container-image-sha256 "[0-9a-f]*|"container-oci-digest sha256:"[0-9a-f]*) ;;
+    *)
+      echo "error: no digest for the container image $CONTAINER_IMAGE" >&2
+      exit 1
+      ;;
+  esac
+  container_ref=$CONTAINER_IMAGE
+  case "$container_ref" in
+    "${HOME:-/nonexistent}"/*) container_ref="~/${container_ref#"$HOME"/}" ;;
+  esac
+  echo "$container_key $container_digest"
+fi
+
 # The committed tree at COMMIT, never the working tree.
 case "$SRC_MODE" in
   archive)
@@ -286,6 +348,11 @@ fi
     echo "src-head: $(git rev-parse HEAD)"
   fi
   echo "deps-restore: $deps_restore"
+  if [ -n "$container_key" ]; then
+    echo "container-engine: $CONTAINER_ENGINE"
+    echo "container-image: $container_ref"
+    echo "$container_key: $container_digest"
+  fi
 } >"$LOG"
 if [ "$SRC_MODE" = clone ]; then
   if [ "$(git rev-parse HEAD)" != "$COMMIT" ]; then
@@ -1073,9 +1140,11 @@ def parse_log(text: str) -> tuple[dict, list[str]]:
     return out, refusals
 
 
-# The log keys whose value the receipt takes from the raw log; `checker:` alone is published as redacted.
+# The log keys whose value the receipt takes from the raw log; `checker:` and the container image ref are
+# published as redacted (REDACTED_KEYS).
 RAW_KEYS = ("lean-toolchain", "mathlib-rev", "sorry-count", "axioms", "commit", "job-id", "generated-at",
-            "src-head")
+            "src-head", ctr.ENGINE_KEY, *ctr.DIGEST_KEYS)
+REDACTED_KEYS = ("checker", ctr.REF_KEY)
 
 
 def _evidence_counts(text: str) -> tuple[int, int, int, int]:
@@ -1102,10 +1171,11 @@ def parse_raw_log(raw_text: str, redacted: str) -> tuple[dict, list[str]]:
     a build-completion line, or any `key: value` line but `checker:`) refuses."""
     fields, problems = parse_log(raw_text)
     red_fields, _red_problems = parse_log(redacted)
-    if "checker" in red_fields:
-        fields["checker"] = red_fields["checker"]
-    else:
-        fields.pop("checker", None)
+    for key in REDACTED_KEYS:
+        if key in red_fields:
+            fields[key] = red_fields[key]
+        else:
+            fields.pop(key, None)
     changed = [k for k in RAW_KEYS if fields.get(k) != red_fields.get(k)
                or _key_lines(raw_text, k) != _key_lines(redacted, k)]
     names = ("`declaration uses sorry` warnings", "`#print axioms` results", "`does not depend on any axioms` lines",
@@ -1507,6 +1577,18 @@ def lake_cache_check(repo: pathlib.Path, commit: str | None, raw_text: str, refu
     checks += ok
 
 
+def container_evidence(fields: dict, paths: dict, refusals: list[str], checks: list[str]) -> dict | None:
+    """The additive `container` value (#236, container.from_log): the verify log's container lines, and with
+    --stdout the job stdout's matching digest line. None when the job names no container."""
+    values = None
+    if "--stdout" in paths:
+        out_text = paths["--stdout"].read_bytes().decode("utf-8", errors="replace")
+
+        def values(key: str) -> list[str]:
+            return stdout_values(out_text, key)
+    return ctr.from_log(fields, values, refusals, checks)
+
+
 def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.Pattern]) -> int:
     """The shared second half of every `receipt` form: commit facts, the seal, the verify log's fields, redaction,
     the public-safety scan, and (when nothing refused) the receipt, the redacted log, the executor's evidence
@@ -1536,6 +1618,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
                                     checker_flag=args.checker, check_log_job_id=ev.check_log_job_id,
                                     refusals=refusals)
     log_commit_bound = commit_line_binding(fields, commit, "--stdout" in paths, refusals, checks)
+    container = container_evidence(fields, paths, refusals, checks)
     why = evidence_symlink_problem(repo, commit)
     if why:
         refusals.append(why)
@@ -1562,6 +1645,8 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     # Additive and informational only (field report): whether the verify log's own `commit:` line names --commit.
     # Gate never reads it: a receipt claiming `true` passes or fails gate exactly as one without the key.
     receipt["log_commit_bound"] = log_commit_bound
+    if container is not None:      # additive (#236): only when the job ran in a container; gate ignores it
+        receipt["container"] = container
     receipt.update(ev.receipt_extra)
     files = []                     # (path, bytes) of the executor's evidence files
     sealed_files = []              # {role, path, sha256, receipt_key} of each evidence file, for --json
@@ -1814,6 +1899,7 @@ def preflight(args) -> int:
     elif "commit" not in fields and "--stdout" not in paths:
         problems.append("verify log: no `commit:` line; with the in-log fallback seal (no --stdout) the receipt "
                         "is refused (print `commit: <sha>` in the log, or pass --stdout)")
+    container_evidence(fields, paths, problems, checks)
     fams = blocking_families(_scanner(repo), redacted)
     if fams:
         problems.append(f"public-safety: a private string remains in the redacted verify log ({', '.join(fams)}); "

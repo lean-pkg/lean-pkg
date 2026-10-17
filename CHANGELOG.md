@@ -22,6 +22,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   expected-reason check. `ok` and the exit code do not change; `*.lean`,
   `*.olean` and `*.ilean` are not matched (#239).
 
+- Receipts record the container image a job ran in (#236), as the additive
+  key `container` {`engine`, `image_sha256` (the SIF file) or `oci_digest`,
+  `ref` (a home directory shown as `~`)}; no schema bump, `gate` ignores
+  it and a receipt without it is unchanged. `receipt slurm --template`
+  takes the SIF's sha256 (or the podman / docker image digest) before the
+  build when `CONTAINER_IMAGE` is set or `RUN` names a `.sif`, and writes
+  it to the log and the stdout; `receipt slurm` / `systemd` and `--check`
+  require the two to agree. `comparator-receipt` records the SIF named by
+  `APPTAINER_CONTAINER` when it is readable inside the container.
+  `receipt check` shows the key (a malformed one fails) and the page's
+  "How this was checked" names the engine and digest. A site-profile key
+  naming the expected digest is a documented follow-up (docs/sites.md).
+
 ### Fixed
 
 - `lean_pkg.dup_constants` resolves a project's dependencies from

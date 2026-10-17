@@ -41,7 +41,10 @@ COMPARATOR_RECEIPT_STACK (unlimited | a size in kB: the soft stack limit for the
 COMPARATOR_RECEIPT_BUILD_SOURCE (free text naming where the package's oleans were built; recorded in
 build_provenance), COMPARATOR_RECEIPT_LEAN_THREADS (a positive integer: LEAN_NUM_THREADS for the lake/lean
 children), COMPARATOR_RECEIPT_NO_MATHLIB (1: the project knowingly has no Mathlib; the toolchain mechanism
-refuses such a project otherwise, and with it verify-comparator.sh skips `lake exe cache get`).
+refuses such a project otherwise, and with it verify-comparator.sh skips `lake exe cache get`),
+APPTAINER_CONTAINER / SINGULARITY_CONTAINER (set by the runtime inside Apptainer / Singularity: when it names a
+SIF file readable here, the receipt gains the additive `container` {engine, image_sha256, ref}, the file hashed
+when the receipt is written; otherwise, and under an OCI runtime, the key is absent; #236, container.py).
 """
 from __future__ import annotations
 
@@ -67,6 +70,7 @@ SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
 # Acceptance is decided by the same predicate the validator uses (one source of truth).
 from .cli import build_provenance_line, comparator_pass  # noqa: E402
+from . import container as ctr  # noqa: E402
 from . import lake_hygiene as lh  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
@@ -2195,6 +2199,11 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
         "result": "pass", "configs": entries, "stages": stage_summary, **(extra or {}),
         "host_label": host,
     }
+    # #236: the SIF image when this runs inside Apptainer / Singularity and the image file is readable here
+    # (container.from_environment); absent otherwise. Additive: validate_comparator ignores it.
+    image = ctr.from_environment()
+    if image is not None:
+        receipt["container"] = image
     receipt = label_host_fields(redact_json(receipt))   # #41: <checkout>/, <home>/, <tmp>/ instead of host paths
     rec_tmp = tmp / "receipt.json"
     rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
