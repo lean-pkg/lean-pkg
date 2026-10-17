@@ -78,7 +78,7 @@ Exit 1 is also a negative answer here:
 
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
-- `comparator-coverage` (exit 0): `bound_commit`, `candidate`, `changed_configs`, `claims_source`, `config_changed`, `configs`, `covered`, `head`, `name`, `next_commands`, `not_applicable`, `not_covered`, `ok`, `statement`, `theorem_claims`, `todo`, `uncovered`
+- `comparator-coverage` (exit 0): `bound_commit`, `candidate`, `changed_configs`, `claims_source`, `config_changed`, `configs`, `covered`, `head`, `hints`, `name`, `next_commands`, `not_applicable`, `not_covered`, `ok`, `statement`, `theorem_claims`, `todo`, `uncovered`
 - `comparator-host-check` (exit depends on the host): `can`, `checks`, `env_warnings`, `mechanism_detail`, `mechanisms`, `ok`, `palomar`, `verdict`
 - `comparator-host-check-routes` (exit depends on the host): `advice`, `can`, `checks`, `env_warnings`, `executables`, `limits`, `locale`, `mechanism_detail`, `mechanisms`, `ok`, `palomar`, `resources`, `routes`, `routes_schema`, `verdict`
 - `comparator-migrate-signoff` (exit 0): `config`, `config_sha256_after`, `config_sha256_before`, `config_text`, `dropped`, `dry_run`, `moved`, `next_commands`, `ok`, `other_keys`, `palomar_keys_unchanged`, `receipt_impact`, `sidecar`, `signoff`, `written`
