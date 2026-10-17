@@ -28,7 +28,9 @@ Each listed job must be the `job_id` of a receipt of the site's scheduler,
 committed at `HEAD` under `.lean-receipts/`. For Slurm that is `slurm-<J>`,
 which `lean-pkg receipt slurm` writes only after sacct shows the job
 COMPLETED with exit 0:0, or a comparator receipt whose `host_policy` says it
-ran in Slurm job `<J>`. With the declaration backed, `lean-pkg page` puts the
+ran in Slurm job `<J>` and whose claim is sealed with that job's sacct record
+([`comparator-receipt --seal-sacct`](comparator.md#seal-the-slurm-claim-with-sacct)).
+With the declaration backed, `lean-pkg page` puts the
 site's sentence, verbatim, under Acknowledgments, in profile order (built-in
 first, then the package's own, each by name).
 

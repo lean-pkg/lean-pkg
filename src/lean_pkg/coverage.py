@@ -417,18 +417,35 @@ def receipt_at_head(repo: pathlib.Path, rel: str) -> tuple[dict | None, bytes | 
     return (data if isinstance(data, dict) else None), raw
 
 
-def slurm_job_of(rec: dict) -> str | None:
+def slurm_job_of(rec: dict, repo: pathlib.Path | None = None) -> str | None:
     """The receipt's Slurm job as `slurm-<J>`, or None when the receipt does not show a Slurm run: a
-    lower-tier receipt whose job_id is `slurm-<J>` (what `receipt slurm` writes), or a comparator receipt
-    whose host_policy says it ran inside a Slurm job and whose job_id is that job's number. Other job ids
-    (systemd units, local runs) carry host labels and are never copied."""
+    lower-tier receipt whose job_id is `slurm-<J>` (what `receipt slurm` writes after sacct), or a comparator
+    receipt whose claim (job_id J, host_policy `Slurm job J ...`, from SLURM_JOB_ID, which any shell can set)
+    is corroborated by its sacct seal committed at HEAD of `repo` (receipt.sacct_seal_problem). Without
+    `repo`, or without a valid seal, a comparator receipt shows no Slurm run. Other job ids (systemd units,
+    local runs) carry host labels and are never copied."""
     job = rec.get("job_id")
     if isinstance(job, str) and SLURM_JOB_RE.match(job):
         return job
-    if rec.get("schema") in core.COMPARATOR_SCHEMAS and isinstance(job, str) and re.fullmatch(r"\d+(?:_\d+)?", job) \
-            and str(rec.get("host_policy") or "").startswith(f"Slurm job {job} "):
+    if rec.get("schema") in core.COMPARATOR_SCHEMAS and repo is not None and unsealed_comparator_job(rec, repo) is None \
+            and receipt_mod().comparator_slurm_job(rec):
         return f"slurm-{job}"
     return None
+
+
+def receipt_mod():
+    from . import receipt
+    return receipt
+
+
+def unsealed_comparator_job(rec: dict, repo: pathlib.Path) -> str | None:
+    """Why a comparator receipt's Slurm claim is not corroborated (receipt.sacct_seal_problem against the
+    seal file committed at HEAD), or None when it is; also a reason when it claims no Slurm job."""
+    r = receipt_mod()
+    block = rec.get("slurm_sacct")
+    rel = block.get("file") if isinstance(block, dict) and isinstance(block.get("file"), str) else None
+    sealed = core.git_show_bytes(repo, f"./{rel}") if rel and rel.startswith(".lean-receipts/") else None
+    return r.sacct_seal_problem(rec, sealed)
 
 
 def slurm_jobs_at_head(repo: pathlib.Path) -> dict[str, str]:
@@ -436,9 +453,22 @@ def slurm_jobs_at_head(repo: pathlib.Path) -> dict[str, str]:
     out: dict[str, str] = {}
     for rel in tracked_receipts(repo):
         rec, _raw = receipt_at_head(repo, rel)
-        job = slurm_job_of(rec) if rec else None
+        job = slurm_job_of(rec, repo) if rec else None
         if job:
             out.setdefault(job, rel)
+    return out
+
+
+def unsealed_comparator_receipts(repo: pathlib.Path) -> dict[str, tuple[str, str]]:
+    """{slurm-<J>: (receipt path, why)} for each comparator receipt tracked at HEAD that claims Slurm job J
+    but whose claim no sacct seal corroborates: a near miss to name in a refusal, never backing."""
+    out: dict[str, tuple[str, str]] = {}
+    for rel in tracked_receipts(repo):
+        rec, _raw = receipt_at_head(repo, rel)
+        if rec and rec.get("schema") in core.COMPARATOR_SCHEMAS and receipt_mod().comparator_slurm_job(rec):
+            why = unsealed_comparator_job(rec, repo)
+            if why:
+                out.setdefault(f"slurm-{rec['job_id']}", (rel, why))
     return out
 
 
@@ -451,7 +481,8 @@ def bare_job_receipts(repo: pathlib.Path) -> dict[str, str]:
     for rel in tracked_receipts(repo):
         rec, _raw = receipt_at_head(repo, rel)
         job = rec.get("job_id") if rec else None
-        if isinstance(job, str) and re.fullmatch(r"\d+(?:_\d+)?", job) and not slurm_job_of(rec):
+        if isinstance(job, str) and re.fullmatch(r"\d+(?:_\d+)?", job) and not slurm_job_of(rec, repo) \
+                and rec.get("schema") not in core.COMPARATOR_SCHEMAS:     # unsealed comparator: its own hint
             out.setdefault(f"slurm-{job}", rel)
     return out
 
@@ -481,6 +512,10 @@ def compute_backing(doc: dict, repo: pathlib.Path, profiles: dict | None = None
                 f"; {near[j]} has job_id {j.removeprefix('slurm-')!r}, a bare number, which is not accepted as a "
                 f"Slurm job: write the receipt with `lean-pkg receipt slurm --job {j.removeprefix('slurm-')}` "
                 f"(it checks sacct and writes job_id {j})" for j in missing if j in near)
+            if sched is sites.SLURM:          # a comparator receipt's unsealed claim: its own hint
+                unsealed = unsealed_comparator_receipts(repo)
+                hint += "".join(f"; {unsealed[j][0]} claims Slurm job {j.removeprefix('slurm-')} but does not back "
+                                f"it: {unsealed[j][1]}" for j in missing if j in unsealed)
             problems.append(f"compute ({c['cluster']}): no {sched.label} receipt tracked at HEAD under .lean-receipts/ "
                             f"has job_id {', '.join(missing)} (commit the receipt, or drop the job){hint}")
         else:

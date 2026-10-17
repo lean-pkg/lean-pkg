@@ -9,6 +9,55 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `comparator-receipt --seal-sacct RECEIPT [--sacct-file F] [--user NAME]
+  [--json]`: after a Slurm job finished, corroborate a comparator receipt's
+  Slurm claim with the job's sacct record (main line `COMPLETED`, exit
+  `0:0`, a zoned Start..End containing the receipt's `generated_at`, the
+  sealing account and the receipt's node where known) and seal it: the
+  normalized record (no user or node names) as
+  `.lean-receipts/<c12>-comparator-sacct.txt` and an additive
+  `slurm_sacct` block with its SHA-256 in the receipt. Reuses `receipt
+  slurm`'s sacct parser, which now also reads `Start`, `End`, `User` and
+  `NodeList` when a header names them. See docs/comparator.md, "Seal the
+  Slurm claim with sacct".
+
+### Changed
+
+- Soundness: a comparator receipt's Slurm claim (`job_id` J, `host_policy`
+  `Slurm job J ...`, both from `SLURM_JOB_ID`, which any shell can set) no
+  longer backs a `coverage.yaml` `compute` job, and so the Easley sentence,
+  on its own: only a claim sealed with `comparator-receipt --seal-sacct`
+  does, and `page`, `coverage check`, `receipt check` and the publish
+  checklist rehash and reparse the sealed record at HEAD (another job, a
+  window that does not contain the run, or an edited record backs
+  nothing; the refusal names the receipt and why). Receipt format: the
+  `slurm_sacct` block is additive, the schema stays `comparator-receipt/2`,
+  and old receipts keep their meaning and stay valid comparator receipts;
+  the one change is that an unsealed Slurm claim no longer backs compute.
+  Migration: run `comparator-receipt --seal-sacct R` where sacct sees the
+  job (or with `--sacct-file`), commit the receipt and the record, and
+  re-record it with `lean-pkg comparator NAME --receipt R --replace`.
+
+### Fixed
+
+- Soundness: a lower-tier receipt whose sealed verify log
+  (`<c12>-<job>-verify.redacted.log`, or its `.gz`) is missing or
+  unreadable is now refused instead of accepted with `· report_sha256 not
+  checked`: by `gate` and `gate --check`, and by every consumer of a
+  recorded receipt, which used to skip the log entirely: the claims ledger
+  (new code `report-log-missing`, class unknown, so `promote` refuses),
+  the promote checklist (which also needs the log committed),
+  `publish`'s evidence list, `next` (blocker `invalid-receipt`),
+  `comparator` and `comparator --check`, `palomar prepare`, and `index add`
+  / `index check` (the log must be committed at the pin or an
+  evidence-only descendant). The refusal names where it looked and the
+  path to restore the log to (docs/receipts.md, "Restoring preserved
+  evidence"); there is no bypass flag. A package gated with such a receipt
+  stays recorded, but its ledger is no longer `ready` until the log is
+  restored byte-exact (or a new run is gated).
+
 ## [0.10.0] - 2026-10-17
 
 ### Added

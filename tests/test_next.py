@@ -8,7 +8,7 @@ import shlex
 
 import pytest
 
-from .conftest import (_git, base_pkg, commit_claims, make_receipt, make_repo, read_events, read_reg,
+from .conftest import (FIXTURE_REPORT_SHA, write_report_log, _git, base_pkg, commit_claims, make_receipt, make_repo, read_events, read_reg,
                        repo_head, set_lease, write_reg)
 
 PAYLOAD_KEYS = {"ok", "name", "command", "reason", "blockers", "notes", "state", "repo_override"}
@@ -30,9 +30,11 @@ def set_status(env, name, status, **kw):
     write_reg(env, reg)
 
 
-def drop_receipt(repo, receipt, name="slurm-1.json"):
+def drop_receipt(repo, receipt, name="slurm-1.json", log=True):
     d = repo / ".lean-receipts"
     d.mkdir(exist_ok=True)
+    if log and receipt.get("report_sha256") == FIXTURE_REPORT_SHA:
+        write_report_log(d, receipt)              # the sealed log gate needs beside the receipt
     (d / name).write_text(json.dumps(receipt))
     return f".lean-receipts/{name}"
 

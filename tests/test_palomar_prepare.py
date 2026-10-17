@@ -11,7 +11,7 @@ import json
 import pytest
 import yaml
 
-from .conftest import (_git, make_comparator_receipt, make_receipt, read_events, read_reg, repo_head,
+from .conftest import (put_receipt, _git, make_comparator_receipt, make_receipt, read_events, read_reg, repo_head,
                        write_reg)
 from .test_palomar_check import files, make_pkg
 
@@ -154,7 +154,7 @@ def ready_gamma(tmp_path, **over):
     repo, reg = make_pkg(tmp_path, files(**over), lean_toolchain="leanprover/lean4:v4.35.0")
     rdir = repo / ".lean-receipts"
     rdir.mkdir()
-    (rdir / "seed.json").write_text(json.dumps(make_receipt(repo), indent=2))
+    put_receipt(rdir / "seed.json", make_receipt(repo), indent=2)
     comp_rel = f".lean-receipts/{repo_head(repo)[:12]}-comparator.json"
     (repo / comp_rel).write_text(json.dumps(make_comparator_receipt(repo), indent=2))
     data = yaml.safe_load(reg.read_text())

@@ -283,9 +283,9 @@ def test_add_refuses_receipt_bytes_with_private_path_strings(lp, tmp_path, capsy
     _git(pkg.repo, "reset", "-q", "--hard", pkg.pin)
     (pkg.repo / ".lean-receipts").mkdir(exist_ok=True)
     r = json.loads((pkg.repo / pkg.lower_rel).read_text()) if (pkg.repo / pkg.lower_rel).exists() else None
-    from .conftest import make_receipt
+    from .conftest import make_receipt, put_receipt
     r = make_receipt(pkg.repo, checker="/home/someone/bin/verify.sh")
-    (pkg.repo / pkg.lower_rel).write_text(json.dumps(r, indent=2) + "\n")
+    put_receipt(pkg.repo / pkg.lower_rel, r, indent=2, tail="\n")
     _git(pkg.repo, "add", "-A")
     _git(pkg.repo, "commit", "-m", "evidence")
     assert index_add(lp, tmp_path / "index", pkg) == 1

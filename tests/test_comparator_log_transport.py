@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-from .conftest import add_comparator_config, make_comparator_receipt, make_receipt, read_events
+from .conftest import add_comparator_config, make_comparator_receipt, make_receipt, read_events, write_receipt
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
@@ -41,7 +41,7 @@ def archive(env, tmp_path):
     receipt = make_receipt(env.repo_a)
     arch = tmp_path / "archive"
     arch.mkdir()
-    (arch / "gate.json").write_text(json.dumps(receipt))
+    write_receipt(arch, receipt, "gate.json")            # with its sealed verify log beside it
     comp_path = arch / f"{comp['commit'][:12]}-comparator.json"
     comp_path.write_text(json.dumps(comp))
     for c in comp["configs"]:

@@ -103,6 +103,9 @@ def build(pkg: dict, repo: pathlib.Path, stage: pathlib.Path) -> tuple[list[str]
         core.validate_comparator(pkg, repo, comp, str(receipt.get("commit") or ""))
     except core.Fail as e:
         raise core.Fail(f"{name}: receipts not bound to HEAD {head[:12]}: {e}") from None
+    why = core.recorded_report_log_problem(repo, receipt, gate["receipt"])
+    if why:
+        raise core.Fail(f"{name}: gate receipt {gate['receipt']}: {why}")
     mark, label = publish_mod.consent_item(pkg)
     if mark != "✓":
         raise core.Fail(f"{name}: {label}")

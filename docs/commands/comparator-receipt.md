@@ -17,7 +17,8 @@ comparator-receipt [--project PROJECT] [--check CHECK]
                    [--mechanism {auto,toolchain,legacy}] [--verify VERIFY]
                    [--evidence-dir DIR] [--prepare] [--from-prepared DIR] [--no-resume]
                    [--judges N] [--unit-size K] [--slots SPEC] [--estimate] [--sample K]
-                   [--force-sample] [--verify-oleans [DIR]] [--attempts [DIR]] [--json]
+                   [--force-sample] [--verify-oleans [DIR]] [--attempts [DIR]]
+                   [--seal-sacct RECEIPT] [--sacct-file F] [--user NAME] [--json]
                    [--host-label LABEL]
 ```
 
@@ -41,7 +42,10 @@ comparator-receipt [--project PROJECT] [--check CHECK]
 | `--force-sample` | --estimate: accept a --sample (or --slots) below the floor; the estimate warns and records sample_forced: true |
 | `--verify-oleans [DIR]` | read-only, no host policy: rehash the package's compiled modules under .lake/build/lib and compare them with the olean manifest the setup recorded in DIR (an evidence directory, its comparator-stages/ or its stages.json; default: the evidence directory); the recorded commit must be HEAD; exit 0 same, 1 different or nothing recorded; writes nothing |
 | `--attempts [DIR]` | read-only, no host policy: list the earlier runs kept under comparator-stages/attempts/NNN/ (verdict, failed stage, commit, times, files, whether every kept file still matches its recorded sha256) in DIR (an evidence directory, its comparator-stages/ or its attempts/; default: the evidence directory); exit 0, or 1 when a kept file changed or went missing; writes nothing |
-| `--json` | --estimate, --verify-oleans or --attempts: print JSON |
+| `--seal-sacct RECEIPT` | after the Slurm job finished, no host policy: corroborate RECEIPT's Slurm claim (job_id from SLURM_JOB_ID, which any shell can set) with the job's sacct record: COMPLETED, exit 0:0, Start..End containing the run, this account and the receipt's node when sacct runs here; writes &lt;c12&gt;-comparator-sacct.txt beside RECEIPT (the record, normalized; no user or node names) and its sha256 into RECEIPT as slurm_sacct. Only a sealed receipt backs a coverage.yaml compute job. Exit 0 sealed (or already), 1 refused, nothing written |
+| `--sacct-file F` | --seal-sacct on a host without Slurm: the saved output of `SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j J --format=JobID,State,ExitCode,Start,End,Elapsed,User,NodeList -P` (with its header line); the account is then checked only with --user |
+| `--user NAME` | --seal-sacct: the account the job must have run under (default with live sacct: this one); compared, never written |
+| `--json` | --estimate, --verify-oleans, --attempts or --seal-sacct: print JSON |
 | `--host-label LABEL` | name the host LABEL instead of its host name in the receipt (host, host_label, job_id, host_policy) and the output (env COMPARATOR_RECEIPT_HOST_LABEL) |
 
 ## Details

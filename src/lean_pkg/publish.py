@@ -33,13 +33,17 @@ IGNORE_REMEDY = ("un-ignore it: add `!.lean-receipts/` and `!**/.lean-receipts/*
 
 def evidence_paths(pkg: dict, repo) -> list[str]:
     """The evidence files on disk that publishing needs committed: the gate receipt, the comparator
-    receipt and its logs, and the comparator-stages/ files (stages.json, stage logs) kept beside them."""
+    receipt and its logs, the gate receipt's sealed verify log, and the comparator-stages/ files
+    (stages.json, stage logs) kept beside them."""
     gate = pkg.get("gate") or {}
     rels = [r for r in (gate.get("receipt"), gate.get("comparator")) if isinstance(r, str) and r]
     comp = core.recorded_json(repo, gate.get("comparator"))
     if isinstance(comp, dict) and isinstance(comp.get("configs"), list):
         rels += [c["log"] for c in comp["configs"]
                  if isinstance(c, dict) and isinstance(c.get("log"), str) and c["log"]]
+    lower = core.recorded_json(repo, gate.get("receipt"))
+    if isinstance(lower, dict):
+        rels += core.report_log_rels(repo, lower)
     dirs = {".lean-receipts"} | {r.rsplit("/", 1)[0] for r in rels if "/" in r}
     for d in sorted(dirs):
         base = repo / d

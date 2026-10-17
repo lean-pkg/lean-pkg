@@ -48,7 +48,7 @@ covered, and how a third party re-verifies a page, is the
 | `mathlib_rev` | nonempty; prefix-equal to the `mathlib` rev in `lake-manifest.json` committed at `commit` (not checked when that file has no readable `mathlib` entry) |
 | `sorry_count` | integer, must be 0 |
 | `axioms` | list of strings, subset of `gate.axioms_allowed` (default `propext`, `Quot.sound`, `Classical.choice`) |
-| `report_sha256` | 64 hex characters: the frozen verification report; when the redacted verify log `<commit12>-<job slug>-verify.redacted.log` that `receipt slurm`/`systemd` writes is found (beside the receipt file, in the package's `.lean-receipts/`, or tracked there at HEAD), every copy must hash to it, else `gate` refuses; none found prints `· report_sha256 not checked (no redacted log beside the receipt)`. A compressed copy `<...>-verify.redacted.log.gz` is checked the same way on its uncompressed bytes ([compressed sealed log](#a-compressed-sealed-log---compress-log)); report_sha256 is never the hash of the .gz |
+| `report_sha256` | 64 hex characters: the frozen verification report; when the redacted verify log `<commit12>-<job slug>-verify.redacted.log` that `receipt slurm`/`systemd` writes is found (beside the receipt file, in the package's `.lean-receipts/`, or tracked there at HEAD), every copy must hash to it, else `gate` refuses; none found (or a copy that cannot be read) is refused too, as `report log missing: ...` naming where it looked and the path to restore it to (see [Restoring preserved evidence](#restoring-preserved-evidence)). The same rule holds wherever a recorded lower-tier receipt is judged: the claims ledger (and so `promote`), `next`, `comparator`, `palomar` and `index check`. A compressed copy `<...>-verify.redacted.log.gz` is checked the same way on its uncompressed bytes ([compressed sealed log](#a-compressed-sealed-log---compress-log)); report_sha256 is never the hash of the .gz |
 | `job_id`, `checker`, `generated_at` | nonempty: the executor's terminal job identity, the exact checker mode, and an ISO-8601 time that must parse. The stored copy is named `<commit12>-<job_id>.json`, with characters outside `[A-Za-z0-9._-]` replaced by `-` and leading dots and dashes dropped |
 
 The frozen report named by `report_sha256` is expected to bind the candidate
@@ -729,6 +729,7 @@ SHA-256.
 | `tools` | legacy: `comparator`, `lean4export`, `nanoda`, `landrun` as 40-hex commits; toolchain: `lean_toolchain` and the 64-hex sha256 of `lake`, `leanexport`, `leanchecker`, `nanoda_bin`, `con-ron` |
 | `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601 |
 | `host_policy` | the runner's host-policy reason (an override run is visible here) |
+| `slurm_sacct` | optional, additive: the sacct seal of a Slurm claim (`job_id` J, `host_policy` `Slurm job J ...`), written after the job by `comparator-receipt --seal-sacct`: `{schema: slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source}`, `file` the normalized record `.lean-receipts/<commit12>-comparator-sacct.txt` it hashes. Only a sealed claim backs a `coverage.yaml` `compute` job; see [Comparator](comparator.md#seal-the-slurm-claim-with-sacct) |
 | `stack_limit` | optional, additive, not validated: `{soft_kb, hard_kb, source}`, the soft stack limit the runner's `lake`/`lean` children ran under (`soft_kb`/`hard_kb` an integer or `unlimited`; `source` `inherited` or `COMPARATOR_RECEIPT_STACK`); see [Comparator](comparator.md#stages-and---prepare) |
 | `lean_threads` | optional, additive, not validated: the `LEAN_NUM_THREADS` the runner gave its `lake`/`lean` children (`COMPARATOR_RECEIPT_LEAN_THREADS`), or `null` when unset; see [Comparator](comparator.md#stages-and---prepare) |
 | `judges`, `unit_size` | optional, additive, not validated (toolchain mechanism): the judge pool width (`--judges`, `LEAN_PKG_COMPARATOR_JOBS`) and the names per judge unit (`--unit-size`, `LEAN_PKG_COMPARATOR_UNIT_SIZE`), `unit_size` `null` when each configuration was cut into `judges` shards (the default); see [Comparator](comparator.md#stages-and---prepare) |
@@ -1021,7 +1022,9 @@ unless the receipts and every comparator log are committed at HEAD unmodified
 and HEAD is contained in `origin/<branch>` (judged on local refs; nothing is
 fetched). An
 [index entry](index-catalog.md) keeps verbatim copies of the receipts (not
-the logs) and `index check --clone` re-derives them at the pin.
+the logs) and `index check --clone` re-derives them at the pin, so the logs,
+the lower-tier receipt's sealed verify log among them, must be committed at
+the pin or an evidence-only descendant.
 
 `lean-pkg formalization` reports the receipts under `status.evidence` of the
 package's `formalization.yaml` (commit, gate receipt, comparator receipt) and

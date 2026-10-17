@@ -15,7 +15,7 @@ import json
 import pytest
 import yaml
 
-from .conftest import (_git, add_comparator_config, make_comparator_receipt, make_receipt, read_events,
+from .conftest import (put_receipt, _git, add_comparator_config, make_comparator_receipt, make_receipt, read_events,
                        read_reg, repo_head, write_reg)
 from .test_palomar_check import CONFIG, files, make_pkg
 
@@ -42,7 +42,7 @@ def rebind(env, configs) -> str:
     """Gate and comparator receipts bound to HEAD, the comparator one listing `configs`."""
     repo = env.repo_b
     head = repo_head(repo)
-    (repo / ".lean-receipts" / "seed.json").write_text(json.dumps(make_receipt(repo), indent=2))
+    put_receipt(repo / ".lean-receipts" / "seed.json", make_receipt(repo), indent=2)
     comp = make_comparator_receipt(repo, configs[0])
     for c in configs[1:]:
         comp["configs"] += make_comparator_receipt(repo, c)["configs"]

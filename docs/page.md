@@ -217,7 +217,11 @@ therefore needs two things: an explicit declaration in `coverage.yaml`
 (`compute: [{cluster: easley, jobs: [...]}]`), and, for every listed job, a
 committed receipt whose job is that Slurm job. That is a lower-tier receipt
 with `job_id: slurm-<J>` (what `lean-pkg receipt slurm` writes) or a comparator
-receipt whose `host_policy` says it ran in Slurm job `<J>`. With both, the
+receipt whose `host_policy` says it ran in Slurm job `<J>` and whose claim is
+sealed with the job's sacct record
+([`comparator-receipt --seal-sacct`](comparator.md#seal-the-slurm-claim-with-sacct);
+`SLURM_JOB_ID` alone can be set by any shell, so an unsealed claim backs
+nothing). With both, the
 Acknowledgments carry the official sentence with the cluster linked. Without
 them there is no sentence, and `--check` fails on one written by hand.
 

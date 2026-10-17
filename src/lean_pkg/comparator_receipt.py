@@ -22,7 +22,9 @@ comparator-stages/attempts/NNN/ (numbers never reused; never deleted or read bac
 Host policy: the run is allowed iff SLURM_JOB_ID is set (inside a Slurm job),
 OR this host's name is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
 (comma-separated), OR COMPARATOR_RECEIPT_ALLOW_HOST=1. The reason is recorded
-in the receipt's host_policy field.
+in the receipt's host_policy field. SLURM_JOB_ID is any shell's to set: a Slurm
+claim backs a coverage.yaml compute job only after `--seal-sacct RECEIPT` sealed
+the job's sacct record into it (receipt.seal_comparator_sacct).
 
 Env: COMPARATOR_CHECK (script path; default: the comparator-check.sh shipped
 inside the lean_pkg package), COMPARATOR_LAKE (the lake the setup stages run), SLURM_JOB_ID (job identity when under Slurm),
@@ -2242,6 +2244,44 @@ def attempts_main(args) -> int:
     return 0 if all(r["intact"] for r in res["attempts"]) else 1
 
 
+def seal_sacct_main(args) -> int:
+    """--seal-sacct RECEIPT [--sacct-file F] [--user NAME] [--json]: receipt.seal_comparator_sacct."""
+    from . import receipt as receipt_mod
+    from .cli import Fail, UsageError as CliUsage
+    if args.seal_sacct is None:
+        print("comparator-receipt: --sacct-file and --user go with --seal-sacct RECEIPT", file=sys.stderr)
+        return 2
+    other = [f for f, v in (("--prepare", args.prepare), ("--from-prepared", args.from_prepared),
+                            ("--estimate", args.estimate), ("--slots", args.slots),
+                            ("--verify-oleans", args.verify_oleans is not None),
+                            ("--attempts", args.attempts is not None)) if v]
+    if other:
+        print(f"comparator-receipt: --seal-sacct runs alone; not with {', '.join(other)}", file=sys.stderr)
+        return 2
+    path = pathlib.Path(args.seal_sacct).expanduser()
+    try:
+        res = receipt_mod.seal_comparator_sacct(path, args.sacct_file, args.user)
+    except CliUsage as e:
+        print(f"comparator-receipt: {e}", file=sys.stderr)
+        return 2
+    except Fail as e:
+        if args.json:
+            print(json.dumps({"ok": False, "error": str(e)}, indent=2))
+        print(f"comparator-receipt: --seal-sacct refused: {e}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(res, indent=2, sort_keys=True))
+        return 0
+    b = res["slurm_sacct"]
+    verb = "sealed" if res["sealed"] else "already sealed with this record; nothing written"
+    print(f"comparator receipt {verb}: job {b['job']} COMPLETED 0:0, {b['start']} .. {b['end']} "
+          f"(user {b['checks']['user']}, node {b['checks']['node']})")
+    print(f"  record   {res['sacct']} (sha256 {b['sha256'][:12]}...)")
+    print("commit both under .lean-receipts/; a receipt already recorded is recorded again with "
+          "`lean-pkg comparator NAME --receipt R --replace`")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="comparator-receipt",
@@ -2317,7 +2357,23 @@ def main(argv: list[str] | None = None) -> int:
                          f"whether every kept file still matches its recorded sha256) in DIR (an evidence "
                          f"directory, its {STAGES_DIR}/ or its {ATTEMPTS_DIR}/; default: the evidence "
                          f"directory); exit 0, or 1 when a kept file changed or went missing; writes nothing")
-    ap.add_argument("--json", action="store_true", help="--estimate, --verify-oleans or --attempts: print JSON")
+    ap.add_argument("--seal-sacct", default=None, metavar="RECEIPT",
+                    help="after the Slurm job finished, no host policy: corroborate RECEIPT's Slurm claim (job_id "
+                         "from SLURM_JOB_ID, which any shell can set) with the job's sacct record: COMPLETED, "
+                         "exit 0:0, Start..End containing the run, this account and the receipt's node when "
+                         "sacct runs here; writes <c12>-comparator-sacct.txt beside RECEIPT (the record, "
+                         "normalized; no user or node names) and its sha256 into RECEIPT as slurm_sacct. Only a "
+                         "sealed receipt backs a coverage.yaml compute job. Exit 0 sealed (or already), 1 "
+                         "refused, nothing written")
+    ap.add_argument("--sacct-file", default=None, metavar="F",
+                    help="--seal-sacct on a host without Slurm: the saved output of `SLURM_TIME_FORMAT="
+                         "%%Y-%%m-%%dT%%H:%%M:%%S%%z sacct -j J --format=JobID,State,ExitCode,Start,End,Elapsed,"
+                         "User,NodeList -P` (with its header line); the account is then checked only with --user")
+    ap.add_argument("--user", default=None, metavar="NAME",
+                    help="--seal-sacct: the account the job must have run under (default with live sacct: this "
+                         "one); compared, never written")
+    ap.add_argument("--json", action="store_true",
+                    help="--estimate, --verify-oleans, --attempts or --seal-sacct: print JSON")
     ap.add_argument("--host-label", default=None, metavar="LABEL",
                     help=f"name the host LABEL instead of its host name in the receipt (host, host_label, "
                          f"job_id, host_policy) and the output (env {HOST_LABEL_ENV})")
@@ -2327,6 +2383,8 @@ def main(argv: list[str] | None = None) -> int:
             print("comparator-receipt: --host-label must not be empty", file=sys.stderr)
             return 2
         os.environ[HOST_LABEL_ENV] = args.host_label.strip()
+    if args.seal_sacct is not None or args.sacct_file is not None or args.user is not None:
+        return seal_sacct_main(args)
     if args.attempts is not None:
         other = [f for f, v in (("--prepare", args.prepare), ("--from-prepared", args.from_prepared),
                                 ("--estimate", args.estimate), ("--slots", args.slots),
