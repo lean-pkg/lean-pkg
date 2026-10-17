@@ -3,7 +3,8 @@ usage: lean-pkg registry audit [-h] [--write] [--toolchain-floor VERSION] [--pro
 
 options:
   -h, --help            show this help message and exit
-  --write, --fix        clear expired leases and update visibility/archive state from gh
+  --write               clear expired leases and update visibility/archive state from gh (old
+                        spelling --fix, kept working)
   --toolchain-floor VERSION
                         oldest acceptable lean_toolchain (default: $LEAN_PKG_TOOLCHAIN_FLOOR, else
                         leanprover/lean4:v4.35.0-rc2)

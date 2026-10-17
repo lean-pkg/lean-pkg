@@ -119,7 +119,7 @@ lean-pkg comparator config [--from-claims NAME] [--coverage NAME]
 | `--challenge-from-type` | pre-fill each new Challenge/Solution from the declaration's elaborated type (runs `lake env lean` in the checkout) |
 | `--emit-script F` | write the type driver to F (run it elsewhere: cd CHECKOUT && bash F OUT.json); no Lean runs here |
 | `--from-output F` | fill the scaffold from the driver's comparator-types/1 JSON F |
-| `--repo, --checkout DIR` | with --from-claims: use this package checkout instead of the registry's local_path (HEAD must be the claims-synced commit or an evidence-only descendant) |
+| `--repo DIR` | with --from-claims: use this package checkout instead of the registry's local_path (HEAD must be the claims-synced commit or an evidence-only descendant) (old spelling --checkout, kept working) |
 | `--claims-file PATH` | with --from-claims: read the claims from this working-copy claims.yaml instead of the registry's synced cache (no `claims sync` needed); schema-checked exactly like `claims check --file`; never written to the registry; the output names the file and its sha256 |
 | `--no-registry` | with --from-output/--challenge-from-type and --out FILE: scratch mode; write the merged config to FILE outside the checkout, lease not consulted |
 | `--allow-partial` | with --from-output/--challenge-from-type: ingest a run with extraction failures (the failed entries keep TODO, restatement_reason extraction_failed) |

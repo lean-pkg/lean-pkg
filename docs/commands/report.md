@@ -30,7 +30,7 @@ lean-pkg report [--command ARGS] [--body TEXT] [--from-log FILE[:N]] [--package 
 | `--package NAME` | add the package's registry record (status, lease, receipt commits); its .lean-pkg-private-patterns joins the redaction |
 | `--title TITLE` | issue title (default: report: &lt;the command&gt;, else report: lean-pkg &lt;version&gt;) |
 | `--enhancement` | label enhancement instead of bug |
-| `--target-repo, --repo OWNER/NAME` | repository to file on (default lean-pkg/lean-pkg) |
+| `--target-repo OWNER/NAME` | repository to file on (default lean-pkg/lean-pkg) (old spelling --repo, kept working) |
 | `--dry-run` | print title, labels and body; file nothing (default) |
 | `--yes` | file it with `gh issue create` and print the URL (needs `gh auth login`) |
 

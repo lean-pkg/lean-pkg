@@ -15,10 +15,10 @@ options:
   --field KEY=VALUE     event field (repeatable); required keys per event are listed by `lean-pkg
                         llms`
   --reason REASON       free-text reason stored with the event
-  --doi-track, --track {palomar,doi-only}
+  --doi-track {palomar,doi-only}
                         doi-minted only: the DOI track for this event (default: the record's
                         track, else palomar); doi-only skips rule doi-in-palomar for a public
-                        package
+                        package (old spelling --track, kept working)
   --agent AGENT         the agent acting (recorded as the event's actor); another agent's live
                         lease then refuses
   --json                machine-readable JSON on stdout

@@ -216,7 +216,7 @@ def find_parser(root: argparse.ArgumentParser, path: tuple[str, ...]) -> argpars
 
 
 def apply_flag_aliases(root: argparse.ArgumentParser) -> None:
-    """Add each FLAG_ALIASES old spelling as another option string of its canonical option."""
+    """Make each FLAG_ALIASES old spelling parse as its canonical option (same action, same dest)."""
     for fa in FLAG_ALIASES:
         p = find_parser(root, fa.command)
         if p is None:
@@ -226,8 +226,12 @@ def apply_flag_aliases(root: argparse.ArgumentParser) -> None:
             raise AssertionError(f"FLAG_ALIASES: {' '.join(fa.command)} has no {fa.new}")
         if fa.old in p._option_string_actions:
             raise AssertionError(f"FLAG_ALIASES: {' '.join(fa.command)} already has {fa.old}")
-        action.option_strings.append(fa.old)
+        # Parsed exactly like the canonical option, but named in its help text rather than added to
+        # option_strings: argparse lays out a multi-spelling option differently across Python versions,
+        # and the help goldens are compared word by word.
         p._option_string_actions[fa.old] = action
+        if action.help and action.help is not argparse.SUPPRESS:
+            action.help = f"{action.help} (old spelling {fa.old}, kept working)"
 
 
 def canonical_command(args) -> str:

@@ -6,14 +6,14 @@ positional arguments:
   NAME
 
 options:
-  -h, --help            show this help message and exit
-  --clone               clone each entry's repo at the pin into a temp dir
-  --repo, --repo-dir DIR
-                        local clone for a single NAME (never modified)
-  --index INDEX         index root (default: $LEAN_PKG_INDEX, else index/ beside the registry when
-                        present, else ./index)
-  --json                machine-readable JSON on stdout
-  --commit              write commands: pull --ff-only, then commit the registry files (default:
-                        $LEAN_PKG_COMMIT=1)
-  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit           never commit or push (overrides the env)
+  -h, --help     show this help message and exit
+  --clone        clone each entry's repo at the pin into a temp dir
+  --repo DIR     local clone for a single NAME (never modified) (old spelling --repo-dir, kept
+                 working)
+  --index INDEX  index root (default: $LEAN_PKG_INDEX, else index/ beside the registry when
+                 present, else ./index)
+  --json         machine-readable JSON on stdout
+  --commit       write commands: pull --ff-only, then commit the registry files (default:
+                 $LEAN_PKG_COMMIT=1)
+  --push         --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit    never commit or push (overrides the env)

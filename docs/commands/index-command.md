@@ -53,7 +53,7 @@ lean-pkg index add [--from-registry] [--repo-dir REPO_DIR] [--url URL] [--tag TA
 | `NAME` |   |
 | `--from-registry` | start from the registry row (repo, receipts, license, palomar, doi, reservoir) |
 | `--repo-dir REPO_DIR` | local clone to read from (never modified) |
-| `--url, --repo URL` | public https URL (a GitHub ssh URL is converted) |
+| `--url URL` | public https URL (a GitHub ssh URL is converted) (old spelling --repo, kept working) |
 | `--tag TAG` | release tag at the pin or an evidence-only descendant |
 | `--lower REL` | lower-tier receipt, .lean-receipts/...json |
 | `--comparator REL` | comparator receipt, .lean-receipts/...json |
@@ -91,7 +91,7 @@ lean-pkg index check [--clone] [--repo DIR] [--index INDEX] [common flags] [NAME
 |---|---|
 | `NAME` |   |
 | `--clone` | clone each entry's repo at the pin into a temp dir |
-| `--repo, --repo-dir DIR` | local clone for a single NAME (never modified) |
+| `--repo DIR` | local clone for a single NAME (never modified) (old spelling --repo-dir, kept working) |
 | `--index INDEX` | index root (default: $LEAN_PKG_INDEX, else index/ beside the registry when present, else ./index) |
 
 ### Details

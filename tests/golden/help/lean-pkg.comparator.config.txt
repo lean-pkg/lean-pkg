@@ -29,10 +29,9 @@ options:
   --emit-script F       write the type driver to F (run it elsewhere: cd CHECKOUT && bash F
                         OUT.json); no Lean runs here
   --from-output F       fill the scaffold from the driver's comparator-types/1 JSON F
-  --repo, --checkout DIR
-                        with --from-claims: use this package checkout instead of the registry's
+  --repo DIR            with --from-claims: use this package checkout instead of the registry's
                         local_path (HEAD must be the claims-synced commit or an evidence-only
-                        descendant)
+                        descendant) (old spelling --checkout, kept working)
   --claims-file PATH    with --from-claims: read the claims from this working-copy claims.yaml
                         instead of the registry's synced cache (no `claims sync` needed); schema-
                         checked exactly like `claims check --file`; never written to the registry;

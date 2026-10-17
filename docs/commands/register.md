@@ -28,7 +28,7 @@ lean-pkg register [--url URL] --path PATH [--like OTHER] [--owner-project OWNER_
 | Argument or flag | Description |
 |---|---|
 | `NAME` |   |
-| `--url, --repo URL` | git URL (or local bare path); required unless --like gives it |
+| `--url URL` | git URL (or local bare path); required unless --like gives it (old spelling --repo, kept working) |
 | `--path PATH` | local checkout path, $HOME-relative. Required. |
 | `--like OTHER` | a sibling of registered package OTHER: copy its repo, owner-project, upstream-target and automation (flags given here win; visibility is never copied, default private), and report whether the toolchain and Mathlib pin match OTHER's |
 | `--owner-project OWNER_PROJECT` |   |

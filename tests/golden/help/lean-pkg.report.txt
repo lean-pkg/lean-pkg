@@ -16,8 +16,9 @@ options:
   --title TITLE         issue title (default: report: <the command>, else report: lean-pkg
                         <version>)
   --enhancement         label enhancement instead of bug
-  --target-repo, --repo OWNER/NAME
-                        repository to file on (default lean-pkg/lean-pkg)
+  --target-repo OWNER/NAME
+                        repository to file on (default lean-pkg/lean-pkg) (old spelling --repo,
+                        kept working)
   --dry-run             print title, labels and body; file nothing (default)
   --yes                 file it with `gh issue create` and print the URL (needs `gh auth login`)
   --json                machine-readable JSON on stdout

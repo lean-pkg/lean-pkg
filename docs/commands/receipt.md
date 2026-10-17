@@ -56,7 +56,7 @@ lean-pkg receipt slurm [--job J] [--log PATH] [--receipt-commit SHA] [--template
 |---|---|
 | `--job J` | the Slurm job id (job_id becomes slurm-J); required unless --template or --check |
 | `--log PATH` | the job's raw verify log (required unless --template); when it has no `checker:` line, --checker TEXT is required |
-| `--receipt-commit, --commit SHA` | the verified commit; must exist in --repo; required unless --template or --check |
+| `--receipt-commit SHA` | the verified commit; must exist in --repo; required unless --template or --check (old spelling --commit, kept working) |
 | `--template` | print a minimal sbatch wrapper whose .out/.err/log meet every check below (placeholders for the package's own commands); needs no other flag |
 | `--check` | preflight the files of a finished (trial) job: every seal, stderr and log-line check, each problem named; no sacct (unless --sacct-file), commit checks only with --commit; writes nothing, exit 0/1 |
 | `--preflight-deps` | before submitting: check that the staged dependency cache (--deps-tar or --deps-dir) holds, at the lake-manifest.json pins committed at --commit (default HEAD), the built .olean and .ilean of every external module in the import closure of the entry files the verifier elaborates (--entries); reads the committed tree, builds and writes nothing, exit 0/1 |
@@ -139,7 +139,7 @@ lean-pkg receipt systemd --unit U --log PATH --receipt-commit SHA [--stdout PATH
 |---|---|
 | `--unit U` | the service unit (`.service` added when absent); job_id becomes systemd-user:&lt;U&gt;:&lt;InvocationID&gt;@&lt;host label&gt; (h- + 12 hex of the host name's SHA-256). Required. |
 | `--log PATH` | the raw verify log the unit writes; when it has no `checker:` line, --checker TEXT is required. Required. |
-| `--receipt-commit, --commit SHA` | the verified commit; must exist in --repo (with --run: the checkout's clean HEAD). Required. |
+| `--receipt-commit SHA` | the verified commit; must exist in --repo (with --run: the checkout's clean HEAD) (old spelling --commit, kept working). Required. |
 | `--stdout PATH` | the unit's stdout file: verify-log-sha256 = sha256(raw log), pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at the commit), optional invocation-id = InvocationID; without it the log must carry its own seal. With --run the unit writes it |
 | `--stderr PATH` | the unit's stderr file; must be empty. With --run the unit writes it |
 | `--properties-file F` | saved `systemctl --user show U -p Id,LoadState,ActiveState,SubState,Result,InvocationID,ExecMainCode,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic,NRestarts,MemoryPeak,CPUUsageNSec,MemoryMax,MemorySwapMax,CPUQuotaPerSecUSec,RuntimeMaxUSec,OOMPolicy` output, captured before the unit was collected, plus a `Hostname=` line for the host it ran on |

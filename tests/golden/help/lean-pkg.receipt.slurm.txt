@@ -12,9 +12,8 @@ options:
                         --check
   --log PATH            the job's raw verify log (required unless --template); when it has no
                         `checker:` line, --checker TEXT is required
-  --receipt-commit, --commit SHA
-                        the verified commit; must exist in --repo; required unless --template or
-                        --check
+  --receipt-commit SHA  the verified commit; must exist in --repo; required unless --template or
+                        --check (old spelling --commit, kept working)
   --template            print a minimal sbatch wrapper whose .out/.err/log meet every check below
                         (placeholders for the package's own commands); needs no other flag
   --check               preflight the files of a finished (trial) job: every seal, stderr and log-

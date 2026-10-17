@@ -192,7 +192,7 @@ lean-pkg registry audit [--write] [--toolchain-floor VERSION] [--promotion] [--n
 
 | Argument or flag | Description |
 |---|---|
-| `--write, --fix` | clear expired leases and update visibility/archive state from gh |
+| `--write` | clear expired leases and update visibility/archive state from gh (old spelling --fix, kept working) |
 | `--toolchain-floor VERSION` | oldest acceptable lean_toolchain (default: $LEAN_PKG_TOOLCHAIN_FLOOR, else leanprover/lean4:v4.35.0-rc2) |
 | `--promotion` | judge every package against the toolchain floor as for promote (warn, not info) |
 | `--no-gh` | skip the GitHub (gh) checks: visibility and archived state are not compared |

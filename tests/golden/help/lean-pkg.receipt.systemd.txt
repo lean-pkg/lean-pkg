@@ -17,9 +17,8 @@ options:
                         SHA-256)
   --log PATH            the raw verify log the unit writes; when it has no `checker:` line,
                         --checker TEXT is required
-  --receipt-commit, --commit SHA
-                        the verified commit; must exist in --repo (with --run: the checkout's
-                        clean HEAD)
+  --receipt-commit SHA  the verified commit; must exist in --repo (with --run: the checkout's
+                        clean HEAD) (old spelling --commit, kept working)
   --stdout PATH         the unit's stdout file: verify-log-sha256 = sha256(raw log), pre-manifest-
                         sha256 = post-manifest-sha256 = sha256(lake-manifest.json at the commit),
                         optional invocation-id = InvocationID; without it the log must carry its
