@@ -493,3 +493,158 @@ def test_publish_dry_run_carries_one_page_line(lp, env, capsys):
     data, line = publish(lp, env, capsys)
     assert len(line) == 1 and line[0]["status"] == "pass" and data["page"] == {
         "status": "pass", "adopted": True, "problems": []}
+
+
+# --- kind: library (no manuscript) ----------------------------------------------------------------
+
+LIBRARY = {
+    "schema": "coverage/1",
+    "package": "beta",
+    "kind": "library",
+    "summary": "The library's main bound is formalized and compared against its stated form.",
+    "rows": [{"title": "Main bound", "claims": ["beta/foo-le-bar"], "note": "the headline estimate"}],
+}
+
+
+def library(**change) -> str:
+    doc = json.loads(json.dumps(LIBRARY))
+    for k, v in change.items():
+        if v is None:
+            doc.pop(k, None)
+        else:
+            doc[k] = v
+    return yaml.safe_dump(doc, sort_keys=False)
+
+
+def test_a_library_coverage_needs_no_manuscript(lp, env, capsys):
+    prepare(env, LIBRARY)
+    rc, data = cov_check(lp, env, capsys)
+    assert rc == 0 and data["ok"] and data["kind"] == "library" and data["rows"] == 1
+    assert data["manuscript"] is None and data["private_manuscript"] is False and data["counts"] is None
+    rc, out, _err = run(lp, env, capsys, "coverage", "check", "beta")
+    assert rc == 0 and out.startswith("beta: coverage: OK; library; 1 main result(s); no manuscript")
+
+
+def test_a_library_page_claims_no_manuscript_and_states_what_was_verified(lp, env, capsys, tmp_path):
+    prepare(env, LIBRARY)
+    rc, a = page_json(lp, env, capsys, "--site", str(tmp_path / "site"), "--html", str(tmp_path / "v.html"))
+    assert rc == 0 and a["kind"] == "library" and a["manuscript"] is None and a["verified_rows"] == 1
+    md = a["markdown"]
+    row = next(x for x in md.splitlines() if x.startswith("| Main bound |"))
+    assert "`Demo.foo_le_bar`" in row and "| verified |" in row and "the headline estimate" in row
+    assert "## Main results\n" in md and "- Library: no manuscript" in md
+    assert "1 of 1 main result(s) verified" in md
+    outputs = [md, (tmp_path / "site" / "verification.md").read_text(), (tmp_path / "site" / "coverage.md").read_text(),
+               (tmp_path / "v.html").read_text()]
+    for text in outputs:                            # nothing on any output claims a paper or a manuscript
+        assert "Manuscript:" not in text and "formalizes results of" not in text
+        assert "Paper ↔ Lean map" not in text and "Not formalized" not in text and "paper" not in text.lower()
+    for section in ("Verification status", "Main results", "Trust boundary", "Reproduce", "Evidence",
+                    "Citation", "License", "Acknowledgments"):
+        assert f"## {section}\n" in md
+
+
+def test_a_library_page_carries_easley_only_with_a_slurm_receipt(lp, env, capsys):
+    from lean_pkg.page import EASLEY
+    prepare(env, LIBRARY, easley=True)
+    rc, a = page_json(lp, env, capsys)
+    assert rc == 0 and EASLEY in a["markdown"] and a["easley"] == {"backed": True, "jobs": ["slurm-12345"]}
+    assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
+    assert check(lp, env, capsys) == (0, [])
+    _git(env.repo_b, "add", "README.md")
+    _git(env.repo_b, "commit", "-q", "-m", "page block")
+    data, line = publish(lp, env, capsys)
+    assert line[0]["status"] == "pass" and data["page"] == {"status": "pass", "adopted": True, "problems": []}
+
+
+def test_a_library_easley_job_without_a_slurm_receipt_is_refused(lp, env, capsys):
+    from lean_pkg.page import EASLEY
+    prepare(env, LIBRARY, easley=True, receipt_job="systemd-user-unit-1234-h-abcdef012345")   # not a Slurm run
+    rc, _out, err = run(lp, env, capsys, "page", "beta")
+    assert rc == 1 and "no Slurm receipt" in err and "slurm-12345" in err
+    doc = json.loads(json.dumps(LIBRARY))
+    write_coverage(env, doc)                                    # no compute: a hand-written sentence is unbacked
+    assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
+    readme = env.repo_b / "README.md"
+    readme.write_text(readme.read_text() + "\n" + EASLEY + "\n")
+    rc, problems = check(lp, env, capsys)
+    assert rc == 1 and len(problems) == 1 and "Easley" in problems[0]
+
+
+def test_a_library_coverage_cannot_carry_a_manuscript_claim(lp, env, capsys, tmp_path):
+    prepare(env, LIBRARY)
+    errs = _refused(lp, env, capsys, tmp_path, library(manuscript={"title": "T", "version": ARXIV}))
+    assert any(e.startswith("manuscript: a library coverage names no manuscript") for e in errs)
+    errs = _refused(lp, env, capsys, tmp_path, library(manuscript={"title": "T", "version": "unposted"}),
+                    "--allow-private-manuscript")
+    assert any(e.startswith("manuscript: a library coverage names no manuscript") for e in errs)
+    errs = _refused(lp, env, capsys, tmp_path, library(nothing_excluded={"reason": "all of it"}))
+    assert any(e.startswith("nothing_excluded: ") and "library" in e for e in errs)
+    paper_row = [{"paper": {"number": "Theorem 1", "title": "Main bound"}, "class": "same-assumptions",
+                  "claims": ["beta/foo-le-bar"]}]
+    errs = _refused(lp, env, capsys, tmp_path, library(rows=paper_row))
+    assert any("rows[0]: a library row is a main result of the library" in e for e in errs)
+    errs = _refused(lp, env, capsys, tmp_path, library(rows=[dict(LIBRARY["rows"][0], inputs=["a hypothesis"])]))
+    assert any("rows[0]" in e and "inputs" in e for e in errs)
+    errs = _refused(lp, env, capsys, tmp_path, library(rows=[{"title": "Main bound"}]))
+    assert any("rows[0]: missing key(s) claims" in e for e in errs)
+    errs = _refused(lp, env, capsys, tmp_path, library(rows=[{"title": "Main bound", "claims": ["beta/nope"]}]))
+    assert any("'beta/nope' is not a claim id" in e for e in errs)
+    dup = [LIBRARY["rows"][0], dict(LIBRARY["rows"][0])]
+    assert any("repeats rows[0]" in e for e in _refused(lp, env, capsys, tmp_path, library(rows=dup)))
+    assert any("kind: must be one of paper, library" in e
+               for e in _refused(lp, env, capsys, tmp_path, library(kind="notes")))
+    assert any("rows: must be a non-empty list" in e for e in _refused(lp, env, capsys, tmp_path, library(rows=[])))
+
+
+def test_every_compared_theorem_is_a_main_result_of_a_library(lp, env, capsys):
+    """The page says how many theorems were compared, so each must be a row's claim (R11), library or paper."""
+    from .conftest import CLAIMS_YAML
+    aux = CLAIMS_YAML + """\
+- id: beta/aux
+  decl: Demo.aux
+  kind: theorem
+  summary: An auxiliary statement.
+  file: Demo/Main.lean
+  status: internal
+  superseded_by: null
+  citation: null
+  depends_on: []
+"""
+    doc = json.loads(json.dumps(LIBRARY))
+    doc["rows"] = [{"title": "Auxiliary", "claims": ["beta/aux"]}]
+    prepare(env, doc, extra={"claims.yaml": aux})
+    rc, data = cov_check(lp, env, capsys)
+    assert rc == 1 and any("comparator theorem 'BetaAudit.Demo.foo_le_bar'" in e and "no claim a row names" in e
+                           for e in data["errors"])
+
+
+def test_paper_kind_is_validated_as_before(lp, env, capsys, tmp_path):
+    prepare(env)
+    rc, data = cov_check(lp, env, capsys)
+    assert rc == 0 and data["kind"] == "paper" and data["manuscript"] == "arxiv"
+    explicit = mutate(kind="paper")                                 # kind: paper is the default, spelled out
+    f = tmp_path / "explicit.yaml"
+    f.write_text(explicit)
+    assert cov_check(lp, env, capsys, "--file", str(f))[0] == 0
+    for doc in (mutate(manuscript=None), mutate(manuscript=None, kind="paper")):
+        assert any("missing key(s) manuscript" in e for e in _refused(lp, env, capsys, tmp_path, doc))
+    unposted = json.loads(json.dumps(COVERAGE))
+    unposted.update(kind="paper", manuscript={"title": "T", "version": "unposted"})
+    errs = _refused(lp, env, capsys, tmp_path, yaml.safe_dump(unposted, sort_keys=False))
+    assert any("--allow-private-manuscript" in e for e in errs)
+    lib_rows = mutate(kind="paper", rows=LIBRARY["rows"])           # a paper row needs paper and class
+    assert any("rows[0]: missing key(s) paper, class" in e for e in _refused(lp, env, capsys, tmp_path, lib_rows))
+
+
+def test_anchor_and_rebase_leave_a_library_coverage_alone(env):
+    import pytest
+    from lean_pkg import anchor, rebase
+    from lean_pkg import cli as core
+    with pytest.raises(core.Fail, match="kind library: it names no manuscript"):
+        anchor.coverage_edit(library(), ARXIV, "0" * 64)       # never binds a library to an e-print
+    prepare(env, LIBRARY)
+    _cdoc, _cwhere, cov, vwhere = rebase._inputs(read_reg(env)["packages"]["beta"], env.repo_b, None, None)
+    assert cov is None and vwhere is None                       # a claims rebase never rewrites it
+    prepare(env)
+    assert rebase._inputs(read_reg(env)["packages"]["beta"], env.repo_b, None, None)[2]["manuscript"]

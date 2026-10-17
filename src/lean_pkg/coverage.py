@@ -1,4 +1,4 @@
-# lean-pkg coverage -- the paper-centric coverage file (coverage/1) and its checker
+# lean-pkg coverage -- the coverage file (coverage/1: a paper's results, or a library's) and its checker
 """`lean-pkg coverage check NAME [--file PATH] [--allow-private-manuscript]`.
 
 `claims.yaml` is declaration-centric: one row per Lean result. `coverage.yaml` (schema `coverage/1`, in
@@ -26,6 +26,22 @@ formalized" list and the status capsule from it; this module only parses and val
       - cluster: easley
         jobs: [slurm-12345]                      # each a Slurm receipt tracked under .lean-receipts/
     lean_pkg_version: {version: 0.7.52, doi: 10.5281/zenodo.N}   # optional: the exact version credited
+    kind: paper                                  # optional; paper is the default
+
+A reusable library with no manuscript of its own is `kind: library`: no `manuscript` and no
+`nothing_excluded` (refused, so a library page never claims a paper), and each row is one of the library's
+main results, named by its Lean declarations:
+
+    schema: coverage/1
+    package: NAME
+    kind: library
+    summary: ONE SENTENCE
+    rows:
+      - title: "Main estimate"                   # one line, unique in the file
+        claims: [NAME/claim-id, ...]             # at least one id in claims.yaml at HEAD
+        note: TEXT                               # optional
+    compute: ...                                 # as above (the Easley rule is the same)
+    lean_pkg_version: ...                        # as above
 
 Strict: unknown or missing keys, values outside the closed enums and duplicate mapping keys are
 refused. Classes: `same-assumptions` (the Lean statement carries the paper's hypotheses),
@@ -45,7 +61,20 @@ from . import cli as core
 COVERAGE_SCHEMA = "coverage/1"
 DEFAULT_COVERAGE_FILE = "coverage.yaml"
 TOP_REQUIRED = ("schema", "package", "manuscript", "summary", "rows")
-TOP_OPTIONAL = ("nothing_excluded", "compute", "lean_pkg_version")
+TOP_OPTIONAL = ("nothing_excluded", "compute", "lean_pkg_version", "kind")
+KINDS = ("paper", "library")
+LIBRARY_TOP_REQUIRED = ("schema", "package", "kind", "summary", "rows")
+LIBRARY_TOP_OPTIONAL = ("compute", "lean_pkg_version")
+LIBRARY_ROW_REQUIRED = ("title", "claims")
+LIBRARY_ROW_OPTIONAL = ("note",)
+# keys of a paper coverage that a library refuses by name: each would state a manuscript, or a relation to one
+LIBRARY_NO_PAPER = {
+    "manuscript": "manuscript: a library coverage names no manuscript (kind: library); a package that formalizes "
+                  "results of a paper is kind paper (the default) and pins the paper's posted version",
+    "nothing_excluded": "nothing_excluded: states that nothing of a manuscript is excluded, and a library "
+                        "coverage (kind: library) has no manuscript; drop it",
+}
+LIBRARY_ROW_NO_PAPER = ("paper", "class", "inputs")
 ROW_REQUIRED = ("paper", "class")
 ROW_OPTIONAL = ("claims", "inputs", "note")
 PAPER_REQUIRED = ("number", "title")
@@ -143,6 +172,11 @@ def _strings(obj, where: str):
             yield from _strings(v, f"{where}[{i}]")
 
 
+def doc_kind(doc) -> str:
+    """'paper' or 'library' (kind is optional; paper is the default)."""
+    return "library" if isinstance(doc, dict) and doc.get("kind") == "library" else "paper"
+
+
 def manuscript_kind(version) -> str:
     """'arxiv', 'commit' or 'unposted' (assumes a validated version)."""
     if isinstance(version, dict):
@@ -180,18 +214,75 @@ def _manuscript_errors(m, errors: list[str]) -> None:
 def validate(doc, package: str | None = None) -> list[str]:
     """Schema errors of a coverage/1 document (claim ids and receipts are checked by check_against)."""
     errors: list[str] = []
-    if not _keys(doc, TOP_REQUIRED, TOP_OPTIONAL, "<root>", errors) and not isinstance(doc, dict):
+    if not isinstance(doc, dict):
+        _keys(doc, TOP_REQUIRED, TOP_OPTIONAL, "<root>", errors)
         return errors
+    if "kind" in doc and doc["kind"] not in KINDS:
+        errors.append(f"kind: must be one of {', '.join(KINDS)}, got {doc['kind']!r}")
+    library = doc_kind(doc) == "library"
+    if library:
+        _library_keys(doc, errors)
+    else:
+        _keys(doc, TOP_REQUIRED, TOP_OPTIONAL, "<root>", errors)
+    _identity_errors(doc, package, errors)
+    if not library and "manuscript" in doc:
+        _manuscript_errors(doc["manuscript"], errors)
+    if "summary" in doc and not _text(doc["summary"]):
+        errors.append(f"summary: must be one line of at most {TEXT_MAX} characters")
+    if library:
+        _library_rows_errors(doc, errors)
+    else:
+        _paper_rows_errors(doc, errors)
+    _tail_errors(doc, errors)
+    return errors
+
+
+def _identity_errors(doc: dict, package: str | None, errors: list[str]) -> None:
     if doc.get("schema") != COVERAGE_SCHEMA:
         errors.append(f"schema: must be {COVERAGE_SCHEMA!r}, got {doc.get('schema')!r}")
     if "package" in doc and not (isinstance(doc["package"], str) and doc["package"].strip()):
         errors.append("package: must be the package name")
     elif package and "package" in doc and doc["package"] != package:
         errors.append(f"package: {doc['package']!r} is not {package!r}")
-    if "manuscript" in doc:
-        _manuscript_errors(doc["manuscript"], errors)
-    if "summary" in doc and not _text(doc["summary"]):
-        errors.append(f"summary: must be one line of at most {TEXT_MAX} characters")
+
+
+def _tail_errors(doc: dict, errors: list[str]) -> None:
+    """compute, placeholders and lean_pkg_version: the same for both kinds."""
+    comp = doc.get("compute")
+    if "compute" in doc:
+        if not isinstance(comp, list) or not comp:
+            errors.append("compute: must be a non-empty list of {cluster, jobs}")
+        else:
+            seen = set()
+            for i, c in enumerate(comp):
+                w = f"compute[{i}]"
+                if not _keys(c, ("cluster", "jobs"), (), w, errors):
+                    continue
+                if c["cluster"] not in CLUSTERS:
+                    errors.append(f"{w}.cluster: must be one of {', '.join(CLUSTERS)}, got {c['cluster']!r}")
+                elif c["cluster"] in seen:
+                    errors.append(f"{w}.cluster: {c['cluster']!r} is listed twice")
+                seen.add(c["cluster"])
+                jobs = c["jobs"]
+                if not isinstance(jobs, list) or not jobs or not all(
+                        isinstance(j, str) and SLURM_JOB_RE.match(j) for j in jobs):
+                    errors.append(f"{w}.jobs: must be a non-empty list of Slurm job ids (slurm-12345)")
+                elif len(set(jobs)) != len(jobs):
+                    errors.append(f"{w}.jobs: repeats a job id")
+    for where, s in _strings(doc, ""):
+        if PLACEHOLDER_RE.search(s):
+            errors.append(f"{where or '<root>'}: carries the placeholder {PLACEHOLDER_RE.search(s).group(0)!r}; "
+                          f"write the text (a placeholder never reaches the page)")
+    lv = doc.get("lean_pkg_version")
+    if "lean_pkg_version" in doc and _keys(lv, ("version", "doi"), (), "lean_pkg_version", errors):
+        if not (isinstance(lv["version"], str) and VERSION_RE.match(lv["version"])):
+            errors.append("lean_pkg_version.version: must be a release version such as 0.7.52")
+        if not (isinstance(lv["doi"], str) and ZENODO_DOI_RE.match(lv["doi"])):
+            errors.append("lean_pkg_version.doi: must be a Zenodo version DOI (10.5281/zenodo.N)")
+
+
+def _paper_rows_errors(doc: dict, errors: list[str]) -> None:
+    """The rows and nothing_excluded of a kind: paper document."""
     rows = doc.get("rows")
     numbers: dict[str, int] = {}
     n_outside = 0
@@ -244,38 +335,45 @@ def validate(doc, package: str | None = None) -> list[str]:
     elif rows and not n_outside:
         errors.append("rows: no outside row: list what is not formalized (class outside), or state "
                       "nothing_excluded: {reason: ...}")
-    comp = doc.get("compute")
-    if "compute" in doc:
-        if not isinstance(comp, list) or not comp:
-            errors.append("compute: must be a non-empty list of {cluster, jobs}")
+
+
+def _library_keys(doc: dict, errors: list[str]) -> None:
+    """The top-level keys of a kind: library document; a paper key is refused by name."""
+    for key, why in LIBRARY_NO_PAPER.items():
+        if key in doc:
+            errors.append(why)
+    _keys({k: v for k, v in doc.items() if k not in LIBRARY_NO_PAPER}, LIBRARY_TOP_REQUIRED,
+          LIBRARY_TOP_OPTIONAL, "<root>", errors)
+
+
+def _library_rows_errors(doc: dict, errors: list[str]) -> None:
+    """The rows of a kind: library document: one main result each, named by its claims."""
+    rows = doc.get("rows")
+    if "rows" in doc and (not isinstance(rows, list) or not rows):
+        errors.append("rows: must be a non-empty list")
+        return
+    titles: dict[str, int] = {}
+    for i, r in enumerate(rows or []):
+        w = f"rows[{i}]"
+        if isinstance(r, dict) and any(k in r for k in LIBRARY_ROW_NO_PAPER):
+            errors.append(f"{w}: a library row is a main result of the library (title, claims, note), not a "
+                          f"paper result: drop {', '.join(k for k in LIBRARY_ROW_NO_PAPER if k in r)} (the Lean "
+                          f"statement is the result; a library coverage has no manuscript to correspond to)")
+            r = {k: v for k, v in r.items() if k not in LIBRARY_ROW_NO_PAPER}
+        if not _keys(r, LIBRARY_ROW_REQUIRED, LIBRARY_ROW_OPTIONAL, w, errors):
+            continue
+        if not _text(r["title"], 200):
+            errors.append(f"{w}.title: must be a one-line string")
+        elif r["title"] in titles:
+            errors.append(f"{w}.title: {r['title']!r} repeats rows[{titles[r['title']]}]")
         else:
-            seen = set()
-            for i, c in enumerate(comp):
-                w = f"compute[{i}]"
-                if not _keys(c, ("cluster", "jobs"), (), w, errors):
-                    continue
-                if c["cluster"] not in CLUSTERS:
-                    errors.append(f"{w}.cluster: must be one of {', '.join(CLUSTERS)}, got {c['cluster']!r}")
-                elif c["cluster"] in seen:
-                    errors.append(f"{w}.cluster: {c['cluster']!r} is listed twice")
-                seen.add(c["cluster"])
-                jobs = c["jobs"]
-                if not isinstance(jobs, list) or not jobs or not all(
-                        isinstance(j, str) and SLURM_JOB_RE.match(j) for j in jobs):
-                    errors.append(f"{w}.jobs: must be a non-empty list of Slurm job ids (slurm-12345)")
-                elif len(set(jobs)) != len(jobs):
-                    errors.append(f"{w}.jobs: repeats a job id")
-    for where, s in _strings(doc, ""):
-        if PLACEHOLDER_RE.search(s):
-            errors.append(f"{where or '<root>'}: carries the placeholder {PLACEHOLDER_RE.search(s).group(0)!r}; "
-                          f"write the text (a placeholder never reaches the page)")
-    lv = doc.get("lean_pkg_version")
-    if "lean_pkg_version" in doc and _keys(lv, ("version", "doi"), (), "lean_pkg_version", errors):
-        if not (isinstance(lv["version"], str) and VERSION_RE.match(lv["version"])):
-            errors.append("lean_pkg_version.version: must be a release version such as 0.7.52")
-        if not (isinstance(lv["doi"], str) and ZENODO_DOI_RE.match(lv["doi"])):
-            errors.append("lean_pkg_version.doi: must be a Zenodo version DOI (10.5281/zenodo.N)")
-    return errors
+            titles[r["title"]] = i
+        if r["claims"] is None or r["claims"] == []:
+            errors.append(f"{w}: a library row names at least one claim id (claims.yaml)")
+        else:
+            _str_list(r["claims"], f"{w}.claims", errors)
+        if "note" in r and not _text(r["note"]):
+            errors.append(f"{w}.note: must be one line of at most {TEXT_MAX} characters")
 
 
 # --------------------------------------------------------------------------
@@ -505,7 +603,8 @@ def load_checked(pkg: dict, repo: pathlib.Path, file: str | None = None, allow_p
     claims, claims_rel = claims_at_head(pkg, repo)
     errors, warnings = check_against(doc, claims, claims_rel, repo)
     errors += scope_problems(pkg, doc, claims, repo)
-    if manuscript_kind(doc["manuscript"]["version"]) == "unposted" and not allow_private:
+    if doc_kind(doc) == "paper" and manuscript_kind(doc["manuscript"]["version"]) == "unposted" \
+            and not allow_private:
         errors.append("manuscript.version: unposted: theorem numbers of a private draft are not checkable by a "
                       "reader; pin a posted version (arXiv:IDvN or {repo, commit, sha256}), or pass "
                       "--allow-private-manuscript (the output is then marked)")
@@ -531,15 +630,21 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
     except core.Fail as e:
         lines = str(e).split("\n")
         problems = [x.strip() for x in lines[1:]] or [lines[0]]
-        payload = {"ok": False, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "rows": None,
+        payload = {"ok": False, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": None, "rows": None,
                    "counts": None, "manuscript": None, "private_manuscript": None,
                    "errors": problems, "warnings": []}
         return [f"{name}: coverage: INVALID ({len(problems)} problem(s))", f"  {lines[0]}"] + \
             [f"  {x}" for x in problems if x != lines[0]], payload, 1
+    if doc_kind(doc) == "library":
+        payload = {"ok": True, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": "library",
+                   "rows": len(doc["rows"]), "counts": None, "manuscript": None, "private_manuscript": False,
+                   "errors": [], "warnings": warnings}
+        line = f"{name}: coverage: OK; library; {len(doc['rows'])} main result(s); no manuscript"
+        return [line] + [f"  warning: {w}" for w in warnings], payload, 0
     counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in CLASSES}
     kind = manuscript_kind(doc["manuscript"]["version"])
-    payload = {"ok": True, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "rows": len(doc["rows"]),
-               "counts": counts, "manuscript": kind, "private_manuscript": kind == "unposted",
+    payload = {"ok": True, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": "paper",
+               "rows": len(doc["rows"]), "counts": counts, "manuscript": kind, "private_manuscript": kind == "unposted",
                "errors": [], "warnings": warnings}
     line = (f"{name}: coverage: OK; {len(doc['rows'])} row(s): " + ", ".join(f"{n} {c}" for c, n in counts.items())
             + f"; manuscript {kind}" + (" (PRIVATE DRAFT, --allow-private-manuscript)" if kind == "unposted" else ""))
@@ -564,7 +669,8 @@ def cmd_coverage(args) -> int:
 
 
 def add_parsers(sub, add_json) -> None:
-    s = sub.add_parser("coverage", help="coverage.yaml (coverage/1): the paper-to-Lean map `page` renders")
+    s = sub.add_parser("coverage", help="coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main "
+                                        "results) `page` renders")
     add_json(s)
     s.set_defaults(fn=cmd_coverage, coverage_fn=None)
     csub = s.add_subparsers(dest="coverage_cmd")

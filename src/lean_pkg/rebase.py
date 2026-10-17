@@ -835,6 +835,8 @@ def _inputs(pkg: dict, repo: pathlib.Path, claims_file: str | None, coverage_fil
     errors = cov_mod.validate(cov, name)
     if errors:
         raise core.Fail(f"{vwhere} is not a valid {cov_mod.COVERAGE_SCHEMA} file:\n  " + "\n  ".join(errors))
+    if cov_mod.doc_kind(cov) == "library":     # names no manuscript: nothing in it moves with the paper
+        return cdoc, cwhere, None, None
     return cdoc, cwhere, cov, vwhere
 
 

@@ -7,7 +7,8 @@ is not, under which assumptions, what the receipts prove, how to reproduce it, h
 credit. Every number and status word in that section is rendered here from data, never typed:
 
 * `coverage.yaml` (coverage/1, lean_pkg.coverage): the paper rows, the capsule sentence, the manuscript
-  version, the compute declaration;
+  version, the compute declaration; for `kind: library` (a reusable library with no manuscript) the
+  library's main results instead, and no section names a manuscript or a paper;
 * `claims.yaml` at HEAD: the declarations of each row;
 * the claims ledger (lean_pkg.ledger, promote stage): a row says `verified` only when the ledger closes
   every claim it names;
@@ -79,6 +80,12 @@ TRUST_FOOTNOTE = (
     "permitted axioms, and that the kernel accepts it. Neither checks that a Lean statement says what the "
     "paper says: that correspondence is the map above, written by the authors. Definition holes "
     "(`definition_names`) are compared by name only and need a human reviewer.")
+LIBRARY_TRUST_FOOTNOTE = (
+    "What these checks do not establish: the gate checks the build, the `sorry` count and the axioms at one "
+    "commit; the comparator checks that the Solution proves exactly the Challenge statement using only the "
+    "permitted axioms, and that the kernel accepts it. Neither checks that a Lean statement says what its "
+    "title above says: the titles and notes are written by the authors, and the Lean statement is the result. "
+    "Definition holes (`definition_names`) are compared by name only and need a human reviewer.")
 
 
 def _cell(s) -> str:
@@ -255,7 +262,8 @@ def _context(pkg: dict, repo, allow_private: bool) -> dict:
         "https": https, "prefix": prefix, "bound": bound,
         "link_base": (f"{https}/blob/{bound}" + (f"/{prefix}" if prefix else "")) if github and bound else None,
         "head_base": (f"{https}/blob/HEAD" + (f"/{prefix}" if prefix else "")) if github else None,
-        "kind": cov.manuscript_kind(doc["manuscript"]["version"]),
+        "library": cov.doc_kind(doc) == "library",
+        "kind": None if cov.doc_kind(doc) == "library" else cov.manuscript_kind(doc["manuscript"]["version"]),
     }
 
 
@@ -272,7 +280,7 @@ def _row_statuses(r: dict, by_id: dict) -> list[str]:
 
 
 def _ledger_word(r: dict, statuses: list[str]) -> str:
-    if r["class"] == "outside":
+    if r.get("class") == "outside":
         return "—"
     if statuses and all(s == "verified" for s in statuses):
         return "verified"
@@ -332,9 +340,7 @@ def _holes_line(configs: list[dict]) -> str:
 def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     """The sections from the status capsule to the acknowledgments, and the facts. target: 'readme' (the
     README block), 'site' (verification.md beside coverage.md) or 'html' (one page holding both)."""
-    name, pkg, repo, doc, claims, led = (ctx[k] for k in ("name", "pkg", "repo", "doc", "claims", "led"))
-    lower, comp, gate, cite = ctx["lower"], ctx["comp"], ctx["gate"], ctx["cite"]
-    https, prefix, bound, kind = ctx["https"], ctx["prefix"], ctx["bound"], ctx["kind"]
+    pkg, doc, claims, led, kind = (ctx[k] for k in ("pkg", "doc", "claims", "led", "kind"))
     md: list[str] = []
     # status capsule
     md += ["## Verification status", ""]
@@ -342,18 +348,52 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
         md += ["> **Manuscript not yet posted.** The paper numbers below refer to an unposted draft; a reader "
                "cannot check them until a version is posted.", ""]
     md += [_md(doc["summary"], lead=True), ""]
-    counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
-    map_lines, n_verified = _map_rows(doc, claims, led, ctx["link_base"])
     pstatus = led["package_status"]
     req = led["required"]
     n_req_ok = sum(1 for r in led["claims"] if r["required"] and r["status"] == "verified")
+    ledger_line = (f"- Claims ledger (promote stage): **{pstatus}**, {LEDGER_WORDS.get(pstatus, _md(pstatus))}; "
+                   f"{n_req_ok} of {req} required claim(s) verified (`{led['ledger_digest'][:23]}…`).")
+    if ctx["library"]:
+        counts = None
+        map_lines, n_verified = _library_rows(doc, claims, led, ctx["link_base"])
+        md += [f"- Library: no manuscript; each row below is a main result of the library, stated by its Lean "
+               f"declarations.",
+               f"- Main results: {len(doc['rows'])}; {n_verified} of {len(doc['rows'])} main result(s) verified.",
+               ledger_line, f"- lean-pkg registry status: `{_code(pkg.get('status'))}`.", ""]
+        md += ["## Main results", "",
+               "| Result | Lean declarations | Ledger | Notes |", "|---|---|---|---|", *map_lines, "",
+               "*verified*: `lean-pkg claims ledger` closes every claim of the row at the promote stage (gate and "
+               "comparator receipts); any other word is the ledger's status.", ""]
+        if target != "readme":
+            md += [f"Every claim of every row, with its ledger status: [Coverage]"
+                   f"({'coverage.md' if target == 'site' else '#coverage'}).", ""]
+    else:
+        md, counts, n_verified = _paper_sections(ctx, target, md, ledger_line)
+    return _body_rest(ctx, target, md, counts, n_verified)
+
+
+def _library_rows(doc: dict, claims: dict, led: dict, link_base: str | None) -> tuple[list[str], int]:
+    by_id = {r["id"]: r for r in led["claims"]}
+    out, verified = [], 0
+    for r in doc["rows"]:
+        decls = [_decl_ref(claims[cid], cid, link_base) for cid in r["claims"]]
+        word = _ledger_word(r, _row_statuses(r, by_id))
+        verified += word == "verified"
+        out.append(f"| {_md(r['title'])} | {'<br>'.join(decls)} | {word} | "
+                   f"{_md(r['note']) if r.get('note') else '—'} |")
+    return out, verified
+
+
+def _paper_sections(ctx: dict, target: str, md: list[str], ledger_line: str) -> tuple[list[str], dict, int]:
+    """The capsule lines, the paper-to-Lean map and Not formalized of a kind: paper coverage."""
+    doc, claims, led, pkg = ctx["doc"], ctx["claims"], ctx["led"], ctx["pkg"]
+    counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
+    map_lines, n_verified = _map_rows(doc, claims, led, ctx["link_base"])
     md += [f"- Manuscript: {_manuscript_ref(doc['manuscript'])}.",
            f"- Paper results mapped: {len(doc['rows'])} ({counts['same-assumptions']} same assumptions, "
            f"{counts['inputs-supplied']} inputs supplied, {counts['outside']} outside this formalization); "
            f"{n_verified} of {len(doc['rows']) - counts['outside']} formalized row(s) verified.",
-           f"- Claims ledger (promote stage): **{pstatus}**, {LEDGER_WORDS.get(pstatus, _md(pstatus))}; "
-           f"{n_req_ok} of {req} required claim(s) verified (`{led['ledger_digest'][:23]}…`).",
-           f"- lean-pkg registry status: `{_code(pkg.get('status'))}`.", ""]
+           ledger_line, f"- lean-pkg registry status: `{_code(pkg.get('status'))}`.", ""]
     # map
     md += ["## Paper ↔ Lean map", "",
            "| Paper | Correspondence | Lean declarations | Ledger | Inputs and notes |",
@@ -374,6 +414,16 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     else:
         md.append(f"Nothing in the manuscript is excluded: {_md(doc['nothing_excluded']['reason'])}")
     md.append("")
+    return md, counts, n_verified
+
+
+def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_verified: int
+               ) -> tuple[list[str], dict]:
+    """From the trust boundary to the acknowledgments (both kinds), and the facts."""
+    name, pkg, repo, doc = (ctx[k] for k in ("name", "pkg", "repo", "doc"))
+    lower, comp, gate, cite, led = ctx["lower"], ctx["comp"], ctx["gate"], ctx["cite"], ctx["led"]
+    https, prefix, bound, kind = ctx["https"], ctx["prefix"], ctx["bound"], ctx["kind"]
+    pstatus = led["package_status"]
     # trust boundary
     md += ["## Trust boundary", ""]
     allowed = _names(gate.get("axioms_allowed") or core.DEFAULT_AXIOMS)
@@ -398,7 +448,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
                   f"{_holes_line(configs)}.")
     else:
         md.append("- No comparator receipt is committed: no statement has been compared.")
-    md += ["", TRUST_FOOTNOTE, ""]
+    md += ["", LIBRARY_TRUST_FOOTNOTE if ctx["library"] else TRUST_FOOTNOTE, ""]
     # reproduce
     toolchain = _safe((_head_text(repo, "lean-toolchain") or "").strip())
     rev = _mathlib_rev(repo)
@@ -439,8 +489,8 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
         line += f" Version {_md(cite['version'])}."
     if cite["doi"] and re.fullmatch(r"10\.\d{4,9}/[^\s()\[\]<>`]+", cite["doi"]):
         line += f" [doi:{_md(cite['doi'])}](https://doi.org/{cite['doi']})."
-    md += [line, "", f"It formalizes results of {_manuscript_ref(doc['manuscript'])}. "
-                     f"See {_file_ref(ctx, 'CITATION.cff', target)}.", ""]
+    formalizes = "" if ctx["library"] else f"It formalizes results of {_manuscript_ref(doc['manuscript'])}. "
+    md += [line, "", f"{formalizes}See {_file_ref(ctx, 'CITATION.cff', target)}.", ""]
     # license
     spdx, lic_rel = ctx["license"]
     md += ["## License", "", f"Released under `{_code(spdx)}`; see {_file_ref(ctx, lic_rel, target)}.", ""]
@@ -455,6 +505,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     facts = {"rows": len(doc["rows"]), "counts": counts, "verified_rows": n_verified,
              "ledger_status": pstatus, "ledger_digest": led["ledger_digest"],
              "private_manuscript": kind == "unposted", "manuscript": kind,
+             "kind": "library" if ctx["library"] else "paper",
              "easley": {"backed": bool(backed.get("easley")), "jobs": backed.get("easley") or []},
              "receipts": len(ev_rows)}
     return md, {"facts": facts, "warnings": warnings}
@@ -465,10 +516,12 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
     its own ledger status, the inputs and the note (labels stay in coverage.yaml)."""
     doc, claims, led = ctx["doc"], ctx["claims"], ctx["led"]
     by_id = {r["id"]: r for r in led["claims"]}
-    counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
     md = ["# Coverage", ""]
     if target == "site":
         md += [SITE_NOTE.format(name=ctx["name"]), ""]
+    if ctx["library"]:
+        return md + _library_coverage_lines(ctx, target)
+    counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
     md += [f"Manuscript: {_manuscript_ref(doc['manuscript'])}.", "",
            f"- Paper results: {len(doc['rows'])} ({counts['same-assumptions']} same assumptions, "
            f"{counts['inputs-supplied']} inputs supplied, {counts['outside']} outside this formalization).",
@@ -490,6 +543,27 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
     if not any(r["class"] == "outside" for r in doc["rows"]):
         md += [f"Nothing in the manuscript is excluded: {_md(doc['nothing_excluded']['reason'])}", ""]
     md.append(f"Back to [Verification]({'verification.md' if target == 'site' else '#verification'}).")
+    return md
+
+
+def _library_coverage_lines(ctx: dict, target: str) -> list[str]:
+    """coverage.md of a kind: library coverage: every main result with every claim, its declaration and its
+    own ledger status, and the note."""
+    doc, claims, led = ctx["doc"], ctx["claims"], ctx["led"]
+    by_id = {r["id"]: r for r in led["claims"]}
+    md = ["Library: no manuscript; each row is a main result of the library.", "",
+          f"- Main results: {len(doc['rows'])}.",
+          f"- Claims ledger (promote stage): **{led['package_status']}** (`{led['ledger_digest'][:23]}…`).", "",
+          "| Result | Claims | Lean declarations | Ledger | Note |", "|---|---|---|---|---|"]
+    for r in doc["rows"]:
+        ids = list(r["claims"])
+        md.append(f"| {_md(r['title'])} | {'<br>'.join(f'`{_code(c)}`' for c in ids)} | "
+                  f"{'<br>'.join(_decl_ref(claims[c], c, ctx['link_base']) for c in ids)} | "
+                  f"{'<br>'.join(_row_statuses(r, by_id))} | {_md(r['note']) if r.get('note') else '—'} |")
+    md += ["", "One line per main result of `coverage.yaml`. *Ledger*: the status `lean-pkg claims ledger` gives "
+               "each claim at the promote stage, in the order of the claims; only *verified* means the recorded "
+               "receipts close the claim.", "",
+           f"Back to [Verification]({'verification.md' if target == 'site' else '#verification'})."]
     return md
 
 

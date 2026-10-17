@@ -355,6 +355,13 @@ _TOP_KEY = re.compile(r"^(\S[^:#]*):")
 def coverage_edit(text: str, target: str, eprint_sha: str) -> str:
     """coverage.yaml text with manuscript.version set to target and manuscript.eprint_sha256 set, every other
     line (comments included) unchanged. Fail when the manuscript block is not in block style."""
+    try:
+        library = cov.doc_kind(cov.load_text(text, cov.DEFAULT_COVERAGE_FILE)) == "library"
+    except core.Fail:
+        library = False
+    if library:
+        raise core.Fail(f"coverage.yaml is kind library: it names no manuscript, so it is not bound to {target}; "
+                        f"a package that formalizes a paper's results is kind paper (the default)")
     lines = text.split("\n")
     start = next((i for i, x in enumerate(lines) if re.match(r"^manuscript:\s*(#.*)?$", x)), None)
     if start is None:
