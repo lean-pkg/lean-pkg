@@ -81,8 +81,8 @@ is a test in `tests/test_lean_diag.py`, on verbatim Lean output.
   `error: Lean exited with code 1` and `error: build failed`. They are counted
   as build-failure summaries, never as the error. A log with only a summary
   and no Lean error (a crash, a missing toolchain) is `wrong-reason`.
-- **Warnings are not errors, and `sorry` is a warning.** `declaration uses
-  `sorry`` is a warning; the file compiles. A control that "fails" because it
+- **Warnings are not errors, and `sorry` is a warning.**
+  ``declaration uses `sorry` `` is a warning; the file compiles. A control that "fails" because it
   still has a `sorry` does not fail at all. Under
   `set_option warningAsError true` the same text is an error; the counts
   report it as `sorry` among the errors.
