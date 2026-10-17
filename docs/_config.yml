@@ -1,5 +1,5 @@
 title: lean-pkg
-description: Prove it. Then prove you proved it.
+description: Lean checks the proofs. You check the statements. lean-pkg checks the receipts.
 theme: jekyll-theme-cayman
 show_downloads: false
 plugins:

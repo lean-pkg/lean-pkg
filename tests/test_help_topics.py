@@ -62,7 +62,7 @@ def no_registry(tmp_path, monkeypatch):
 def test_help_lists_commands_and_topics(lp, capsys, no_registry):
     assert lp.main(["help"]) == 0
     out = capsys.readouterr().out
-    assert "HELP TOPICS" in out and "COMMANDS" in out and "LEARN MORE" in out
+    assert "HELP TOPICS" in out and "START HERE" in out and "PACKAGE AUTHOR" in out and "LEARN MORE" in out
     for t in TOPICS:
         assert re.search(rf"^  {t} ", out, re.M), t
     for path in _command_paths(lp):

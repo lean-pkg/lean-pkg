@@ -958,11 +958,46 @@ def cmd_page(args) -> int:
                                            site=args.site, html=args.html, repo_arg=args.repo)
     for w in warnings:
         print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
+    if args.write and payload.get("written") and rc == 0:
+        lines += docs_only_opt_in(args, reg, payload)
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:
         print("\n".join(lines))
     return rc
+
+
+def docs_only_opt_in(args, reg: dict, payload: dict) -> list[str]:
+    """After `page --write` changed README.md of a gated package: turn on the docs-only exception the page
+    commit needs, unless the record already says either way. Committing the README moves HEAD past the gated
+    commit, and without the opt-in the receipts stop binding (the gate, publish and `receipt check` refuse a
+    non-evidence descendant). Done through `lean-pkg update NAME --accept-docs-descendants --reason R`, its own
+    invocation (its lock, committed mode and `updated` event); the lines say what it records."""
+    from . import verify as verify_mod
+    pkg = core.get_pkg(reg, args.name)
+    gated = (pkg.get("gate") or {}).get("receipt")
+    if not gated or pkg.get("docs_descendants") is not None:   # not gated, or opted in or out already
+        return []
+    bound = core.recorded_json(core.repo_path(pkg), gated) or {}
+    c12 = str(bound.get("commit") or "")[:12] or "the gated commit"
+    argv = verify_mod.global_flags(args) + ["update", args.name, "--accept-docs-descendants", "--reason",
+                                            f"page --write: the README verification page is committed after {c12}"]
+    argv += ["--agent", args.agent] if args.agent else []
+    json_out = getattr(args, "json_out", False)
+    rc, out = verify_mod.invoke(argv + (["--json"] if json_out else []), capture_json=json_out)
+    shown = "lean-pkg " + core.shlex.join(argv)
+    payload["docs_descendants"] = {"turned_on": rc == 0, "command": shown, "rc": rc,
+                                   **({"update": out} if out is not None else {})}
+    if rc != 0:
+        payload["warnings"].append(f"the docs-only exception is not on (`{shown}` exited {rc}); committing "
+                                   f"README.md moves HEAD past {c12} and the receipts stop binding")
+        return [f"{args.name}: WARN: the docs-only exception is not on: `{shown}` exited {rc}; run it before "
+                f"committing README.md"]
+    return [f"{args.name}: turned on the docs-only exception (`{shown}`): the record now says docs_descendants: "
+            f"true, so a commit after {c12} that changes only non-build files, such as this README, keeps the "
+            f"receipts bound to {c12}; a changed build input (*.lean, lakefile, lake-manifest.json, "
+            f"lean-toolchain, claims.yaml) still needs new receipts. Undo: lean-pkg update {args.name} "
+            f"--no-accept-docs-descendants --reason R"]
 
 
 def add_parsers(sub, add_json) -> None:
@@ -971,7 +1006,9 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("name")
     s.add_argument("--write", action="store_true",
                    help="replace the marked block in the package README.md (append it when absent); prose outside "
-                        "the markers is untouched; not a registry write")
+                        "the markers is untouched. For a gated package whose record says nothing about the "
+                        "docs-only exception, it then turns it on (`update NAME --accept-docs-descendants`, its "
+                        "own registry write), so committing the README keeps the receipts bound")
     s.add_argument("--check", action="store_true",
                    help="exit 1 when the README block is missing or stale, the lean-pkg credit is missing, or the "
                         "Easley sentence has no backing Slurm receipt; with --site/--html also when those files "

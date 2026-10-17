@@ -1,61 +1,67 @@
 usage: lean-pkg [-h] [--registry REGISTRY] [--events EVENTS] [--json] [--commit] [--push]
                 [--no-commit] [--registry-snapshot COMMIT] [--version]
-                {registry,list,status,new,record,register,lease,update,repo,gate,comparator,promote,doctor,llms,help,index,claims,search,formalization,publish,coverage,page,reservoir,public-safety,palomar,next,report,receipt} ...
+                COMMAND ...
 
-Lean 4 package registry: board, leases, trust gate, promotion
+lean-pkg: a registry and trust gate for Lean 4 formalization packages: receipts, the gate, the
+verification page, publication.
 
-positional arguments:
-  {registry,list,status,new,record,register,lease,update,repo,gate,comparator,promote,doctor,llms,help,index,claims,search,formalization,publish,coverage,page,reservoir,public-safety,palomar,next,report,receipt}
-    registry            the registry file itself: init, migrate, validate, audit, board, wiki (the
-                        old top-level spellings keep working)
-    list                static table, pipe-friendly
-    status              full record + last 5 history entries + scope (gated commit, privacy, the
-                        exact comparator-covered declarations)
-    new                 scaffold a new Lean package (Challenge/Solution, comparator.json, claims,
-                        coverage, verify.sh) in a new directory and git init it; no registry, no
-                        network
-    record              record a publication evidence event (consent, Palomar, DOI, Reservoir,
-                        Mathlib PR)
-    register            the ONLY write path for new packages: validated, deduping, auto-detecting
-    lease               leases for agents sharing a registry: claim, renew, release, list (the old
-                        spellings claim, renew, release, leases keep working)
-    update              set fields of an already-registered package (register is for NEW ones)
-    repo                the package's checkout: move (relocate the record to another checkout)
-    gate                validate a lower-tier receipt; gate-pending -> verified-private; records
-                        the receipt's lean_toolchain and mathlib_rev as the package's pins
-    comparator          comparator receipts: attach (or --check) one to a gated package; config
-                        (write a configuration from claims); host-check
-    promote             promotion checklist; DRY-RUN unless --yes
-    doctor              installation, registry, index and tool diagnostics; exit 1 when the
-                        registry is unreadable or its schema version is unsupported
-    llms                print the agent-oriented usage contract
-    help                help topics (exit-codes, environment, formatting) or a command's --help
-    index               the public catalog: add | check | render | migrate
-    claims              claims.yaml: sync | list | check | migrate | ledger | mark | rebase (named
-                        reusable results)
-    search              prior-art search over claims, the index and public sources
-    formalization       formalization.yaml (v0.4, what Palomar reads): render it from the registry
-                        and the repo at HEAD; anchor the companion to one arXiv version
-    publish             read-only release checklist from verified-private to listed (--dry-run
-                        only), with the exact next commands
-    coverage            coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main
-                        results) `page` renders
-    page                render the README verification section from coverage.yaml, claims, the
-                        ledger and the receipts; stdout unless --write/--check/--out/--site/--html
-    reservoir           Reservoir: check (read-only listing criteria)
-    public-safety       read-only: scan the package's tree and git history for private patterns
-                        (exit 1 on hits; promote runs it)
-    palomar             Palomar: prepare (build a submission bundle), check (read-only readiness),
-                        port-modules (plan or write the module-system port); no network
-    next                read-only: the single recommended next command for a package, with a one-
-                        line reason (exit 0 a command to run, 1 blocked)
-    report              read-only: a redacted bug report in the repository's issue format; dry run
-                        unless --yes (files it with gh issue create)
-    receipt             produce lower-tier receipts (slurm, systemd: write files in the package
-                        checkout, never the registry); check a published package's receipts from
-                        git alone (check)
+START HERE: one package on your own machine
+  new            scaffold a new Lean package (Challenge/Solution, comparator.json, claims,
+                 coverage, verify.sh) in a new directory and git init it; no registry, no network
+  verify         both receipts and the gate in one step on this machine: the comparator receipt,
+                 the lower-tier receipt (systemd user unit) at the same commit, then the gate;
+                 prints each command it runs
+  status         full record + last 5 history entries + scope (gated commit, privacy, the exact
+                 comparator-covered declarations)
+  page           render the README verification section from coverage.yaml, claims, the ledger and
+                 the receipts; stdout unless --write/--check/--out/--site/--html
+  publish        the checklist from verified-private to listed, with the exact next commands
+                 (read-only); --yes makes the repository public (`promote` is the same)
+  doctor         installation, registry, index and tool diagnostics; exit 1 when the registry is
+                 unreadable or its schema version is unsupported
+  help           help topics (exit-codes, environment, formatting) or a command's --help
 
-options:
+PACKAGE AUTHOR: evidence, publication, the catalog
+  register       the ONLY write path for new packages: validated, deduping, auto-detecting
+  update         set fields of an already-registered package (register is for NEW ones)
+  record         record a publication evidence event (consent, Palomar, DOI, Reservoir, Mathlib
+                 PR)
+  gate           validate a lower-tier receipt; gate-pending -> verified-private; records the
+                 receipt's lean_toolchain and mathlib_rev as the package's pins
+  next           read-only: the single recommended next command for a package, with a one-line
+                 reason (exit 0 a command to run, 1 blocked)
+  list           static table, pipe-friendly
+  search         prior-art search over claims, the index and public sources
+  receipt        produce receipts (slurm, systemd: the lower tier; comparator: the comparator run;
+                 each writes files in the package checkout, never the registry); check a published
+                 package's receipts from git alone (check)
+  comparator     comparator receipts: attach one to a gated package, or check it; config (write a
+                 configuration from claims), coverage, migrate-signoff; host-check
+  claims         claims.yaml: sync | list | check | migrate | ledger | mark | rebase (named
+                 reusable results)
+  coverage       coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main results)
+                 `page` renders
+  formalization  formalization.yaml (v0.4, what Palomar reads): render it from the registry and
+                 the repo at HEAD; anchor the companion to one arXiv version
+  palomar        Palomar: prepare (build a submission bundle), check (read-only readiness), port-
+                 modules (plan or write the module-system port); no network
+  reservoir      Reservoir: check (read-only listing criteria)
+  public-safety  read-only: scan the package's tree and git history for private patterns (exit 1
+                 on hits; publish --yes runs it)
+  report         read-only: a redacted bug report in the repository's issue format; dry run unless
+                 --yes (files it with gh issue create)
+
+COORDINATION AND MAINTENANCE: shared registries, leases, the registry file
+  lease          leases for agents sharing a registry: claim, renew, release, list (the old
+                 spellings claim, renew, release, leases keep working)
+  registry       the registry file itself: init, migrate, validate, audit, board, wiki (the old
+                 top-level spellings keep working)
+  repo           the package's checkout: move (relocate the record), export (a new single-commit
+                 public repository), adopt (an existing one)
+  index          the public catalog: add | check | render | migrate
+  llms           print the agent-oriented usage contract
+
+global options:
   -h, --help            show this help message and exit
   --registry REGISTRY   registry yaml (default: $LEAN_PKG_REGISTRY, else ~/.lean-pkg/registry,
                         else ./lean-packages.yaml)
@@ -75,4 +81,5 @@ options:
                         path}
 
 New here? `lean-pkg help start`: the five verbs (new, verify, status, page, publish) and the two
-product tracks. Old spellings (claim, init, audit, ...) keep working: `lean-pkg help aliases`.
+product tracks. `lean-pkg <command> -h`: one command's flags. Old spellings (claim, init, promote,
+comparator-receipt, ...) keep working: `lean-pkg help aliases`.

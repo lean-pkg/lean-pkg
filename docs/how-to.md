@@ -12,10 +12,10 @@ off a terminal.
 ## See what exists
 
 ```bash
-lean-pkg board            # curses TUI on a terminal, static table otherwise
+lean-pkg registry board            # curses TUI on a terminal, static table otherwise
 lean-pkg list --json      # the same table for scripts
 lean-pkg status my-proof  # full record plus the last five history entries
-lean-pkg validate         # schema, enum and history sanity; exit 0 or 1
+lean-pkg registry validate         # schema, enum and history sanity; exit 0 or 1
 ```
 
 New here? `lean-pkg help start` prints the five verbs and the two product
@@ -56,7 +56,7 @@ Only `reusable` claims are required by the claims ledger, so a package whose
 claims are all `experimental` has a ledger that is `unknown` and can never be
 promoted; `claims sync` and `claims check` warn about it. `claims mark` sets
 the status of exactly the claims a comparator configuration's `theorem_names`
-cover, by the rule `comparator config --coverage` uses, and lists the names
+cover, by the rule `comparator coverage` uses, and lists the names
 that cover no claim. Then commit, `claims sync`, and re-gate.
 
 `claims.yaml` (schema `claims/1`) at the repository root names the results
@@ -86,13 +86,13 @@ pin from the checkout when it exists on this host.
 ## Work on a package without stepping on someone
 
 ```bash
-lean-pkg claim my-proof --workspace laptop --agent alice --reason "chapter 2"   # CAS lease, 24 h default
-lean-pkg claim my-proof --workspace laptop --agent alice --ttl 72                 # same agent: refresh
-lean-pkg renew my-proof --agent alice                                            # restart a live lease from now
-lean-pkg renew my-proof --agent alice --contact "@alice-desk"                    # where to reach the holder (`leases` CONTACT)
-lean-pkg leases --agent alice --expiring 2                                        # what lapses within 2 h
-lean-pkg release my-proof --agent alice
-lean-pkg claim my-proof --workspace w9 --agent bob --force --reason "alice is away"   # logged as claim-forced
+lean-pkg lease claim my-proof --workspace laptop --agent alice --reason "chapter 2"   # CAS lease, 24 h default
+lean-pkg lease claim my-proof --workspace laptop --agent alice --ttl 72                 # same agent: refresh
+lean-pkg lease renew my-proof --agent alice                                            # restart a live lease from now
+lean-pkg lease renew my-proof --agent alice --contact "@alice-desk"                    # where to reach the holder (`leases` CONTACT)
+lean-pkg lease list --agent alice --expiring 2                                        # what lapses within 2 h
+lean-pkg lease release my-proof --agent alice
+lean-pkg lease claim my-proof --workspace w9 --agent bob --force --reason "alice is away"   # logged as claim-forced
 ```
 
 A refusal names the current holder and the expiry. Work that outlasts the
@@ -113,7 +113,7 @@ lean-pkg update my-proof --reaudit-after 2027-01-15
 ```
 
 `verified-private` is reachable only through `gate`, and `public` only
-through `promote --yes`. See [Lifecycle](lifecycle.md).
+through `publish --yes`. See [Lifecycle](lifecycle.md).
 
 ## Withdraw a publication the owner made private
 
@@ -148,6 +148,25 @@ receipt, the comparator receipt and the cached claims are cleared, a
 `verified-private` package returns to `gate-pending`, and the `relocated`
 event lists what was cleared. Without `--redetect`, `lean_toolchain` and
 `mathlib_pin` are left as recorded.
+
+## Verify a package in one step
+
+On a workstation with systemd, `verify` produces both receipts at the
+checkout's HEAD and gates the package, printing each command before it runs:
+
+```bash
+lean-pkg verify my-proof --dry-run     # the three steps and their exact commands; nothing runs
+lean-pkg verify my-proof               # receipt comparator, receipt systemd --run, gate (in that order)
+git add .lean-receipts && git commit -m "evidence: receipts"
+```
+
+It needs a clean commit, the scaffold's `verify.sh` (`--script FILE` names
+another) and a comparator configuration; an `active` package is moved to
+`gate-pending` first, a gated one is re-gated (`--reason` for a commit that
+does not descend from the gated one). It commits nothing in the checkout, and
+writes only what the three commands write. The sections below are the same
+steps by hand, for a cluster, CI or a custom check
+([`verify`](commands/verify.md)).
 
 ## Produce the lower-tier receipt
 
@@ -197,7 +216,7 @@ lean-pkg comparator host-check          # needs no registry; exit 0 when a mecha
 ```
 
 One `ok`/`warn`/`fail` line per requirement, then a verdict naming the usable
-mechanisms. Run it before a long `comparator-receipt` run. Details:
+mechanisms. Run it before a long `lean-pkg receipt comparator` run. Details:
 [Checking a host first](comparator.md#checking-a-host-first).
 
 ## Produce the comparator receipt
@@ -219,7 +238,7 @@ the comparator tier to a package that already builds, step by step:
 ```bash
 lean-pkg comparator config --from-claims my-proof --dry-run              # one entry per uncovered theorem claim
 lean-pkg comparator config --from-claims my-proof --challenge-from-type  # pre-fill the elaborated statements
-lean-pkg comparator config --coverage my-proof                           # covered / not covered at the gate-bound commit
+lean-pkg comparator coverage my-proof                           # covered / not covered at the gate-bound commit
 ```
 
 Review every pre-filled statement by hand. Details, including `--checkout`
@@ -229,9 +248,9 @@ and the scratch mode under another agent's lease:
 ## Plan a long comparator run
 
 ```bash
-comparator-receipt --estimate           # time a sample of slots; no receipt
-comparator-receipt --judges 4           # shard the slots (helps only for disjoint closures)
-comparator-receipt --slots sample:5     # a partial run: never accepted as evidence
+lean-pkg receipt comparator --estimate           # time a sample of slots; no receipt
+lean-pkg receipt comparator --judges 4           # shard the slots (helps only for disjoint closures)
+lean-pkg receipt comparator --slots sample:5     # a partial run: never accepted as evidence
 ```
 
 A rerun resumes from the slots already accepted (`--no-resume` judges every
@@ -263,8 +282,8 @@ The new commit must descend from the gated one; otherwise pass `--reason TEXT`
 ## Attach or re-check comparator evidence later
 
 ```bash
-lean-pkg comparator my-proof --receipt .lean-receipts/<c12>-comparator.json          # record it (event comparator-attached)
-lean-pkg comparator my-proof --receipt .lean-receipts/<c12>-comparator.json --check  # validate only, any status
+lean-pkg comparator attach my-proof --receipt .lean-receipts/<c12>-comparator.json          # record it (event comparator-attached)
+lean-pkg comparator check my-proof --receipt .lean-receipts/<c12>-comparator.json  # validate only, any status
 ```
 
 ## Render formalization.yaml
@@ -338,7 +357,7 @@ is never declared by being used, or a generic CI runner path) can be allowed
 in a committed `.lean-pkg-public-allow` instead: `allow:` lines only (any
 other line there is ignored with a warning), read by every scan, and never
 able to exempt a private string written into the file itself (that is the
-blocking hit `public-allow-private`). `release --fresh-repo` writes it from
+blocking hit `public-allow-private`). `repo export` writes it from
 the patterns file's allow lines.
 
 ## Publish a package incubated beside a paper
@@ -347,14 +366,14 @@ When a hit is in the history, export a fresh-history repository instead of
 rewriting the old one:
 
 ```bash
-lean-pkg release my-proof --fresh-repo ~/src/my-proof-public --dry-run
-lean-pkg release my-proof --fresh-repo ~/src/my-proof-public
-lean-pkg release my-proof --adopt-repo ~/src/my-proof-public    # or: adopt one built by hand
-lean-pkg release my-proof --fresh-repo ~/src/my-proof-public --from-tree ~/src/my-proof-cleaned   # or: a hand-cleaned tree
+lean-pkg repo export my-proof ~/src/my-proof-public --dry-run
+lean-pkg repo export my-proof ~/src/my-proof-public
+lean-pkg repo adopt my-proof ~/src/my-proof-public    # or: adopt one built by hand
+lean-pkg repo export my-proof ~/src/my-proof-public --from-tree ~/src/my-proof-cleaned   # or: a hand-cleaned tree
 ```
 
 Evidence is cleared (a receipt binds one commit), so gate and run the
-comparator again on the new commit, then `publish --dry-run` and `promote`.
+comparator again on the new commit (`lean-pkg verify my-proof`), then `publish` and `publish --yes`.
 The full sequence: [Publishing a package incubated beside private work](receipts.md#publishing-a-package-incubated-beside-private-work).
 Before the flip, give the new repository's README its credits (lean-pkg, and
 the compute when the receipts show where it ran): [Credits](paper-companion.md#credits).
@@ -362,8 +381,8 @@ the compute when the receipts show where it ran): [Credits](paper-companion.md#c
 ## Publish
 
 ```bash
-lean-pkg promote my-proof        # dry run: read every line of the checklist
-lean-pkg promote my-proof --yes  # ONE-WAY: gh repo edit --visibility public
+lean-pkg publish my-proof --yes --dry-run   # dry run: read every line of the promotion checklist
+lean-pkg publish my-proof --yes             # ONE-WAY: gh repo edit --visibility public
 ```
 
 Optional notification after the flip: set `LEAN_PKG_NOTIFY_CMD` to a command
@@ -372,7 +391,7 @@ that reads the message from stdin.
 ## Get listed: publish checklist, Reservoir, Palomar
 
 ```bash
-lean-pkg publish my-proof --dry-run          # read-only checklist from verified-private to listed
+lean-pkg publish my-proof                    # read-only checklist from verified-private to listed
 lean-pkg reservoir check my-proof            # would Reservoir list it? exit 0 eligible, 1 not
 lean-pkg palomar check my-proof              # read-only: every gap to Palomar's rules; exit 0 ready, 1 gaps
 lean-pkg palomar port-modules my-proof       # dry run: the module-system port as a diff; --write applies it
@@ -407,8 +426,8 @@ Trust is computed from the evidence, never typed. Schema and review:
 ## Find drift, expired leases, and GitHub mismatches
 
 ```bash
-lean-pkg audit            # report only: expired leases, receipt-drift, comparator-drift, visibility mismatch
-lean-pkg audit --fix      # clear expired leases; copy GitHub's visibility and archived flag into the registry
+lean-pkg registry audit            # report only: expired leases, receipt-drift, comparator-drift, visibility mismatch
+lean-pkg registry audit --write      # clear expired leases; copy GitHub's visibility and archived flag into the registry
 ```
 
 ## Share one registry across machines
@@ -426,9 +445,9 @@ afterwards; with push on, it also pushes:
 
 ```bash
 export LEAN_PKG_COMMIT=1 LEAN_PKG_PUSH=1     # e.g. in the shell profile of each machine
-lean-pkg claim my-lean --workspace w3 --agent vera
+lean-pkg lease claim my-lean --workspace w3 --agent vera
 # or per command:
-lean-pkg claim my-lean --workspace w3 --agent vera --commit --push
+lean-pkg lease claim my-lean --workspace w3 --agent vera --commit --push
 ```
 
 A clone that has diverged from `origin`, or registry files with uncommitted
@@ -468,7 +487,7 @@ lean-pkg migrate                             # additive and idempotent
 ## Render a status page
 
 ```bash
-lean-pkg wiki --out status/index.md
+lean-pkg registry wiki --out status/index.md
 ```
 
 ## Find the next command for a package
@@ -480,7 +499,7 @@ lean-pkg next NAME --json     # {command, reason, blockers[], state{}}
 
 Read-only and offline: it decides from the registry record and the checkout, with the same checks
 `gate`, `comparator` and `publish --dry-run` use, and prints the one command to run next (`claim`,
-`gate --check`, `comparator-receipt`, `publish --dry-run`, ...). Exit 1 names what blocks the package
+`gate --check`, `lean-pkg receipt comparator`, `publish --dry-run`, ...). Exit 1 names what blocks the package
 (a foreign lease with `--agent`, a dirty tree while evidence is produced, a receipt `gate` would refuse).
 A `note:` line (and `--json` `notes[]`) says when the checkout is on a branch other than the
 default, or detached; the current HEAD is still what is evaluated.
@@ -499,7 +518,7 @@ The body follows the repository's bug-report template (version, command, output,
 home and checkout paths, e-mail addresses, the public-safety families and the names derived from the
 registry record; a hit the redaction cannot replace refuses to file. `--enhancement` labels a feature
 request; `--json` gives `{url, title, labels, body, redactions}`. One of `--command`, `--body` or
-`--from-log` is required: friction inside a long stage (a failed `comparator-receipt` build) has no cheap
+`--from-log` is required: friction inside a long stage (a failed `lean-pkg receipt comparator` build) has no cheap
 re-run, so describe it with `--body` and attach the tail of its log with `--from-log`. See the
 [`lean-pkg report` page](commands/report.md).
 
@@ -507,7 +526,7 @@ re-run, so describe it with `--body` and attach the tail of its log with `--from
 
 See [Using lean-pkg with agents](agents.md). Short version: the agent reads
 [llms.txt](llms.txt) (the same text as `lean-pkg llms`; `lean-pkg llms --short` is the 40-line version), always passes `--json`, asks `lean-pkg next NAME` when unsure what comes next, claims before working, and
-never calls `promote --yes` without a human reading the dry run.
+never calls `publish --yes` without a human reading the dry run.
 
 ## Look up exit codes, environment variables and output formats
 

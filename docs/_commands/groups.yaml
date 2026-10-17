@@ -1,6 +1,6 @@
-# The command reference's index page (docs/commands/index.md), grouped by purpose.
-# scripts/command_docs.py lists a command that no group names under "Not yet grouped", so a new
-# command is never missing from the index; place it in a group here when it lands.
+# The command reference's index page (docs/commands/index.md): its introduction. The groups are the tiers
+# the parser carries (lean_pkg.command_tree.TIERS, read by scripts/command_docs.py), so they cannot drift
+# from `lean-pkg --help`.
 intro: |
   Every `lean-pkg` command and subcommand, with its usage line, every flag, its exit codes, its
   `--json` keys and, for the commands people run most, examples. Flags shared by every command
@@ -9,29 +9,11 @@ intro: |
   [Command aliases](aliases.md).
 
   **New here?** The [quickstart](../quickstart.md) takes a new package from
-  [`new`](new.md) to a verified page. The usual path through the commands is
-  [`registry init`](registry.md#lean-pkg-registry-init) (once) → [`register`](register.md) → [`lease claim`](lease.md#lean-pkg-lease-claim) →
-  work → [`receipt slurm`](receipt.md#lean-pkg-receipt-slurm) or
-  [`receipt systemd`](receipt.md#lean-pkg-receipt-systemd) → [`gate`](gate.md) →
-  [`comparator-receipt`](comparator-receipt.md) and [`comparator attach`](comparator.md#lean-pkg-comparator-attach) →
-  [`coverage check`](coverage.md#lean-pkg-coverage-check) and [`page`](page.md) →
-  [`publish --dry-run`](publish.md) → [`promote`](promote.md). At any point
-  [`next NAME`](next.md) prints the one command to run now and [`status NAME`](status.md)
-  shows the record. The [sample workflow](../sample-workflow.md) walks the same path on a
-  real package.
-groups:
-  - title: Set up and get help
-    commands: [new, doctor, help, llms]
-  - title: See the registry
-    commands: [list, status, next, registry]
-  - title: Register, lease and edit packages
-    commands: [register, update, repo, lease]
-  - title: Produce and attach evidence
-    say: The lower tier (`receipt`, `gate`) moves a package to verified-private; the comparator tier is required to go public.
-    commands: [receipt, gate, comparator-receipt, comparator, record]
-  - title: Claims, coverage and the verification page
-    commands: [claims, coverage, page, formalization, search]
-  - title: Publish
-    commands: [publish, public-safety, promote, palomar, reservoir, index, lean-pkg-extract]
-  - title: Exercises and reports
-    commands: [lean-exercise, report]
+  [`new`](new.md) to a verified page with five verbs: [`new`](new.md) →
+  [`verify`](verify.md) (both receipts and the gate) → [`status`](status.md) →
+  [`page`](page.md) → [`publish`](publish.md) (`--yes` to go public). `verify` runs, in order,
+  [`receipt comparator`](receipt-comparator.md), [`receipt systemd`](receipt-systemd.md) and
+  [`gate`](gate.md); a cluster uses [`receipt slurm`](receipt-slurm.md) instead. A shared
+  registry adds [`lease claim`](lease-claim.md) before work. At any point
+  [`next NAME`](next.md) prints the one command to run now. The
+  [sample workflow](../sample-workflow.md) walks the same path on a real package.

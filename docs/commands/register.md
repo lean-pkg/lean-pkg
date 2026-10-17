@@ -14,7 +14,7 @@ the ONLY write path for new packages: validated, deduping, auto-detecting.
 
 ```text
 lean-pkg register [--url URL] --path PATH [--like OTHER] [--owner-project OWNER_PROJECT]
-                  [--visibility {private,public}]
+                  [--license-spdx SPDX] [--visibility {private,public}]
                   [--status {scratch,active,gate-pending,public}]
                   [--upstream-target {none,mathlib,palomar}] [--automation AUTOMATION]
                   [--notes NOTES] [--reason REASON] [--workspace WORKSPACE]
@@ -32,6 +32,7 @@ lean-pkg register [--url URL] --path PATH [--like OTHER] [--owner-project OWNER_
 | `--path PATH` | local checkout path, $HOME-relative. Required. |
 | `--like OTHER` | a sibling of registered package OTHER: copy its repo, owner-project, upstream-target and automation (flags given here win; visibility is never copied, default private), and report whether the toolchain and Mathlib pin match OTHER's |
 | `--owner-project OWNER_PROJECT` |   |
+| `--license-spdx SPDX` | the package's license, an SPDX identifier or expression (Apache-2.0, MIT OR Apache-2.0); the page, the publish checklist and formalization.yaml read it (later: update --license-spdx) |
 | `--visibility {private,public}` | Choices: `private`, `public`. Default: `private`. |
 | `--status {scratch,active,gate-pending,public}` | public only with --visibility public and --reason (an already-public repo). Choices: `scratch`, `active`, `gate-pending`, `public`. Default: `active`. |
 | `--upstream-target {none,mathlib,palomar}` | default none. Choices: `none`, `mathlib`, `palomar`. |
@@ -40,7 +41,7 @@ lean-pkg register [--url URL] --path PATH [--like OTHER] [--owner-project OWNER_
 | `--reason REASON` | required with --status public |
 | `--workspace WORKSPACE` | metadata only; does NOT claim |
 | `--agent AGENT` | metadata only; does NOT claim |
-| `--ttl TTL` | accepted and ignored (register never claims; claim separately with `lean-pkg claim NAME --ttl H`) |
+| `--ttl TTL` | accepted and ignored (register never claims; claim separately with `lean-pkg lease claim NAME --ttl H`) |
 | `--dry-run` | print the would-be entry as YAML without writing |
 
 ## Details
@@ -65,7 +66,7 @@ Top-level keys of `--json`, as recorded in the golden contract (tests/golden/jso
 Print the entry that would be written, detected toolchain and Mathlib pin included; nothing is written.
 
 ```bash
-lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof --dry-run
+lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof --license-spdx Apache-2.0 --dry-run
 ```
 
 Register a new package from its checkout (the path is relative to $HOME); it starts at status active.

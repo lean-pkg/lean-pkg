@@ -24,7 +24,7 @@ lean-pkg page [--write] [--check] [--out PATH] [--site DIR] [--html PATH] [--rep
 | Argument or flag | Description |
 |---|---|
 | `NAME` |   |
-| `--write` | replace the marked block in the package README.md (append it when absent); prose outside the markers is untouched; not a registry write |
+| `--write` | replace the marked block in the package README.md (append it when absent); prose outside the markers is untouched. For a gated package whose record says nothing about the docs-only exception, it then turns it on (`update NAME --accept-docs-descendants`, its own registry write), so committing the README keeps the receipts bound |
 | `--check` | exit 1 when the README block is missing or stale, the lean-pkg credit is missing, or the Easley sentence has no backing Slurm receipt; with --site/--html also when those files are missing or stale; writes nothing |
 | `--out PATH` | write the block here instead; README untouched |
 | `--site DIR` | also write DIR/verification.md (the full page) and DIR/coverage.md (every row, its claims, inputs and notes) for MkDocs; with --check, compare them instead |

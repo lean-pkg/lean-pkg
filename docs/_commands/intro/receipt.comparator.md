@@ -1,5 +1,5 @@
 
-`comparator-receipt [--project DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
+`lean-pkg receipt comparator [--project DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
 script that produces comparator receipts; see
 [The comparator tier](../comparator.md). `COMPARATOR_RECEIPT_STACK=unlimited|<kB>`
 raises the soft stack limit of its `lake`/`lean` children (never above the hard
@@ -13,15 +13,15 @@ The setup also records an olean manifest (the package's own compiled modules,
 hashed into `comparator-stages/03-build.oleans.sha256`; receipt
 `olean_manifest`); a reused setup whose oleans changed is refused, and the
 comparator stage fails when they change during the comparison.
-`comparator-receipt --verify-oleans [DIR] [--json]` is the read-only check
+`lean-pkg receipt comparator --verify-oleans [DIR] [--json]` is the read-only check
 (exit 0 same, 1 different or not recorded); see
 [Olean manifest](../comparator.md#stages-and---prepare).
 A run that replaces an earlier run's stage files first keeps them, read-only,
 as `comparator-stages/attempts/NNN/` with an `attempt.json` (numbers never
 reused; lean-pkg never deletes or reads them back);
-`comparator-receipt --attempts [DIR] [--json]` lists them; see
+`lean-pkg receipt comparator --attempts [DIR] [--json]` lists them; see
 [Attempts](../comparator.md#stages-and---prepare).
-`comparator-receipt --seal-sacct RECEIPT [--sacct-file F] [--user NAME] [--json]`
+`lean-pkg receipt comparator --seal-sacct RECEIPT [--sacct-file F] [--user NAME] [--json]`
 (no host policy, after the Slurm job finished) corroborates the receipt's Slurm
 claim with the job's sacct record and seals it (`slurm_sacct`, and
 `<commit12>-comparator-sacct.txt` beside the receipt); only a sealed claim backs a

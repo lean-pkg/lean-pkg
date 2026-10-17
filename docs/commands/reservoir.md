@@ -20,39 +20,8 @@ lean-pkg reservoir [common flags] [COMMAND]
 
 ## Subcommands
 
-- [`lean-pkg reservoir check`](#lean-pkg-reservoir-check): would Reservoir list this package? read-only; exit 0 eligible / 1 not
+- [`lean-pkg reservoir check`](reservoir-check.md): would Reservoir list this package? read-only; exit 0 eligible / 1 not
 
 ## Exit codes
 
 0 success (dry runs and no-ops included), 1 refused or failed, 2 usage error; see [Exit codes](../cli.md#exit-codes).
-
-## lean-pkg reservoir check
-
-would Reservoir list this package? read-only; exit 0 eligible / 1 not.
-
-### Usage
-
-```text
-lean-pkg reservoir check [--offline] [common flags] NAME
-```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
-
-### Arguments and flags
-
-| Argument or flag | Description |
-|---|---|
-| `NAME` |   |
-| `--offline` | do not query Reservoir's package API |
-
-### Details
-
-| Form | What it does | Key flags |
-|---|---|---|
-| `reservoir check NAME` | read-only: would Reservoir list the package? Checks the documented criteria (see the [FAQ](../faq.md#reservoir)): the GitHub repository is public, not a fork and has at least 2 stars (via `gh`; a failed query is a `WARN`), `lake-manifest.json` and `lean-toolchain` tracked at HEAD, a LICENSE matching `license_spdx`, a Lake package name and no `reservoir := false` opt-out (`description`, `keywords`, `versionTags` missing is a `WARN`), a `lean-toolchain` that is a release (a release candidate or nightly is a `WARN`: Reservoir may display it poorly), a tag at HEAD (`WARN`); then, unless `--offline`, Reservoir's package API: listed (200) prints the `lean-pkg record NAME reservoir-listed --field url=...` to run (never recorded automatically), 404 is a `WARN`. Before promote (status not `public`/`upstreamed`), the GitHub items that `promote --yes` will satisfy (a private repository, one that cannot be queried yet, a registry `repo` that is not a GitHub URL, and then the 404) are labelled `pending promote: ...` (still `✗`, or `WARN` for the 404) and a closing `pre-promote:` line says what promote will fix. Exit 0 eligible, else 1; `--json`: `eligible`, `checklist[]`, `record`, `pre_promote`, `pending_promote[]` (labels) | `[--offline]` |
-
-### Exit codes
-
-Exit 1 is also a negative answer here:
-
-- `reservoir check NAME`: not eligible for Reservoir

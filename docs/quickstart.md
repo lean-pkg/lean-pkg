@@ -19,8 +19,9 @@ under 4 minutes once Mathlib's cache is on the machine, and under one minute
 with `--no-mathlib`. Installing elan and the Lean toolchain
 adds a few minutes more on a new machine.
 
-Every command below is one you run; nothing is hidden in a script. Steps
-marked *optional* are only for a lab or a cluster.
+Every command below is one you run; `verify` runs three more for you and
+prints each one first, so nothing is hidden. Steps marked *optional* are only
+for a lab or a cluster.
 
 The same path with a real theorem, every step explained for a mathematician:
 [Tutorial: Dynkin's π-λ theorem, end to end](tutorial-pi-lambda.md).
@@ -98,7 +99,9 @@ in full.
 
 **No Mathlib?** `lean-pkg new my-proof --kind library --no-mathlib` writes the same project
 in core Lean: `lake update` then fetches nothing and the build takes seconds.
-Step 5 then needs `COMPARATOR_RECEIPT_NO_MATHLIB=1`. Palomar expects
+`verify` (step 4) sees the `mathlib-rev: none` line of its `verify.sh` and
+tells the comparator so (`COMPARATOR_RECEIPT_NO_MATHLIB=1`, which you set
+yourself when you run `lean-pkg receipt comparator` by hand). Palomar expects
 statements in Mathlib's vocabulary, so keep Mathlib for anything you will
 submit there.
 
@@ -109,100 +112,102 @@ Keep it private; it is yours, not the lab's.
 
 ```bash
 mkdir -p ~/.lean-pkg/registry
-lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
-lean-pkg register my-proof --repo https://github.com/you/my-proof --path src/my-proof
-lean-pkg update my-proof --license-spdx Apache-2.0 --status gate-pending --reason "receipts next"
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
+lean-pkg register my-proof --url https://github.com/you/my-proof --path src/my-proof --license-spdx Apache-2.0
 ```
 
 ```text
 my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.35.0-rc2, pin=065356127b)
-my-proof: updated 2 field(s)
-  license_spdx: None -> 'Apache-2.0'
-  status: 'active' -> 'gate-pending'
 ```
 
 `~/.lean-pkg/registry` is the default location, so later commands need no
 `--registry`. `--path` is your checkout's path relative to your home
-directory. `--repo` is where the repository will live; it may not exist yet,
+directory. `--url` is where the repository will live; it may not exist yet,
 and the page uses it for its clone command. Putting the registry under Git
 (`git -C ~/.lean-pkg/registry init`) is recommended but not required here.
 
-## 4. Two receipts
-
-The comparator receipt: the trusted statements in `Challenge.lean` against
-the proofs in `Solution.lean`, replayed in independent kernels.
+## 4. Verify
 
 ```bash
-COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
+lean-pkg verify my-proof
 ```
 
+`verify` runs three lean-pkg commands at the commit you just made, in this
+order, printing each one before it runs:
+
+1. the **comparator receipt** (`lean-pkg receipt comparator`, also installed
+   as the program `comparator-receipt`): the trusted statements in
+   `Challenge.lean` against the proofs in `Solution.lean`, replayed in
+   independent kernels;
+2. the **lower-tier receipt** (`lean-pkg receipt systemd ... --run -- bash verify.sh LOG`):
+   a fresh build, the `sorry` count and the axioms, run by `verify.sh` in a
+   capped systemd user unit, with its log outside the checkout;
+3. the **gate** (`lean-pkg gate my-proof --receipt ... --comparator ...`),
+   after moving the package from `active` to `gate-pending`.
+
 ```text
+verify: 1/3 comparator receipt: lean-pkg receipt comparator --project .../my-proof
 ...
 Your solution is okay!
 comparator-receipt: stage 04-comparator: ok (1 config(s) accepted (toolchain; 1 slot(s)))
-comparator receipt written: .../my-proof/.lean-receipts/a0a4fe68e46c-comparator.json (1 config(s), commit a0a4fe68e46c, ...)
-```
-
-The lower-tier receipt: a fresh build, the `sorry` count and the axioms, run
-by `verify.sh` in a capped systemd user unit so that lean-pkg itself records
-how it ran.
-
-```bash
-mkdir -p ../my-proof-verify
-lean-pkg receipt systemd --unit my-proof-verify --commit "$(git rev-parse HEAD)" \
-  --log ../my-proof-verify/verify.log --stdout ../my-proof-verify/unit.out \
-  --stderr ../my-proof-verify/unit.err --run -- bash verify.sh ../my-proof-verify/verify.log
-```
-
-```text
+...
+verify: 2/3 lower-tier receipt: lean-pkg receipt systemd --unit my-proof-verify --receipt-commit a0a4fe68e46c... --run -- bash verify.sh .../verify.log
   ✓ unit: my-proof-verify.service invocation <id> on h-<host label>: Result=success, exited 0
-  ...
-  receipt     .lean-receipts/a0a4fe68e46c-systemd-user-my-proof-verify.service-<invocation>-h-<host label>.json
-next: lean-pkg gate NAME --check --receipt .lean-receipts/a0a4fe68e46c-systemd-user-....json
+...
+verify: 3/3 gate: lean-pkg gate my-proof --receipt .../.lean-receipts/a0a4fe68e46c-systemd-user-my-proof-verify.service-<id>-h-<host label>.json --comparator .../.lean-receipts/a0a4fe68e46c-comparator.json
+✓ claims.yaml at a0a4fe68e46c: schema ok (1 claims), declarations found
+my-proof: gate-pending -> verified-private (commit a0a4fe68e46c) with comparator evidence .lean-receipts/a0a4fe68e46c-comparator.json
+verify my-proof: verified-private at a0a4fe68e46c: lower-tier .lean-receipts/a0a4fe68e46c-systemd-user-....json, comparator .lean-receipts/a0a4fe68e46c-comparator.json
+next:
+  git -C .../my-proof add .lean-receipts && git -C .../my-proof commit -m "evidence: receipts at a0a4fe68e46c"
+  lean-pkg page my-proof --write
 ```
 
-Both take about a minute here. The log and unit files go outside the
-checkout: the run refuses an untracked file in it. Commit the receipts:
+Both receipts must name the same commit, so `verify` commits nothing between
+them (the comparator runs first: it refuses any untracked file in the
+checkout, while the lower-tier run allows the receipts in `.lean-receipts/`).
+It writes nothing the three commands would not write, and it commits nothing
+in your checkout. On your own machine the comparator needs no
+configuration: with `COMPARATOR_RECEIPT_ALLOWED_HOSTS` unset and no Slurm
+installed, it runs as "the machine running the command", recorded by its
+label `h-...`, never its name. A package made with `--no-mathlib` is
+recognised from the `mathlib-rev: none` line `verify.sh` carries. Stopped
+halfway? Run `verify` again: a receipt of the same commit is reused.
+`lean-pkg verify my-proof --dry-run` prints the steps and runs nothing.
+
+Commit the receipts, as it says:
 
 ```bash
 git add .lean-receipts && git commit -m "evidence: receipts"
 ```
 
-## 5. The gate
+A commit that adds only receipts keeps them bound to the verified commit
+([the evidence-only descendant rule](receipts.md#evidence-binding-the-evidence-only-descendant-rule)).
 
-```bash
-lean-pkg gate my-proof --receipt .lean-receipts/*-systemd-*.json --comparator .lean-receipts/*-comparator.json
-```
-
-```text
-✓ claims.yaml at a0a4fe68e46c: schema ok (1 claims), declarations found
-my-proof: gate-pending -> verified-private (commit a0a4fe68e46c) with comparator evidence .lean-receipts/a0a4fe68e46c-comparator.json
-```
-
-A WARN line saying that the receipt field
-`comparator.toolchain_resolution.lake` contains a private local path is
-expected: the comparator receipt records where `lake` was found on your
-machine. The page never copies it. Before you publish, run
-`lean-pkg public-safety my-proof`; it shows every such string.
-
-## 6. The page
+## 5. The page
 
 The page is a section of `README.md` rendered from `coverage.yaml`, the
-claims ledger and the receipts. Committing the README moves `HEAD` past the
-gated commit, so first let documentation-only commits keep the receipts
-bound:
+claims ledger and the receipts.
 
 ```bash
-lean-pkg update my-proof --accept-docs-descendants --reason "the README verification page"
 lean-pkg page my-proof --write
 git add README.md && git commit -m "README: verification page"
 lean-pkg page my-proof --check
 ```
 
 ```text
+my-proof: updated 1 field(s)
+  docs_descendants: None -> True
 my-proof: wrote the page block into .../my-proof/README.md — not committed; commit it yourself
+my-proof: turned on the docs-only exception (`lean-pkg update my-proof --accept-docs-descendants --reason ...`): the record now says docs_descendants: true, so a commit after a0a4fe68e46c that changes only non-build files, such as this README, keeps the receipts bound to a0a4fe68e46c; ...
 my-proof: page: current (README.md)
 ```
+
+Committing the README moves `HEAD` past the verified commit. The first
+`page --write` therefore records the docs-only exception for you (the
+`update` line above, its own registry event): a later commit that changes no
+build input keeps the receipts bound. A record that already says either way
+is left as it is.
 
 The README now says, among other things:
 
@@ -246,7 +251,7 @@ Your project needs, at one commit, what `lean-pkg new` writes:
    (`lean-pkg new scratch-copy --kind library --dir ../scratch-copy`) and edit `MODULES` and the `#print axioms` lines to name
    your modules and theorems.
 
-Then steps 3 to 6 above, with your package name. [Add the comparator tier to
+Then steps 3 to 5 above, with your package name. [Add the comparator tier to
 an existing package](existing-package-comparator.md) walks through step 1 in
 detail.
 
@@ -256,12 +261,15 @@ None of these are needed for the page above.
 
 - *A shared, Git-backed registry* for a group: [Getting
   started](getting-started.md#recommended-layout-one-registry-many-projects).
-- *Leases* (`lean-pkg claim`, `release`) when several people or agents work on
+- *Leases* (`lean-pkg lease claim`, `lease release`) when several people or agents work on
   one package; a single author can skip them.
 - *Slurm receipts* from a cluster (`lean-pkg receipt slurm --template`):
   [Receipts and trust](receipts.md#a-lower-tier-receipt-from-a-slurm-job).
   The Easley acknowledgment on the page needs a Slurm receipt from that
   cluster ([the Easley rule](page.md#the-easley-acknowledgment)).
-- *Making the repository public*: `lean-pkg publish my-proof --dry-run`, then
-  `lean-pkg promote my-proof` ([How to](how-to.md#get-listed-publish-checklist-reservoir-palomar)).
-  Promotion flips GitHub visibility, which cannot be undone in practice.
+- *Making the repository public*: `lean-pkg publish my-proof` (the read-only
+  checklist), then `lean-pkg publish my-proof --yes`
+  ([How to](how-to.md#get-listed-publish-checklist-reservoir-palomar)).
+  `--yes` flips GitHub visibility, which cannot be undone in practice.
+- *The steps of `verify` by hand*, for a cluster or a custom check:
+  [Receipts and trust](receipts.md) and [The comparator tier](comparator.md).

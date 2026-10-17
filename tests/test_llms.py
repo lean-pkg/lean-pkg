@@ -25,7 +25,8 @@ def test_llms_exits_zero_and_covers_contract(lp, capsys):
     assert "The gate is executor-neutral" in out
     assert "A pilot," in out
     assert "partial manifest" in out
-    assert len(out.splitlines()) <= 177    # raised from 170 when renew/leases landed (#10), 176 for next (#42), 177 for new (#195)
+    assert len(out.splitlines()) <= 180    # raised from 170 when renew/leases landed (#10), 176 for next (#42), 177 for new (#195),
+    #                                        180 for the 1.0 tree's two standing rules and verify (stage 2)
 
 
 def test_llms_mentions_event_names_and_status_enum(lp, capsys):
@@ -42,7 +43,7 @@ def test_llms_mentions_event_names_and_status_enum(lp, capsys):
 def test_llms_documents_comparator_tier(lp, capsys):
     assert lp.main(["llms"]) == 0
     out = capsys.readouterr().out
-    for needle in ("--comparator", "comparator <name>", "comparator-receipt/1",
+    for needle in ("--comparator", "comparator attach NAME", "comparator-receipt/1",
                    "Your solution is okay!", "required by promote",
                    "comparator-attached"):
         assert needle in out, needle
@@ -107,7 +108,8 @@ def test_llms_short_names_every_subcommand(lp, capsys):
     import re
     with pytest.raises(SystemExit):
         lp.main(["--help"])
-    names = re.search(r"\{([a-z,-]+)\}", capsys.readouterr().out).group(1).split(",")
+    names = re.findall(r"^  ([a-z][a-z-]+)  ", capsys.readouterr().out, re.M)   # the tiered root help
+    assert len(names) >= 25
     short = lp.llms_short()
     for name in names:
         assert re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", short), name

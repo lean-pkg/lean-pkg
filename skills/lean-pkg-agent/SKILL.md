@@ -29,14 +29,14 @@ drifts from the installed tool's behavior.
 - Claim before working; release when done. A refusal names the holder: report
   it, do not `--force` without a human's reason.
 - Work longer than the lease TTL (24 h by default): renew before the TTL
-  lapses (`lean-pkg renew my-proof --agent my-agent`); check with
-  `lean-pkg leases --agent my-agent --expiring 2`. A lapsed lease cannot be
+  lapses (`lean-pkg lease renew my-proof --agent my-agent`); check with
+  `lean-pkg lease list --agent my-agent --expiring 2`. A lapsed lease cannot be
   renewed: claim again.
 - Pass flags and `--json`; nothing prompts. Exit 1 is a refusal with a named
   reason, exit 2 is a usage error.
 - `promote` without `--yes` is a dry run. Never pass `--yes`: hand the
   checklist to a human. The flip to public cannot be undone.
-- Run `comparator-receipt` only where its host policy allows (a Slurm job, a
+- Run `lean-pkg receipt comparator` only where its host policy allows (a Slurm job, a
   host in `COMPARATOR_RECEIPT_ALLOWED_HOSTS`, or `COMPARATOR_RECEIPT_ALLOW_HOST=1`)
   and only on a clean tree.
 
@@ -44,9 +44,9 @@ drifts from the installed tool's behavior.
 
 ```bash
 lean-pkg llms                                   # the contract; read it
-lean-pkg board --json                           # or: lean-pkg list --json
+lean-pkg registry board --json                           # or: lean-pkg list --json
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof --json
-lean-pkg claim my-proof --workspace w1 --agent my-agent --reason "receipts" --json
+lean-pkg lease claim my-proof --workspace w1 --agent my-agent --reason "receipts" --json
 
 # lower tier: build, sorry scan, exact axiom audit at HEAD (lean-receipt-discipline),
 # then write receipt.json with the fields lean-pkg llms lists
@@ -55,18 +55,18 @@ lean-pkg gate my-proof --receipt receipt.json --json
 git add .lean-receipts && git commit -m "evidence: gate receipt"   # after gating, not before
 
 # comparator tier, on an allowed host, clean tree
-comparator-receipt --project .
+lean-pkg receipt comparator --project .
 lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.json --json
 git add .lean-receipts && git commit -m "evidence: comparator receipt"
-lean-pkg comparator my-proof --receipt .lean-receipts/<c12>-comparator.json --json
+lean-pkg comparator attach my-proof --receipt .lean-receipts/<c12>-comparator.json --json
 
 # long session: renew before the TTL lapses
-lean-pkg leases --agent my-agent --expiring 2 --json
-lean-pkg renew my-proof --agent my-agent --json
+lean-pkg lease list --agent my-agent --expiring 2 --json
+lean-pkg lease renew my-proof --agent my-agent --json
 
 git push                                        # promote needs the evidence committed and HEAD in origin/<branch>
-lean-pkg promote my-proof --json                # dry run: give the checklist to a human
-lean-pkg release my-proof --agent my-agent --json
+lean-pkg publish my-proof --yes --dry-run --json                # dry run: give the checklist to a human
+lean-pkg lease release my-proof --agent my-agent --json
 ```
 
 Ordering matters: the gate checks that the receipt's commit is HEAD or that
@@ -85,12 +85,12 @@ When delegating Lean package work to another agent, paste the output of
 - Editing `lean-packages.yaml` "just to fix a typo".
 - Committing the receipt before running `gate`.
 - Retrying a refused command with `--force` instead of reporting the refusal.
-- Running `promote --yes` because the dry run looked clean.
+- Running `publish --yes` because the dry run looked clean.
 
 ## Verification
 
-`lean-pkg validate` exits 0; `lean-pkg status my-proof --json` shows the
-expected status and receipt paths; `lean-pkg audit --json` reports no
+`lean-pkg registry validate` exits 0; `lean-pkg status my-proof --json` shows the
+expected status and receipt paths; `lean-pkg registry audit --json` reports no
 receipt drift; the lease is released.
 
 Learned from: a parallel-registration incident where two hand edits of the

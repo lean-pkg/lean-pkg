@@ -1,5 +1,6 @@
 usage: lean-pkg register [-h] [--url URL] --path PATH [--like OTHER]
-                         [--owner-project OWNER_PROJECT] [--visibility {private,public}]
+                         [--owner-project OWNER_PROJECT] [--license-spdx SPDX]
+                         [--visibility {private,public}]
                          [--status {scratch,active,gate-pending,public}]
                          [--upstream-target {none,mathlib,palomar}] [--automation AUTOMATION]
                          [--notes NOTES] [--reason REASON] [--workspace WORKSPACE] [--agent AGENT]
@@ -19,6 +20,9 @@ options:
                         copied, default private), and report whether the toolchain and Mathlib pin
                         match OTHER's
   --owner-project OWNER_PROJECT
+  --license-spdx SPDX   the package's license, an SPDX identifier or expression (Apache-2.0, MIT
+                        OR Apache-2.0); the page, the publish checklist and formalization.yaml
+                        read it (later: update --license-spdx)
   --visibility {private,public}
   --status {scratch,active,gate-pending,public}
                         public only with --visibility public and --reason (an already-public repo)
@@ -31,7 +35,7 @@ options:
                         metadata only; does NOT claim
   --agent AGENT         metadata only; does NOT claim
   --ttl TTL             accepted and ignored (register never claims; claim separately with `lean-
-                        pkg claim NAME --ttl H`)
+                        pkg lease claim NAME --ttl H`)
   --dry-run             print the would-be entry as YAML without writing
   --json                machine-readable JSON on stdout
   --commit              write commands: pull --ff-only, then commit the registry files (default:

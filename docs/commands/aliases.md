@@ -12,17 +12,28 @@ Every other spelling of a command, and the command it runs. An alias takes the s
 
 | Alias | Runs |
 |---|---|
-| `lean-pkg audit` | [`lean-pkg registry audit`](registry.md#lean-pkg-registry-audit) |
-| `lean-pkg board` | [`lean-pkg registry board`](registry.md#lean-pkg-registry-board) |
-| `lean-pkg claim` | [`lean-pkg lease claim`](lease.md#lean-pkg-lease-claim) |
-| `lean-pkg comparator NAME` | [`lean-pkg comparator attach`](comparator.md#lean-pkg-comparator-attach) |
-| `lean-pkg formalization NAME` | [`lean-pkg formalization render`](formalization.md#lean-pkg-formalization-render) |
-| `lean-pkg init` | [`lean-pkg registry init`](registry.md#lean-pkg-registry-init) |
-| `lean-pkg lease NAME` | [`lean-pkg lease claim`](lease.md#lean-pkg-lease-claim) |
-| `lean-pkg leases` | [`lean-pkg lease list`](lease.md#lean-pkg-lease-list) |
-| `lean-pkg migrate` | [`lean-pkg registry migrate`](registry.md#lean-pkg-registry-migrate) |
-| `lean-pkg receipt local` | [`lean-pkg receipt systemd`](receipt.md#lean-pkg-receipt-systemd) |
-| `lean-pkg release` | [`lean-pkg lease release`](lease.md#lean-pkg-lease-release) |
-| `lean-pkg renew` | [`lean-pkg lease renew`](lease.md#lean-pkg-lease-renew) |
-| `lean-pkg validate` | [`lean-pkg registry validate`](registry.md#lean-pkg-registry-validate) |
-| `lean-pkg wiki` | [`lean-pkg registry wiki`](registry.md#lean-pkg-registry-wiki) |
+| `lean-pkg audit` | [`lean-pkg registry audit`](registry-audit.md) |
+| `lean-pkg board` | [`lean-pkg registry board`](registry-board.md) |
+| `lean-pkg claim` | [`lean-pkg lease claim`](lease-claim.md) |
+| `lean-pkg comparator NAME` | [`lean-pkg comparator attach`](comparator-attach.md) |
+| `lean-pkg comparator NAME --receipt R --check` | [`lean-pkg comparator check`](comparator-check.md) |
+| `lean-pkg comparator attach NAME --receipt R --check` | [`lean-pkg comparator check`](comparator-check.md) |
+| `lean-pkg comparator config --coverage NAME` | [`lean-pkg comparator coverage`](comparator-coverage.md) |
+| `lean-pkg comparator config --migrate-signoff PATH` | [`lean-pkg comparator migrate-signoff`](comparator-migrate-signoff.md) |
+| `lean-pkg formalization NAME` | [`lean-pkg formalization render`](formalization-render.md) |
+| `lean-pkg init` | [`lean-pkg registry init`](registry-init.md) |
+| `lean-pkg lease NAME` | [`lean-pkg lease claim`](lease-claim.md) |
+| `lean-pkg lease release NAME --adopt-repo DIR` | [`lean-pkg repo adopt`](repo-adopt.md) |
+| `lean-pkg lease release NAME --fresh-repo DIR` | [`lean-pkg repo export`](repo-export.md) |
+| `lean-pkg leases` | [`lean-pkg lease list`](lease-list.md) |
+| `lean-pkg migrate` | [`lean-pkg registry migrate`](registry-migrate.md) |
+| `lean-pkg promote` | [`lean-pkg publish`](publish.md) |
+| `lean-pkg receipt local` | [`lean-pkg receipt systemd`](receipt-systemd.md) |
+| `lean-pkg release` | [`lean-pkg lease release`](lease-release.md) |
+| `lean-pkg release NAME --adopt-repo DIR` | [`lean-pkg repo adopt`](repo-adopt.md) |
+| `lean-pkg release NAME --fresh-repo DIR` | [`lean-pkg repo export`](repo-export.md) |
+| `lean-pkg renew` | [`lean-pkg lease renew`](lease-renew.md) |
+| `lean-pkg validate` | [`lean-pkg registry validate`](registry-validate.md) |
+| `lean-pkg verify-receipts` | [`lean-pkg receipt check`](receipt-check.md) |
+| `lean-pkg wiki` | [`lean-pkg registry wiki`](registry-wiki.md) |
+| `comparator-receipt` (program) | [`lean-pkg receipt comparator`](receipt-comparator.md) |

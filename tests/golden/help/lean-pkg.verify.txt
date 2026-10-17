@@ -1,0 +1,30 @@
+usage: lean-pkg verify [-h] [--work-dir DIR] [--unit UNIT] [--script FILE] [--judges N]
+                       [--agent AGENT] [--reason TEXT] [--dry-run] [--json] [--commit] [--push]
+                       [--no-commit]
+                       name
+
+Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bash verify.sh` and
+`gate` (an active package first moves to gate-pending; a gated one is re-gated), each as its own
+lean-pkg invocation with its own checks. Writes only what those commands write; commits nothing in
+the checkout.
+
+positional arguments:
+  name
+
+options:
+  -h, --help      show this help message and exit
+  --work-dir DIR  where the run's log and unit output go, outside the checkout (default
+                  $XDG_STATE_HOME/lean-pkg/verify/NAME/<commit>-<UTC stamp>, else
+                  ~/.local/state/...)
+  --unit UNIT     the systemd user unit (default NAME-verify)
+  --script FILE   the committed lower-tier check, run as `bash FILE LOG` (default verify.sh)
+  --judges N      comparator judge processes (`receipt comparator --judges N`)
+  --agent AGENT   the agent acting: passed to the status move and the gate
+  --reason TEXT   re-gate only: accept a commit that does not descend from the gated one (`gate
+                  --regate --reason`)
+  --dry-run       print the steps and their commands; run nothing
+  --json          machine-readable JSON on stdout
+  --commit        write commands: pull --ff-only, then commit the registry files (default:
+                  $LEAN_PKG_COMMIT=1)
+  --push          --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit     never commit or push (overrides the env)

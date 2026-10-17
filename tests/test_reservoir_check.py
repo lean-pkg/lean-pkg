@@ -118,7 +118,7 @@ def test_pre_promote_private_repo_is_pending_promote_and_still_fails(lp, env, gh
     out = capsys.readouterr().out
     assert rc == 1 and "✗  pending promote: example/beta is private" in out
     assert out.strip().splitlines()[-1].startswith("pre-promote: beta is verified-private; 2 GitHub-dependent")
-    assert out.strip().splitlines()[-2] == ("not eligible yet (pre-promote): promote --yes will satisfy the ✗ "
+    assert out.strip().splitlines()[-2] == ("not eligible yet (pre-promote): publish --yes will satisfy the ✗ "
                                             "items above")
     assert "fix every ✗" not in out
 

@@ -196,6 +196,8 @@ def _writes(cmd: str, ns) -> str | None:
     """Why re-running this invocation would write something, else None (conservative)."""
     if cmd == "report":
         return "report does not re-run itself"
+    if cmd == "verify" and not getattr(ns, "dry_run", False):
+        return "verify writes receipts and gates the package"
     if cmd == "board":
         return None                    # off a tty (the re-run's stdout is a pipe): the static table
     if core.is_write_invocation(ns):

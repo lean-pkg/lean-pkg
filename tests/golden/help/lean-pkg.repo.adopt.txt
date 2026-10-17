@@ -1,0 +1,21 @@
+usage: lean-pkg repo adopt [-h] [--remote URL] [--allow-history] [--agent AGENT] [--reason REASON]
+                           [--dry-run] [--json] [--commit] [--push] [--no-commit]
+                           name DIR
+
+positional arguments:
+  name
+  DIR              the repository: exactly one commit unless --allow-history; tree and history
+                   public-safety scanned; no new commit
+
+options:
+  -h, --help       show this help message and exit
+  --remote URL     git remote add origin URL, and set the record's repo
+  --allow-history  accept a repository with more than one commit
+  --agent AGENT    lease holder, if one is live
+  --reason REASON  free-text reason stored with the event
+  --dry-run        scan, print the plan; nothing written
+  --json           machine-readable JSON on stdout
+  --commit         write commands: pull --ff-only, then commit the registry files (default:
+                   $LEAN_PKG_COMMIT=1)
+  --push           --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit      never commit or push (overrides the env)

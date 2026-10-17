@@ -1,6 +1,6 @@
 # Examples for the command reference (docs/commands/), keyed by command path: the program, then the
 # command words, aliases resolved ("lean-pkg claims sync", "lean-pkg comparator host-check",
-# "comparator-receipt"). Each example: cmd (one invocation, no pipes or redirections; a trailing
+# "lean-pkg receipt comparator"). Each example: cmd (one invocation, no pipes or redirections; a trailing
 # backslash continues the line), say (one sentence), output (optional sample output).
 #
 # tests/test_command_docs.py parses every cmd with the real parser and checks that it runs the command
@@ -27,6 +27,19 @@ lean-pkg registry init:
       registry created: ~/.lean-pkg/registry/lean-packages.yaml (version 3); events: ~/.lean-pkg/registry/lean-package-events.jsonl
   - cmd: lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
     say: The same with the registry file named explicitly; the global --registry flag goes before the command.
+
+lean-pkg verify:
+  - cmd: lean-pkg verify my-proof --dry-run
+    say: Print the three steps (the comparator receipt, the lower-tier receipt at the same commit, the gate) and their exact commands; nothing runs.
+  - cmd: lean-pkg verify my-proof
+    say: Run them in that order at the checkout's HEAD; an active package first moves to gate-pending, a gated one is re-gated. Commit the receipts afterwards.
+    output: |
+      verify: 1/3 comparator receipt: lean-pkg receipt comparator --project .../my-proof
+      ...
+      verify my-proof: verified-private at a0a4fe68e46c: lower-tier .lean-receipts/a0a4fe68e46c-systemd-user-my-proof-verify.service-<id>-h-<label>.json, comparator .lean-receipts/a0a4fe68e46c-comparator.json
+      next:
+        git -C .../my-proof add .lean-receipts && git -C .../my-proof commit -m "evidence: receipts at a0a4fe68e46c"
+        lean-pkg page my-proof --write
 
 lean-pkg doctor:
   - cmd: lean-pkg doctor
@@ -66,7 +79,7 @@ lean-pkg next:
   - cmd: lean-pkg next my-proof
     say: The single command to run now for this package, with a one-line reason; exit 1 when it is blocked.
     output: |
-      my-proof (active): lean-pkg claim my-proof --workspace W --agent A --reason "..."
+      my-proof (active): lean-pkg lease claim my-proof --workspace W --agent A --reason "..."
         why: status active and no live lease: claim the package before working on it
   - cmd: lean-pkg next my-proof --json
     say: The same as JSON (`command`, `reason`, `blockers`, `state`) for an agent or a script.
@@ -88,7 +101,7 @@ lean-pkg registry audit:
 # --- register, lease, edit --------------------------------------------------------------------------
 
 lean-pkg register:
-  - cmd: lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof --dry-run
+  - cmd: lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof --license-spdx Apache-2.0 --dry-run
     say: Print the entry that would be written, detected toolchain and Mathlib pin included; nothing is written.
   - cmd: lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof
     say: Register a new package from its checkout (the path is relative to $HOME); it starts at status active.
@@ -112,9 +125,13 @@ lean-pkg lease release:
     say: Give the lease back when you are done.
     output: |
       my-proof: lease released (was alice@laptop)
-  - cmd: lean-pkg lease release my-proof --fresh-repo ../my-proof-public --dry-run
+
+lean-pkg repo export:
+  - cmd: lean-pkg repo export my-proof ../my-proof-public --dry-run
     say: Plan a fresh single-commit public repository from the gated tree; nothing is written.
-  - cmd: lean-pkg lease release my-proof --adopt-repo ../my-proof-public
+
+lean-pkg repo adopt:
+  - cmd: lean-pkg repo adopt my-proof ../my-proof-public
     say: Adopt an existing repository, already the intended public one, as the package's repository.
 
 lean-pkg update:
@@ -164,21 +181,23 @@ lean-pkg gate:
   - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --regate
     say: Re-gate an already verified package on a newer receipt; the status does not change.
 
-comparator-receipt:
-  - cmd: comparator-receipt --estimate
+lean-pkg receipt comparator:
+  - cmd: lean-pkg receipt comparator --estimate
     say: In the package checkout, time a sample of the comparator slots first; no receipt is written.
-  - cmd: comparator-receipt
-    say: In the package checkout, run the comparator over every configuration and write .lean-receipts/<commit12>-comparator.json.
-  - cmd: comparator-receipt --project src/my-proof --judges 4
+  - cmd: lean-pkg receipt comparator
+    say: In the package checkout, run the comparator over every configuration and write .lean-receipts/<commit12>-comparator.json (the `comparator-receipt` program does the same).
+  - cmd: lean-pkg receipt comparator --project src/my-proof --judges 4
     say: The same for another directory, with up to four judges at once.
-  - cmd: comparator-receipt --seal-sacct .lean-receipts/cb3d68a21454-comparator.json
+  - cmd: lean-pkg receipt comparator --seal-sacct .lean-receipts/cb3d68a21454-comparator.json
     say: After the Slurm job finished, seal its sacct record into the receipt so its job can back a compute site.
 
-lean-pkg comparator attach:
-  - cmd: lean-pkg comparator attach my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json --check
+lean-pkg comparator check:
+  - cmd: lean-pkg comparator check my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
     say: Validate a comparator receipt against the package without recording it; works at any status.
+
+lean-pkg comparator attach:
   - cmd: lean-pkg comparator attach my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
-    say: Attach the comparator receipt to the gated package (event comparator-attached); promote needs it.
+    say: Attach the comparator receipt to the gated package (event comparator-attached); publish --yes needs it.
 
 lean-pkg comparator host-check:
   - cmd: lean-pkg comparator host-check
@@ -189,8 +208,14 @@ lean-pkg comparator host-check:
 lean-pkg comparator config:
   - cmd: lean-pkg comparator config --from-claims my-proof --dry-run
     say: Print one comparator configuration entry per synced theorem claim that no configuration covers yet.
-  - cmd: lean-pkg comparator config --coverage my-proof
+
+lean-pkg comparator coverage:
+  - cmd: lean-pkg comparator coverage my-proof
     say: Which claims the comparator configuration at the gate-bound commit covers, and which it does not.
+
+lean-pkg comparator migrate-signoff:
+  - cmd: lean-pkg comparator migrate-signoff comparator.json
+    say: Show how the deprecated inline judged_as keys would move into lean-pkg-signoff.json; --write writes both files.
 
 # --- claims, coverage, page -------------------------------------------------------------------------
 
@@ -221,20 +246,18 @@ lean-pkg page:
 # --- publish ----------------------------------------------------------------------------------------
 
 lean-pkg publish:
-  - cmd: lean-pkg publish my-proof --dry-run
+  - cmd: lean-pkg publish my-proof
     say: The read-only checklist from verified-private to listed, with the exact next commands; exit 1 while not ready.
-  - cmd: lean-pkg publish my-proof --dry-run --public-safety
+  - cmd: lean-pkg publish my-proof --public-safety
     say: The same, also scanning the tree and the git history for private strings.
+  - cmd: lean-pkg publish my-proof --yes --dry-run
+    say: The promotion checklist that --yes runs; nothing changes (the pre-1.0 `promote my-proof`).
+  - cmd: lean-pkg publish my-proof --yes
+    say: Make the GitHub repository public after the checklist passes again; this cannot be undone in practice.
 
 lean-pkg public-safety:
   - cmd: lean-pkg public-safety my-proof
     say: Scan the tree and the history publishing would expose for private patterns; exit 1 on a blocking hit.
-
-lean-pkg promote:
-  - cmd: lean-pkg promote my-proof
-    say: Print the promotion checklist; a dry run, nothing changes.
-  - cmd: lean-pkg promote my-proof --yes
-    say: Make the GitHub repository public after the checklist passes again; this cannot be undone in practice.
 
 # --- other programs ---------------------------------------------------------------------------------
 

@@ -5,7 +5,7 @@
 <h1 align="center">lean-pkg</h1>
 
 <p align="center">
-  <strong><em>Prove it. Then prove you proved it.</em></strong><br>
+  <strong><em>Lean checks the proofs. You check the statements. lean-pkg checks the receipts.</em></strong><br>
   A registry and trust gate for Lean 4 formalization packages: know which packages exist, who holds each one, and what evidence binds it to a verified commit, before anything becomes public.
 </p>
 
@@ -19,8 +19,9 @@
 </p>
 
 **New here?** The [Quickstart](docs/quickstart.md) goes from `pip install` to a
-verified page on your own machine, with no lab account: `lean-pkg new my-proof --kind library`, two
-receipts, the gate, the page.
+verified page on your own machine, with no lab account, in five verbs:
+`lean-pkg new my-proof --kind library`, `lean-pkg verify my-proof` (both receipts and the gate),
+`status`, `page --write`, `publish`.
 The [π-λ tutorial](docs/tutorial-pi-lambda.md) does the same with a real
 theorem, Dynkin's π-λ theorem, for a mathematician who has barely used Lean.
 
@@ -50,6 +51,9 @@ re-derives both from bytes.
 
 ### Research loop: discover, formalize, verify
 
+*Mathematics, Lean and an AI assistant: one workflow, and a record of who
+checked what.*
+
 Research mathematics is rarely linear. A symbolic computation may suggest a
 formula; Lean may expose a missing hypothesis; the manuscript changes; the
 formalization changes with it. `lean-pkg` is designed to keep the verification
@@ -59,6 +63,10 @@ The trust boundary is deliberately asymmetric:
 
 - Python, SymPy, Sage, Mathematica, numerical experiments, or hand calculations
   may **discover** a candidate claim;
+- an AI assistant may **draft** Lean statements and proofs: Lean checks a
+  drafted proof like any other, but a drafted statement is only as good as
+  the mathematician's reading of it (a definition-hole sign-off refuses a
+  model or agent as the reviewer);
 - Lean states and proves the mathematical claim;
 - `lean-pkg` records which exact source and evidence were actually verified.
 
@@ -135,7 +143,7 @@ pipx install git+https://github.com/lean-pkg/lean-pkg.git
 
 mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init
-lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
 git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
 git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 
@@ -144,18 +152,18 @@ git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 # placeholders: replace you/my-proof with your repository and src/my-proof with
 # the path of your checkout under $HOME (here ~/src/my-proof)
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
-lean-pkg claim my-proof --workspace laptop --agent you --reason "first receipt"
-lean-pkg renew my-proof --agent you            # past 24 h: renew before the lease lapses (`lean-pkg leases`)
+lean-pkg lease claim my-proof --workspace laptop --agent you --reason "first receipt"
+lean-pkg lease renew my-proof --agent you            # past 24 h: renew before the lease lapses (`lean-pkg lease list`)
 cd ~/src/my-proof && lake exe cache get    # your checkout: the --path above, under $HOME
 # on your own machine, allow this host; without it the run refuses by design
 COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
 lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.json
-lean-pkg promote my-proof                      # dry run: the checklist says what is missing
+lean-pkg publish my-proof --yes --dry-run                      # dry run: the checklist says what is missing
 ```
 
 No Lean project yet? [Getting started, step 1](docs/getting-started.md#start-from-scratch)
 makes a minimal Challenge/Solution project with a complete `comparator.json`,
-ready for `comparator-receipt`.
+ready for `lean-pkg receipt comparator`.
 
 `my-proof` is the package name given to `register`: every later command that
 takes `NAME` (`claim`, `comparator`, `next`, `promote`, ...) takes that name,
@@ -168,7 +176,7 @@ repository keeps its own mathematics and committed `.lean-receipts/` evidence.
 Keep the shared registry private unless you intentionally want to expose
 pre-publication project names, paths, notes, and status history.
 
-A future one-command bootstrap such as `lean-pkg init --global` is proposed in
+A future one-command bootstrap such as `lean-pkg registry init --global` is proposed in
 the [roadmap](ROADMAP.md); it is not implemented yet.
 
 ## What it does
@@ -180,7 +188,7 @@ the [roadmap](ROADMAP.md); it is not implemented yet.
 | register | `lean-pkg register`, `update` | one record per package; `register` is the only way in |
 | claim | `lean-pkg claim`, `renew`, `release`, `leases` | a lease (24 h by default; `--contact` names the session behind it), so two people or agents never work on one package unknowingly |
 | gate | `lean-pkg gate` | the lower-tier receipt (build, no `sorry`, axioms) moves the package to `verified-private` |
-| comparator | `comparator-receipt`, `lean-pkg comparator` | the comparator receipt: trusted statements against untrusted proofs, replayed in a second kernel |
+| comparator | `lean-pkg receipt comparator`, `lean-pkg comparator` | the comparator receipt: trusted statements against untrusted proofs, replayed in a second kernel |
 | publish | `lean-pkg publish --dry-run`, `promote` | one read-only checklist to listed, then the one-way flip to public |
 | index | `lean-pkg index add`, `index check --clone` | a [field index](docs/index-catalog.md) entry whose trust (`lower-tier`, `comparator`, `palomar`) is computed from the evidence, never typed |
 
@@ -202,7 +210,7 @@ Writing the comparator configuration:
 `lean-pkg comparator config --from-claims NAME --claims-file claims.yaml`
 scaffolds entries from a working-copy claims file, and `--challenge-from-type`
 pre-fills statements with typed numerals, such as
-`(3 / 2 : ℝ)`, so they elaborate back to the original. `comparator-receipt`
+`(3 / 2 : ℝ)`, so they elaborate back to the original. `lean-pkg receipt comparator`
 checks early that every configured module is a Lake target and that no
 dependency is a symlink its sandbox cannot see, and
 `lean-pkg comparator NAME --check --receipt R --repo DIR` pre-checks a
@@ -216,19 +224,19 @@ Safety nets, before anything is public:
   (blobs, commit messages, author and committer identities, tags, branch
   names) for private strings, the whole repository when the package is a
   subdirectory of it; `promote` refuses while blocking hits remain, and
-  `promote --yes` fetches origin's branches, tags and pull-request heads
+  `publish --yes` fetches origin's branches, tags and pull-request heads
   first. Before freezing a public candidate made from private history, add
   the project's own terms (citation keys, working titles) to
   `.lean-pkg-private-patterns`; the built-in patterns cannot know them
   ([Before freezing a public candidate](docs/receipts.md#before-freezing-a-public-candidate)).
-- `lean-pkg release NAME --fresh-repo DIR` (or `--adopt-repo DIR`) gives a
+- `lean-pkg repo export NAME DIR` (or `--adopt-repo DIR`) gives a
   package incubated beside a paper a fresh public history; see
   [Publishing a package incubated beside private work](docs/receipts.md#publishing-a-package-incubated-beside-private-work).
   Several checkpoint packages that become one public companion follow the
   [consolidation recipe](docs/paper-companion.md#consolidate-several-checkpoint-packages-into-one).
 - `lean-pkg comparator host-check` says whether this machine can produce
   comparator receipts at all, before a long run.
-- `lean-pkg audit` reports expired leases, receipt drift and GitHub
+- `lean-pkg registry audit` reports expired leases, receipt drift and GitHub
   visibility mismatches.
 
 Two files live in each package repository. `claims.yaml` (schema `claims/1`)
@@ -295,7 +303,7 @@ happened with the [stranger test](docs/stranger-test.md) template.
 ## Requirements
 
 Python 3.11+ and PyYAML. `git` for anything that reads a repository; `gh`,
-authenticated, for `promote` and `audit`. `comparator-receipt` needs Linux,
+authenticated, for `promote` and `audit`. `lean-pkg receipt comparator` needs Linux,
 `elan`, `go`, `cargo`, `jq` and `bwrap` (bubblewrap, the toolchain
 mechanism's sandbox); `lean-pkg comparator host-check` says whether this
 machine can produce comparator receipts, and with which mechanism. With the

@@ -6,7 +6,7 @@ title: lean-pkg
 
 <img src="assets/logo-256.png" width="140" height="140" alt="lean-pkg logo: a secretary bird in profile with quill-like crest feathers" style="float:right;margin:0 0 1rem 1.5rem">
 
-*Prove it. Then prove you proved it.* **A registry and trust gate for Lean 4 formalization packages.** One
+*What was verified, against which statement, at which commit.* **A registry and trust gate for Lean 4 formalization packages.** One
 append-only registry says which packages exist, who is working on each one,
 and what evidence binds a package to a verified commit. Nothing becomes
 public without two receipts, and the second one is re-derived from bytes.
@@ -50,6 +50,7 @@ its success gate, and lists what is still missing.
 | **joining someone's package** | `scripts/bootstrap-collaborator.sh OWNER/PACKAGE`, then [Add the comparator tier to an existing package](existing-package-comparator.md) |
 | **about to publish** | [Scan for private strings](how-to.md#scan-for-private-strings-before-publishing), [a fresh public history for a paper-incubated package](receipts.md#publishing-a-package-incubated-beside-private-work), and [the publish checklist, Reservoir and Palomar](how-to.md#get-listed-publish-checklist-reservoir-palomar) |
 | **publishing the Lean part of a paper repository** | [`lean-pkg-extract plan`](extract.md): plan a standalone public Lean-verification repository from a mixed TeX+Lean repository, every file traced to a blob of one commit, private material default-denied (P1: plan only; write comes next) |
+| **writing a negative test (a file that must fail)** | [Negative tests that fail for the right reason](negative-tests.md): `python3 -m lean_pkg.lean_diag LOG --error-code CODE` checks that a Lean log holds exactly one error, the expected one, coded or uncoded |
 | **teaching or self-checking an exercise** | [`lean-exercise check`](exercise.md): judge a `Solution.lean` against a `Challenge.lean` with `lake comparator`, sandboxed, no registry |
 | **checking a machine** | [`comparator host-check`](how-to.md#check-that-this-machine-can-produce-comparator-receipts) before a long comparator run |
 | **declaring or searching results** | [`claims.yaml` and `lean-pkg search`](how-to.md#declare-reusable-results-and-search-before-building), and [formalization.yaml](how-to.md#render-formalizationyaml) |
@@ -83,13 +84,13 @@ many independent research repositories:
 pipx install git+https://github.com/lean-pkg/lean-pkg.git
 mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init
-lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
 # ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
 ```
 
 Continue with [Getting started](getting-started.md) for the initial registry
-commit, receipts, and promotion dry run. A future `lean-pkg init --global`
+commit, receipts, and promotion dry run. A future `lean-pkg registry init --global`
 will automate the registry bootstrap; it is not implemented yet.
 
 ## Pages

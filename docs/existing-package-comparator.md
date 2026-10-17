@@ -67,7 +67,7 @@ git clone https://github.com/lean-pkg/lean-pkg.git ~/src/lean-pkg
 git clone https://github.com/<owner>/<package>.git ~/src/<package>
 
 mkdir -p ~/.lean-pkg/registry && git -C ~/.lean-pkg/registry init
-lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
 git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
 git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
@@ -104,7 +104,7 @@ and give it:
 > saved to a file, report the wall time and the last 20 lines, and stop.
 > Do not edit Lean, ledger, configuration or documentation files, do not
 > commit in the package, and never push or run `gate`, `promote`,
-> `comparator-receipt` or anything with `--force`.
+> `lean-pkg receipt comparator` or anything with `--force`.
 
 Lines in the package's own `README` or `AGENTS.md` that name the owner's
 machines or registry describe the owner's setup, not yours.
@@ -310,7 +310,7 @@ Check the receipt against your personal registry from step 0 (it never
 touches the owner's):
 
 ```bash
-lean-pkg comparator <package> --receipt .lean-receipts/<commit12>-comparator.json --check
+lean-pkg comparator check <package> --receipt .lean-receipts/<commit12>-comparator.json
 # <package>: comparator receipt valid at commit <commit12> (1 config(s)) — not recorded (--check); ...
 ```
 

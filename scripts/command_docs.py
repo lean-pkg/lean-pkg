@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """Generate the command reference, docs/commands/, from the real argparse parsers.
 
-One page per top-level `lean-pkg` command (its subcommands as sections), one page per other console
-script (comparator-receipt, lean-exercise, lean-pkg-extract) and docs/commands/index.md, which groups
-the commands by purpose. Every page is generated: edit the sources, never the output.
+One page per canonical `lean-pkg` parser node (`lease.md` for the noun, `lease-claim.md` for its verb;
+never a page for an alias), one page per other console script (lean-exercise, lean-pkg-extract), and
+docs/commands/index.md, which groups the commands by the tier each top-level parser carries
+(`parser.tier`, lean_pkg.command_tree.TIERS: newcomer, package author, coordination). `comparator-receipt`
+is the program spelling of `receipt comparator`, documented on that page. Every page is generated: edit
+the sources, never the output.
 
 Generated from the code:
   purpose, usage line, the arguments and flags table (help text, defaults, choices), aliases, the
   description and epilog of `--help`, the exit codes of `lean-pkg help exit-codes`, and the top-level
   `--json` keys recorded in tests/golden/json-keys.json.
 Curated by hand, in docs/_commands/ (Jekyll does not publish underscore directories):
-  groups.yaml     the index page's purpose groups and its introduction
+  groups.yaml     the index page's introduction (the groups are the parser's tiers)
   examples.yaml   examples keyed by command path: {cmd, say, output?}; tests/test_command_docs.py
                   parses every cmd with the real parser, so a renamed command or flag fails loudly
   intro/<path>.md the per-command notes (moved here from docs/cli.md), file name = the command path
@@ -41,10 +44,9 @@ OUT = DOCS / "commands"
 SRC = DOCS / "_commands"
 GOLDEN_JSON = ROOT / "tests" / "golden" / "json-keys.json"
 COMMON_FLAGS = ("--json", "--commit", "--push", "--no-commit")
-OTHER_PROGRAMS = ("comparator-receipt", "lean-exercise", "lean-pkg-extract")
-# Values of a positional that select a keyword form documented under the command itself.
-# Until they are real subparsers; an entry that the parser has as a real node is ignored (_pseudo()).
-PSEUDO = {("comparator", "host-check"), ("comparator", "config"), ("formalization", "anchor")}
+OTHER_PROGRAMS = ("lean-exercise", "lean-pkg-extract")
+# Programs that are another spelling of a lean-pkg command: listed on that command's page and in aliases.md.
+PROGRAM_ALIASES = {"comparator-receipt": ("receipt", "comparator")}
 # Mapping tables in lean_pkg.cli that name aliases, {alias: canonical}; a key or value is a command
 # path as a string ("lease claim") or a sequence, a value may also be {"canonical": ...}. Today
 # COMMAND_ALIASES ({"lease": "claim"}); the 1.0 stage-1 alias table is read under any of these names.
@@ -107,10 +109,9 @@ def parsers() -> dict[str, argparse.ArgumentParser]:
     """{program: root parser}, built in a clean environment."""
     _sys_path()
     from tests.cli_contract import parser as lean_pkg_parser
-    from lean_pkg import comparator_receipt, exercise, extract
+    from lean_pkg import exercise, extract
     with clean_env():
         return {"lean-pkg": lean_pkg_parser(),
-                "comparator-receipt": _capture_inline(comparator_receipt.main),
                 "lean-exercise": exercise.parser(),
                 "lean-pkg-extract": extract.parser()}
 
@@ -192,14 +193,13 @@ def alias_table(trees: dict[str, Node]) -> dict[tuple, tuple]:
     _sys_path()
     from lean_pkg import cli
     out: dict[tuple, tuple] = {}
+    from lean_pkg import command_tree   # the 1.0 alias table: old spelling -> canonical command path
     for n in all_nodes(trees["lean-pkg"]):
         for a in n.aliases:
             out[n.path[:-1] + tuple(a.split())] = n.path
-    from lean_pkg import command_tree   # the 1.0 alias table: old spelling -> canonical command path
-    for a in command_tree.COMMAND_ALIASES:
-        out.setdefault(a.old, a.new)
-    for noun, iv in command_tree.IMPLIED_VERBS.items():   # `lease NAME` is `lease claim NAME`
-        out.setdefault((noun, "NAME"), (noun, iv.verb))
+        if n.path:   # old commands, `lease NAME`, and split modes (`release NAME --fresh-repo DIR`)
+            for spelled in command_tree.aliases_of(n.path):
+                out.setdefault(tuple(spelled.split()), n.path)
     for name in ALIAS_TABLE_NAMES:
         table = getattr(cli, name, None)
         if isinstance(table, dict):
@@ -208,10 +208,6 @@ def alias_table(trees: dict[str, Node]) -> dict[tuple, tuple]:
                 if alias and canonical and alias != canonical:
                     out.setdefault(alias, canonical)
     return dict(sorted(out.items()))
-
-
-def _pseudo(all_paths) -> set:
-    return {p for p in PSEUDO if p not in set(all_paths)}
 
 
 # --------------------------------------------------------------------------
@@ -251,8 +247,6 @@ def example_target(program_trees: dict[str, Node], key: str) -> tuple[Node | Non
     for w in words[1:]:
         nxt = next((c for c in node.children if c.path[-1] == w or w in c.aliases), None)
         if nxt is None:
-            if (node.path + (w,)) in PSEUDO and node.program == "lean-pkg":   # not a real node (above)
-                return node, key
             return None, key
         node = nxt
     return node, key
@@ -292,13 +286,16 @@ def json_cases() -> dict[str, dict]:
     return json.loads(GOLDEN_JSON.read_text()) if GOLDEN_JSON.is_file() else {}
 
 
-def json_cases_for(node: Node, all_paths: list[tuple]) -> list[tuple[str, dict]]:
+def json_cases_for(node: Node, all_paths: list[tuple], aliases: dict | None = None) -> list[tuple[str, dict]]:
     """Golden cases whose id is this command path joined by '-' (longest matching path wins; the
-    remainder, such as `dry-run`, names the variant)."""
+    remainder, such as `dry-run`, names the variant). A case named by an old spelling (`claim`,
+    `promote-dry-run`) belongs to its canonical command."""
     if node.program != "lean-pkg" or not node.path:
         return []
-    pseudo = _pseudo(all_paths)
-    cands = [p for p in all_paths if p] + sorted(pseudo)
+    cands = {p: p for p in all_paths if p}
+    for alias, canonical in (aliases or {}).items():
+        if all(w.islower() and not w.startswith("-") for w in alias):   # old command words, not a usage form
+            cands.setdefault(alias, canonical)
     out = []
     for case, shape in json_cases().items():
         best = None
@@ -307,9 +304,7 @@ def json_cases_for(node: Node, all_paths: list[tuple]) -> list[tuple[str, dict]]
             if case == stem or case.startswith(stem + "-"):
                 if best is None or len(stem) > len("-".join(best)):
                     best = p
-        if best is not None and tuple(best) == node.path:
-            out.append((case, shape))
-        elif best is not None and tuple(best) in pseudo and best[:-1] == node.path:
+        if best is not None and cands[best] == node.path:
             out.append((case, shape))
     return sorted(out)
 
@@ -486,8 +481,8 @@ def exit_section(node: Node, level: int) -> list[str]:
     return out + [""]
 
 
-def json_section(node: Node, level: int, all_paths) -> list[str]:
-    cases = json_cases_for(node, all_paths)
+def json_section(node: Node, level: int, all_paths, aliases=None) -> list[str]:
+    cases = json_cases_for(node, all_paths, aliases)
     if not cases:
         return []
     out = [heading(level, "JSON output"), "",
@@ -516,7 +511,8 @@ def examples_section(node: Node, level: int, ex: dict, trees) -> list[str]:
     return out
 
 
-def section(node: Node, level: int, ex, trees, all_paths, parent_epilog=None) -> list[str]:
+def section(node: Node, level: int, ex, trees, all_paths, parent_epilog=None, aliases=None) -> list[str]:
+    """One node's page body (its subcommands are pages of their own, linked from here)."""
     title = " ".join((node.program,) + node.path)
     out = [heading(level, title), ""]
     if node.summary:
@@ -525,6 +521,9 @@ def section(node: Node, level: int, ex, trees, all_paths, parent_epilog=None) ->
         spelled = [" ".join(node.path[:-1] + (a,)) for a in node.aliases] + node.table_aliases
         out += ["Also spelled: " + ", ".join(f"`{node.program} {a}`" for a in spelled)
                 + " ([all aliases](aliases.md)).", ""]
+    progs = [p for p, path in PROGRAM_ALIASES.items() if node.program == "lean-pkg" and path == node.path]
+    if progs:
+        out += ["Also run as the program " + ", ".join(f"`{p}`" for p in progs) + ": the same code and flags.", ""]
     out += [heading(level + 1, "Usage"), "", *fence(usage(node)), ""]
     if node.program == "lean-pkg" and node.path and any(_is_common(a, node) for a in _visible(node.parser)):
         out += ["`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before "
@@ -538,7 +537,7 @@ def section(node: Node, level: int, ex, trees, all_paths, parent_epilog=None) ->
     if node.children:
         out += [heading(level + 1, "Subcommands"), ""]
         for c in node.children:
-            out.append(f"- [`{' '.join((c.program,) + c.path)}`](#{anchor(c)}): {md_text(c.summary)}")
+            out.append(f"- [`{' '.join((c.program,) + c.path)}`]({page_name(c)}): {md_text(c.summary)}")
         out.append("")
     if node.parser.epilog and node.parser.epilog != parent_epilog:
         out += [heading(level + 1, "More from --help"), "", *fence(node.parser.epilog), ""]
@@ -546,10 +545,11 @@ def section(node: Node, level: int, ex, trees, all_paths, parent_epilog=None) ->
     if note:
         out += [heading(level + 1, "Details"), "", note, ""]
     out += exit_section(node, level + 1)
-    out += json_section(node, level + 1, all_paths)
+    out += json_section(node, level + 1, all_paths, aliases)
     out += examples_section(node, level + 1, ex, trees)
-    for c in node.children:
-        out += section(c, level + 1, ex, trees, all_paths, node.parser.epilog)
+    if node.program != "lean-pkg":   # another program: one page, its subcommands as sections
+        for c in node.children:
+            out += section(c, level + 1, ex, trees, all_paths, node.parser.epilog, aliases)
     return out
 
 
@@ -559,7 +559,10 @@ def anchor(node: Node) -> str:
 
 
 def page_name(node: Node) -> str:
-    name = node.path[0] if node.program == "lean-pkg" else node.program
+    """lean-pkg: the canonical path joined by '-' (`lease-claim.md`); another program: its name."""
+    if node.program != "lean-pkg":
+        return node.program + ".md"
+    name = "-".join(node.path)
     return ("index-command" if name == "index" else name) + ".md"   # index.md is this reference's index
 
 
@@ -567,11 +570,13 @@ HEADER = ("<!-- Generated by scripts/command_docs.py from the argparse parsers a
           "Do not edit: run `make docs`. -->")
 
 
-def render_page(node: Node, ex, trees, all_paths) -> str:
+def render_page(node: Node, ex, trees, all_paths, aliases=None) -> str:
     title = " ".join((node.program,) + node.path)
-    body = section(node, 1, ex, trees, all_paths)
+    parent = find(trees, node.path[:-1]) if node.program == "lean-pkg" and len(node.path) > 1 else None
+    body = section(node, 1, ex, trees, all_paths, parent.parser.epilog if parent else None, aliases)
+    up = f" · [`lean-pkg {' '.join(parent.path)}`]({page_name(parent)})" if parent else ""
     lines = ["---", f"title: {title}", "---", "", HEADER, "",
-             "[&larr; Command reference](index.md) · [CLI overview](../cli.md)", "", *body]
+             f"[&larr; Command reference](index.md){up} · [CLI overview](../cli.md)", "", *body]
     text = "\n".join(lines).rstrip("\n") + "\n"
     text = re.sub(r"\n{3,}", "\n\n", text)
     if "{{" in text or "{%" in text:
@@ -580,44 +585,42 @@ def render_page(node: Node, ex, trees, all_paths) -> str:
 
 
 def render_index(trees) -> str:
+    """The index: the top-level commands in the tiers their parsers carry (lean_pkg.command_tree), each with its
+    subcommands; then the other programs."""
+    _sys_path()
+    from lean_pkg import command_tree
     g = groups()
     lp = trees["lean-pkg"]
-    aliases = alias_table(trees)
-    tops = {c.path[0]: c for c in lp.children if c.path not in aliases}
-    others = {p: trees[p] for p in OTHER_PROGRAMS}
-    placed = set()
     out = ["---", "title: Command reference", "---", "", HEADER, "",
            "[&larr; lean-pkg documentation](../index.md) · [CLI overview](../cli.md)", "",
            "# Command reference", ""]
     if g.get("intro"):
         out += [g["intro"].strip(), ""]
-    for grp in g.get("groups", []):
-        out += [f"## {grp['title']}", ""]
-        if grp.get("say"):
-            out += [grp["say"].strip(), ""]
-        out += ["| Command | Purpose |", "|---|---|"]
-        for name in grp["commands"]:
-            node = tops.get(name) or others.get(name)
-            if node is None:
-                continue   # a command the parser no longer has: --check reports it below
-            placed.add(name)
-            label = " ".join((node.program,) + node.path)
-            out.append(f"| [`{label}`]({page_name(node)}) | {md_text(node.summary, table=True)} |")
+    tops = {c.path[0]: c for c in lp.children}
+    for tier, title in command_tree.TIER_TITLES.items():
+        names = [n for n in command_tree.TIERS if n in tops and getattr(tops[n].parser, "tier", None) == tier]
+        if not names:
+            continue
+        out += [f"## {md_text(title)}", "", "| Command | Purpose |", "|---|---|"]
+        for name in names:
+            for node in all_nodes(tops[name]):
+                label = " ".join((node.program,) + node.path)
+                out.append(f"| [`{label}`]({page_name(node)}) | {md_text(node.summary, table=True)} |")
         out.append("")
-    rest = [n for n in list(tops) + list(others) if n not in placed]
-    if rest:
-        out += ["## Not yet grouped", "", "| Command | Purpose |", "|---|---|"]
-        for name in rest:
-            node = tops.get(name) or others.get(name)
-            label = " ".join((node.program,) + node.path)
-            out.append(f"| [`{label}`]({page_name(node)}) | {md_text(node.summary, table=True)} |")
-        out.append("")
-    out += ["Other spellings of these commands are listed on [Command aliases](aliases.md).", "",
+    out += ["## Other programs", "", "| Command | Purpose |", "|---|---|"]
+    for prog in OTHER_PROGRAMS:
+        node = trees[prog]
+        out.append(f"| [`{prog}`]({page_name(node)}) | {md_text(node.summary, table=True)} |")
+    for prog, path in PROGRAM_ALIASES.items():
+        node = find(trees, path)
+        out.append(f"| `{prog}` | the program spelling of [`lean-pkg {' '.join(path)}`]({page_name(node)}) |")
+    out += ["", "Other spellings of these commands are listed on [Command aliases](aliases.md).", "",
             "## Regenerating these pages", "",
             "Every page here is generated by `scripts/command_docs.py` (`make docs`) from the argparse "
-            "parsers, `lean-pkg help exit-codes`, the golden `--json` key sets and the curated sources in "
-            "`docs/_commands/` (examples, groups, per-command notes). CI fails when a committed page "
-            "differs from the generator's output, and when an example no longer parses.", ""]
+            "parsers (the tiers included), `lean-pkg help exit-codes`, the golden `--json` key sets and the "
+            "curated sources in `docs/_commands/` (examples, the introduction, per-command notes). CI fails "
+            "when a committed page differs from the generator's output, and when an example no longer "
+            "parses.", ""]
     return "\n".join(out).rstrip("\n") + "\n"
 
 
@@ -630,9 +633,12 @@ def render_aliases(trees, aliases: dict[tuple, tuple]) -> str:
            "| Alias | Runs |", "|---|---|"]
     for alias, canonical in aliases.items():
         node = find(trees, canonical)
-        target = f"[`lean-pkg {' '.join(canonical)}`]({page_name(node)}#{anchor(node)})" if node and \
+        target = f"[`lean-pkg {' '.join(canonical)}`]({page_name(node)})" if node and \
             node.path else f"`lean-pkg {' '.join(canonical)}`"
         out.append(f"| `lean-pkg {' '.join(alias)}` | {target} |")
+    for prog, canonical in PROGRAM_ALIASES.items():
+        node = find(trees, canonical)
+        out.append(f"| `{prog}` (program) | [`lean-pkg {' '.join(canonical)}`]({page_name(node)}) |")
     return "\n".join(out) + "\n"
 
 
@@ -643,12 +649,12 @@ def render_all() -> dict[Path, str]:
         all_paths = [n.path for n in all_nodes(trees["lean-pkg"])]
         aliases = alias_table(trees)
         pages = {OUT / "index.md": render_index(trees), OUT / "aliases.md": render_aliases(trees, aliases)}
-        tops = [t for t in trees["lean-pkg"].children if t.path not in aliases]   # no page for an alias
-        for top in tops:
-            pages[OUT / page_name(top)] = render_page(top, ex, trees, all_paths)
-        assert len(pages) == 2 + len(tops), "two commands share a page name"
+        nodes = [n for n in all_nodes(trees["lean-pkg"]) if n.path and n.path not in aliases]   # never an alias
+        for node in nodes:
+            pages[OUT / page_name(node)] = render_page(node, ex, trees, all_paths, aliases)
+        assert len(pages) == 2 + len(nodes), "two commands share a page name"
         for prog in OTHER_PROGRAMS:
-            pages[OUT / page_name(trees[prog])] = render_page(trees[prog], ex, trees, all_paths)
+            pages[OUT / page_name(trees[prog])] = render_page(trees[prog], ex, trees, all_paths, aliases)
     return pages
 
 

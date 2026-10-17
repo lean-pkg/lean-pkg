@@ -17,7 +17,7 @@ The rules that matter most:
 - `promote` is a dry run unless `--yes` is given, and `--yes` makes the
   repository public. That cannot be undone. Read the dry-run checklist
   first.
-- Run `comparator-receipt` only where its host policy allows (a Slurm job,
+- Run `lean-pkg receipt comparator` only where its host policy allows (a Slurm job,
   a host in `COMPARATOR_RECEIPT_ALLOWED_HOSTS`, or an explicit
   `COMPARATOR_RECEIPT_ALLOW_HOST=1`).
 
@@ -46,7 +46,7 @@ bash scripts/private-boundary-check.sh    # must exit 0
 Layout:
 
 - `src/lean_pkg/cli.py`: the `lean-pkg` CLI (`main(argv)`).
-- `src/lean_pkg/comparator_receipt.py`: the `comparator-receipt` runner
+- `src/lean_pkg/comparator_receipt.py`: the `comparator-receipt` runner (also `lean-pkg receipt comparator`)
   (`main(argv)`).
 - `src/lean_pkg/scripts/comparator-check.sh`: the vendored Palomar
   acceptance script. Keep it byte-for-byte with upstream; change tool pins

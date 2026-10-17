@@ -33,7 +33,7 @@ directories, host names and run ids are replaced by `<home>`, `<host>` and
 | `lake build` of the two proofs | 11 s |
 | the comparator receipt | 1 min 26 s |
 | the lower-tier receipt (a systemd unit) | 12 s |
-| gate, page, publish dry run | a few seconds |
+| gate, page, publish checklist | a few seconds |
 | **total machine time** | **about 5.5 minutes**, plus the time you spend writing the statements |
 
 The first `lake exe cache get` on a new machine also downloads Mathlib's
@@ -317,45 +317,6 @@ Solution's statement is exactly the Challenge's, that the proof uses only the
 permitted axioms, and that three independent kernels (Lean's own, and the
 NanoDa and con-ron reimplementations) accept it.
 
-First a registry of your own (the registry is the file that records your
-packages and their evidence; [the
-quickstart](quickstart.md#3-a-registry-of-your-own) keeps it under
-`~/.lean-pkg/registry`). For a trial run, a throwaway one is enough:
-
-```bash
-export LEAN_PKG_REGISTRY=/tmp/pi-lambda-trial/lean-packages.yaml && mkdir -p /tmp/pi-lambda-trial
-lean-pkg init
-lean-pkg register pi-lambda --repo https://github.com/you/pi-lambda --path src/pi-lambda
-lean-pkg update pi-lambda --license-spdx Apache-2.0 --status gate-pending --reason "receipts next"
-```
-
-`--path` is the checkout's path relative to your home directory, and
-`--repo` is where the repository would live; it need not exist.
-
-Then the comparator receipt ([`comparator-receipt`](commands/comparator-receipt.md)):
-
-```bash
-COMPARATOR_RECEIPT_ALLOWED_HOSTS="(hostname)" comparator-receipt
-```
-
-```text
-comparator-receipt: stage 01-checkout: ok (dependency checkout per lake-manifest.json)
-comparator-receipt: stage 02-cache-get: ok (Mathlib build cache)
-comparator-receipt: stage 03-build: ok (build of PiLambda.Challenge, PiLambda.Solution)
-...
-Running con-ron kernel on solution
-con-ron: accepted 15825 declarations (--verified)
-con-ron kernel accepts the solution
-Running nanoda kernel on solution
-nanoda kernel accepts the solution
-Running Lean default kernel on solution
-Lean default kernel accepts the solution
-Your solution is okay!
-slot 1-2/2 comparator.json[2 names] done in 60.8s (2/2 done)
-comparator-receipt: stage 04-comparator: ok (1 config(s) accepted (toolchain; 2 slot(s)))
-comparator-receipt: stage 05-receipt: ok (.lean-receipts/ff6e3c27425b-comparator.json)
-```
-
 What "exactly" means is worth seeing once. Change only the π-system
 hypothesis in the Solution to Mathlib's `IsPiSystem P` (trap 2: a
 *stronger* theorem, since it assumes less) and adjust the two proof lines
@@ -383,7 +344,7 @@ was proved, word for word. (See [Do not weaken the
 statement](comparator.md#do-not-weaken-the-statement).) It cannot tell you
 whether the Challenge says what Billingsley says. That was step 3.
 
-## 6. Receipts: a record of what ran
+## 6. Receipts and the gate: `verify`
 
 A **receipt** is a JSON file, committed to the repository, that records one
 run of a check: which commit, which toolchain, what was run, and what came
@@ -395,18 +356,58 @@ anyone can re-run it and compare. lean-pkg has two kinds:
 - the **lower-tier receipt**: a fresh build from nothing, the `sorry` count
   and the axioms, run by the scaffold's `verify.sh` inside a capped systemd
   user unit, so that the operating system, not your script, reports how it
-  ran ([`receipt systemd`](commands/receipt.md), [the
+  ran ([`receipt systemd`](commands/receipt-systemd.md), [the
   details](receipts.md#a-lower-tier-receipt-from-a-systemd-unit)).
 
-Run the second one right after the first, *without committing in between*:
-both receipts must name the same commit.
+
+First a registry of your own (the registry is the file that records your
+packages and their evidence; [the
+quickstart](quickstart.md#3-a-registry-of-your-own) keeps it under
+`~/.lean-pkg/registry`). For a trial run, a throwaway one is enough:
 
 ```bash
-mkdir -p ../pi-lambda-verify
-lean-pkg receipt systemd --unit pi-lambda-verify --commit "(git rev-parse HEAD)" \
-  --log ../pi-lambda-verify/verify.log --stdout ../pi-lambda-verify/unit.out \
-  --stderr ../pi-lambda-verify/unit.err --run -- bash verify.sh ../pi-lambda-verify/verify.log
+export LEAN_PKG_REGISTRY=/tmp/pi-lambda-trial/lean-packages.yaml && mkdir -p /tmp/pi-lambda-trial
+lean-pkg registry init
+lean-pkg register pi-lambda --url https://github.com/you/pi-lambda --path src/pi-lambda --license-spdx Apache-2.0
 ```
+
+`--path` is the checkout's path relative to your home directory, and
+`--url` is where the repository would live; it need not exist.
+
+Then one command makes both receipts and records the result
+([`verify`](commands/verify.md)):
+
+```bash
+lean-pkg verify pi-lambda
+```
+
+It prints and runs three lean-pkg commands at the commit you just made. (The
+outputs shown are those of the same three commands run one by one on the
+measured workstation, with lean-pkg 0.9.0; `verify`'s own `verify: N/3 ...`
+lines, which name each command before it runs, are left out.) First
+the comparator receipt ([`receipt comparator`](commands/receipt-comparator.md),
+also the program `comparator-receipt`):
+
+```text
+comparator-receipt: stage 01-checkout: ok (dependency checkout per lake-manifest.json)
+comparator-receipt: stage 02-cache-get: ok (Mathlib build cache)
+comparator-receipt: stage 03-build: ok (build of PiLambda.Challenge, PiLambda.Solution)
+...
+Running con-ron kernel on solution
+con-ron: accepted 15825 declarations (--verified)
+con-ron kernel accepts the solution
+Running nanoda kernel on solution
+nanoda kernel accepts the solution
+Running Lean default kernel on solution
+Lean default kernel accepts the solution
+Your solution is okay!
+slot 1-2/2 comparator.json[2 names] done in 60.8s (2/2 done)
+comparator-receipt: stage 04-comparator: ok (1 config(s) accepted (toolchain; 2 slot(s)))
+comparator-receipt: stage 05-receipt: ok (.lean-receipts/ff6e3c27425b-comparator.json)
+```
+
+Then the lower-tier receipt at the same commit ([`receipt systemd`](commands/receipt-systemd.md)),
+with its log and unit output in a work directory outside the checkout:
 
 ```text
 lean-pkg: receipt systemd: started pi-lambda-verify.service; waiting for it to finish
@@ -425,27 +426,10 @@ receipt systemd: ok, job systemd-user:pi-lambda-verify.service:<id>@h-<host labe
 
 The `lake:` line matters: the package's own modules were compiled in this run,
 not restored from a cache, so the `sorry` count and the axioms in the log come
-from this build. Commit both receipts:
-
-```bash
-git add .lean-receipts && git commit -m "evidence: receipts"
-```
-
-If you commit the comparator receipt first and then run the lower-tier one,
-the two receipts name different commits and the gate refuses them
-(`both tiers must bind to one commit`). Re-running `comparator-receipt` after
-`verify.sh` has cleaned the build also fails, on its own resume state: remove
-`.lake/comparator-receipt` first.
-
-## 7. The gate
-
-The **gate** is the step that reads both receipts, re-checks them against the
-committed bytes, and records the package as verified in your registry
-([`gate`](commands/gate.md)):
-
-```bash
-lean-pkg gate pi-lambda --receipt .lean-receipts/*-systemd-*.json --comparator .lean-receipts/*-comparator.json
-```
+from this build. Last the gate ([`gate`](commands/gate.md)): the step that reads both receipts,
+re-checks them against the committed bytes, and records the package as
+verified in your registry. `verify` first moves the new package from
+`active` to `gate-pending`, the move the gate expects:
 
 ```text
 ✓ claims.yaml at ff6e3c27425b: schema ok (2 claims), declarations found
@@ -453,12 +437,26 @@ lean-pkg gate pi-lambda --receipt .lean-receipts/*-systemd-*.json --comparator .
 pi-lambda: gate-pending -> verified-private (commit ff6e3c27425b) with comparator evidence .lean-receipts/ff6e3c27425b-comparator.json
 ```
 
+Both receipts name the same commit because nothing is committed between
+them: `verify` runs the comparator first (it refuses any untracked file in the
+checkout) and the lower-tier run second (it allows the receipts under
+`.lean-receipts/`). By hand, committing the comparator receipt before the
+lower-tier run binds the two to different commits, and the gate refuses them
+(`both tiers must bind to one commit`). The comparator needs no host
+configuration on your own machine: with no Slurm installed and
+`COMPARATOR_RECEIPT_ALLOWED_HOSTS` unset, it runs as the machine running the
+command, recorded by its label `h-...`. Commit both receipts:
+
+```bash
+git add .lean-receipts && git commit -m "evidence: receipts"
+```
+
 `verified-private`: verified, and not yet public. The gate binds the package
 to commit `ff6e3c27425b`. The receipts were committed in a later commit; that
 is allowed, because a commit that adds only receipts does not change what was
 built ([the evidence-only descendant rule](receipts.md#evidence-binding-the-evidence-only-descendant-rule)).
 
-## 8. The page
+## 7. The page
 
 The **page** is a section of `README.md` that lean-pkg renders from the data:
 `coverage.yaml` (what you say was formalized), `claims.yaml`, the claims
@@ -497,11 +495,10 @@ kind is `library`, with the book cited in the notes. Each `statement` is
 the result in TeX, transcribed from the book: the page shows it as source,
 under **In words**, beside the Lean statement, so a reader can compare the
 two without the book at hand. It is optional, and nothing checks it against
-the book. Section 10 shows the `paper` version.
+the book. Section 9 shows the `paper` version.
 
 ```bash
 lean-pkg coverage check pi-lambda
-lean-pkg update pi-lambda --accept-docs-descendants --reason "the README verification page"
 lean-pkg page pi-lambda --write
 git add README.md && git commit -m "README: verification page"
 lean-pkg page pi-lambda --check
@@ -512,12 +509,14 @@ pi-lambda: coverage: OK; library; 2 main result(s); no manuscript
 pi-lambda: updated 1 field(s)
   docs_descendants: None -> True
 pi-lambda: wrote the page block into <home>/.../pi-lambda/README.md — not committed; commit it yourself
+pi-lambda: turned on the docs-only exception (`lean-pkg update pi-lambda --accept-docs-descendants --reason ...`): ...
 pi-lambda: page: current (README.md)
 ```
 
-([`coverage`](commands/coverage.md), [`page`](commands/page.md).) The
-`--accept-docs-descendants` line lets a documentation-only commit (this
-README) keep the receipts bound to the gated commit. An excerpt of the
+([`coverage`](commands/coverage.md), [`page`](commands/page.md).) The first
+`page --write` turns on the docs-only exception (the `updated` lines, one
+registry event): a documentation-only commit (this README) keeps the
+receipts bound to the gated commit. An excerpt of the
 rendered page today:
 
 ````markdown
@@ -598,14 +597,15 @@ Rebuilding and re-running the comparator are the remaining steps of [Re-verify
 a page yourself](trust-model.md#re-verify-a-page-yourself). And the referee,
 like you, still reads `Challenge.lean` against the book.
 
-## 9. Before publishing: the dry run
+## 8. Before publishing: the checklist
 
-Nothing so far has left your machine. [`publish --dry-run`](commands/publish.md)
-lists what a public release would still need, and writes nothing:
+Nothing so far has left your machine. [`publish`](commands/publish.md)
+lists what a public release would still need, and writes nothing (`--yes`
+would make the repository public):
 
 ```bash
 lean-pkg claims sync pi-lambda
-lean-pkg publish pi-lambda --dry-run
+lean-pkg publish pi-lambda
 ```
 
 ```text
@@ -632,9 +632,9 @@ comparator receipt's `host`, `host_policy` and `job_id` fields, which record
 the machine's name. Decide about those before anything is public; [Scan for
 private strings](how-to.md#scan-for-private-strings-before-publishing) and
 [the publish checklist](how-to.md#get-listed-publish-checklist-reservoir-palomar)
-take it from here. This tutorial stops at the dry run.
+take it from here. This tutorial stops at the checklist.
 
-## 10. The other track: a paper
+## 9. The other track: a paper
 
 lean-pkg leads to one of [two products](index.md#choose-your-track): a
 *library* page, as here, or a *paper* page. A paper author differs in one
