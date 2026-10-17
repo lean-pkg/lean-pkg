@@ -15,8 +15,8 @@ the failure happened at an earlier elaboration boundary.
 
 ## Why it happens
 
-- A theorem's type is elaborated before its proof. An instance introduced by
-  `letI` in the body is too late for the result type.
+- A theorem's type is elaborated before its proof. An instance introduced
+  in the body is too late for the result type.
 - `local instance` is not exported; each importing module must provide it.
 - Expected types vanish across polymorphic `let`s, untyped binders and
   overloaded notation (`∞` can be an extended real or a smoothness order).
@@ -41,9 +41,18 @@ Result-type instance, bound in the type and repeated in the body:
 theorem downstream (data : D) :
     letI : Nonempty (Atlas M) := atlasOf data
     target := by
-  letI : Nonempty (Atlas M) := atlasOf data
+  let : Nonempty (Atlas M) := atlasOf data
   ...
 ```
+
+In the type, `letI` inlines the instance into the statement. In a tactic
+proof, use `let` (or `have`): in Lean 4 both register a local instance, and
+the only extra effect of `letI`/`haveI`, inlining the value, cannot matter in
+a proof of a proposition. Mathlib's `linter.style.haveILetI`, on by default
+for every project that imports Mathlib, warns on a `letI`/`haveI` tactic whose
+goal is a `Prop`. For a data-carrying instance keep `let`, not `have`: `have`
+forgets the value, so the body's instance is no longer definitionally the one
+inlined in the statement and a later `show` or `exact` can fail.
 
 Module-local fact, redeclared in each consumer module:
 
