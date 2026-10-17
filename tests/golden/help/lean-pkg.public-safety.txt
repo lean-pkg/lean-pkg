@@ -1,5 +1,6 @@
 usage: lean-pkg public-safety [-h] [--history | --no-history] [--strict] [--package-only]
-                              [--quiet] [--json] [--commit] [--push] [--no-commit]
+                              [--gzip-limit BYTES] [--quiet] [--json] [--commit] [--push]
+                              [--no-commit]
                               name
 
 positional arguments:
@@ -15,6 +16,10 @@ options:
                         repository (default: the whole repository then, which is what promote
                         publishes; the package directory alone is what `release --fresh-repo`
                         exports)
+  --gzip-limit BYTES    decode gzip files and blobs (content starting 1f 8b) up to this many
+                        decoded bytes each and scan the decoded content (K, M, G suffixes;
+                        default: $LEAN_PKG_GZIP_LIMIT, else 512M; 0: no decoding, the compressed
+                        bytes are scanned as binary)
   --quiet               only the summary, patterns, warn-only count and verdict lines; no per-hit
                         line (--json is unchanged)
   --json                machine-readable JSON on stdout

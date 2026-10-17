@@ -98,6 +98,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["page", "demo", "--write", "--agent", "a"], "page", False, False, False),
     (["reservoir", "check", "demo"], "reservoir check", False, False, False),
     (["public-safety", "demo"], "public-safety", False, False, False),
+    (["public-safety", "demo", "--gzip-limit", "64M"], "public-safety", False, False, False),
+    (["public-safety", "demo", "--gzip-limit", "0"], "public-safety", False, False, False),
     (["palomar", "prepare", "demo"], "palomar prepare", True, True, False),
     (["palomar", "prepare", "demo", "--dry-run"], "palomar prepare", False, False, False),
     (["palomar", "check", "demo"], "palomar check", False, False, False),            # read-only, offline

@@ -296,6 +296,8 @@
     "keys": [
       "block_hits",
       "builtins_only",
+      "decoded",
+      "gzip_limit",
       "history_hits",
       "history_scanned",
       "hits",
