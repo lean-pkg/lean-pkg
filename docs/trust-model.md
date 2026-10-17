@@ -9,13 +9,13 @@ and how to check it yourself.*
 
 This page is for a referee or reader who meets a Lean verification page made
 with lean-pkg and wants to know how much it is worth. It is written from the
-code: each statement names the module and function that enforces it, so it
-can be checked. Where lean-pkg relies on honesty rather than on a check, it
-says so.
+code: each check is named by the module and function that enforces it
+(`cli` is `src/lean_pkg/cli.py`, and so on), so it can be read. Where
+lean-pkg relies on honesty rather than on a check, it says so.
 
 The short version: lean-pkg checks that its evidence files agree with one
 another and with one git commit. It does not re-run Lean when it validates a
-receipt. A receipt is a signed-off record of a run, not a proof. The proof is
+receipt. A receipt is an unsigned record of a run, not a proof. The proof is
 the Lean source at the bound commit, and the only way to remove trust in the
 person who ran the checks is to run them again, which the last section shows.
 
