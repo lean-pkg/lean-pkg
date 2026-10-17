@@ -6,7 +6,7 @@ title: lean-pkg
 
 <img src="assets/logo-256.png" width="140" height="140" alt="lean-pkg logo: a secretary bird in profile with quill-like crest feathers" style="float:right;margin:0 0 1rem 1.5rem">
 
-*Prove it. Then prove you proved it.* **A registry and trust gate for Lean 4 formalization packages.** One
+*What was verified, against which statement, at which commit.* **A registry and trust gate for Lean 4 formalization packages.** One
 append-only registry says which packages exist, who is working on each one,
 and what evidence binds a package to a verified commit. Nothing becomes
 public without two receipts, and the second one is re-derived from bytes.

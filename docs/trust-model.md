@@ -166,6 +166,8 @@ with what it is trusted for.
 
 ## Re-verify a page yourself
 
+*Do not take a receipt's word for it: run the checks again.*
+
 You need only the public repository, a Linux machine, the Lean toolchain the
 package pins (elan installs it), `bwrap` for the comparator, and lean-pkg
 (`pipx install git+https://github.com/lean-pkg/lean-pkg.git`). No lean-pkg

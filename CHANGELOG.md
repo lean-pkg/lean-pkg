@@ -110,6 +110,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   docs/design/two-tracks.md mark their decisions as decided.
 - Docs: README.md shows the two-track workflow diagram under the quickstart
   link, linked to the sample workflow.
+- Docs: slogans. docs/design/slogans.md lists thirty-six candidate one-liners,
+  each with what it claims and whether the trust model bears it out, ranked.
+  The chosen ones are placed one per page: the README and site tagline
+  (*Lean checks the proofs. You check the statements. lean-pkg checks the
+  receipts.*, replacing *Prove it. Then prove you proved it.*, which called
+  a receipt a proof), the docs index, the trust model, the two-tracks
+  design, the README research loop (which now names the AI assistant's
+  place: it may draft, Lean checks the proof, the mathematician reads the
+  statement) and GOVERNANCE.md's AI operations agent.
 
 ### Changed
 

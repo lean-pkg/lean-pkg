@@ -36,8 +36,8 @@ count: a reviewer need not be a maintainer. The rules are in
 Claude, through Claude Code) to do much of the routine work. It is a tool,
 not a member, and it has no account of its own: it acts through the
 maintainer's GitHub account, so everything it does is the maintainer's act
-and responsibility. What it does, under the maintainer's standing
-direction:
+and responsibility. *The agent drafts; the maintainer decides, and
+answers for it.* What it does, under the maintainer's standing direction:
 
 - writes code, tests and docs, and opens pull requests that disclose it
   (the commit trailer and the PR's *AI assistance* section);

@@ -5,7 +5,7 @@
 <h1 align="center">lean-pkg</h1>
 
 <p align="center">
-  <strong><em>Prove it. Then prove you proved it.</em></strong><br>
+  <strong><em>Lean checks the proofs. You check the statements. lean-pkg checks the receipts.</em></strong><br>
   A registry and trust gate for Lean 4 formalization packages: know which packages exist, who holds each one, and what evidence binds it to a verified commit, before anything becomes public.
 </p>
 
@@ -50,6 +50,9 @@ re-derives both from bytes.
 
 ### Research loop: discover, formalize, verify
 
+*Mathematics, Lean and an AI assistant: one workflow, and a record of who
+checked what.*
+
 Research mathematics is rarely linear. A symbolic computation may suggest a
 formula; Lean may expose a missing hypothesis; the manuscript changes; the
 formalization changes with it. `lean-pkg` is designed to keep the verification
@@ -59,6 +62,10 @@ The trust boundary is deliberately asymmetric:
 
 - Python, SymPy, Sage, Mathematica, numerical experiments, or hand calculations
   may **discover** a candidate claim;
+- an AI assistant may **draft** Lean statements and proofs: Lean checks a
+  drafted proof like any other, but a drafted statement is only as good as
+  the mathematician's reading of it (a definition-hole sign-off refuses a
+  model or agent as the reviewer);
 - Lean states and proves the mathematical claim;
 - `lean-pkg` records which exact source and evidence were actually verified.
 

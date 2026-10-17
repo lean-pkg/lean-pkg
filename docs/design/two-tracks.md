@@ -4,6 +4,8 @@ title: Two tracks, paper and library
 
 # Two tracks: a verified paper, or a reusable Lean library
 
+*One gate, two products: a verified paper or a reusable library.*
+
 Status: design proposal, 2026-10-17; its four decisions were taken the same
 day ([Decisions](#decisions), [decision 0007](../decisions/0007-recommendations-accepted-2026-10-17.md)).
 Nothing here changes a format; the one change it ships is that `status`
