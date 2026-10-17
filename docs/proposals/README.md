@@ -59,3 +59,4 @@ proposal when asked but never accepts one ([GOVERNANCE.md](../../GOVERNANCE.md))
 | # | Title | Status |
 |---|---|---|
 | [0000](0000-template.md) | Template | n/a |
+| [0001](0001-paper-statement.md) | The paper's statement in coverage.yaml | draft |
