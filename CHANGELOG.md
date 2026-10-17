@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-17
+
 ### Added
 
 - `lean-pkg receipt check --repo DIR --commit X [--at REF] [--docs-descendants] [--json]`:
@@ -182,6 +184,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   "Library: each row is a main result of the library." in coverage.md), so a
   package whose `.lean-pkg-private-patterns` blocks that word (or *private*)
   can write its page. A paper page keeps its wording.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.9.0] - 2026-10-17
 
