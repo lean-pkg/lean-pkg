@@ -50,6 +50,89 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   with expected output; lab-only steps are marked optional. Linked from
   README.md and docs/index.md.
 
+- `status`: the `scope:` block names the product the page certifies,
+  `product: library` or `product: paper`, read from `kind` in `coverage.yaml`
+  committed at HEAD (paper when the key is absent); `--json` adds
+  `scope.product` {kind, source, note}. With no committed or readable file it
+  says `not declared` and why, and never refuses. It is not the record's DOI
+  `track`, and nothing is stored in the record.
+- docs/design/two-tracks.md: the two product tracks, a formally verified
+  paper (Track P) and a reusable Lean library (Track L). Maps every module to
+  the shared core or to one track, gives each track's end-to-end path and
+  success gate, and a prioritized, sized gap list (Mathlib readiness,
+  per-declaration upstreaming, API diffs and versions for libraries; version
+  of record, submission bundle and referee re-verification for papers). The
+  site index gains a "Choose your track" section.
+
+- `lean-exercise` for course use (docs/exercise.md, "Course use").
+  `--project DIR` allows `import Mathlib...` when `DIR` is a Lake project
+  whose `lean-toolchain` and `lake-manifest.json` pin Mathlib and whose
+  Mathlib is already built: the throwaway project requires the same pinned
+  dependencies and links to the project's packages, which a
+  `COMPARATOR_BWRAP` wrapper binds read-only into every `lake comparator`
+  sandbox; the wrapper also drops the sandbox's network, so judging never
+  downloads. Without `--project` an `import Mathlib` is still refused.
+  `--forbid PREFIX` and `--forbid-exact NAME` (repeatable) reject an accepted
+  theorem whose proof depends on a named constant, with the new verdict
+  `forbidden_constant` (`constant`, `constants`): computed on a sandboxed
+  `leanexport` of the built Solution, following the Solution's own
+  declarations (helpers, private lemmas, auxiliaries) so a helper cannot
+  launder a dependency (`--forbid-scope all` follows library constants too);
+  constants of the statement are never reported, and a failed check is a
+  `tool_error`. `lean-exercise batch --solutions DIR --csv FILE --logs DIR`
+  judges every `*.lean` file of a directory into one CSV row per file
+  (identified by its file name only) and one log per file, JSON schema
+  `exercise-batch/1`; `--no-sandbox` is refused in batch mode.
+- Compute site profiles (`site-profile/1`, docs/sites.md): a site a page may
+  credit is now a YAML file naming the site, its verbatim acknowledgment and
+  link, a README pattern and its scheduler. A package can commit its own
+  under `lean-pkg-sites/<name>.yaml` (read at HEAD, so every machine renders
+  the same page) and name it in `coverage.yaml` `compute`; the rule is the
+  Easley rule for every profile: the sentence only with every listed job
+  backed by a committed receipt of the site's scheduler, and `page --check`
+  fails on an unbacked mention. A package profile may not reuse a built-in
+  name; a malformed one refuses `coverage check` and `page`; `x-NAME`
+  extension keys are tolerated and never read. `page --json`
+  gains `sites: {NAME: {backed, jobs}}` (the `easley` key is kept). Design
+  note, with the lab-coupling audit and the GitHub Actions compute receipt
+  design (not implemented): docs/design/sites-and-ci-receipts.md.
+
+- A command reference on the docs site, `docs/commands/`: one page per
+  top-level `lean-pkg` command (subcommands as sections) and one each for
+  `comparator-receipt`, `lean-exercise` and `lean-pkg-extract`, with an index
+  grouped by purpose and a newcomer path. Each page has the purpose, a usage
+  line, every argument and flag with its default and choices, the exit codes
+  of `lean-pkg help exit-codes`, the `--json` keys of the golden contract, the
+  per-command notes and examples. The pages are generated from the argparse
+  parsers by `scripts/command_docs.py` (`make docs` runs it), so they follow
+  any change to the command tree; the hand-written parts live in
+  `docs/_commands/` (`examples.yaml`, `groups.yaml`, `intro/`). Examples cover
+  the newcomer path and the most-used commands (init, register, claim,
+  release, status, next, receipt slurm and systemd, gate, comparator,
+  comparator-receipt, coverage check, page, publish, promote).
+  `tests/test_command_docs.py` fails when a committed page differs from the
+  generator's output, when an example no longer parses with the real parser
+  or runs another command than the one it is filed under, and when a link or
+  heading anchor from the reference does not resolve; a command without an
+  example is a warning. `docs/cli.md` is now the overview of the global
+  flags, committed mode, leases, the package record and the exit codes; its
+  per-command rows moved, unchanged, into the command pages.
+
+### Changed
+
+- Refactor, no behavior change for existing packages: the Easley
+  acknowledgment, link and README pattern moved from code to the built-in
+  profile `site_profiles/easley.yaml`, and the page and coverage code read
+  every profile alike; no source module names a site. Every rendered byte,
+  refusal and check result of an existing package is unchanged (the existing
+  tests pass unmodified).
+- `page`: the public page no longer prints the line `lean-pkg registry
+  status: ...`. The registry status is mutable (promote changes it) while
+  the page is committed at one commit, so the line went stale on promote and
+  forced a re-render; it stays in `lean-pkg status` and the JSON outputs.
+  Re-render a page made by 0.9.0 or earlier (`lean-pkg page NAME --write`):
+  `page --check` reports the old block as stale.
+
 ### Fixed
 
 - `page` and `coverage`: a `comparator-receipt/2` receipt, what
@@ -57,8 +140,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   one run inside a Slurm job (its `host_policy` names the job) backs that job
   for the Easley acknowledgment. Both used to recognise only schema 1, so a
   current comparator receipt was missing from the table.
-
-### Fixed
 
 - `claims mark --from-comparator`: when theorem names match no claim (or
   only some), the output now states the matching rule. A name covers a claim
@@ -77,6 +158,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `claims mark` adds `rule` and `hints[]` {name, decl, shape, rename_to,
   hint}, and `--coverage` adds `hints[]`. docs/comparator.md, "How a theorem
   name maps to a claim"; docs/page.md R11.
+
+- `page`, `kind: library`: lean-pkg's own wording on a library page no longer
+  uses the word *manuscript* ("Library: each row below is a main result of
+  the library ..." in the README block, verification.md and the HTML file;
+  "Library: each row is a main result of the library." in coverage.md), so a
+  package whose `.lean-pkg-private-patterns` blocks that word (or *private*)
+  can write its page. A paper page keeps its wording.
 
 ## [0.9.0] - 2026-10-17
 

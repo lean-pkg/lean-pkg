@@ -258,7 +258,7 @@ After the flip:
 |---|---|
 | new to Lean | [Start here](docs/newcomers.md): a one-to-two-week reading path (Functional Programming in Lean, Chapter 1, and the Math 7800 lectures), then the sample |
 | ready to try it | [Sample workflow](docs/sample-workflow.md): a real package, register to promotion dry run, every command and output |
-| looking something up | [How to](docs/how-to.md) · [CLI reference](docs/cli.md) · [Receipts and trust](docs/receipts.md) · [The comparator tier](docs/comparator.md) · [formalization.yaml](docs/formalization.md) · [The index](docs/index-catalog.md) · [Prior-art search](docs/prior-art.md) · [Lifecycle](docs/lifecycle.md) |
+| looking something up | [How to](docs/how-to.md) · [Command reference](docs/commands/index.md) · [CLI overview](docs/cli.md) · [Receipts and trust](docs/receipts.md) · [The comparator tier](docs/comparator.md) · [formalization.yaml](docs/formalization.md) · [The index](docs/index-catalog.md) · [Prior-art search](docs/prior-art.md) · [Lifecycle](docs/lifecycle.md) |
 | an agent | [llms.txt](llms.txt) · [AGENTS.md](AGENTS.md) · [Using lean-pkg with agents](docs/agents.md) · [Agent skills](skills/README.md) |
 | stuck | [FAQ](docs/faq.md) |
 

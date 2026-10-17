@@ -57,6 +57,7 @@ import re
 import yaml
 
 from . import cli as core
+from . import sites
 
 COVERAGE_SCHEMA = "coverage/1"
 DEFAULT_COVERAGE_FILE = "coverage.yaml"
@@ -82,13 +83,13 @@ PAPER_OPTIONAL = ("label",)
 CLASSES = ("same-assumptions", "inputs-supplied", "outside")
 CLASS_GLOSS = {"same-assumptions": "Same assumptions", "inputs-supplied": "Inputs supplied",
                "outside": "Outside this formalization"}
-CLUSTERS = ("easley",)
+CLUSTERS = sites.names()                        # the built-in site profiles; a package may add its own (sites.py)
 UNPOSTED = "unposted"
 ARXIV_VERSION_RE = re.compile(r"^arXiv:(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})v\d+$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HTTPS_URL_RE = re.compile(r"^https://[A-Za-z0-9.-]+(?::\d+)?/[A-Za-z0-9._~/%+-]+$")
-SLURM_JOB_RE = re.compile(r"^slurm-\d+(?:_\d+)?$")
+SLURM_JOB_RE = sites.SLURM.job_re
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 ZENODO_DOI_RE = re.compile(r"^10\.5281/zenodo\.\d+$")
 TEXT_MAX = 400
@@ -211,8 +212,9 @@ def _manuscript_errors(m, errors: list[str]) -> None:
         errors.append("manuscript.version: must be a string or a mapping {repo, commit, sha256}")
 
 
-def validate(doc, package: str | None = None) -> list[str]:
-    """Schema errors of a coverage/1 document (claim ids and receipts are checked by check_against)."""
+def validate(doc, package: str | None = None, profiles: dict | None = None) -> list[str]:
+    """Schema errors of a coverage/1 document (claim ids and receipts are checked by check_against).
+    profiles: the site profiles compute may name (sites.for_repo); None: the built-in ones."""
     errors: list[str] = []
     if not isinstance(doc, dict):
         _keys(doc, TOP_REQUIRED, TOP_OPTIONAL, "<root>", errors)
@@ -233,7 +235,7 @@ def validate(doc, package: str | None = None) -> list[str]:
         _library_rows_errors(doc, errors)
     else:
         _paper_rows_errors(doc, errors)
-    _tail_errors(doc, errors)
+    _tail_errors(doc, errors, sites.builtin() if profiles is None else profiles)
     return errors
 
 
@@ -246,7 +248,7 @@ def _identity_errors(doc: dict, package: str | None, errors: list[str]) -> None:
         errors.append(f"package: {doc['package']!r} is not {package!r}")
 
 
-def _tail_errors(doc: dict, errors: list[str]) -> None:
+def _tail_errors(doc: dict, errors: list[str], profiles: dict) -> None:
     """compute, placeholders and lean_pkg_version: the same for both kinds."""
     comp = doc.get("compute")
     if "compute" in doc:
@@ -258,15 +260,17 @@ def _tail_errors(doc: dict, errors: list[str]) -> None:
                 w = f"compute[{i}]"
                 if not _keys(c, ("cluster", "jobs"), (), w, errors):
                     continue
-                if c["cluster"] not in CLUSTERS:
-                    errors.append(f"{w}.cluster: must be one of {', '.join(CLUSTERS)}, got {c['cluster']!r}")
+                if c["cluster"] not in profiles:
+                    errors.append(f"{w}.cluster: must be one of {', '.join(profiles)}, got {c['cluster']!r}")
                 elif c["cluster"] in seen:
                     errors.append(f"{w}.cluster: {c['cluster']!r} is listed twice")
                 seen.add(c["cluster"])
+                # an unknown cluster is refused above; its jobs are still read as Slurm ids, as before
+                sched = sites.scheduler_of(profiles[c["cluster"]]) if c["cluster"] in profiles else sites.SLURM
                 jobs = c["jobs"]
                 if not isinstance(jobs, list) or not jobs or not all(
-                        isinstance(j, str) and SLURM_JOB_RE.match(j) for j in jobs):
-                    errors.append(f"{w}.jobs: must be a non-empty list of Slurm job ids (slurm-12345)")
+                        isinstance(j, str) and sched.job_re.match(j) for j in jobs):
+                    errors.append(f"{w}.jobs: must be a non-empty list of {sched.label} job ids ({sched.example})")
                 elif len(set(jobs)) != len(jobs):
                     errors.append(f"{w}.jobs: repeats a job id")
     for where, s in _strings(doc, ""):
@@ -452,20 +456,32 @@ def bare_job_receipts(repo: pathlib.Path) -> dict[str, str]:
     return out
 
 
-def compute_backing(doc: dict, repo: pathlib.Path) -> tuple[dict[str, list[str]], list[str]]:
-    """({cluster: [backed job ids]}, problems): every listed job must be a Slurm receipt tracked at HEAD."""
-    jobs = slurm_jobs_at_head(repo)
+# scheduler name -> {job id: receipt path} for the receipts tracked at HEAD that show a run under it
+JOB_INDEX = {sites.SLURM.name: slurm_jobs_at_head}
+
+
+def compute_backing(doc: dict, repo: pathlib.Path, profiles: dict | None = None
+                    ) -> tuple[dict[str, list[str]], list[str]]:
+    """({cluster: [backed job ids]}, problems): every listed job must be the job of a receipt tracked at HEAD,
+    of the scheduler the cluster's site profile names (sites.py)."""
+    profiles = sites.for_repo(repo) if profiles is None else profiles
+    index: dict[str, dict[str, str]] = {}
     backed: dict[str, list[str]] = {}
     problems: list[str] = []
     for c in doc.get("compute") or []:
+        sched = sites.scheduler_of(profiles[c["cluster"]])
+        if sched.name not in index:
+            index[sched.name] = JOB_INDEX[sched.name](repo)
+        jobs = index[sched.name]
         missing = [j for j in c["jobs"] if j not in jobs]
         if missing:
-            near = bare_job_receipts(repo)
+            # the near-miss hint is Slurm's (`receipt slurm`); a new scheduler brings its own with its reader
+            near = bare_job_receipts(repo) if sched is sites.SLURM else {}
             hint = "".join(
                 f"; {near[j]} has job_id {j.removeprefix('slurm-')!r}, a bare number, which is not accepted as a "
                 f"Slurm job: write the receipt with `lean-pkg receipt slurm --job {j.removeprefix('slurm-')}` "
                 f"(it checks sacct and writes job_id {j})" for j in missing if j in near)
-            problems.append(f"compute ({c['cluster']}): no Slurm receipt tracked at HEAD under .lean-receipts/ "
+            problems.append(f"compute ({c['cluster']}): no {sched.label} receipt tracked at HEAD under .lean-receipts/ "
                             f"has job_id {', '.join(missing)} (commit the receipt, or drop the job){hint}")
         else:
             backed[c["cluster"]] = list(c["jobs"])
@@ -598,7 +614,7 @@ def load_checked(pkg: dict, repo: pathlib.Path, file: str | None = None, allow_p
                  ) -> tuple[dict, dict[str, dict], list[str]]:
     """(document, claims by id, warnings) of a fully valid coverage file; any problem refuses."""
     doc, where = read_doc(pkg, repo, file)
-    errors = validate(doc, pkg["name"])
+    errors = validate(doc, pkg["name"], sites.for_repo(repo))
     if errors:
         raise core.Fail(f"{where} is not a valid {COVERAGE_SCHEMA} file:\n  " + "\n  ".join(errors))
     claims, claims_rel = claims_at_head(pkg, repo)

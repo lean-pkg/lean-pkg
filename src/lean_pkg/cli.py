@@ -5850,6 +5850,28 @@ def package_fields_help() -> str:
 SCOPE_NAMES_SHOWN = 20   # comparator declarations named in status text; --json lists every one
 
 
+def status_product(repo: pathlib.Path | None) -> dict:
+    """What the package's page certifies, read from `kind` in coverage.yaml committed at HEAD
+    (docs/design/two-tracks.md): `library` (a reusable Lean library) or `paper` (the default: a paper's
+    results). Offline and read-only; never refuses: no checkout, no committed file or unreadable YAML
+    gives kind None and says why. Validity is `coverage check`'s job, not this one's. Not the record's
+    `track` field, which is the DOI track (palomar / doi-only)."""
+    from . import coverage as cov_mod
+    where = f"{cov_mod.DEFAULT_COVERAGE_FILE} at HEAD"
+    if repo is None:
+        return {"kind": None, "source": None, "note": "no checkout: the product kind is read from coverage.yaml"}
+    raw = git_show_bytes(repo, cov_mod.DEFAULT_COVERAGE_FILE)
+    if raw is None:
+        return {"kind": None, "source": None, "note": f"no {cov_mod.DEFAULT_COVERAGE_FILE} committed at HEAD"}
+    try:
+        doc = cov_mod.load_text(raw.decode("utf-8", errors="replace"), where)
+    except Fail as e:
+        return {"kind": None, "source": where, "note": str(e)}
+    kind = cov_mod.doc_kind(doc)
+    note = f"kind: {kind}" if doc.get("kind") in ("paper", "library") else "kind absent: paper is the default"
+    return {"kind": kind, "source": where, "note": note}
+
+
 def status_scope(pkg: dict, repo: pathlib.Path | None) -> dict:
     """#5 P3: what the evidence actually covers, offline and read-only: the gated source commit, the recorded
     privacy (and any publication hold), the exact declarations the recorded comparator receipt compared and
@@ -5866,6 +5888,7 @@ def status_scope(pkg: dict, repo: pathlib.Path | None) -> dict:
         "publication": {"status": pkg.get("status"), "visibility": pkg.get("visibility"),
                         "publication_hold": pkg.get("publication_hold"),
                         "github": "not queried (status is offline; `lean-pkg audit` asks gh)"},
+        "product": status_product(repo if have else None),
         "comparator": None, "claims": None}
     claims = [c for c in (pkg.get("claims") or []) if isinstance(c, dict)]
     counts: dict[str, int] = {}
@@ -5920,6 +5943,12 @@ def scope_lines(sc: dict) -> list[str]:
     hold = pub["publication_hold"]
     lines.append(f"  privacy: status {pub['status']}, visibility {pub['visibility']} (recorded; GitHub not "
                  f"queried); publication hold: " + (hold_text(hold) if hold else "none"))
+    prod = sc.get("product") or {}
+    if prod.get("kind"):
+        what = "a library's main results" if prod["kind"] == "library" else "a paper's results"
+        lines.append(f"  product: {prod['kind']}, the page certifies {what} ({prod['source']}, {prod['note']})")
+    else:
+        lines.append(f"  product: not declared ({prod.get('note') or 'unknown'})")
     if comp is None:
         lines.append("  comparator: none recorded (no declaration has been compared)")
     elif not comp["readable"]:
@@ -6448,6 +6477,7 @@ SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push 
 board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
 status    full record + last 5 history entries (a lease adds derived expires_at, UTC; a lapsed lease ends the output with `lease: EXPIRED ...`, one lapsing within 2h with `lease: expires in ...`; --json lease_state {state live|expiring|expired|invalid|none, seconds_left}); --fields a,b.c: only those keys (dotted paths; lease.contact: null when unset; aliases = the table columns: pin, vis, reaudit, expires|lease.expires, lease.claimed; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). Without --fields: a `scope:` text block and --json scope {gate {receipt, commit, head, head_is_gated_commit, readable}, publication {status, visibility, publication_hold, github}, comparator null|{receipt, readable, commit, mechanism, configs[], theorem_names[], definition_names[], claimed_theorems, claimed_theorems_covered, reusable_theorems, reusable_theorems_covered, whole_package false, note}, claims {total, by_status, synced_commit, note}}: the gated source commit, recorded privacy + hold (offline: gh not queried), the exact declarations the comparator receipt compared and the claimed theorems/lemmas they cover (never the whole package), claim counts by status (not completion percentages). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
+status    full record + last 5 history entries (a lease adds derived expires_at, UTC; a lapsed lease ends the output with `lease: EXPIRED ...`, one lapsing within 2h with `lease: expires in ...`; --json lease_state {state live|expiring|expired|invalid|none, seconds_left}); --fields a,b.c: only those keys (dotted paths; lease.contact: null when unset; aliases = the table columns: pin, vis, reaudit, expires|lease.expires, lease.claimed; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). Without --fields: a `scope:` text block and --json scope {gate {receipt, commit, head, head_is_gated_commit, readable}, publication {status, visibility, publication_hold, github}, product {kind paper|library|null, source, note}, comparator null|{receipt, readable, commit, mechanism, configs[], theorem_names[], definition_names[], claimed_theorems, claimed_theorems_covered, reusable_theorems, reusable_theorems_covered, whole_package false, note}, claims {total, by_status, synced_commit, note}}: the gated source commit, recorded privacy + hold (offline: gh not queried), the product (kind in coverage.yaml at HEAD; paper when absent; not the DOI track), the exact declarations the comparator receipt compared and the claimed theorems/lemmas they cover (never the whole package), claim counts by status (not completion percentages). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 new       scaffold a minimal Lean package in a new directory (refused when it exists and is not empty) and git init it; no registry read or written, nothing committed, fetched or built: lean-toolchain (v4.35.0-rc2), .gitignore, lakefile.toml (library MOD = NAME in CamelCase, --module MOD; requires Mathlib unless --no-mathlib), MOD/Challenge.lean (sorry) + MOD/Solution.lean (module-headed, the getting-started template) + MOD/Axioms.lean (#print axioms), comparator.json, claims.yaml (one reusable claim), coverage.yaml (kind library), CITATION.cff (--author, else git user.name), LICENSE (--license Apache-2.0|MIT), README.md (the lean-pkg credit), verify.sh (the log `receipt systemd --run` reads; --no-mathlib: a `mathlib-rev: none` line); NAME [a-z][a-z0-9]*(-[a-z0-9]+)*, at most 64 (else exit 2); --json {ok, name, dir, module, mathlib, lean_toolchain, license_spdx, files[], git_init, committed, registry_touched, next_commands[]}. ex: lean-pkg new my-proof; the path to a page: docs/quickstart.md
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];

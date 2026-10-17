@@ -55,12 +55,12 @@ span on GitHub, in MkDocs or in the HTML file.
 
 | Section | What it says |
 |---|---|
-| Verification status | the `summary` sentence from `coverage.yaml`; the manuscript version; the number of paper rows by class and how many formalized rows the ledger closes; the ledger's package status; the registry status |
+| Verification status | the `summary` sentence from `coverage.yaml`; the manuscript version; the number of paper rows by class and how many formalized rows the ledger closes; the ledger's package status. The registry status is not shown: it changes on promote, while the page is committed at one commit |
 | Paper ↔ Lean map | one row per paper result: number and title, correspondence class, declarations (linked at the gate-bound commit when the repository is on GitHub), the ledger word, inputs and notes |
 | Not formalized | every `outside` row, or the `nothing_excluded` reason |
 | Trust boundary | what the gate receipt and the comparator receipt record, and a fixed paragraph on what neither checks (the full account: [Trust model](trust-model.md)) |
 | Reproduce | toolchain, Mathlib revision, a command template (clone, checkout of the gate-bound commit, `lake exe cache get` when Mathlib is a dependency, `lake build`), the expected `#print axioms` result |
-| Evidence | one row per receipt: path, tier, commit, date, Slurm job, SHA-256 |
+| Evidence | one row per receipt committed under `.lean-receipts/` (gate receipts and comparator receipts of either schema, `comparator-receipt/1` or `/2`): path, tier, commit, date, Slurm job, SHA-256 |
 | Citation | authors, title, version and DOI from `CITATION.cff`, and the manuscript |
 | License | `license_spdx` and the license file |
 | Acknowledgments | the lean-pkg credit, always; the Easley sentence only [with evidence](#the-easley-acknowledgment) |
@@ -117,7 +117,7 @@ compute:                              # optional; see the Easley acknowledgment
 | `rows[].claims` | ids in `claims.yaml` at `HEAD`; at least one for the first two classes, none for `outside`; a superseded claim is refused |
 | `rows[].inputs` | required for `inputs-supplied`, refused for `same-assumptions` |
 | `nothing_excluded` | `{reason: TEXT}`, only when no row is `outside`. One of the two is required: a page always says where the formalization stops |
-| `compute` | `[{cluster: easley, jobs: [slurm-<J>, ...]}]`; each job must be a Slurm receipt committed under `.lean-receipts/` |
+| `compute` | `[{cluster: NAME, jobs: [slurm-<J>, ...]}]`; `NAME` a [site profile](sites.md) (`easley` is built in); each job must be a receipt of the site's scheduler committed under `.lean-receipts/` |
 | `lean_pkg_version` | optional `{version, doi}`: the exact lean-pkg version to credit. When lean-pkg's own `CITATION.cff` is readable it must list that version with exactly that DOI |
 | `kind` | optional: `paper` (the default, everything above) or `library` ([below](#a-library-with-no-manuscript)). An older lean-pkg refuses the key (coverage/1 is strict) |
 
@@ -166,7 +166,9 @@ compute:                                       # optional; the Easley rule is th
 
 The page then carries a *Main results* table (result, declarations, ledger
 word, note) in place of the paper map and *Not formalized*; the capsule says
-the library has no manuscript, the trust footnote says the Lean statement is
+each row is a main result of the library (lean-pkg's own wording on a library
+page never uses the words *manuscript*, *paper* or *private*, so a package's
+private patterns may block them), the trust footnote says the Lean statement is
 the result, and the citation names no manuscript. `--allow-private-manuscript`
 does not apply. `formalization anchor` refuses to bind a library coverage to an
 e-print, and `claims rebase` leaves it alone. A package that formalizes results
@@ -204,6 +206,10 @@ a package with no `coverage.yaml` and no block, the line is a WARN, except for
 an unbacked Easley sentence, which is a failure.
 
 ## The Easley acknowledgment
+
+Easley is the first built-in [site profile](sites.md); every profile,
+including one a package commits under `lean-pkg-sites/`, follows the rule
+below with its own sentence and README pattern.
 
 A receipt does not record where its job ran: a Slurm receipt says
 `slurm-<J>`, and the job number alone does not name the cluster. The sentence

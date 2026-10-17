@@ -4,16 +4,20 @@
 Registry-free and read-only: no registry, event log, git, receipt or lease is ever opened. The only
 writes go to a fresh temporary directory (removed afterwards unless --keep DIR). The learner's code is
 built only by `lake comparator`, inside its bwrap sandbox, unless --no-sandbox is given, and then the
-verdict is a self-check, never a grade. Mathlib-free in v1. Results are never registry evidence.
+verdict is a self-check, never a grade. Mathlib-free unless --project names a prebuilt Mathlib project,
+whose packages are then bound read-only into the sandbox (never downloaded). `batch` judges a directory of
+Solutions into one CSV row each. Results are never registry evidence.
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
 import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -22,12 +26,14 @@ import tempfile
 import time
 
 from . import comparator_receipt as cr
+from . import exercise_forbid as fb
 from . import lean_scan
 from .deps_closure import header_imports
 from .palomar_check import has_module_header
 from .cli import parse_lean_toolchain, scrubbed_env
 
 SCHEMA = "exercise-check/1"
+BATCH_SCHEMA = "exercise-batch/1"
 FLOOR = cr.TOOLCHAIN_FLOOR                       # v4.35.0-rc2: the first toolchain with `lake comparator`
 DEFAULT_TIMEOUT = 600
 STD_AXIOMS = ("propext", "Quot.sound", "Classical.choice")
@@ -37,8 +43,9 @@ DEF_KEYWORDS = ("def", "abbrev", "structure", "class", "instance", "inductive", 
                 "irreducible_def")
 IMPORT_OK = re.compile(r"^(Init|Std|Lean)(\.|$)")
 PASS_LINE = "Your solution is okay!"
-VERDICTS = ("accepted", "statement_mismatch", "illegal_axiom", "kernel_rejected", "build_error", "missing",
-            "timeout", "tool_error")
+VERDICTS = ("accepted", "statement_mismatch", "illegal_axiom", "forbidden_constant", "kernel_rejected",
+            "build_error", "missing", "timeout", "tool_error")
+FORBID_SCOPES = ("solution", "all")
 NO_SANDBOX_WARN = ("WARN: --no-sandbox: the Solution's code {} UNSANDBOXED on this machine, with your "
                    "user's rights. This verdict is a self-check only: never use it to grade someone else's "
                    "work. Run without --no-sandbox on Linux (or WSL2) for a sandboxed check.")
@@ -100,16 +107,20 @@ def read_lean(path: str, what: str) -> tuple[pathlib.Path, str]:
         raise Refusal(f"{what} {path}: not UTF-8")
 
 
-def check_imports(text: str, what: str, has_defs: bool) -> None:
+def check_imports(text: str, what: str, has_defs: bool, mathlib: bool = False) -> None:
     for mod in imports(text):
         if IMPORT_OK.match(mod) or (has_defs and mod == "Defs"):
             continue
         if mod == "Defs":
             raise Refusal(f"{what} imports Defs but no --defs FILE was given")
         if mod.split(".")[0] == "Mathlib":
-            raise Refusal(f"{what} imports {mod}: lean-exercise v1 is Mathlib-free (Mathlib support is planned)")
-        raise Refusal(f"{what} imports {mod}: only Init, Std, Lean{' and Defs' if has_defs else ''} can be "
-                      f"imported (the exercise is judged as a standalone project)")
+            if mathlib:
+                continue
+            raise Refusal(f"{what} imports {mod}: Mathlib needs --project DIR, a project whose "
+                          f"lake-manifest.json pins Mathlib and whose Mathlib is already built")
+        ok = "Init, Std, Lean" + (", Mathlib" if mathlib else "") + (" and Defs" if has_defs else "")
+        raise Refusal(f"{what} imports {mod}: only {ok} can be imported (the exercise is judged as a "
+                      f"standalone project)")
 
 
 _DEF_CMD = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|public|meta|noncomputable|partial|"
@@ -232,6 +243,106 @@ def resolve(toolchain: str | None) -> tuple[str, pathlib.Path, pathlib.Path]:
 
 
 # ---------------------------------------------------------------------------------------------------------
+# --project: a prebuilt Mathlib project whose packages the sandbox reads (read-only, never downloaded)
+
+PKG_LIB = pathlib.Path(".lake") / "build" / "lib" / "lean"
+
+
+def load_project(path: str) -> dict:
+    """{root, toolchain, packages (real path), binds, requires, manifest, lean_path} of a --project DIR:
+    lean-toolchain + lake-manifest.json pinning mathlib, every package checked out and Mathlib built."""
+    root = pathlib.Path(path)
+    if not root.is_dir():
+        raise Refusal(f"--project {path}: not a directory")
+    tc_file, man_file = root / "lean-toolchain", root / "lake-manifest.json"
+    for f in (tc_file, man_file):
+        if not f.is_file():
+            raise Refusal(f"--project {path}: no {f.name} (the project must pin its toolchain and Mathlib)")
+    toolchain = tc_file.read_text(encoding="utf-8").strip()
+    try:
+        man = json.loads(man_file.read_text(encoding="utf-8"))
+        pkgs = man["packages"]
+        assert isinstance(pkgs, list) and all(isinstance(x, dict) and "name" in x for x in pkgs)
+    except (ValueError, KeyError, AssertionError, OSError):
+        raise Refusal(f"--project {path}: lake-manifest.json is not a Lake manifest") from None
+    if not any(x["name"] == "mathlib" for x in pkgs):
+        raise Refusal(f"--project {path}: lake-manifest.json has no mathlib package")
+    pdir = root / (man.get("packagesDir") or ".lake/packages")
+    hint = "run `lake exe cache get` (or `lake build`) in the project first: judging never downloads"
+    if not pdir.is_dir():
+        raise Refusal(f"--project {path}: {pdir.name}/ is missing; {hint}")
+    real = pdir.resolve()
+    binds, lean_path = [real], []
+    for x in pkgs:
+        if x.get("type") != "git":
+            raise Refusal(f"--project {path}: dependency {x['name']} is a {x.get('type')} dependency; only "
+                          f"git dependencies (as Mathlib's are) are supported")
+        d = real / x["name"]
+        if not d.is_dir():
+            raise Refusal(f"--project {path}: dependency {x['name']} is not checked out; {hint}")
+        rd = d.resolve()
+        if not rd.is_relative_to(real):
+            binds.append(rd)
+        lean_path.append(rd / PKG_LIB)
+    if not (real / "mathlib" / PKG_LIB / "Mathlib.olean").is_file():
+        raise Refusal(f"--project {path}: Mathlib is not built (no Mathlib.olean); {hint}")
+    return {"root": root.resolve(), "toolchain": toolchain, "packages": real, "binds": binds,
+            "requires": [x for x in pkgs if not x.get("inherited")], "manifest": man, "lean_path": lean_path}
+
+
+def require_toml(pkg: dict) -> str:
+    """A lakefile.toml [[require]] matching the manifest entry, so Lake takes the pinned checkout as is."""
+    q = json.dumps
+    out = [f"\n[[require]]\nname = {q(pkg['name'])}"]
+    out.append(f"scope = {q(pkg['scope'])}" if pkg.get("scope") else f"git = {q(pkg['url'])}")
+    if pkg.get("inputRev"):
+        out.append(f"rev = {q(pkg['inputRev'])}")
+    if pkg.get("subDir"):
+        out.append(f"subDir = {q(pkg['subDir'])}")
+    return "\n".join(out) + "\n"
+
+
+# `lake comparator` passes its whole bwrap command line through COMPARATOR_BWRAP. This wrapper binds the
+# project's packages read-only into each sandbox (they sit under a home directory the sandbox covers) and
+# drops --share-net, so even dependency resolution has no network. It fails closed on an unexpected line.
+WRAPPER = """#!/bin/sh
+# lean-exercise --project: bind the prebuilt packages read-only; no sandbox gets a network.
+done=0; prev2=; prev1=
+for a in "$@"; do
+  shift
+  if [ "$done" = 0 ] && [ "$a" = --share-net ]; then continue; fi
+  if [ "$done" = 0 ] && [ "$a" = -- ] && [ "$prev2" = --chdir ]; then
+    set -- "$@" {binds}
+    done=1
+  fi
+  set -- "$@" "$a"; prev2=$prev1; prev1=$a
+done
+if [ "$done" = 0 ]; then
+  echo "lean-exercise: unexpected bwrap command line from lake comparator; refusing to run it" >&2
+  exit 125
+fi
+exec {bwrap} "$@"
+"""
+
+
+def real_bwrap() -> str:
+    bw = os.environ.get("COMPARATOR_BWRAP") or "bwrap"
+    found = shutil.which(bw)
+    if found is None:
+        raise Refusal(f"{bw} not found: `lake comparator` sandboxes with bwrap (package bubblewrap)")
+    return os.path.abspath(found)
+
+
+def write_wrapper(work: pathlib.Path, binds: list[pathlib.Path]) -> pathlib.Path:
+
+    args = " ".join(f"--ro-bind {shlex.quote(str(b))} {shlex.quote(str(b))}" for b in binds)
+    p = work / "bwrap-wrapper.sh"
+    p.write_text(WRAPPER.format(binds=args, bwrap=shlex.quote(real_bwrap())), encoding="utf-8")
+    p.chmod(0o755)
+    return p
+
+
+# ---------------------------------------------------------------------------------------------------------
 # The temporary project
 
 MANIFEST = {"version": "1.2.0", "packagesDir": ".lake/packages", "packages": [], "name": "exercise",
@@ -239,13 +350,21 @@ MANIFEST = {"version": "1.2.0", "packagesDir": ".lake/packages", "packages": [],
 
 
 def write_project(work: pathlib.Path, toolchain: str, prefix: pathlib.Path, files: dict[str, pathlib.Path],
-                  theorems: list[str], axioms: list[str]) -> list[pathlib.Path]:
+                  theorems: list[str], axioms: list[str], project: dict | None = None) -> list[pathlib.Path]:
     """lean-toolchain, lakefile.toml, lake-manifest.json, the .lean files byte for byte, and one comparator
-    configuration per theorem (cfg/<i>.json); returns the configuration paths."""
+    configuration per theorem (cfg/<i>.json); returns the configuration paths. With a --project, the
+    lakefile requires its direct dependencies, the manifest pins them as the project's does, and
+    .lake/packages is a link to the project's (bound read-only by the wrapper)."""
     (work / "lean-toolchain").write_text(toolchain + "\n", encoding="utf-8")
     libs = "".join(f'\n[[lean_lib]]\nname = "{m}"\n' for m in files)
-    (work / "lakefile.toml").write_text(f'name = "exercise"\n{libs}', encoding="utf-8")
-    (work / "lake-manifest.json").write_text(json.dumps(MANIFEST, indent=1) + "\n", encoding="utf-8")
+    reqs = "".join(require_toml(x) for x in project["requires"]) if project else ""
+    (work / "lakefile.toml").write_text(f'name = "exercise"\n{reqs}{libs}', encoding="utf-8")
+    manifest = dict(MANIFEST)
+    if project:
+        manifest["packages"] = project["manifest"]["packages"]
+        (work / ".lake").mkdir(exist_ok=True)
+        (work / ".lake" / "packages").symlink_to(project["packages"], target_is_directory=True)
+    (work / "lake-manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
     for mod, src in files.items():
         shutil.copyfile(src, work / f"{mod}.lean")
     (work / "cfg").mkdir()
@@ -266,11 +385,13 @@ def write_project(work: pathlib.Path, toolchain: str, prefix: pathlib.Path, file
 # Judging and reading the verdict
 
 def judge(lake: pathlib.Path, work: pathlib.Path, cfg: pathlib.Path, toolchain: str, timeout: float,
-          no_sandbox: bool) -> tuple[int | None, str, float]:
+          no_sandbox: bool, wrapper: pathlib.Path | None = None) -> tuple[int | None, str, float]:
     """(exit code or None on timeout, merged output, seconds)."""
     env = scrubbed_env()
     env.update({"PATH": os.pathsep.join([str(lake.parent), env.get("PATH", "")]), "ELAN_TOOLCHAIN": toolchain,
                 "LAKE_ARTIFACT_CACHE": "false", "LAKE_CACHE_DIR": str(work / "lake-cache")})
+    if wrapper is not None:
+        env["COMPARATOR_BWRAP"] = str(wrapper)
     cmd = [str(lake), "comparator", "--config", str(cfg)] + (["--inadvisably-no-sandbox"] if no_sandbox else [])
     t0 = time.monotonic()
     p = subprocess.Popen(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
@@ -361,32 +482,93 @@ def make_workdir(keep: str | None) -> pathlib.Path:
     return pathlib.Path(tempfile.mkdtemp(prefix="lean-exercise-", dir=base)).resolve()
 
 
-def check(args) -> dict:
+def full_toolchain(tc: str) -> str:
+    return tc if ":" in tc else f"leanprover/lean4:{tc}"
+
+
+def plan_forbid(args) -> dict | None:
+    prefixes = [x.strip() for x in args.forbid or []]
+    exact = [x.strip() for x in args.forbid_exact or []]
+    bad = [x for x in prefixes + exact if not x or any(c.isspace() for c in x)]
+    if bad:
+        raise Refusal(f"--forbid / --forbid-exact {bad[0]!r}: a constant name or name prefix, no spaces")
+    if not prefixes and not exact:
+        if args.forbid_scope != "solution":
+            raise Refusal("--forbid-scope needs --forbid PREFIX or --forbid-exact NAME")
+        return None
+    return {"prefixes": list(dict.fromkeys(prefixes)), "exact": list(dict.fromkeys(exact)),
+            "scope": args.forbid_scope}
+
+
+def prepare(args) -> dict:
+    """Everything shared by every Solution: the exercise, the host, the toolchain, --project, --forbid."""
     if args.mathlib:
-        raise Refusal("--mathlib is not supported in v1 (Mathlib-free exercises only)")
+        raise Refusal("--mathlib is not a flag: pass --project DIR, a project that pins and has built Mathlib")
     if args.timeout <= 0:
         raise Refusal("--timeout must be positive")
+    project = load_project(args.project) if args.project else None
     challenge_p, challenge = read_lean(args.challenge, "--challenge")
-    solution_p, solution = read_lean(args.solution, "--solution")
-    files = {"Challenge": challenge_p, "Solution": solution_p}
+    files = {"Challenge": challenge_p}
     if args.defs:
         defs_p, defs = read_lean(args.defs, "--defs")
-        check_imports(defs, "--defs", False)
+        check_imports(defs, "--defs", False, bool(project))
         if any(d["sorry"] for d in scan(defs)):
             raise Refusal("--defs: the shared definitions must not use sorry")
         files["Defs"] = defs_p
-    check_imports(challenge, "the Challenge", bool(args.defs))
-    check_imports(solution, "the Solution", bool(args.defs))
+    check_imports(challenge, "the Challenge", bool(args.defs), bool(project))
     theorems = plan_theorems(challenge, args.theorems)
     axioms = plan_axioms(args.axioms)
+    forbid = plan_forbid(args)
     trust = host_preflight(args.no_sandbox)
-    toolchain, prefix, lake = resolve(args.toolchain)
-    if args.no_sandbox:
-        print(NO_SANDBOX_WARN.format("runs"), file=sys.stderr)
-    work = make_workdir(args.keep)
+    requested = args.toolchain
+    if project:
+        if requested and full_toolchain(requested) != full_toolchain(project["toolchain"]):
+            raise Refusal(f"--toolchain {requested}: the --project pins {project['toolchain']}, and its "
+                          f"Mathlib is built with that one")
+        requested = project["toolchain"]
+    toolchain, prefix, lake = resolve(requested)
+    return {"challenge_p": challenge_p, "files": files, "theorems": theorems, "axioms": axioms,
+            "forbid": forbid, "trust": trust, "toolchain": toolchain, "prefix": prefix, "lake": lake,
+            "project": project, "no_sandbox": args.no_sandbox, "timeout": args.timeout,
+            "has_defs": bool(args.defs)}
+
+
+def read_solution(plan: dict, path: str) -> tuple[pathlib.Path, str]:
+    solution_p, solution = read_lean(path, "--solution")
+    check_imports(solution, "the Solution", plan["has_defs"], bool(plan["project"]))
+    return solution_p, solution
+
+
+def forbidden(plan: dict, work: pathlib.Path, solution: str, names: list[str]) -> dict[str, list[dict]]:
+    """{theorem: [{constant, via}]} from a sandboxed export of the built Solution (exercise_forbid)."""
+    fz, project = plan["forbid"], plan["project"]
+    scratch = work / "forbid"
+    scratch.mkdir(exist_ok=True)
+    lean_path = [work / PKG_LIB] + (project["lean_path"] if project else [])
+    readable = project["binds"] if project else []
+    sandboxed = not plan["no_sandbox"]
+    lits = [fb.literal(tuple(n.split("."))) for n in names]
+    if None in lits:
+        raise fb.ExportError("a judged theorem name cannot be passed to leanexport")
+    out = scratch / "solution.ndjson"
+    fb.run_export(plan["prefix"], lean_path, readable, work, ["Solution"], lits, out, sandboxed, plan["timeout"])
+    ex = fb.read_export(out)
+    classify = fb.library_classifier(plan["prefix"], lean_path, readable, work, imports(solution), "Solution",
+                                     scratch, sandboxed, plan["timeout"])
+    return {n: fb.find_forbidden(ex, n, fz["prefixes"], fz["exact"], fz["scope"], classify) for n in names}
+
+
+def judge_solution(plan: dict, solution_p: pathlib.Path, solution: str, keep: str | None = None) -> dict:
+    files = dict(plan["files"])
+    files["Solution"] = solution_p
+    theorems, toolchain = plan["theorems"], plan["toolchain"]
+    work = make_workdir(keep)
     rows: list[dict] = []
+    logs: list[str] = []
     try:
-        cfgs = write_project(work, toolchain, prefix, files, theorems, axioms)
+        cfgs = write_project(work, toolchain, plan["prefix"], files, theorems, plan["axioms"], plan["project"])
+        wrapper = write_wrapper(work, plan["project"]["binds"]) if plan["project"] and not plan["no_sandbox"] \
+            else None
         stop = None
         for i, (name, cfg) in enumerate(zip(theorems, cfgs), 1):
             if stop is not None:
@@ -394,23 +576,126 @@ def check(args) -> dict:
                              "kernels": [], "seconds": 0.0})
                 continue
             print(f"judging {name} ({i}/{len(theorems)}) ...", file=sys.stderr)
-            rc, out, secs = judge(lake, work, cfg, toolchain, args.timeout, args.no_sandbox)
+            rc, out, secs = judge(plan["lake"], work, cfg, toolchain, plan["timeout"], plan["no_sandbox"], wrapper)
             (work / "cfg" / f"{i}.log").write_text(out, encoding="utf-8")
+            logs.append(f"== {name}: lake comparator (exit {rc})\n" + redact(out, work))
             row = classify(rc, out, has_module_header(solution))
             row["detail"] = redact(row["detail"], work)
             rows.append({"name": name, **row, "seconds": round(secs, 1)})
             if row["verdict"] == "build_error" or row["detail"].startswith("the Challenge (or Defs) does not build"):
                 stop = row["verdict"]
+        judged = [r for r in rows if r["verdict"] == "accepted"]
+        if plan["forbid"] and judged:
+            print(f"checking forbidden constants ({len(judged)} theorem(s)) ...", file=sys.stderr)
+            try:
+                hits = forbidden(plan, work, solution, [r["name"] for r in judged])
+            except fb.ExportError as e:
+                for r in judged:
+                    r.update(verdict="tool_error", detail=redact(f"the forbidden-constant check failed: {e}", work),
+                             kernels=[])
+                logs.append(f"== forbidden-constant check failed: {redact(str(e), work)}")
+            else:
+                for r in judged:
+                    h = hits[r["name"]]
+                    logs.append(f"== {r['name']}: forbidden constants reached: "
+                                + (", ".join(x["constant"] for x in h) or "none"))
+                    if h:
+                        via = f" (through {' -> '.join(h[0]['via'])})" if h[0]["via"] else ""
+                        more = f" and {len(h) - 1} more" if len(h) > 1 else ""
+                        r.update(verdict="forbidden_constant", constant=h[0]["constant"],
+                                 constants=[x["constant"] for x in h],
+                                 detail=f"uses the forbidden constant {h[0]['constant']}{via}{more}")
     finally:
-        if not args.keep:
+        if not keep:
             shutil.rmtree(work, ignore_errors=True)
+    accepted = sum(r["verdict"] == "accepted" for r in rows)
+    res = {"schema": SCHEMA, "ok": accepted == len(rows), "trust": plan["trust"], "toolchain": toolchain,
+           "mechanism": "toolchain", "challenge_sha256": sha256(plan["challenge_p"]),
+           "solution_sha256": sha256(solution_p), "permitted_axioms": plan["axioms"], "theorems": rows,
+           "summary": {"accepted": accepted, "total": len(rows)}, "kept": str(work) if keep else None}
+    if plan["project"]:
+        res["mathlib"] = True
+    if plan["forbid"]:
+        res["forbid"] = plan["forbid"]
+    res["_logs"] = logs
+    return res
+
+
+def check(args) -> dict:
+    plan = prepare(args)
+    solution_p, solution = read_solution(plan, args.solution)
+    if args.no_sandbox:
+        print(NO_SANDBOX_WARN.format("runs"), file=sys.stderr)
+    res = judge_solution(plan, solution_p, solution, args.keep)
     if args.no_sandbox:
         print(NO_SANDBOX_WARN.format("ran"), file=sys.stderr)
-    accepted = sum(r["verdict"] == "accepted" for r in rows)
-    return {"schema": SCHEMA, "ok": accepted == len(rows), "trust": trust, "toolchain": toolchain,
-            "mechanism": "toolchain", "challenge_sha256": sha256(challenge_p), "solution_sha256": sha256(solution_p),
-            "permitted_axioms": axioms, "theorems": rows, "summary": {"accepted": accepted, "total": len(rows)},
-            "kept": str(work) if args.keep else None}
+    res.pop("_logs")
+    return res
+
+
+# ---------------------------------------------------------------------------------------------------------
+# batch: a directory of Solutions, one CSV row each
+
+def batch(args) -> dict:
+    if args.no_sandbox:
+        raise Refusal("batch grades other people's work: --no-sandbox is refused (use `check --no-sandbox` "
+                      "on your own Solution)")
+    src = pathlib.Path(args.solutions)
+    if not src.is_dir():
+        raise Refusal(f"--solutions {args.solutions}: not a directory")
+    sols = sorted(p for p in src.iterdir() if p.suffix == ".lean" and p.is_file())
+    if not sols:
+        raise Refusal(f"--solutions {args.solutions}: no .lean files in it")
+    out_csv, logs_dir = pathlib.Path(args.csv), pathlib.Path(args.logs)
+    if out_csv.exists():
+        raise Refusal(f"--csv {args.csv}: already exists (choose a new path; nothing is overwritten)")
+    if logs_dir.exists() and (not logs_dir.is_dir() or any(logs_dir.iterdir())):
+        raise Refusal(f"--logs {args.logs}: must not exist or be an empty directory")
+    plan = prepare(args)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    names = plan["theorems"]
+    header = ["file", "sha256", "result", "accepted", "total"] + names + ["detail"]
+    files_out = []
+    with open(out_csv, "x", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(header)
+        for n, sp in enumerate(sols, 1):
+            print(f"[{n}/{len(sols)}] {sp.name}", file=sys.stderr)
+            log = [f"lean-exercise batch: {sp.name}"]
+            try:
+                solution_p, solution = read_solution(plan, str(sp))
+            except Refusal as e:
+                row = {"file": sp.name, "sha256": sha256(sp), "result": "refused", "accepted": 0,
+                       "total": len(names), "detail": str(e).replace(str(sp), sp.name)}
+                verdicts = ["refused"] * len(names)
+                log.append(f"REFUSED: {row['detail']}")
+            else:
+                res = judge_solution(plan, solution_p, solution)
+                verdicts = [r["verdict"] for r in res["theorems"]]
+                bad = [f"{r['name']}: {r['verdict']}: {r['detail']}" for r in res["theorems"]
+                       if r["verdict"] != "accepted"]
+                row = {"file": sp.name, "sha256": res["solution_sha256"], "result": "pass" if res["ok"] else "fail",
+                       "accepted": res["summary"]["accepted"], "total": res["summary"]["total"],
+                       "detail": "; ".join(bad)}
+                log += [render(res)] + res["_logs"]
+            w.writerow([row["file"], row["sha256"], row["result"], row["accepted"], row["total"]] + verdicts
+                       + [row["detail"]])
+            fh.flush()
+            (logs_dir / f"{sp.stem}.log").write_text("\n".join(log) + "\n", encoding="utf-8")
+            files_out.append({**row, "verdicts": dict(zip(names, verdicts))})
+    passed = sum(f["result"] == "pass" for f in files_out)
+    return {"schema": BATCH_SCHEMA, "ok": passed == len(files_out), "trust": plan["trust"],
+            "toolchain": plan["toolchain"], "theorems": names, "csv": str(out_csv), "logs": str(logs_dir),
+            "files": files_out, "summary": {"passed": passed, "total": len(files_out)}}
+
+
+def render_batch(res: dict) -> str:
+    s = res["summary"]
+    head = f"{'PASS' if res['ok'] else 'FAIL'}: {s['passed']}/{s['total']} Solution(s) pass ({res['trust']}, {res['toolchain']})"
+    out = [head] + [f"{f['result']:<8} {f['file']}: {f['accepted']}/{f['total']}"
+                    + (f" -- {f['detail']}" if f["detail"] else "") for f in res["files"]]
+    out += [f"csv: {res['csv']}", f"logs: {res['logs']}", head]
+    return "\n".join(out)
 
 
 def render(res: dict) -> str:
@@ -434,8 +719,13 @@ examples:
   lean-exercise check --challenge Challenge.lean --solution Solution.lean
   lean-exercise check --challenge C.lean --solution S.lean --theorems add_zero',two_mul --json
   lean-exercise check --challenge C.lean --solution S.lean --defs Defs.lean --axioms propext
+  lean-exercise check --challenge C.lean --solution S.lean --project ~/course-mathlib \\
+      --forbid MeasurableSpace.DynkinSystem. --forbid-exact MeasurableSpace.induction_on_inter
+  lean-exercise batch --challenge C.lean --solutions submissions/ --csv grades.csv --logs logs/ \\
+      --project ~/course-mathlib
 
-exit codes: 0 every theorem accepted, 1 a theorem rejected (or the judge failed), 2 usage or host refusal.
+exit codes: 0 every theorem accepted (batch: every Solution), 1 a theorem rejected (or the judge failed),
+2 usage or host refusal.
 docs: https://lean-pkg.github.io/lean-pkg/exercise.html"""
 
 
@@ -448,33 +738,66 @@ class _Parser(argparse.ArgumentParser):
         super().error(message)
 
 
+def _common(c) -> None:
+    c.add_argument("--challenge", required=True, metavar="FILE", help="the Challenge .lean (theorems := by sorry)")
+
+
+def _options(c) -> None:
+    c.add_argument("--theorems", metavar="a,b", help="judge only these (fully qualified) Challenge theorems")
+    c.add_argument("--axioms", metavar="a,b",
+                   help="permitted axioms, a subset of propext,Quot.sound,Classical.choice (default: all three)")
+    c.add_argument("--defs", metavar="FILE", help="shared definitions, module Defs, imported by both files")
+    c.add_argument("--project", metavar="DIR",
+                   help="a Lake project whose lean-toolchain and lake-manifest.json pin Mathlib, built already "
+                        "(`lake exe cache get`): allows `import Mathlib...`; its packages are bound read-only "
+                        "into the sandbox, and nothing is downloaded")
+    c.add_argument("--forbid", action="append", metavar="PREFIX",
+                   help="reject a theorem whose proof depends on a constant whose name starts with PREFIX "
+                        "(repeatable; computed on the compiled environment, through the Solution's helpers)")
+    c.add_argument("--forbid-exact", action="append", metavar="NAME",
+                   help="as --forbid, for exactly this constant (repeatable)")
+    c.add_argument("--forbid-scope", choices=FORBID_SCOPES, default="solution",
+                   help="solution (default): follow the Solution's own declarations, report library constants "
+                        "they use; all: follow library constants too")
+    c.add_argument("--toolchain", metavar="T",
+                   help=f"Lean toolchain (default: the --project's, else the newest installed, {FLOOR} or later)")
+    c.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, metavar="S",
+                   help=f"seconds per theorem (default {DEFAULT_TIMEOUT})")
+    c.add_argument("--mathlib", action="store_true", help=argparse.SUPPRESS)   # refused: --project DIR
+
+
 def parser() -> argparse.ArgumentParser:
     fmt = argparse.RawDescriptionHelpFormatter
     ap = _Parser(prog="lean-exercise", formatter_class=fmt,
                  description="Judge a Lean exercise Solution against its Challenge with `lake comparator`.",
                  epilog=EXAMPLES)
-    sub = ap.add_subparsers(dest="verb", metavar="check", required=True)
+    sub = ap.add_subparsers(dest="verb", metavar="{check,batch}", required=True)
     c = sub.add_parser("check", formatter_class=fmt, epilog=EXAMPLES,
                        help="judge each sorry'd theorem of the Challenge against the Solution",
                        description="Judge each sorry'd theorem of the Challenge against the Solution, one "
                                    "`lake comparator` run per theorem, in its bwrap sandbox. Registry-free; "
-                                   "writes only a temporary directory. Mathlib-free (v1).")
-    c.add_argument("--challenge", required=True, metavar="FILE", help="the Challenge .lean (theorems := by sorry)")
+                                   "writes only a temporary directory. Mathlib only with --project DIR.")
+    _common(c)
     c.add_argument("--solution", required=True, metavar="FILE", help="the Solution .lean to judge")
-    c.add_argument("--theorems", metavar="a,b", help="judge only these (fully qualified) Challenge theorems")
-    c.add_argument("--axioms", metavar="a,b",
-                   help="permitted axioms, a subset of propext,Quot.sound,Classical.choice (default: all three)")
-    c.add_argument("--defs", metavar="FILE", help="shared definitions, module Defs, imported by both files")
-    c.add_argument("--toolchain", metavar="T",
-                   help=f"Lean toolchain (default: the newest installed, {FLOOR} or later)")
-    c.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, metavar="S",
-                   help=f"seconds per theorem (default {DEFAULT_TIMEOUT})")
+    _options(c)
     c.add_argument("--keep", metavar="DIR", help="build in DIR (absent or empty) and keep it")
     c.add_argument("--no-sandbox", action="store_true",
                    help="run without the bwrap sandbox: the Solution runs as you; a self-check of your OWN "
                         "code only, never a grade (trust: self-check-only)")
-    c.add_argument("--mathlib", action="store_true", help=argparse.SUPPRESS)   # v2; refused in v1
     c.add_argument("--json", dest="json_out", action="store_true", help=f"JSON on stdout (schema {SCHEMA})")
+    b = sub.add_parser("batch", formatter_class=fmt, epilog=EXAMPLES,
+                       help="judge every .lean file of a directory: one CSV row and one log per file",
+                       description="Judge every Solution (*.lean, not recursive) in a directory as `check` "
+                                   "would, sandboxed (--no-sandbox is refused), each in its own fresh "
+                                   "project. Writes one CSV row per file (identified by its file name only) "
+                                   "and one log per file. Registry-free.")
+    _common(b)
+    b.add_argument("--solutions", required=True, metavar="DIR", help="the directory of Solution .lean files")
+    b.add_argument("--csv", required=True, metavar="FILE", help="the CSV to write (must not exist)")
+    b.add_argument("--logs", required=True, metavar="DIR", help="per-file logs <stem>.log (absent or empty)")
+    _options(b)
+    b.add_argument("--no-sandbox", action="store_true", help=argparse.SUPPRESS)   # refused in batch
+    b.add_argument("--json", dest="json_out", action="store_true", help=f"JSON on stdout (schema {BATCH_SCHEMA})")
     return ap
 
 
@@ -483,13 +806,16 @@ def main(argv: list[str] | None = None) -> int:
     _Parser.json_requested = "--json" in raw
     args = parser().parse_args(raw)
     try:
-        res = check(args)
+        res = batch(args) if args.verb == "batch" else check(args)
     except Refusal as e:
         if args.json_out:
             print(json.dumps({"ok": False, "error": str(e), "usage": True}, indent=2))
         print(f"lean-exercise: {e}", file=sys.stderr)
         return 2
-    print(json.dumps(res, indent=2) if args.json_out else render(res))
+    if args.json_out:
+        print(json.dumps(res, indent=2))
+    else:
+        print(render_batch(res) if args.verb == "batch" else render(res))
     return 0 if res["ok"] else 1
 
 

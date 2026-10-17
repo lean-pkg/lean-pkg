@@ -1,0 +1,1 @@
+See also `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH`, a separate console script that plans a public Lean-verification repository from a mixed working repository, read-only and registry-free: [Extracting a public Lean repository](../extract.md).

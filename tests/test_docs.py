@@ -40,7 +40,7 @@ def test_docs_site_has_entry_pages():
     for name in ("index.md", "motivation.md", "getting-started.md", "how-to.md",
                  "lifecycle.md", "receipts.md", "comparator.md", "cli.md",
                  "agents.md", "newcomers.md", "sample-workflow.md", "faq.md", "skills.md", "index-catalog.md", "prior-art.md",
-                 "formalization.md",
+                 "formalization.md", "commands/index.md",
                  "_config.yml", "llms.txt"):
         assert (ROOT / "docs" / name).is_file(), name
 
@@ -50,7 +50,8 @@ def test_relative_links_resolve():
     pages = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "CONTRIBUTING.md",
              ROOT / "DESIGN.md", ROOT / "GOVERNANCE.md", ROOT / "SECURITY.md",
              ROOT / "MAINTAINERS.md", *sorted((ROOT / "docs").glob("*.md")),
-             *sorted((ROOT / "docs" / "proposals").glob("*.md"))]
+             *sorted((ROOT / "docs" / "proposals").glob("*.md")),
+             *sorted((ROOT / "docs" / "commands").glob("*.md"))]
     for md in pages:
         for target in _relative_targets(md):
             if not (md.parent / target).exists():
@@ -244,7 +245,8 @@ def test_prior_art_page_is_linked_and_names_the_contract():
         assert needle in page, needle
     assert "prior-art.md" in (ROOT / "docs" / "index.md").read_text()
     assert "docs/prior-art.md" in (ROOT / "README.md").read_text()
-    cli = (ROOT / "docs" / "cli.md").read_text()
+    from .conftest import cli_reference_text
+    cli = cli_reference_text()
     for row in ("`claims sync NAME`", "`claims list [NAME]`", "`claims check [NAME]`", "`search TERM`"):
         assert row in cli, row
     assert "lean-pkg search" in (ROOT / "skills" / "search-before-building" / "SKILL.md").read_text()
@@ -440,12 +442,13 @@ def _subcommand_paths(lp):
     return paths
 
 
-def test_every_subcommand_has_a_cli_reference_row(lp):
-    """docs/cli.md has a table row for every subcommand, nested ones included."""
-    rows = [line for line in (ROOT / "docs" / "cli.md").read_text().splitlines() if line.startswith("| `")]
-    missing = [p for p in _subcommand_paths(lp)
-               if not any(re.match(r"\| `" + re.escape(p) + r"[ `]", row) for row in rows)]
-    assert missing == [], "no docs/cli.md row for: " + ", ".join(missing)
+def test_every_subcommand_has_a_cli_reference_entry(lp):
+    """Every subcommand, nested ones, aliases and comparator's keyword forms included, is in the CLI
+    reference: a section of its generated docs/commands/ page (or an alias line), or a form in its notes."""
+    from .conftest import cli_reference_text
+    text = cli_reference_text()
+    missing = [p for p in _subcommand_paths(lp) if f"lean-pkg {p}" not in text and f"`{p}" not in text]
+    assert missing == [], "no CLI reference entry for: " + ", ".join(missing)
 
 
 def test_every_top_level_subcommand_has_a_front_door_home(lp):
@@ -460,7 +463,8 @@ def test_every_top_level_subcommand_has_a_front_door_home(lp):
 
 # Every file `make docs` writes. A new generator joins this list (and the Makefile target) so that CI's
 # `make docs` + `git diff --exit-code` covers it; the test below fails when the two disagree (#81).
-GENERATED = ("llms.txt", "docs/llms.txt", "index/README.md")
+GENERATED = ("llms.txt", "docs/llms.txt", "index/README.md",
+             *sorted(f"docs/commands/{p.name}" for p in (ROOT / "docs" / "commands").glob("*.md")))
 
 
 def test_make_docs_rewrites_exactly_the_generated_files(tmp_path):
@@ -470,16 +474,22 @@ def test_make_docs_rewrites_exactly_the_generated_files(tmp_path):
     (tmp_path / "docs").mkdir()
     shutil.copy(ROOT / "Makefile", tmp_path / "Makefile")
     (tmp_path / "src").symlink_to(ROOT / "src")
+    (tmp_path / "tests").symlink_to(ROOT / "tests")   # the command reference reads the parser and goldens
     shutil.copytree(ROOT / "index", tmp_path / "index")
+    (tmp_path / "scripts").mkdir()
+    shutil.copy(ROOT / "scripts" / "command_docs.py", tmp_path / "scripts")
+    shutil.copytree(ROOT / "docs" / "_commands", tmp_path / "docs" / "_commands")
+    (tmp_path / "docs" / "commands").mkdir()
     for rel in GENERATED:
         (tmp_path / rel).write_text("stale\n")
+    linked = ("src", "tests")
     before = {p.relative_to(tmp_path).as_posix(): p.read_bytes()
-              for p in tmp_path.rglob("*") if p.is_file() and "src" not in p.parts}
+              for p in tmp_path.rglob("*") if p.is_file() and not set(linked) & set(p.relative_to(tmp_path).parts)}
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     p = subprocess.run(["make", "-s", "docs"], cwd=tmp_path, env=env, capture_output=True, text=True)
     assert p.returncode == 0, p.stdout + p.stderr
     after = {p.relative_to(tmp_path).as_posix(): p.read_bytes()
-             for p in tmp_path.rglob("*") if p.is_file() and "src" not in p.parts}
+             for p in tmp_path.rglob("*") if p.is_file() and not set(linked) & set(p.relative_to(tmp_path).parts)}
     assert after.keys() == before.keys(), "make docs created or removed files"
     assert sorted(k for k in after if after[k] != before[k]) == sorted(GENERATED)
     for rel in GENERATED:

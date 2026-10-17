@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from .conftest import read_reg, repo_head, write_reg
+from .conftest import _git, read_reg, repo_head, write_reg
 
 
 def status(lp, env, capsys, *extra) -> tuple[int, str]:
@@ -67,3 +67,40 @@ def test_scope_without_evidence_and_with_a_hold(lp, env, capsys):
 def test_fields_mode_is_unchanged(lp, env, capsys):
     rc, out = status(lp, env, capsys, "--fields", "status", "--json")
     assert "scope" not in json.loads(out)
+
+
+def commit_coverage(repo, text: str) -> None:
+    (repo / "coverage.yaml").write_text(text)
+    _git(repo, "add", "coverage.yaml")
+    _git(repo, "commit", "-m", "coverage")
+
+
+def test_product_kind_is_read_from_coverage_at_head(lp, env, capsys):
+    """docs/design/two-tracks.md: the product (paper or library) comes from coverage.yaml's kind at HEAD,
+    with paper as the default; the record's `track` (the DOI track) is a different thing."""
+    rc, out = status(lp, env, capsys, "--json")
+    assert json.loads(out)["scope"]["product"] == {"kind": None, "source": None,
+                                                   "note": "no coverage.yaml committed at HEAD"}
+    rc, out = status(lp, env, capsys)
+    assert "product: not declared (no coverage.yaml committed at HEAD)" in out
+    commit_coverage(env.repo_b, "schema: coverage/1\nkind: library\n")
+    rc, out = status(lp, env, capsys, "--json")
+    assert json.loads(out)["scope"]["product"] == {"kind": "library", "source": "coverage.yaml at HEAD",
+                                                   "note": "kind: library"}
+    rc, out = status(lp, env, capsys)
+    assert "product: library, the page certifies a library's main results (coverage.yaml at HEAD" in out
+    commit_coverage(env.repo_b, "schema: coverage/1\nmanuscript: {title: T, version: unposted}\n")
+    rc, out = status(lp, env, capsys, "--json")
+    assert json.loads(out)["scope"]["product"]["kind"] == "paper"
+    assert json.loads(out)["scope"]["product"]["note"] == "kind absent: paper is the default"
+
+
+def test_product_never_refuses_on_a_broken_coverage(lp, env, capsys):
+    commit_coverage(env.repo_b, "kind: [library\n")
+    rc, out = status(lp, env, capsys, "--json")
+    prod = json.loads(out)["scope"]["product"]
+    assert rc == 0 and prod["kind"] is None and "not valid YAML" in prod["note"]
+    working_copy_only = env.repo_b / "coverage.yaml"
+    working_copy_only.write_text("schema: coverage/1\nkind: library\n")   # uncommitted: never counts
+    rc, out = status(lp, env, capsys, "--json")
+    assert json.loads(out)["scope"]["product"]["kind"] is None
