@@ -34,7 +34,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-lean_pkg = ["scripts/*.sh", "schemas/*.json", "schemas/*.txt", "site_profiles/*.yaml", "templates/*.txt"]
+lean_pkg = ["scripts/*.sh", "scripts/*.lean", "schemas/*.json", "schemas/*.txt", "site_profiles/*.yaml", "templates/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -11,6 +11,22 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `python3 -m lean_pkg.dup_constants --project DIR MOD [MOD ...]`
+  (library: `lean_pkg.dup_constants.duplicate_constants`): every constant
+  name found in the constant table of more than one module of an
+  environment, with its owners, the `env.find?` winner (the module whose
+  copy won) and the module `env.getModuleIdxFor?` records. Lean's import
+  merges such duplicates without comparing proofs; this check compares
+  each owner's copy with the winner exactly (kind, type, value or proof,
+  universe parameters, `all`, safety, hints, inductive shape) and fails
+  closed: an unequal copy, a third owner not pinned with
+  `--allow-owners NAME=M1,M2,M3`, an unknown owner, an unbuilt module or
+  an import Lean refuses exits 1. No name is whitelisted; `--scope
+  project|packages|all` selects which owners' duplicates are judged (the
+  toolchain's own are listed, not judged, by default). A shipped Lean
+  probe, `scripts/DupConstants.lean`, run with the project's toolchain in
+  the bwrap sandbox, with `loadExts := false` and without `lake env`.
+  JSON schema `lean-pkg-dup-constants/1`; docs/duplicate-constants.md.
 - `lean-pkg doctor --upgrade-from OLD [--to NEW] [--source DIR] [--json]`:
   the upgrade preflight. What changed for a package author between two
   lean-pkg versions or commits (also when the version string is the same),
