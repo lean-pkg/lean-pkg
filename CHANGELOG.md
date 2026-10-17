@@ -11,6 +11,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `lean-pkg-extract plan` checks the licenses of adopted (vendored) files.
+  A new manifest key `adopted` declares files taken from another project
+  (`paths`, `upstream`, `upstream_commit`, `upstream_license_file`,
+  `license`, optional `license_file` and `provenance`); the plan lists them
+  under `adopted[]` and warns when the upstream license is not carried into
+  the target (naming the files, the upstream license file and the commit,
+  and the scoped `LICENSES/LicenseRef-<Upstream>-<SPDX>.txt` to copy it to),
+  when the license or provenance file is excluded or missing, when the
+  provenance list misses a file, and when a `LICENSES/` file name is not a
+  REUSE license id. Without a declaration it warns when the nearest
+  `LICENSE`/`COPYING` above an included file is left behind. These are
+  warnings (`warnings[]`, `totals.warnings`, `N warning(s)` in the verdict):
+  the verdict and the exit code do not change, and only a malformed
+  `adopted` entry is refused. docs/extract.md, "Licenses of adopted files",
+  documents the scoped, REUSE-compatible pattern (field report).
 - `lean-pkg new NAME --kind paper|library`, paper by default (the 1.0 command
   tree). `--kind paper` writes a `coverage.yaml` of `kind: paper` that is
   incomplete on purpose: `manuscript.version: unposted` and `FILL-ME`

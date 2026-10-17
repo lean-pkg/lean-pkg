@@ -92,6 +92,7 @@ YAML because it has one reading: no implicit types, anchors or merge keys.
 | `lean_libs` | `{name, src_dir, roots}`; required for a `lakefile.lean` package (the plan does not run Lean), refused for a `lakefile.toml` one, whose `[[lean_lib]]` and `[[lean_exe]]` tables are read instead |
 | `dependency_namespaces` | `{package: [Namespace, ...]}` when a dependency's root namespace is not its capitalized name |
 | `allow_unresolved_imports` | `{import, reason}`: an import that resolves to nothing is accepted. **This weakens the import check**; each one is disclosed under `weakened`, and an entry never needed is refused |
+| `adopted` | `{paths, upstream, upstream_commit, upstream_license_file, license, license_file?, provenance?}`: files adopted (vendored) from another project, and where their license travels. See [Licenses of adopted files](#licenses-of-adopted-files); a problem here is a **warning**, a malformed entry a refusal |
 
 Paths in `from`, `to` and `pins` must be plain relative POSIX paths: no `..`,
 no leading `/`, no backslash, no empty or `.` segment. Globs use the
@@ -135,6 +136,91 @@ A file that falls in none of these is **unclassified, and the plan is
 refused** with its path: exclude it, move it, or put it in a root whose kind
 carries it. Files outside every root are not part of the plan at all.
 
+## Licenses of adopted files
+
+A port can pass every check above (sources, hashes, the import DAG) and still
+drop the license of files adopted from another project: twelve files copied
+from an MIT-licensed upstream are fine to publish only with that upstream's
+license notice beside them. The plan therefore checks where each adopted
+file's license goes, and reports a problem as a **warning**: the verdict, the
+exit code and every existing refusal stay as they were.
+
+Declare the adoption in the manifest:
+
+```json
+"adopted": [{
+  "paths": ["lean/Demo/Vendor/**"],
+  "upstream": "https://github.com/example/Upstream",
+  "upstream_commit": "0123456789abcdef0123456789abcdef01234567",
+  "upstream_license_file": "LICENSE",
+  "license": "MIT",
+  "license_file": "lean/LICENSES/LicenseRef-Upstream-MIT.txt",
+  "provenance": "lean/LICENSES/Upstream-files.txt"
+}]
+```
+
+`paths` are globs over source paths (the `exclude` syntax); `upstream`,
+`upstream_commit` (the full 40-hex commit the files and the license were
+taken from), `upstream_license_file` (its path in the upstream repository)
+and `license` (an SPDX identifier) are required. The plan lists each entry
+under `adopted[]` with its included files and warns when:
+
+- `license_file` is absent: the files are extracted without the upstream
+  license. The warning names the files, the upstream license file and the
+  commit, and the scoped path to copy it to;
+- `license_file` or `provenance` is missing at the commit, excluded or outside
+  every root, so it is not carried into the target;
+- the `provenance` file does not mention every adopted file (by its output
+  path or its source path);
+- `license_file` lies under `LICENSES/` but is named neither by the SPDX id
+  nor by a `LicenseRef-` id, which `reuse lint` reports as a bad license;
+- an entry matches no included file (stale; a warning, not a refusal, since
+  it weakens nothing).
+
+Without any `adopted` entry, the plan still warns when the **nearest**
+`LICENSE*` or `COPYING*` above an included file (in its own source directory
+or any parent, up to the repository root) is not included: a vendored
+directory whose `LICENSE` was excluded, or a source repository whose root
+license stays behind because the roots start below it. A nearer license that
+is carried silences the warning, and files declared under `adopted` are
+checked by their entry instead.
+
+### The scoped pattern
+
+Carry the upstream license for the adopted files only; do not grant a
+blanket license for the whole new project by copying it to the root:
+
+1. Copy the upstream license file byte for byte from `upstream_commit`
+   (`git -C UPSTREAM show COMMIT:LICENSE > LICENSES/LicenseRef-Upstream-MIT.txt`),
+   keeping its copyright line.
+2. List the adopted files and where they came from, in the license's own
+   `REUSE.toml` annotation, a provenance file, or both:
+
+   ```toml
+   version = 1
+
+   [[annotations]]
+   path = ["Demo/Vendor/A.lean", "Demo/Vendor/B.lean"]
+   SPDX-FileCopyrightText = "2024 Upstream Authors"
+   SPDX-License-Identifier = "LicenseRef-Upstream-MIT"
+   ```
+
+3. Point `license_file` (and `provenance`, if any) at them and re-run the plan.
+
+The `LicenseRef-<Upstream>-MIT` id is what keeps this
+[REUSE](https://reuse.software/)-compatible: REUSE wants every file under
+`LICENSES/` named by its license id, and a non-SPDX id must start with
+`LicenseRef-`. `LICENSES/MIT.txt` with plain `MIT` works too, but REUSE
+expects that file to be the generic MIT text, with the upstream's copyright
+moved into `SPDX-FileCopyrightText`; the `LicenseRef-` copy keeps the file
+byte for byte. A name such as `LICENSES/Upstream-MIT.txt` is fine for
+readers but `reuse lint` reports it as a bad license.
+
+Until the new project chooses its own license, `reuse lint` reports the
+project's own files as missing licensing information. That is the honest
+state, not a defect to fix by licensing everything under the upstream's
+terms.
+
 ## Refusals
 
 The plan lists every refusal at once (exit 1), sorted:
@@ -159,6 +245,8 @@ The plan lists every refusal at once (exit 1), sorted:
   effort: it reads `import` lines with comments and strings masked and does
   not run Lean;
 - a stale `allow_private` or `allow_unresolved_imports` entry;
+- a malformed `adopted` entry (the [license checks](#licenses-of-adopted-files)
+  themselves are warnings);
 - a `--report` path inside the source repository.
 
 ## Output and exit codes
@@ -168,8 +256,12 @@ The plan lists every refusal at once (exit 1), sorted:
 class, root}, `excluded[]` {from, class, reason}, `allowed_private[]`,
 `weakened[]`, `modules[]` {module, file, from, lib}, `unowned_lean_files[]`,
 `claims[]` {id, decl, file, module}, `pins` (each with its sha256 and blob;
-the toolchain `value`; the manifest's `packages[]`), `refusals[]`, `totals`.
-The text form prints the verdict first and again last.
+the toolchain `value`; the manifest's `packages[]`), `adopted[]` {index,
+paths, upstream, upstream_commit, upstream_license_file, license, files,
+license_file, provenance}, `refusals[]`, `warnings[]`, `totals`. The text
+form prints the verdict first and again last; a plan with warnings says
+`N warning(s)` in the verdict and lists them after the refusals. Warnings
+never change `ok` or the exit code.
 
 The excluded inventory names private paths. It goes only to stdout and to
 `--report`; never paste it into anything public.
