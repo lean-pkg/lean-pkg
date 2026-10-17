@@ -141,7 +141,28 @@ at most once. A log `lean-toolchain:` or `mathlib-rev:` line that disagrees
 with the commit refuses, and so do optional `commit:` (at least 7 hex, a
 prefix of `--commit`) and `job-id:` lines that disagree with the flags.
 The receipt carries the nine schema fields, plus additive keys `gate`
-ignores (`log_commit_bound`, and the seal and evidence hashes).
+ignores (`log_commit_bound`, `container`, and the seal and evidence hashes).
+
+**The container image (`container`).** When the job's tools ran in a
+container, the log records the image and `receipt slurm` seals it into the
+additive key `container` (no schema bump: `gate` and older readers ignore it,
+and a receipt without it is unchanged):
+
+| Key | Value | From |
+|---|---|---|
+| `container.engine` | `apptainer`, `singularity`, `podman` or `docker` | the log's `container-engine:` line |
+| `container.image_sha256` | 64 hex: the SHA-256 of the SIF file (Apptainer, Singularity) | the log's `container-image-sha256:` line, equal to the stdout's `container-image-sha256` line |
+| `container.oci_digest` | `sha256:<64 hex>`: the OCI image digest (podman, docker); exactly one of the two digests | the log's `container-oci-digest:` line, equal to the stdout's `container-oci-digest` line |
+| `container.ref` | the image path or name as given, a home directory shown as `~`, published redacted like `checker` | the log's `container-image:` line (optional) |
+
+With `--stdout`, the stdout digest line must be there exactly once and equal
+the log's; the log itself is sealed by `verify-log-sha256`, so an edited
+digest on either side refuses, and so does a stdout digest line without the
+log lines. Without `--stdout` the in-log seal carries it. A redaction may not
+alter the engine or digest lines. `receipt check` shows the key (a malformed
+one fails), and the page's *How this was checked* names the engine and the
+digest, never `ref`. The digest is what the job measured before the build;
+the image itself is not published, so a referee cannot re-derive it from git.
 
 **The log's own binding to the commit.** A `commit:` line binds the log to
 `--commit` (the `--template` prints one). Without it, the in-log fallback
@@ -314,6 +335,21 @@ after the build. Comments say where to stage the Lean toolchain and
 container (`RUN=...`). A work directory outside `/tmp/<user>-job<J>` and
 `/scratch/<user>/` that appears in the log needs a `--redact` at receipt
 time.
+
+**The container image.** With `CONTAINER_IMAGE` set (an Apptainer or
+Singularity `.sif` file, or an OCI image name), or `RUN` holding a word that
+ends in `.sif`, the job records the image before anything runs in it:
+`CONTAINER_ENGINE` (default: the first word of `RUN`; `apptainer`,
+`singularity`, `podman` or `docker`, anything else fails the job) decides how.
+For a SIF the job takes `sha256sum` of the file (a missing file fails the
+job); for an OCI image, `podman image inspect --format '{{.Digest}}'` or the
+`sha256:` part of docker's first `RepoDigests` entry (no digest fails the
+job). It prints `container-image-sha256 <hex>` (or
+`container-oci-digest sha256:<hex>`) on stdout and writes `container-engine:`, `container-image:`
+(the path with `$HOME` shown as `~`) and the digest line into the log;
+`receipt slurm` seals them into the receipt's `container` key (above). The SIF
+is hashed once, before the build (a multi-gigabyte image takes seconds); it
+is not re-hashed at the end.
 
 **Exact-runtime preflight.** Before any tool runs, the wrapper exports
 `LC_ALL=C LANG=C PYTHONUTF8=1` (and unsets `LANGUAGE`); an
@@ -685,14 +721,28 @@ what writes the raw data):
 ```bash
 #!/usr/bin/env bash
 # pack-artifacts.sh RAW OUT: run BY THE JOB, after RAW is complete. OUT becomes the job's ARTIFACTS_DIR and
-# must not exist yet; RAW must not be inside it (the seal would read the raw data again).
+# must not exist yet; RAW and OUT must not overlap (OUT inside RAW would pack its own output, RAW inside OUT
+# would make the seal read the raw data again).
 set -euo pipefail
 raw=$1 out=$2
+r=$(realpath -m -- "$raw") o=$(realpath -m -- "$out")
+r=${r%/}/ o=${o%/}/
+case $o in "$r"*) echo "pack: OUT $out is RAW $raw or inside it; put OUT next to RAW" >&2; exit 1;; esac
+case $r in "$o"*) echo "pack: RAW $raw is inside OUT $out; put OUT next to RAW" >&2; exit 1;; esac
 if [ -n "$(find "$raw" ! -type f ! -type d -print -quit)" ]; then
   echo "pack: $raw holds a symlink or special file" >&2; exit 1
 fi
 if [ -n "$(find "$raw" -name $'*[\n\r\\\\]*' -print -quit)" ]; then
   echo "pack: $raw holds a file name with a newline or backslash" >&2; exit 1
+fi
+# hardlinks: two paths in RAW for one file would become a tar link member, which unpack-verify.py refuses
+links=$(find "$raw" -type f -links +1 -printf '%D:%i %P\n' | LC_ALL=C sort | awk '{k = $1; sub(/^[^ ]+ /, "")
+  n[k]++; s[k] = s[k] (n[k] > 1 ? ", " : "") $0} END {for (k in n) if (n[k] > 1) print s[k]}' | LC_ALL=C sort)
+if [ -n "$links" ]; then
+  { echo "pack: $raw holds hardlinked files (tar would store links, which the collector refuses):"
+    sed -n 1,5p <<<"$links"
+    echo "pack: copy RAW without links first (cp -r --no-preserve=links RAW RAW.copy) and pack the copy"; } >&2
+  exit 1
 fi
 mkdir "$out"
 # 1. the inner manifest: `<path> <size> <sha256>` per logical file, sorted by path (C locale)
@@ -706,6 +756,19 @@ tar -C "$raw" --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --mode=
 echo "inner-manifest: $(wc -l <"$out/logical.sha256") file(s), $(du -sb "$raw" | cut -f1) bytes," \
   "sha256 $(sha256sum "$out/logical.sha256" | cut -d' ' -f1)"
 ```
+
+The script refuses, before it creates `OUT`: an `OUT` that is `RAW` or
+lies inside it (the manifest and the archive would be written into the
+tree being inventoried and archived), a `RAW` inside `OUT`, a symlink or
+special file, a file name the manifest cannot hold, and two paths in `RAW`
+that are hardlinks of one file. Paths are compared after `realpath -m`,
+so a symlinked or `..` spelling of the same directory is caught. A
+hardlink is refused rather than stored with `tar --hard-dereference`:
+that would silently store the data once per path, so the archive outgrows
+the size you measured (`du` counts a linked file once), and a tar link
+member is what the collector refuses. Copy `RAW` without links
+(`cp -r --no-preserve=links`) and pack the copy, or narrow `RAW`. A file
+whose other link lies outside `RAW` is packed as an ordinary file.
 
 Submit with, for example,
 `AXIOMS_CMD="lake lean Verify/Axioms.lean && bash scripts/pack-artifacts.sh raw sealed"`,
@@ -1143,6 +1206,7 @@ own, those look like a clean run. Two field reports lost a run this way.
 | `judges`, `unit_size` | optional, additive, not validated (toolchain mechanism): the judge pool width (`--judges`, `LEAN_PKG_COMPARATOR_JOBS`) and the names per judge unit (`--unit-size`, `LEAN_PKG_COMPARATOR_UNIT_SIZE`), `unit_size` `null` when each configuration was cut into `judges` shards (the default); see [Comparator](comparator.md#stages-and---prepare) |
 | `build_provenance` | optional, additive, not validated: `{compiled, modules_built, prebuilt, source}`, whether the `build` stage compiled any of the package's oleans (`modules_built` an integer, or `null` when the stage was skipped) or found them prebuilt; `source` is `COMPARATOR_RECEIPT_BUILD_SOURCE` (free text, redacted) or `null`; carried from `stages.json` when the setup was reused; printed by `comparator --check` and `gate --check`; see [Comparator](comparator.md#stages-and---prepare) |
 | `olean_manifest` | optional, additive, not validated: `{schema, files, sha256, lean_toolchain, lake_manifest_sha256, captured}`, the digest of the sorted `<path> <size> <sha256>` lines of the package's own compiled modules under `.lake/build/lib` the judge read (`comparator-stages/03-build.oleans.sha256`); `captured` is `build`, or `reuse (...)` for a setup prepared before the field existed; the runner refused the run had they changed between the setup and the end of the comparison; printed by `comparator --check` and `gate --check`; see [Olean manifest](comparator.md#stages-and---prepare) |
+| `container` | optional, additive, not validated by `gate`: `{engine, image_sha256, ref}` when the runner runs inside Apptainer or Singularity and `APPTAINER_CONTAINER` (else `SINGULARITY_CONTAINER`) names a SIF file readable inside the container, hashed when the receipt is written; `ref` is redacted like every receipt path. Absent otherwise: outside a container, for a sandbox directory, when the image path is not visible inside, and under an OCI runtime (no digest is visible from inside one). `receipt check` shows it (a malformed one fails) |
 | `stages` | optional, additive, not validated: the runner's stage summary (`stage`, `status`, `exit`, `wall_s` for `checkout`, `cache-get`, `build`, `comparator`); the full logs stay in the runner's evidence directory, see [The comparator tier](comparator.md) |
 | `test_only` | present and true only on receipts produced under the runner's test-only digest override; such a receipt is refused by every validator |
 | `result` | `"pass"` (the runner writes a receipt only on PASS) |
@@ -1464,6 +1528,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `lower <receipt>` | `gate`'s validator: every receipt key, the binding, `lean_toolchain` and `mathlib_rev` against `lean-toolchain` and `lake-manifest.json` at X, no path dependency outside the package, `sorry_count` 0, axioms within `propext`, `Quot.sound`, `Classical.choice` |
 | `... report log` | `report_sha256` is the SHA-256 of the committed redacted log (or of its `.gz`, decompressed); a missing log fails |
 | `... evidence files` | `manifest_sha256`, `artifacts_manifest_sha256`, `unit_properties_sha256` against the files they name, when present; `job_stdout_sha256` is not checkable (the job's stdout is not published) |
+| `... container` | only when the receipt has a `container` key: shown (engine, digest, image ref); a malformed one fails; the digest is not re-derivable (the image is not published) |
 | `claims` | `claims.yaml` at X passes the claims/1 schema and the declaration check `gate` runs |
 | `comparator <receipt>` | `gate`'s validator: the exact set of configurations tracked at X, each one's SHA-256, theorem names and sign-off, each log's SHA-256 and PASS line, the lower tier's commit |
 | `... olean manifest` | the receipt's `olean_manifest` names the toolchain and `lake-manifest.json` of X (the manifest file itself is not published) |

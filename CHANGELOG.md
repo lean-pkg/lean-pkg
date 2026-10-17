@@ -25,6 +25,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   packages. RELEASING.md gains step 3a, "the supported stacks' matrix
   passes", for declared stacks. No CLI change (#PRNUM).
 
+- Receipts record the container image a job ran in (#236), as the additive
+  key `container` {`engine`, `image_sha256` (the SIF file) or `oci_digest`,
+  `ref` (a home directory shown as `~`)}; no schema bump, `gate` ignores
+  it and a receipt without it is unchanged. `receipt slurm --template`
+  takes the SIF's sha256 (or the podman / docker image digest) before the
+  build when `CONTAINER_IMAGE` is set or `RUN` names a `.sif`, and writes
+  it to the log and the stdout; `receipt slurm` / `systemd` and `--check`
+  require the two to agree. `comparator-receipt` records the SIF named by
+  `  APPTAINER_CONTAINER` when it is readable inside the container.
+  `receipt check` shows the key (a malformed one fails) and the page's
+  "How this was checked" names the engine and digest. A site-profile key
+  naming the expected digest is a documented follow-up (docs/sites.md).
+
 - `lean-pkg-extract plan` warns about disabled Lean sources: every file
   under a root whose name is `*.lean.<suffix>` (`Foo.lean.disabled`,
   `.lean.off`, `.lean.skip`) that the plan excludes or refuses as
@@ -35,6 +48,58 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   fixtures after a namespace or import transport") and `lean_diag`'s
   expected-reason check. `ok` and the exit code do not change; `*.lean`,
   `*.olean` and `*.ilean` are not matched (#239).
+
+- Receipts record the container image a job ran in (#236), as the additive
+  key `container` {`engine`, `image_sha256` (the SIF file) or `oci_digest`,
+  `ref` (a home directory shown as `~`)}; no schema bump, `gate` ignores
+  it and a receipt without it is unchanged. `receipt slurm --template`
+  takes the SIF's sha256 (or the podman / docker image digest) before the
+  build when `CONTAINER_IMAGE` is set or `RUN` names a `.sif`, and writes
+  it to the log and the stdout; `receipt slurm` / `systemd` and `--check`
+  require the two to agree. `comparator-receipt` records the SIF named by
+  `APPTAINER_CONTAINER` when it is readable inside the container.
+  `receipt check` shows the key (a malformed one fails) and the page's
+  "How this was checked" names the engine and digest. A site-profile key
+  naming the expected digest is a documented follow-up (docs/sites.md).
+
+### Changed
+
+- FAQ: "What does lean-pkg add now that Lean has `lake check --paranoid`?"
+  Lean v4.35.0 already ships `lake check`, `lake comparator` and the
+  bundled kernels behind `--paranoid`; the entry separates that from what
+  the Lean FRO roadmap still announces, says what lean-pkg adds (commit-bound
+  receipts, statement fidelity, the page, `receipt check`, the route to
+  publication), what it already consumes (`lake comparator`), what it will
+  consume (`lake check`, once its result can be bound to a commit) and what
+  it will then stop doing. A second entry compares lean-pkg's role with AI
+  provers (Aristotle, AxiomProver, AXLE), from their own public pages. The
+  trust model gains *Positioning against Lean's own checks*, linked from
+  the two-tracks design.
+- An upgrade record may start with `changes: []` when `no_author_change`
+  lists the PRs read (docs/design/upgrade-preflight.md), so a docs-only
+  pull request can open a release's record (#247).
+
+### Fixed
+
+- `lean_pkg.dup_constants` resolves a project's dependencies from
+  lake-manifest.json as Lake lays them out: a `path` package at its `dir`
+  (relative to the manifest's directory, e.g. `vendor/NAME`) and a `git`
+  package at `<packagesDir>/<name>/<subDir>` when it has a `subDir`. Before,
+  every package was looked up at `<packagesDir>/<name>`, so a project with
+  vendored path dependencies was refused before the duplicate audit. A
+  `dir`, `subDir` or `packagesDir` that is absolute, leaves its base or
+  goes through a symlink is refused; no lakefile is run.
+
+- Docs: the large-artifact recipe's `pack-artifacts.sh` (docs/receipts.md)
+  refuses, before it creates `OUT`, an `OUT` that is `RAW` or lies inside
+  it (field report: `RAW=raw OUT=raw/sealed` wrote the manifest and the
+  archive into the tree being archived) and a `RAW` inside `OUT`, both
+  compared after `realpath -m`. It also refuses two paths in `RAW` that are
+  hardlinks of one file, naming them: tar stored the second as a link
+  member, so the pack succeeded and `unpack-verify.py` refused it later.
+  Refused rather than dereferenced, which would store the data once per
+  path and outgrow the measured size; copy `RAW` without links first. A
+  file whose other link is outside `RAW` still packs as a file.
 
 ## [0.12.0] - 2026-10-17
 

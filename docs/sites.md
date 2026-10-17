@@ -72,6 +72,15 @@ scheduler: slurm
 | `scheduler` | `slurm` (the only one today) |
 | `x-NAME` | optional: your own data (any value) under an `x-` key; lean-pkg ignores it |
 
+A site that wants to pin the container image its jobs run in can keep the
+expected digests under an `x-` key today (for example
+`x-container-image-sha256: [<hex>, ...]`); lean-pkg does not read it yet.
+Receipts record the image themselves (the `container` key, see
+[Receipts and trust](receipts.md#a-lower-tier-receipt-from-a-slurm-job)); a
+`gate` / `receipt check` WARN when a receipt's digest is not one its site
+names is a follow-up: a receipt carries no site identity, so the check has to
+go through the `coverage.yaml` `compute` job ids.
+
 The file must be committed: lean-pkg reads it at `HEAD`, so the page renders
 the same on your machine, in CI and for a referee. A profile may not reuse a
 built-in name, and a malformed one refuses `coverage check` and `page`,

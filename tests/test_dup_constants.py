@@ -12,6 +12,7 @@ and C, D carry `Dup.badType` with two different types (Lean refuses that import 
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -250,3 +251,131 @@ def test_real_command_line_exit_codes(built, capsys):
     assert dc.main(["--project", str(built), "Top", "--no-sandbox"]) == 1
     out = capsys.readouterr().out
     assert "refused: Dup.unequal [A, B" in out and "accepted: g.congr_simp [A, B" in out
+
+
+# ---------------------------------------------------------------------------------------------------------
+# lake-manifest.json: git packages (with subDir) and path packages, read as data
+
+def _manifest(root: Path, packages: list[dict], packages_dir: str | None = None) -> None:
+    doc = {"version": "1.2.0", "packages": packages, "name": "p", "lakeDir": ".lake"}
+    if packages_dir is not None:
+        doc["packagesDir"] = packages_dir
+    (root / "lake-manifest.json").write_text(json.dumps(doc))
+
+
+def test_manifest_resolves_path_and_subdir_packages(tmp_path):
+    (tmp_path / "vendor/Vend").mkdir(parents=True)
+    (tmp_path / ".lake/packages/Sub/pkg").mkdir(parents=True)
+    (tmp_path / ".lake/packages/mathlib").mkdir(parents=True)
+    _manifest(tmp_path, [{"type": "path", "name": "Vend", "dir": "vendor/Vend"},
+                         {"type": "git", "name": "Sub", "subDir": "pkg", "url": "u", "rev": "r"},
+                         {"type": "git", "name": "mathlib", "url": "u", "rev": "r"}])
+    got = dc.manifest_packages(tmp_path)
+    assert got == {"Vend": tmp_path / "vendor/Vend" / dc.PKG_LIB,
+                   "Sub": tmp_path / ".lake/packages/Sub/pkg" / dc.PKG_LIB,
+                   "mathlib": tmp_path / ".lake/packages/mathlib" / dc.PKG_LIB}
+
+
+@pytest.mark.parametrize("entry,why", [
+    ({"type": "path", "name": "X", "dir": "../X"}, "leaves"),
+    ({"type": "path", "name": "X", "dir": "/abs/X"}, "absolute"),
+    ({"type": "path", "name": "X", "dir": "vendor/../../X"}, "leaves"),
+    ({"type": "path", "name": "X"}, "has no dir"),
+    ({"type": "git", "name": "Sub", "subDir": "../../../elsewhere"}, "leaves"),
+    ({"type": "git", "name": "Sub", "subDir": 3}, "not a string"),
+    ({"type": "git", "name": "../Sub"}, "leaves"),
+    ({"type": "hg", "name": "X"}, "only git and path"),
+    ({"type": "path", "name": "Nope", "dir": "vendor/Nope"}, "not checked out"),
+])
+def test_manifest_refuses_escaping_or_unknown_packages(tmp_path, entry, why):
+    (tmp_path / ".lake/packages/Sub").mkdir(parents=True)
+    _manifest(tmp_path, [entry])
+    with pytest.raises(dc.ProbeError, match=why):
+        dc.manifest_packages(tmp_path)
+
+
+def test_manifest_refuses_a_dir_through_a_symlink(tmp_path):
+    outside = tmp_path / "outside"
+    (outside / "X").mkdir(parents=True)
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "vendor").symlink_to(outside)
+    _manifest(proj, [{"type": "path", "name": "X", "dir": "vendor/X"}])
+    with pytest.raises(dc.ProbeError, match="symlink"):
+        dc.manifest_packages(proj)
+    (proj / "vendor").unlink()
+    (proj / "vendor").mkdir()
+    (proj / "vendor/X").symlink_to(proj)                 # inside, but still a symlink: refused
+    with pytest.raises(dc.ProbeError, match="symlink"):
+        dc.manifest_packages(proj)
+
+
+def test_manifest_refuses_an_escaping_packages_dir(tmp_path):
+    _manifest(tmp_path, [], packages_dir="../shared-packages")
+    with pytest.raises(dc.ProbeError, match="packagesDir"):
+        dc.manifest_packages(tmp_path)
+
+
+def test_an_escaping_path_package_refuses_the_whole_run(tmp_path, capsys):
+    tc = _toolchain_bin()
+    if tc is None:
+        pytest.skip(f"{TC} is not installed")
+    (tmp_path / "lean-toolchain").write_text(TC + "\n")
+    _manifest(tmp_path, [{"type": "path", "name": "X", "dir": "../X"}])
+    assert dc.main(["--project", str(tmp_path), "Top", "--no-sandbox"]) == 1
+    assert "leaves" in capsys.readouterr().out
+
+
+@pytest.fixture(scope="module")
+def built_deps(tmp_path_factory):
+    """A project requiring a path package under vendor/ and a git package with subDir (a local repo);
+    each package adds `Dup.pkg` by addDecl, with the same proof."""
+    tc_bin = _toolchain_bin()
+    if tc_bin is None or shutil.which("git") is None:
+        pytest.skip(f"{TC} or git is not installed")
+    base = tmp_path_factory.mktemp("dupdeps")
+    decl = ("import Lean\nopen Lean in\nrun_meta addDecl (.thmDecl { name := `Dup.pkg, levelParams := [], "
+            "type := mkConst ``True, value := mkConst ``True.intro, all := [`Dup.pkg] })\n")
+    sub = base / "subrepo"
+    (sub / "pkg").mkdir(parents=True)
+    (sub / "pkg/lean-toolchain").write_text(TC + "\n")
+    (sub / "pkg/lakefile.toml").write_text('name = "Sub"\n\n[[lean_lib]]\nname = "S"\n')
+    (sub / "pkg/S.lean").write_text(decl)
+    env = cli.scrubbed_env()
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"],
+                 ["-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-qm", "init"]):
+        subprocess.run(["git", "-C", str(sub), *args], check=True, env=env, capture_output=True)
+    proj = base / "proj"
+    (proj / "vendor/Vend").mkdir(parents=True)
+    (proj / "lean-toolchain").write_text(TC + "\n")
+    (proj / "vendor/Vend/lean-toolchain").write_text(TC + "\n")
+    (proj / "vendor/Vend/lakefile.toml").write_text('name = "Vend"\n\n[[lean_lib]]\nname = "V"\n')
+    (proj / "vendor/Vend/V.lean").write_text(decl)
+    (proj / "lakefile.toml").write_text(
+        'name = "dup"\ndefaultTargets = ["Top"]\n\n[[require]]\nname = "Vend"\npath = "vendor/Vend"\n\n'
+        f'[[require]]\nname = "Sub"\ngit = {json.dumps(str(sub))}\nrev = "main"\nsubDir = "pkg"\n\n'
+        '[[lean_lib]]\nname = "Top"\n')
+    (proj / "Top.lean").write_text("import V\nimport S\n")
+    env.update({"PATH": os.pathsep.join([str(tc_bin), env.get("PATH", "")]), "ELAN_TOOLCHAIN": TC,
+                "LAKE_ARTIFACT_CACHE": "false", "LAKE_CACHE_DIR": str(base / "lake-cache")})
+    p = subprocess.run([str(tc_bin / "lake"), "build", "Top"], cwd=proj, env=env, stdin=subprocess.DEVNULL,
+                       capture_output=True, text=True, timeout=900)
+    assert p.returncode == 0, (p.stdout + p.stderr)[-3000:]
+    assert not (proj / ".lake/packages/Vend").exists()       # the reporter's layout: no packagesDir/NAME
+    return proj
+
+
+def test_real_audit_runs_over_path_and_subdir_packages(built_deps):
+    res = dc.duplicate_constants(built_deps, ["Top"], sandboxed=False, scope="packages")
+    e = by_name(res)["Dup.pkg"]
+    assert res["ok"] and e["verdict"] == "accepted", res["detail"]
+    assert [o["module"] for o in e["owners"]] == ["V", "S"]
+    assert e["origins"] == ["package:Sub", "package:Vend"]
+    res = dc.duplicate_constants(built_deps, ["Top"], sandboxed=False)            # project scope: listed only
+    assert res["ok"] and "Dup.pkg" in {x["name"] for x in res["out_of_scope"]}
+
+
+@pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap is not installed")
+def test_real_audit_over_packages_in_the_sandbox(built_deps):
+    res = dc.duplicate_constants(built_deps, ["Top"], sandboxed=True, scope="packages")
+    assert res["ok"] and by_name(res)["Dup.pkg"]["verdict"] == "accepted", res["detail"]

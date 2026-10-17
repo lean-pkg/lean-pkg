@@ -257,6 +257,14 @@ def test_a_bad_record_is_reported_not_trusted(lp, capsys, src):
     assert out["behavior"] == []          # the string "5" is not PR 5
 
 
+def test_a_record_with_only_no_author_change_is_valid():
+    # A release record opened by a docs-only PR: no change yet, the PR is listed as read.
+    doc = {"schema": up.RECORD_SCHEMA, "version": "1.2.0", "changes": [], "no_author_change": [9]}
+    assert up.validate_record(doc) == []
+    assert any("non-empty" in p for p in up.validate_record({**doc, "no_author_change": []}))
+    assert any("non-empty" in p for p in up.validate_record({k: v for k, v in doc.items() if k != "changes"}))
+
+
 def test_committed_records_are_valid_and_documented():
     records = sorted((ROOT / "docs" / "upgrades").glob("*.yaml"))
     assert records, "docs/upgrades/ has no record"

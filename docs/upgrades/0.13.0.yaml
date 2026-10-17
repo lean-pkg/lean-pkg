@@ -3,6 +3,21 @@
 schema: lean-pkg-upgrade-record/1
 version: 0.13.0
 changes:
+  - pr: 245
+    id: receipt-container-image
+    kind: format
+    area: receipts, page
+    summary: >-
+      Receipts gain the additive key container {engine, image_sha256 (SIF) or oci_digest, ref} when the job
+      ran in a container: receipt slurm --template takes the image digest before the build (CONTAINER_IMAGE,
+      or a .sif word of RUN) and seals it on the log and the stdout; comparator-receipt records the SIF named by
+      APPTAINER_CONTAINER when readable. receipt check shows it (a malformed one fails); the page names the
+      engine and digest. No schema bump; a receipt without it is unchanged.
+    action: >-
+      Optional. To record the image, regenerate verify.sbatch with lean-pkg receipt slurm --template (or set
+      CONTAINER_IMAGE in it); after the next receipt, page NAME --write shows the digest.
+    breaking: false
+    changelog: Added
   - pr: 239
     id: extract-disabled-lean-warning
     kind: behavior
@@ -19,5 +34,36 @@ changes:
       transport").
     breaking: false
     changelog: Added
-# Read for this record, nothing for a package author: proposal 0004, a math LTS stack, as a draft (#238).
-no_author_change: [238]
+  - pr: 240
+    id: dup-constants-path-subdir-deps
+    kind: behavior
+    area: tests
+    summary: >-
+      lean_pkg.dup_constants resolves lake-manifest.json packages as Lake lays them out: a path package at
+      its dir (relative to the manifest's directory, e.g. vendor/NAME) and a git package at
+      packagesDir/name/subDir when it has a subDir. 0.12.0 looked every package up at packagesDir/name and
+      refused a project with vendored path dependencies before the audit. A dir, subDir or packagesDir that
+      is absolute, leaves its base or goes through a symlink is refused.
+    action: Nothing; projects with path or subDir dependencies can now be audited.
+    breaking: false
+    changelog: Fixed
+  - pr: 244
+    id: large-artifact-pack-guards
+    kind: behavior
+    area: docs (receipts recipe)
+    summary: >-
+      The large-artifact recipe's pack-artifacts.sh (docs/receipts.md) refuses, before it creates OUT, an
+      OUT that is RAW or lies inside it and a RAW inside OUT (compared after realpath -m), and two paths
+      in RAW that are hardlinks of one file, naming them. Before, a nested OUT was packed into its own
+      archive, and a hardlink packed fine but unpack-verify.py refused the archive at collection.
+    action: >-
+      If you committed a copy of pack-artifacts.sh from 0.12.0, replace it with the page's current
+      version. Keep OUT next to RAW (raw and sealed, not raw/sealed); copy a RAW with internal hardlinks
+      without links (cp -r --no-preserve=links) before packing.
+    breaking: false
+    changelog: Fixed
+# Read for this record, nothing for a package author: two draft proposals (#238, a math LTS stack;
+# #242, conditional claims and discharge), the record follow-up for #238 (#248), and the FAQ entries on
+# `lake check --paranoid` and AI provers with the trust model's positioning paragraph, which also lets a
+# record start with `changes: []` (#247).
+no_author_change: [238, 242, 247, 248]
