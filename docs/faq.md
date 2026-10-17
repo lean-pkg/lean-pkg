@@ -191,6 +191,21 @@ module system changes build inputs. `gate --check` and `publish --dry-run`
 print a `palomar:` warning with the gap count and the command (JSON
 `palomar_check`); it never changes their verdict.
 
+**Where else does the check run?**
+`lean-pkg audit` runs it for every package that aims at Palomar: one whose
+record says `upstream_target: palomar`, or that already has a `palomar`
+entry, and whose status is not `scratch`, `archived` or `upstreamed`. A
+package with `error` gaps gets a `palomar-not-ready` warning naming the gap
+count, the codes and `lean-pkg palomar check NAME` (JSON `palomar`
+`{errors, codes, commit, command}`); `warn` gaps alone are no finding, and
+every other package stays quiet. Set the signal with
+`lean-pkg update NAME --upstream-target palomar`.
+`lean-pkg palomar prepare NAME` refuses (exit 1, nothing written, also
+under `--dry-run`) while `palomar check` finds any `error` gap at HEAD, and
+lists each one with its fix. `warn` gaps never block it: they print as
+`lean-pkg: warning: palomar check: ...` lines, and no flag is needed to
+proceed past them.
+
 **Which rules does it check, and where do they come from?**
 Palomar's own repository,
 [PalomarSubmission](https://github.com/PalomarRegistry/PalomarSubmission),
@@ -236,8 +251,7 @@ stands; keep `definition_names` empty where you can. A scaffold with a
 `lean_pkg_scaffold` key still has TODO entries.
 
 **What is planned next?**
-`palomar check` as a warning in `audit` and a refusal in `palomar prepare`
-(small); module-headed files from `lean-pkg init` and the templates (small);
+Module-headed files from `lean-pkg init` and the templates (small);
 `palomar port-modules --dry-run`, which inserts headers, rewrites imports to
 `public import` and builds to report definitions needing `@[expose]`, never
 committing (large); a sign-off beside the configuration instead of

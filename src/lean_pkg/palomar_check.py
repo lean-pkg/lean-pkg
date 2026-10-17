@@ -634,6 +634,51 @@ def summary_warning(view: dict) -> str | None:
             f"({', '.join(view['codes'])}); see {view['command']}")
 
 
+# packages aiming at Palomar: the record says so (upstream_target palomar) or Palomar evidence exists;
+# a scratch, archived or upstreamed package is not judged (audit stays quiet for it)
+AUDIT_EXEMPT_STATUSES = ("scratch", "archived", "upstreamed")
+
+
+def intends_palomar(pkg: dict) -> bool:
+    if pkg.get("status") in AUDIT_EXEMPT_STATUSES:
+        return False
+    return pkg.get("upstream_target") == "palomar" or any(isinstance(e, dict) for e in pkg.get("palomar") or [])
+
+
+def error_gaps(rep: dict) -> list[dict]:
+    return [g for g in rep["gaps"] if g["severity"] == "error"]
+
+
+def gap_lines(gaps: list[dict]) -> list[str]:
+    return [f"  ✗  {g['code']}: {g['detail']}" + "".join(f"\n        {p}" for p in g["paths"])
+            + f"\n        fix: {g['fix']}" for g in gaps]
+
+
+def audit_finding(pkg: dict, repo: pathlib.Path) -> dict | None:
+    """The `palomar-not-ready` audit finding for a package that intends Palomar, judged at the commit
+    `palomar check NAME` reads (gate-bound, else HEAD), with the pinned rules; None when it is ready
+    (warn gaps are submission steps, never a finding) or does not intend Palomar."""
+    if not intends_palomar(pkg):
+        return None
+    name = pkg["name"]
+    cmd = f"lean-pkg palomar check {name}"
+    try:
+        commit, how = resolve_commit(pkg, repo, None)
+        policy, source = load_rules(None)
+        rep = check(pkg, repo, commit, policy, source)
+    except (core.Fail, OSError, ValueError) as e:
+        return {"detail": f"Palomar readiness could not be checked ({e}); run `{cmd}`",
+                "errors": None, "codes": [], "commit": None, "command": cmd}
+    errs = error_gaps(rep)
+    if not errs:
+        return None
+    codes = sorted({g["code"] for g in errs})
+    src = {"gate": "the gate-bound commit", "head": "HEAD"}[how]
+    return {"detail": f"{len(errs)} Palomar readiness gap(s) at {src} {commit[:12]} ({', '.join(codes)}); "
+                      f"run `{cmd}`",
+            "errors": len(errs), "codes": codes, "commit": commit, "command": cmd}
+
+
 def cmd_check(args) -> int:
     reg = core.load_registry(core.registry_path(args))
     override = None

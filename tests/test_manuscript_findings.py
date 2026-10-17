@@ -11,6 +11,7 @@ import yaml
 
 from .conftest import commit_claims, publish_evidence, read_reg, write_reg
 from .test_claims_ledger import LEAN, by_id, claim, claims_list, gated, ledger
+from .test_palomar_prepare import assume_ready  # noqa: F401  (fixture: beta is not Palomar-ready)
 
 GAP_LEAN = LEAN.replace("end Demo\n", "theorem origin_jets_insufficient : True := trivial\nend Demo\n")
 
@@ -235,7 +236,7 @@ def test_publish_without_findings_prints_no_line(lp, env, fake_gh, capsys):
     assert "manuscript findings" not in capsys.readouterr().out
 
 
-def test_palomar_prepare_surfaces_the_summary(lp, env, capsys, monkeypatch):
+def test_palomar_prepare_surfaces_the_summary(lp, env, capsys, monkeypatch, assume_ready):
     import urllib.request
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("net")))
     reg = read_reg(env)
