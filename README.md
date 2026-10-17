@@ -18,6 +18,10 @@
   <a href="llms.txt"><img alt="LLM entry: llms.txt" src="https://img.shields.io/badge/LLM%20entry-llms.txt-6f42c1.svg"></a>
 </p>
 
+**New here?** The [Quickstart](docs/quickstart.md) goes from `pip install` to a
+verified page on your own machine, with no lab account: `lean-pkg new my-proof`, two
+receipts, the gate, the page.
+
 ---
 
 ## Why lean-pkg

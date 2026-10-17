@@ -18,6 +18,7 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 
 | You are | Start with |
 |---|---|
+| **a mathematician who wants a verified page now** | [Quickstart](quickstart.md): `lean-pkg new`, two receipts, the gate and the page on your own machine, no lab account (about 6 minutes measured, Mathlib included) |
 | **new here** | [Start here](newcomers.md): the reading path, then the [sample workflow](sample-workflow.md) |
 | **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
 | **writing a paper with a Lean companion** | [Develop a paper with its Lean companion](paper-companion.md): intermediate checkpoints, reuse, a coverage map |
@@ -49,6 +50,9 @@ undone in practice.
 
 ## Quick start
 
+The shortest path, from `pip install` to a verified page with no lab account, is the
+[Quickstart](quickstart.md). The shared-registry setup for a group:
+
 Install the CLI once, then use one private Git-backed registry to coordinate
 many independent research repositories:
 
@@ -69,6 +73,7 @@ will automate the registry bootstrap; it is not implemented yet.
 
 ## Pages
 
+- [Quickstart](quickstart.md): from `pip install` to a verified page, for a new package (`lean-pkg new`) or an existing one.
 - [Start here](newcomers.md): the newcomer path, including the Lean reading list.
 - [Sample workflow](sample-workflow.md): a real package from registration to a promotion dry run, with the seven-step diagram.
 - [Develop a paper with its Lean companion](paper-companion.md): check intermediate results while the paper evolves, record checkpoints, reuse unchanged results, keep a coverage map, consolidate several checkpoint packages into one new package.

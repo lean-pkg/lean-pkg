@@ -34,6 +34,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   hashes with `index check` through a scratch index, rebuild, and re-run the
   comparator, tested end to end on a small package with no registry. Linked
   from the index, receipts, page and index docs.
+- `lean-pkg new NAME`: scaffold a minimal Lean 4 package in a new (or empty)
+  directory and `git init` it. It writes the getting-started template
+  (`lean-toolchain`, `.gitignore`, `lakefile.toml`, `MOD/Challenge.lean`,
+  `MOD/Solution.lean`, `comparator.json`; byte-identical for `my-proof`, held
+  together by a test) plus `MOD/Axioms.lean`, `claims.yaml`, `coverage.yaml`
+  (`kind: library`), `CITATION.cff`, `LICENSE` (`--license Apache-2.0|MIT`), a
+  `README.md` with the lean-pkg credit, and `verify.sh`, a lower-tier check
+  whose log `receipt systemd --run` accepts. `--module`, `--dir`, `--author`,
+  `--no-mathlib` (core Lean; `verify.sh` logs `mathlib-rev: none`). Nothing is
+  committed, fetched or built, and no registry is read or written. A
+  non-empty target and a bad name are refused before anything is written.
+- docs/quickstart.md: from `pip install` to a verified page on one's own
+  machine with no lab account, for a new package and for an existing one,
+  with expected output; lab-only steps are marked optional. Linked from
+  README.md and docs/index.md.
 
 ### Fixed
 
