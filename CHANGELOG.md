@@ -41,6 +41,24 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `comparator-receipt --attempts [DIR] [--json]` lists the attempts read-only
   (exit 1 when a kept file changed or went missing). Nothing prunes attempts
   automatically; docs/comparator.md (Attempts) shows how to prune by hand.
+- `palomar port-modules NAME [--dry-run | --write] [--agent A]`: the
+  mechanical port of a package's tracked `.lean` files to Lean's module
+  system, which Palomar requires. A dry run by default: from git objects at
+  HEAD, a per-file report and a unified diff (`module` first, after ordinary
+  comments; `import X` to `public import X`, `meta import` to
+  `public meta import`, never `public import all`; the body in
+  `public section` ... `end`, with no `end` when a scope stays open).
+  Module-headed files are skipped, so a second run is a no-op; `prelude`
+  files are refused with a reason. Flagged for review, never auto-fixed:
+  definitions another file unfolds (`@[expose]`), `private` declarations,
+  `#eval`/`native_decide`/`initialize` (`meta import`), imports of a
+  non-module, unbalanced scopes. `--write` applies the plan to a clean
+  working tree only, never commits and never writes the registry, then
+  prints the follow-ups (`lake build`, `palomar check`, a new gate for a
+  gated package). The rules were checked on Lean v4.35.0-rc2, and a test
+  ports and builds a multi-file project on that toolchain when installed.
+  `palomar check` names the command in the fix of `source.module_required`.
+
 - `receipt slurm --template`: an exact-runtime preflight before any tool
   runs (field report #5). The wrapper sets `LC_ALL=C LANG=C PYTHONUTF8=1`
   (an `#SBATCH --export` line for the job's own shell and an `export`), so

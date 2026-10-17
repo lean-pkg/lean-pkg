@@ -201,7 +201,7 @@ def do_prepare(reg_path, reg, events_p, name: str, out: str | None, dry_run: boo
 
 def cmd_palomar(args) -> int:
     if getattr(args, "palomar_fn", None) is None:
-        raise core.UsageError("palomar needs an action: prepare, check")
+        raise core.UsageError("palomar needs an action: prepare, check, port-modules")
     reg_path, events_p = core.registry_path(args), core.events_path(args)
     lines, payload, warnings = do_prepare(reg_path, core.load_registry(reg_path), events_p, args.name,
                                           args.out, args.dry_run)
@@ -215,8 +215,8 @@ def cmd_palomar(args) -> int:
 
 
 def add_parsers(sub, add_json) -> None:
-    s = sub.add_parser("palomar", help="Palomar: prepare (build a submission bundle), check (read-only readiness); "
-                                       "no network")
+    s = sub.add_parser("palomar", help="Palomar: prepare (build a submission bundle), check (read-only readiness), port-modules "
+                                       "(plan or write the module-system port); no network")
     add_json(s)
     s.set_defaults(fn=cmd_palomar, palomar_fn=None)
     psub = s.add_subparsers(dest="palomar_cmd")
@@ -231,3 +231,5 @@ def add_parsers(sub, add_json) -> None:
     p.set_defaults(fn=cmd_palomar, palomar_fn="prepare")
     from . import palomar_check
     palomar_check.add_parser(psub, add_json)
+    from . import port_modules
+    port_modules.add_parser(psub, add_json)

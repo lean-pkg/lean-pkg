@@ -1,17 +1,20 @@
-usage: lean-pkg palomar [-h] [--json] [--commit] [--push] [--no-commit] {prepare,check} ...
+usage: lean-pkg palomar [-h] [--json] [--commit] [--push] [--no-commit]
+                        {prepare,check,port-modules} ...
 
 positional arguments:
-  {prepare,check}
-    prepare        build the submission bundle (formalization.yaml, comparator configs, receipts,
-                   README.txt, MANIFEST.sha256); event palomar-prepared
-    check          read-only, offline: every gap to Palomar's mechanical rules at one commit
-                   (module headers, toolchain floor, comparator configs, formalization.yaml,
-                   licence, repository); exit 0 ready / 1 gaps
+  {prepare,check,port-modules}
+    prepare             build the submission bundle (formalization.yaml, comparator configs,
+                        receipts, README.txt, MANIFEST.sha256); event palomar-prepared
+    check               read-only, offline: every gap to Palomar's mechanical rules at one commit
+                        (module headers, toolchain floor, comparator configs, formalization.yaml,
+                        licence, repository); exit 0 ready / 1 gaps
+    port-modules        plan (dry run, default) or --write the mechanical port of the package's
+                        tracked .lean files to Lean's module system; never commits
 
 options:
-  -h, --help       show this help message and exit
-  --json           machine-readable JSON on stdout
-  --commit         write commands: pull --ff-only, then commit the registry files (default:
-                   $LEAN_PKG_COMMIT=1)
-  --push           --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit      never commit or push (overrides the env)
+  -h, --help            show this help message and exit
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

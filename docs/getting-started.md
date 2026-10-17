@@ -248,6 +248,11 @@ defines it); without it the body is hidden from importing modules and
 which Palomar does not accept, leave out `module`, `public section` and
 `end`, and write `import Mathlib`.
 
+An existing project written without the module system can be ported with
+`lean-pkg palomar port-modules NAME`: a dry run prints the diff and the
+definitions likely to need `@[expose]`; `--write` applies it to a clean
+working tree, never committing ([CLI reference](cli.md)).
+
 #### Module names are file paths
 
 A module's name is its path from the project root: `MyProof.Challenge` is the
