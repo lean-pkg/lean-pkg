@@ -567,3 +567,39 @@ def test_cut_release_refuses_a_malformed_release_date(tmp_path):
         assert r.returncode == 2 and "LEAN_PKG_RELEASE_DATE: not a YYYY-MM-DD date" in r.stderr
     assert _subjects(tmp_path) == [f"release: {OLD}"]   # refused before anything was written
     assert not (work / "CHANGELOG.md").read_text().count(f"## [{V}]")
+
+
+def test_a_patch_bump_with_added_entries_warns_and_still_releases(tmp_path):
+    """RELEASING.md "When to tag": an `### Added` entry makes a minor; a patch request warns, never refuses."""
+    _setup(tmp_path)
+    r = _cut(tmp_path, V, "--no-doi")
+    assert r.returncode == 0, r.stderr
+    assert (f"WARN: step 0: {V} is a patch bump over {OLD}, but `## [Unreleased]` has `### Added`;" in r.stdout)
+    assert "suggested version 1.3.0 (`make cut-release VERSION=1.3.0`)" in r.stdout
+    assert _subjects(tmp_path)[0] == f"release: {V}" and _releases(tmp_path) == [V]
+
+
+def test_a_minor_bump_does_not_warn(tmp_path):
+    _setup(tmp_path)
+    r = _cut(tmp_path, "1.3.0", "--no-doi")
+    assert r.returncode == 0, r.stderr
+    assert "patch bump" not in r.stdout and _releases(tmp_path) == ["1.3.0"]
+
+
+def test_version_kind_warning_reads_only_nonempty_added_or_changed(capsys):
+    mod = _cut_release_module()
+
+    def warned(body: str, v: str = "0.7.55", current: str = "0.7.54") -> str:
+        capsys.readouterr()
+        mod.step0_version_kind(f"# Changelog\n\n## [Unreleased]\n\n{body}\n## [{current}] - 2026-01-01\n\n"
+                               "### Added\n\n- old.\n", v, current)
+        return capsys.readouterr().out
+
+    assert warned("### Fixed\n\n- a fix.\n") == ""                       # fixes only: a patch is right
+    assert warned("### Added\n\n### Fixed\n\n- a fix.\n") == ""           # an empty heading is no entry
+    out = warned("### Changed\n\n- a format.\n\n### Fixed\n\n- a fix.\n")
+    assert "has `### Changed`;" in out and "suggested version 0.8.0" in out
+    out = warned("### Added\n\n- a flag.\n\n### Changed\n\n- x.\n")
+    assert "has `### Added` and `### Changed`;" in out
+    assert warned("### Added\n\n- a flag.\n", v="0.8.0") == ""            # the minor it asks for
+    assert warned("### Added\n\n- a flag.\n", v="1.0.0") == ""            # a major is not a patch

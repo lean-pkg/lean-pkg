@@ -5,11 +5,47 @@ tag, and release notes copied from the changelog.
 
 ## When to tag
 
-| Change | Version | When |
+The version says what kind of change a release carries. While lean-pkg is
+0.x, the rule is:
+
+| `## [Unreleased]` holds | Version | Notes |
 |---|---|---|
-| A roadmap milestone lands (M0, M1, …) | minor: `0.(N+1).0` | at the milestone's exit criteria, on `main` |
-| A fix or a docs-only correction worth citing | patch: `0.N.(k+1)` | when `## [Unreleased]` holds only fixes and someone needs to cite it |
-| Nothing user-visible changed | no tag | docs polish and refactors ride with the next release |
+| Any `### Added` entry: a new command, or a new user-visible flag, field or feature | minor: `0.(N+1).0` | |
+| A format change of an on-disk schema (registry, claims, coverage, receipt, estimate) | minor: `0.(N+1).0` | always with a migration, and a `### Changed` entry that names the format and the migration |
+| A roadmap milestone landing (M0, M1, ...) | minor: `0.(N+1).0` | at the milestone's exit criteria, on `main` |
+| Only `### Fixed` entries and documentation | patch: `0.N.(k+1)` | when someone needs to cite the fix |
+| Nothing user-visible | no tag | docs polish and refactors ride with the next release |
+
+Any one minor trigger makes the release a minor. From 0.7.1 to 0.7.54 new
+features shipped as patches; that stops here, and the next release after
+this policy is `0.8.0`. `make cut-release` warns (and does not refuse) when
+a patch version is requested while `## [Unreleased]` has an `### Added` or
+`### Changed` section, and prints the minor version it suggests; a
+`### Changed` entry that changes no format may still go out in a patch, which
+is why it is a warning.
+
+### 1.0.0
+
+1.0.0 is tagged when all of these hold:
+
+- The command tree is final: commands are grouped as noun-verb pairs, old
+  spellings are permanent aliases, unknown commands dispatch to extensions,
+  and JSON output can be narrowed with `--fields` and `--jq`.
+- Every on-disk format (registry, claims, coverage, receipt, estimate) carries
+  a version and has a migration path from every earlier version.
+- The golden CLI contract (`tests/golden`: help texts and `--json` key sets)
+  is the public API: it changes only in a minor (a major after 1.0), with a
+  CHANGELOG entry.
+- A written deprecation policy is in force: an old spelling or flag keeps
+  working, with a warning, for at least one minor release before it is
+  removed, and a schema changes only together with a migration command.
+- It is used in practice: several public companions run `page --check` in
+  CI, and at least one package has gone through a Palomar submission.
+
+After 1.0.0, versions follow [Semantic Versioning](https://semver.org/)
+proper: a breaking change (a removed command, flag or JSON key, or a format
+an older lean-pkg cannot read) is a major, an addition a minor, a fix a
+patch.
 
 A tag is a claim about a commit. Tag when the claim is true, not on a
 calendar. Receipts bound to a commit stay valid across tags; a tag never
@@ -19,7 +55,9 @@ changes evidence.
 
 `make cut-release VERSION=X.Y.Z` runs the whole checklist below from a clean
 `main` (`scripts/cut-release.py`). It lists the `### Added` entries for step 0,
-which stays a judgment, so read them, then: commits the citation bump (2a),
+which stays a judgment, so read them, and warns when X.Y.Z is a patch bump
+while `## [Unreleased]` has an `### Added` or `### Changed` section ("When to
+tag"), then: commits the citation bump (2a),
 refuses unless the public-safety scan (3) is clean, writes the version files
 and the summary line (1, 2), runs `make check` on that tree, commits and
 pushes them (4), runs `scripts/release.sh` (5), and waits up to `DOI_WAIT`
