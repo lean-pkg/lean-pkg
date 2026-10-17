@@ -61,6 +61,8 @@ SLURM_JOB_RE = re.compile(r"^slurm-\d+(?:_\d+)?$")
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 ZENODO_DOI_RE = re.compile(r"^10\.5281/zenodo\.\d+$")
 TEXT_MAX = 400
+# lean-scope-page R4: a placeholder never reaches a public page (FILL-ME is the lab template's marker)
+PLACEHOLDER_RE = re.compile(r"(?<![A-Za-z0-9])(?:FILL-ME|TODO|TBD|FIXME|XXX)(?![A-Za-z0-9])")
 
 
 class _StrictLoader(yaml.SafeLoader):
@@ -125,6 +127,18 @@ def _str_list(v, where: str, errors: list[str]) -> list[str]:
     if len(set(v)) != len(v):
         errors.append(f"{where}: repeats an entry")
     return list(v)
+
+
+def _strings(obj, where: str):
+    """(path, string) for every string value of a document, in document order."""
+    if isinstance(obj, str):
+        yield where, obj
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _strings(v, f"{where}.{k}" if where else str(k))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            yield from _strings(v, f"{where}[{i}]")
 
 
 def manuscript_kind(version) -> str:
@@ -244,6 +258,10 @@ def validate(doc, package: str | None = None) -> list[str]:
                     errors.append(f"{w}.jobs: must be a non-empty list of Slurm job ids (slurm-12345)")
                 elif len(set(jobs)) != len(jobs):
                     errors.append(f"{w}.jobs: repeats a job id")
+    for where, s in _strings(doc, ""):
+        if PLACEHOLDER_RE.search(s):
+            errors.append(f"{where or '<root>'}: carries the placeholder {PLACEHOLDER_RE.search(s).group(0)!r}; "
+                          f"write the text (a placeholder never reaches the page)")
     lv = doc.get("lean_pkg_version")
     if "lean_pkg_version" in doc and _keys(lv, ("version", "doi"), (), "lean_pkg_version", errors):
         if not (isinstance(lv["version"], str) and VERSION_RE.match(lv["version"])):
@@ -391,6 +409,45 @@ def check_against(doc: dict, claims: dict[str, dict], claims_rel: str, repo: pat
     return errors + p, warnings + w
 
 
+def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.Path) -> list[str]:
+    """The lab's lean-scope-page rules that apply to a rendered page (docs/page.md#from-lean-scope-page):
+    R8/R9, every claim a row names has its `file` committed at HEAD (the page links the declaration
+    there); R10/R11, every theorem the recorded comparator receipt compares is the declaration of a claim
+    some row names (the page says how many theorems were compared, so each must be accounted for);
+    R12, every comparator configuration with definition holes carries judged_as.reviewer (the page names
+    who judged the bodies)."""
+    from . import claims as claims_mod
+    from . import comparator_config as cc
+    errors: list[str] = []
+    named = [(i, cid) for i, r in enumerate(doc["rows"]) for cid in r.get("claims") or [] if cid in claims]
+    for i, cid in named:
+        rel = claims[cid].get("file")
+        if rel and not core.tracked_at(repo, str(rel)):
+            errors.append(f"rows[{i}].claims: {cid!r} names file {rel!r}, which is not committed at HEAD "
+                          f"(the page links the declaration there)")
+    rel = (pkg.get("gate") or {}).get("comparator")
+    comp, _raw = receipt_at_head(repo, rel) if rel else (None, None)
+    configs = [c for c in (comp or {}).get("configs") or [] if isinstance(c, dict)]
+    if not configs:
+        return errors
+    row_claims = [claims[cid] for _i, cid in named]
+    qualified = cc.qualified_decls(claims_mod._reader(repo, "HEAD"), row_claims)
+    decls = [(str(c.get("decl") or ""), str(c.get("decl") or "") in qualified) for c in row_claims]
+    for c in configs:
+        where = c.get("path") or "?"
+        for t in c.get("theorem_names") or []:
+            if isinstance(t, str) and not any(cc.covers({t}, d, q) for d, q in decls):
+                errors.append(f"comparator theorem {t!r} ({where}, recorded comparator receipt) is the declaration "
+                              f"of no claim a row names: map it to its paper result (a row's claims), or drop it "
+                              f"from the configuration")
+        judged = c.get("judged_as") if isinstance(c.get("judged_as"), dict) else {}
+        if c.get("definition_names") and not str(judged.get("reviewer") or "").strip():
+            errors.append(f"comparator configuration {where} (recorded comparator receipt) has definition holes "
+                          f"{', '.join(map(str, c['definition_names']))} without judged_as.reviewer: comparator "
+                          f"never compares a hole's body, so the page must name the human who did")
+    return errors
+
+
 def read_doc(pkg: dict, repo: pathlib.Path, file: str | None = None) -> tuple[dict, str]:
     """(document, where): --file PATH from disk, else coverage.yaml committed at HEAD."""
     if file is not None:
@@ -415,6 +472,7 @@ def load_checked(pkg: dict, repo: pathlib.Path, file: str | None = None, allow_p
         raise core.Fail(f"{where} is not a valid {COVERAGE_SCHEMA} file:\n  " + "\n  ".join(errors))
     claims, claims_rel = claims_at_head(pkg, repo)
     errors, warnings = check_against(doc, claims, claims_rel, repo)
+    errors += scope_problems(pkg, doc, claims, repo)
     if manuscript_kind(doc["manuscript"]["version"]) == "unposted" and not allow_private:
         errors.append("manuscript.version: unposted: theorem numbers of a private draft are not checkable by a "
                       "reader; pin a posted version (arXiv:IDvN or {repo, commit, sha256}), or pass "
