@@ -33,7 +33,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   and `statement` on a library row, the result in TeX (at most 2000
   characters, several lines). `lean-pkg page` shows it as source in a `latex`
   code block beside the Lean statement (a library row: *In words*). An older
-  lean-pkg refuses a file that uses the key. Proposal 0001.
+  lean-pkg refuses a file that uses the key; a statement may not contain the
+  README block's markers. Proposal 0001, accepted 2026-10-17. The π-λ
+  tutorial's `coverage.yaml` and page excerpt now carry the statements.
 - `receipt systemd --run` (alias `receipt local --run`) fingerprints the
   running lean-pkg before it starts the unit: the SHA-256 of every file of
   its package directory (sources, shipped scripts, schemas, templates), its
