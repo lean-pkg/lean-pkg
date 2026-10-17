@@ -373,7 +373,7 @@ lean-pkg record my-proof palomar-submitted --field KEY=VALUE   # each external s
 ```
 
 `record` takes the fields each event requires (see the
-[CLI reference](cli.md) row). Reservoir's criteria are in the
+[command reference](commands/record.md)). Reservoir's criteria are in the
 [FAQ](faq.md#reservoir).
 
 Run `palomar check` early, before the gated waves, not only before the
@@ -476,7 +476,7 @@ Read-only and offline: it decides from the registry record and the checkout, wit
 (a foreign lease with `--agent`, a dirty tree while evidence is produced, a receipt `gate` would refuse).
 A `note:` line (and `--json` `notes[]`) says when the checkout is on a branch other than the
 default, or detached; the current HEAD is still what is evaluated.
-See the [`next` row](cli.md) in the CLI reference.
+See [`lean-pkg next`](commands/next.md) in the command reference.
 
 ## Report a problem
 
@@ -493,7 +493,7 @@ registry record; a hit the redaction cannot replace refuses to file. `--enhancem
 request; `--json` gives `{url, title, labels, body, redactions}`. One of `--command`, `--body` or
 `--from-log` is required: friction inside a long stage (a failed `comparator-receipt` build) has no cheap
 re-run, so describe it with `--body` and attach the tail of its log with `--from-log`. See the
-[`report` row](cli.md).
+[`lean-pkg report` page](commands/report.md).
 
 ## Use lean-pkg from a coding agent
 

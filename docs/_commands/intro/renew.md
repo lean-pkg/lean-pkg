@@ -1,0 +1,3 @@
+| Form | What it does | Key flags |
+|---|---|---|
+| `renew NAME` | restart your own live lease from now (event `claim-refreshed`); refuses when there is no lease, another agent holds it, or it has already lapsed (claim again; `audit --fix` sweeps it). `--contact TEXT` sets or replaces the lease's contact (same rules as `claim`); without it the contact is kept; `--no-contact` clears it (the `claim-refreshed` event then records `contact_cleared: true` when a contact was removed; no contact: nothing to clear); `--contact` with `--no-contact` exits 2 with nothing written; `--ttl` is 1 to 8760 hours, a larger value exits 2 with nothing written | `--agent A` `[--ttl HOURS]` `[--workspace W]` `[--reason]` `[--contact TEXT]` `[--no-contact]` |

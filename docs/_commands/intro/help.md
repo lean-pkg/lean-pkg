@@ -1,0 +1,3 @@
+| Form | What it does | Key flags |
+|---|---|---|
+| `help [TOPIC\|COMMAND ...]` | help topics in the manner of `gh help`: no argument lists the commands and topics; `exit-codes`, `environment` and `formatting` print that topic; a command (`help status`, `help index add`) prints exactly its `--help` (`help comparator config` and `help comparator host-check` print `comparator --help`, which covers them); an unknown topic or command is a usage error (exit 2) naming the topics. Reads no registry, so it works without one and under `--registry-snapshot`. `--json`: `{"ok": true, "text", "topic"\|"command"\|"topics" and "commands"}`, and `variables` [{name, section, meaning, default}] for `environment` | `[TOPIC\|COMMAND ...]` |
