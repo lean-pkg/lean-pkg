@@ -18,15 +18,12 @@ lean-pkg formalization [--json] COMMAND
 
 ## Subcommands
 
-- [`lean-pkg formalization render`](#lean-pkg-formalization-render): render formalization.yaml (v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout unless --write/--out (`formalization NAME` is the same)
-- [`lean-pkg formalization anchor`](#lean-pkg-formalization-anchor): bind the companion to one posted arXiv version (writes package files, never the registry)
+- [`lean-pkg formalization render`](formalization-render.md): render formalization.yaml (v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout unless --write/--out (`formalization NAME` is the same)
+- [`lean-pkg formalization anchor`](formalization-anchor.md): bind the companion to one posted arXiv version (writes package files, never the registry)
 
 ## Details
 
-| Form | What it does | Key flags |
-|---|---|---|
-| `formalization NAME` | render `formalization.yaml` (mathlib-initiative v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout by default; `--write` writes `<repo>/<formalization_yaml or formalization.yaml>`, is a no-op when equal, refuses a differing file without `--force`, then sets the registry pointer (event `updated`), so `--write` is a registry write; `--write --no-registry` writes the file only and leaves the registry untouched (no pointer, no event, no lock, `--commit` ignored; `"registry_skipped": true`); the lease (another agent's live lease refuses unless `--force --reason`) and a dry run of the registry update are checked before the file is written; validated against the vendored schema; `--headline-config PATH` (else the registry's `headline_config`, else `comparator.headline.json` when tracked) makes `status.main_results` list that [headline configuration](../comparator.md#headline-configuration-the-papers-main-results)'s theorems only, refused unless the gate-bound comparator receipt covers every name and signs every hole, not applied (warning) when no receipt validates at HEAD; `--write` records it; `--json` `headline` {config, source, applied, reason, receipt, theorems} or null; see [formalization.yaml](../formalization.md) | `[--write [--no-registry]]` `[--out PATH]` `[--force [--reason TEXT]]` `[--author NAME]…` `[--headline-config PATH]` `[--agent A]` |
-| `formalization anchor NAME` | bind the companion to one posted arXiv version: read the e-print (`--from-file`, offline, or `--fetch`, the only network access: HTTPS, 60 s timeout, 64 MiB cap) in memory (gzip'd tar, gzip'd single `.tex` or tar; a PDF-only submission is refused; an absolute, `..`, link or device member, or the member and size caps, refuse the archive), hash it and each `.tex`/`.bib`/`.bbl`/`.sty`, find the main `.tex` (`\documentclass`; `--main-tex` when several), compare it with `--compare-tex LOCAL.tex` (normalised; differing lines shown), and record it deterministically in `data/source-baselines/arXiv-<id>v<N>.json` (schema `source-baseline/1`). `--arxiv` must carry the version. Without `--write` a dry run (`would_write`). `--write` refuses unless the e-print is tied to the manuscript `coverage.yaml` is bound to (that version already, a bound `{sha256}` equal to an e-print file, or `--compare-tex` identical, or differing with `--accept-diff REASON`, recorded); it writes the record, `coverage.yaml` `manuscript.version` and `eprint_sha256` (other lines kept) and the `formalization.yaml` source `id`; never the registry, never a commit. A move from another version prints `rebase_command`; see [Anchoring to an arXiv version](../paper-companion.md#anchoring-to-an-arxiv-version) | `--arxiv <id>v<N>` `--from-file E-PRINT`\|`--fetch` `[--compare-tex LOCAL.tex [--accept-diff REASON]]` `[--main-tex PATH]` `[--write]` `[--agent A]` |
+formalization.yaml (mathlib-initiative v0.4, what Palomar reads): [`formalization render`](formalization-render.md) renders it from the registry and the repo at HEAD (`formalization NAME` is the same), and [`formalization anchor`](formalization-anchor.md) binds the companion to one posted arXiv version. See [formalization.yaml](../formalization.md).
 
 ## Exit codes
 
@@ -37,70 +34,3 @@ lean-pkg formalization [--json] COMMAND
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `formalization` (exit 0): `headline`, `main_results`, `name`, `ok`, `path`, `placeholders`, `registry_updated`, `unchanged`, `validation`, `warnings`, `written`, `yaml`
-
-## lean-pkg formalization render
-
-render formalization.yaml (v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout unless --write/--out (`formalization NAME` is the same).
-
-Also spelled: `lean-pkg formalization NAME` ([all aliases](aliases.md)).
-
-### Usage
-
-```text
-lean-pkg formalization render [--write] [--no-registry] [--out PATH] [--force]
-                              [--reason REASON] [--author NAME] [--headline-config PATH]
-                              [--agent AGENT] [common flags] NAME
-```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
-
-### Arguments and flags
-
-| Argument or flag | Description |
-|---|---|
-| `NAME` | the package |
-| `--write` | write &lt;repo&gt;/&lt;formalization_yaml or formalization.yaml&gt; and set the registry pointer (event updated); refuses a differing file without --force |
-| `--no-registry` | with --write: write the file only; the registry is not updated (no pointer, no event), so this is not a registry write (no lock, no --commit) |
-| `--out PATH` | write the render here instead; the registry is untouched |
-| `--force` | with --write: overwrite a file that differs from the render; with --reason also override a live lease held by another agent |
-| `--reason REASON` | with --write --force: why another agent's lease is overridden (recorded in the updated event) |
-| `--author NAME` | project.authors entry (repeatable); otherwise kept from the file, else consent\[] owners/authors, else a placeholder |
-| `--headline-config PATH` | the headline comparator configuration (the paper's main results) for this render; --write also records it (registry headline_config). Default: the registry field, else comparator.headline.json when tracked. status.main_results then lists its theorems only, each covered by the gate-bound comparator receipt (else refused) |
-| `--agent AGENT` | lease holder, if one is live (for the registry update) |
-
-## lean-pkg formalization anchor
-
-bind the companion to one posted arXiv version (writes package files, never the registry).
-
-### Usage
-
-```text
-lean-pkg formalization anchor [--arxiv ID] [--from-file E-PRINT] [--fetch]
-                              [--compare-tex LOCAL.tex] [--accept-diff REASON]
-                              [--main-tex PATH] [--write] [--agent AGENT] [common flags]
-                              [PACKAGE]
-```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
-
-`lean-pkg formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT \| --fetch) [--compare-tex LOCAL.tex [--accept-diff REASON]] [--main-tex PATH] [--write]`: bind the companion to one posted arXiv version. Reads the e-print (gzip'd tar, gzip'd .tex or tar; PDF-only is refused) in memory, hashes it and its .tex/.bib/.bbl/.sty files, finds the main .tex (\\documentclass), compares it with LOCAL.tex and records it all in data/source-baselines/arXiv-&lt;id&gt;v&lt;N&gt;.json. Without --write: a dry run. --write refuses unless the e-print is tied to the manuscript coverage.yaml is bound to (same version, a matching bound sha256, or --compare-tex identical / --accept-diff); a move to another version prints the `claims rebase` command. Never writes the registry; never commits
-
-### Arguments and flags
-
-| Argument or flag | Description |
-|---|---|
-| `PACKAGE` | the package to anchor |
-| `--arxiv ID` | the arXiv id WITH its version (&lt;id&gt;v&lt;N&gt; or arXiv:&lt;id&gt;v&lt;N&gt;); unversioned ids are refused |
-| `--from-file E-PRINT` | the e-print as downloaded from arxiv.org/e-print/&lt;id&gt;v&lt;N&gt; (offline; no network) |
-| `--fetch` | download the e-print over HTTPS (60 s timeout, 64 MiB cap) and the arXiv API entry of that version; the only network access this command makes |
-| `--compare-tex LOCAL.tex` | compare this local .tex with the e-print's main .tex (line endings and trailing whitespace normalised); the differing lines are shown |
-| `--accept-diff REASON` | with --compare-tex: anchor although the files differ; the reason is recorded |
-| `--main-tex PATH` | the e-print's main .tex when more than one file carries \\documentclass |
-| `--write` | write the source-baseline record, coverage.yaml manuscript.version and the formalization.yaml source id (never the registry; not committed); without it a dry run |
-| `--agent AGENT` | lease holder, if one is live |
-
-### JSON output
-
-Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
-
-- `formalization-anchor` (exit 0): `arxiv`, `compare`, `eprint_sha256`, `files`, `format`, `ledger`, `main_tex`, `name`, `ok`, `rebase_command`, `record`, `record_path`, `registry_source_paper`, `source`, `tied`, `warnings`, `would_write`, `write`, `written`

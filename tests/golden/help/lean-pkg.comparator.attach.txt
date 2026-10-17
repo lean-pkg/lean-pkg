@@ -1,6 +1,6 @@
-usage: lean-pkg comparator attach [-h] [--receipt RECEIPT] [--check] [--refuse-private]
-                                  [--refuse-dirty] [--replace] [--agent AGENT] [--repo DIR]
-                                  [--json] [--commit] [--push] [--no-commit]
+usage: lean-pkg comparator attach [-h] [--receipt RECEIPT] [--refuse-private] [--refuse-dirty]
+                                  [--replace] [--agent AGENT] [--json] [--commit] [--push]
+                                  [--no-commit]
                                   name
 
 positional arguments:
@@ -9,7 +9,6 @@ positional arguments:
 options:
   -h, --help         show this help message and exit
   --receipt RECEIPT  path to comparator receipt JSON (required)
-  --check            validate only; record nothing (works at any status)
   --refuse-private   refuse (exit 1, nothing copied) when the receipt holds private strings;
                      default is a WARN line and the receipt is kept
   --refuse-dirty     refuse when tracked files are modified in the checkout; default is a WARN
@@ -19,11 +18,6 @@ options:
                      the new one, record comparator-replaced
   --agent AGENT      the agent acting (recorded as the event's actor; another agent's live lease
                      then refuses)
-  --repo DIR         with --check only: validate against the checkout DIR instead of the
-                     registered local_path, for this call (never saved; JSON repo_override). DIR
-                     must be a git work tree, and when it has remotes one must be the package's
-                     repo. Attaching refuses it: it binds the registered checkout (move that with
-                     `repo move`)
   --json             machine-readable JSON on stdout
   --commit           write commands: pull --ff-only, then commit the registry files (default:
                      $LEAN_PKG_COMMIT=1)

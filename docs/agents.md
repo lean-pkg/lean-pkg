@@ -29,7 +29,7 @@ every subcommand has `--json`, and the contract an agent needs is one file.
 3. Pass flags and `--json`. Nothing prompts; a prompt path exits 2.
 4. `promote` is a dry run unless `--yes`. Never pass `--yes` unless a human
    has read the checklist: the flip to public cannot be undone.
-5. Run `comparator-receipt` only where the host policy allows (a Slurm job,
+5. Run `lean-pkg receipt comparator` only where the host policy allows (a Slurm job,
    a host in `COMPARATOR_RECEIPT_ALLOWED_HOSTS`, or an explicit override),
    and only on a clean tree.
 6. Treat every refusal as a named fact to report, not an obstacle to work
@@ -49,16 +49,16 @@ concerns one package): it prints a redacted issue body in the repository's templ
 ```bash
 lean-pkg list --json                                   # what exists, who holds what
 lean-pkg next my-proof --agent vera --json             # the one recommended next command, and why (read-only)
-lean-pkg claim my-proof --workspace w3 --agent vera --reason "comparator evidence" --json
+lean-pkg lease claim my-proof --workspace w3 --agent vera --reason "comparator evidence" --json
 cd ~/src/my-proof && git status --short                 # must be empty
-lake exe cache get && comparator-receipt                 # inside Slurm, or on an allowed host
+lake exe cache get && lean-pkg receipt comparator                 # inside Slurm, or on an allowed host
 lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.json --json
 git add .lean-receipts && git commit -m "evidence: comparator receipt for <c12>"
-lean-pkg comparator my-proof --receipt .lean-receipts/<c12>-comparator.json --json
-lean-pkg promote my-proof --json                        # dry run; hand the checklist to a human
-lean-pkg leases --agent vera --expiring 2 --json        # long session: renew before the lease lapses
-lean-pkg renew my-proof --agent vera --json
-lean-pkg release my-proof --agent vera
+lean-pkg comparator attach my-proof --receipt .lean-receipts/<c12>-comparator.json --json
+lean-pkg publish my-proof --yes --dry-run --json                        # dry run; hand the checklist to a human
+lean-pkg lease list --agent vera --expiring 2 --json        # long session: renew before the lease lapses
+lean-pkg lease renew my-proof --agent vera --json
+lean-pkg lease release my-proof --agent vera
 ```
 
 ## Disclosure

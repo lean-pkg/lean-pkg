@@ -15,8 +15,13 @@ This module is pure data plus argv rewriting: nothing here reads the registry or
 - IMPLIED_VERBS: {noun: ImpliedVerb}. `noun ARG ...` where ARG is not one of the noun's verbs means
   `noun verb ARG ...` (`lease NAME` -> `lease claim NAME`, `comparator NAME --receipt R` ->
   `comparator attach NAME --receipt R`, `formalization NAME` -> `formalization render NAME`).
+- MODE_ALIASES: tuple[ModeAlias, ...]. On command `command`, the flag `flag` selected another job before 1.0;
+  the argv is rewritten to the command `new`, the flag's value (if it takes one) becoming that command's
+  last positional (`lease release NAME --fresh-repo DIR` -> `repo export NAME DIR`).
 - FLAG_ALIASES: tuple[FlagAlias, ...]. On the canonical command `command`, the option `old` is another
   option string of `new` (same dest, same namespace); `apply_flag_aliases(root)` wires them.
+- TIERS: {top-level command: tier}; `apply_tiers(root)` stores each tier on its parser (`parser.tier`), where
+  the tiered root --help and the command reference read it. TIER_TITLES names the tiers.
 - aliases_of(path) / flag_aliases_of(path): the alias spellings of one canonical command, for its page.
 - canonical_command(args): the canonical command path ("lease claim") a parsed namespace selects.
 - rewrite_argv(argv) / rewrite_words(words): the rewriting itself; each returns (new argv, hits).
@@ -41,6 +46,16 @@ NOTE_ENV = "LEAN_PKG_NO_ALIAS_NOTE"   # 1/true/yes/on: no alias note on stderr
 class CommandAlias:
     old: tuple[str, ...]   # the old spelling, as argv words after the global flags
     new: tuple[str, ...]   # the canonical words it is rewritten to
+    unless: tuple[str, tuple[str, ...]] | None = None   # (flag, words): without the flag, these words follow
+    #                                                   the new command (`promote NAME` -> `publish --yes --dry-run NAME`)
+
+
+@dataclass(frozen=True)
+class ModeAlias:
+    command: tuple[str, ...]   # canonical command path the old argv names (after COMMAND_ALIASES)
+    flag: str                  # the flag that selected another job
+    new: tuple[str, ...]       # the command that job is now
+    value: bool                # the flag takes a value, which becomes the new command's last positional
 
 
 @dataclass(frozen=True)
@@ -49,6 +64,8 @@ class ImpliedVerb:
     verbs: tuple[str, ...]       # the noun's verbs: a first word among them is never rewritten
     unless_flag: str | None = None   # ...unless this flag is present: then a verb other than `verb` names a
     #                                  package, as before 1.0 (`comparator config --receipt R`)
+    named: tuple[str, ...] = ()      # verbs that take NAME first and also take the flag: such a verb names a
+    #                                  package only when no NAME follows it (`comparator check --receipt R`)
 
 
 @dataclass(frozen=True)
@@ -73,13 +90,39 @@ COMMAND_ALIASES: tuple[CommandAlias, ...] = (
     CommandAlias(("wiki",), ("registry", "wiki")),
     # evidence
     CommandAlias(("receipt", "local"), ("receipt", "systemd")),
+    CommandAlias(("verify-receipts",), ("receipt", "check")),
+    # publication: `promote NAME` was the dry run of `promote NAME --yes`
+    CommandAlias(("promote",), ("publish",), unless=("--yes", ("--yes", "--dry-run"))),
+)
+
+# (the old form's tail after the command, the new form's tail after the new command), for notes and docs
+MODE_USAGE: dict[str, tuple[str, str]] = {
+    "--fresh-repo": ("NAME --fresh-repo DIR", "NAME DIR"),
+    "--adopt-repo": ("NAME --adopt-repo DIR", "NAME DIR"),
+    "--check": ("NAME --receipt R --check", "NAME --receipt R"),
+    "--coverage": ("--coverage NAME", "NAME"),
+    "--migrate-signoff": ("--migrate-signoff PATH", "PATH"),
+}
+
+MODE_ALIASES: tuple[ModeAlias, ...] = (
+    # `release` released a lease, or exported/adopted a repository
+    # (adopt first: release checked --adopt-repo first, so an argv naming both is refused as before)
+    ModeAlias(("lease", "release"), "--adopt-repo", ("repo", "adopt"), True),
+    ModeAlias(("lease", "release"), "--fresh-repo", ("repo", "export"), True),
+    # `comparator NAME --receipt R --check` validated without attaching
+    ModeAlias(("comparator", "attach"), "--check", ("comparator", "check"), False),
+    # `comparator config` had three modes; the two that are not "write a configuration" are verbs now
+    ModeAlias(("comparator", "config"), "--coverage", ("comparator", "coverage"), True),
+    ModeAlias(("comparator", "config"), "--migrate-signoff", ("comparator", "migrate-signoff"), True),
 )
 
 IMPLIED_VERBS: dict[str, ImpliedVerb] = {
     # `lease NAME` was the alias of `claim NAME` (0.7)
     "lease": ImpliedVerb("claim", ("claim", "renew", "release", "list")),
     # `comparator NAME --receipt R [--check]`; `comparator config|host-check --receipt R` named a package
-    "comparator": ImpliedVerb("attach", ("attach", "config", "host-check"), unless_flag="--receipt"),
+    # (`comparator check NAME --receipt R` is the check verb; `comparator check --receipt R` the package)
+    "comparator": ImpliedVerb("attach", ("attach", "check", "config", "coverage", "migrate-signoff", "host-check"),
+                              unless_flag="--receipt", named=("check",)),
     # `formalization NAME [--write]` renders formalization.yaml
     "formalization": ImpliedVerb("render", ("render", "anchor")),
 }
@@ -108,6 +151,24 @@ LEGACY_CMD: dict[str, str] = {
     "claim": "lease claim", "renew": "lease renew", "release": "lease release", "leases": "lease list",
     "init": "registry init", "migrate": "registry migrate", "validate": "registry validate",
     "audit": "registry audit", "board": "registry board", "wiki": "registry wiki",
+}
+
+# Top-level commands by tier (the root --help, the command reference index). Every top-level parser has one
+# (apply_tiers fails loudly otherwise); an alias has none (it is not a parser).
+TIER_TITLES: dict[str, str] = {
+    "newcomer": "START HERE: one package on your own machine",
+    "author": "PACKAGE AUTHOR: evidence, publication, the catalog",
+    "coordination": "COORDINATION AND MAINTENANCE: shared registries, leases, the registry file",
+}
+TIERS: dict[str, str] = {
+    "new": "newcomer", "verify": "newcomer", "status": "newcomer", "page": "newcomer", "publish": "newcomer",
+    "doctor": "newcomer", "help": "newcomer",
+    "register": "author", "update": "author", "record": "author", "gate": "author", "next": "author",
+    "list": "author", "search": "author", "receipt": "author", "comparator": "author", "claims": "author",
+    "coverage": "author", "formalization": "author", "palomar": "author", "reservoir": "author",
+    "public-safety": "author", "report": "author",
+    "lease": "coordination", "registry": "coordination", "repo": "coordination", "index": "coordination",
+    "llms": "coordination",
 }
 
 # argparse dests of the nouns' verb (and of the older nested commands), for canonical_command.
@@ -147,22 +208,74 @@ def _command_index(argv: list[str], value_flags=GLOBAL_VALUE_FLAGS) -> int | Non
     return None
 
 
+def _flag_at(words: list[str], flag: str, stop: int) -> int | None:
+    """Index of `flag` (or `flag=VALUE`) among words[:stop], else None."""
+    return next((i for i, w in enumerate(words[:stop]) if w == flag or w.startswith(flag + "=")), None)
+
+
 def rewrite_words(words: list[str], implied: bool = True) -> tuple[list[str], list[Hit]]:
     """Rewrite command words (no global flags in front) to their canonical spelling."""
     words, hits = list(words), []
+    typed = ""   # the old command words as typed, for a mode alias's note
     for a in sorted(COMMAND_ALIASES, key=lambda a: -len(a.old)):
         if tuple(words[:len(a.old)]) == a.old:
-            words = list(a.new) + words[len(a.old):]
-            hits.append(Hit(" ".join(a.old), " ".join(a.new)))
+            rest = words[len(a.old):]
+            stop = rest.index("--") if "--" in rest else len(rest)
+            new, old_text, new_text = list(a.new), " ".join(a.old), " ".join(a.new)
+            if a.unless is not None:
+                flag, extra = a.unless
+                if _flag_at(rest, flag, stop) is None:
+                    new += list(extra)
+                    new_text = " ".join(list(a.new) + list(extra))
+                else:
+                    old_text, new_text = f"{old_text} {flag}", f"{new_text} {flag}"
+            words = new + rest
+            hits.append(Hit(old_text, new_text))
+            typed = " ".join(a.old)
             break
     if implied and len(words) > 1 and words[0] in IMPLIED_VERBS:
         noun, iv, nxt = words[0], IMPLIED_VERBS[words[0]], words[1]
         guarded = iv.unless_flag is not None and nxt != iv.verb and any(
-            w == iv.unless_flag or w.startswith(iv.unless_flag + "=") for w in words[2:])
+            w == iv.unless_flag or w.startswith(iv.unless_flag + "=") for w in words[2:]) and (
+            nxt not in iv.named or len(words) < 3 or words[2].startswith("-"))
         if nxt not in ("-h", "--help") and (nxt not in iv.verbs or guarded):
             words = [noun, iv.verb] + words[1:]
             old = " ".join(h.old for h in hits) or noun
             hits = [Hit(f"{old} NAME", f"{noun} {iv.verb} NAME")]
+            typed = f"{old} NAME"
+    for m in MODE_ALIASES:
+        n = len(m.command)
+        if tuple(words[:n]) != m.command:
+            continue
+        rest = words[n:]
+        stop = rest.index("--") if "--" in rest else len(rest)
+        i = _flag_at(rest, m.flag, stop)
+        if i is None:
+            continue
+        tok = rest[i]
+        if not m.value:
+            if "=" in tok:   # `--check=x`: not this flag's spelling; argparse refuses it as before
+                continue
+            del rest[i]
+            stop -= 1
+        elif "=" in tok:
+            value = tok.split("=", 1)[1]
+            del rest[i]
+            stop -= 1
+            rest.insert(stop, value)
+        elif i + 1 < stop:
+            value = rest[i + 1]
+            del rest[i:i + 2]
+            stop -= 2
+            rest.insert(stop, value)
+        else:   # the flag without its value: leave it, argparse names the problem on the new command
+            continue
+        old_cmd = typed or " ".join(m.command)
+        if old_cmd.endswith(" NAME"):
+            old_cmd = old_cmd[:-len(" NAME")]
+        words = list(m.new) + rest
+        hits = [Hit(f"{old_cmd} {MODE_USAGE[m.flag][0]}", f"{' '.join(m.new)} {MODE_USAGE[m.flag][1]}")]
+        break
     return words, hits
 
 
@@ -234,15 +347,72 @@ def apply_flag_aliases(root: argparse.ArgumentParser) -> None:
             action.help = f"{action.help} (old spelling {fa.old}, kept working)"
 
 
+def apply_tiers(root: argparse.ArgumentParser) -> None:
+    """Store each top-level command's tier on its parser (`parser.tier`); the root --help and the command
+    reference group by it. A top-level command without a tier, or a tier for no command, fails loudly."""
+    action = _sub_action(root)
+    names = set(action.choices)
+    missing, unknown = sorted(names - set(TIERS)), sorted(set(TIERS) - names)
+    if missing or unknown:
+        raise AssertionError(f"command_tree.TIERS: no tier for {missing}; no command {unknown}")
+    for name, p in action.choices.items():
+        p.tier = TIERS[name]
+
+
+def tier_rows(root: argparse.ArgumentParser) -> list[tuple[str, list[tuple[str, str]]]]:
+    """[(tier, [(command, one-line help)])] in TIER_TITLES order, commands in TIERS order, read from the
+    parser (`parser.tier`, set by apply_tiers; the help from each command's add_parser)."""
+    action = _sub_action(root)
+    helps = {a.dest: a.help or "" for a in action._choices_actions}
+    out = []
+    for tier in TIER_TITLES:
+        names = [n for n in TIERS if getattr(action.choices.get(n), "tier", None) == tier]
+        out.append((tier, [(n, helps.get(n, "")) for n in names]))
+    return out
+
+
+def root_help(root: argparse.ArgumentParser) -> str:
+    """The root --help in tiers: usage, the commands grouped newcomer / package author / coordination (from
+    the parser's tier data), then the global options and the epilog."""
+    fmt = root._get_formatter()
+    width = max(fmt._width, 60)
+    out = [root.format_usage().rstrip(), ""]
+    if root.description:
+        out += [textwrap.fill(root.description, width), ""]
+    rows = tier_rows(root)
+    col = max(len(n) for _t, names in rows for n, _h in names) + 4
+    for tier, names in rows:
+        out.append(TIER_TITLES[tier])
+        for name, text in names:
+            body = textwrap.wrap(text, max(width - col, 30)) or [""]
+            out.append(f"  {name.ljust(col - 2)}{body[0]}")
+            out += [" " * col + more for more in body[1:]]
+        out.append("")
+    fmt = root._get_formatter()
+    fmt.start_section("global options")
+    fmt.add_arguments([a for a in root._actions if a.option_strings])
+    fmt.end_section()
+    out.append(fmt.format_help().strip("\n"))
+    if root.epilog:
+        out += ["", textwrap.fill(root.epilog, width)]
+    return "\n".join(out) + "\n"
+
+
+def tier_of(root: argparse.ArgumentParser, name: str) -> str | None:
+    action = _sub_action(root)
+    p = action.choices.get(name) if action else None
+    return getattr(p, "tier", None)
+
+
 def canonical_command(args) -> str:
     """The canonical command path a parsed namespace selects ("" for a bare `lean-pkg`)."""
     cmd = getattr(args, "cmd", None)
     if cmd is None:
         return ""
+    if getattr(args, "repo_cmd", None):   # `repo move|export|adopt` keep update's / release's cmd
+        return f"repo {args.repo_cmd}"
     if cmd in LEGACY_CMD:
         return LEGACY_CMD[cmd]
-    if cmd == "update" and getattr(args, "repo_cmd", None):
-        return f"repo {args.repo_cmd}"
     if cmd in NOUN_DESTS and getattr(args, NOUN_DESTS[cmd], None):
         return f"{cmd} {getattr(args, NOUN_DESTS[cmd])}"
     for dest in NESTED_DESTS:
@@ -258,6 +428,13 @@ def aliases_of(path: tuple[str, ...] | str) -> list[str]:
     out = [" ".join(a.old) for a in COMMAND_ALIASES if a.new == path]
     if len(path) == 2 and path[0] in IMPLIED_VERBS and IMPLIED_VERBS[path[0]].verb == path[1]:
         out.append(f"{path[0]} NAME")
+    for m in MODE_ALIASES:
+        if m.new == path:
+            tail = MODE_USAGE[m.flag][0]
+            out.append(f"{' '.join(m.command)} {tail}")
+            out += [f"{' '.join(a.old)} {tail}" for a in COMMAND_ALIASES if a.new == m.command]
+            if len(m.command) == 2 and m.command[0] in IMPLIED_VERBS and IMPLIED_VERBS[m.command[0]].verb == m.command[1]:
+                out.append(f"{m.command[0]} {tail}")
     return out
 
 
@@ -286,8 +463,6 @@ NEWCOMER_VERBS: tuple[tuple[str, str, str], ...] = (
 # What to run until a newcomer verb arrives.
 UNTIL_THEN = {
     "new": "registry init, then register NAME --url URL --path DIR",
-    "verify": "receipt systemd --run ..., comparator-receipt ..., then gate NAME --receipt R",
-    "publish --yes": "promote NAME --yes",
 }
 
 # (step, track P: the paper is the product, track L: the Lean package is the product)
@@ -371,14 +546,19 @@ def aliases_text() -> str:
            "same JSON output and exit codes. In text mode each use prints one stderr note; set",
            f"{NOTE_ENV}=1 to silence it. Deprecation applies to behavior, never to a spelling.", "",
            "COMMANDS"]
-    rows = [(" ".join(a.old), " ".join(a.new)) for a in COMMAND_ALIASES]
+    rows = [(" ".join(a.old), " ".join(a.new) + (f" (without {a.unless[0]}: {' '.join(a.new + a.unless[1])})"
+                                                   if a.unless else "")) for a in COMMAND_ALIASES]
     rows += [(f"{noun} NAME ...", f"{noun} {iv.verb} NAME ...") for noun, iv in IMPLIED_VERBS.items()]
+    rows += [(f"{' '.join(m.command)} {MODE_USAGE[m.flag][0]}", f"{' '.join(m.new)} {MODE_USAGE[m.flag][1]}")
+             for m in MODE_ALIASES]
     width = max(len(o) for o, _ in rows) + 4
     out += [f"  lean-pkg {o.ljust(width)}lean-pkg {n}" for o, n in rows]
     out += ["", "FLAGS"]
     rows = [(f"{' '.join(fa.command)} {fa.old}", fa.new) for fa in FLAG_ALIASES]
     width = max(len(o) for o, _ in rows) + 4
     out += [f"  {o.ljust(width)}{n}" for o, n in rows]
-    out += ["", textwrap.fill("`comparator config|host-check --receipt R` still attaches a receipt to a package "
-                              "named so, as before.", 100)]
+    out += ["", "PROGRAMS",
+            "  comparator-receipt ...    lean-pkg receipt comparator ...   (the same code and flags; both stay)"]
+    out += ["", textwrap.fill("`comparator config|host-check|check|coverage --receipt R` (no NAME after the verb) "
+                              "still attaches a receipt to a package named so, as before.", 100)]
     return "\n".join(out) + "\n"

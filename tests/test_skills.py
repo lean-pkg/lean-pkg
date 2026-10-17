@@ -99,9 +99,10 @@ def _help(argv: list[str]) -> str:
 
 
 def _choices(text: str) -> set:
-    """Subcommand names in a help text: the {a,b} list plus any `name (alias)` aliases."""
+    """Subcommand names in a help text: the {a,b} list (the root's tiered help: one `  name  help` line per
+    command) plus any `name (alias)` aliases."""
     m = re.search(r"\{([a-z,-]+)\}", text)
-    names = set(m.group(1).split(",")) if m else set()
+    names = set(m.group(1).split(",")) if m else set(re.findall(r"^  ([a-z][a-z-]+)  ", text, re.M))
     return names | set(re.findall(r"^\s+[a-z-]+ \(([a-z-]+)\)", text, re.M))
 
 

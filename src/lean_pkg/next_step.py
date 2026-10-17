@@ -182,7 +182,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
         state["dirty"] = core.dirty_tracked(repo)
 
     if status in ("scratch", "active") and not live:
-        return out(f"lean-pkg claim {name} --workspace W --agent {_q(ag)} --reason \"...\"",
+        return out(f"lean-pkg lease claim {name} --workspace W --agent {_q(ag)} --reason \"...\"",
                    f"status {status} and no live lease: claim the package before working on it")
     if status == "scratch":
         return out(f"lean-pkg update {name} --status active --reason \"work started\"{holder_flag}",
@@ -299,7 +299,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
             nxt = cov.get("next_commands") or []
         except core.Fail as e:
             nxt = []
-            notes.append(f"comparator config --coverage: {e}")
+            notes.append(f"comparator coverage: {e}")
         if nxt:
             return _comparator_step(pkg, repo, head, out, nxt[0].split("   #")[0],
                        "no comparator config tracked at HEAD: scaffold one from the synced claims (committing "
@@ -329,7 +329,7 @@ def _ledger_step(reg: dict, pkg: dict, name: str, state: dict, notes: list[str],
     if led["package_status"] == "ready":
         return out(f"lean-pkg publish {name} --dry-run",
                    f"verified-private with comparator evidence bound to HEAD and the claims ledger ready: run "
-                   f"the read-only publish checklist, then `lean-pkg promote {name}` (a dry run; a human reads "
+                   f"the read-only publish checklist, then `lean-pkg publish {name} --yes --dry-run` (a dry run; a human reads "
                    f"it before --yes)")
     why = ledger.summary(led)
     codes = {d["code"] for r in led["claims"] if r["required"] for d in r["diagnostics"]}
@@ -339,7 +339,7 @@ def _ledger_step(reg: dict, pkg: dict, name: str, state: dict, notes: list[str],
             nxt = cc.do_coverage(reg, name)[1].get("next_commands") or []
         except core.Fail as e:
             nxt = []
-            notes.append(f"comparator config --coverage: {e}")
+            notes.append(f"comparator coverage: {e}")
         if nxt:
             return _comparator_step(pkg, core.repo_path(pkg), state["head"], out, nxt[0].split("   #")[0],
                        f"promote would refuse: {why}; extend the comparator configuration to the uncovered claims "

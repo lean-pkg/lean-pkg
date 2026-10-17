@@ -250,7 +250,7 @@ committed receipt whose job is that Slurm job. That is a lower-tier receipt
 with `job_id: slurm-<J>` (what `lean-pkg receipt slurm` writes) or a comparator
 receipt whose `host_policy` says it ran in Slurm job `<J>` and whose claim is
 sealed with the job's sacct record
-([`comparator-receipt --seal-sacct`](comparator.md#seal-the-slurm-claim-with-sacct);
+([`lean-pkg receipt comparator --seal-sacct`](comparator.md#seal-the-slurm-claim-with-sacct);
 `SLURM_JOB_ID` alone can be set by any shell, so an unsealed claim backs
 nothing). With both, the
 Acknowledgments carry the official sentence with the cluster linked. Without
@@ -366,7 +366,7 @@ verification-page:
 > lean-pkg page my-companion --check --site docs --html docs/verification.html
 ```
 
-`release --fresh-repo` exports the package tree as it is and adds no
+`repo export` exports the package tree as it is and adds no
 generated files, so it does not install the workflow; copy it in yourself.
 
 ## From lean-scope-page

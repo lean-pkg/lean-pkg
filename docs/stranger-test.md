@@ -23,7 +23,7 @@ Results so far: the first outsider run (2026-10-10, lean-pkg 0.7.22) met all fou
   test. It must not be one of the packages in this repository's index.
 - You use a machine that has never had lean-pkg installed: a fresh account,
   container or virtual machine is fine. Linux is required for
-  `comparator-receipt`.
+  `lean-pkg receipt comparator`.
 
 You may use a coding agent, if you say so in the transcript. You may not ask
 the maintainers for help during the run; if you are stuck for more than 30
@@ -36,16 +36,16 @@ All four, in order:
 1. `lean-pkg` installed from the README's instructions.
 2. Your project in the Challenge/Solution layout with a `comparator.json`
    ([Getting started](getting-started.md), worked example step 1).
-3. `comparator-receipt` ends with `comparator receipt written: ...` and the
+3. `lean-pkg receipt comparator` ends with `comparator receipt written: ...` and the
    file `.lean-receipts/<commit12>-comparator.json` exists. It writes nothing
    unless every configuration is accepted.
-4. `lean-pkg comparator NAME --receipt <that file> --check` reports the
+4. `lean-pkg comparator check NAME --receipt <that file>` reports the
    receipt valid.
 
 ## Before you start
 
 - Note the time. Record wall-clock time for each step; with the legacy
-  mechanism the first `comparator-receipt` can take about 25 minutes while it
+  mechanism the first `lean-pkg receipt comparator` can take about 25 minutes while it
   builds its tools; the toolchain mechanism (Lean v4.35.0-rc2 or later)
   builds none.
 - Read only `README.md` and the pages it links to. Note every page you open.
@@ -113,8 +113,8 @@ Repeat this block for every command that mattered, in order.
 |---|---|---|---|
 | 1 | lean-pkg installed from the README | yes / no | command and `lean-pkg --version` output |
 | 2 | Challenge/Solution layout with `comparator.json` | yes / no | file list |
-| 3 | `comparator-receipt` accepted every configuration | yes / no | receipt file name and its `commit` field |
-| 4 | `lean-pkg comparator NAME --receipt ... --check` valid | yes / no | output line |
+| 3 | `lean-pkg receipt comparator` accepted every configuration | yes / no | receipt file name and its `commit` field |
+| 4 | `lean-pkg comparator check NAME --receipt ...` valid | yes / no | output line |
 
 ## Where the documentation failed you
 
@@ -139,5 +139,5 @@ Repeat this block for every command that mattered, in order.
 Open an issue in this repository titled `Stranger test: YYYY-MM-DD` and attach
 the transcript and the receipt, or send them to a maintainer listed in
 [MAINTAINERS](../MAINTAINERS.md). A maintainer re-checks the receipt with
-`lean-pkg comparator NAME --receipt PATH --check`, records the result, and
+`lean-pkg comparator check NAME --receipt PATH`, records the result, and
 files an issue for every row of "Where the documentation failed you".

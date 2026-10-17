@@ -1244,7 +1244,7 @@ def report_lines(name: str, result: dict, quiet: bool = False) -> list[str]:
                    f"a `block: REGEX` line in {PATTERNS_FILE} or --strict makes them blocking")
     else:
         verdict = (f"{len(fail)} blocking hit(s): fix the tree (and rewrite history), or publish a fresh-history "
-                   f"tree with `lean-pkg release {name} --fresh-repo DIR`")
+                   f"tree with `lean-pkg repo export {name} DIR`")
     if quiet:
         if rest:
             lines.append(f"  warn-only hit(s): {len(rest)} ({warn_families(rest)}); they do not block")
@@ -1270,7 +1270,7 @@ def report_lines(name: str, result: dict, quiet: bool = False) -> list[str]:
 def refusal(name: str, n: int, n_warn: int = 0) -> str:
     extra = f" (+{n_warn} warning(s))" if n_warn else ""
     return (f"public-safety: {n} hit(s){extra} — fix the tree, or publish a fresh-history tree with "
-            f"`release --fresh-repo`; see `lean-pkg public-safety {name}`")
+            f"`repo export`; see `lean-pkg public-safety {name}`")
 
 
 def checklist_item(pkg: dict, repo: pathlib.Path) -> tuple[tuple[str, str], dict]:
@@ -1310,7 +1310,7 @@ def cmd_public_safety(args) -> int:
 
 def add_parsers(sub, add_json) -> None:
     s = sub.add_parser("public-safety", help="read-only: scan the package's tree and git history for private "
-                                             "patterns (exit 1 on hits; promote runs it)")
+                                             "patterns (exit 1 on hits; publish --yes runs it)")
     s.add_argument("name")
     s.add_argument("--history", action=argparse.BooleanOptionalAction, default=True,
                    help="also scan every blob and commit message reachable from any ref (default: on)")

@@ -1,9 +1,14 @@
-usage: lean-pkg repo [-h] {move} ...
+usage: lean-pkg repo [-h] {move,export,adopt} ...
 
 positional arguments:
-  {move}
-    move      relocate: point the record at another checkout, keeping name, history and claims
-              (the same as `update NAME --path PATH`)
+  {move,export,adopt}
+    move               relocate: point the record at another checkout, keeping name, history and
+                       claims (the same as `update NAME --path PATH`)
+    export             export the gate-bound commit's tree (or --from-tree SRCDIR) as a NEW
+                       single-commit repository at DIR, then move the package there (`release NAME
+                       --fresh-repo DIR` is the same)
+    adopt              adopt the existing repository at DIR as the public history, then move the
+                       package there (`release NAME --adopt-repo DIR` is the same)
 
 options:
-  -h, --help  show this help message and exit
+  -h, --help           show this help message and exit

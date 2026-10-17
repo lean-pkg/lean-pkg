@@ -39,6 +39,65 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   slurm`'s sacct parser, which now also reads `Start`, `End`, `User` and
   `NodeList` when a header names them. See docs/comparator.md, "Seal the
   Slurm claim with sacct".
+- The 1.0 command tree, stage 2 (docs/design/1.0-command-tree.md, accepted
+  2026-10-17). Every old argv keeps parsing to the same namespace (an
+  ARGV_TABLE row and a namespace-equality pair each, new mode aliases
+  included); text mode prints the one `note:` line.
+  - `lean-pkg verify NAME`: the newcomer's one step to verified-private on a
+    workstation. It runs, at the checkout's HEAD and in this order, the
+    comparator receipt (`receipt comparator --project CHECKOUT`), the
+    lower-tier receipt (`receipt systemd --run -- bash verify.sh LOG`, the log
+    and unit output in a work directory outside the checkout), and the gate
+    (`gate NAME --receipt LOWER --comparator COMPARATOR`; `--regate` for a
+    gated package), each printed first and run as its own invocation with its
+    own checks, lock and committed mode. An `active` package is first moved to
+    `gate-pending` by `update --status gate-pending`, the move the by-hand path
+    makes. Nothing is committed between the receipts, so both bind one commit
+    (the comparator runs first: it refuses any untracked file, the lower tier
+    allows `.lean-receipts/`); verify writes only what those commands write and
+    commits nothing in the checkout. Refused before any step: a checkout that
+    is not a clean commit, no committed verify script, no comparator
+    configuration, status scratch/archived/upstreamed, `--registry-snapshot`.
+    A receipt of the same commit is reused; HEAD already gated (or an
+    evidence-only descendant of the gated commit) runs nothing. A `verify.sh`
+    declaring `mathlib-rev: none` with no Mathlib in the manifest runs the
+    comparator with `COMPARATOR_RECEIPT_NO_MATHLIB=1`. `--dry-run` prints the
+    steps; `--work-dir`, `--unit`, `--script`, `--judges`, `--agent`,
+    `--reason`; `--json`.
+  - `repo export NAME DIR` and `repo adopt NAME DIR`: the repository modes of
+    `release` as commands of their own. `release NAME --fresh-repo DIR` and
+    `--adopt-repo DIR` (and `lease release ...`) are permanent aliases, rewritten
+    by the new mode-alias table (`command_tree.MODE_ALIASES`); `lease release`
+    shows only the lease flags.
+  - `publish NAME --yes` publishes (the promotion checklist, then the
+    repository goes public); `--yes --dry-run` runs that checklist only.
+    `promote NAME --yes` is `publish NAME --yes` and `promote NAME` is
+    `publish NAME --yes --dry-run` (permanent aliases, same output and JSON).
+    `publish NAME` without a flag is the read-only checklist (`--dry-run` still
+    accepted).
+  - `comparator check NAME --receipt R` (was `comparator NAME --receipt R
+    --check`), `comparator coverage NAME` and `comparator migrate-signoff
+    PATH` (were `comparator config --coverage` / `--migrate-signoff`), each a
+    real subparser with only its flags; the old spellings are mode aliases.
+  - `receipt comparator`: the `comparator-receipt` program as a lean-pkg
+    command (the same code and flags; the program stays); the printed resume
+    command repeats the command it was given.
+  - `verify-receipts`: an alias of `receipt check`.
+  - `register --license-spdx SPDX`: the license at registration (an SPDX
+    identifier or expression, validated like `update --license-spdx`; event
+    field `license_spdx`).
+  - Tiered root `--help` and `lean-pkg help`: the commands in three groups,
+    newcomer (new, verify, status, page, publish, doctor, help), package author
+    and coordination, from tier data on each top-level parser
+    (`command_tree.TIERS`, stored as `parser.tier` by `apply_tiers`; a
+    top-level command without a tier fails at startup).
+  - The command reference (`scripts/command_docs.py`) has one page per
+    canonical parser node (`docs/commands/lease-claim.md`,
+    `comparator-coverage.md`, `verify.md`, ...) and an index grouped by the
+    parser's tiers; an alias gets no page (`promote.md` and
+    `comparator-receipt.md` are gone: `publish.md`, `receipt-comparator.md`),
+    and `aliases.md` lists the split modes and the `comparator-receipt`
+    program.
 - Docs: a first worked-example tutorial, docs/tutorial-pi-lambda.md:
   Dynkin's π-λ theorem and the uniqueness of probability measures, from the
   textbook statement to a verified page on one workstation (`lean-pkg new`,
@@ -124,6 +183,35 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - RELEASING.md: renamed commands and flags are permanent aliases, never
   deprecated; a deprecation removes behavior only, and lasts at least two
   minor releases and 60 days, whichever is longer.
+- `page --write` on a gated package whose record says nothing about the
+  docs-only exception now turns it on itself, through `lean-pkg update NAME
+  --accept-docs-descendants --reason "page --write: ..."` (its own invocation,
+  lock, committed mode and `updated` event), and says what that records:
+  `docs_descendants: true`, so a later commit that changes only non-build
+  files, such as the README, keeps the receipts bound to the gated commit,
+  while a changed build input still needs new receipts. A record that says
+  `true` or `false` already is left alone; `--json` gains `docs_descendants`
+  {turned_on, command, rc} when it runs.
+- The comparator host policy has a workstation default: with
+  `COMPARATOR_RECEIPT_ALLOWED_HOSTS` unset (set at all, even empty, the
+  allow-list decides), `COMPARATOR_RECEIPT_WORKSTATION_DEFAULT` not `0`, and no
+  Slurm on the machine (no `sbatch`, `srun`, `slurmd` or `slurmctld` on PATH,
+  no `slurm.conf`, no `SLURM_CONF`), the machine running the command may
+  produce comparator receipts. The receipt's `host_policy` names it by its
+  label only: `host h-...: the machine running the command (workstation
+  default: ...)`. A Slurm login node is refused as before; an operator who
+  wants the old behaviour everywhere sets
+  `COMPARATOR_RECEIPT_WORKSTATION_DEFAULT=0`.
+- Stage logs and comparator receipts redact lean-pkg's own install directory
+  to `<lean-pkg>` and elan's home (`ELAN_HOME`, else `~/.elan`) to `<elan>`,
+  wherever they are, so neither a private directory layout nor an install
+  outside `HOME` reaches a log or the receipt's `toolchain_resolution.lake`,
+  and the public-safety scan has no install path to warn about.
+- Docs, `llms.txt`, the shipped skills and the tool's own hints use the 1.0
+  spellings (`lease claim`, `registry init`, `repo export`, `comparator attach`,
+  `comparator coverage`, `publish --yes`, `receipt comparator`); the
+  quickstart and the π-λ tutorial use `verify`, `register --license-spdx`,
+  `page --write` and `publish`, with fewer steps.
 
 ### Fixed
 
@@ -171,6 +259,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   evidence"); there is no bypass flag. A package gated with such a receipt
   stays recorded, but its ledger is no longer `ready` until the log is
   restored byte-exact (or a new run is gated).
+- Re-running the comparator receipt at the same commit after `verify.sh`
+  (which starts with `rm -rf .lake/build`) no longer refuses on its own
+  resume state. When compiled modules were only removed since the setup was
+  prepared (none of those that remain changed), the setup stages run again
+  and the comparison judges the oleans that build records; a changed olean,
+  or a setup named with `--from-prepared`, is still refused.
 - `lean-pkg --version` and `doctor` probe an editable checkout with `git
   --no-optional-locks status`, so they no longer rewrite its `.git/index`
   (a stat refresh) and change a file a caller may have hashed.

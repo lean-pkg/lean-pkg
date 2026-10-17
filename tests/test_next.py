@@ -82,7 +82,7 @@ def test_usage_and_unknown_package(lp, env, capsys):
 def test_unleased_scratch_or_active_claims(lp, env, capsys, status):
     set_status(env, "alpha", status)
     rc, data = nxt(lp, env, capsys, "alpha", "--agent", "vera")
-    assert rc == 0 and data["command"].startswith("lean-pkg claim alpha --workspace W --agent vera")
+    assert rc == 0 and data["command"].startswith("lean-pkg lease claim alpha --workspace W --agent vera")
 
 
 def test_claimed_scratch_moves_to_active(lp, env, capsys):
@@ -108,7 +108,7 @@ def test_expired_lease_reads_as_unleased(lp, env, capsys):
     set_status(env, "alpha", "active")
     set_lease(env, "alpha", agent="otto", hours_ago=30, ttl=24)
     rc, data = nxt(lp, env, capsys, "alpha", "--agent", "vera")
-    assert rc == 0 and data["command"].startswith("lean-pkg claim alpha")
+    assert rc == 0 and data["command"].startswith("lean-pkg lease claim alpha")
     assert any("expired" in n for n in data["notes"])
 
 
@@ -183,7 +183,7 @@ def test_gate_pending_invalid_receipt_blocks(lp, env, capsys):
 def test_verified_private_with_comparator_goes_to_publish(lp, env, capsys):
     rc, data = nxt(lp, env, capsys, "beta")
     assert rc == 0 and data["command"] == "lean-pkg publish beta --dry-run"
-    assert "promote beta" in data["reason"]
+    assert "publish beta --yes --dry-run" in data["reason"]
     assert data["state"]["gate_commit"] == data["state"]["comparator_commit"] == repo_head(env.repo_b)
 
 

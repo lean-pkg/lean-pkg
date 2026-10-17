@@ -241,7 +241,7 @@ def carry_public_allow(name: str, pkg: dict, pat_root: pathlib.Path, email_repo:
     head = [] if existing else [
         "# lean-pkg public allow list: `allow:` lines only (public-safety reads them; block and warn lines",
         f"# belong in the untracked {ps.PATTERNS_FILE}). Committed on purpose: nothing here is private."]
-    body = existing + head + [f"# carried from {ps.PATTERNS_FILE} by `lean-pkg release --fresh-repo` ({today})"]
+    body = existing + head + [f"# carried from {ps.PATTERNS_FILE} by `lean-pkg repo export` ({today})"]
     dest.write_text("\n".join(body + [t for _n, t in new]) + "\n", encoding="utf-8")
     return {"file": ps.PUBLIC_ALLOW_FILE, "carried": len(new), "lines": [n for n, _t in new]}
 
@@ -270,7 +270,7 @@ def next_commands(name: str, target: pathlib.Path, new12: str, remote: str | Non
              f"comparator-receipt --project {target}   # on a host its policy allows",
              f"lean-pkg comparator {name} --receipt .lean-receipts/{new12}-comparator.json",
              f"lean-pkg publish {name} --dry-run --public-safety",
-             f"lean-pkg promote {name}"]
+             f"lean-pkg publish {name} --yes --dry-run"]
     return cmds
 
 
@@ -300,10 +300,10 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
     else:
         src, chosen = None, f"working tree {srcdir}"
         provenance = gate_bound_commit(pkg, repo)
-    stored, _key = core.normalize_local_path(target_arg, "--fresh-repo")
+    stored, _key = core.normalize_local_path(target_arg, "repo export DIR")
     target = core.HOME / pathlib.Path(stored)
     if target.exists() and (not target.is_dir() or any(target.iterdir())):
-        raise core.Fail(f"{name}: --fresh-repo {target} exists and is not an empty directory; refusing")
+        raise core.Fail(f"{name}: repo export: DIR {target} exists and is not an empty directory; refusing")
     tops = []
     if repo.is_dir() and core.git_head(repo) is not None:
         tops.append(("the source repository", core.git(repo, "rev-parse", "--show-toplevel").stdout.strip()))
@@ -311,7 +311,7 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
         tops.append(("--from-tree", os.path.realpath(srcdir)))
     for what, top in tops:
         if top and (os.path.realpath(target) == top or pathlib.Path(top) in pathlib.Path(os.path.realpath(target)).parents):
-            raise core.Fail(f"{name}: --fresh-repo {target} lies inside {what} {top}; choose a "
+            raise core.Fail(f"{name}: repo export: DIR {target} lies inside {what} {top}; choose a "
                             f"directory outside it")
     if not dry_run and core.git(repo if repo.is_dir() else srcdir, "var", "GIT_COMMITTER_IDENT").returncode != 0:
         raise core.Fail(f"{name}: git has no committer identity here (git config user.name / user.email); "
@@ -482,35 +482,35 @@ def do_adopt_repo(reg_path, reg, events_p, name, *, target_arg, remote, allow_hi
     if remote is not None:
         core.require_nonempty("--remote", remote)
     reason = reason or ADOPT_REASON
-    stored, _key = core.normalize_local_path(target_arg, "--adopt-repo")
+    stored, _key = core.normalize_local_path(target_arg, "repo adopt DIR")
     target = core.HOME / pathlib.Path(stored)
     head = core.git_head(target) if target.is_dir() else None
     if head is None:
-        raise core.Fail(f"{name}: --adopt-repo {target} is not a git repository with a commit")
+        raise core.Fail(f"{name}: repo adopt: DIR {target} is not a git repository with a commit")
     top = core.git(target, "rev-parse", "--show-toplevel").stdout.strip()
     if os.path.realpath(top) != os.path.realpath(target):
-        raise core.Fail(f"{name}: --adopt-repo {target} is inside the repository {top}, not its top directory; "
+        raise core.Fail(f"{name}: repo adopt: DIR {target} is inside the repository {top}, not its top directory; "
                         f"adopt a repository whose top directory is the package")
     repo = core.repo_path(pkg)
     if repo.is_dir() and core.git_head(repo) is not None:
         src_top = core.git(repo, "rev-parse", "--show-toplevel").stdout.strip()
         if src_top and os.path.realpath(src_top) == os.path.realpath(top):
-            raise core.Fail(f"{name}: --adopt-repo {target} is the package's own source repository; adopt a "
-                            f"separate repository, or export one with --fresh-repo DIR")
+            raise core.Fail(f"{name}: repo adopt: DIR {target} is the package's own source repository; adopt a "
+                            f"separate repository, or export one with `lean-pkg repo export {name} DIR`")
     count = core.git(target, "rev-list", "--all", "--count").stdout.strip()
     commits = int(count) if count.isdigit() else 0
     if commits != 1 and not allow_history:
-        raise core.Fail(f"{name}: --adopt-repo {target} has {commits} commits on its refs; an adopted public "
+        raise core.Fail(f"{name}: repo adopt: DIR {target} has {commits} commits on its refs; an adopted public "
                         f"history must be exactly one commit. Pass --allow-history if every commit is meant to "
                         f"be published (public-safety scans them all), or export a single commit with "
-                        f"--fresh-repo DIR --from-tree {target}")
+                        f"`lean-pkg repo export {name} DIR --from-tree {target}`")
     if core.git(target, "status", "--porcelain", "--untracked-files=no").stdout.strip():
-        raise core.Fail(f"{name}: --adopt-repo {target} has uncommitted changes to tracked files; commit or "
+        raise core.Fail(f"{name}: repo adopt: DIR {target} has uncommitted changes to tracked files; commit or "
                         f"discard them first (the adopted commit is what gets published)")
     origin = core.git(target, "remote", "get-url", "origin")
     origin_url = origin.stdout.strip() if origin.returncode == 0 else None
     if remote and origin_url and origin_url != remote:
-        raise core.Fail(f"{name}: --adopt-repo {target} already has origin {origin_url}, not --remote {remote}; "
+        raise core.Fail(f"{name}: repo adopt: DIR {target} already has origin {origin_url}, not --remote {remote}; "
                         f"refusing to change it (git remote set-url origin URL yourself)")
     _o, preview = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
                                    agent=agent, redetect=False, dry_run=True)
@@ -519,7 +519,7 @@ def do_adopt_repo(reg_path, reg, events_p, name, *, target_arg, remote, allow_hi
     blocking = ps.blocking(result["hits"])
     if blocking:
         lines = [ps.hit_line(h) for h in blocking[:20]]
-        raise core.Fail(f"{name}: --adopt-repo {target} has {len(blocking)} blocking public-safety hit(s) in its "
+        raise core.Fail(f"{name}: repo adopt: DIR {target} has {len(blocking)} blocking public-safety hit(s) in its "
                         f"tree or history; nothing written:\n" + "\n".join(lines)
                         + "\nfix the tree (a history hit: rebuild the repository), then adopt again")
     provenance = gate_bound_commit(pkg, repo)
@@ -583,8 +583,8 @@ def cmd_release_adopt(args) -> int:
                              ("--from-tree", args.from_tree is not None), ("--keep-receipts", args.keep_receipts),
                              ("--source-commit", args.source_commit is not None)) if on]
     if extra:
-        raise core.UsageError(f"{', '.join(extra)} do(es) not go with --adopt-repo DIR (no export: the repository "
-                              f"is adopted as it is)")
+        raise core.UsageError(f"{', '.join(extra)} do(es) not go with `repo adopt NAME DIR` (no export: the "
+                              f"repository is adopted as it is)")
     reg_path, events_p = core.registry_path(args), core.events_path(args)
     lines, rc, payload = do_adopt_repo(reg_path, core.load_registry(reg_path), events_p, args.name,
                                        target_arg=args.adopt_repo, remote=args.remote,
@@ -599,9 +599,9 @@ def cmd_release_adopt(args) -> int:
 
 def cmd_release_fresh(args) -> int:
     if args.force:
-        raise core.UsageError("--force releases a lease; it does not go with --fresh-repo")
+        raise core.UsageError("--force releases a lease; it does not go with `repo export`")
     if args.allow_history:
-        raise core.UsageError("--allow-history goes with --adopt-repo DIR")
+        raise core.UsageError("--allow-history goes with `repo adopt NAME DIR`")
     if args.from_tree is not None and args.source_commit is not None:
         raise core.UsageError("--from-tree exports a working tree, --source-commit a commit; give one")
     reg_path, events_p = core.registry_path(args), core.events_path(args)

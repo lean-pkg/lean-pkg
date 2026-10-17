@@ -15,87 +15,109 @@ Every `lean-pkg` command and subcommand, with its usage line, every flag, its ex
 [Command aliases](aliases.md).
 
 **New here?** The [quickstart](../quickstart.md) takes a new package from
-[`new`](new.md) to a verified page. The usual path through the commands is
-[`registry init`](registry.md#lean-pkg-registry-init) (once) → [`register`](register.md) → [`lease claim`](lease.md#lean-pkg-lease-claim) →
-work → [`receipt slurm`](receipt.md#lean-pkg-receipt-slurm) or
-[`receipt systemd`](receipt.md#lean-pkg-receipt-systemd) → [`gate`](gate.md) →
-[`comparator-receipt`](comparator-receipt.md) and [`comparator attach`](comparator.md#lean-pkg-comparator-attach) →
-[`coverage check`](coverage.md#lean-pkg-coverage-check) and [`page`](page.md) →
-[`publish --dry-run`](publish.md) → [`promote`](promote.md). At any point
-[`next NAME`](next.md) prints the one command to run now and [`status NAME`](status.md)
-shows the record. The [sample workflow](../sample-workflow.md) walks the same path on a
-real package.
+[`new`](new.md) to a verified page with five verbs: [`new`](new.md) →
+[`verify`](verify.md) (both receipts and the gate) → [`status`](status.md) →
+[`page`](page.md) → [`publish`](publish.md) (`--yes` to go public). `verify` runs, in order,
+[`receipt comparator`](receipt-comparator.md), [`receipt systemd`](receipt-systemd.md) and
+[`gate`](gate.md); a cluster uses [`receipt slurm`](receipt-slurm.md) instead. A shared
+registry adds [`lease claim`](lease-claim.md) before work. At any point
+[`next NAME`](next.md) prints the one command to run now. The
+[sample workflow](../sample-workflow.md) walks the same path on a real package.
 
-## Set up and get help
+## START HERE: one package on your own machine
 
 | Command | Purpose |
 |---|---|
 | [`lean-pkg new`](new.md) | scaffold a new Lean package (Challenge/Solution, comparator.json, claims, coverage, verify.sh) in a new directory and git init it; no registry, no network |
+| [`lean-pkg verify`](verify.md) | both receipts and the gate in one step on this machine: the comparator receipt, the lower-tier receipt (systemd user unit) at the same commit, then the gate; prints each command it runs |
+| [`lean-pkg status`](status.md) | full record + last 5 history entries + scope (gated commit, privacy, the exact comparator-covered declarations) |
+| [`lean-pkg page`](page.md) | render the README verification section from coverage.yaml, claims, the ledger and the receipts; stdout unless --write/--check/--out/--site/--html |
+| [`lean-pkg publish`](publish.md) | the checklist from verified-private to listed, with the exact next commands (read-only); --yes makes the repository public (`promote` is the same) |
 | [`lean-pkg doctor`](doctor.md) | installation, registry, index and tool diagnostics; exit 1 when the registry is unreadable or its schema version is unsupported |
 | [`lean-pkg help`](help.md) | help topics (exit-codes, environment, formatting) or a command's --help |
-| [`lean-pkg llms`](llms.md) | print the agent-oriented usage contract |
 
-## See the registry
-
-| Command | Purpose |
-|---|---|
-| [`lean-pkg list`](list.md) | static table, pipe-friendly |
-| [`lean-pkg status`](status.md) | full record + last 5 history entries + scope (gated commit, privacy, the exact comparator-covered declarations) |
-| [`lean-pkg next`](next.md) | read-only: the single recommended next command for a package, with a one-line reason (exit 0 a command to run, 1 blocked) |
-| [`lean-pkg registry`](registry.md) | the registry file itself: init, migrate, validate, audit, board, wiki (the old top-level spellings keep working) |
-
-## Register, lease and edit packages
+## PACKAGE AUTHOR: evidence, publication, the catalog
 
 | Command | Purpose |
 |---|---|
 | [`lean-pkg register`](register.md) | the ONLY write path for new packages: validated, deduping, auto-detecting |
 | [`lean-pkg update`](update.md) | set fields of an already-registered package (register is for NEW ones) |
-| [`lean-pkg repo`](repo.md) | the package's checkout: move (relocate the record to another checkout) |
-| [`lean-pkg lease`](lease.md) | leases for agents sharing a registry: claim, renew, release, list (the old spellings claim, renew, release, leases keep working) |
-
-## Produce and attach evidence
-
-The lower tier (`receipt`, `gate`) moves a package to verified-private; the comparator tier is required to go public.
-
-| Command | Purpose |
-|---|---|
-| [`lean-pkg receipt`](receipt.md) | produce lower-tier receipts (slurm, systemd: write files in the package checkout, never the registry); check a published package's receipts from git alone (check) |
-| [`lean-pkg gate`](gate.md) | validate a lower-tier receipt; gate-pending -&gt; verified-private; records the receipt's lean_toolchain and mathlib_rev as the package's pins |
-| [`comparator-receipt`](comparator-receipt.md) | run comparator-check.sh and write a comparator receipt |
-| [`lean-pkg comparator`](comparator.md) | comparator receipts: attach (or --check) one to a gated package; config (write a configuration from claims); host-check |
 | [`lean-pkg record`](record.md) | record a publication evidence event (consent, Palomar, DOI, Reservoir, Mathlib PR) |
-
-## Claims, coverage and the verification page
-
-| Command | Purpose |
-|---|---|
-| [`lean-pkg claims`](claims.md) | claims.yaml: sync \| list \| check \| migrate \| ledger \| mark \| rebase (named reusable results) |
-| [`lean-pkg coverage`](coverage.md) | coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main results) `page` renders |
-| [`lean-pkg page`](page.md) | render the README verification section from coverage.yaml, claims, the ledger and the receipts; stdout unless --write/--check/--out/--site/--html |
-| [`lean-pkg formalization`](formalization.md) | formalization.yaml (v0.4, what Palomar reads): render it from the registry and the repo at HEAD; anchor the companion to one arXiv version |
+| [`lean-pkg gate`](gate.md) | validate a lower-tier receipt; gate-pending -&gt; verified-private; records the receipt's lean_toolchain and mathlib_rev as the package's pins |
+| [`lean-pkg next`](next.md) | read-only: the single recommended next command for a package, with a one-line reason (exit 0 a command to run, 1 blocked) |
+| [`lean-pkg list`](list.md) | static table, pipe-friendly |
 | [`lean-pkg search`](search.md) | prior-art search over claims, the index and public sources |
+| [`lean-pkg receipt`](receipt.md) | produce receipts (slurm, systemd: the lower tier; comparator: the comparator run; each writes files in the package checkout, never the registry); check a published package's receipts from git alone (check) |
+| [`lean-pkg receipt slurm`](receipt-slurm.md) | a lower-tier receipt from a finished Slurm job, its verify log and its stdout seal (--template: an sbatch wrapper that meets it; --check: preflight the job's files) |
+| [`lean-pkg receipt systemd`](receipt-systemd.md) | a lower-tier receipt from a finished systemd --user service unit (run bounded with --run, or its saved properties), its verify log and its stdout seal |
+| [`lean-pkg receipt comparator`](receipt-comparator.md) | run the comparator on a Lake project and write the comparator receipt (the `comparator-receipt` program: the same code and flags) |
+| [`lean-pkg receipt check`](receipt-check.md) | validate a published package's receipts from git alone: no registry, no network, never runs Lean (an outside referee's check; exit 0 only when every check passes) |
+| [`lean-pkg comparator`](comparator.md) | comparator receipts: attach one to a gated package, or check it; config (write a configuration from claims), coverage, migrate-signoff; host-check |
+| [`lean-pkg comparator attach`](comparator-attach.md) | attach a comparator receipt to a gated package; no status change (`comparator NAME --receipt R` is the same) |
+| [`lean-pkg comparator check`](comparator-check.md) | validate a comparator receipt against the package; read-only, records nothing, works at any status (`comparator NAME --receipt R --check` is the same) |
+| [`lean-pkg comparator config`](comparator-config.md) | write a comparator configuration from claims (--from-claims); coverage and migrate-signoff are verbs of their own |
+| [`lean-pkg comparator coverage`](comparator-coverage.md) | read-only: the claims covered by the comparator configuration tracked at the gate-bound commit, and why a changed one needs a new gate (`comparator config --coverage NAME` is the same) |
+| [`lean-pkg comparator migrate-signoff`](comparator-migrate-signoff.md) | move the deprecated inline judged_as / lean_pkg_scaffold keys of a configuration into lean-pkg-signoff.json; dry run unless --write (`comparator config --migrate-signoff PATH` is the same) |
+| [`lean-pkg comparator host-check`](comparator-host-check.md) | can this host run the comparator; read-only |
+| [`lean-pkg claims`](claims.md) | claims.yaml: sync \| list \| check \| migrate \| ledger \| mark \| rebase (named reusable results) |
+| [`lean-pkg claims sync`](claims-sync.md) | read claims.yaml at HEAD of the checkout; validate (TODO placeholders refused); cache; event |
+| [`lean-pkg claims list`](claims-list.md) | table of cached claims with status and trust |
+| [`lean-pkg claims check`](claims-check.md) | re-validate cached claims; exit 0/1 (--file: a working-copy file) |
+| [`lean-pkg claims migrate`](claims-migrate.md) | legacy claims.json -&gt; a claims/1 skeleton in the checkout (never the registry) |
+| [`lean-pkg claims ledger`](claims-ledger.md) | per-claim closure from the recorded evidence: verified only with zero diagnostics; read-only; exit 0 only when the package is ready |
+| [`lean-pkg claims mark`](claims-mark.md) | set the status of the claims a comparator config's theorem_names cover (exact full-name match); read-only unless --write; never commits |
+| [`lean-pkg claims rebase`](claims-rebase.md) | move claims.yaml and coverage.yaml to a new manuscript version: carry unchanged statements re-keyed from the new .aux, list the rest for review; writes only --out-dir; never changes a status |
+| [`lean-pkg coverage`](coverage.md) | coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main results) `page` renders |
+| [`lean-pkg coverage check`](coverage-check.md) | validate coverage.yaml against claims.yaml and the receipts at HEAD; exit 0/1; read-only |
+| [`lean-pkg formalization`](formalization.md) | formalization.yaml (v0.4, what Palomar reads): render it from the registry and the repo at HEAD; anchor the companion to one arXiv version |
+| [`lean-pkg formalization render`](formalization-render.md) | render formalization.yaml (v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout unless --write/--out (`formalization NAME` is the same) |
+| [`lean-pkg formalization anchor`](formalization-anchor.md) | bind the companion to one posted arXiv version (writes package files, never the registry) |
+| [`lean-pkg palomar`](palomar.md) | Palomar: prepare (build a submission bundle), check (read-only readiness), port-modules (plan or write the module-system port); no network |
+| [`lean-pkg palomar prepare`](palomar-prepare.md) | build the submission bundle (formalization.yaml, comparator configs, receipts, README.txt, MANIFEST.sha256); event palomar-prepared |
+| [`lean-pkg palomar check`](palomar-check.md) | read-only, offline: every gap to Palomar's mechanical rules at one commit (module headers, toolchain floor, comparator configs, formalization.yaml, licence, repository); exit 0 ready / 1 gaps |
+| [`lean-pkg palomar port-modules`](palomar-port-modules.md) | plan (dry run, default) or --write the mechanical port of the package's tracked .lean files to Lean's module system; never commits |
+| [`lean-pkg reservoir`](reservoir.md) | Reservoir: check (read-only listing criteria) |
+| [`lean-pkg reservoir check`](reservoir-check.md) | would Reservoir list this package? read-only; exit 0 eligible / 1 not |
+| [`lean-pkg public-safety`](public-safety.md) | read-only: scan the package's tree and git history for private patterns (exit 1 on hits; publish --yes runs it) |
+| [`lean-pkg report`](report.md) | read-only: a redacted bug report in the repository's issue format; dry run unless --yes (files it with gh issue create) |
 
-## Publish
+## COORDINATION AND MAINTENANCE: shared registries, leases, the registry file
 
 | Command | Purpose |
 |---|---|
-| [`lean-pkg publish`](publish.md) | read-only release checklist from verified-private to listed (--dry-run only), with the exact next commands |
-| [`lean-pkg public-safety`](public-safety.md) | read-only: scan the package's tree and git history for private patterns (exit 1 on hits; promote runs it) |
-| [`lean-pkg promote`](promote.md) | promotion checklist; DRY-RUN unless --yes |
-| [`lean-pkg palomar`](palomar.md) | Palomar: prepare (build a submission bundle), check (read-only readiness), port-modules (plan or write the module-system port); no network |
-| [`lean-pkg reservoir`](reservoir.md) | Reservoir: check (read-only listing criteria) |
+| [`lean-pkg lease`](lease.md) | leases for agents sharing a registry: claim, renew, release, list (the old spellings claim, renew, release, leases keep working) |
+| [`lean-pkg lease claim`](lease-claim.md) | CAS lease on a package (24h default TTL) |
+| [`lean-pkg lease release`](lease-release.md) | release a lease (holder-only unless --force); exporting or adopting a repository is `repo export` / `repo adopt` |
+| [`lean-pkg lease renew`](lease-renew.md) | restart your own live lease from now (holder-only; refuses once it has lapsed: claim again) |
+| [`lean-pkg lease list`](lease-list.md) | held leases, soonest expiry first; read-only |
+| [`lean-pkg registry`](registry.md) | the registry file itself: init, migrate, validate, audit, board, wiki (the old top-level spellings keep working) |
+| [`lean-pkg registry board`](registry-board.md) | curses TUI on a tty; static table otherwise |
+| [`lean-pkg registry init`](registry-init.md) | bootstrap an empty registry and its event log |
+| [`lean-pkg registry migrate`](registry-migrate.md) | upgrade the registry schema in place (additive; idempotent) |
+| [`lean-pkg registry audit`](registry-audit.md) | report expired leases, gh visibility, drift; read-only without --write |
+| [`lean-pkg registry validate`](registry-validate.md) | schema + enum + history sanity; exit 0/1 |
+| [`lean-pkg registry wiki`](registry-wiki.md) | render a Markdown status page |
+| [`lean-pkg repo`](repo.md) | the package's checkout: move (relocate the record), export (a new single-commit public repository), adopt (an existing one) |
+| [`lean-pkg repo move`](repo-move.md) | relocate: point the record at another checkout, keeping name, history and claims (the same as `update NAME --path PATH`) |
+| [`lean-pkg repo export`](repo-export.md) | export the gate-bound commit's tree (or --from-tree SRCDIR) as a NEW single-commit repository at DIR, then move the package there (`release NAME --fresh-repo DIR` is the same) |
+| [`lean-pkg repo adopt`](repo-adopt.md) | adopt the existing repository at DIR as the public history, then move the package there (`release NAME --adopt-repo DIR` is the same) |
 | [`lean-pkg index`](index-command.md) | the public catalog: add \| check \| render \| migrate |
-| [`lean-pkg-extract`](lean-pkg-extract.md) | Plan a standalone public Lean-verification repository from a mixed working repository, with exact provenance. Read-only; no registry, no network. |
+| [`lean-pkg index add`](index-add.md) | write &lt;index&gt;/&lt;name&gt;/entry.yaml from a clone at the pin |
+| [`lean-pkg index check`](index-check.md) | static check, or re-derive entries from bytes at the pin; exit 0/1/2 |
+| [`lean-pkg index render`](index-render.md) | write the Markdown table (default &lt;index&gt;/README.md) |
+| [`lean-pkg index migrate`](index-migrate.md) | rewrite index-entry/1 entries as index-entry/2 (claims derived) |
+| [`lean-pkg llms`](llms.md) | print the agent-oriented usage contract |
 
-## Exercises and reports
+## Other programs
 
 | Command | Purpose |
 |---|---|
 | [`lean-exercise`](lean-exercise.md) | Judge a Lean exercise Solution against its Challenge with `lake comparator`. |
-| [`lean-pkg report`](report.md) | read-only: a redacted bug report in the repository's issue format; dry run unless --yes (files it with gh issue create) |
+| [`lean-pkg-extract`](lean-pkg-extract.md) | Plan a standalone public Lean-verification repository from a mixed working repository, with exact provenance. Read-only; no registry, no network. |
+| `comparator-receipt` | the program spelling of [`lean-pkg receipt comparator`](receipt-comparator.md) |
 
 Other spellings of these commands are listed on [Command aliases](aliases.md).
 
 ## Regenerating these pages
 
-Every page here is generated by `scripts/command_docs.py` (`make docs`) from the argparse parsers, `lean-pkg help exit-codes`, the golden `--json` key sets and the curated sources in `docs/_commands/` (examples, groups, per-command notes). CI fails when a committed page differs from the generator's output, and when an example no longer parses.
+Every page here is generated by `scripts/command_docs.py` (`make docs`) from the argparse parsers (the tiers included), `lean-pkg help exit-codes`, the golden `--json` key sets and the curated sources in `docs/_commands/` (examples, the introduction, per-command notes). CI fails when a committed page differs from the generator's output, and when an example no longer parses.

@@ -48,7 +48,7 @@ def test_a_ready_package_passes_and_prints_the_next_commands(lp, env, fake_gh, c
                    "formalization.yaml is current", "lakefile package name beta", "tag at HEAD: v1.0.0",
                    "comparator PASS bound to HEAD"):
         assert needle in text, needle
-    assert data["next"][:2] == ["lean-pkg promote beta", "lean-pkg promote beta --yes   # ONE-WAY"]
+    assert data["next"][:2] == ["lean-pkg publish beta --yes --dry-run", "lean-pkg publish beta --yes   # ONE-WAY"]
     assert any("reservoir-listed" in c for c in data["next"])
     assert not any("git -C" in c for c in data["next"])          # already tagged
     assert env.registry.read_text() == before_reg and read_events(env) == before_ev
@@ -95,9 +95,20 @@ def test_wrong_status_is_a_failure_not_a_crash(lp, env, fake_gh, capsys):
     assert rc == 1 and "✗  status gate-pending: publishing starts from verified-private" in cap.out
 
 
-def test_without_dry_run_is_refused(lp, env, capsys):
+def test_without_flags_is_the_read_only_checklist(lp, env, fake_gh, capsys):
+    """1.0: `publish NAME` is the checklist (the old `--dry-run`, still accepted); --yes publishes."""
     rc, cap = pub(lp, env, capsys)
-    assert rc == 2 and "dry-run only in this version" in cap.err
+    rc2, cap2 = pub(lp, env, capsys, "--dry-run")
+    assert (rc, cap.out) == (rc2, cap2.out) and "dry run, nothing written" in cap.out
+    assert not env.registry.with_name(env.registry.name + ".lock").exists()
+
+
+def test_checklist_flags_of_yes_alone_are_usage_errors(lp, env, capsys):
+    for flags in (("--agent", "a"), ("--skip-public-safety",)):
+        rc, cap = pub(lp, env, capsys, *flags)
+        assert rc == 2 and "go(es) with --yes" in cap.err
+    rc, cap = pub(lp, env, capsys, "--yes", "--public-safety")
+    assert rc == 2 and "--yes always runs it" in cap.err
 
 
 def test_publish_is_read_only_for_commit_mode(lp, env, fake_gh, capsys):
@@ -114,7 +125,7 @@ def test_tag_hint_without_a_github_remote_says_so(lp, env, fake_gh, capsys):
     rc, cap = pub(lp, env, capsys, "--dry-run", "--json")         # origin is a local bare mirror
     hint = tag_hint(json.loads(cap.out))
     assert "push origin" not in hint and "no GitHub remote in this checkout" in hint
-    assert hint.endswith(", after promote")
+    assert hint.endswith(", after publish --yes")
 
 
 def test_tag_hint_names_the_github_remote_by_url(lp, env, fake_gh, capsys):
@@ -122,7 +133,7 @@ def test_tag_hint_names_the_github_remote_by_url(lp, env, fake_gh, capsys):
     _git(env.repo_b, "remote", "add", "gh", "git@github.com:example/beta.git")   # the package's repo
     rc, cap = pub(lp, env, capsys, "--dry-run", "--json")
     hint = tag_hint(json.loads(cap.out))
-    assert " push gh vX.Y.Z" in hint and "push the tag to gh (GitHub), after promote" in hint
+    assert " push gh vX.Y.Z" in hint and "push the tag to gh (GitHub), after publish --yes" in hint
 
 
 def test_tag_hint_for_a_public_package_drops_after_promote(lp, env, fake_gh, capsys):

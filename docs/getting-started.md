@@ -30,7 +30,7 @@ External tools, needed only by some commands:
 | `git` | everything that reads a package repository |
 | `gh`, authenticated (`gh auth login` or `GH_TOKEN`) | `promote` and `audit`; GitHub is only the visibility mirror |
 | `reuse` (optional) | the REUSE lint line of the promotion checklist |
-| Linux, `elan` (`lean`, `lake`), `go`, `cargo`, `jq` | `comparator-receipt`. Linux only: the legacy mechanism sandboxes with landrun (Landlock) and the toolchain mechanism with `bwrap`; macOS is not supported. The toolchain mechanism (Lean v4.35.0-rc2 or later, what Palomar runs) uses the kernels bundled with the toolchain and builds nothing of its own: a first run on a one-theorem project took seconds once the Mathlib cache was in place. The legacy mechanism's first run builds the pinned comparator tools into `~/.cache/lean-ci-tools` (override with `TOOLS_DIR`): from about 2 minutes on a fast machine to about 25 minutes cold, seconds afterwards. `lean-pkg comparator host-check` says which mechanisms this machine can run. Budget several GB of disk for the Lean toolchain and the Mathlib cache |
+| Linux, `elan` (`lean`, `lake`), `go`, `cargo`, `jq` | `lean-pkg receipt comparator`. Linux only: the legacy mechanism sandboxes with landrun (Landlock) and the toolchain mechanism with `bwrap`; macOS is not supported. The toolchain mechanism (Lean v4.35.0-rc2 or later, what Palomar runs) uses the kernels bundled with the toolchain and builds nothing of its own: a first run on a one-theorem project took seconds once the Mathlib cache was in place. The legacy mechanism's first run builds the pinned comparator tools into `~/.cache/lean-ci-tools` (override with `TOOLS_DIR`): from about 2 minutes on a fast machine to about 25 minutes cold, seconds afterwards. `lean-pkg comparator host-check` says which mechanisms this machine can run. Budget several GB of disk for the Lean toolchain and the Mathlib cache |
 
 ## Configuration
 
@@ -39,8 +39,8 @@ External tools, needed only by some commands:
 | `--registry PATH`, then env `LEAN_PKG_REGISTRY`, then the user-level default `~/.lean-pkg/registry`, then `./lean-packages.yaml` | registry file, in that order of precedence; `lean-pkg doctor` names the one in use (`[source: flag\|env\|user-default\|cwd]`) |
 | `~/.lean-pkg/registry` (base directory: env `LEAN_PKG_HOME`) | user-level default: a directory, or a symlink to one, holding `lean-packages.yaml`, or the registry file itself. Point it at an existing registry repository with `mkdir -p ~/.lean-pkg && ln -s /path/to/registry-repo ~/.lean-pkg/registry` |
 | `--events PATH`, else `lean-package-events.jsonl` next to the registry | append-only event log |
-| `LEAN_PKG_NOTIFY_CMD` | optional command run once after a successful `promote --yes`, message on stdin |
-| `COMPARATOR_RECEIPT_ALLOWED_HOSTS` | comma-separated host names on which `comparator-receipt` may run |
+| `LEAN_PKG_NOTIFY_CMD` | optional command run once after a successful `publish --yes`, message on stdin |
+| `COMPARATOR_RECEIPT_ALLOWED_HOSTS` | comma-separated host names on which `lean-pkg receipt comparator` may run |
 | `COMPARATOR_RECEIPT_ALLOW_HOST=1` | explicit override of the host policy (recorded in the receipt) |
 | `SLURM_JOB_ID` | inside a Slurm job the run is always allowed and the job id becomes the receipt `job_id` |
 | `COMPARATOR_CHECK` | an alternative `comparator-check.sh` (default: the copy shipped in the package) |
@@ -85,7 +85,7 @@ explicitly:
 mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init
 
-lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
 
 git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
 git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
@@ -102,7 +102,7 @@ A collaborator setting up for one package can run
 access, clones and registers the package
 (step 0 of [the comparator guide](existing-package-comparator.md)).
 
-A proposed future `lean-pkg init --global` will automate this Git-backed
+A proposed future `lean-pkg registry init --global` will automate this Git-backed
 bootstrap and allow a custom registry-repository location. It is described in
 the [roadmap](../ROADMAP.md) and is not implemented yet.
 
@@ -131,7 +131,7 @@ The finished project looks like this:
 
 The project must depend on Mathlib (a `mathlib` entry in
 `lake-manifest.json`; a bare `lake new` project has none). The Challenge is
-written in Mathlib's vocabulary, and `comparator-receipt`'s toolchain
+written in Mathlib's vocabulary, and `lean-pkg receipt comparator`'s toolchain
 mechanism, what Palomar runs, fetches Mathlib's build cache, so the runner
 refuses a project without it before judging:
 
@@ -270,7 +270,7 @@ error: no such file or directory (error code: 2)
 
 Every module must also belong to a library in `lakefile.toml`, or
 `lake build MyProof.Challenge` fails with `unknown target`
-(`comparator-receipt` checks this with `lake --no-build build` at the end of
+(`lean-pkg receipt comparator` checks this with `lake --no-build build` at the end of
 its `checkout` stage, before the cache download and the build). One `[[lean_lib]]`
 whose `globs` cover the directory, as above, is enough. For several
 challenges, keep them under one directory, for example
@@ -308,7 +308,7 @@ Assume the shared registry from the setup above:
 
 lean-pkg register my-proof --repo git@github.com:you/my-proof.git \
     --path src/my-proof --upstream-target palomar
-lean-pkg claim my-proof --workspace laptop --agent alice --reason "comparator tier"
+lean-pkg lease claim my-proof --workspace laptop --agent alice --reason "comparator tier"
 lean-pkg update my-proof --agent alice --status gate-pending --reason "lower-tier check submitted"
 ```
 
@@ -369,7 +369,7 @@ comparator-receipt: stage 04-comparator: ok (1 config(s) accepted (toolchain; 1 
 comparator-receipt: stage 05-receipt: ok (.lean-receipts/cb3d68a21454-comparator.json)
 comparator receipt written: .../my-proof/.lean-receipts/cb3d68a21454-comparator.json (1 config(s), commit cb3d68a21454, host policy: host <host> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS)
 commit .lean-receipts/ in this repo, then record it:
-  lean-pkg comparator <name> --receipt .../my-proof/.lean-receipts/cb3d68a21454-comparator.json
+  lean-pkg comparator attach <name> --receipt .../my-proof/.lean-receipts/cb3d68a21454-comparator.json
   (or at gate time: lean-pkg gate <name> --receipt R.json --comparator .../my-proof/.lean-receipts/cb3d68a21454-comparator.json)
 ```
 
@@ -433,7 +433,7 @@ status, so you can validate a receipt the moment the runner wrote it.
 ### 7. Promotion dry run
 
 ```bash
-lean-pkg promote my-proof
+lean-pkg publish my-proof --yes --dry-run
 ```
 
 Expected output:
@@ -454,7 +454,7 @@ WARNING: a GitHub private→public flip is effectively ONE-WAY — ...
 DRY RUN — nothing changed. Re-run with --yes to execute.
 ```
 
-`lean-pkg promote my-proof --yes` performs the flip
+`lean-pkg publish my-proof --yes` performs the flip
 (`gh repo edit --visibility public`). Forks, clones, and caches stay public
 afterwards, so treat it as irreversible.
 

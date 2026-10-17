@@ -52,7 +52,7 @@ telescoping-paper/              the manuscript repository
 ```bash
 lean-pkg register telescoping-companion --repo git@github.com:you/telescoping-paper.git \
   --path src/telescoping-paper/lean --owner-project telescoping-paper
-lean-pkg claim telescoping-companion --workspace laptop --agent you
+lean-pkg lease claim telescoping-companion --workspace laptop --agent you
 ```
 
 ## 2. Pick an intermediate step and search before building
@@ -311,7 +311,7 @@ same way.
 A long project can leave several verified-private packages behind, one per
 round or checkpoint, each with its own gate. Publishing one companion then
 means consolidating them into a new package. There is no single command for
-this: `release --fresh-repo` moves one existing record to one new repository,
+this: `repo export` moves one existing record to one new repository,
 while consolidation creates a new record from several inputs. The recipe
 below uses only existing commands. It assumes the inputs share one Lean
 toolchain and one Mathlib revision; align the pins first if they do not,
@@ -412,7 +412,7 @@ share one environment. Check before the first verify run:
 ```bash
 lean-pkg register example-companion --like example-round-1 \
   --repo git@github.com:you/example-companion.git --path src/example-companion
-lean-pkg claim example-companion --workspace laptop --agent you
+lean-pkg lease claim example-companion --workspace laptop --agent you
 lean-pkg claims sync example-companion
 ```
 
@@ -445,7 +445,7 @@ event to an old record without touching its repository or its evidence.
   run in the checkout, prints its path), not through elan's `lake` proxy on
   `PATH`: the proxy is a different file from the binary that does the work,
   so its hash says nothing about the toolchain.
-  (`comparator-receipt` records which `lake` it used in
+  (`lean-pkg receipt comparator` records which `lake` it used in
   `toolchain_resolution`; see [Runtime](comparator.md#runtime).)
 
 ## What this does not claim

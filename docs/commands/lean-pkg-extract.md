@@ -18,7 +18,7 @@ lean-pkg-extract COMMAND
 
 ## Subcommands
 
-- [`lean-pkg-extract plan`](#lean-pkg-extract-plan): dry run: classify, check and inventory what an extract at COMMIT would contain
+- [`lean-pkg-extract plan`](lean-pkg-extract.md): dry run: classify, check and inventory what an extract at COMMIT would contain
 
 ## More from --help
 

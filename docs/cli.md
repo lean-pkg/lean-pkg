@@ -105,7 +105,7 @@ the registry file is replaced: a read-only log or a directory refuses, exit 1,
 `event log <path> cannot be appended to (<why>); nothing written`, so a registry change never lands without its event
 line.
 
-The evidence writers `gate`, `comparator`, `record`, `promote --yes`,
+The evidence writers `gate`, `comparator`, `record`, `publish --yes`,
 `claims sync` and `search --record` take an optional `--agent A`. With it,
 a live lease held by another agent is a refusal (exit 1, nothing written)
 and `A` is stored as `actor` on the history entry and the event line.
@@ -139,7 +139,7 @@ The [command reference](commands/index.md) groups the commands by purpose and
 has one page per command: [`lean-pkg gate`](commands/gate.md),
 [`lean-pkg comparator`](commands/comparator.md) and so on, subcommands as
 sections. The other console scripts have pages there too:
-[`comparator-receipt`](commands/comparator-receipt.md),
+[`lean-pkg receipt comparator`](commands/receipt-comparator.md),
 [`lean-exercise`](commands/lean-exercise.md) and
 [`lean-pkg-extract`](commands/lean-pkg-extract.md).
 
@@ -158,14 +158,14 @@ amsg address such as `lab-desk/n14-paper`, or a channel such as `@lean-ops`). le
 shows the contact but never checks or uses it, and cannot map a holder to a live session by itself.
 The holder is whatever `--agent` (and `--workspace`) the claim passed, so:
 
-- Say how to reach you: `lean-pkg claim NAME --workspace W --agent A --contact lab-desk/n14-paper`;
+- Say how to reach you: `lean-pkg lease claim NAME --workspace W --agent A --contact lab-desk/n14-paper`;
   `renew NAME --agent A --contact TEXT` sets or replaces it later, `renew` without `--contact`
   keeps it, and `renew NAME --agent A --no-contact` clears it while keeping the lease. `release`
   drops it with the lease.
-- Your own leases: `lean-pkg leases --agent A` with the `--agent A` you claimed with (add
+- Your own leases: `lean-pkg lease list --agent A` with the `--agent A` you claimed with (add
   `--expiring 2` for the ones to `renew` soon). Pass the same `A` on every claim, renew and
   evidence write; `renew`, `release` and `--agent` checks compare it literally.
-- Who is behind a lease: `lean-pkg leases` (the `CONTACT` column) or, for one package,
+- Who is behind a lease: `lean-pkg lease list` (the `CONTACT` column) or, for one package,
   `lean-pkg status NAME --fields lease.agent,lease.contact,lease.workspace,lease.reason,lease.expires_at`
   (`lease.contact` is null when the lease has none).
 - Reaching another holder: lean-pkg has no channel of its own; use the contact the holder left.

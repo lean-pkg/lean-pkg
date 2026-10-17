@@ -1,17 +1,27 @@
-usage: lean-pkg publish [-h] [--dry-run] [--public-safety] [--json] [--commit] [--push]
-                        [--no-commit]
+usage: lean-pkg publish [-h] [--yes] [--dry-run] [--public-safety] [--skip-public-safety]
+                        [--agent AGENT] [--json] [--commit] [--push] [--no-commit]
                         name
 
 positional arguments:
   name
 
 options:
-  -h, --help       show this help message and exit
-  --dry-run        required: print the checklist and next commands; nothing is written
-  --public-safety  also scan the tree and git history for private patterns (`lean-pkg public-
-                   safety`); implies --dry-run
-  --json           machine-readable JSON on stdout
-  --commit         write commands: pull --ff-only, then commit the registry files (default:
-                   $LEAN_PKG_COMMIT=1)
-  --push           --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit      never commit or push (overrides the env)
+  -h, --help            show this help message and exit
+  --yes                 publish: run the promotion checklist, then gh repo edit --visibility
+                        public (ONE-WAY); first fetches origin's branches, tags and pull-request
+                        heads so the public-safety scan covers them (a failed fetch refuses). With
+                        --dry-run: the same checklist, nothing flipped
+  --dry-run             write nothing (the default without --yes); with --yes: the promotion
+                        checklist only
+  --public-safety       read-only checklist: also scan the tree and git history for private
+                        patterns (`lean-pkg public-safety`); --yes always scans
+  --skip-public-safety  with --yes: do not run the public-safety scan of the tree and history (a
+                        WARN line instead; the scan covers the whole repository when the package
+                        is a subdirectory of it)
+  --agent AGENT         with --yes: the agent acting (recorded as the promoted event's actor);
+                        another agent's live lease then refuses
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

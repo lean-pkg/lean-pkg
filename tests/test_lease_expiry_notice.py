@@ -19,7 +19,7 @@ def test_status_marks_an_expired_lease(lp, env, capsys):
     rc, cap = run(lp, env, capsys, "status", "alpha")
     assert rc == 0
     line = cap.out.splitlines()[-1]
-    assert line.startswith("lease: EXPIRED 6h") and "(vera); renew no longer works: lean-pkg claim alpha" in line
+    assert line.startswith("lease: EXPIRED 6h") and "(vera); renew no longer works: lean-pkg lease claim alpha" in line
     rc, cap = run(lp, env, capsys, "status", "alpha", "--json")
     st = json.loads(cap.out)["lease_state"]
     assert st["state"] == "expired" and st["seconds_left"] < 0

@@ -11,7 +11,7 @@ and a reusable Lean library (Track L); see [Two tracks](design/two-tracks.md).
 Only the start and the end differ; the numbered steps are shared and match the
 sections below. Commands are today's, with the 1.0 name noted where it changes
 ([1.0 command tree](design/1.0-command-tree.md)): `new` has shipped without
-`--kind`, `verify` has not, and `publish NAME --yes` will replace `promote --yes`.
+`--kind`, `verify` has not, and `publish NAME --yes` will replace `publish --yes`.
 
 A session on a real package, start to finish. The package is small on
 purpose: a consumer of Scott Armstrong's
@@ -58,14 +58,14 @@ package itself in 7 s.
 
 ```bash
 export LEAN_PKG_REGISTRY=~/lean-registry/lean-packages.yaml
-lean-pkg init                                                 # once: creates the registry and its event log
+lean-pkg registry init                                                 # once: creates the registry and its event log
 
 lean-pkg register markovprocess-pilot \
     --repo git@github.com:you/markovprocess-pilot.git \
     --path src/markovprocess-pilot --owner-project rmt-foundations
 # markovprocess-pilot: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.35.0-rc2, pin=065356127b)
 
-lean-pkg claim markovprocess-pilot --workspace laptop --agent you --reason "exit-time optional stopping"
+lean-pkg lease claim markovprocess-pilot --workspace laptop --agent you --reason "exit-time optional stopping"
 ```
 
 The registry now knows the package exists, who holds it, and its pins. It
@@ -174,7 +174,7 @@ descendant of the certified commit and both receipts stay valid.
 ## 6. Promotion dry run
 
 ```bash
-lean-pkg promote markovprocess-pilot
+lean-pkg publish markovprocess-pilot --yes --dry-run
 #   ✓  LICENSE/COPYING present at repo root
 #   ✓  lake-manifest.json tracked at HEAD
 #   ✓  gate receipt bound to HEAD <h12> (evidence-only descendant of <c12> (+3 evidence file(s)))
@@ -198,7 +198,7 @@ repository with a license and two stars), register a headline-theorem
 package in [Palomar](https://palomar-registry.org/) through its submission
 form, cut a GitHub release at the registered commit and mint its Zenodo
 DOI, and cite the DOI and the Palomar id in the paper. Then
-`lean-pkg release markovprocess-pilot --agent you`.
+`lean-pkg lease release markovprocess-pilot --agent you`.
 
 What took real thought in this session: step 3. Steps 1, 2, 4, 5, and 6 are
 mechanical, and an agent can run them from [llms.txt](llms.txt).
