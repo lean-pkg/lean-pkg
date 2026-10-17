@@ -190,6 +190,13 @@ limit; recorded as the receipt's `stack_limit`); it warns when the soft limit is
 built (a job id or host label; redacted); the receipt's `build_provenance` records
 whether the `build` stage compiled anything or found the oleans prebuilt; see
 [Build provenance](comparator.md#stages-and---prepare).
+The setup also records an olean manifest (the package's own compiled modules,
+hashed into `comparator-stages/03-build.oleans.sha256`; receipt
+`olean_manifest`); a reused setup whose oleans changed is refused, and the
+comparator stage fails when they change during the comparison.
+`comparator-receipt --verify-oleans [DIR] [--json]` is the read-only check
+(exit 0 same, 1 different or not recorded); see
+[Olean manifest](comparator.md#stages-and---prepare).
 `COMPARATOR_RECEIPT_LEAN_THREADS=N` sets `LEAN_NUM_THREADS=N` for those children
 (N = 1 serializes the build on a memory-tight host; recorded as the receipt's
 `lean_threads`; any other value exits 2); see

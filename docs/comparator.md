@@ -1104,6 +1104,38 @@ into the verdict. Declare the source so a reader of the receipt knows where
 the build happened, for example
 `COMPARATOR_RECEIPT_BUILD_SOURCE="cluster job 4711" comparator-receipt`.
 
+**Olean manifest.** Build provenance says whether the build compiled; it
+does not bind the bytes the judge then reads. `lake comparator` exports the
+Challenge and Solution from the package's compiled modules under
+`.lake/build/lib`, which git ignores, so the clean-tree check cannot see
+them: a module rewritten between `--prepare` and the comparison, or a
+different one copied in, would change the judged environment while `HEAD`,
+`lean-toolchain` and the configurations stay the same. The setup stages
+therefore end by hashing every `*.olean`, `*.olean.server` and
+`*.olean.private` of the package (regular files only: a symlink is refused;
+the dependencies under `.lake/packages/` are pinned by `lake-manifest.json`
+and not hashed) into `comparator-stages/03-build.oleans.sha256`, sorted
+`<path under .lake/build/lib> <size> <sha256>` lines, and record its digest
+with the `lean-toolchain` and the `lake-manifest.json` digest as
+`olean_manifest` in `stages.json` and the receipt
+(`comparator-receipt: olean manifest: N compiled module file(s) ...`). A
+reused or `--from-prepared` setup is refused before anything is written when
+the package's oleans no longer match, with the changed, missing and new
+files named; rebuild by removing that `stages.json` and the package's
+`.lake/build/lib`, then `comparator-receipt --prepare`. The comparator stage
+rehashes before the first judge starts and after the last one exits, and
+any difference fails the stage (nothing written). The digest is part of the
+per-slot cache key, so a slot accepted against other oleans is judged
+again. A setup prepared by an older version recorded no manifest; it is
+captured at reuse and `captured` says so.
+`comparator-receipt --verify-oleans [DIR] [--json]` is the read-only check against the manifest
+recorded in `DIR` (an evidence directory, its `comparator-stages/` or its
+`stages.json`; default: the evidence directory), with the recorded commit
+required to be `HEAD`: exit 0 same, 1 otherwise; it needs no host policy and
+writes nothing. What it does not prove: that a prebuilt olean came from these
+sources (Lake's traces and the kernel replay of the Solution carry that, as
+above); it binds the judged modules to the ones present when the setup ended.
+
 ### Runtime
 
 Where the time goes. Neither judge does work per slot. One `lake comparator`
@@ -1431,12 +1463,17 @@ What is supported:
    lean-pkg comparator host-check            # must print mechanism toolchain: ok
    export COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)"
    export COMPARATOR_RECEIPT_BUILD_SOURCE="cluster job $JOB"
+   comparator-receipt --verify-oleans "$CLUSTER_EVIDENCE"   # the copied oleans are the job's
    comparator-receipt --prepare              # compiles nothing: build: prebuilt
    comparator-receipt --estimate             # judges a sample; read recommended_cap
    systemd-run --user --scope -p MemoryMax=48G \
      timeout "$CAP" comparator-receipt
    ```
 
+   `$CLUSTER_EVIDENCE` is a copy of the job's evidence directory
+   (`.lake/comparator-receipt` of the cluster checkout, or the job's
+   `--evidence-dir`); `--verify-oleans` exits 1 when one of the copied oleans
+   differs from what the job's build stage recorded.
    The judge (export and kernel replay) is the expensive part and runs on
    the judging host either way; the split saves only the build. Size the
    memory cap and `CAP` from `--estimate` and "Runtime" above. The receipt

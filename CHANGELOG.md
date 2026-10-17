@@ -66,6 +66,26 @@ change the registry schema or receipt format, always with a migration).
   gated package has claims and none is `reusable`, and the ledger's `unknown`
   reason for that case now names the fix.
 
+- `comparator-receipt` olean manifest: the setup stages end by hashing the
+  package's own compiled modules under `.lake/build/lib` (`*.olean`,
+  `*.olean.server`, `*.olean.private`; dependencies under `.lake/packages/`
+  excluded) into `comparator-stages/03-build.oleans.sha256` (sorted
+  `<path> <size> <sha256>` lines) and record its digest, the `lean-toolchain`
+  and the `lake-manifest.json` digest as `stages.json` and receipt
+  `olean_manifest` (additive, schema `olean-manifest/1`, not validated;
+  `comparator --check` and `gate --check` print it). A reused or
+  `--from-prepared` setup is refused, before anything is written, when the
+  oleans no longer match (a file changed, missing or new, named in the
+  error), and the comparator stage rehashes before the first judge and after
+  the last: any difference fails the stage, nothing written. A changed olean
+  with an unchanged `HEAD`, toolchain and configuration was judged and
+  receipted before. The digest also keys the per-slot cache, so a slot
+  accepted against other oleans is judged again. A prepared state from an
+  older version is captured at reuse (`captured` says so). A symlink among
+  the compiled modules is refused. `comparator-receipt --verify-oleans [DIR]
+  [--json]` is the read-only check (for example after copying `.lake/build`
+  from a cluster job, against that job's evidence directory): exit 0 same,
+  1 different, not recorded, or recorded for another commit.
 - `page NAME --site DIR` writes `DIR/verification.md` (the full verification
   page: status, the paper-to-Lean map with every row, Not formalized, trust
   boundary, reproduce, evidence, citation, license, acknowledgments) and
