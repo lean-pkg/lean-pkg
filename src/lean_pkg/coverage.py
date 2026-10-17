@@ -17,6 +17,7 @@ formalized" list and the status capsule from it; this module only parses and val
     summary: ONE SENTENCE                        # the capsule's hand-written sentence
     rows:
       - paper: {number: "Theorem 1.2", title: "Main estimate", label: "T:main"}   # label optional
+          # paper.statement (optional): the result as the paper states it, in TeX, at most 2000 characters
         class: same-assumptions | inputs-supplied | outside
         claims: [NAME/claim-id, ...]             # ids in claims.yaml at HEAD; none for outside
         inputs: [TEXT, ...]                      # required for inputs-supplied; none otherwise
@@ -40,6 +41,7 @@ main results, named by its Lean declarations:
       - title: "Main estimate"                   # one line, unique in the file
         claims: [NAME/claim-id, ...]             # at least one id in claims.yaml at HEAD
         note: TEXT                               # optional
+        statement: TEX                           # optional: the result in mathematical words
     compute: ...                                 # as above (the Easley rule is the same)
     lean_pkg_version: ...                        # as above
 
@@ -67,7 +69,7 @@ KINDS = ("paper", "library")
 LIBRARY_TOP_REQUIRED = ("schema", "package", "kind", "summary", "rows")
 LIBRARY_TOP_OPTIONAL = ("compute", "lean_pkg_version")
 LIBRARY_ROW_REQUIRED = ("title", "claims")
-LIBRARY_ROW_OPTIONAL = ("note",)
+LIBRARY_ROW_OPTIONAL = ("note", "statement")
 # keys of a paper coverage that a library refuses by name: each would state a manuscript, or a relation to one
 LIBRARY_NO_PAPER = {
     "manuscript": "manuscript: a library coverage names no manuscript (kind: library); a package that formalizes "
@@ -79,7 +81,7 @@ LIBRARY_ROW_NO_PAPER = ("paper", "class", "inputs")
 ROW_REQUIRED = ("paper", "class")
 ROW_OPTIONAL = ("claims", "inputs", "note")
 PAPER_REQUIRED = ("number", "title")
-PAPER_OPTIONAL = ("label",)
+PAPER_OPTIONAL = ("label", "statement")
 CLASSES = ("same-assumptions", "inputs-supplied", "outside")
 CLASS_GLOSS = {"same-assumptions": "Same assumptions", "inputs-supplied": "Inputs supplied",
                "outside": "Outside this formalization"}
@@ -93,6 +95,7 @@ SLURM_JOB_RE = sites.SLURM.job_re
 VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 ZENODO_DOI_RE = re.compile(r"^10\.5281/zenodo\.\d+$")
 TEXT_MAX = 400
+STATEMENT_MAX = 2000                            # paper.statement / a library row's statement: TeX, may span lines
 # lean-scope-page R4: a placeholder never reaches a public page (FILL-ME is the lab template's marker)
 PLACEHOLDER_RE = re.compile(r"(?<![A-Za-z0-9])(?:FILL-ME|TODO|TBD|FIXME|XXX)(?![A-Za-z0-9])")
 
@@ -171,6 +174,19 @@ def _strings(obj, where: str):
     elif isinstance(obj, list):
         for i, v in enumerate(obj):
             yield from _strings(v, f"{where}[{i}]")
+
+
+def _statement_errors(v, where: str, errors: list[str]) -> None:
+    """An optional statement: TeX text a reader compares with the Lean statement; several lines allowed.
+    A line that opens a code fence is refused: the page shows the text inside one."""
+    if not (isinstance(v, str) and v.strip() and len(v) <= STATEMENT_MAX):
+        errors.append(f"{where}: must be a non-empty string of at most {STATEMENT_MAX} characters (TeX)")
+    elif any(x.lstrip().startswith(("```", "~~~")) for x in v.splitlines()):
+        errors.append(f"{where}: a line may not start with ``` or ~~~ (the page shows the statement in a "
+                      f"code block)")
+    elif "lean-pkg:page:" in v:
+        errors.append(f"{where}: may not contain the page markers (lean-pkg:page:...), which delimit the "
+                      f"README block")
 
 
 def doc_kind(doc) -> str:
@@ -302,6 +318,8 @@ def _paper_rows_errors(doc: dict, errors: list[str]) -> None:
             for k in ("number", "title") + (("label",) if "label" in p else ()):
                 if not _text(p[k], 200):
                     errors.append(f"{w}.paper.{k}: must be a one-line string")
+            if "statement" in p:
+                _statement_errors(p["statement"], f"{w}.paper.statement", errors)
             num = p.get("number")
             if isinstance(num, str):
                 if num in numbers:
@@ -378,6 +396,8 @@ def _library_rows_errors(doc: dict, errors: list[str]) -> None:
             _str_list(r["claims"], f"{w}.claims", errors)
         if "note" in r and not _text(r["note"]):
             errors.append(f"{w}.note: must be one line of at most {TEXT_MAX} characters")
+        if "statement" in r:
+            _statement_errors(r["statement"], f"{w}.statement", errors)
 
 
 # --------------------------------------------------------------------------

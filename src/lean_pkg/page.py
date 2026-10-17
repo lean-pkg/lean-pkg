@@ -394,13 +394,18 @@ def _depends_lines(ctx: dict, sts: list[dict]) -> list[str]:
     return [x for line in out for x in (line, "")]
 
 
-def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, hypotheses: str | None
-                  ) -> tuple[list[str], str]:
+def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, statement: str | None,
+                  hypotheses: str | None) -> tuple[list[str], str]:
     word = _ledger_word(r, _row_statuses(r, by_id))
     sts = [_lean_statement(ctx, cid) for cid in r.get("claims") or []]
     md = [f"### {heading}", "", _status_line(word), ""]
     if not ctx["library"]:
-        md += [f"**In the paper.** {heading.split(':', 1)[0]} of the paper: read its statement there.", ""]
+        md += ["**In the paper.**" + ("" if statement else " The statement is not quoted here; read it in the "
+                                                          "paper."), ""]
+        if statement:
+            md += ["```latex", statement.rstrip(), "```", ""]
+    elif statement:
+        md += ["**In words.**", "", "```latex", statement.rstrip(), "```", ""]
     for st in sts:
         md += _lean_block(ctx, st)
     if hypotheses:
@@ -439,13 +444,13 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     blocks, words = [], []
     for r in doc["rows"]:
         if ctx["library"]:
-            b, w = _result_block(ctx, r, by_id, _md(r["title"], lead=True), None)
+            b, w = _result_block(ctx, r, by_id, _md(r["title"], lead=True), r.get("statement"), None)
         elif r["class"] == "outside":
             continue
         else:
             p = r["paper"]
             b, w = _result_block(ctx, r, by_id, f"{_md(p['number'], lead=True)}: {_md(p['title'])}",
-                                 _hypotheses(r))
+                                 p.get("statement"), _hypotheses(r))
         blocks += b
         words.append(w)
     n_verified = sum(w == "verified" for w in words)

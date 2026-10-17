@@ -29,6 +29,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   comparator, both receipts, the gate, `coverage.yaml`, `page --write`,
   `publish --dry-run`), with measured times and a short section on the paper
   track. Linked from README.md, docs/index.md and docs/quickstart.md.
+- `coverage.yaml` (coverage/1): an optional `paper.statement` on a paper row
+  and `statement` on a library row, the result in TeX (at most 2000
+  characters, several lines). `lean-pkg page` shows it as source in a `latex`
+  code block beside the Lean statement (a library row: *In words*). An older
+  lean-pkg refuses a file that uses the key; a statement may not contain the
+  README block's markers. Proposal 0001, accepted 2026-10-17. The π-λ
+  tutorial's `coverage.yaml` and page excerpt now carry the statements.
 - `receipt systemd --run` (alias `receipt local --run`) fingerprints the
   running lean-pkg before it starts the unit: the SHA-256 of every file of
   its package directory (sources, shipped scripts, schemas, templates), its
@@ -48,6 +55,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   to check with `--version` and `doctor`, how to recompute
   `sources_sha256`, and why a guard manifest over a git checkout must use
   `git --no-optional-locks status`.
+- Docs: decision 0007 (docs/decisions) records the design recommendations
+  the maintainer accepted on 2026-10-17: the 1.0 command tree and its
+  stage 2 scope, the newcomer path (`new --kind`, default paper, license
+  Apache-2.0, `mathlib-rev: none`), site profiles and CI receipts,
+  `receipt check` staying strict, the two-track decisions and the
+  verification page. docs/design/sites-and-ci-receipts.md and
+  docs/design/two-tracks.md mark their decisions as decided.
+- Docs: README.md shows the two-track workflow diagram under the quickstart
+  link, linked to the sample workflow.
 
 ### Changed
 
@@ -81,6 +97,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   minor releases and 60 days, whichever is longer.
 
 ### Fixed
+
+- `comparator-receipt --seal-sacct` compares the node again: since host
+  labels, every receipt carries `host_label`, so the seal had skipped the
+  node check. A receipt's `h-` host label is now compared with the label of
+  the sacct `NodeList` entry (or of its first DNS label), and a mismatch
+  refuses; an operator's `--host-label` and a node range are still not
+  compared, and an older receipt's host name is compared by name.
+  docs/trust-model.md no longer lists the `coverage.yaml` row twice.
 - Soundness: a lower-tier receipt whose sealed verify log
   (`<c12>-<job>-verify.redacted.log`, or its `.gz`) is missing or
   unreadable is now refused instead of accepted with `· report_sha256 not

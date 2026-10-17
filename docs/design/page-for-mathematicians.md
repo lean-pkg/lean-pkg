@@ -6,9 +6,9 @@ title: The verification page, for mathematicians
 
 Status: design, 2026-10-17. Implemented here: the layout, the plain wording
 and the Lean statement on every result (`page.py`, `page_html.py`,
-`lean_scan.statement`). Proposed, not implemented: a `paper.statement` field
-in `coverage.yaml` ([below](#the-paper-statement-a-new-field)), which is a
-schema change and so goes through a [proposal](../proposals/README.md) first.
+`lean_scan.statement`); then the `paper.statement` field in `coverage.yaml`
+([below](#the-paper-statement-a-new-field)), a schema change, after
+[proposal 0001](../proposals/0001-paper-statement.md) was accepted.
 
 The verification page used to read like a lean-pkg report: a status capsule,
 a table keyed by correspondence class, a "Trust boundary" section about
@@ -146,12 +146,13 @@ headings, the Lean and TeX statements in marked code blocks.
 The **In the paper** line today points at the result's number. Le's
 direction, and Palomar's abstract, call for the paper's own words beside the
 Lean statement. `coverage.yaml` does not hold them, so this is a schema change
-to `coverage/1` and needs an accepted proposal first
-([proposals](../proposals/README.md)). The design:
+to `coverage/1`, made after [proposal 0001](../proposals/0001-paper-statement.md)
+was accepted (2026-10-17). The design:
 
 - `rows[].paper.statement` (paper) and `rows[].statement` (library, shown as
   **In words**): optional, TeX, at most 2000 characters, several lines
-  allowed; no line may start a code fence; the placeholder rule applies. An
+  allowed; no line may start a code fence, and the README block's markers
+  (`lean-pkg:page:`) may not appear; the placeholder rule applies. An
   older lean-pkg refuses the key, as with `eprint_sha256`.
 - Rendered as source in a `latex` code block in every output: inert (no data
   can make Markdown or HTML), and exactly the authors' transcription.
@@ -159,16 +160,13 @@ to `coverage/1` and needs an accepted proposal first
   labelled environment in the anchored e-print (`formalization anchor` keeps
   its SHA-256 and `paper.label` names the environment).
 
-The implementation, with its tests, is ready on a branch and waits for the
-proposal.
-
 ## Typeset mathematics
 
 Rendering the TeX (MathJax or KaTeX) needs a script. The HTML file promises
 none, and GitHub's own `$...$` support in a README would have to receive the
 TeX unescaped, which reopens the injection the page closes by escaping all
-data. So statements are shown as TeX source. Options, for a decision: keep
-source only (the default); an opt-in `--html-math` that adds a pinned KaTeX
+data. So statements are shown as TeX source: decided 2026-10-17, for now
+(proposal 0001). Options for later: an opt-in `--html-math` that adds a pinned KaTeX
 from a CDN with a subresource-integrity hash; or GitHub math in the README
 for statements that pass a strict character allow-list.
 

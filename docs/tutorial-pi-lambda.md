@@ -460,7 +460,8 @@ built ([the evidence-only descendant rule](receipts.md#evidence-binding-the-evid
 The **page** is a section of `README.md` that lean-pkg renders from the data:
 `coverage.yaml` (what you say was formalized), `claims.yaml`, the claims
 ledger, and the receipts. Nothing on it is typed by hand except the titles,
-notes and the one-line summary in `coverage.yaml`.
+the statements in words, the notes and the one-line summary in
+`coverage.yaml`.
 
 Our `coverage.yaml`:
 
@@ -473,17 +474,27 @@ rows:
   - title: "Dynkin's pi-lambda theorem: sigma(P) is contained in every lambda-system containing the pi-system P"
     claims: [pi-lambda/pi-lambda]
     note: "Billingsley, Probability and Measure, 3rd ed., Theorem 3.2; textbook definitions of pi- and lambda-system"
+    statement: |
+      If $\mathcal{P}$ is a $\pi$-system and $\mathcal{L}$ is a $\lambda$-system,
+      then $\mathcal{P} \subset \mathcal{L}$ implies $\sigma(\mathcal{P}) \subset \mathcal{L}$.
   - title: "Uniqueness: probability measures agreeing on a generating pi-system are equal"
     claims: [pi-lambda/measure-uniqueness]
     note: "Billingsley, Probability and Measure, 3rd ed., Theorem 3.3; proved from the pi-lambda theorem"
+    statement: |
+      Let $\mathcal{P}$ be a $\pi$-system and $\mu_1$, $\mu_2$ probability measures
+      on $\sigma(\mathcal{P})$. If $\mu_1 = \mu_2$ on $\mathcal{P}$, then
+      $\mu_1 = \mu_2$ on $\sigma(\mathcal{P})$.
 ```
 
 Why `kind: library` for a textbook theorem: the other kind, `paper`, maps
 the numbered results of a *posted manuscript* (an arXiv version, or a public
 repository commit with the file's hash) so that a reader can check the
 numbers against a fixed text. A textbook has no such anchor, so the honest
-kind is `library`, with the book cited in the notes. Section 10 shows the
-`paper` version.
+kind is `library`, with the book cited in the notes. Each `statement` is
+the result in TeX, transcribed from the book: the page shows it as source,
+under **In words**, beside the Lean statement, so a reader can compare the
+two without the book at hand. It is optional, and nothing checks it against
+the book. Section 10 shows the `paper` version.
 
 ```bash
 lean-pkg coverage check pi-lambda
@@ -521,6 +532,13 @@ Dynkin's pi-lambda theorem and the uniqueness of probability measures, in textbo
 
 **Verified.** Lean accepts the proof, and lean-pkg's record shows every check of this result passed (the build, and the statement comparison).
 
+**In words.**
+
+```latex
+If $\mathcal{P}$ is a $\pi$-system and $\mathcal{L}$ is a $\lambda$-system,
+then $\mathcal{P} \subset \mathcal{L}$ implies $\sigma(\mathcal{P}) \subset \mathcal{L}$.
+```
+
 **In Lean.** `PiLambda.pi_lambda` in [PiLambda/Challenge.lean](https://github.com/you/pi-lambda/blob/ff6e3c27425b1dc921921aa75cc7a2ee1b796e05/PiLambda/Challenge.lean): the statement the proof was checked against (the proof is in a separate file, and a second checker confirmed it proves exactly this).
 
 ```lean
@@ -544,7 +562,8 @@ theorem PiLambda.pi_lambda {Ω : Type*} (P L : Set (Set Ω))
 ````
 
 The block of each result is what a reader compares with the book: the
-title and note are yours, the Lean statement is what was proved. The page
+title, the words and the note are yours, the Lean statement is what was
+proved. The page
 goes on with *What the checks establish* (in plain words: every proof is
 checked by Lean, the statements shown are the ones proved, and no tool
 checks that a title describes its statement), then *How this was checked*
@@ -626,7 +645,12 @@ manuscript:
   version: "arXiv:<id>v<N>"
 summary: "Theorems 3.2 and 3.3 are formalized with the paper's hypotheses."
 rows:
-  - paper: {number: "Theorem 3.2", title: "Dynkin's pi-lambda theorem"}
+  - paper:
+      number: "Theorem 3.2"
+      title: "Dynkin's pi-lambda theorem"
+      statement: |
+        If $\mathcal{P}$ is a $\pi$-system and $\mathcal{L}$ is a $\lambda$-system,
+        then $\mathcal{P} \subset \mathcal{L}$ implies $\sigma(\mathcal{P}) \subset \mathcal{L}$.
     class: same-assumptions
     claims: [pi-lambda/pi-lambda]
   - paper: {number: "Theorem 3.3", title: "Uniqueness of probability measures"}
@@ -636,7 +660,8 @@ nothing_excluded: {reason: "Section 3 has no other numbered results"}
 ```
 
 The page then shows *The paper's results in Lean* (each numbered result,
-with the paper's result beside its Lean statement and its hypotheses in
+with the paper's statement, `paper.statement` copied from the manuscript,
+under **In the paper** beside its Lean statement, and its hypotheses in
 words) and a *Not formalized* section in place of *Main results*. `same-assumptions` says the Lean statement carries
 the paper's hypotheses; a result proved under an extra hypothesis is
 `inputs-supplied`, with the hypothesis named, and an unformalized one is
