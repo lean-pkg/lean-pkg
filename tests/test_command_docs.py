@@ -48,23 +48,23 @@ def test_every_command_has_a_page_section(gen, pages):
                if (n.path or n.program != "lean-pkg") and f"\n# {n.key}\n" not in text
                and not re.search(r"\n#{2,6} " + re.escape(n.key) + "\n", text)]
     assert missing == [], missing
-    assert "Also spelled: `lean-pkg lease`" in pages[COMMANDS / "claim.md"]
+    assert "Also spelled: `lean-pkg claim`, `lean-pkg lease NAME`" in pages[COMMANDS / "lease.md"]
 
 
 def test_aliases_page_lists_every_alias_from_one_table(gen, pages):
     trees = gen.all_trees()
     table = gen.alias_table(trees)
-    assert table[("lease",)] == ("claim",) and table[("receipt", "local")] == ("receipt", "systemd")
+    assert table[("claim",)] == ("lease", "claim") and table[("receipt", "local")] == ("receipt", "systemd")
     text = pages[COMMANDS / "aliases.md"]
     for alias, canonical in table.items():
         assert f"| `lean-pkg {' '.join(alias)}` | [`lean-pkg {' '.join(canonical)}`]" in text, alias
         assert f"`lean-pkg {' '.join(alias)}`" in "\n".join(pages.values()).replace(text, ""), alias
-    assert not (COMMANDS / "lease.md").exists()   # a page per canonical name, never per alias
+    assert not (COMMANDS / "claim.md").exists()   # a page per canonical name, never per alias
 
 
 def test_a_stage_one_alias_table_is_read(gen, monkeypatch):
-    """The hook for the 1.0 alias table: a mapping under one of ALIAS_TABLE_NAMES in lean_pkg.cli shows on
-    the canonical page and in aliases.md, with no change to the generator."""
+    """A mapping under one of ALIAS_TABLE_NAMES in lean_pkg.cli is read beside lean_pkg.command_tree (the
+    1.0 alias table) and shows on the canonical page and in aliases.md."""
     from lean_pkg import cli
     monkeypatch.setattr(cli, "ALIASES", {"registry validate": "validate", ("old", "gate"): ("gate",)},
                         raising=False)
@@ -72,7 +72,8 @@ def test_a_stage_one_alias_table_is_read(gen, monkeypatch):
     table = gen.alias_table(trees)
     assert table[("registry", "validate")] == ("validate",) and table[("old", "gate")] == ("gate",)
     node = gen.find(trees, ("gate",))
-    assert "old gate" in node.aliases
+    assert "old gate" in node.table_aliases
+    assert gen.find(trees, ("lease", "claim")).table_aliases == ["claim", "lease NAME"]
 
 
 def test_examples_parse_with_the_real_parser(gen):

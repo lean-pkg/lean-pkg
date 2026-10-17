@@ -1,6 +1,7 @@
-usage: lean-pkg renew [-h] --agent AGENT [--ttl HOURS] [--workspace WORKSPACE] [--reason REASON]
-                      [--contact TEXT] [--no-contact] [--json] [--commit] [--push] [--no-commit]
-                      name
+usage: lean-pkg lease renew [-h] --agent AGENT [--ttl HOURS] [--workspace WORKSPACE]
+                            [--reason REASON] [--contact TEXT] [--no-contact] [--json] [--commit]
+                            [--push] [--no-commit]
+                            name
 
 positional arguments:
   name

@@ -48,6 +48,10 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("LEAN_PKG_DEBUG",
          "1/true/yes/on: print the Python traceback of an internal error on stderr",
          "off (a one-line `internal error: ...`)"),
+        ("LEAN_PKG_NO_ALIAS_NOTE",
+         "1/true/yes/on: no `note: 'lean-pkg OLD' is now 'lean-pkg NEW'` line on stderr when an old spelling "
+         "is used (old spellings are permanent aliases; --json never prints the note)",
+         "off (one note per old spelling used, text mode only)"),
         ("LEAN_PKG_NOTIFY_CMD",
          "command run (split shell-style, no shell) with a notification on stdin when `promote --yes` "
          "makes a package public",
@@ -395,7 +399,15 @@ lean-pkg has no --jq flag; pipe --json into jq:
 
 # --------------------------------------------------------------------------
 
+def _command_tree_text(name: str) -> str:
+    from . import command_tree
+    return command_tree.newcomer_text() if name == "start" else command_tree.aliases_text()
+
+
 TOPICS: dict[str, tuple[str, object]] = {
+    "start": ("New here: the five verbs and the two product tracks",
+              lambda: _command_tree_text("start")),
+    "aliases": ("Old command and flag spellings: permanent aliases", lambda: _command_tree_text("aliases")),
     "environment": ("Environment variables lean-pkg, comparator-receipt and lean-exercise read",
                     _render_environment),
     "exit-codes": ("Exit codes, and what 1 means for the commands that answer yes or no", lambda: EXIT_CODES),

@@ -1,5 +1,5 @@
-usage: lean-pkg wiki [-h] [--out OUT] [--candidates CANDIDATES] [--json] [--commit] [--push]
-                     [--no-commit]
+usage: lean-pkg registry wiki [-h] [--out OUT] [--candidates CANDIDATES] [--json] [--commit]
+                              [--push] [--no-commit]
 
 options:
   -h, --help            show this help message and exit

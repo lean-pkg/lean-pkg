@@ -913,7 +913,8 @@ def _parser_add(isub, common) -> None:
     a.add_argument("--from-registry", action="store_true",
                    help="start from the registry row (repo, receipts, license, palomar, doi, reservoir)")
     a.add_argument("--repo-dir", default=None, help="local clone to read from (never modified)")
-    a.add_argument("--repo", default=None, help="public https URL (a GitHub ssh URL is converted)")
+    a.add_argument("--url", dest="repo", metavar="URL", default=None,
+                   help="public https URL (a GitHub ssh URL is converted)")
     a.add_argument("--tag", default=None, help="release tag at the pin or an evidence-only descendant")
     a.add_argument("--lower", default=None, metavar="REL", help="lower-tier receipt, .lean-receipts/...json")
     a.add_argument("--comparator", default=None, metavar="REL", help="comparator receipt, .lean-receipts/...json")
@@ -1161,7 +1162,8 @@ def _parser_check(isub, common) -> None:
     c = isub.add_parser("check", help="static check, or re-derive entries from bytes at the pin; exit 0/1/2")
     c.add_argument("names", nargs="*", metavar="NAME")
     c.add_argument("--clone", action="store_true", help="clone each entry's repo at the pin into a temp dir")
-    c.add_argument("--repo-dir", default=None, help="local clone for a single NAME (never modified)")
+    c.add_argument("--repo", dest="repo_dir", metavar="DIR", default=None,
+                   help="local clone for a single NAME (never modified)")
     common(c, run_check)
 
 

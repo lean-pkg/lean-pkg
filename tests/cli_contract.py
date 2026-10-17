@@ -2,8 +2,8 @@
 """Parse-only access to the `lean-pkg` argument parser, for the golden CLI contract tests.
 
 `main` builds its parser inline. `parser()` stops `main` at its top-level `parse_args` call and keeps
-the parser; `parse_only(argv)` then parses argv with it, exactly as `main` would (the command aliases
-applied), and never runs a command. Nothing here reads or writes a registry."""
+the parser; `parse_only(argv)` then parses argv with it, exactly as `main` would (old spellings rewritten
+by the root parser, lean_pkg.command_tree), and never runs a command. Nothing here reads or writes a registry."""
 
 from __future__ import annotations
 
@@ -67,8 +67,6 @@ def parse_only(argv: list[str], ap: argparse.ArgumentParser | None = None) -> Si
             args = ap.parse_args(raw)
     except SystemExit as e:   # --help and --version-style actions exit 0: they parse
         return SimpleNamespace(ok=e.code == 0, args=None, error=err.getvalue().strip() or f"exit {e.code}")
-    if getattr(args, "cmd", None) in lp.COMMAND_ALIASES:
-        args.cmd = lp.COMMAND_ALIASES[args.cmd]
     return SimpleNamespace(ok=True, args=args, error="")
 
 
@@ -97,36 +95,10 @@ def command_tree(ap: argparse.ArgumentParser | None = None) -> list[SimpleNamesp
     return out
 
 
-# Values of `comparator`'s `name` positional that select a keyword form rather than a package.
-def comparator_keywords() -> tuple[str, ...]:
-    lp = cli()
-    return (lp.HOST_CHECK, lp.CONFIG_CMD)
-
-
-_NESTED_DESTS = ("index_cmd", "claims_cmd", "reservoir_cmd", "palomar_cmd", "receipt_cmd", "coverage_cmd")
-
-
 def canonical(args, ap: argparse.ArgumentParser | None = None) -> str:
-    """The canonical command a parsed invocation selects: primary names, aliases resolved, the comparator
-    keyword forms named (`comparator host-check`, `comparator config`, `formalization anchor`); "board" for a bare `lean-pkg`."""
-    lp = cli()
-    cmd = getattr(args, "cmd", None)
-    if cmd is None:
-        return "board"
-    if cmd == "formalization" and getattr(args, "name", None) == "anchor":
-        return "formalization anchor"
-    if cmd == "comparator":
-        if lp.is_host_check(args):
-            return f"comparator {lp.HOST_CHECK}"
-        if lp.is_comparator_config(args):
-            return f"comparator {lp.CONFIG_CMD}"
-        return "comparator"
-    for dest in _NESTED_DESTS:
-        sub = getattr(args, dest, None)
-        if sub:
-            tree = {n.path: n for n in command_tree(ap)}
-            for node in tree.values():   # resolve an alias (`receipt local`) to its primary name
-                if len(node.path) == 2 and node.path[0] == cmd and (sub == node.path[1] or sub in node.aliases):
-                    return " ".join(node.path)
-            return f"{cmd} {sub}"
-    return cmd
+    """The canonical 1.0 command a parsed invocation selects (lean_pkg.command_tree.canonical_command):
+    `lease claim` for `claim`, `comparator attach` for `comparator NAME`; "registry board" for a bare
+    `lean-pkg` (what parses; whether it then shows the board or the newcomer page is decided at run time)."""
+    from lean_pkg import command_tree
+    del ap
+    return command_tree.canonical_command(args) or "registry board"

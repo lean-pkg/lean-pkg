@@ -1,0 +1,53 @@
+usage: lean-pkg comparator config [-h] [--from-claims NAME] [--coverage NAME]
+                                  [--migrate-signoff PATH] [--write] [--out OUT] [--dry-run]
+                                  [--challenge-namespace CHALLENGE_NAMESPACE] [--agent AGENT]
+                                  [--challenge-from-type] [--emit-script F] [--from-output F]
+                                  [--repo DIR] [--claims-file PATH] [--no-registry]
+                                  [--allow-partial] [--lake-env DIR] [--jobs JOBS]
+                                  [--timeout TIMEOUT] [--json] [--commit] [--push] [--no-commit]
+
+options:
+  -h, --help            show this help message and exit
+  --from-claims NAME    add a TODO theorem_names entry per synced claim (theorem/lemma) no
+                        comparator configuration covers yet; never overwrites
+  --coverage NAME       read-only; claims covered by the comparator config tracked at the gate-
+                        bound commit, and why a changed config needs a new gate
+  --migrate-signoff PATH
+                        move the deprecated inline judged_as / lean_pkg_scaffold keys of that
+                        configuration into lean-pkg-signoff.json (dry run unless --write); the
+                        Palomar keys are unchanged, the file's bytes (and so its receipt hash)
+                        change
+  --write               with --migrate-signoff: write both files
+  --out OUT             the configuration to extend or create (default comparator.json)
+  --dry-run             print the would-be JSON; write nothing
+  --challenge-namespace CHALLENGE_NAMESPACE
+                        namespace of the new Challenge names (default <Package>Audit)
+  --agent AGENT         lease holder, if one is live
+  --challenge-from-type
+                        pre-fill each new Challenge/Solution from the declaration's elaborated
+                        type (runs `lake env lean` in the checkout)
+  --emit-script F       write the type driver to F (run it elsewhere: cd CHECKOUT && bash F
+                        OUT.json); no Lean runs here
+  --from-output F       fill the scaffold from the driver's comparator-types/1 JSON F
+  --repo DIR            with --from-claims: use this package checkout instead of the registry's
+                        local_path (HEAD must be the claims-synced commit or an evidence-only
+                        descendant) (old spelling --checkout, kept working)
+  --claims-file PATH    with --from-claims: read the claims from this working-copy claims.yaml
+                        instead of the registry's synced cache (no `claims sync` needed); schema-
+                        checked exactly like `claims check --file`; never written to the registry;
+                        the output names the file and its sha256
+  --no-registry         with --from-output/--challenge-from-type and --out FILE: scratch mode;
+                        write the merged config to FILE outside the checkout, lease not consulted
+  --allow-partial       with --from-output/--challenge-from-type: ingest a run with extraction
+                        failures (the failed entries keep TODO, restatement_reason
+                        extraction_failed)
+  --lake-env DIR        with the type flags: Lake directory inside the checkout (default: the
+                        checkout)
+  --jobs JOBS           with the type flags: parallel Lean processes (default 2, at most the CPUs;
+                        halved and retried on too many open files)
+  --timeout TIMEOUT     with the type flags: seconds per declaration (default 120)
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

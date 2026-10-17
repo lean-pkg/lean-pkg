@@ -1,5 +1,5 @@
-usage: lean-pkg leases [-h] [--agent AGENT] [--expiring HOURS] [--json] [--commit] [--push]
-                       [--no-commit]
+usage: lean-pkg lease list [-h] [--agent AGENT] [--expiring HOURS] [--json] [--commit] [--push]
+                           [--no-commit]
 
 options:
   -h, --help        show this help message and exit

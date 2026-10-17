@@ -4,7 +4,14 @@ title: Sample workflow
 
 [← lean-pkg documentation](index.md)
 
-<img src="assets/workflow.svg" alt="The seven steps of the sample workflow: register and claim, prove-build-audit, state the claim, comparator receipt, gate, commit the evidence, promote dry run; then Reservoir, Palomar and Zenodo" style="max-width:100%;height:auto">
+<img src="assets/workflow.svg" alt="One workflow, two tracks: lean-pkg new, then Track P (anchor the paper, a row per numbered result, Not formalized) or Track L (a library, Main results, no manuscript); both rejoin the shared seven steps of the sample workflow (register and claim, prove-build-audit, state the claim, comparator receipt, gate, commit the evidence, promote dry run) with the verification page before step 7; after --yes, Track P goes to Reservoir, Palomar and Zenodo and is cited in the paper, Track L to a version tag, a Reservoir listing and Mathlib pull requests" style="max-width:100%;height:auto">
+
+The diagram covers both products lean-pkg certifies, a verified paper (Track P)
+and a reusable Lean library (Track L); see [Two tracks](design/two-tracks.md).
+Only the start and the end differ; the numbered steps are shared and match the
+sections below. Commands are today's, with the 1.0 name noted where it changes
+([1.0 command tree](design/1.0-command-tree.md)): `new` has shipped without
+`--kind`, `verify` has not, and `publish NAME --yes` will replace `promote --yes`.
 
 A session on a real package, start to finish. The package is small on
 purpose: a consumer of Scott Armstrong's

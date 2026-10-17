@@ -27,6 +27,12 @@ lean-pkg serves two kinds of author, and each has its own final product.
 The two tracks share most of the machinery. They differ in what the page is
 anchored to and in what happens after the public flip.
 
+<img src="../assets/workflow.svg" alt="One workflow, two tracks: lean-pkg new, then Track P (anchor the paper, a row per numbered result, Not formalized) or Track L (a library, Main results, no manuscript); both rejoin the shared seven steps of the sample workflow (register and claim, prove-build-audit, state the claim, comparator receipt, gate, commit the evidence, promote dry run) with the verification page before step 7; after --yes, Track P goes to Reservoir, Palomar and Zenodo and is cited in the paper, Track L to a version tag, a Reservoir listing and Mathlib pull requests" style="max-width:100%;height:auto">
+
+The diagram is the [sample workflow](../sample-workflow.md)'s, extended: the
+fork after `new` and the fork after `--yes` are the only track-specific steps,
+and the shared core is drawn once.
+
 A word on naming: the package record already has a field called `track`, the
 DOI track (`palomar` or `doi-only`, see the [CLI reference](../cli.md)). This
 document says "Track P" and "Track L" for the two product tracks. The tool
@@ -100,7 +106,8 @@ lean-pkg page NAME --write
 lean-pkg publish NAME --yes                                # then record doi-minted; optionally palomar prepare
 ```
 
-Until `new` and `verify` ship, the same path with today's commands:
+Until `new --kind paper` and `verify` ship, the same path with the commands
+of 0.10.0 (whose `new` scaffolds a library only):
 
 ```bash
 lean-pkg register my-paper-lean --repo URL --path DIR
@@ -137,10 +144,12 @@ lean-pkg reservoir check NAME                          # then tag vX.Y.Z, record
                                                        #   record mathlib-pr-opened / -merged, then upstreamed
 ```
 
-With today's commands:
+With the commands of 0.10.0, where `new NAME` already scaffolds a library
+(`coverage.yaml` with `kind: library`, one claim, a comparator config; no
+registry touched):
 
 ```bash
-lean-pkg register my-lib --repo URL --path DIR
+lean-pkg new my-lib && lean-pkg register my-lib --path my-lib   # or register an existing repository
 lean-pkg claims sync my-lib && lean-pkg coverage check my-lib
 lean-pkg gate my-lib --receipt R.json && lean-pkg comparator my-lib --receipt C.json
 lean-pkg page my-lib --write && lean-pkg reservoir check my-lib && lean-pkg publish my-lib --dry-run
@@ -265,7 +274,7 @@ Sizes: S is a day or less, M a few days, L a week or more.
 
 | # | Track | Gap | Size | Why this rank |
 |---|---|---|---|---|
-| 1 | both | `lean-pkg new DIR --kind paper\|library` (paper the default, as the 1.0 tree specifies) writes the matching `coverage.yaml`, and the quickstart branches by track | S | the first outside user meets this first (wave 1) |
+| 1 | both | `lean-pkg new --kind paper\|library` writes the matching `coverage.yaml`; the 1.0 tree makes paper the default, while `new` in 0.10.0 scaffolds a library only, so the default must be settled before `--kind` ships; the quickstart branches by track | S | the first outside user meets this first (wave 1) |
 | 2 | L | Library page and README shape: `require` line, supported toolchain and Mathlib pin, API docs link, versions | S | the page is the product's front door |
 | 3 | L | `reservoir check`: latest `v*` tag equals the lakefile `version` | S | Reservoir maps versions from tags |
 | 4 | L | Mathlib readiness report, static: docstrings on definitions and theorems, module docstring, copyright header, line length, `sorry` | S | reuses `lean_scan.py`; no Lean needed |

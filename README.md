@@ -21,6 +21,8 @@
 **New here?** The [Quickstart](docs/quickstart.md) goes from `pip install` to a
 verified page on your own machine, with no lab account: `lean-pkg new my-proof`, two
 receipts, the gate, the page.
+The [π-λ tutorial](docs/tutorial-pi-lambda.md) does the same with a real
+theorem, Dynkin's π-λ theorem, for a mathematician who has barely used Lean.
 
 ---
 

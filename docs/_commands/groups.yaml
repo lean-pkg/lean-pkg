@@ -5,14 +5,15 @@ intro: |
   Every `lean-pkg` command and subcommand, with its usage line, every flag, its exit codes, its
   `--json` keys and, for the commands people run most, examples. Flags shared by every command
   (`--registry`, `--json`, `--commit`, `--push`, committed mode, `--registry-snapshot`) are on the
-  [CLI overview](../cli.md).
+  [CLI overview](../cli.md). Older spellings (`claim`, `init`, `audit`, ...) keep working; see
+  [Command aliases](aliases.md).
 
   **New here?** The [quickstart](../quickstart.md) takes a new package from
   [`new`](new.md) to a verified page. The usual path through the commands is
-  [`init`](init.md) (once) → [`register`](register.md) → [`claim`](claim.md) →
+  [`registry init`](registry.md#lean-pkg-registry-init) (once) → [`register`](register.md) → [`lease claim`](lease.md#lean-pkg-lease-claim) →
   work → [`receipt slurm`](receipt.md#lean-pkg-receipt-slurm) or
   [`receipt systemd`](receipt.md#lean-pkg-receipt-systemd) → [`gate`](gate.md) →
-  [`comparator-receipt`](comparator-receipt.md) and [`comparator`](comparator.md) →
+  [`comparator-receipt`](comparator-receipt.md) and [`comparator attach`](comparator.md#lean-pkg-comparator-attach) →
   [`coverage check`](coverage.md#lean-pkg-coverage-check) and [`page`](page.md) →
   [`publish --dry-run`](publish.md) → [`promote`](promote.md). At any point
   [`next NAME`](next.md) prints the one command to run now and [`status NAME`](status.md)
@@ -20,11 +21,11 @@ intro: |
   real package.
 groups:
   - title: Set up and get help
-    commands: [new, init, migrate, doctor, help, llms]
+    commands: [new, doctor, help, llms]
   - title: See the registry
-    commands: [board, list, status, leases, next, wiki, validate, audit]
+    commands: [list, status, next, registry]
   - title: Register, lease and edit packages
-    commands: [register, claim, renew, release, update]
+    commands: [register, update, repo, lease]
   - title: Produce and attach evidence
     say: The lower tier (`receipt`, `gate`) moves a package to verified-private; the comparator tier is required to go public.
     commands: [receipt, gate, comparator-receipt, comparator, record]

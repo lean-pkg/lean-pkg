@@ -1,8 +1,8 @@
-usage: lean-pkg migrate [-h] [--dry-run] [--json] [--commit] [--push] [--no-commit]
+usage: lean-pkg registry init [-h] [--force] [--json] [--commit] [--push] [--no-commit]
 
 options:
   -h, --help   show this help message and exit
-  --dry-run    print the changes; write nothing
+  --force      re-create only if the existing registry is empty
   --json       machine-readable JSON on stdout
   --commit     write commands: pull --ff-only, then commit the registry files (default:
                $LEAN_PKG_COMMIT=1)

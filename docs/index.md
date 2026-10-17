@@ -14,6 +14,12 @@ public without two receipts, and the second one is re-derived from bytes.
 Source and issues: <https://github.com/lean-pkg/lean-pkg>. License:
 Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 
+**Start here:** [Tutorial: Dynkin's π-λ theorem, end to end](tutorial-pi-lambda.md)
+takes one textbook theorem from its statement to a verified page on your own
+machine, and explains each idea (statement and proof, the kernel, axioms, the
+comparator, receipts, the gate, the page) where it is first needed. *Lean
+checks every step; you check the statement.*
+
 ## Choose your track
 
 lean-pkg leads to one of two final products, and the page certifies each one:
@@ -90,7 +96,7 @@ will automate the registry bootstrap; it is not implemented yet.
 
 - [Quickstart](quickstart.md): from `pip install` to a verified page, for a new package (`lean-pkg new`) or an existing one.
 - [Start here](newcomers.md): the newcomer path, including the Lean reading list.
-- [Sample workflow](sample-workflow.md): a real package from registration to a promotion dry run, with the seven-step diagram.
+- [Sample workflow](sample-workflow.md): a real package from registration to a promotion dry run, with the workflow diagram: the seven shared steps and the paper and library tracks.
 - [Develop a paper with its Lean companion](paper-companion.md): check intermediate results while the paper evolves, record checkpoints, reuse unchanged results, keep a coverage map, consolidate several checkpoint packages into one new package.
 - [FAQ](faq.md): common questions, including how this differs from Palomar and Mathlib.
 - [Motivation](motivation.md): the problem this solves and where it is going.

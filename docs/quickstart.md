@@ -22,6 +22,9 @@ adds a few minutes more on a new machine.
 Every command below is one you run; nothing is hidden in a script. Steps
 marked *optional* are only for a lab or a cluster.
 
+The same path with a real theorem, every step explained for a mathematician:
+[Tutorial: Dynkin's π-λ theorem, end to end](tutorial-pi-lambda.md).
+
 ## 1. Install
 
 ```bash

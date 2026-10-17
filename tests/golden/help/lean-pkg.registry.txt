@@ -1,0 +1,13 @@
+usage: lean-pkg registry [-h] {board,init,migrate,validate,audit,wiki} ...
+
+positional arguments:
+  {board,init,migrate,validate,audit,wiki}
+    board               curses TUI on a tty; static table otherwise
+    init                bootstrap an empty registry and its event log
+    migrate             upgrade the registry schema in place (additive; idempotent)
+    audit               report expired leases, gh visibility, drift; read-only without --write
+    validate            schema + enum + history sanity; exit 0/1
+    wiki                render a Markdown status page
+
+options:
+  -h, --help            show this help message and exit
