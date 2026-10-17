@@ -24,6 +24,11 @@ keeps the hits of the part decoded so far, falls back to the compressed bytes an
   file name at any depth; a trailing `/` matches everything under that directory). A scoped line
   never applies to commit messages. The file itself lists private strings, so it must stay out of
   the public tree: tracked (or in history) it is a hit.
+- the package's committed `.lean-pkg-public-allow` (#6): `allow:` lines that are public on purpose (a
+  fixture address, a generic CI path); any other line is ignored with a warning. Inside that file every
+  allow line applies whatever its path scope, and a line that a private block pattern (the patterns file's
+  or a registry-derived name) matches is the blocking `public-allow-private` hit, which no allow line
+  exempts. `release --fresh-repo` writes it from the patterns file's allow lines.
 - built-in defaults: absolute home paths, a cloud-sync folder path, `approvals/`, `notes/`,
   `*.private`, `TODO-private`, and email addresses other than the declared ones (the repository's
   commit and tag identities that are ordinary mail addresses, `consent[]` entries, `allow:` lines,
@@ -67,6 +72,12 @@ import zlib
 from . import cli as core
 
 PATTERNS_FILE = ".lean-pkg-private-patterns"
+# #6 field report: the PUBLIC companion of the patterns file. It holds `allow:` lines only (a benign
+# fixture address, a generic CI path), so it may be committed; `release --fresh-repo` carries the patterns
+# file's allow lines into it. Any other line is ignored with a warning, and a line a private block pattern
+# (the patterns file's own or a registry-derived name) matches is a blocking `public-allow-private` hit.
+PUBLIC_ALLOW_FILE = ".lean-pkg-public-allow"
+PUBLIC_ALLOW_PRIVATE = "public-allow-private"
 INTERNAL_DIRS = ("approvals", "notes", "drafts", "scratch")
 INTERNAL_SUFFIXES = (".priv", ".private")
 REDACTED = "[…]"
@@ -225,6 +236,48 @@ def read_patterns_file(root: pathlib.Path) -> tuple[list[Pattern], list[tuple], 
     return pats, allow, problems, True
 
 
+def read_public_allow(root: pathlib.Path) -> tuple[list[tuple], list[str], bool]:
+    """(allow entries (regex, path glob regex or None), problems, present) from <root>/.lean-pkg-public-allow:
+    `allow: REGEX` and `allow: GLOB: REGEX` lines only; `#` comments and blank lines skipped; any other line
+    (block:, warn:, a bare regex) is ignored and named in problems, since this file is published."""
+    p = root / PUBLIC_ALLOW_FILE
+    if p.is_symlink() or not p.is_file():
+        return [], ([f"{PUBLIC_ALLOW_FILE} is a symbolic link; not read"] if p.is_symlink() else []), False
+    allow: list[tuple[re.Pattern, re.Pattern | None]] = []
+    problems: list[str] = []
+    for n, raw in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        tag, _, rest = line.partition(":")
+        if tag != "allow":
+            problems.append(f"{PUBLIC_ALLOW_FILE}:{n}: not an `allow:` line; ignored (this file is public: block "
+                            f"and warn lines belong in {PATTERNS_FILE})")
+            continue
+        glob, text = split_scope(rest.strip())
+        try:
+            allow.append((re.compile(text), glob_regex(glob) if glob else None))
+        except re.error as e:
+            problems.append(f"{PUBLIC_ALLOW_FILE}:{n}: not a valid regular expression ({e.msg}); skipped")
+    return allow, problems, True
+
+
+def allow_lines(root: pathlib.Path) -> list[tuple[int, str]]:
+    """(line number, stripped text) of every `allow:` line of <root>/.lean-pkg-private-patterns."""
+    p = root / PATTERNS_FILE
+    if not p.is_file():
+        return []
+    return [(n, raw.strip()) for n, raw in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1)
+            if raw.strip().partition(":")[0] == "allow"]
+
+
+def private_matches(sc: "Scanner", text: str) -> list[str]:
+    """Labels of the blocking private patterns (the patterns file's, the registry-derived names) that match
+    `text` anywhere, no allow line applied: what may never be published inside an allow line."""
+    return [p.label for p in sc.patterns
+            if p.kind in ("file", "derived") and p.severity == BLOCK and p.glob is None and p.rx.search(text)]
+
+
 def _tokens(value) -> list[str]:
     out = []
     for tok in re.split(r"[\s/@:]+", str(value or "")):
@@ -298,7 +351,8 @@ IDENTITY_EMAIL = Pattern("identity-email", "builtin", re.compile(r"(?!)"))
 
 class Scanner:
     def __init__(self, pkg: dict, patterns_root: pathlib.Path, repo_for_emails: pathlib.Path | None,
-                 scope_prefix: str = "", gzip_limit: int | None = None):
+                 scope_prefix: str = "", gzip_limit: int | None = None,
+                 public_allow_root: pathlib.Path | None = None):
         """scope_prefix: when the scan root is a repository whose package is the subdirectory
         `scope_prefix` (with its trailing `/`), path-scoped lines apply to the package-relative part of
         a path under it and never to a path outside the package. gzip_limit: decoded bytes of one gzip
@@ -307,6 +361,10 @@ class Scanner:
         self.gzip_limit = resolve_gzip_limit(gzip_limit)
         self.decoded: list[dict] = []
         file_pats, self.allow, self.problems, self.file_present = read_patterns_file(patterns_root)
+        pub, pub_problems, self.public_allow_present = read_public_allow(public_allow_root or patterns_root)
+        self.n_public_allow, self.n_private_allow = len(pub), len(self.allow)
+        self.allow = self.allow + pub
+        self.problems = self.problems + pub_problems
         builtin = [Pattern(label, "builtin", re.compile(rx)) for label, rx in BUILTIN]
         builtin += [Pattern(label, "builtin", re.compile(rx), WARN) for label, rx in BUILTIN_WARN]
         self.derived = derived_patterns(pkg)
@@ -314,7 +372,7 @@ class Scanner:
         self.n_file = len(file_pats)
         self.n_file_warn = sum(1 for p in file_pats if p.severity == WARN)
         self.n_scoped = sum(1 for p in file_pats if p.glob is not None)
-        self.n_allow_scoped = sum(1 for _a, g in self.allow if g is not None)
+        self.n_allow_scoped = sum(1 for _a, g in self.allow[:self.n_private_allow] if g is not None)
         self.emails = declared_emails(pkg, repo_for_emails)
         self._active: dict = {}
 
@@ -326,8 +384,11 @@ class Scanner:
         if path not in self._active:
             def hit(g):
                 return g is None or (path is not None and g.fullmatch(path) is not None)
+            # #6: inside the public allow file every allow line applies whatever its path scope (the file
+            # quotes them); private strings there are caught by private_matches, which no allow line exempts
+            own = path is not None and path.rsplit("/", 1)[-1] == PUBLIC_ALLOW_FILE
             self._active[path] = ([p for p in self.patterns if hit(p.glob)],
-                                  [a for a, g in self.allow if hit(g)])
+                                  [a for a, g in self.allow if own or hit(g)])
         return self._active[path]
 
     def allowed(self, pat: Pattern, text: str, allow: list[re.Pattern] | None = None) -> bool:
@@ -815,6 +876,13 @@ def scan_tree(sc: Scanner, root: pathlib.Path, git_mode: bool = True,
         if rule:
             hits.append(_hit(sc, "tree", rel, None, rule, "internal-file", "internal file by path"))
         f = root / rel
+        if rel.rsplit("/", 1)[-1] == PUBLIC_ALLOW_FILE and f.is_file() and not f.is_symlink():
+            # an allow line exempts its own text from every pattern, so a private string written into
+            # the public allow file is looked for here with no allow line applied
+            for n, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                for label in private_matches(sc, line):
+                    hits.append(_hit(sc, "tree", rel, n, PUBLIC_ALLOW_PRIVATE, "internal-file",
+                                     f"an allow line holds a private string ({label}); this file is published"))
         if f.is_symlink():
             try:
                 target = os.readlink(f)
@@ -951,6 +1019,12 @@ def scan_history(sc: Scanner, root: pathlib.Path, skipped: list[dict] | None = N
     for sha, size, body in _batch_objects(root, to_read):
         _scan_file_or_blob(sc, lambda b=body: io.BytesIO(b), size, "history", blobs[sha], hits, skipped,
                            commit_of=lambda s=sha: _introducing_commit(root, s))
+        if blobs[sha].rsplit("/", 1)[-1] == PUBLIC_ALLOW_FILE:   # its allow lines never exempt themselves
+            for n, line in enumerate(body.decode("utf-8", errors="replace").splitlines(), 1):
+                for label in private_matches(sc, line):
+                    hits.append(_hit(sc, "history", blobs[sha], n, PUBLIC_ALLOW_PRIVATE, "internal-file",
+                                     f"an allow line holds a private string ({label}); this file is published",
+                                     _introducing_commit(root, sha)))
     scope = ["--", "."] if prefix else []
     log = core.git(root, "log", "--all", "--format=%H%x00%B%x1e", *scope)
     for rec in log.stdout.split("\x1e"):
@@ -1020,7 +1094,7 @@ def repository_scope(root: pathlib.Path) -> tuple[pathlib.Path, str] | None:
 def scan(pkg: dict, root: pathlib.Path, history: bool = True,
          patterns_root: pathlib.Path | None = None, source_repo: pathlib.Path | None = None,
          export: bool = False, strict: bool = False, whole_repo: bool = False,
-         gzip_limit: int | None = None) -> dict:
+         gzip_limit: int | None = None, public_allow_root: pathlib.Path | None = None) -> dict:
     """The scan result as the --json payload body: ok, hits[], tree_hits, history_hits, block_hits,
     warn_hits, strict, scope, skipped[], decoded[] (gzip files and blobs decoded, #8), gzip_limit,
     patterns_source, warnings[]. ok: no blocking hit (strict: no
@@ -1036,14 +1110,17 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
             patterns_root, source_repo = patterns_root or root, source_repo or root
             root, prefix = rs
             scope = "repository"
-    sc = Scanner(pkg, patterns_root or root, source_repo or root, scope_prefix=prefix, gzip_limit=gzip_limit)
+    sc = Scanner(pkg, patterns_root or root, source_repo or root, scope_prefix=prefix, gzip_limit=gzip_limit,
+                 public_allow_root=public_allow_root)
     skipped: list[dict] = []
     tree, warnings, pf_tracked = scan_tree(sc, root, git_mode=not export, skipped=skipped)
     history = bool(history and not export and core.git_head(root) is not None)
     hist = scan_history(sc, root, skipped) if history else []
     hits = tree + hist
     source = {"file": PATTERNS_FILE if sc.file_present else None, "file_patterns": sc.n_file,
-              "allow": len(sc.allow), "allow_scoped": sc.n_allow_scoped, "scoped_patterns": sc.n_scoped,
+              "public_allow_file": PUBLIC_ALLOW_FILE if sc.public_allow_present else None,
+              "public_allow": sc.n_public_allow,
+              "allow": sc.n_private_allow, "allow_scoped": sc.n_allow_scoped, "scoped_patterns": sc.n_scoped,
               "tracked": pf_tracked,
               "builtin": [label for label, _rx in BUILTIN + BUILTIN_WARN],
               "warn_only": [label for label, _rx in BUILTIN_WARN], "file_warn_patterns": sc.n_file_warn,
@@ -1111,7 +1188,8 @@ def report_lines(name: str, result: dict, quiet: bool = False) -> list[str]:
              f"  patterns: {src['file'] or 'no ' + PATTERNS_FILE} ({src['file_patterns']} pattern(s), "
              f"{src['allow']} allow, {src['file_warn_patterns']} warn-only, "
              f"{src['scoped_patterns'] + src['allow_scoped']} path-scoped) + {len(src['builtin'])} built-in + {len(src['derived'])} registry-derived "
-             f"({', '.join(src['derived']) or 'none'}) + internal paths"]
+             f"({', '.join(src['derived']) or 'none'}) + internal paths"
+             + (f"; {PUBLIC_ALLOW_FILE}: {src['public_allow']} allow" if src.get("public_allow_file") else "")]
     if not n and result.get("builtins_only"):   # field report: the built-ins cannot know a project's own private terms
         lines.append(BUILTINS_ONLY_NOTE)
     fail = blocking(result["hits"], result["strict"])

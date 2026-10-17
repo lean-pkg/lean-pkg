@@ -49,6 +49,9 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["leases"], "leases", False, False, False),
     (["update", "demo", "--notes", "n"], "update", True, True, False),
     (["update", "demo", "--notes", "n", "--dry-run"], "update", False, False, False),
+    (["update", "demo", "--withdraw-publication", "--reason", "r"], "update", True, True, False),
+    (["update", "demo", "--withdraw-publication", "--reason", "r", "--dry-run"], "update", False, False, False),
+    (["update", "demo", "--release-publication-hold", "--reason", "r"], "update", True, True, False),
     (["gate", "demo", "--receipt", R], "gate", True, True, False),
     (["gate", "demo", "--receipt", R, "--check"], "gate", False, False, False),
     (["gate", "demo", "--receipt", R, "--regate"], "gate", True, True, False),
@@ -83,6 +86,10 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["claims", "check"], "claims check", False, False, False),
     (["claims", "migrate", "demo", "--from", "f"], "claims migrate", False, False, False),   # writes a file, not the registry
     (["claims", "ledger", "demo"], "claims ledger", False, False, False),
+    (["claims", "mark", "demo", "--from-comparator", "c.json", "--status", "reusable"], "claims mark", False, False,
+     False),
+    (["claims", "mark", "demo", "--from-comparator", "c.json", "--status", "reusable", "--write"], "claims mark",
+     False, False, False),                                                                  # writes claims.yaml, not the registry
     (["search", "term"], "search", False, False, False),
     (["search", "term", "--record"], "search", True, False, False),   # locks only around its append
     (["formalization", "demo"], "formalization", False, False, False),

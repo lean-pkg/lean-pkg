@@ -210,6 +210,42 @@ def export_identity_hits(sc: "ps.Scanner") -> list[dict]:
     return out
 
 
+def carry_public_allow(name: str, pkg: dict, pat_root: pathlib.Path, email_repo: pathlib.Path,
+                       stage: pathlib.Path, today: str) -> dict:
+    """#6: the patterns file is dropped (it lists private strings), so its benign `allow:` lines would be lost
+    and the new repository's own public-safety would report what the export scan allowed. Carry ONLY those
+    lines into the committed `.lean-pkg-public-allow` (merged with one the tree already has); never a
+    block/warn line. A line a private block pattern (the patterns file's, a registry-derived name) matches
+    refuses the export: publishing it would publish the private string."""
+    lines = ps.allow_lines(pat_root)
+    view = {"file": None, "carried": 0, "lines": []}
+    if not lines:
+        return view
+    sc = ps.Scanner(pkg, pat_root, email_repo)
+    bad = [(n, labels) for n, t in lines for labels in [ps.private_matches(sc, t)] if labels]
+    if bad:
+        raise core.Fail(f"{name}: allow line(s) {', '.join(str(n) for n, _l in bad)} of {ps.PATTERNS_FILE} hold a "
+                        f"private string (" + "; ".join(f"line {n}: {', '.join(lab)}" for n, lab in bad)
+                        + f"), so they cannot be carried into the public {ps.PUBLIC_ALLOW_FILE}; nothing written. "
+                          f"Rewrite each without the private string (a narrower regex, or a path scope "
+                          f"`allow: GLOB: REGEX`), then re-run")
+    dest = stage / ps.PUBLIC_ALLOW_FILE
+    if dest.is_symlink():
+        raise core.Fail(f"{name}: the exported {ps.PUBLIC_ALLOW_FILE} is a symbolic link; refusing to write "
+                        f"through it; nothing written")
+    existing = dest.read_text(encoding="utf-8").splitlines() if dest.is_file() else []
+    have = {x.strip() for x in existing}
+    new = [(n, t) for n, t in lines if t not in have]
+    if not new:
+        return {"file": ps.PUBLIC_ALLOW_FILE, "carried": 0, "lines": []}
+    head = [] if existing else [
+        "# lean-pkg public allow list: `allow:` lines only (public-safety reads them; block and warn lines",
+        f"# belong in the untracked {ps.PATTERNS_FILE}). Committed on purpose: nothing here is private."]
+    body = existing + head + [f"# carried from {ps.PATTERNS_FILE} by `lean-pkg release --fresh-repo` ({today})"]
+    dest.write_text("\n".join(body + [t for _n, t in new]) + "\n", encoding="utf-8")
+    return {"file": ps.PUBLIC_ALLOW_FILE, "carried": len(new), "lines": [n for n, _t in new]}
+
+
 def commit_message(src: str, today: str) -> str:
     return (f"fresh-history export of {src[:12]}; receipts and gate must be re-run on this commit\n\n"
             f"source commit: {src}\nexport date: {today}\n")
@@ -319,9 +355,12 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
         if not files:
             raise core.Fail(f"{name}: nothing to export from {srcdir or src[:12]} (every file is excluded or "
                             f"ignored); nothing written")
-        result = ps.scan(pkg, stage, export=True, patterns_root=pat_root, source_repo=email_repo)
-        blocking = ps.blocking(result["hits"])   # #36: warn-only hits are reported, not refused
         today = core.utc_today()
+        carried = carry_public_allow(name, pkg, pat_root, email_repo, stage, today)
+        files = sum(1 for _ in (p for p in stage.rglob("*") if p.is_file() or p.is_symlink()))
+        result = ps.scan(pkg, stage, export=True, patterns_root=pat_root, source_repo=email_repo,
+                         public_allow_root=stage)
+        blocking = ps.blocking(result["hits"])   # #36: warn-only hits are reported, not refused
         msg = commit_message(src, today) if srcdir is None else tree_commit_message(srcdir, provenance, today)
         if srcdir is not None:   # the message names SRCDIR's basename: it is published too
             sc = ps.Scanner(pkg, pat_root, email_repo)
@@ -348,6 +387,10 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
         plan += [f"  dropped: {d['path']}  ({d['reason']})" for d in dropped]
         if receipts_note:
             plan.append(f"  note: {receipts_note}")
+        if carried["carried"]:
+            plan.append(f"  public allow: {carried['carried']} allow line(s) of {ps.PATTERNS_FILE} (line(s) "
+                        f"{', '.join(map(str, carried['lines']))}) carried into {ps.PUBLIC_ALLOW_FILE} (committed; "
+                        f"the new repository's public-safety reads it; block and warn lines are never carried)")
         nw = result["warn_hits"]
         plan.append("  public-safety on the exported tree: 0 hit(s)" if not nw else
                     f"  public-safety on the exported tree: 0 blocking hit(s), {nw} warning(s) "
@@ -356,6 +399,7 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
         payload = {"ok": True, "name": name, "dry_run": bool(dry_run), "source_commit": src,
                    "source": chosen, "export_path": stored, "files": files, "excluded": dropped,
                    "kept_receipts": bool(keep_receipts), "commit_message": msg, "remote": remote,
+                   "public_allow": carried,
                    "public_safety": {"hits": nw, "tree_hits": nw, "block_hits": 0, "warn_hits": nw}}
         if srcdir is not None:
             payload.update(from_tree=src_stored, provenance_commit=provenance)

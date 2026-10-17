@@ -8,7 +8,8 @@ positional arguments:
   {board,list,status,init,migrate,record,register,claim,lease,release,renew,leases,update,gate,comparator,promote,audit,validate,doctor,llms,help,wiki,index,claims,search,formalization,publish,coverage,page,reservoir,public-safety,palomar,next,report,receipt}
     board               curses TUI on a tty; static table otherwise
     list                static table, pipe-friendly
-    status              full record + last 5 history entries
+    status              full record + last 5 history entries + scope (gated commit, privacy, the
+                        exact comparator-covered declarations)
     init                bootstrap an empty registry and its event log
     migrate             upgrade the registry schema in place (additive; idempotent)
     record              record a publication evidence event (consent, Palomar, DOI, Reservoir,

@@ -47,10 +47,53 @@ scratch | active | gate-pending | verified-private | public | upstreamed | archi
 | verified-private → verified-private | `gate --regate` | re-certification in one step: a valid receipt for a commit descending from the gated one (or any commit with `--reason`); event `regated` |
 | verified-private → public | `promote --yes` | clean checklist: a byte-valid comparator PASS, the claims ledger `ready`, both receipts and every comparator log committed at HEAD, HEAD contained in `origin/<branch>` |
 | public → upstreamed | `update --status` | a recorded `mathlib-pr-merged` or `palomar-registered` event (not retracted, not withdrawn), or a `--reason` containing the URL |
+| public → verified-private | `update --withdraw-publication --reason` | the owner made the repository private again (`gh` must not report it public); `active` instead when no gate receipt is recorded; sets a publication hold ([Withdrawing publication](#withdrawing-publication)) |
 | any status → archived | `update --status --reason`, or `audit --fix` from GitHub's archived flag | — |
 
-Public is one-way: from `public` the only moves are to `upstreamed` and
-`archived`. A refused move names the moves allowed from the current status.
+Publishing is one-way on GitHub's side: forks, clones and caches stay. In the
+registry, from `public` the manual moves are to `upstreamed` and `archived`;
+the only way back to a private status is the recorded withdrawal below. A
+refused move names the moves allowed from the current status.
+
+### Withdrawing publication
+
+When the owner makes a promoted repository private again (and, say, deletes
+its Pages site), record it instead of archiving an active project or leaving
+the record `public`:
+
+```bash
+lean-pkg update NAME --withdraw-publication --reason "owner made the repository private; Pages removed" --dry-run
+lean-pkg update NAME --withdraw-publication --reason "owner made the repository private; Pages removed" --agent A
+```
+
+lean-pkg never changes GitHub visibility here: the owner does that first, and
+the withdrawal is refused while `gh` still reports the repository public (a
+failed or non-GitHub query is noted, not a refusal). The record then says
+what is true now: `visibility: private`, status `verified-private` (or
+`active` when no gate receipt is recorded), and `publication_hold`
+{reason, at, by}. The promotion stays in the append-only history:
+`promoted_at`, `promoted_commit` and the `promoted` event are kept, and the
+withdrawal adds one `publication-withdrawn` event. While the hold is set:
+
+- `promote` (and the promote checklist inside `publish --dry-run`) fails with
+  `✗ publication hold since AT by BY: REASON`, so nothing republishes it;
+- `gate` and `gate --regate` re-certify as for any `verified-private`
+  package and keep the hold;
+- `next` recommends nothing to publish;
+- `audit --fix` never copies a public GitHub visibility onto the held record
+  (it reports the mismatch and the two ways out);
+- `status NAME` prints the hold in its `scope:` block.
+
+Only an explicit, reasoned release lifts it; status and visibility stay as
+they are, and a later public flip goes through `promote` and its checklist
+again:
+
+```bash
+lean-pkg update NAME --release-publication-hold --reason "owner approved publishing again"
+```
+
+An `upstreamed` package is in Mathlib or Palomar; withdraw it there
+(`record NAME palomar-withdrawn ...`), not with this flag.
 
 `register` starts a package at `scratch`, `active` or `gate-pending`, or at
 `public` for a repository that is already public (`--visibility public` and a

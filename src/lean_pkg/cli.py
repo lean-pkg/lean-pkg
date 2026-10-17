@@ -239,6 +239,9 @@ PACKAGE_FIELDS = (
                                      "docs/receipts.md); absent = false (update --accept-docs-descendants)"),
     ("build_inputs", "optional", "[glob]: extra package-relative paths the docs-only rule treats as build inputs "
                                  "(fnmatch; a glob without / also matches a basename) (update --build-inputs)"),
+    ("publication_hold", "optional", "{reason, at, by}: the owner withdrew publication (update "
+                                     "--withdraw-publication); promote refuses while it is set; only update "
+                                     "--release-publication-hold lifts it"),
 )
 REQUIRED_FIELDS = [k for k, tier, _ in PACKAGE_FIELDS if tier == "v1"]
 BULK_FIELDS = [k for k, _, meaning in PACKAGE_FIELDS if meaning.endswith("[bulk]")]
@@ -2204,6 +2207,7 @@ OWNED_ELSEWHERE = {
     "agent": "lean-pkg claim", "status": "lean-pkg update --status",
     "name": "(immutable)", "local_path": "lean-pkg update NAME --path NEW --reason TEXT",
     "history": "(append-only)",
+    "publication_hold": "lean-pkg update NAME --withdraw-publication / --release-publication-hold --reason TEXT",
 }
 
 # Status moves `update` may make. The registry's other transitions have
@@ -2436,6 +2440,136 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
     if preexisting:
         payload["preexisting_errors"] = preexisting
     return (out, payload)
+
+
+# Privacy withdrawal (#5 field report): the owner made a promoted repository private again. Promotion
+# history stays append-only (promoted_at, promoted_commit and the `promoted` event are kept); the record
+# says what is true now: visibility private, status back to the gated private status, and a hold that
+# `promote` refuses on. gate/regate never touch the hold; only --release-publication-hold lifts it.
+HOLD_KEYS = ("reason", "at", "by")
+WITHDRAWABLE = ("public",)
+
+
+def publication_hold_errors(pkg: dict, pfx: str) -> list[str]:
+    hold = pkg.get("publication_hold")
+    if hold is None:
+        return []
+    if not isinstance(hold, dict) or set(hold) != set(HOLD_KEYS):
+        return [f"{pfx}.publication_hold: must be a mapping with exactly the keys {', '.join(HOLD_KEYS)}"]
+    errs = [f"{pfx}.publication_hold.{k}: must be a non-empty string" for k in HOLD_KEYS
+            if not isinstance(hold.get(k), str) or not hold[k].strip()]
+    if not errs:
+        try:
+            parse_ts(hold["at"])
+        except Exception:
+            errs.append(f"{pfx}.publication_hold.at: unparseable timestamp {hold['at']!r}")
+    if pkg.get("status") in ("public", "upstreamed") or pkg.get("visibility") == "public":
+        errs.append(f"{pfx}: publication_hold is set but the record says status {pkg.get('status')} / visibility "
+                    f"{pkg.get('visibility')} (a held package is private)")
+    return errs
+
+
+def hold_text(hold: dict) -> str:
+    return f"publication hold since {hold.get('at')} by {hold.get('by')}: {hold.get('reason')}"
+
+
+def github_visibility(pkg: dict) -> tuple[str | None, str]:
+    """(lowercase GitHub visibility or None, how it was obtained) for a GitHub repo; never raises."""
+    nwo = gh_nwo(pkg.get("repo") or "")
+    if not nwo:
+        return None, f"not a GitHub repository ({pkg.get('repo')!r}); visibility not queried"
+    try:
+        p = gh("repo", "view", nwo, "--json", "visibility", "-q", ".visibility")
+    except OSError as e:
+        return None, f"gh not runnable ({e}); GitHub visibility not verified"
+    if p.returncode != 0:
+        err = ((p.stderr or p.stdout or "").strip().splitlines() or [f"exit {p.returncode}"])[0]
+        return None, f"gh query for {nwo} failed ({err}); GitHub visibility not verified"
+    vis = p.stdout.strip().lower()
+    return (vis or None), f"gh reports {nwo} {vis or 'of unknown visibility'}"
+
+
+def do_withdraw_publication(reg_path, reg, events_p, name, *, reason, agent, force=False,
+                            dry_run=False) -> tuple[list[str], dict]:
+    """public -> verified-private (gated) or active (never gated), visibility private, publication_hold set,
+    one `publication-withdrawn` event. Refused while GitHub still reports the repository public: lean-pkg
+    records the owner's withdrawal, it never changes GitHub visibility itself."""
+    pkg = get_pkg(reg, name)
+    if not str(reason or "").strip():
+        raise Fail(f"{name}: --withdraw-publication requires --reason TEXT (who authorized it and why)")
+    status = pkg.get("status")
+    if pkg.get("publication_hold"):
+        raise Fail(f"{name}: already withdrawn ({hold_text(pkg['publication_hold'])}); nothing written")
+    if status not in WITHDRAWABLE:
+        extra = (" (an upstreamed result lives in Mathlib or Palomar: withdraw it there, e.g. `lean-pkg record "
+                 f"{name} palomar-withdrawn ...`)" if status == "upstreamed" else
+                 " (it was never published; nothing to withdraw)" if status in ("scratch", "active", "gate-pending",
+                                                                              "verified-private") else "")
+        raise Fail(f"{name}: --withdraw-publication withdraws a public package, got status {status!r}{extra}")
+    lease = pkg.get("lease")
+    refuse_invalid_lease(name, lease)
+    if lease_live(lease, dt.datetime.now(dt.timezone.utc)) and not force and agent != lease.get("agent"):
+        raise Fail(f"{name}: lease held by {lease.get('agent')} — pass --agent {lease.get('agent')}, "
+                   f"or --force with --reason")
+    gvis, how = github_visibility(pkg)
+    if gvis == "public":
+        raise Fail(f"{name}: {how}: make the repository private first (the owner's step; lean-pkg never changes "
+                   f"visibility on withdrawal), then re-run; nothing written")
+    new_status = "verified-private" if (pkg.get("gate") or {}).get("receipt") else "active"
+    by = (agent or _ACTOR["agent"] or "").strip() or "unknown"
+    hold = {"reason": reason.strip(), "at": now_iso(), "by": by}
+    view = {"status": {"from": status, "to": new_status},
+            "visibility": {"from": pkg.get("visibility"), "to": "private"},
+            "publication_hold": hold, "github_visibility": gvis, "github_check": how,
+            "promoted_at": pkg.get("promoted_at"), "promoted_commit": pkg.get("promoted_commit")}
+    lines = [f"{name}: {'would withdraw' if dry_run else 'withdrew'} publication: status {status} -> {new_status}, "
+             f"visibility {pkg.get('visibility')} -> private, publication hold set",
+             f"  github: {how}",
+             f"  kept (append-only): promoted_at {pkg.get('promoted_at')}, promoted_commit "
+             f"{str(pkg.get('promoted_commit') or 'none')[:12]}, the promoted event",
+             f"  promote refuses while the hold is set; gate/regate keep it; lift it only with "
+             f"`lean-pkg update {name} --release-publication-hold --reason TEXT`"]
+    if new_status == "active":
+        lines.append("  no gate receipt is recorded, so the status is active (verified-private needs a gate receipt)")
+    if dry_run:
+        lines.append("DRY RUN — nothing written")
+        return lines, {"ok": True, "name": name, "event": "publication-withdrawn", "dry_run": True, **view}
+    pkg["status"], pkg["visibility"], pkg["publication_hold"] = new_status, "private", hold
+    record(reg, events_p, pkg, "publication-withdrawn", status_from=status, status_to=new_status,
+           visibility_from=view["visibility"]["from"], visibility_to="private", reason=hold["reason"],
+           by=by, github_visibility=gvis, promoted_commit=pkg.get("promoted_commit"), forced=bool(force))
+    save_registry(reg_path, reg)
+    return lines, {"ok": True, "name": name, "event": "publication-withdrawn", "dry_run": False, **view}
+
+
+def do_release_publication_hold(reg_path, reg, events_p, name, *, reason, agent, force=False,
+                                dry_run=False) -> tuple[list[str], dict]:
+    """Lift a publication hold: status and visibility unchanged (still private); promote's checklist decides
+    any later public flip. One `publication-hold-released` event keeps the lifted hold."""
+    pkg = get_pkg(reg, name)
+    if not str(reason or "").strip():
+        raise Fail(f"{name}: --release-publication-hold requires --reason TEXT (who authorized it and why)")
+    hold = pkg.get("publication_hold")
+    if not hold:
+        raise Fail(f"{name}: no publication hold is recorded; nothing to release")
+    lease = pkg.get("lease")
+    refuse_invalid_lease(name, lease)
+    if lease_live(lease, dt.datetime.now(dt.timezone.utc)) and not force and agent != lease.get("agent"):
+        raise Fail(f"{name}: lease held by {lease.get('agent')} — pass --agent {lease.get('agent')}, "
+                   f"or --force with --reason")
+    lines = [f"{name}: {'would release' if dry_run else 'released'} the {hold_text(hold)}",
+             f"  status {pkg.get('status')} and visibility {pkg.get('visibility')} unchanged; publishing again "
+             f"goes through `lean-pkg publish {name} --dry-run` and `lean-pkg promote {name}`"]
+    payload = {"ok": True, "name": name, "event": "publication-hold-released", "dry_run": bool(dry_run),
+               "released": hold, "reason": reason.strip()}
+    if dry_run:
+        lines.append("DRY RUN — nothing written")
+        return lines, payload
+    pkg.pop("publication_hold", None)
+    record(reg, events_p, pkg, "publication-hold-released", reason=reason.strip(), hold=hold,
+           by=(agent or _ACTOR["agent"] or "").strip() or "unknown", forced=bool(force))
+    save_registry(reg_path, reg)
+    return lines, payload
 
 
 def _bound_at(repo: pathlib.Path, head: str | None, rel,
@@ -4528,6 +4662,10 @@ def promote_checklist(pkg: dict, repo: pathlib.Path, yes: bool = False,
     [{path, rule}] appended to ignored_sink. The claims ledger at the promote stage must be ready
     (#80): its summary goes into ledger_sink."""
     checks: list[tuple[str, str]] = []
+    if pkg.get("publication_hold"):   # #5: an owner's withdrawal is never undone by promote
+        checks.append(("✗", f"{hold_text(pkg['publication_hold'])}; promote refuses while it is set (lift it "
+                            f"only with `lean-pkg update {pkg.get('name')} --release-publication-hold "
+                            f"--reason TEXT`)"))
     reuse = find_reuse()
     if reuse is None:
         checks.append(("WARN", "reuse not on PATH — REUSE license lint skipped"))
@@ -5273,10 +5411,19 @@ def audit_registry(reg_path, reg, events_p, fix: bool = False,
             continue
         gvis = str(info.get("visibility") or "").lower()
         if gvis and gvis != str(pkg.get("visibility")).lower():
+            held = bool(pkg.get("publication_hold"))   # #5: a held record is never flipped public by --fix
+            hint = ""
+            if held:
+                hint = (f" — {hold_text(pkg['publication_hold'])}: the repository was made public outside "
+                        f"promote; make it private again, or release the hold (`lean-pkg update {name} "
+                        f"--release-publication-hold --reason TEXT`); not fixed")
+            elif pkg.get("status") == "public" and gvis != "public":
+                hint = (f" — the owner made the repository private: record it with `lean-pkg update {name} "
+                        f"--withdraw-publication --reason TEXT` (status, visibility and a publication hold)")
             note("visibility-mismatch", name,
-                 f"registry={pkg.get('visibility')} gh={info.get('visibility')}"
-                 + (" — fixed" if fix else ""), fixed=fix)
-            if fix:
+                 f"registry={pkg.get('visibility')} gh={info.get('visibility')}" + hint
+                 + (" — fixed" if fix and not held else ""), fixed=fix and not held)
+            if fix and not held:
                 record(reg, events_p, pkg, "audit-fix", field="visibility",
                        old=pkg.get("visibility"), new=gvis, source="gh")
                 pkg["visibility"] = gvis
@@ -5442,6 +5589,7 @@ def validate_registry(data) -> list[str]:
                     parse_ts(e["ts"])
                 except Exception:
                     errors.append(f"{pfx}.history[{i}]: unparseable ts {e['ts']!r}")
+        errors += publication_hold_errors(pkg, pfx)
         ra = pkg.get("reaudit_after")
         if ra is not None:
             try:
@@ -5647,6 +5795,97 @@ def package_fields_help() -> str:
             "version, [optional]: absent unless set):\n" + "\n".join(rows))
 
 
+SCOPE_NAMES_SHOWN = 20   # comparator declarations named in status text; --json lists every one
+
+
+def status_scope(pkg: dict, repo: pathlib.Path | None) -> dict:
+    """#5 P3: what the evidence actually covers, offline and read-only: the gated source commit, the recorded
+    privacy (and any publication hold), the exact declarations the recorded comparator receipt compared and
+    how many claimed declarations they cover, and the claims' counts by status (counts, never percentages)."""
+    gate = pkg.get("gate") or {}
+    have = repo is not None and repo.is_dir()
+    head = git_head(repo) if have else None
+    rec = recorded_json(repo, gate.get("receipt")) if have and gate.get("receipt") else None
+    gated = str(rec.get("commit")) if isinstance(rec, dict) and rec.get("commit") else None
+    out: dict = {
+        "gate": {"receipt": gate.get("receipt"), "commit": gated, "head": head,
+                 "head_is_gated_commit": bool(gated and head and gated == head),
+                 "readable": isinstance(rec, dict) if gate.get("receipt") else None},
+        "publication": {"status": pkg.get("status"), "visibility": pkg.get("visibility"),
+                        "publication_hold": pkg.get("publication_hold"),
+                        "github": "not queried (status is offline; `lean-pkg audit` asks gh)"},
+        "comparator": None, "claims": None}
+    claims = [c for c in (pkg.get("claims") or []) if isinstance(c, dict)]
+    counts: dict[str, int] = {}
+    for c in claims:
+        counts[str(c.get("status"))] = counts.get(str(c.get("status")), 0) + 1
+    out["claims"] = {"total": len(claims), "by_status": dict(sorted(counts.items())),
+                     "synced_commit": pkg.get("claims_synced_commit"),
+                     "note": "counts of declared claims, not completion percentages"}
+    comp = recorded_json(repo, gate.get("comparator")) if have and gate.get("comparator") else None
+    if gate.get("comparator"):
+        cfgs = [c for c in ((comp or {}).get("configs") or []) if isinstance(c, dict)]
+        names = sorted({n for c in cfgs for n in (c.get("theorem_names") or []) if isinstance(n, str)})
+        defs = sorted({n for c in cfgs for n in (c.get("definition_names") or []) if isinstance(n, str)})
+        view = {"receipt": gate.get("comparator"), "readable": isinstance(comp, dict),
+                "commit": (comp or {}).get("commit"), "mechanism": (comp or {}).get("mechanism"),
+                "configs": [{"path": c.get("path"), "theorem_names": list(c.get("theorem_names") or []),
+                             "definition_names": list(c.get("definition_names") or [])} for c in cfgs],
+                "theorem_names": names, "definition_names": defs}
+        decl_claims = [c for c in claims if c.get("decl") and c.get("kind") in ("theorem", "lemma")]
+        covered = reusable = reusable_cov = 0
+        if decl_claims and names and have and pkg.get("claims_synced_commit"):
+            from . import claims as cl_mod, comparator_config as cc
+            qualified = cc.qualified_decls(cl_mod._reader(repo, str(pkg["claims_synced_commit"])), decl_claims)
+            for c in decl_claims:
+                hit = cc.covers(set(names), str(c["decl"]), str(c["decl"]) in qualified)
+                covered += hit
+                if c.get("status") == "reusable":
+                    reusable += 1
+                    reusable_cov += hit
+        else:
+            reusable = sum(1 for c in decl_claims if c.get("status") == "reusable")
+        view.update(claimed_theorems=len(decl_claims), claimed_theorems_covered=covered,
+                    reusable_theorems=reusable, reusable_theorems_covered=reusable_cov,
+                    whole_package=False,
+                    note=("the comparator compares exactly these declarations (theorem_names), never the whole "
+                          "package; claims it does not name are not compared"))
+        out["comparator"] = view
+    return out
+
+
+def scope_lines(sc: dict) -> list[str]:
+    g, pub, comp, cl = sc["gate"], sc["publication"], sc["comparator"], sc["claims"]
+    lines = ["scope:"]
+    if g["commit"]:
+        lines.append(f"  gated source commit: {g['commit'][:12]} ({g['receipt']}); HEAD "
+                     f"{(g['head'] or '?')[:12]}" + (" (the gated commit)" if g["head_is_gated_commit"] else
+                                                     " (not the gated commit: `gate --check` judges it)"))
+    elif g["receipt"]:
+        lines.append(f"  gated source commit: unreadable ({g['receipt']} is missing or not JSON in the checkout)")
+    else:
+        lines.append("  gated source commit: none (no gate receipt recorded)")
+    hold = pub["publication_hold"]
+    lines.append(f"  privacy: status {pub['status']}, visibility {pub['visibility']} (recorded; GitHub not "
+                 f"queried); publication hold: " + (hold_text(hold) if hold else "none"))
+    if comp is None:
+        lines.append("  comparator: none recorded (no declaration has been compared)")
+    elif not comp["readable"]:
+        lines.append(f"  comparator: {comp['receipt']} is missing or not JSON in the checkout")
+    else:
+        names = comp["theorem_names"]
+        shown = ", ".join(names[:SCOPE_NAMES_SHOWN]) + (f" (+{len(names) - SCOPE_NAMES_SHOWN} more; --json lists "
+                                                         f"all)" if len(names) > SCOPE_NAMES_SHOWN else "")
+        lines.append(f"  comparator: compared exactly {len(names)} declaration(s), not the whole package: "
+                     f"{shown or 'none'}")
+        lines.append(f"    covers {comp['claimed_theorems_covered']} of {comp['claimed_theorems']} claimed "
+                     f"theorem/lemma declaration(s) ({comp['reusable_theorems_covered']} of "
+                     f"{comp['reusable_theorems']} reusable); the rest are not compared")
+    by = ", ".join(f"{n} {k}" for k, n in cl["by_status"].items()) or "none synced"
+    lines.append(f"  claim counts: {cl['total']} ({by}); counts, not completion percentages")
+    return lines
+
+
 def cmd_status(args) -> int:
     reg = load_registry(registry_path(args))
     pkg = pkg_with_expiry(get_pkg(reg, args.name))   # lease.expires_at: derived, as in list/board --json
@@ -5673,10 +5912,12 @@ def cmd_status(args) -> int:
     branch = branch_state(repo)
     now = dt.datetime.now(dt.timezone.utc)
     state, left = lease_state(pkg.get("lease"), now)
+    scope = status_scope(pkg if not no_claims else get_pkg(reg, args.name), repo)
     if args.json_out:
         print_json({"ok": True, "name": args.name, "package": pkg,
                     "history_count": len(hist), **omitted, "branch": branch,
-                    "lease_state": {"state": state, "seconds_left": None if left is None else int(left)}})
+                    "lease_state": {"state": state, "seconds_left": None if left is None else int(left)},
+                    "scope": scope})
         return 0
     view = dict(pkg)
     view["history"] = f"<{len(hist)} entries; last 5 below>"
@@ -5687,6 +5928,7 @@ def cmd_status(args) -> int:
     print(f"history (last {min(5, len(hist))} of {len(hist)}):")
     for e in hist[-5:]:
         print("  " + json.dumps(e, sort_keys=True))
+    print("\n".join(scope_lines(scope)))
     notice = branch_notice(repo, branch)
     if notice:
         print(f"branch: {notice}")
@@ -6148,12 +6390,12 @@ gate-pending -> verified-private   `gate` accepts a receipt (schema below)
 public -> public                   `gate` on an already-public package records evidence; status unchanged
 verified-private -> public         `promote --yes` after a clean dry-run checklist; ONE-WAY flip
 public -> upstreamed               `update --status`: a recorded mathlib-pr-merged / palomar-registered event, or a --reason with the URL
-any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public never returns to a private status
+any -> archived                    `update --status archived --reason` or `audit --fix` (gh isArchived); public returns to a private status only this way: public -> verified-private by `update --withdraw-publication --reason` only: the owner made the repository private (gh must not report it public; active when never gated); visibility private + publication_hold {reason, at, by}; promotion history kept; promote refuses while held; gate/regate/audit --fix keep it; only `update --release-publication-hold --reason` lifts it
 
 SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push --no-commit, also after the subcommand; env LEAN_PKG_REGISTRY, LEAN_PKG_HOME, LEAN_PKG_EVENTS (ignored when --registry is given: its sibling log); --version: `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` or `(installed <dir>)`, local only; --json {version, commit, dirty, install, path}; --registry-snapshot COMMIT (env LEAN_PKG_REGISTRY_SNAPSHOT): read-only, the registry + event log as of COMMIT of its git repo (git show into a temp copy); reads work (status/list/board/audit/dry runs/comparator config --dry-run), every write exits 2 `read-only: --registry-snapshot`; --json +registry_snapshot sha)
 board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
-status    full record + last 5 history entries (a lease adds derived expires_at, UTC; a lapsed lease ends the output with `lease: EXPIRED ...`, one lapsing within 2h with `lease: expires in ...`; --json lease_state {state live|expiring|expired|invalid|none, seconds_left}); --fields a,b.c: only those keys (dotted paths; lease.contact: null when unset; aliases = the table columns: pin, vis, reaudit, expires|lease.expires, lease.claimed; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
+status    full record + last 5 history entries (a lease adds derived expires_at, UTC; a lapsed lease ends the output with `lease: EXPIRED ...`, one lapsing within 2h with `lease: expires in ...`; --json lease_state {state live|expiring|expired|invalid|none, seconds_left}); --fields a,b.c: only those keys (dotted paths; lease.contact: null when unset; aliases = the table columns: pin, vis, reaudit, expires|lease.expires, lease.claimed; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). Without --fields: a `scope:` text block and --json scope {gate {receipt, commit, head, head_is_gated_commit, readable}, publication {status, visibility, publication_hold, github}, comparator null|{receipt, readable, commit, mechanism, configs[], theorem_names[], definition_names[], claimed_theorems, claimed_theorems_covered, reusable_theorems, reusable_theorems_covered, whole_package false, note}, claims {total, by_status, synced_commit, note}}: the gated source commit, recorded privacy + hold (offline: gh not queried), the exact declarations the comparator receipt compared and the claimed theorems/lemmas they cover (never the whole package), claim counts by status (not completion percentages). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent; a legacy literal ~/x local_path is rewritten $HOME-relative). ex: lean-pkg migrate --dry-run
@@ -6173,12 +6415,12 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
   ex: lean-pkg register my-lean --repo git@github.com:you/my-lean.git --path src/my-lean
 update    set fields (--notes over non-empty notes: exit 2, nothing written, unless --replace-notes, which replaces, prints the old value, event notes_replaced + notes_from; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT` and prints only `appended note: <line>` (--json changes.notes keeps from/to), not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. --track palomar|doi-only --reason R: the optional DOI track (see record doi-minted). --accept-docs-descendants | --no-accept-docs-descendants --reason R: the optional docs_descendants true/false (opt in to the docs-only rule, see gate); --build-inputs GLOB,GLOB --reason R: the optional build_inputs list ('' clears); these three accept --dry-run (event update-dry-run, nothing written). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
-  --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
+  --withdraw-publication --reason TEXT [--agent A] [--dry-run]: record the owner's privacy withdrawal of a public package (see the transitions; event publication-withdrawn {status_from, status_to, visibility_from, visibility_to, reason, by, github_visibility, promoted_commit, forced}; JSON status/visibility {from, to}, publication_hold, github_visibility, github_check). --release-publication-hold --reason TEXT [--agent A] [--dry-run]: lift it, status/visibility unchanged (event publication-hold-released {reason, hold, by, forced}). Each on its own (other fields: exit 2).   |   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
 claim     (alias: lease) CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Any other command naming a package whose lease has lapsed, or lapses within 2h, prints stderr `WARN: NAME lease: EXPIRED ... | expires in ...` with the claim/renew that keeps it (not claim/renew/release/leases/audit/status). Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
   flags: --workspace W --agent A (required) [--ttl HOURS: 1..8760, 24 new; a holder's re-claim keeps its TTL; above 8760: exit 2, nothing written] [--reason TEXT] [--contact TEXT: address of the holding session (e.g. lab-desk/n14-paper, @lean-ops), stored as lease.contact; one line, <= 200 chars, else exit 2; a re-claim without it keeps it] [--force (needs --reason)]
   ex: lean-pkg claim my-lean --workspace w3 --agent vera --reason "chapter 2"
-release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
+release   holder-only unless --force --reason (released_by: --agent, else force). ex: lean-pkg release my-lean --agent vera   |   release NAME --fresh-repo DIR [--remote URL] [--keep-receipts] [--source-commit SHA] [--dry-run] (no lease involved): git archive of the gate-bound commit (package dir; drops .lean-pkg-private-patterns, internal paths, .lean-receipts/ unless --keep-receipts, listed; carries ONLY its allow: lines into a committed .lean-pkg-public-allow, merged with one in the tree, plan line `public allow: N allow line(s) ... carried`, JSON public_allow {file, carried, lines[]}; an allow line a private block pattern matches refuses, naming its line number) -> public-safety scan (blocking hit: refused, nothing written; warnings listed) -> new repo at DIR, ONE commit "fresh-history export of <sha12>; receipts and gate must be re-run on this commit" (+ source commit, export date), origin = --remote -> relocated as update --path DIR --reason "fresh-history release" (gate/comparator cleared, verified-private -> gate-pending, dated note keeps old receipt paths + source sha; --remote sets repo); refuses public/upstreamed/archived, a non-empty DIR; --dry-run: plan + next commands (gate, comparator-receipt --prepare, publish), writes nothing   |   --fresh-repo DIR --from-tree SRCDIR (not with --source-commit): exports the WORKING TREE at SRCDIR (hand-cleaned, not a commit; in a checkout `git ls-files --cached --others --exclude-standard`, else every file but .git/ .lake/), same drops + scan (+ the commit message), message "fresh-history export of working tree <basename>; ..." + "source commit: none (hand-cleaned tree)" + "source package commit for provenance: <gate-bound sha|none>"   |   release NAME --adopt-repo DIR [--remote URL] [--allow-history] [--dry-run]: adopt an existing repo as the public history, no export, no new commit; refuses >1 commit on all refs (unless --allow-history), DIR not its top dir, the package's own source repo, modified tracked files, an origin other than --remote, blocking public-safety hits in its tree or full history; then the same relocation (reason "adopted-repository release"; note names the adopted commit + previous gate-bound sha)
 renew     holder-only restart of a LIVE lease (event claim-refreshed); a lapsed lease is refused: claim again. --ttl HOURS: 1..8760 (above: exit 2, nothing written). --contact TEXT sets/replaces lease.contact, omitted keeps it; --no-contact clears it (event contact_cleared: true when one was removed; with --contact: exit 2). leases [--agent A] [--expiring H]: held leases, soonest first, last column CONTACT (blank when unset; JSON contact|null); doctor warns on leases lapsing within 2h or expired-unswept. Unparseable lease fields: shown INVALID, writes refused; `release NAME --force --reason TEXT` clears.
 gate      validate receipt; gate-pending -> verified-private; --receipt/--comparator PATH: a path that exists as given (cwd-relative or absolute) is used as given; a relative one missing from the cwd but present under the package checkout (or --check --repo DIR) is resolved there with a stderr note, a `· receipt R resolved against the package checkout: P` line and JSON resolved_paths[] {what, arg, path, base} (the same relative path, never another matching receipt; also comparator NAME); otherwise refused naming the caller cwd, the checkout, both paths tried and the fix (absolute path, run from the checkout, or --repo DIR with --check). --check takes no lease and checks none, so --agent with --check is a usage error (exit 2) naming the writing form. identical re-gate = no-op "already gated". gate/regate record the receipt's lean_toolchain and mathlib_rev[:10] into lean_toolchain/mathlib_pin when each agrees with lean-toolchain / lake-manifest.json at the receipt commit (a prefix match is unchanged; one "pins updated" line; event and JSON pins {field: {from, to}}); a receipt whose lean_toolchain or mathlib_rev (prefix-equal) disagrees with lean-toolchain / the mathlib rev in lake-manifest.json committed at its commit is refused; with no readable mathlib entry the rev is not checked and the pin is kept: "NAME: pins kept: receipt mathlib_rev X does not match lake-manifest.json at <c12> (unreadable)", JSON pins_kept {field: {receipt, manifest}}; --check reports both, nothing written. report_sha256 must equal the SHA-256 of <c12>-<job slug>-verify.redacted.log wherever found (beside the receipt, .lean-receipts/, tracked at HEAD), else refused; a <name>.gz copy (receipt --compress-log) is stream-decompressed and its UNCOMPRESSED bytes must hash to report_sha256 (never the .gz hash), the .gz to report_compressed.sha256 and the length equal report_compressed.bytes when recorded, output past that refused (gzip-bomb guard); none found: "· report_sha256 not checked (no redacted log beside the receipt)"; JSON report_log {checked, log, where[], copy[]}; the sealed log beside --receipt is copied beside the canonical .lean-receipts/<c12>-<job>.json when no copy is there, so it verifies on its own. Every check of both copies runs before either is written (a refusal writes nothing); a symlinked .lean-receipts or destination file is refused. --regate [--reason T]: re-gate verified-private (or public) in one step, status unchanged, event regated {previous_commit, commit, job_id, reason[, non_descendant]}; the commit must descend from the gated one unless --reason; plain gate on verified-private is refused naming --regate; --check --regate writes nothing. claims.yaml tracked at the receipt commit (never the working tree) must pass the claims/1 schema and every claim's decl must occur in its file at that commit (claims sync's check), else refused, nothing copied (JSON claims_schema {checked, commit, file, ok, claims, errors[], declarations {checked, ok, problems[]}}). Judged on the receipt commit's tree, refused (sources not bound): a committed symlink with an absolute or `..` target, or one resolving into .lean-receipts/ or to the formalization.yaml pointer; a lake-manifest.json `path` package whose dir leaves the package dir, or is (or passes through) a symlink, a submodule gitlink or an untracked dir (.lake/), or contains a gitlink. A tracked in-package path dependency is fine. Progress files (PROGRESS.md, state file, ledgers) live outside the package dir: any other change inside it needs a new receipt, and so does a .gitattributes/.gitmodules/.lfsconfig changed at the repo root or between it and a subdirectory package, unless the package opted in (update --accept-docs-descendants --reason R; record docs_descendants: true): then HEAD may also be a docs-only descendant of the receipt commit C, where no build input under the package dir changed (*.lean, lakefile.*, lake-manifest.json, lean-toolchain at any depth, the record's build_inputs globs, files the receipt's checker names; always refused: a symlink or gitlink added/changed/removed, a changed file a committed symlink points to, .gitattributes, .gitmodules, .lfsconfig, claims.yaml, and for a subdirectory package a .gitattributes/.gitmodules/.lfsconfig at the repo root or in any directory between it and the package dir; formalization.yaml keeps its derived-keys rule). The gated commit stays C; text "✓ HEAD <c12> is a docs-only descendant of <c12> (N non-build file(s): ...; opted in)"; gate/regate/comparator events and --json (and --check) add descendant_of C and docs_paths[] (<= 50). Without the opt-in a refusal the docs rule would have admitted adds the hint `update NAME --accept-docs-descendants`.
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
@@ -6193,7 +6435,7 @@ comparator <name> --receipt PATH   attach comparator evidence to a verified-priv
 promote   dry-run default; --yes flips GitHub visibility to public (ONE-WAY) + one notification
   (via LEAN_PKG_NOTIFY_CMD when set). Needs an authenticated `gh` (--yes: a failed gh query is a failure). Refuses without a byte-
   valid comparator receipt bound to HEAD, a claims ledger that is not ready (`claims ledger NAME`: every reusable claim verified, theorems/lemmas by the comparator too; no claims = unknown = refused; JSON claims_ledger {package_status, counts, required, reasons, ledger_digest}), both receipts + comparator logs committed unmodified at HEAD, HEAD in origin/<branch> (local refs; --yes first runs git fetch --prune --tags origin incl. +refs/pull/*/head:refs/remotes/origin/pr/*, 120 s; a failed fetch is a ✗), (paper field) a paper unpublished with no arXiv id, and blocking public-safety hits (the whole repository when the package is a subdirectory of it; warn-only hits: a WARN line; skip: --skip-public-safety, a WARN). Evidence on disk that git ignores (receipts, comparator logs, comparator-stages/ files) is a WARN naming each path + rule (.gitignore:3:*.log) and the remedy (!.lean-receipts/ + !**/.lean-receipts/** after it, or git add -f); a not-committed ✗ names the rule; JSON ignored_evidence[{path, rule}] (also publish, and gate/comparator after attaching: stderr WARN).
-  ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist (claims ledger included; JSON claims_ledger) + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, the README page block (`page --check`; JSON page {status, adopted, problems[]}; not adopted: WARN, an unbacked Easley sentence: ✗), lakefile package name, tag at HEAD, a WARN item `palomar: not submittable ...` when `palomar check` finds error gaps at HEAD (JSON palomar_check {ready, commit, errors, warns, codes[], command}; never a ✗) (--public-safety: + the scan below, implies --dry-run); prints the next promote/tag/record commands (the tag push names the GitHub remote, found by URL); exit 0 ready / 1 not   |   public-safety NAME [--history|--no-history] [--strict] [--package-only] [--quiet] [--gzip-limit BYTES] (read-only; --quiet: summary + verdict, no hit lines): tree git would ship + (default) every blob/commit message/author+committer identity/annotated tag/branch+tag name on any ref; the whole repository when the package dir is a subdirectory (promote publishes it all; --package-only: the package dir alone); symlinks by target string; UTF-16/32 decoded; long lines in overlapping chunks; binary via printable runs; up to 64 MB per file, the rest listed in skipped[] and a blocking `unscanned` hit unless `allow: GLOB: ^unscanned$`; gzip content (bytes 1f 8b, any name; tree and history) stream-decoded up to --gzip-limit (env LEAN_PKG_GZIP_LIMIT, default 512M, K/M/G; 0 = off) and the DECODED text scanned instead of the compressed bytes (hit encoding gzip-decoded, location `path (decoded):LINE`; header file name/comment: gzip-header; decoded[] lists each; a binary decode such as a tar is scanned by printable runs, skipped reason `binary (gzip-decoded)`, not blocking); corrupt/truncated/over the limit/over the 500:1 ratio guard: hits of the decoded part kept, compressed bytes scanned as before, skipped[] `gzip ...` reason, a blocking `unscanned` hit unless allowed; for .lean-pkg-private-patterns regexes (# comments; bare or `block: RE` blocks, `warn: RE` warns, `allow: RE` exempts; `TAG: GLOB: RE` scopes any of the three to files whose package-relative path matches GLOB (* ** ?; no / = file name at any depth; trailing / = under that dir; never commit messages); tracked = a hit), built-ins (/home/<u>/, /Users/<u>/, ~/Dropbox/, approvals/, notes/, *.private, TODO-private, emails not declared: ordinary commit/tag addresses, consent[] or allow: lines; a host-like commit/tag address, user@hostname or a local TLD such as .lan, is not declared and is an identity-email hit), names from the record's local_path/agent/workspace and its lease's agent/workspace/contact (an allow line exempts one only where its match in the token's non-space run covers it), internal paths (approvals/ notes/ drafts/ scratch/ *.priv), warn-only latex-label (lem:/thm:/eq:/sec:... keys, main.tex, \\ref{ \\cite{ \\label{, Overleaf, arXiv ids; Lean-calibrated: never inside a name like foo_eq_bar, eq/def/ex only with `:`, key- only with a digit/capital/inner `.`, built-in allow def-eq defeq eq-of eq-iff ex-falso; the summary counts its warnings); hit = location (path:line, history: commit + path) + pattern label + severity (block|warn; warn printed as WARN) + excerpt with each match as […] (raw strings never printed); --json {ok, hits[], tree_hits, history_hits, block_hits, warn_hits, latex_label_hits, strict, scope, package_prefix, skipped[], skipped_blocking, decoded[] {where, path, compressed_bytes, decoded_bytes, content, complete, commit}, gzip_limit, patterns_source, warnings[]}; exit 1 on blocking hits (--strict: on any hit)   |   reservoir check NAME [--offline] (read-only): public, not a fork, >=2 stars (gh), lake-manifest.json + lean-toolchain tracked, LICENSE vs license_spdx, lakefile package + no `reservoir := false` (+ WARN without description/keywords/versionTags), lean-toolchain a release (rc/nightly: WARN), tag at HEAD; not yet public: GitHub items `pending promote: ...` (still ✗) + a `pre-promote:` line; then the Reservoir API (200: prints the `record ... reservoir-listed` command; never records itself); exit 0 eligible / 1 not   |   palomar prepare NAME [--out DIR] [--dry-run] (no network; submits nothing): bundle at <checkout>/.lean-receipts/palomar-<HEAD12>/ (never overwritten): formalization.yaml (rendered, schema-valid), configs/<every comparator config at HEAD>, receipts/<gate + comparator receipts, validated against HEAD>, README.txt (manual steps + Palomar URL + the record palomar-submitted command), MANIFEST.sha256; refused without receipts bound to HEAD, without consent, on any error gap `palomar check` finds at HEAD (each listed as `✗  CODE: detail` + fix; nothing written, --dry-run too; its warn gaps are `lean-pkg: warning: palomar check: ...` lines, never a refusal; JSON palomar_check {ready, commit, errors, warns, codes[], command}), on blocking public-safety hits in the bundle; event palomar-prepared {commit, bundle, bundle_sha256}   |   palomar check NAME [--rev REV] [--config PATH] [--rules FILE] [--repo DIR] (read-only, offline; reads git objects at the commit: --rev, else the gate-bound commit, else HEAD): gaps to Palomar's mechanical rules, pinned at PalomarSubmission d4e41c1d5b0d (read 2026-10-16; --rules FILE: a newer browser-preflight-policy.json): every tracked .lean file of the repository starts with `module` (comments may precede; lakefile.lean exempt; .git/.lake excluded; <= 10,000 lines; no symlinks), lean-toolchain leanprover/lean4:vX.Y.Z[-rcN] >= v4.35.0-rc2, lakefile, no submodules, each comparator config (or --config PATH): required keys, no keys outside challenge_module/solution_module/theorem_names/definition_names/permitted_axioms/enable_nanoda (judged_as and lean_pkg_scaffold are refused), standard axioms, module sources tracked, Challenge <= 1,000 lines and 100 KiB, definition holes (warn); formalization.yaml tracked, v0.4-valid, no placeholders, Palomar's metadata minimum; one root licence file matching license_spdx; GitHub repo; visibility public and commit pushed (warn); gap {code, severity error|warn, paths[], detail, fix}; verdict first and last; JSON {ok, ready, commit, commit_source gate|head|rev, project_path, lean_toolchain, configs[], lean_files, missing_module, counts{error, warn}, gaps[], rules{}, not_checked[], repo_override}; exit 0 no error gap / 1 error gaps / 2 usage
+  ex: lean-pkg promote my-lean          # always read the dry-run checklist first   |   publish NAME --dry-run (read-only; dry-run only): promote checklist (claims ledger included; JSON claims_ledger) + consent, license_spdx vs LICENSE, formalization.yaml current+valid, claims synced, the README page block (`page --check`; JSON page {status, adopted, problems[]}; not adopted: WARN, an unbacked Easley sentence: ✗), lakefile package name, tag at HEAD, a WARN item `palomar: not submittable ...` when `palomar check` finds error gaps at HEAD (JSON palomar_check {ready, commit, errors, warns, codes[], command}; never a ✗) (--public-safety: + the scan below, implies --dry-run); prints the next promote/tag/record commands (the tag push names the GitHub remote, found by URL); exit 0 ready / 1 not   |   public-safety NAME [--history|--no-history] [--strict] [--package-only] [--quiet] [--gzip-limit BYTES] (read-only; --quiet: summary + verdict, no hit lines): tree git would ship + (default) every blob/commit message/author+committer identity/annotated tag/branch+tag name on any ref; the whole repository when the package dir is a subdirectory (promote publishes it all; --package-only: the package dir alone); symlinks by target string; UTF-16/32 decoded; long lines in overlapping chunks; binary via printable runs; up to 64 MB per file, the rest listed in skipped[] and a blocking `unscanned` hit unless `allow: GLOB: ^unscanned$`; gzip content (bytes 1f 8b, any name; tree and history) stream-decoded up to --gzip-limit (env LEAN_PKG_GZIP_LIMIT, default 512M, K/M/G; 0 = off) and the DECODED text scanned instead of the compressed bytes (hit encoding gzip-decoded, location `path (decoded):LINE`; header file name/comment: gzip-header; decoded[] lists each; a binary decode such as a tar is scanned by printable runs, skipped reason `binary (gzip-decoded)`, not blocking); corrupt/truncated/over the limit/over the 500:1 ratio guard: hits of the decoded part kept, compressed bytes scanned as before, skipped[] `gzip ...` reason, a blocking `unscanned` hit unless allowed; for .lean-pkg-private-patterns regexes (# comments; bare or `block: RE` blocks, `warn: RE` warns, `allow: RE` exempts; `TAG: GLOB: RE` scopes any of the three to files whose package-relative path matches GLOB (* ** ?; no / = file name at any depth; trailing / = under that dir; never commit messages); tracked = a hit), a committed .lean-pkg-public-allow (allow: lines only, public on purpose; any other line ignored with a warning; inside it every allow line applies whatever its scope, and a line a private block pattern or registry-derived name matches is the blocking hit public-allow-private, tree and history; patterns_source public_allow_file, public_allow), built-ins (/home/<u>/, /Users/<u>/, ~/Dropbox/, approvals/, notes/, *.private, TODO-private, emails not declared: ordinary commit/tag addresses, consent[] or allow: lines; a host-like commit/tag address, user@hostname or a local TLD such as .lan or .invalid, is not declared and is an identity-email hit; a fixture address under .invalid in a file needs an allow line), names from the record's local_path/agent/workspace and its lease's agent/workspace/contact (an allow line exempts one only where its match in the token's non-space run covers it), internal paths (approvals/ notes/ drafts/ scratch/ *.priv), warn-only latex-label (lem:/thm:/eq:/sec:... keys, main.tex, \\ref{ \\cite{ \\label{, Overleaf, arXiv ids; Lean-calibrated: never inside a name like foo_eq_bar, eq/def/ex only with `:`, key- only with a digit/capital/inner `.`, built-in allow def-eq defeq eq-of eq-iff ex-falso; the summary counts its warnings); hit = location (path:line, history: commit + path) + pattern label + severity (block|warn; warn printed as WARN) + excerpt with each match as […] (raw strings never printed); --json {ok, hits[], tree_hits, history_hits, block_hits, warn_hits, latex_label_hits, strict, scope, package_prefix, skipped[], skipped_blocking, decoded[] {where, path, compressed_bytes, decoded_bytes, content, complete, commit}, gzip_limit, patterns_source, warnings[]}; exit 1 on blocking hits (--strict: on any hit)   |   reservoir check NAME [--offline] (read-only): public, not a fork, >=2 stars (gh), lake-manifest.json + lean-toolchain tracked, LICENSE vs license_spdx, lakefile package + no `reservoir := false` (+ WARN without description/keywords/versionTags), lean-toolchain a release (rc/nightly: WARN), tag at HEAD; not yet public: GitHub items `pending promote: ...` (still ✗) + a `pre-promote:` line; then the Reservoir API (200: prints the `record ... reservoir-listed` command; never records itself); exit 0 eligible / 1 not   |   palomar prepare NAME [--out DIR] [--dry-run] (no network; submits nothing): bundle at <checkout>/.lean-receipts/palomar-<HEAD12>/ (never overwritten): formalization.yaml (rendered, schema-valid), configs/<every comparator config at HEAD>, receipts/<gate + comparator receipts, validated against HEAD>, README.txt (manual steps + Palomar URL + the record palomar-submitted command), MANIFEST.sha256; refused without receipts bound to HEAD, without consent, on any error gap `palomar check` finds at HEAD (each listed as `✗  CODE: detail` + fix; nothing written, --dry-run too; its warn gaps are `lean-pkg: warning: palomar check: ...` lines, never a refusal; JSON palomar_check {ready, commit, errors, warns, codes[], command}), on blocking public-safety hits in the bundle; event palomar-prepared {commit, bundle, bundle_sha256}   |   palomar check NAME [--rev REV] [--config PATH] [--rules FILE] [--repo DIR] (read-only, offline; reads git objects at the commit: --rev, else the gate-bound commit, else HEAD): gaps to Palomar's mechanical rules, pinned at PalomarSubmission d4e41c1d5b0d (read 2026-10-16; --rules FILE: a newer browser-preflight-policy.json): every tracked .lean file of the repository starts with `module` (comments may precede; lakefile.lean exempt; .git/.lake excluded; <= 10,000 lines; no symlinks), lean-toolchain leanprover/lean4:vX.Y.Z[-rcN] >= v4.35.0-rc2, lakefile, no submodules, each comparator config (or --config PATH): required keys, no keys outside challenge_module/solution_module/theorem_names/definition_names/permitted_axioms/enable_nanoda (judged_as and lean_pkg_scaffold are refused), standard axioms, module sources tracked, Challenge <= 1,000 lines and 100 KiB, definition holes (warn); formalization.yaml tracked, v0.4-valid, no placeholders, Palomar's metadata minimum; one root licence file matching license_spdx; GitHub repo; visibility public and commit pushed (warn); gap {code, severity error|warn, paths[], detail, fix}; verdict first and last; JSON {ok, ready, commit, commit_source gate|head|rev, project_path, lean_toolchain, configs[], lean_files, missing_module, counts{error, warn}, gaps[], rules{}, not_checked[], repo_override}; exit 0 no error gap / 1 error gaps / 2 usage
 audit     read-only without --fix (expired leases reported); --fix: sweep leases, gh -> registry visibility; toolchain/formalization.yaml drift; receipt/comparator drift judged
   at the reference branch tip (origin/HEAD, else main, else master; local refs; a checkout elsewhere: checkout-branch finding).
   --toolchain-floor V (env LEAN_PKG_TOOLCHAIN_FLOOR; default leanprover/lean4:v4.35.0-rc2): below-toolchain-floor, rc < release,
@@ -6215,7 +6457,7 @@ index     public catalog <index>/<name>/entry.yaml + receipts/ (root: --index, e
   migrate [--check]   rewrite index-entry/1 entries as index-entry/2 (claims derived from the headline).
 claims    claims.yaml (schema claims/1) at the package repo root: named reusable results, cached in the registry.
   sync NAME   read claims.yaml at HEAD (committed bytes only); every decl must occur in its file; event claims-synced; a pin on no remote-tracking branch (unpushed) prints a stderr WARN (--json pin_published true|false|null).
-  list [NAME] | check [NAME] [--file PATH]   cached claims with status and derived trust | re-validate; exit 0/1 (--file: schema-check a working-copy file, schema only: no checkout, so declarations unchecked; no registry; --json {ok, path, claims, errors[]}). With NAME both report coverage synced|empty|unsynced|none (--json: coverage, cached_claims, claims_yaml present|absent|unknown, legacy_claims[], hint); check NAME exits 1 on none/unsynced (no coverage is not ok) and names any legacy *claims.json in the checkout   |   migrate NAME --from PATH [--out claims.yaml] [--dry-run] [--agent A]: legacy JSON rows -> a claims/1 skeleton in the checkout (mapped fields; TODO markers, TODO.lean for the rest, which sync refuses); never overwrites, never writes the registry, grants nothing: commit it, then claims sync.   |   ledger NAME [--stage gate|promote]: read-only, nothing stored: each claim (claims.yaml at the gate-bound commit, else the cache) with named diagnostics from the recorded receipts, re-checked with gate's and promote's validators; a claim is verified only with zero diagnostics. Claim status: out-of-scope (internal/superseded) | blocked (a depends_on claim not verified) | unknown (unreadable evidence) | verified | open. Required = status reusable; --stage promote (default) also needs the comparator tier for reusable theorems/lemmas. Package status fails closed: unknown (no claims, none reusable, no checkout, unreadable evidence) | failed (evidence contradicts a required claim) | open | ready. Codes: docs/lifecycle.md. Exit 0 only when ready, else 1; --json {ok, package_status, reasons[], stage, bound_commit, receipt_sha256, comparator_sha256, counts, claims[{id, decl, kind, claim_status, required, status, statement_basis, manuscript_findings[], diagnostics[{code, detail}]}], manuscript_findings {total, open, fixed, by_kind, corrected_statements[], findings[], source}, ledger_digest} (sha256 over the canonical claims, codes and receipt hashes: recompute, never trust a stored one). Manuscript findings change no status (publish --dry-run and palomar prepare print the same one-line summary, JSON manuscript_findings); a lean_evidence decl missing at the bound commit is finding-evidence-missing.
+  mark NAME --from-comparator CONFIG.json --status reusable|internal|experimental [--write|--dry-run] [--agent A]: set status on exactly the claims whose decl the config's theorem_names cover (the --coverage/ledger rule: full name or <Prefix>.<decl> of a fully qualified decl), in the checkout's working copy; default prints the plan; --write edits only those status values (else re-dumps, reformatted true), never commits, never the registry; lists unmatched names; --json {ok, name, file, config, status, matched[{id, decl, from, to, changed}], changed, unmatched[], written, reformatted}. sync and check print `WARN NAME: gated, N claim(s), none with status reusable: ...` (--json warnings[]) for a gated package with no reusable claim.   |   list [NAME] | check [NAME] [--file PATH]   cached claims with status and derived trust | re-validate; exit 0/1 (--file: schema-check a working-copy file, schema only: no checkout, so declarations unchecked; no registry; --json {ok, path, claims, errors[]}). With NAME both report coverage synced|empty|unsynced|none (--json: coverage, cached_claims, claims_yaml present|absent|unknown, legacy_claims[], hint); check NAME exits 1 on none/unsynced (no coverage is not ok) and names any legacy *claims.json in the checkout   |   migrate NAME --from PATH [--out claims.yaml] [--dry-run] [--agent A]: legacy JSON rows -> a claims/1 skeleton in the checkout (mapped fields; TODO markers, TODO.lean for the rest, which sync refuses); never overwrites, never writes the registry, grants nothing: commit it, then claims sync.   |   ledger NAME [--stage gate|promote]: read-only, nothing stored: each claim (claims.yaml at the gate-bound commit, else the cache) with named diagnostics from the recorded receipts, re-checked with gate's and promote's validators; a claim is verified only with zero diagnostics. Claim status: out-of-scope (internal/superseded) | blocked (a depends_on claim not verified) | unknown (unreadable evidence) | verified | open. Required = status reusable; --stage promote (default) also needs the comparator tier for reusable theorems/lemmas. Package status fails closed: unknown (no claims, none reusable, no checkout, unreadable evidence) | failed (evidence contradicts a required claim) | open | ready. Codes: docs/lifecycle.md. Exit 0 only when ready, else 1; --json {ok, package_status, reasons[], stage, bound_commit, receipt_sha256, comparator_sha256, counts, claims[{id, decl, kind, claim_status, required, status, statement_basis, manuscript_findings[], diagnostics[{code, detail}]}], manuscript_findings {total, open, fixed, by_kind, corrected_statements[], findings[], source}, ledger_digest} (sha256 over the canonical claims, codes and receipt hashes: recompute, never trust a stored one). Manuscript findings change no status (publish --dry-run and palomar prepare print the same one-line summary, JSON manuscript_findings); a lean_evidence decl missing at the bound commit is finding-evidence-missing.
 formalization NAME [--write] [--no-registry] [--out PATH] [--force [--reason TEXT]] [--author A ...] [--agent A]   render formalization.yaml (mathlib-initiative
   v0.4, what Palomar reads) from the registry + the repo at HEAD. Derived every run: project.name/license (license_spdx),
   automation.notes, status.sorry_count/axioms/evidence (gate receipt), status.main_results (every tracked comparator config:
@@ -6634,6 +6876,20 @@ def cmd_update(args) -> int:
         sets["namespace_notes"] = {"text": args.namespace_note, "namespaces": args.namespace or []}
     elif args.namespace:
         raise UsageError("--namespace goes with --namespace-note TEXT")
+    withdraw, unhold = bool(getattr(args, "withdraw_publication", False)), bool(getattr(args, "release_hold", False))
+    if withdraw or unhold:   # #5: privacy withdrawal and its explicit release, each on its own
+        flag = "--withdraw-publication" if withdraw else "--release-publication-hold"
+        if sets or args.status is not None or args.path is not None or args.redetect:
+            raise UsageError(f"{flag} is a publication-state change on its own; set other fields in a separate "
+                             f"update")
+        fn = do_withdraw_publication if withdraw else do_release_publication_hold
+        out, payload = fn(reg_path, load_registry(reg_path), events_p, args.name, reason=args.reason,
+                          agent=args.agent, force=args.force, dry_run=bool(args.dry_run))
+        if args.json_out:
+            print_json(payload)
+        else:
+            print("\n".join(out))
+        return 0
     if args.path is not None:
         if sets or args.status is not None:
             raise UsageError("--path is a relocation on its own; set other fields in a separate update")
@@ -7914,7 +8170,8 @@ def main(argv: list[str] | None = None) -> int:
     add_json(s)
     s.set_defaults(fn=cmd_list)
 
-    s = sub.add_parser("status", help="full record + last 5 history entries",
+    s = sub.add_parser("status", help="full record + last 5 history entries + scope (gated commit, privacy, "
+                                         "the exact comparator-covered declarations)",
                        formatter_class=argparse.RawDescriptionHelpFormatter,
                        epilog=package_fields_help())
     s.add_argument("name")
@@ -8135,8 +8392,18 @@ def main(argv: list[str] | None = None) -> int:
                    help="relocate: move local_path to another checkout, keeping name, history "
                         "and claims (needs --reason; event relocated; commit-bound evidence "
                         "not bound to the new HEAD is cleared)")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--withdraw-publication", dest="withdraw_publication", action="store_true",
+                   help="the owner made a promoted (public) repository private again: record it (needs --reason; "
+                        "refused while gh still reports it public). status public -> verified-private (active when "
+                        "never gated), visibility private, publication_hold {reason, at, by}; promotion history "
+                        "kept; promote refuses while held; gate/regate keep the hold; --dry-run supported")
+    g.add_argument("--release-publication-hold", dest="release_hold", action="store_true",
+                   help="lift a publication hold (needs --reason); status and visibility unchanged; a later "
+                        "public flip still goes through promote")
     s.add_argument("--dry-run", dest="dry_run", action="store_true",
-                   help="with --path: print the would-be changes, write nothing")
+                   help="with --path, --withdraw-publication or --release-publication-hold: print the would-be "
+                        "changes, write nothing")
     add_json(s)
     s.set_defaults(fn=cmd_update)
 

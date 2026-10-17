@@ -808,7 +808,7 @@ def run_sync(args) -> int:
     reg = core.load_registry(reg_path)
     core.warn_lease(core.lease_actor(reg, args.name, args.agent, "claims sync"))
     out, payload = do_claims_sync(reg_path, reg, events_p, args.name)
-    return _emit(args, out, payload)
+    return _emit(args, *_with_reusable_warning(reg, [args.name], out, payload))
 
 
 def run_list(args) -> int:
@@ -835,8 +835,20 @@ def run_check(args) -> int:
     if getattr(args, "file", None) is not None:
         out, payload, rc = do_claims_check_file(args.file, args.name)
         return _emit(args, out, payload, rc)
-    out, payload, rc = do_claims_check(core.load_registry(core.registry_path(args)), args.name)
+    reg = core.load_registry(core.registry_path(args))
+    out, payload, rc = do_claims_check(reg, args.name)
+    out, payload = _with_reusable_warning(reg, [r["name"] for r in payload["packages"]], out, payload, last=True)
     return _emit(args, out, payload, rc)
+
+
+def _with_reusable_warning(reg: dict, names: list, out: list[str], payload: dict,
+                           last: bool = False) -> tuple[list[str], dict]:
+    """#6: WARN (never a failure) for each gated package with claims and none reusable."""
+    from .claims_mark import no_reusable_warning
+    warns = [w for n in names for w in [no_reusable_warning(n, reg["packages"][n])] if w]
+    payload = {**payload, "warnings": warns}
+    lines = [f"WARN {w}" for w in warns]
+    return ((out[:-1] + lines + out[-1:]) if last and out else out + lines), payload
 
 
 def run_ledger(args) -> int:
@@ -888,3 +900,5 @@ def add_parsers(sub, add_json) -> None:
                           "every reusable theorem and lemma; the default)")
     add_json(led)
     led.set_defaults(fn=cmd_claims, claims_fn=run_ledger)
+    from .claims_mark import add_parser as add_mark_parser   # #6: lives in claims_mark.py
+    add_mark_parser(csub, add_json, cmd_claims)

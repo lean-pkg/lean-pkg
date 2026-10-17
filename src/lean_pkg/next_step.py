@@ -109,7 +109,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
     state: dict = {"status": status, "visibility": pkg.get("visibility"), "lease": _lease_view(lease, now),
                    "gate_commit": None, "comparator_commit": None, "head": None, "checkout": None,
                    "dirty": [], "receipt_candidate": None, "rejected_receipts": [], "comparator_configs": [],
-                   "claims_ledger": None}
+                   "claims_ledger": None, "publication_hold": pkg.get("publication_hold")}
     notes: list[str] = []
     ag = agent or "A"
     as_agent = f" --agent {_q(agent)}" if agent else ""
@@ -306,6 +306,10 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
 def _ledger_step(reg: dict, pkg: dict, name: str, state: dict, notes: list[str], out):
     """Both tiers bind HEAD: `promote` still refuses unless the claims ledger is ready (#80), so
     recommend `publish --dry-run` only then; otherwise the ledger's first fix."""
+    if pkg.get("publication_hold"):   # #5: the owner withdrew publication; next never recommends undoing it
+        return out(None, f"{core.hold_text(pkg['publication_hold'])}: both tiers bind HEAD, and nothing is "
+                         f"published while the hold is set (promote refuses); lifting it is the owner's decision: "
+                         f"`lean-pkg update {name} --release-publication-hold --reason TEXT`")
     from . import ledger
     led = ledger.ledger_for(pkg, "promote")
     state["claims_ledger"] = {"package_status": led["package_status"], "counts": led["counts"],
