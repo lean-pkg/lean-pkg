@@ -410,7 +410,9 @@ share one environment. Check before the first verify run:
   grow) and witness definitions. Merge them into one checker for the new
   package, check that each control still targets the name it was written
   for, and keep deliberately failing files out of every `lean_lib` (a file a
-  library owns is built, so a failing control breaks the build). Witnesses
+  library owns is built, so a failing control breaks the build). Check that
+  each control fails with exactly its own error, not merely that it fails:
+  [Negative tests that fail for the right reason](negative-tests.md). Witnesses
   with the same name from two inputs are an owned-name clash like any other.
 - **Comparator configuration.** Do not concatenate old `comparator.json`
   files: their Challenge modules can clash too. Scaffold a new configuration
