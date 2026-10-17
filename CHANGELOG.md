@@ -70,6 +70,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
     `comparator-receipt.md` are gone: `publish.md`, `receipt-comparator.md`),
     and `aliases.md` lists the split modes and the `comparator-receipt`
     program.
+- Docs: docs/receipts.md, "Custom wrappers: read a unit only while it is
+  loaded". A garbage-collected unit reports `LoadState=not-found` with
+  default terminal fields that read as success; a wrapper of one's own
+  should reuse the retained-unit lifecycle (`RemainAfterExit=yes`, capture
+  before `stop`/`reset-failed`), check `LoadState`, `Id` and `InvocationID`
+  before any terminal field, and record a unit gone before capture as
+  incomplete evidence, not a pass.
 
 ### Changed
 

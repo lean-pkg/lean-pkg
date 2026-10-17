@@ -806,6 +806,36 @@ what moved was the package's internal sources.
   producer fingerprint probe an editable checkout with
   `--no-optional-locks`.
 
+### Custom wrappers: read a unit only while it is loaded
+
+A wrapper of your own around a discovery or pilot run can turn a vanished
+unit into a pass. A unit that is gone (started with `--collect`, or
+stopped and reset before its properties were read) still answers
+`systemctl --user show`, with `LoadState=not-found` and default terminal
+fields: `Result=success`, `ExecMainStatus=0`, `NRestarts=0`. Read on their
+own, those look like a clean run. Two field reports lost a run this way.
+
+- **Reuse the retained-unit lifecycle.** Start the unit with
+  `systemd-run --user -p RemainAfterExit=yes`, read `systemctl --user show`
+  once it is terminal, save the output, and only then `stop` and
+  `reset-failed` it. `receipt systemd --run` does exactly this; prefer it,
+  or pass the saved output with `--properties-file`, to writing your own.
+- **Check the unit before any terminal field.** Require `LoadState=loaded`,
+  `Id` equal to the unit you started and the `InvocationID` you recorded at
+  start before you interpret `Result`, `ExecMainCode`, `ExecMainStatus` or
+  `NRestarts`:
+
+  ```bash
+  props=$(systemctl --user show "$UNIT" -p LoadState,Id,InvocationID,Result,ExecMainCode,ExecMainStatus,NRestarts)
+  grep -qx "LoadState=loaded" <<<"$props" && grep -qx "Id=$UNIT" <<<"$props" &&
+    grep -qx "InvocationID=$INVOCATION" <<<"$props" || { echo "unit gone: run evidence incomplete"; exit 2; }
+  ```
+
+- **A unit gone before capture is not a success.** Record that run's
+  execution evidence as qualified or incomplete, never as passed. Checks
+  that do not depend on the unit (the compile log, the binding of the
+  source to the commit) still stand and can be kept.
+
 ## Comparator receipt schema (`comparator-receipt/2`; `/1` still validates)
 
 | Field | Rule |
