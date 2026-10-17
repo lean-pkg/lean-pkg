@@ -269,15 +269,20 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
                  ("WARN", f"no tag at HEAD {head[:12]} (tag the release after promote)"))
     ready = not any(i[0] == "✗" for i in items)
     cmds = next_commands(pkg, repo, ready, tags)
+    from . import ledger as ledger_mod
+    findings = (led or {}).get("manuscript_findings") or ledger_mod.package_findings(pkg, repo)   # #6: no status
     lines = [f"publish checklist for {name} ({repo}) — dry run, nothing written:"]
     lines += [f"  {i[0]}  {i[1]}" for i in items]
+    fl = ledger_mod.findings_line(findings)
+    if fl:
+        lines.append(fl)
     lines.append("ready: every check passes" if ready else "not ready: the checklist has failures")
     lines.append("next:")
     lines += [f"  {c}" for c in cmds]
     payload = {"ok": ready, "name": name, "dry_run": True, "ready": ready, "head": head,
                "checklist": [dict({"status": core._MARK_TO_STATUS[i[0]], "label": i[1]},
                                   **({"reason": i[2]} if len(i) > 2 else {})) for i in items],
-               "next": cmds, "ignored_evidence": ignored, "claims_ledger": led}
+               "next": cmds, "ignored_evidence": ignored, "claims_ledger": led, "manuscript_findings": findings}
     if safety is not None:
         payload["public_safety"] = safety
     return lines, 0 if ready else 1, payload

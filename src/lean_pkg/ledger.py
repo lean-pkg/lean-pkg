@@ -15,6 +15,11 @@ Required claims are those with claims.yaml status `reusable`. At stage `gate` th
 tier; at stage `promote` a reusable theorem or lemma also needs the comparator tier, so a lower-tier
 receipt alone never closes a claim promotion needs.
 
+Manuscript findings (`manuscript_findings`, #6) never change a status: each claim row lists them, and the
+package-level `manuscript_findings` summary (what the formalization found: open vs fixed in a later arXiv
+version) is what `publish --dry-run` and `palomar prepare` print. Only a lean_evidence declaration missing at
+the gate-bound commit is a diagnostic (`finding-evidence-missing`, like `decl-missing`).
+
 Package status fails closed: `unknown` with no claims, no required claim, or a limitation (no
 checkout, unreadable evidence); `failed` when recorded evidence contradicts a required claim;
 `ready` only when every required claim is verified; else `open`.
@@ -45,6 +50,8 @@ CODES = {
     "receipt-invalid": ("failed", "the gate receipt fails the gate validator (toolchain, sorry count, fields)"),
     "axiom-not-allowed": ("failed", "the gate receipt lists an axiom outside gate.axioms_allowed"),
     "decl-missing": ("failed", "the declaration does not occur in its file at the gate-bound commit"),
+    "finding-evidence-missing": ("failed", "a manuscript finding's lean_evidence declaration does not occur in "
+                                           "its file at the gate-bound commit"),
     "no-comparator-receipt": ("open", "promote stage: no comparator receipt is recorded"),
     "comparator-unreadable": ("unknown", "the recorded comparator receipt cannot be read as JSON"),
     "comparator-commit-mismatch": ("open", "the comparator receipt binds another commit than the gate receipt, "
@@ -192,6 +199,8 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
         diags = list(pkg_diags)
         if bound and decl and c.get("file"):
             diags += [_diag("decl-missing", p.split(": ", 1)[-1]) for p in claims_mod.decl_problems(read, [c])]
+        if bound:
+            diags += [_diag("finding-evidence-missing", p) for p in claims_mod.evidence_problems(read, [c])]
         needs_comparator = stage == "promote" and required and c.get("kind") in cc.CLAIM_KINDS
         if needs_comparator:
             diags += comp_diags
@@ -208,7 +217,9 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
             if d not in ids:
                 diags.append(_diag("depends-on-unknown", f"{d} is not a claim of {name}'s claims file"))
         rows.append({"id": cid, "decl": decl, "kind": c.get("kind"), "claim_status": c.get("status"),
-                     "required": required, "depends_on": list(c.get("depends_on") or []), "diagnostics": diags})
+                     "required": required, "depends_on": list(c.get("depends_on") or []),
+                     "statement_basis": c.get("statement_basis"), "manuscript_findings": claim_findings(c),
+                     "diagnostics": diags})
 
     def own_class(row) -> str:
         classes = {CODES[d["code"]][0] for d in row["diagnostics"] if d["code"] != "depends-on-open"}
@@ -259,16 +270,87 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
 
     canonical = {"schema": LEDGER_SCHEMA, "package": name, "stage": stage, "bound_commit": bound,
                  **hashes, "package_status": pstatus,
-                 "claims": [{"id": r["id"], "decl": r["decl"], "kind": r["kind"], "claim_status": r["claim_status"],
-                             "depends_on": r["depends_on"], "status": r["status"],
-                             "codes": [d["code"] for d in r["diagnostics"]]} for r in rows]}
+                 "claims": [_canonical_row(r) for r in rows]}
     digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     counts = {s: sum(r["status"] == s for r in rows)
               for s in ("verified", "open", "blocked", "unknown", "out-of-scope")}
     return {"ok": pstatus == "ready", "schema": LEDGER_SCHEMA, "name": name, "stage": stage,
             "package_status": pstatus, "reasons": reasons, "bound_commit": bound, "claims_source": source,
             **hashes, "counts": counts, "required": len(required_rows), "claims": rows,
-            "ledger_digest": f"sha256:{digest}"}
+            "manuscript_findings": {**findings_summary(rows), "source": source}, "ledger_digest": f"sha256:{digest}"}
+
+
+def _canonical_row(r: dict) -> dict:
+    """A row as the digest covers it; the basis and the findings only when set, so a ledger without them keeps
+    the digest it had before #6."""
+    out = {"id": r["id"], "decl": r["decl"], "kind": r["kind"], "claim_status": r["claim_status"],
+           "depends_on": r["depends_on"], "status": r["status"], "codes": [d["code"] for d in r["diagnostics"]]}
+    if r.get("statement_basis") is not None:
+        out["statement_basis"] = r["statement_basis"]
+    if r.get("manuscript_findings"):
+        out["manuscript_findings"] = [{k: f.get(k) for k in ("id", "kind", "location", "lean_evidence", "fixed_in")}
+                                      for f in r["manuscript_findings"]]
+    return out
+
+
+def claim_findings(c: dict) -> list[dict]:
+    """A claim's manuscript findings, normalized, each with `state` open (fixed_in null) or fixed."""
+    from . import claims as claims_mod
+    out = []
+    for f in claims_mod.findings_of(c):
+        nf = claims_mod.normalize_finding(f)
+        nf["state"] = "fixed" if nf.get("fixed_in") else "open"
+        out.append(nf)
+    return out
+
+
+def findings_summary(rows: list[dict]) -> dict:
+    """What the formalization found in the manuscript, over the ledger rows (or rows carrying `id`,
+    `statement_basis` and `manuscript_findings`): totals by kind and by state, the claims verified for a
+    corrected statement, and one entry per finding. Informational: no status reads it."""
+    from . import claims as claims_mod
+    items = []
+    for r in rows:
+        for f in r.get("manuscript_findings") or []:
+            loc = f.get("location") if isinstance(f.get("location"), dict) else {}
+            items.append({"claim": r["id"], "id": f.get("id"), "kind": f.get("kind"), "label": loc.get("label"),
+                          "summary": f.get("summary"), "fixed_in": f.get("fixed_in"), "state": f.get("state")})
+    return {"total": len(items), "open": sum(i["state"] == "open" for i in items),
+            "fixed": sum(i["state"] == "fixed" for i in items),
+            "by_kind": {k: sum(i["kind"] == k for i in items) for k in claims_mod.FINDING_KINDS},
+            "corrected_statements": [r["id"] for r in rows if r.get("statement_basis") == "corrected"],
+            "findings": items}
+
+
+def findings_line(fs: dict | None) -> str | None:
+    """One line for publish --dry-run, palomar prepare and the ledger text; None when nothing was found."""
+    if not fs or not fs.get("total"):
+        return None
+    kinds = ", ".join(f"{n} {k}" for k, n in fs["by_kind"].items() if n)
+    line = (f"manuscript findings (what the formalization found): {fs['total']} ({kinds}); "
+            f"{fs['open']} open, {fs['fixed']} fixed in a later arXiv version")
+    if fs["corrected_statements"]:
+        line += (f"; verified for the corrected statement: {', '.join(fs['corrected_statements'])}")
+    return line + "; statuses unchanged"
+
+
+def package_findings(pkg: dict, repo) -> dict:
+    """findings_summary of the claims file the ledger reads (at the gate receipt's commit, else the cache, else
+    HEAD), without re-checking any receipt: for `publish --dry-run` and `palomar prepare`. Unreadable input
+    gives an empty summary with `source` saying why."""
+    bound = None
+    rel = (pkg.get("gate") or {}).get("receipt")
+    rec = core.recorded_json(repo, rel) if rel else None
+    if isinstance(rec, dict) and core._HEX40.fullmatch(str(rec.get("commit") or "")) and not core.git(
+            repo, "cat-file", "-e", f"{rec['commit']}^{{commit}}").returncode:
+        bound = rec["commit"]
+    try:
+        claims, source = _claims_source(pkg, repo, bound)
+    except core.Fail as e:
+        claims, source = [], f"unreadable: {e}"
+    rows = [{"id": str(c.get("id")), "statement_basis": c.get("statement_basis"),
+             "manuscript_findings": claim_findings(c)} for c in claims]
+    return {**findings_summary(rows), "source": source}
 
 
 def ledger_lines(led: dict) -> list[str]:
@@ -277,10 +359,20 @@ def ledger_lines(led: dict) -> list[str]:
     out = [verdict] + [f"  reason: {r}" for r in led["reasons"]]
     out.append(f"  claims from {led['claims_source']}"
                + (f"; gate-bound commit {led['bound_commit'][:12]}" if led["bound_commit"] else ""))
+    fl = findings_line(led.get("manuscript_findings"))
+    if fl:
+        out.append(f"  {fl}")
     for r in led["claims"]:
+        basis = " [corrected statement]" if r.get("statement_basis") == "corrected" else ""
         out.append(f"  {r['status']:<12} {r['id']} ({r['decl']})" + ("" if r["required"] else
-                                                                     f" [{r['claim_status']}]"))
+                                                                     f" [{r['claim_status']}]") + basis)
         out += [f"      {d['code']}: {d['detail']}" for d in r["diagnostics"]]
+        for f in r.get("manuscript_findings") or []:
+            loc = f.get("location") or {}
+            where = ", ".join([str(loc.get("label"))] + [f"{k.replace('_', ' ')} {loc[k]}"
+                                                         for k in ("page", "tex_line") if loc.get(k)])
+            state = f"fixed in {f['fixed_in']}" if f.get("fixed_in") else "open"
+            out.append(f"      finding {f.get('id')} ({f.get('kind')}; {where}): {state}: {f.get('summary')}")
     out.append(f"  ledger_digest: {led['ledger_digest']}")
     if led["claims"]:
         out.append(verdict)

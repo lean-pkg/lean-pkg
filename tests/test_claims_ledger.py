@@ -203,6 +203,13 @@ def _decl_missing(lp, env, capsys):
     gated(env, claims=claims_list(**{"foo-le-bar": claim("foo-le-bar", "Demo.gone")}))
 
 
+def _finding_evidence_missing(lp, env, capsys):
+    gap = {"id": "gap-1", "kind": "proof-gap", "location": {"label": "Lemma 3.2"}, "summary": "A step is missing.",
+           "lean_evidence": ["Demo.no_such_counterexample"], "fixed_in": None}
+    gated(env, claims=claims_list(**{"foo-le-bar": {**claim("foo-le-bar", "Demo.foo_le_bar"),
+                                                    "manuscript_findings": [gap]}}))
+
+
 def _no_comparator_receipt(lp, env, capsys):
     gated(env, comparator=False)
 
@@ -252,6 +259,7 @@ SCENARIOS = {
     "receipt-invalid": (_receipt_invalid, "foo-le-bar", "open", "failed"),
     "axiom-not-allowed": (_axiom_not_allowed, "foo-le-bar", "open", "failed"),
     "decl-missing": (_decl_missing, "foo-le-bar", "open", "failed"),
+    "finding-evidence-missing": (_finding_evidence_missing, "foo-le-bar", "open", "failed"),
     "no-comparator-receipt": (_no_comparator_receipt, "foo-le-bar", "open", "open"),
     "comparator-unreadable": (_comparator_unreadable, "foo-le-bar", "unknown", "unknown"),
     "comparator-commit-mismatch": (_comparator_commit_mismatch, "foo-le-bar", "open", "open"),

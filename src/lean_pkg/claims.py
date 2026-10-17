@@ -31,6 +31,18 @@ CLAIM_DEFAULTS = {"aliases": [], "keywords": [], "superseded_by": None, "citatio
                   "depends_on": []}
 CLAIM_KINDS = ("definition", "lemma", "theorem", "construction", "library")
 CLAIM_STATUSES = ("reusable", "internal", "experimental", "superseded")
+# Optional claim keys (#6 field report): accepted by claims/1, kept in the normalized claim only when set, so
+# a claims file without them normalizes (and caches) exactly as before. `manuscript_findings` records what the
+# formalization found in the manuscript (a misprint, a proof gap) without lowering any status;
+# `statement_basis: corrected` says the claim is verified for the corrected statement (required with a misprint).
+OPTIONAL_CLAIM_KEYS = ("statement_basis", "manuscript_findings")
+STATEMENT_BASES = ("as-printed", "corrected")
+FINDING_KEYS = ("id", "kind", "location", "summary", "lean_evidence", "fixed_in")
+FINDING_KINDS = ("misprint", "proof-gap")
+LOCATION_KEYS = ("label", "tex_line", "page")
+REQUIRED_LOCATION_KEYS = ("label",)
+EVIDENCE_KEYS = ("decl", "file")
+FIXED_IN_RE = re.compile(r"^arXiv:(\d{4}\.\d{4,5}|[a-z][a-z-]*(\.[A-Z]{2})?/\d{7})v[1-9][0-9]*$")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 CLAIM_ID_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)/([a-z0-9][a-z0-9-]*)$")
 KEYWORD_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -69,9 +81,124 @@ def load_claims_text(text: str, where: str) -> dict:
     return data
 
 
+def normalize_finding(f: dict) -> dict:
+    """A manuscript finding in FINDING_KEYS order, its location with every LOCATION_KEYS key (null filled)."""
+    out = {k: f.get(k) for k in FINDING_KEYS}
+    loc = f.get("location")
+    if isinstance(loc, dict):
+        out["location"] = {k: loc.get(k) for k in LOCATION_KEYS}
+    return out
+
+
 def normalize_claim(c: dict) -> dict:
-    """A claim with every key present, in CLAIM_KEYS order (defaults filled)."""
-    return {k: (c[k] if k in c else CLAIM_DEFAULTS.get(k)) for k in CLAIM_KEYS}
+    """A claim with every key present, in CLAIM_KEYS order (defaults filled), then each OPTIONAL_CLAIM_KEYS key
+    that is set (a null basis or an empty findings list is left out, so older caches compare equal)."""
+    out = {k: (c[k] if k in c else CLAIM_DEFAULTS.get(k)) for k in CLAIM_KEYS}
+    if c.get("statement_basis") is not None:
+        out["statement_basis"] = c["statement_basis"]
+    if c.get("manuscript_findings"):
+        fs = c["manuscript_findings"]
+        out["manuscript_findings"] = [normalize_finding(f) if isinstance(f, dict) else f for f in fs] \
+            if isinstance(fs, list) else fs
+    return out
+
+
+def findings_of(c) -> list[dict]:
+    """A claim's manuscript findings that are mappings ([] when the key is absent or malformed)."""
+    fs = c.get("manuscript_findings") if isinstance(c, dict) else None
+    return [f for f in fs if isinstance(f, dict)] if isinstance(fs, list) else []
+
+
+def _evidence_ref(e, claim_file) -> tuple[str, str] | None:
+    """(decl, file) of one lean_evidence entry: a Lean name (looked up in the claim's file) or {decl, file}."""
+    if isinstance(e, str):
+        return e, claim_file
+    if isinstance(e, dict) and set(e) == set(EVIDENCE_KEYS):
+        return e.get("decl"), e.get("file")
+    return None
+
+
+def _finding_errors(f, where: str, claim_file) -> list[str]:
+    if not isinstance(f, dict):
+        return [f"{where} must be a mapping with keys {list(FINDING_KEYS)}"]
+    extra = sorted(set(f) - set(FINDING_KEYS))
+    missing = [k for k in FINDING_KEYS if k not in f]
+    errors = []
+    if extra:
+        errors.append(f"{where}: unknown key(s) {extra} (a manuscript finding has exactly {list(FINDING_KEYS)})")
+    if missing:
+        errors.append(f"{where}: missing key(s) {missing}")
+    if extra or missing:
+        return errors
+    if not (isinstance(f["id"], str) and SLUG_RE.match(f["id"])):
+        errors.append(f"{where}.id must be a slug [a-z0-9][a-z0-9-]*, got {f['id']!r}")
+    if f["kind"] not in FINDING_KINDS:
+        errors.append(f"{where}.kind must be one of {FINDING_KINDS}, got {f['kind']!r}")
+    loc = f["location"]
+    if not isinstance(loc, dict):
+        errors.append(f"{where}.location must be a mapping with keys {list(LOCATION_KEYS)} (label required)")
+    else:
+        lx = sorted(set(loc) - set(LOCATION_KEYS))
+        lm = [k for k in REQUIRED_LOCATION_KEYS if k not in loc]
+        if lx:
+            errors.append(f"{where}.location: unknown key(s) {lx} (allowed {list(LOCATION_KEYS)})")
+        if lm:
+            errors.append(f"{where}.location: missing key(s) {lm} (the manuscript's label, e.g. a "
+                          f"theorem or equation number)")
+        if "label" in loc and not _one_line(loc["label"], 120):
+            errors.append(f"{where}.location.label must be one line of at most 120 characters; "
+                          f"{_line_why(loc['label'], 120)}")
+        for k in ("tex_line", "page"):
+            v = loc.get(k)
+            if v is not None and not (isinstance(v, int) and not isinstance(v, bool) and v >= 1):
+                errors.append(f"{where}.location.{k} must be null or a positive integer, got {v!r}")
+    if not _one_line(f["summary"]):
+        errors.append(f"{where}.summary must be one sentence (one line, at most 300 characters); "
+                      f"{_line_why(f['summary'])}")
+    ev = f["lean_evidence"]
+    if not isinstance(ev, list):
+        errors.append(f"{where}.lean_evidence must be a list of Lean declaration names or {{decl, file}} mappings")
+    else:
+        for j, e in enumerate(ev):
+            ref = _evidence_ref(e, claim_file)
+            if ref is None:
+                errors.append(f"{where}.lean_evidence[{j}] must be a Lean declaration name or a mapping with "
+                              f"exactly {list(EVIDENCE_KEYS)}, got {e!r}")
+                continue
+            decl, rel = ref
+            if not lean_scan.is_name(decl) or decl == TODO:
+                errors.append(f"{where}.lean_evidence[{j}] must name a Lean declaration, got {decl!r}")
+            if isinstance(e, dict) and not (idx._is_rel(rel) and str(rel).endswith(".lean")):
+                errors.append(f"{where}.lean_evidence[{j}].file must be a repo-relative .lean path, got {rel!r}")
+    fx = f["fixed_in"]
+    if fx is not None and not (isinstance(fx, str) and FIXED_IN_RE.match(fx)):
+        errors.append(f"{where}.fixed_in must be null or arXiv:<id>v<N> (e.g. arXiv:2501.01234v2), got {fx!r}")
+    return errors
+
+
+def _optional_errors(c: dict, where: str) -> list[str]:
+    """statement_basis and manuscript_findings (both optional). A claim with a misprint finding is verified only
+    for the corrected statement, so it must say `statement_basis: corrected`; `corrected` without a recorded
+    misprint names no correction and is refused too."""
+    errors = []
+    basis = c.get("statement_basis")
+    if basis is not None and basis not in STATEMENT_BASES:
+        errors.append(f"{where}.statement_basis must be null or one of {STATEMENT_BASES}, got {basis!r}")
+    fs = c.get("manuscript_findings")
+    if fs is None:
+        fs = []
+    if not isinstance(fs, list):
+        return errors + [f"{where}.manuscript_findings must be a list of findings"]
+    for j, f in enumerate(fs):
+        errors += _finding_errors(f, f"{where}.manuscript_findings[{j}]", c.get("file"))
+    misprints = [f.get("id") for f in fs if isinstance(f, dict) and f.get("kind") == "misprint"]
+    if misprints and basis != "corrected":
+        errors.append(f"{where} ({c.get('id')}): misprint finding(s) {misprints} need statement_basis: corrected "
+                      f"(the claim is verified for the corrected statement, not the printed one), got {basis!r}")
+    if basis == "corrected" and not misprints:
+        errors.append(f"{where} ({c.get('id')}): statement_basis corrected needs a misprint finding naming the "
+                      f"correction")
+    return errors
 
 
 def dump_claims(doc: dict) -> str:
@@ -102,14 +229,16 @@ def _claim_errors(c, i: int, package: str | None) -> list[str]:
     if not isinstance(c, dict):
         return [f"{where} must be a mapping"]
     errors = []
-    extra = sorted(set(c) - set(CLAIM_KEYS))
+    extra = sorted(set(c) - set(CLAIM_KEYS) - set(OPTIONAL_CLAIM_KEYS))
     missing = [k for k in REQUIRED_CLAIM_KEYS if k not in c]
     if extra:
-        errors.append(f"{where}: unknown key(s) {extra} (schema {CLAIMS_SCHEMA} allows {list(CLAIM_KEYS)})")
+        errors.append(f"{where}: unknown key(s) {extra} (schema {CLAIMS_SCHEMA} allows "
+                      f"{list(CLAIM_KEYS) + list(OPTIONAL_CLAIM_KEYS)})")
     if missing:
         errors.append(f"{where}: missing key(s) {missing}")
     if extra or missing:
         return errors
+    errors += _optional_errors(c, where)             # on the claim as written: normalizing drops unknown keys
     c = normalize_claim(c)
     m = CLAIM_ID_RE.match(str(c["id"])) if isinstance(c["id"], str) else None
     if not m:
@@ -192,6 +321,10 @@ def validate_claims(doc, package: str | None = None) -> list[str]:
     dups = sorted({i for i in ids if isinstance(i, str) and ids.count(i) > 1})
     if dups:
         errors.append(f"duplicate claim id(s) {dups}")
+    fids = [f.get("id") for c in claims for f in findings_of(c)]
+    fdups = sorted({i for i in fids if isinstance(i, str) and fids.count(i) > 1})
+    if fdups:
+        errors.append(f"duplicate manuscript finding id(s) {fdups} (a finding id is unique in the package)")
     by_id = {c["id"]: c for c in claims if isinstance(c, dict) and isinstance(c.get("id"), str)}
     for cid, c in by_id.items():
         sb = c.get("superseded_by")
@@ -233,6 +366,24 @@ def decl_problems(read_file, claims: list[dict]) -> list[str]:
         elif not lean_scan.occurs(last, text):
             out.append(f"{c['id']}: {last!r} does not occur in {c['file']}")
     return out
+
+
+def evidence_problems(read_file, claims: list[dict]) -> list[str]:
+    """`decl_problems` for every manuscript finding's lean_evidence entry: a Lean name is looked up in the
+    claim's file, a {decl, file} entry in its own file, both read with `read_file` at the commit being checked.
+    Malformed entries are skipped (the schema check reports them)."""
+    refs = []
+    for c in claims:
+        for f in findings_of(c):
+            ev = f.get("lean_evidence")
+            for j, e in enumerate(ev if isinstance(ev, list) else []):
+                ref = _evidence_ref(e, c.get("file"))
+                if ref is None or not lean_scan.is_name(ref[0]) or not (
+                        idx._is_rel(ref[1]) and str(ref[1]).endswith(".lean")):
+                    continue
+                refs.append({"id": f"{c.get('id')} finding {f.get('id')} lean_evidence[{j}]",
+                             "decl": ref[0], "file": ref[1]})
+    return decl_problems(read_file, refs)
 
 
 def _reader(repo: pathlib.Path, rev: str):
@@ -356,7 +507,8 @@ def do_claims_sync(reg_path, reg, events_p, name: str) -> tuple[list[str], dict]
         raise core.Fail(f"{name}: {rel} declares package {doc['package']!r}, not {name!r}")
     errors = validate_claims(doc, name)
     if not errors:
-        errors = decl_problems(_reader(repo, head), doc["claims"])
+        read = _reader(repo, head)
+        errors = decl_problems(read, doc["claims"]) + evidence_problems(read, doc["claims"])
     if errors:
         raise core.Fail(f"{name}: {rel} refused: " + "; ".join(errors))
     claims = [normalize_claim(c) for c in doc["claims"]]
@@ -431,7 +583,8 @@ def do_claims_check(reg: dict, name: str | None) -> tuple[list[str], dict, int]:
             if repo is None or not repo.is_dir() or core.git(repo, "cat-file", "-e", f"{commit}^{{commit}}").returncode:
                 rep["notes"].append(f"decl check skipped: no checkout holding {str(commit)[:12]}")
             else:
-                rep["failures"] += decl_problems(_reader(repo, commit), claims)
+                read = _reader(repo, commit)
+                rep["failures"] += decl_problems(read, claims) + evidence_problems(read, claims)
                 rel = pkg.get("claims_file") or DEFAULT_CLAIMS_FILE
                 if core.git_show_bytes(repo, rel, "HEAD") != core.git_show_bytes(repo, rel, commit):
                     rep["notes"].append(f"{rel} changed since {commit[:12]}; run `lean-pkg claims sync {n}`")

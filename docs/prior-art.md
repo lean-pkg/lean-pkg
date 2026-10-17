@@ -51,6 +51,52 @@ claims:
 Unknown keys are refused, and so is anything that looks like a local path.
 Trust is never typed into a claim: it is derived from the package's receipts.
 
+### Manuscript findings
+
+A formalization often finds problems in the paper without any theorem being
+false: a misprint in a displayed formula, a step the proof does not justify.
+Two optional claim keys record them without lowering any status (`claims/1`
+accepts both; a file without them is unchanged, and a lean-pkg older than the
+release that added them refuses them as unknown keys):
+
+```yaml
+- id: chemotaxis-iii/blowup-criterion
+  decl: Chemotaxis.blowup_criterion
+  # ... the keys above ...
+  statement_basis: corrected
+  manuscript_findings:
+  - id: eq-3-7-exponent
+    kind: misprint
+    location: {label: "(3.7)", tex_line: 412, page: 9}
+    summary: The exponent in the displayed bound is 2p, not p.
+    lean_evidence: [Chemotaxis.blowup_criterion]
+    fixed_in: null
+  - id: lemma-4-2-origin-jets
+    kind: proof-gap
+    location: {label: Lemma 4.2}
+    summary: Origin jets alone do not determine the limit; Lean proves it by counterexample.
+    lean_evidence:
+    - {decl: Chemotaxis.origin_jets_insufficient, file: Chemotaxis/Counterexamples.lean}
+    fixed_in: arXiv:2501.01234v2
+```
+
+| Key | Rule |
+|---|---|
+| `manuscript_findings` | a list of findings, each with exactly the keys `id`, `kind`, `location`, `summary`, `lean_evidence`, `fixed_in` |
+| `id` | a slug (`[a-z0-9][a-z0-9-]*`), unique across every claim of the package |
+| `kind` | `misprint` or `proof-gap` |
+| `location` | `label` (required: the manuscript's theorem, lemma or equation label, one line of at most 120 characters), `tex_line` and `page` (each null or a positive integer); no other key |
+| `summary` | one sentence: one line, at most 300 characters |
+| `lean_evidence` | the declarations that show it: a Lean name (looked up in the claim's `file`) or `{decl, file}` for one in another file. Each must occur in its file at the commit being checked, exactly like `decl`: `claims sync` (HEAD), `claims check` (the synced commit), `gate` (the receipt's commit) and the ledger (`finding-evidence-missing`) |
+| `fixed_in` | null while the manuscript is unchanged, else the arXiv version that fixes it, `arXiv:<id>v<N>` (`arXiv:2501.01234v2`, `arXiv:math.PR/0601001v3`) |
+| `statement_basis` | null (the statement as printed), `as-printed` or `corrected`. A claim with a `misprint` finding is verified only for the corrected statement, so it must say `corrected`; `corrected` without a misprint finding is refused, since it names no correction |
+
+Findings never change a claim's status, the ledger's package status, or
+whether `publish --dry-run` is ready: `claims ledger` lists them per claim and
+sums up what the formalization found (open vs fixed), and `publish --dry-run`
+and `palomar prepare` print that summary in one line (JSON
+`manuscript_findings`). See [Lifecycle](lifecycle.md#manuscript-findings).
+
 ```bash
 lean-pkg claims sync my-lean     # read claims.yaml at HEAD, check every decl, cache it (event claims-synced)
 lean-pkg claims list             # ID, KIND, STATUS, TRUST, PIN, DECL

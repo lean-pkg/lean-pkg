@@ -128,7 +128,9 @@ def build(pkg: dict, repo: pathlib.Path, stage: pathlib.Path) -> tuple[list[str]
     if scan["warn_hits"]:
         warnings.append(f"public-safety: {scan['warn_hits']} warning(s) in the bundle "
                         f"({ps.warn_families(scan['hits'])}); review them")
+    from . import ledger as ledger_mod
     facts = {"commit": head, "configs": configs, "files": files + ["MANIFEST.sha256"],
+             "manuscript_findings": ledger_mod.package_findings(pkg, repo),
              "bundle_sha256": hashlib.sha256(manifest.encode()).hexdigest(), "placeholders": placeholders,
              "public_safety": {"block_hits": nblock, "warn_hits": scan["warn_hits"]}}
     return warnings, facts
@@ -161,6 +163,10 @@ def do_prepare(reg_path, reg, events_p, name: str, out: str | None, dry_run: boo
                  + (" (dry run: nothing written)" if dry_run else "")]
         lines += [f"  {f}" for f in facts["files"]]
         lines.append(f"  bundle sha256 (of MANIFEST.sha256): {facts['bundle_sha256']}")
+        from . import ledger as ledger_mod
+        fl = ledger_mod.findings_line(facts["manuscript_findings"])
+        if fl:
+            lines.append(f"  {fl}")
         if dry_run:
             lines.append("next: run again without --dry-run, then follow README.txt in the bundle")
             return lines, payload, warnings
