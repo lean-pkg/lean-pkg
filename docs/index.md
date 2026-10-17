@@ -37,7 +37,7 @@ its success gate, and lists what is still missing.
 | **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
 | **writing a paper with a Lean companion** | [Develop a paper with its Lean companion](paper-companion.md): intermediate checkpoints, reuse, a coverage map |
 | **writing the public README of a companion** | [The verification page](page.md): `lean-pkg coverage check` and `lean-pkg page --write/--check` render the status, the paper-to-Lean map, the trust boundary, the evidence and the credits from data |
-| **using the tool** | [How to](how-to.md), the [CLI reference](cli.md) and [Prior-art search](prior-art.md) |
+| **using the tool** | [How to](how-to.md), the [command reference](commands/index.md) (every command and subcommand, with examples), the [CLI overview](cli.md) (global flags) and [Prior-art search](prior-art.md) |
 | **refereeing or auditing a package** | [Trust model](trust-model.md): what each artifact certifies, what it does not, and how to re-verify a page yourself; then [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [formalization.yaml](formalization.md), [The index](index-catalog.md), [Lifecycle](lifecycle.md) |
 | **adding the comparator tier to your package** | [Add the comparator tier to an existing package](existing-package-comparator.md), step by step |
 | **joining someone's package** | `scripts/bootstrap-collaborator.sh OWNER/PACKAGE`, then [Add the comparator tier to an existing package](existing-package-comparator.md) |
@@ -110,7 +110,9 @@ will automate the registry bootstrap; it is not implemented yet.
 - [Prior-art search](prior-art.md): claims files, `lean-pkg search` across the
   registry, the index, Loogle, LeanSearch, Reservoir, Palomar and GitHub, and the
   search record.
-- [CLI reference](cli.md): every subcommand.
+- [Command reference](commands/index.md): every command and subcommand on its own page, with its
+  usage, flags, exit codes, `--json` keys and examples; generated from the parser.
+- [CLI overview](cli.md): the global flags, committed mode, leases, the package record and the exit codes.
 - [Using lean-pkg with agents](agents.md): the LLM entry.
 - [Agent skills](skills.md): lessons for agents on statement fidelity, evidence and publication, with an installer.
 - [Decisions](decisions/README.md): dated records of the choices that shape the tool.

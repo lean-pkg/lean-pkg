@@ -17,7 +17,8 @@ credit. Every number and status word in that section is rendered here from data,
   count, axioms, theorem names, permitted axioms, definition names, date, SHA-256 of the file, a Slurm job
   id); hosts, paths, user names, checker commands and other job ids are never copied;
 * `lean-toolchain`, `lake-manifest.json`, `CITATION.cff` (authors must be non-empty), the registry's
-  `repo`, `status`, `license_spdx` and `doi`.
+  `repo`, `license_spdx` and `doi`. The registry `status` is not rendered: it changes on promote while
+  the page is committed at one commit (it stays in `lean-pkg status` and `--json`).
 
 The section lives in the package's README.md between BEGIN and END. `--write` replaces exactly that block
 (appending it when absent) and never touches the prose outside the markers. `--check` exits 1 when the
@@ -340,7 +341,7 @@ def _holes_line(configs: list[dict]) -> str:
 def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     """The sections from the status capsule to the acknowledgments, and the facts. target: 'readme' (the
     README block), 'site' (verification.md beside coverage.md) or 'html' (one page holding both)."""
-    pkg, doc, claims, led, kind = (ctx[k] for k in ("pkg", "doc", "claims", "led", "kind"))
+    doc, claims, led, kind = (ctx[k] for k in ("doc", "claims", "led", "kind"))
     md: list[str] = []
     # status capsule
     md += ["## Verification status", ""]
@@ -356,10 +357,9 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     if ctx["library"]:
         counts = None
         map_lines, n_verified = _library_rows(doc, claims, led, ctx["link_base"])
-        md += [f"- Library: no manuscript; each row below is a main result of the library, stated by its Lean "
-               f"declarations.",
+        md += ["- Library: each row below is a main result of the library, stated by its Lean declarations.",
                f"- Main results: {len(doc['rows'])}; {n_verified} of {len(doc['rows'])} main result(s) verified.",
-               ledger_line, f"- lean-pkg registry status: `{_code(pkg.get('status'))}`.", ""]
+               ledger_line, ""]
         md += ["## Main results", "",
                "| Result | Lean declarations | Ledger | Notes |", "|---|---|---|---|", *map_lines, "",
                "*verified*: `lean-pkg claims ledger` closes every claim of the row at the promote stage (gate and "
@@ -386,14 +386,14 @@ def _library_rows(doc: dict, claims: dict, led: dict, link_base: str | None) -> 
 
 def _paper_sections(ctx: dict, target: str, md: list[str], ledger_line: str) -> tuple[list[str], dict, int]:
     """The capsule lines, the paper-to-Lean map and Not formalized of a kind: paper coverage."""
-    doc, claims, led, pkg = ctx["doc"], ctx["claims"], ctx["led"], ctx["pkg"]
+    doc, claims, led = ctx["doc"], ctx["claims"], ctx["led"]
     counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
     map_lines, n_verified = _map_rows(doc, claims, led, ctx["link_base"])
     md += [f"- Manuscript: {_manuscript_ref(doc['manuscript'])}.",
            f"- Paper results mapped: {len(doc['rows'])} ({counts['same-assumptions']} same assumptions, "
            f"{counts['inputs-supplied']} inputs supplied, {counts['outside']} outside this formalization); "
            f"{n_verified} of {len(doc['rows']) - counts['outside']} formalized row(s) verified.",
-           ledger_line, f"- lean-pkg registry status: `{_code(pkg.get('status'))}`.", ""]
+           ledger_line, ""]
     # map
     md += ["## Paper ↔ Lean map", "",
            "| Paper | Correspondence | Lean declarations | Ledger | Inputs and notes |",
@@ -551,7 +551,7 @@ def _library_coverage_lines(ctx: dict, target: str) -> list[str]:
     own ledger status, and the note."""
     doc, claims, led = ctx["doc"], ctx["claims"], ctx["led"]
     by_id = {r["id"]: r for r in led["claims"]}
-    md = ["Library: no manuscript; each row is a main result of the library.", "",
+    md = ["Library: each row is a main result of the library.", "",
           f"- Main results: {len(doc['rows'])}.",
           f"- Claims ledger (promote stage): **{led['package_status']}** (`{led['ledger_digest'][:23]}…`).", "",
           "| Result | Claims | Lean declarations | Ledger | Note |", "|---|---|---|---|---|"]

@@ -42,7 +42,8 @@ CREDIT_URL = "https://github.com/lean-pkg/lean-pkg"
 
 
 def prepare(env, coverage: dict | None = None, *, easley: bool = False, job: str = "slurm-12345",
-            receipt_job: str | None = None, citation: str = CITATION, extra: dict | None = None) -> str:
+            receipt_job: str | None = None, citation: str = CITATION, extra: dict | None = None,
+            comparator: dict | None = None) -> str:
     """beta made page-ready: coverage.yaml, CITATION.cff, an MIT LICENSE and a Mathlib manifest committed,
     then a gate and a comparator receipt bound to that commit, committed under .lean-receipts/ (an
     evidence-only descendant); the registry records both, license_spdx MIT and the docs-only opt-in."""
@@ -64,7 +65,7 @@ def prepare(env, coverage: dict | None = None, *, easley: bool = False, job: str
     (repo / lower).write_text(json.dumps(make_receipt(repo, job_id=receipt_job, host="secret-host-xyz",
                                                       checker="/home/someone/verify.sh"), indent=2))
     comp = f".lean-receipts/{head[:12]}-comparator.json"
-    (repo / comp).write_text(json.dumps(make_comparator_receipt(repo), indent=2))
+    (repo / comp).write_text(json.dumps(make_comparator_receipt(repo, **(comparator or {})), indent=2))
     _git(repo, "add", "-f", ".lean-receipts")
     _git(repo, "commit", "-q", "-m", "evidence")
     reg = read_reg(env)
@@ -552,13 +553,14 @@ def test_a_library_page_claims_no_manuscript_and_states_what_was_verified(lp, en
     md = a["markdown"]
     row = next(x for x in md.splitlines() if x.startswith("| Main bound |"))
     assert "`Demo.foo_le_bar`" in row and "| verified |" in row and "the headline estimate" in row
-    assert "## Main results\n" in md and "- Library: no manuscript" in md
+    assert "## Main results\n" in md and "- Library: each row below is a main result" in md
     assert "1 of 1 main result(s) verified" in md
     outputs = [md, (tmp_path / "site" / "verification.md").read_text(), (tmp_path / "site" / "coverage.md").read_text(),
                (tmp_path / "v.html").read_text()]
     for text in outputs:                            # nothing on any output claims a paper or a manuscript
         assert "Manuscript:" not in text and "formalizes results of" not in text
         assert "Paper ↔ Lean map" not in text and "Not formalized" not in text and "paper" not in text.lower()
+        assert "manuscript" not in text.lower()
     for section in ("Verification status", "Main results", "Trust boundary", "Reproduce", "Evidence",
                     "Citation", "License", "Acknowledgments"):
         assert f"## {section}\n" in md
@@ -668,3 +670,60 @@ def test_anchor_and_rebase_leave_a_library_coverage_alone(env):
     assert cov is None and vwhere is None                       # a claims rebase never rewrites it
     prepare(env)
     assert rebase._inputs(read_reg(env)["packages"]["beta"], env.repo_b, None, None)[2]["manuscript"]
+
+
+# --- field report: a package's own private patterns, the registry status, the comparator evidence row ----
+
+PATTERNS = "(?i)manuscript\n(?i)private\\b\n"      # a package guarding its release against such words
+COMP2 = {"schema": "comparator-receipt/2", "mechanism": "legacy"}   # the schema comparator-receipt writes
+
+
+def _outputs(tmp_path, md: str) -> list[str]:
+    return [md, (tmp_path / "site" / "verification.md").read_text(),
+            (tmp_path / "site" / "coverage.md").read_text(), (tmp_path / "v.html").read_text()]
+
+
+def test_a_library_page_passes_patterns_against_manuscript_and_private(lp, env, capsys, tmp_path):
+    import re
+    prepare(env, LIBRARY, extra={".lean-pkg-private-patterns": PATTERNS}, comparator=COMP2)
+    rc, a = page_json(lp, env, capsys, "--site", str(tmp_path / "site"), "--html", str(tmp_path / "v.html"))
+    assert rc == 0 and a["kind"] == "library"
+    for text in _outputs(tmp_path, a["markdown"]):      # lean-pkg's own wording on a library page
+        assert not re.search(r"(?i)manuscript|paper|private\b", text)
+    assert "- Library: each row below is a main result of the library" in a["markdown"]
+    assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
+    # negative control: a paper page names its manuscript, and the same patterns refuse it
+    prepare(env, extra={".lean-pkg-private-patterns": PATTERNS})
+    rc, _out, err = run(lp, env, capsys, "page", "beta")
+    assert rc == 1 and "private string(s) (.lean-pkg-private-patterns:1)" in err
+
+
+def test_the_page_carries_no_registry_status_and_stays_current_on_promote(lp, env, capsys):
+    for doc in (LIBRARY, COVERAGE):
+        prepare(env, doc)
+        assert read_reg(env)["packages"]["beta"]["status"] == "verified-private"
+        rc, a = page_json(lp, env, capsys)
+        assert rc == 0 and "registry status" not in a["markdown"] and "verified-private" not in a["markdown"]
+        assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
+        reg = read_reg(env)
+        reg["packages"]["beta"]["status"] = "public"                # what promote changes
+        write_reg(env, reg)
+        assert check(lp, env, capsys) == (0, [])                     # the committed page is not stale
+        reg["packages"]["beta"]["status"] = "verified-private"
+        write_reg(env, reg)
+
+
+def test_the_evidence_table_lists_a_comparator_receipt_of_the_current_schema(lp, env, capsys):
+    from .conftest import sha256
+    for doc in (LIBRARY, COVERAGE):
+        prepare(env, doc, comparator=COMP2)
+        rc, a = page_json(lp, env, capsys)
+        assert rc == 0 and a["receipts"] == 2
+        rel = read_reg(env)["packages"]["beta"]["gate"]["comparator"]
+        raw = (env.repo_b / rel).read_bytes()
+        rec = json.loads(raw)
+        row = next(x for x in a["markdown"].splitlines() if x.startswith(f"| `{rel}`"))
+        assert row == (f"| `{rel}` (recorded) | comparator | `{rec['commit'][:12]}` | 2026-10-05 | — | "
+                       f"`{sha256(raw)}` |")
+        tiers = [x.split(" | ")[1] for x in a["markdown"].splitlines() if x.startswith("| `.lean-receipts/")]
+        assert sorted(tiers) == ["comparator", "lower tier"]

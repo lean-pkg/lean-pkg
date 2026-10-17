@@ -72,8 +72,9 @@ maintainer's release steps ([RELEASING.md](RELEASING.md)).
   them after a force-push. `make boundary` checks the tree and CI checks the
   history; use placeholders such as `demo` and `~/work/demo`.
 - **Docs.** A user-visible change updates its documented home: README.md,
-  docs/index.md or docs/how-to.md for a new command, its docs/cli.md row,
-  and the agent contract (`lean-pkg llms`).
+  docs/index.md or docs/how-to.md for a new command, its notes and an
+  example in docs/_commands/ (then `make docs` regenerates its page in
+  docs/commands/), and the agent contract (`lean-pkg llms`).
 
 ## CHANGELOG entries
 

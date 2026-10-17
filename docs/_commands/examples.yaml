@@ -1,0 +1,217 @@
+# Examples for the command reference (docs/commands/), keyed by command path: the program, then the
+# command words, aliases resolved ("lean-pkg claims sync", "lean-pkg comparator host-check",
+# "comparator-receipt"). Each example: cmd (one invocation, no pipes or redirections; a trailing
+# backslash continues the line), say (one sentence), output (optional sample output).
+#
+# tests/test_command_docs.py parses every cmd with the real parser and checks that it runs the command
+# it is filed under: renaming a command or a flag fails the test until the example is fixed. Commands
+# without an example are listed as a warning (`python3 scripts/command_docs.py --missing`).
+# The package name `my-proof` and the paths are placeholders.
+
+# --- set up -----------------------------------------------------------------------------------------
+
+lean-pkg init:
+  - cmd: lean-pkg init
+    say: Create the registry and its event log once, at the default location (~/.lean-pkg/registry, or $LEAN_PKG_REGISTRY).
+    output: |
+      registry created: ~/.lean-pkg/registry/lean-packages.yaml (version 3); events: ~/.lean-pkg/registry/lean-package-events.jsonl
+  - cmd: lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+    say: The same with the registry file named explicitly; the global --registry flag goes before the command.
+
+lean-pkg doctor:
+  - cmd: lean-pkg doctor
+    say: Check the installation, the registry, the index and the tools in one line each; exit 1 when the registry is unreadable or its schema version is unsupported.
+
+lean-pkg help:
+  - cmd: lean-pkg help
+    say: List the commands and the help topics.
+  - cmd: lean-pkg help exit-codes
+    say: Print the exit codes and what exit 1 means for each command that answers yes or no.
+  - cmd: lean-pkg help gate
+    say: Print exactly the text of `lean-pkg gate --help`.
+
+# --- see the registry -------------------------------------------------------------------------------
+
+lean-pkg list:
+  - cmd: lean-pkg list
+    say: One line per package, for a terminal or a pipe.
+    output: |
+      NAME      STATUS  VIS      LEASE  EXPIRES  PIN  REAUDIT
+      my-proof  active  private  -      -        -    -
+  - cmd: lean-pkg list --json --only my-proof --fields status
+    say: One value of one package, as JSON for a script.
+
+lean-pkg status:
+  - cmd: lean-pkg status my-proof
+    say: The full record, the last five history entries and the scope (gated commit, privacy, the comparator-covered declarations).
+  - cmd: lean-pkg status my-proof --fields status,lease.agent
+    say: Only these keys; dotted paths reach into the lease and the gate.
+    output: |
+      my-proof:
+        status: active
+        lease:
+          agent: alice
+
+lean-pkg next:
+  - cmd: lean-pkg next my-proof
+    say: The single command to run now for this package, with a one-line reason; exit 1 when it is blocked.
+    output: |
+      my-proof (active): lean-pkg claim my-proof --workspace W --agent A --reason "..."
+        why: status active and no live lease: claim the package before working on it
+  - cmd: lean-pkg next my-proof --json
+    say: The same as JSON (`command`, `reason`, `blockers`, `state`) for an agent or a script.
+
+lean-pkg leases:
+  - cmd: lean-pkg leases --agent alice --expiring 2
+    say: Your own leases that lapse within two hours, the ones to renew.
+
+lean-pkg validate:
+  - cmd: lean-pkg validate
+    say: Schema, enum and history sanity of the whole registry; exit 0 valid, 1 errors.
+
+lean-pkg audit:
+  - cmd: lean-pkg audit
+    say: Report expired leases, receipt and comparator drift and visibility mismatches; read-only.
+  - cmd: lean-pkg audit --fix
+    say: Clear expired leases and copy GitHub's visibility and archived flag into the registry.
+
+# --- register, lease, edit --------------------------------------------------------------------------
+
+lean-pkg register:
+  - cmd: lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof --dry-run
+    say: Print the entry that would be written, detected toolchain and Mathlib pin included; nothing is written.
+  - cmd: lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
+    say: Register a new package from its checkout (the path is relative to $HOME); it starts at status active.
+    output: |
+      my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.24.0, pin=?)
+
+lean-pkg claim:
+  - cmd: lean-pkg claim my-proof --workspace laptop --agent alice --reason "chapter 2"
+    say: Take the 24-hour lease before working on the package, so other agents see who holds it.
+    output: |
+      my-proof: lease claimed for alice@laptop until 2026-10-18T14:24:32+00:00
+  - cmd: lean-pkg claim my-proof --workspace laptop --agent alice --contact lab-desk/my-session
+    say: The same, with an address where others can reach the holding session.
+
+lean-pkg renew:
+  - cmd: lean-pkg renew my-proof --agent alice
+    say: Restart your own live lease from now; once it has lapsed, claim again.
+
+lean-pkg release:
+  - cmd: lean-pkg release my-proof --agent alice
+    say: Give the lease back when you are done.
+    output: |
+      my-proof: lease released (was alice@laptop)
+  - cmd: lean-pkg release my-proof --fresh-repo ../my-proof-public --dry-run
+    say: Plan a fresh single-commit public repository from the gated tree; nothing is written.
+  - cmd: lean-pkg release my-proof --adopt-repo ../my-proof-public
+    say: Adopt an existing repository, already the intended public one, as the package's repository.
+
+lean-pkg update:
+  - cmd: lean-pkg update my-proof --license-spdx Apache-2.0
+    say: Set a field of a registered package (register is only for new ones).
+
+# --- evidence ---------------------------------------------------------------------------------------
+
+lean-pkg receipt slurm:
+  - cmd: lean-pkg receipt slurm --template
+    say: Print a minimal sbatch wrapper whose files pass every check; save it as verify.sbatch and edit its commands.
+  - cmd: |
+      lean-pkg receipt slurm --check --commit "$(git rev-parse HEAD)" --log verify-123.log \
+        --stdout verify-123.out --stderr verify-123.err
+    say: Preflight the files of a finished job before writing anything; exit 1 names each problem.
+  - cmd: |
+      lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" --log verify-123.log \
+        --stdout verify-123.out --stderr verify-123.err --append-readme
+    say: Write the lower-tier receipt under .lean-receipts/ in the checkout and add its entry block to the README there.
+
+lean-pkg receipt systemd:
+  - cmd: |
+      lean-pkg receipt systemd --unit audit-gate --commit "$(git rev-parse HEAD)" \
+        --log gate/verify.log --stdout gate/unit.out --stderr gate/unit.err \
+        --checker "gate.sh (lake build; #print axioms)" --run -- bash gate.sh gate/verify.log
+    say: Run a light verify script locally in a capped systemd --user unit and write the same lower-tier receipt as receipt slurm.
+
+lean-pkg gate:
+  - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --check
+    say: Validate the receipt against HEAD and record nothing; exit 1 when gate would refuse it.
+  - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json
+    say: Accept the lower-tier receipt and move the package from gate-pending to verified-private.
+  - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --regate
+    say: Re-gate an already verified package on a newer receipt; the status does not change.
+
+comparator-receipt:
+  - cmd: comparator-receipt --estimate
+    say: In the package checkout, time a sample of the comparator slots first; no receipt is written.
+  - cmd: comparator-receipt
+    say: In the package checkout, run the comparator over every configuration and write .lean-receipts/<commit12>-comparator.json.
+  - cmd: comparator-receipt --project src/my-proof --judges 4
+    say: The same for another directory, with up to four judges at once.
+
+lean-pkg comparator:
+  - cmd: lean-pkg comparator my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json --check
+    say: Validate a comparator receipt against the package without recording it; works at any status.
+  - cmd: lean-pkg comparator my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
+    say: Attach the comparator receipt to the gated package (event comparator-attached); promote needs it.
+
+lean-pkg comparator host-check:
+  - cmd: lean-pkg comparator host-check
+    say: Can this machine produce comparator receipts? Needs no registry; exit 1 when it cannot.
+  - cmd: lean-pkg comparator host-check --routes
+    say: Per route (judge here, prepare here, build here and judge elsewhere), whether it is supported and why.
+
+lean-pkg comparator config:
+  - cmd: lean-pkg comparator config --from-claims my-proof --dry-run
+    say: Print one comparator configuration entry per synced theorem claim that no configuration covers yet.
+  - cmd: lean-pkg comparator config --coverage my-proof
+    say: Which claims the comparator configuration at the gate-bound commit covers, and which it does not.
+
+# --- claims, coverage, page -------------------------------------------------------------------------
+
+lean-pkg claims sync:
+  - cmd: lean-pkg claims sync my-proof
+    say: Read claims.yaml at HEAD of the checkout, validate it and cache the claims in the registry.
+
+lean-pkg claims check:
+  - cmd: lean-pkg claims check --file claims.yaml
+    say: Schema-check a working-copy claims.yaml without the registry.
+
+lean-pkg coverage check:
+  - cmd: lean-pkg coverage check my-proof
+    say: Validate coverage.yaml committed at HEAD (the paper-to-Lean map that page renders).
+  - cmd: lean-pkg coverage check my-proof --file coverage.yaml
+    say: Check the working copy before committing it.
+
+lean-pkg page:
+  - cmd: lean-pkg page my-proof
+    say: Print the README verification section rendered from coverage.yaml, the claims, the ledger and the receipts.
+  - cmd: lean-pkg page my-proof --write
+    say: Replace the marked block in the package README.md (append it when absent).
+  - cmd: lean-pkg page my-proof --check
+    say: Exit 1 when the README block is missing or stale; a CI step for the package.
+  - cmd: lean-pkg page my-proof --site docs --html docs/verification.html
+    say: Also write the docs pages and one self-contained HTML file.
+
+# --- publish ----------------------------------------------------------------------------------------
+
+lean-pkg publish:
+  - cmd: lean-pkg publish my-proof --dry-run
+    say: The read-only checklist from verified-private to listed, with the exact next commands; exit 1 while not ready.
+  - cmd: lean-pkg publish my-proof --dry-run --public-safety
+    say: The same, also scanning the tree and the git history for private strings.
+
+lean-pkg public-safety:
+  - cmd: lean-pkg public-safety my-proof
+    say: Scan the tree and the history publishing would expose for private patterns; exit 1 on a blocking hit.
+
+lean-pkg promote:
+  - cmd: lean-pkg promote my-proof
+    say: Print the promotion checklist; a dry run, nothing changes.
+  - cmd: lean-pkg promote my-proof --yes
+    say: Make the GitHub repository public after the checklist passes again; this cannot be undone in practice.
+
+# --- other programs ---------------------------------------------------------------------------------
+
+lean-exercise check:
+  - cmd: lean-exercise check --challenge Challenge.lean --solution Solution.lean
+    say: Judge each sorry'd theorem of the Challenge against the Solution with `lake comparator`, sandboxed; no registry.

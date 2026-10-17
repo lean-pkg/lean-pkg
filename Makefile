@@ -48,12 +48,15 @@ public-safety:
 >  python3 -m lean_pkg.cli register lean-pkg-self --repo https://github.com/lean-pkg/lean-pkg --path "$$d/lean-pkg" --owner-project lean-pkg --status scratch >/dev/null && \
 >  python3 -m lean_pkg.cli public-safety lean-pkg-self --history --strict
 
-# Every generated file, rewritten from its source: llms.txt and docs/llms.txt (cli.llms_txt) and
-# index/README.md (index/*/entry.yaml). tests/test_docs.py and tests/test_index_render.py compare the
-# committed files to the same output; CI runs `make docs` then `git diff --exit-code` (#81).
+# Every generated file, rewritten from its source: llms.txt and docs/llms.txt (cli.llms_txt),
+# index/README.md (index/*/entry.yaml) and the command reference docs/commands/*.md (the argparse
+# parsers plus docs/_commands/; scripts/command_docs.py). tests/test_docs.py, tests/test_index_render.py
+# and tests/test_command_docs.py compare the committed files to the same output; CI runs `make docs`
+# then `git diff --exit-code` (#81).
 docs:
 > PYTHONPATH=src python3 -c 'import pathlib; from lean_pkg.cli import llms_txt; t = llms_txt(); [pathlib.Path(p).write_text(t) for p in ("llms.txt", "docs/llms.txt")]'
 > PYTHONPATH=src python3 -m lean_pkg.cli index render --index index
+> python3 scripts/command_docs.py
 
 # make release VERSION=0.1.0  (runs scripts/release.sh; see RELEASING.md)
 release:
