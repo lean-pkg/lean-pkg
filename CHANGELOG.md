@@ -7,6 +7,8 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+## [0.7.52] - 2026-10-16
+
 ### Added
 
 - `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH [--json] [--report PATH]`: a new console script
@@ -70,6 +72,8 @@ change the registry schema or receipt format, always with a migration).
   or finished), the unit is left alone, nothing is written, the exit status is 128 + the signal, and the recovery
   command (`lean-pkg receipt systemd --unit U ...` without `--run`) is printed with a WARN that recovery skips the
   "source tree unchanged during the run" check; documented in docs/receipts.md.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.51] - 2026-10-16
 
