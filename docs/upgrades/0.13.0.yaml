@@ -4,5 +4,5 @@ schema: lean-pkg-upgrade-record/1
 version: 0.13.0
 changes: []
 # Read for this record, nothing for a package author: proposal 0004, a math LTS stack, as a draft
-# (#238), and this record's start (#PRSELF).
-no_author_change: [238, PRSELF]
+# (#238), and this record's start (#241).
+no_author_change: [238, 241]
