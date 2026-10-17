@@ -82,10 +82,27 @@ changes:
     summary: >-
       lean-pkg doctor --upgrade-from OLD [--to NEW] [--source DIR] reports what changed between two lean-pkg
       versions or commits (formats, keys, commands, flags, aliases, Python floor, data files) plus the
-      curated docs/upgrades records; read-only.
+      curated docs/upgrades records; an option of a mode that became its own command reads as moved to it
+      (#228); read-only.
     action: Optional. Run it before moving a package to a newer lean-pkg.
     breaking: false
     changelog: Added
+  - pr: 226
+    id: page-umbrella-challenge-statements
+    kind: behavior
+    area: page
+    summary: >-
+      page follows an umbrella Challenge module (only import lines) through its imports in the package's
+      own files at the gate-bound commit and shows the Lean statement from the one file that declares the
+      name, linked at its line; 0.11.0 printed "could not be read reliably" for every result of such a
+      package. Other packages' pages do not change.
+    action: >-
+      For a package whose Challenge is an umbrella module, run lean-pkg page NAME --write once and commit
+      the README; nothing for other packages.
+    breaking: false
+    changelog: Fixed
 # Read for this record, nothing for a package author: index data (#220), docs (#221, #225), the
-# changelog layout (#224).
-no_author_change: [220, 221, 224, 225]
+# changelog layout (#224), the released-CHANGELOG check of make check and CI, a maintainer gate (#227),
+# and the preflight follow-up (#228: moved options in doctor --upgrade-from, which first ships in this
+# release under doctor-upgrade-preflight, plus this record and test rows).
+no_author_change: [220, 221, 224, 225, 227, 228]

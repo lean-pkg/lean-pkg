@@ -146,6 +146,10 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   its current text: 0.7.41 (the hand-written "no DOI" note) and 0.7.3 and
   0.7.11, which each list an entry that first shipped in the next release.
 
+- The pull request template asks for the upgrade record: a checkbox that
+  docs/upgrades/<next>.yaml has an entry for the pull request, or lists it
+  under `no_author_change` with a reason (RELEASING.md step 0).
+
 ### Changed
 
 - `page --write` on a gated package whose record says nothing about the
@@ -183,6 +187,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   hashes; the host is now a hashed label). The entry was replaced with
   `index add --from-registry`; only `added.at` changed in `entry.yaml`, and
   `index check --clone` passes for all three entries.
+
+- docs/upgrades/0.12.0.yaml and its page cover every pull request merged
+  after 0.11.0: a new entry for the umbrella-Challenge statements of `page`
+  (#226; a package with an umbrella Challenge re-renders its page once),
+  and #227 and #228 listed under `no_author_change` with their reasons, so
+  `doctor --upgrade-from v0.11.0` reports nothing uncurated.
 
 ### Fixed
 
