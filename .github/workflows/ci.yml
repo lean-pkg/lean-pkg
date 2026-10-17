@@ -45,6 +45,9 @@ jobs:
       # host, passed CI, and needed a history rewrite of main before 0.7.31 could be released.
       - name: Forbidden-string scan, history and commit messages
         run: bash scripts/private-boundary-check.sh --history
+      # fetch-depth: 0 above also fetches every tag; --require-tags fails if they are missing.
+      - name: Released CHANGELOG sections match their tags
+        run: python3 scripts/check-changelog-releases.py --require-tags
       - name: No tab characters
         run: |
           if grep -rnP '\t' --include='*.py' --include='*.sh' --include='*.md' \

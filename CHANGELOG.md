@@ -126,6 +126,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   place: it may draft, Lean checks the proof, the mathematician reads the
   statement) and GOVERNANCE.md's AI operations agent.
 
+- `make changelog` (part of `make check` and CI): each released
+  `## [X.Y.Z]` section of CHANGELOG.md must read as it did at tag `vX.Y.Z`
+  (`scripts/check-changelog-releases.py`; only the `Zenodo version DOI:` line
+  record-doi adds after tagging is exempt). An entry a rebase carries into a
+  released section fails with the version, a unified diff and the fix (move it
+  under `## [Unreleased]`); three such entries were caught by hand on
+  2026-10-17. No network: a section without a local tag is skipped (the newest
+  one is the release `make cut-release` is cutting), and CI passes
+  `--require-tags` so a clone without tags cannot pass by checking nothing.
+  Three old sections that already differed are allow-listed, each pinned to
+  its current text: 0.7.41 (the hand-written "no DOI" note) and 0.7.3 and
+  0.7.11, which each list an entry that first shipped in the next release.
+
 ### Changed
 
 - `page --write` on a gated package whose record says nothing about the
