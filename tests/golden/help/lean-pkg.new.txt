@@ -1,0 +1,25 @@
+usage: lean-pkg new [-h] [--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT]
+                    [--license {Apache-2.0,MIT}] [--json]
+                    name
+
+Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate and page accept
+unchanged, then `git init` it. Nothing is committed, fetched or built; no registry is read or
+written. Next steps: docs/quickstart.md.
+
+positional arguments:
+  name                  the package name: lower-case letters, digits, single hyphens (e.g. my-
+                        proof)
+
+options:
+  -h, --help            show this help message and exit
+  --dir DIR             where to write it (default ./NAME); refused when it exists and is not
+                        empty
+  --module MOD          the library and namespace (default: NAME in CamelCase, my-proof ->
+                        MyProof)
+  --no-mathlib          core Lean only: no Mathlib dependency (fast to build; comparator-receipt
+                        then needs COMPARATOR_RECEIPT_NO_MATHLIB=1)
+  --author TEXT         the CITATION.cff author (default: git config user.name)
+  --license {Apache-2.0,MIT}
+                        the LICENSE written (default Apache-2.0); pass the same id to `update NAME
+                        --license-spdx`
+  --json                machine-readable JSON on stdout

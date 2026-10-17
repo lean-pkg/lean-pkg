@@ -13,7 +13,8 @@ Every `lean-pkg` command and subcommand, with its usage line, every flag, its ex
 (`--registry`, `--json`, `--commit`, `--push`, committed mode, `--registry-snapshot`) are on the
 [CLI overview](../cli.md).
 
-**New here?** The usual path through the commands is
+**New here?** The [quickstart](../quickstart.md) takes a new package from
+[`new`](new.md) to a verified page. The usual path through the commands is
 [`init`](init.md) (once) → [`register`](register.md) → [`claim`](claim.md) →
 work → [`receipt slurm`](receipt.md#lean-pkg-receipt-slurm) or
 [`receipt systemd`](receipt.md#lean-pkg-receipt-systemd) → [`gate`](gate.md) →
@@ -28,6 +29,7 @@ real package.
 
 | Command | Purpose |
 |---|---|
+| [`lean-pkg new`](new.md) | scaffold a new Lean package (Challenge/Solution, comparator.json, claims, coverage, verify.sh) in a new directory and git init it; no registry, no network |
 | [`lean-pkg init`](init.md) | bootstrap an empty registry and its event log |
 | [`lean-pkg migrate`](migrate.md) | upgrade the registry schema in place (additive; idempotent) |
 | [`lean-pkg doctor`](doctor.md) | installation, registry, index and tool diagnostics; exit 1 when the registry is unreadable or its schema version is unsupported |

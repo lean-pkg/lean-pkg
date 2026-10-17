@@ -31,6 +31,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["help", "exit-codes"], "help", False, False, False),
     (["help", "gate"], "help", False, False, False),
     (["status", "demo"], "status", False, False, False),
+    (["new", "demo"], "new", False, False, False),                       # files in a new directory, never the registry
+    (["new", "demo", "--no-mathlib", "--dir", "d"], "new", False, False, False),
     (["init"], "init", True, True, False),
     (["init", "--force"], "init", True, True, False),
     (["migrate"], "migrate", True, True, False),

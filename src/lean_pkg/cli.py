@@ -1707,7 +1707,7 @@ def lease_expires_label(lease: dict | None, now: dt.datetime) -> str:
 LEASE_WARN_HOURS = 2    # doctor warns about leases that lapse within this window
 COMMAND_ALIASES = {"lease": "claim"}   # the registry's own word for what claim takes (field report)
 # Commands that act on a lease themselves, or print its state, get no lapse warning (lease_warning).
-LEASE_WARNING_SKIP = {"claim", "renew", "release", "leases", "audit", "status"}
+LEASE_WARNING_SKIP = {"claim", "renew", "release", "leases", "audit", "status", "new"}
 
 
 def lease_state(lease: dict | None, now: dt.datetime) -> tuple[str, float | None]:
@@ -6477,6 +6477,7 @@ SUBCOMMANDS (global flags: --registry PATH --events PATH --json --commit --push 
 board     TUI on a tty, static table otherwise; --only, --fields, --no-claims as for list (any: never the TUI). ex: lean-pkg board --json --only my-lean
 list      static table; --only NAME[,NAME] filters packages (full records, shape unchanged); --fields a,b.c trims each record as status --fields (+ `fields` list; text: YAML); --no-claims as status. ex: lean-pkg list --json --only my-lean --fields status
 status    full record + last 5 history entries (a lease adds derived expires_at, UTC; a lapsed lease ends the output with `lease: EXPIRED ...`, one lapsing within 2h with `lease: expires in ...`; --json lease_state {state live|expiring|expired|invalid|none, seconds_left}); --fields a,b.c: only those keys (dotted paths; lease.contact: null when unset; aliases = the table columns: pin, vis, reaudit, expires|lease.expires, lease.claimed; --json keeps nesting, text YAML; unknown: exit 2 listing keys); record keys: status --help, docs/cli.md#package-record. --no-claims: drop [bulk] keys (claims; also list/board; +omitted[]). Without --fields: a `scope:` text block and --json scope {gate {receipt, commit, head, head_is_gated_commit, readable}, publication {status, visibility, publication_hold, github}, product {kind paper|library|null, source, note}, comparator null|{receipt, readable, commit, mechanism, configs[], theorem_names[], definition_names[], claimed_theorems, claimed_theorems_covered, reusable_theorems, reusable_theorems_covered, whole_package false, note}, claims {total, by_status, synced_commit, note}}: the gated source commit, recorded privacy + hold (offline: gh not queried), the product (kind in coverage.yaml at HEAD; paper when absent; not the DOI track), the exact declarations the comparator receipt compared and the claimed theorems/lemmas they cover (never the whole package), claim counts by status (not completion percentages). ex: lean-pkg status my-lean --json --fields status,gate.receipt,lease.agent
+new       scaffold a minimal Lean package in a new directory (refused when it exists and is not empty) and git init it; no registry read or written, nothing committed, fetched or built: lean-toolchain (v4.35.0-rc2), .gitignore, lakefile.toml (library MOD = NAME in CamelCase, --module MOD; requires Mathlib unless --no-mathlib), MOD/Challenge.lean (sorry) + MOD/Solution.lean (module-headed, the getting-started template) + MOD/Axioms.lean (#print axioms), comparator.json, claims.yaml (one reusable claim), coverage.yaml (kind library), CITATION.cff (--author, else git user.name), LICENSE (--license Apache-2.0|MIT), README.md (the lean-pkg credit), verify.sh (the log `receipt systemd --run` reads; --no-mathlib: a `mathlib-rev: none` line); NAME [a-z][a-z0-9]*(-[a-z0-9]+)*, at most 64 (else exit 2); --json {ok, name, dir, module, mathlib, lean_toolchain, license_spdx, files[], git_init, committed, registry_touched, next_commands[]}. ex: lean-pkg new my-proof; the path to a page: docs/quickstart.md
 init      bootstrap an empty registry + event log (event: file name + version; --force: empty only, forced: true). ex: lean-pkg --registry ./lean-packages.yaml init
 migrate   upgrade the registry schema in place to v3 (v2 adds license_spdx, formalization_yaml, palomar[], doi, reservoir, consent[];
           v3 adds claims_file, claims[], claims_synced_commit; additive, idempotent; a legacy literal ~/x local_path is rewritten $HOME-relative). ex: lean-pkg migrate --dry-run
@@ -8275,6 +8276,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--no-claims", dest="no_claims", action="store_true", help=no_claims_help)
     add_json(s)
     s.set_defaults(fn=cmd_status)
+
+    from . import scaffold as scaffold_mod   # `new`: placed beside `init`, the other way to start
+    scaffold_mod.add_parsers(sub, add_json)
 
     s = sub.add_parser("init", help="bootstrap an empty registry and its event log")
     s.add_argument("--force", action="store_true",

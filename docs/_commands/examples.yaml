@@ -10,6 +10,14 @@
 
 # --- set up -----------------------------------------------------------------------------------------
 
+lean-pkg new:
+  - cmd: lean-pkg new my-proof
+    say: Scaffold the package my-proof (library MyProof, Mathlib) in ./my-proof and git init it; the quickstart takes it from there.
+    output: |
+      created my-proof/: package my-proof, library MyProof, v4.35.0-rc2, Mathlib v4.35.0-rc2; 13 files, git initialized, nothing committed, no registry read or written
+  - cmd: lean-pkg new my-proof --no-mathlib --author "Ada Lovelace" --license MIT
+    say: The same in core Lean, with the author and the license named.
+
 lean-pkg init:
   - cmd: lean-pkg init
     say: Create the registry and its event log once, at the default location (~/.lean-pkg/registry, or $LEAN_PKG_REGISTRY).
