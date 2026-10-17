@@ -1,0 +1,21 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.12.0. Same keys as 0.12.0.yaml; the human page is docs/upgrades/0.13.0.md.
+schema: lean-pkg-upgrade-record/1
+version: 0.13.0
+changes:
+  - pr: 239
+    id: extract-disabled-lean-warning
+    kind: behavior
+    area: extract
+    summary: >-
+      lean-pkg-extract plan warns, in one warnings[] entry, about every file under a root whose name is
+      *.lean.<suffix> (Foo.lean.disabled, .lean.off, .lean.skip) that the plan excludes or refuses as
+      unclassified: the module inventory and the import check read *.lean only, so a stale open or
+      import in such a disabled negative fixture went unreported after a namespace or import transport.
+      ok and the exit code do not change; *.lean, *.olean and *.ilean are not matched.
+    action: >-
+      Nothing is required. If the warning names files, run each one's expected-reason check
+      (lean_pkg.lean_diag; docs/extract.md, "Disabled negative fixtures after a namespace or import
+      transport").
+    breaking: false
+    changelog: Added
