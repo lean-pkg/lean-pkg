@@ -67,6 +67,10 @@ changes:
 no_author_change: [200, 203]      # PRs of the release read for this record and found to need nothing
 ```
 
+The first pull request after a release opens the next record. If it changes
+nothing a package author must know, it opens it with `changes: []` and
+itself in `no_author_change`; `changes` may be empty only then.
+
 A human page `docs/upgrades/<version>.md` goes with it; a test checks that
 every `id` and PR number of the record appears on the page.
 

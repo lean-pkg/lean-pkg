@@ -47,6 +47,106 @@ axioms, each `Solution` theorem has exactly its `Challenge` statement, the
 proofs replay in a second kernel, and the evidence bytes match. It does not
 prove the Lean statement matches the paper's intent; a human reads that.
 
+**What does lean-pkg add now that Lean has `lake check --paranoid`?**
+Lean checks that the proofs in a build are correct, and with `--paranoid`
+it checks them again in independent kernels. lean-pkg does not repeat that.
+It adds what a check run does not keep or cannot know:
+
+- **Which run, of what.** Receipts sealed to one commit: the toolchain and
+  Mathlib pins at that commit, the hash of the log, and who ran it and where
+  (a Slurm job with its `sacct` seal, a systemd unit, a hashed host label,
+  and for `receipt systemd --run` a fingerprint of the lean-pkg that
+  produced it). See [Receipts and trust](receipts.md).
+- **Whether it is the right statement.** `lake check` judges a build;
+  `lake comparator` judges a Solution against a Challenge someone wrote.
+  Neither knows which result of the paper or library a Challenge stands
+  for. lean-pkg binds the comparator configurations, the `coverage.yaml`
+  rows that map each result to a Lean declaration, and the page that shows
+  them; a human still judges that the two statements agree.
+- **A page a mathematician can read.** The
+  [verification page](page.md) puts the paper's statement beside the Lean
+  statement and lists what is *Not formalized*.
+- **A re-check without the lab.** `lean-pkg receipt check` lets a referee
+  validate the evidence from the public repository alone, with no registry
+  ([Re-verify a page yourself](trust-model.md#re-verify-a-page-yourself)).
+- **The route to publication.** `palomar check` and `palomar prepare`
+  before a Palomar submission, Zenodo version DOIs, the public index, and
+  the [two tracks](design/two-tracks.md) (a verified paper or a library).
+
+What has shipped and what is announced, as of 2026-10-17:
+
+- **Shipped in Lean v4.35.0 (2026-10-12).** `lake check` builds the
+  default targets, exports them, replays the export through Lean's kernel
+  and fails on any axiom outside the standard ones. `lake comparator` is a
+  frontend to Comparator. The toolchain now bundles lean4lean, nanoda,
+  con-leche, con-ron and `leanchecker-paranoid`; with `--paranoid` either
+  command runs all of them as well as Lean's kernel and accepts only if
+  every one does. The sandbox is Linux-only
+  ([release notes](https://lean-lang.org/doc/reference/latest/releases/v4.35.0/)).
+- **Announced, not shipped.** The Lean FRO's roadmap for September 2026 to
+  February 2027 also plans a `lake build` mode that skips the kernel checks
+  and only writes `.olean` files, so that `lake check` becomes the step that
+  validates ([roadmap](https://lean-lang.org/fro/roadmap/y4-1), read
+  2026-10-17). Open proposals such as `lake check --allow-sorry`
+  ([lean4#15281](https://github.com/leanprover/lean4/issues/15281)) are not
+  in a release.
+
+What lean-pkg does with them:
+
+- **Already consumed.** The comparator tier's `toolchain` mechanism runs
+  the toolchain's own `lake comparator`, with NanoDa and con-ron
+  ([Mechanisms](comparator.md#mechanisms)). It does not run the full
+  `--paranoid` set today.
+- **To consume, not duplicate.** `lake check` will become a receipt
+  producer once its result can be bound to a commit: a receipt that records
+  the run's commit, toolchain and log, checked like the other receipts. In
+  v4.35.0 it reports by exit status and console lines, and the release
+  notes document no machine-readable report; lean-pkg will not guess at
+  one.
+- **To stop doing.** Once that producer exists, a package on v4.35.0 or
+  later no longer needs a hand-written lower-tier executor (build, `sorry`
+  scan, `#print axioms`). The `legacy` mechanism, which builds a pinned
+  Comparator, lean4export and nanoda stack, stays only for packages below
+  Lean v4.35.0-rc2, and goes when none is left.
+
+The [trust model](trust-model.md#positioning-against-leans-own-checks)
+states the same split in one paragraph.
+
+**How is lean-pkg different from AI provers like Aristotle or AxiomProver?**
+They find or repair proofs; lean-pkg records and binds the evidence that a
+proof was verified, so a reader can check the result without trusting
+whoever produced it. The roles are complementary, and only the evidence
+layer needs to be neutral.
+
+What each says it does (read 2026-10-17):
+[Aristotle](https://aristotle.harmonic.fun/) (Harmonic) is "the AI agent
+that proves software correct"; given an English problem it "will prove and
+formalize from scratch", or it works on files "inside your Lean project".
+AxiomProver (Axiom Math) is "an autonomous multi-agent ensemble theorem
+prover for Lean" ([its Putnam 2025 solutions on Reservoir](https://reservoir.lean-lang.org/@AxiomMath/Putnam2025)).
+[AXLE](https://axle.axiommath.ai/v1/docs/), Axiom's hosted Lean tools,
+validates candidate proofs (`verify_proof`) and repairs, simplifies or
+splits them; for untrusted code its
+[own docs](https://axle.axiommath.ai/v1/docs/tools/verify_proof/) suggest
+adding lean4checker, Comparator or SafeVerify.
+
+| | lean-pkg |
+|---|---|
+| Who produced the proof | anyone: a human, a student or an AI. No AI model is in lean-pkg's verification path; the definition-hole sign-off refuses a model or agent as reviewer |
+| Where it runs | your machine or your cluster; nothing is public until you publish it |
+| What you get | receipts bound to one commit, with sealed logs, host or cluster evidence and, for `receipt systemd --run`, the producer's fingerprint |
+| Can a referee re-check it | yes: `lean-pkg receipt check` from the public repository alone, then a re-run of the build and the comparator ([how](trust-model.md#re-verify-a-page-yourself)) |
+| Statement fidelity | the comparator configurations, `coverage.yaml` rows, *Not formalized*, and the verification page with both statements side by side; a human judges that they agree |
+| Openness | open source (Apache-2.0), with a public [trust model](trust-model.md) that names what rests on honesty |
+
+Using them together: lean-pkg takes their Lean output like any other Lean
+source and checks it the same way; a prover's or a service's answer never
+counts as a receipt.
+
+Whoever wrote the proof (you, a student, or an AI), lean-pkg records what
+was verified, against which statement, at which commit, so anyone can
+re-check it without trusting the prover.
+
 **Does lean-pkg require end-to-end formalization?**
 No. The current receipt machinery certifies the formal theorem and evidence at
 a pinned commit; it does not require that every mathematical fact used by the
