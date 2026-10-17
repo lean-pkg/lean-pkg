@@ -11,6 +11,23 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `lean-pkg new NAME --kind paper|library`, paper by default (the 1.0 command
+  tree). `--kind paper` writes a `coverage.yaml` of `kind: paper` that is
+  incomplete on purpose: `manuscript.version: unposted` and `FILL-ME`
+  markers for the title, the summary and the rows, which `coverage check`
+  (and so `page`) refuses until the author names the paper; the printed next
+  steps and the README name `formalization anchor NAME --arxiv <id>v<N> ...
+  --write` to bind the posted version. No manuscript is invented. `--kind
+  library` is the previous scaffold. `help start` no longer marks `new
+  --kind` as coming. `--json` gains `kind`, `author`, `author_source`,
+  `coverage_complete` and `warnings[]`.
+- `lean-pkg new` writes `REUSE.toml` (every file, including the receipts and
+  logs the workflow adds later, under the chosen license and the author's
+  copyright) and `LICENSES/<SPDX>.txt`, so `reuse lint`, which `publish
+  --dry-run` runs, passes on a fresh package.
+- `lean-pkg new` warns when the CITATION.cff author (`--author`, else `git
+  config user.name`) has no space and so looks like a handle, and prints
+  which source it used.
 - `comparator-receipt --seal-sacct RECEIPT [--sacct-file F] [--user NAME]
   [--json]`: after a Slurm job finished, corroborate a comparator receipt's
   Slurm claim with the job's sacct record (main line `COMPLETED`, exit
@@ -67,6 +84,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- `mathlib_rev: none` is an explicit value for a package without Mathlib (a
+  readable `lake-manifest.json` that lists no `mathlib` package), not a
+  string that passed because nothing was checked: `receipt slurm`/`systemd`
+  derive it from the manifest (no log line needed; a log `mathlib-rev:`
+  other than `none` beside such a manifest is refused), `gate --check`
+  prints `✓ mathlib_rev none: ...`, `none` beside a manifest that pins
+  Mathlib is refused, and the gate records a null `mathlib_pin` instead of
+  printing "pins kept". Receipts written earlier with another value there are
+  still read (`· mathlib_rev X not checked`).
+- Docs: the quickstart, the π-λ tutorial, the README and getting-started use
+  `new --kind library` for their example and explain the paper default;
+  docs/design/two-tracks.md shows today's paths for both kinds.
 - Soundness: a comparator receipt's Slurm claim (`job_id` J, `host_policy`
   `Slurm job J ...`, both from `SLURM_JOB_ID`, which any shell can set) no
   longer backs a `coverage.yaml` `compute` job, and so the Easley sentence,

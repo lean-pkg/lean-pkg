@@ -57,13 +57,15 @@ def test_new_writes_the_package_and_touches_no_registry(lp, capsys, tmp_path):
     rc, data, err = new(lp, capsys, tmp_path, "my-proof", "--author", "Ada Lovelace")
     assert rc == 0, err
     root = tmp_path / "my-proof"
-    assert data["ok"] and data["module"] == "MyProof" and data["mathlib"] is True
+    assert data["ok"] and data["module"] == "MyProof" and data["mathlib"] is True and data["kind"] == "paper"
+    assert data["coverage_complete"] is False and data["warnings"] == [] and data["author_source"] == "--author"
     assert data["registry_touched"] is False and data["committed"] is False
     assert sorted(p.relative_to(root).as_posix() for p in root.rglob("*")
                   if p.is_file() and ".git" not in p.relative_to(root).parts) == data["files"]
     assert set(data["files"]) >= {"lean-toolchain", ".gitignore", "lakefile.toml", "MyProof/Challenge.lean",
                                   "MyProof/Solution.lean", "MyProof/Axioms.lean", "comparator.json", "claims.yaml",
-                                  "coverage.yaml", "CITATION.cff", "LICENSE", "README.md", "verify.sh"}
+                                  "coverage.yaml", "CITATION.cff", "LICENSE", "LICENSES/Apache-2.0.txt",
+                                  "REUSE.toml", "README.md", "verify.sh"}
     assert (root / ".git").is_dir() and not (tmp_path / "no-registry").exists()
     assert os.access(root / "verify.sh", os.X_OK)
     assert page_mod.CREDIT in (root / "README.md").read_text()
@@ -79,6 +81,9 @@ def test_new_text_output_names_the_next_steps(lp, capsys, tmp_path):
     first = out.splitlines()[0]
     assert first.startswith("created my-proof/") and "no registry read or written" in first
     assert "lake update && lake exe cache get" in out and "docs/quickstart.md" in out
+    assert "(kind paper)" in first and "lean-pkg formalization anchor my-proof --arxiv <id>v<N>" in out
+    rc, out, _ = new(lp, capsys, tmp_path, "my-lib", "--kind", "library", "--author", "A B", json_out=False)
+    assert rc == 0 and "(kind library)" in out and "formalization anchor" not in out
 
 
 def _register(lp, capsys, tmp_path, root: Path, name: str, mathlib: bool) -> Path:
@@ -98,7 +103,8 @@ def _register(lp, capsys, tmp_path, root: Path, name: str, mathlib: bool) -> Pat
 
 @pytest.mark.parametrize("mathlib", [True, False])
 def test_the_scaffold_passes_the_static_checks(lp, capsys, tmp_path, mathlib):
-    rc, _, err = new(lp, capsys, tmp_path, "my-proof", "--author", "A", *([] if mathlib else ["--no-mathlib"]))
+    rc, _, err = new(lp, capsys, tmp_path, "my-proof", "--kind", "library", "--author", "A",
+                     *([] if mathlib else ["--no-mathlib"]))
     assert rc == 0, err
     root = tmp_path / "my-proof"
     reg = _register(lp, capsys, tmp_path, root, "my-proof", mathlib)
@@ -178,6 +184,136 @@ def test_no_author_is_refused(lp, capsys, tmp_path, monkeypatch):
 def test_module_of():
     assert scaffold.module_of("my-proof") == "MyProof"
     assert scaffold.module_of("rmt2-foundations") == "Rmt2Foundations"
+
+
+# ------------------------------------------------------------------------------- --kind paper (the default)
+
+def _fill(text: str) -> str:
+    """What an author writes in place of the FILL-ME markers (the version stays unposted)."""
+    return (text.replace('"FILL-ME: the paper\'s title"', '"On doubling"')
+            .replace('"FILL-ME: one sentence on which results of the paper are formalized."',
+                     '"Theorem 1 is formalized with the paper\'s hypotheses."')
+            .replace('"FILL-ME: its number, e.g. Theorem 1.2", title: "FILL-ME: its title"',
+                     '"Theorem 1", title: "Doubling bound"')
+            .replace('"FILL-ME: a result left out", title: "FILL-ME: its title"',
+                     '"Theorem 2", title: "A sharper bound"'))
+
+
+def test_a_paper_coverage_is_honestly_incomplete(lp, capsys, tmp_path):
+    """kind paper invents no manuscript: `unposted` and FILL-ME markers, refused by coverage check (and so by the
+    page) until the author writes them; then only with --allow-private-manuscript until anchored."""
+    rc, data, err = new(lp, capsys, tmp_path, "my-proof", "--author", "A B")
+    assert rc == 0, err
+    root = tmp_path / "my-proof"
+    text = (root / "coverage.yaml").read_text()
+    doc = __import__("yaml").safe_load(text)
+    assert doc["kind"] == "paper" and doc["manuscript"]["version"] == "unposted"
+    assert "formalization anchor my-proof --arxiv" in text and "formalization anchor my-proof" in (
+        root / "README.md").read_text()
+    reg = _register(lp, capsys, tmp_path, root, "my-proof", True)
+    R = ["--registry", str(reg)]
+    assert lp.main([*R, "coverage", "check", "my-proof", "--allow-private-manuscript", "--json"]) == 1
+    errors = json.loads(capsys.readouterr().out)["errors"]
+    assert errors and all("FILL-ME" in e for e in errors), errors
+    assert {e.split(":")[0] for e in errors} == {"manuscript.title", "summary", "rows[0].paper.number",
+                                                 "rows[0].paper.title", "rows[1].paper.number",
+                                                 "rows[1].paper.title"}
+    (root / "coverage.yaml").write_text(_fill(text))
+    _git(root, "commit", "-qam", "coverage: name the paper")
+    assert lp.main([*R, "coverage", "check", "my-proof"]) == 1          # unposted: a private draft
+    assert "unposted" in capsys.readouterr().out
+    assert lp.main([*R, "coverage", "check", "my-proof", "--allow-private-manuscript"]) == 0
+    assert "PRIVATE DRAFT" in capsys.readouterr().out
+
+
+def test_formalization_anchor_can_edit_the_paper_scaffold():
+    """The manuscript block is the one `formalization anchor --write` edits: block style, a version key."""
+    from lean_pkg import anchor
+    from lean_pkg import coverage as cov
+    text = scaffold.files("my-proof", "MyProof", "A B")["coverage.yaml"]
+    out = anchor.coverage_edit(_fill(text), "arXiv:2401.01234v2", "e" * 64)
+    doc = cov.load_text(out, "coverage.yaml")
+    assert doc["manuscript"] == {"title": "On doubling", "version": "arXiv:2401.01234v2", "eprint_sha256": "e" * 64}
+    assert cov.validate(doc, "my-proof") == []
+    assert out.count("\n#") == text.count("\n#")                        # the comments are kept
+
+
+def test_kind_library_is_today_s_scaffold():
+    lib = scaffold.files("my-proof", "MyProof", "A B", kind="library")
+    paper = scaffold.files("my-proof", "MyProof", "A B")
+    assert "kind: library" in lib["coverage.yaml"] and "manuscript" not in lib["coverage.yaml"]
+    assert "formalization anchor" not in lib["README.md"] and "formalization anchor" in paper["README.md"]
+    assert {k for k in lib if lib[k] != paper[k]} == {"coverage.yaml", "README.md"}
+
+
+def test_a_bad_kind_is_a_usage_error(lp, capsys, tmp_path):
+    with pytest.raises(SystemExit) as e:
+        lp.main(["new", "my-proof", "--kind", "book", "--author", "A B"])
+    assert e.value.code == 2 and list(tmp_path.iterdir()) == []
+
+
+# ------------------------------------------------------------------------------- REUSE
+
+@pytest.mark.skipif(shutil.which("reuse") is None, reason="reuse is not installed")
+@pytest.mark.parametrize("kind, lic", [("paper", "Apache-2.0"), ("library", "MIT")])
+def test_reuse_lint_passes_with_the_files_the_workflow_adds(lp, capsys, tmp_path, kind, lic):
+    """publish --dry-run runs `reuse lint` in the checkout: the scaffold, plus a manifest, receipts and a sealed
+    log added later, passes; without REUSE.toml (negative control) it fails."""
+    rc, _, _ = new(lp, capsys, tmp_path, "my-proof", "--kind", kind, "--license", lic, "--author", "Ada Lovelace")
+    assert rc == 0
+    root = tmp_path / "my-proof"
+    assert (root / f"LICENSES/{lic}.txt").read_text() == (root / "LICENSE").read_text()
+    assert f'SPDX-License-Identifier = "{lic}"' in (root / "REUSE.toml").read_text()
+    (root / "lake-manifest.json").write_text(MANIFEST_CORE)
+    (root / ".lean-receipts").mkdir()
+    for f in ("0123456789ab-comparator.json", "0123456789ab-slurm-1.json", "0123456789ab-slurm-1-verify.redacted.log",
+              "0123456789ab-slurm-1-verify.redacted.log.gz", "README.md"):
+        (root / ".lean-receipts" / f).write_text("x\n")
+    (root / "data" / "source-baselines").mkdir(parents=True)
+    (root / "data/source-baselines/arXiv-2501.01234v1.json").write_text("{}\n")
+    _git(root, "add", "-A")
+    lint = lambda: subprocess.run(["reuse", "lint"], cwd=root, capture_output=True, text=True,  # noqa: E731
+                                  stdin=subprocess.DEVNULL)
+    p = lint()
+    assert p.returncode == 0, p.stdout + p.stderr
+    _git(root, "rm", "-q", "--cached", "REUSE.toml")
+    (root / "REUSE.toml").unlink()
+    assert lint().returncode == 1
+
+
+def test_publish_dry_run_reports_reuse_lint_passed(lp, capsys, tmp_path):
+    if shutil.which("reuse") is None:
+        pytest.skip("reuse is not installed")
+    rc, _, _ = new(lp, capsys, tmp_path, "my-proof", "--kind", "library", "--author", "Ada Lovelace")
+    root = tmp_path / "my-proof"
+    reg = _register(lp, capsys, tmp_path, root, "my-proof", False)
+    pkg = lp.load_registry(reg)["packages"]["my-proof"]
+    checks = lp.promote_checklist(pkg, root)          # what publish --dry-run lists from verified-private on
+    assert ("✓", "reuse lint passed") in checks, checks
+
+
+# ------------------------------------------------------------------------------- the author
+
+def test_a_handle_as_author_is_warned_about(lp, capsys, tmp_path):
+    rc, data, err = new(lp, capsys, tmp_path, "my-proof", "--author", "adal")
+    assert rc == 0 and "'adal' has no space: it looks like a handle" in err
+    assert data["warnings"] and "--author 'Given Family'" in data["warnings"][0]
+    assert 'name: "adal"' in (tmp_path / "my-proof" / "CITATION.cff").read_text()
+
+
+def test_git_user_name_is_the_fallback(lp, capsys, tmp_path, monkeypatch):
+    monkeypatch.setattr(scaffold, "_git_author", lambda: "Ada Lovelace")
+    rc, data, err = new(lp, capsys, tmp_path, "my-proof")
+    assert rc == 0 and data["author"] == "Ada Lovelace" and data["author_source"] == "git config user.name"
+    assert data["warnings"] == [] and "warning" not in err
+    assert '"2026 Ada Lovelace"' in (tmp_path / "my-proof" / "REUSE.toml").read_text().replace(
+        str(__import__("datetime").date.today().year), "2026")
+
+
+def test_author_flag_wins_over_git(lp, capsys, tmp_path, monkeypatch):
+    monkeypatch.setattr(scaffold, "_git_author", lambda: "someone")
+    rc, data, err = new(lp, capsys, tmp_path, "my-proof", "--author", "Ada Lovelace")
+    assert rc == 0 and data["author"] == "Ada Lovelace" and "warning" not in err
 
 
 # ------------------------------------------------------------------------------- the real toolchain

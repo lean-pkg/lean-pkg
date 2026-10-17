@@ -149,8 +149,9 @@ the manifest. A project that knowingly has no Mathlib sets
 No project yet? These commands make the one above, with one theorem. Paste
 them as they are; `my-proof`, `MyProof` and `two_mul_le` are names you may
 change later, consistently.
-`lean-pkg new my-proof` writes the same files, plus the claims, coverage,
-citation, license and verify script the [Quickstart](quickstart.md) uses.
+`lean-pkg new my-proof --kind library` writes the same files, plus the claims,
+coverage, citation, license, REUSE and verify script the [Quickstart](quickstart.md)
+uses (without `--kind`, a paper companion whose `coverage.yaml` waits for the paper).
 
 ```bash
 mkdir -p ~/src/my-proof && cd ~/src/my-proof

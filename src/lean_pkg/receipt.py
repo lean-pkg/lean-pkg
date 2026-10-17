@@ -21,7 +21,8 @@ Checks, all run before anything is written (every failed check is listed; any on
    check is skipped and says so.
 3. `--stderr` (the job's `.err` file), when given, must be empty.
 4. Fields: `lean_toolchain` is `lean-toolchain` committed at the commit and `mathlib_rev` the `mathlib`
-   package's rev in `lake-manifest.json` committed there (else the log's `mathlib-rev:`); a log
+   package's rev in `lake-manifest.json` committed there, `none` when that manifest lists no `mathlib`
+   package (a package without Mathlib), else (no readable manifest) the log's `mathlib-rev:`; a log
    `lean-toolchain:` / `mathlib-rev:` line that disagrees refuses. `sorry_count` is the log's
    `sorry-count:` line (refused when the log has more `declaration uses 'sorry'` lines than it declares), else
    the number of `declaration uses 'sorry'` lines, counted only when the log shows the
@@ -1135,17 +1136,9 @@ def parse_axioms(value: str) -> list[str]:
 
 
 def manifest_mathlib_rev(manifest: bytes | None) -> str | None:
-    if manifest is None:
-        return None
-    try:
-        data = json.loads(manifest.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return None
-    pkgs = data.get("packages") if isinstance(data, dict) else None
-    for p in pkgs if isinstance(pkgs, list) else []:
-        if isinstance(p, dict) and str(p.get("name", "")).casefold() == "mathlib" and p.get("rev"):
-            return str(p["rev"])
-    return None
+    """The mathlib rev the manifest pins, `none` (core.NO_MATHLIB) when it is readable and lists no mathlib
+    package, None when absent or unreadable."""
+    return core.manifest_mathlib(manifest)
 
 
 # --------------------------------------------------------------------------
@@ -1420,7 +1413,10 @@ def check_fields(fields: dict, *, commit: str | None, toolchain: str | None, man
     mathlib = manifest_mathlib_rev(manifest)
     if mathlib and "mathlib-rev" in fields and fields["mathlib-rev"] != mathlib:
         refusals.append(f"mathlib mismatch: verify log says {fields['mathlib-rev']!r}, lake-manifest.json "
-                        f"committed at {c12} says {mathlib!r}")
+                        f"committed at {c12} " + (f"has no mathlib package (the log line is then "
+                                                  f"`mathlib-rev: {core.NO_MATHLIB}`, or none at all)"
+                                                  if mathlib == core.NO_MATHLIB else f"says {mathlib!r}"))
+    # a package without Mathlib: `none` is read from the manifest itself, so the log needs no line for it
     mathlib = mathlib or fields.get("mathlib-rev")
     if commit is not None and not mathlib:
         refusals.append(f"no mathlib rev: no `mathlib` package in lake-manifest.json at {c12} and no "

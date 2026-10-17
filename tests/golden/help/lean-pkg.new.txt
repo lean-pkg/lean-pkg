@@ -1,10 +1,11 @@
-usage: lean-pkg new [-h] [--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT]
-                    [--license {Apache-2.0,MIT}] [--json]
+usage: lean-pkg new [-h] [--kind {paper,library}] [--dir DIR] [--module MOD] [--no-mathlib]
+                    [--author TEXT] [--license {Apache-2.0,MIT}] [--json]
                     name
 
-Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate and page accept
-unchanged, then `git init` it. Nothing is committed, fetched or built; no registry is read or
-written. Next steps: docs/quickstart.md.
+Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate and reuse lint
+accept unchanged (and page, for --kind library; a paper's coverage.yaml waits for the paper), then
+`git init` it. Nothing is committed, fetched or built; no registry is read or written. Next steps:
+docs/quickstart.md.
 
 positional arguments:
   name                  the package name: lower-case letters, digits, single hyphens (e.g. my-
@@ -12,6 +13,11 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
+  --kind {paper,library}
+                        paper (default): the paper is the product; coverage.yaml stays incomplete
+                        until you name the paper and `formalization anchor` binds its posted
+                        version. library: the Lean package is the product; coverage.yaml lists the
+                        example as its main result
   --dir DIR             where to write it (default ./NAME); refused when it exists and is not
                         empty
   --module MOD          the library and namespace (default: NAME in CamelCase, my-proof ->

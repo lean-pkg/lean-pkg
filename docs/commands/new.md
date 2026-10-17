@@ -13,19 +13,20 @@ scaffold a new Lean package (Challenge/Solution, comparator.json, claims, covera
 ## Usage
 
 ```text
-lean-pkg new [--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT]
-             [--license {Apache-2.0,MIT}] [common flags] NAME
+lean-pkg new [--kind {paper,library}] [--dir DIR] [--module MOD] [--no-mathlib]
+             [--author TEXT] [--license {Apache-2.0,MIT}] [common flags] NAME
 ```
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
-Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate and page accept unchanged, then `git init` it. Nothing is committed, fetched or built; no registry is read or written. Next steps: docs/quickstart.md.
+Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate and reuse lint accept unchanged (and page, for --kind library; a paper's coverage.yaml waits for the paper), then `git init` it. Nothing is committed, fetched or built; no registry is read or written. Next steps: docs/quickstart.md.
 
 ## Arguments and flags
 
 | Argument or flag | Description |
 |---|---|
 | `NAME` | the package name: lower-case letters, digits, single hyphens (e.g. my-proof) |
+| `--kind {paper,library}` | paper (default): the paper is the product; coverage.yaml stays incomplete until you name the paper and `formalization anchor` binds its posted version. library: the Lean package is the product; coverage.yaml lists the example as its main result. Choices: `paper`, `library`. |
 | `--dir DIR` | where to write it (default ./NAME); refused when it exists and is not empty |
 | `--module MOD` | the library and namespace (default: NAME in CamelCase, my-proof -&gt; MyProof) |
 | `--no-mathlib` | core Lean only: no Mathlib dependency (fast to build; comparator-receipt then needs COMPARATOR_RECEIPT_NO_MATHLIB=1) |
@@ -36,7 +37,7 @@ Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate 
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `new NAME` | scaffold a minimal Lean 4 package in `./NAME` (or `--dir DIR`; refused when it exists and is not empty) and `git init` it, for the [quickstart](../quickstart.md): the [getting-started template](../getting-started.md#start-from-scratch) (`lean-toolchain`, `.gitignore`, `lakefile.toml`, `MOD/Challenge.lean`, `MOD/Solution.lean`, `comparator.json`) plus `MOD/Axioms.lean` (`#print axioms`), `claims.yaml` (one reusable claim), `coverage.yaml` (`kind: library`), `CITATION.cff`, `LICENSE`, a `README.md` carrying the lean-pkg credit, and `verify.sh`, the lower-tier check whose log [`receipt systemd --run`](receipt.md#lean-pkg-receipt-systemd) reads. Nothing is committed, fetched or built, and no registry is read or written. `--no-mathlib`: core Lean only (`comparator-receipt` then needs `COMPARATOR_RECEIPT_NO_MATHLIB=1`; `verify.sh` logs `mathlib-rev: none`). The name: lower-case letters, digits and single hyphens, starting with a letter; a library named like Lean's or a Mathlib dependency's root namespace is refused (exit 2) | `[--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT] [--license Apache-2.0\|MIT] [--json]` |
+| `new NAME` | scaffold a minimal Lean 4 package in `./NAME` (or `--dir DIR`; refused when it exists and is not empty) and `git init` it, for the [quickstart](../quickstart.md): the [getting-started template](../getting-started.md#start-from-scratch) (`lean-toolchain`, `.gitignore`, `lakefile.toml`, `MOD/Challenge.lean`, `MOD/Solution.lean`, `comparator.json`) plus `MOD/Axioms.lean` (`#print axioms`), `claims.yaml` (one reusable claim), `coverage.yaml` (below), `CITATION.cff` (the author is `--author`, else `git config user.name`; a name with no space prints a warning, since it looks like a handle), `LICENSE` with the same text in `LICENSES/<SPDX>.txt`, a `REUSE.toml` that puts every file, receipts and logs included, under that license (so `reuse lint`, which [`publish --dry-run`](publish.md) runs, passes), a `README.md` carrying the lean-pkg credit, and `verify.sh`, the lower-tier check whose log [`receipt systemd --run`](receipt.md#lean-pkg-receipt-systemd) reads. Nothing is committed, fetched or built, and no registry is read or written. `--kind paper` (the default) writes a `kind: paper` `coverage.yaml` that is incomplete on purpose: `manuscript.version: unposted` and `FILL-ME` markers, which [`coverage check`](coverage.md) and `page` refuse until you name the paper and its results; [`formalization anchor --write`](formalization.md) then binds the posted version (no manuscript is invented). `--kind library`: one main result naming the example claim, which `coverage check` accepts as written. `--no-mathlib`: core Lean only (`comparator-receipt` then needs `COMPARATOR_RECEIPT_NO_MATHLIB=1`; `verify.sh` logs `mathlib-rev: none`, the receipt's explicit value for a package without Mathlib). The name: lower-case letters, digits and single hyphens, starting with a letter; a library named like Lean's or a Mathlib dependency's root namespace is refused (exit 2) | `[--kind paper\|library] [--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT] [--license Apache-2.0\|MIT] [--json]` |
 
 ## Exit codes
 
@@ -44,20 +45,26 @@ Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate 
 
 ## Examples
 
-Scaffold the package my-proof (library MyProof, Mathlib) in ./my-proof and git init it; the quickstart takes it from there.
+Scaffold a companion to a paper (kind paper, the default; library MyPaperLean, Mathlib) in ./my-paper-lean and git init it; its coverage.yaml waits for the paper's title and rows, then `formalization anchor`.
 
 ```bash
-lean-pkg new my-proof
+lean-pkg new my-paper-lean
 ```
 
 Sample output:
 
 ```text
-created my-proof/: package my-proof, library MyProof, v4.35.0-rc2, Mathlib v4.35.0-rc2; 13 files, git initialized, nothing committed, no registry read or written
+created my-paper-lean/: package my-paper-lean (kind paper), library MyPaperLean, v4.35.0-rc2, Mathlib v4.35.0-rc2; 15 files, git initialized, nothing committed, no registry read or written
+```
+
+Scaffold a library (its coverage.yaml lists the example as the main result); the quickstart takes it from there.
+
+```bash
+lean-pkg new my-proof --kind library
 ```
 
 The same in core Lean, with the author and the license named.
 
 ```bash
-lean-pkg new my-proof --no-mathlib --author "Ada Lovelace" --license MIT
+lean-pkg new my-proof --kind library --no-mathlib --author "Ada Lovelace" --license MIT
 ```

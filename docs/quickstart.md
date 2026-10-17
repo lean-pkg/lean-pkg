@@ -41,11 +41,12 @@ first](comparator.md#checking-a-host-first) explains each one.
 
 ```bash
 cd ~/src
-lean-pkg new my-proof
+lean-pkg new my-proof --kind library
 ```
 
 ```text
-created my-proof/: package my-proof, library MyProof, v4.35.0-rc2, Mathlib v4.35.0-rc2; 13 files, git initialized, nothing committed, no registry read or written
+created my-proof/: package my-proof (kind library), library MyProof, v4.35.0-rc2, Mathlib v4.35.0-rc2; 15 files, git initialized, nothing committed, no registry read or written
+author: Ada Lovelace (from git config user.name; CITATION.cff, REUSE.toml)
 next:
   cd my-proof
   lake update && lake exe cache get
@@ -57,11 +58,13 @@ next:
 (a trusted statement in `MyProof/Challenge.lean`, its proof in
 `MyProof/Solution.lean`, `comparator.json`) plus the files the later steps
 read: `MyProof/Axioms.lean`, `claims.yaml`, `coverage.yaml`, `CITATION.cff`
-(the author is `git config user.name` unless you pass `--author`), an
-Apache-2.0 `LICENSE` (`--license MIT` for MIT), a `README.md` with the
-lean-pkg credit, and `verify.sh`. It writes into a new or empty directory
-only, and it touches no registry. Replace the example theorem later; keep the
-files in step. Run the four commands it prints:
+(the author is `git config user.name` unless you pass `--author`; a name
+with no space gets a warning, since it looks like a login, so fix it then), an
+Apache-2.0 `LICENSE` (`--license MIT` for MIT), `REUSE.toml` and
+`LICENSES/` (so the REUSE licence lint passes before you publish), a
+`README.md` with the lean-pkg credit, and `verify.sh`. It writes into a new
+or empty directory only, and it touches no registry. Replace the example
+theorem later; keep the files in step. Run the four commands it prints:
 
 ```bash
 cd my-proof
@@ -75,7 +78,25 @@ The build ends with
 and `Build completed successfully`. The first `lake exe cache get` downloads
 Mathlib's build cache, several GB.
 
-**No Mathlib?** `lean-pkg new my-proof --no-mathlib` writes the same project
+**A paper, or a library?** This walk-through passes `--kind library`: the
+example theorem belongs to no paper, so the Lean package is the product and
+the page in step 6 renders from the `coverage.yaml` as written. Without
+`--kind`, `lean-pkg new` writes the paper track (`--kind paper`, the
+default): the paper is the product, and its `coverage.yaml` is
+`kind: paper` with `manuscript.version: unposted` and `FILL-ME` markers in
+place of the title and the rows. Steps 3 to 5 (registry, receipts, gate) are the
+same; `coverage check` and the page in step 6 refuse the file until you
+write the paper's title and one row per numbered result, and bind it to the
+posted version:
+
+```bash
+lean-pkg formalization anchor my-proof --arxiv <id>v<N> --from-file E-PRINT --compare-tex PAPER.tex --write
+```
+
+[Develop a paper with its Lean companion](paper-companion.md) is that track
+in full.
+
+**No Mathlib?** `lean-pkg new my-proof --kind library --no-mathlib` writes the same project
 in core Lean: `lake update` then fetches nothing and the build takes seconds.
 Step 5 then needs `COMPARATOR_RECEIPT_NO_MATHLIB=1`. Palomar expects
 statements in Mathlib's vocabulary, so keep Mathlib for anything you will
@@ -217,11 +238,12 @@ Your project needs, at one commit, what `lean-pkg new` writes:
    `lean-pkg comparator config --from-claims NAME` drafts the configuration from `claims.yaml`.
 2. `claims.yaml` (check it with `lean-pkg claims check --file claims.yaml`),
    `coverage.yaml` (`kind: library`, or a paper's rows; see [The
-   verification page](page.md#coverageyaml)), `CITATION.cff` and a license
-   file.
+   verification page](page.md#coverageyaml)), `CITATION.cff`, a license
+   file, and REUSE information (`REUSE.toml`, `LICENSES/`) for the
+   licence lint.
 3. A verify script. The quickest is to copy `verify.sh` and `MOD/Axioms.lean`
    from a scratch scaffold
-   (`lean-pkg new scratch-copy --dir ../scratch-copy`) and edit `MODULES` and the `#print axioms` lines to name
+   (`lean-pkg new scratch-copy --kind library --dir ../scratch-copy`) and edit `MODULES` and the `#print axioms` lines to name
    your modules and theorems.
 
 Then steps 3 to 6 above, with your package name. [Add the comparator tier to
