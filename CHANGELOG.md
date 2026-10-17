@@ -51,7 +51,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `comparator config`), `--target-repo` (`report`) and
   `registry audit --write`. Every old spelling is a permanent alias: it
   parses to the same namespace, with the same output and exit code, and in
-  text mode prints one stderr note
+  text mode prints one stderr note after the command's own messages
   (`note: 'lean-pkg claim' is now 'lean-pkg lease claim' (the old spelling keeps working)`);
   `LEAN_PKG_NO_ALIAS_NOTE=1` silences it and `--json` never prints it. The
   alias table is `lean_pkg.command_tree`; `lean-pkg help aliases` lists it.

@@ -8807,6 +8807,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)
     notes = alias_notes(args, raw, ap.alias_hits)
+    args.alias_note_lines = notes   # run_command prints them before its NOT COMMITTED line (always the last)
     try:
         if getattr(args, "show_version", False):   # before the registry lock: --version reads no registry
             return cmd_version(args)
@@ -8828,8 +8829,7 @@ def main(argv: list[str] | None = None) -> int:
             _report_fail(args, Fail(f"cannot prepare the registry lock: {e}"))
             return 1
     finally:   # after the command: its own first stderr line (a refusal) stays first
-        for line in notes:
-            print(line, file=sys.stderr)
+        flush_alias_notes(args)
 
 
 def alias_notes(args, raw: list[str], hits: list) -> list[str]:
@@ -8840,6 +8840,12 @@ def alias_notes(args, raw: list[str], hits: list) -> list[str]:
         return []
     hits = list(hits) + command_tree.flag_hits(raw, command_tree.canonical_command(args))
     return command_tree.note_lines(hits)
+
+
+def flush_alias_notes(args) -> None:
+    for line in getattr(args, "alias_note_lines", None) or []:
+        print(line, file=sys.stderr)
+    args.alias_note_lines = []
 
 
 def bare_shows_help(args) -> bool:
@@ -9008,6 +9014,7 @@ def run_command(args) -> int:
     if ctx is not None:
         with _registry_lock_if_present(args):
             rc = commit_finish(ctx, rc)
+    flush_alias_notes(args)
     uncommitted = uncommitted_notice(args) if (mode is None and writes and not registry_snapshot_arg(args)) else None
     if buf is not None:
         _emit_with_commit(buf.getvalue(), ctx, rc_before, rc, uncommitted)
