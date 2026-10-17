@@ -45,7 +45,7 @@ scratch | active | gate-pending | verified-private | public | upstreamed | archi
 | public → public | `gate` | a package that was public before it was ever gated (for example a collaborator-owned repository): the receipt and the `gate-passed` event are recorded, the status does not change |
 | verified-private → gate-pending | `update --status` | re-certification after a content change |
 | verified-private → verified-private | `gate --regate` | re-certification in one step: a valid receipt for a commit descending from the gated one (or any commit with `--reason`); event `regated` |
-| verified-private → public | `promote --yes` | clean checklist: a byte-valid comparator PASS, the claims ledger `ready`, both receipts and every comparator log committed at HEAD, HEAD contained in `origin/<branch>` |
+| verified-private → public | `publish --yes` | clean checklist: a byte-valid comparator PASS, the claims ledger `ready`, both receipts and every comparator log committed at HEAD, HEAD contained in `origin/<branch>` |
 | public → upstreamed | `update --status` | a recorded `mathlib-pr-merged` or `palomar-registered` event (not retracted, not withdrawn), or a `--reason` containing the URL |
 | public → verified-private | `update --withdraw-publication --reason` | the owner made the repository private again (`gh` must not report it public); `active` instead when no gate receipt is recorded; sets a publication hold ([Withdrawing publication](#withdrawing-publication)) |
 | any status → archived | `update --status --reason`, or `audit --fix` from GitHub's archived flag | — |
@@ -247,7 +247,7 @@ receipt's.
 
 ## Results ledger
 
-A successful `gate` and `promote --yes` end with a `results-ledger:` line
+A successful `gate` and `publish --yes` end with a `results-ledger:` line
 (`--json`: `rl_reminder: true` and the line as `rl_hint`). lean-pkg keeps no
 results ledger: the outcome is already in the registry
 (`lean-pkg status NAME`, the event log) and, per claim, in

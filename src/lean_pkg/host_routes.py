@@ -279,8 +279,9 @@ def routes_report(hc: dict) -> dict:
     common_notes = [f"locale: {loc['detail']}"] if loc["level"] != "ok" else []
 
     jd = hc["mechanism_detail"]["toolchain"]
-    policy_note = (f"host policy: inside a Slurm job comparator-receipt runs as is; elsewhere list this host in "
-                   f"{ALLOWED_HOSTS_ENV}")
+    policy_note = (f"host policy: inside a Slurm job comparator-receipt runs as is; on a workstation without Slurm "
+                   f"and with {ALLOWED_HOSTS_ENV} unset it runs as is too (the workstation default); on a Slurm "
+                   f"login node list this host in {ALLOWED_HOSTS_ENV}")
     if jd["ok"]:
         judge = _route("judge", True, jd["needs"], [], (
             f"bwrap creates a user namespace and {', '.join(n for n in jd['needs'] if n not in ('kernel', 'bwrap'))} "

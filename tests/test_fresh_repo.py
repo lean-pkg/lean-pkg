@@ -178,7 +178,7 @@ def test_fresh_repo_refusals(lp, gated, capsys):
     assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.repo / "sub")) == 1
     assert "inside the source repository" in capsys.readouterr().err
     assert run(lp, g, "release", "pkg", "--remote", "u") == 2
-    assert "go(es) with --fresh-repo DIR" in capsys.readouterr().err
+    assert "go(es) with `repo export NAME DIR`" in capsys.readouterr().err
     assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--force") == 2
     capsys.readouterr()
     assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--source-commit", "nope") == 1
@@ -289,7 +289,7 @@ def test_from_tree_plain_directory_dry_run_and_refusals(lp, gated, capsys):
     assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--from-tree", str(plain / "nope")) == 1
     assert "is not a directory" in capsys.readouterr().err
     assert run(lp, g, "release", "pkg", "--from-tree", str(plain)) == 2
-    assert "go(es) with --fresh-repo DIR" in capsys.readouterr().err
+    assert "go(es) with `repo export NAME DIR`" in capsys.readouterr().err
 
 
 def hand_built(g, *, commits=1, files=None):
@@ -372,9 +372,9 @@ def test_adopt_repo_refusals(lp, gated, capsys):
                "--remote", "git@github.com:example/b.git") == 1
     assert "already has origin git@github.com:example/a.git" in capsys.readouterr().err
     assert run(lp, g, "release", "pkg", "--adopt-repo", str(repo), "--keep-receipts") == 2
-    assert "do(es) not go with --adopt-repo DIR" in capsys.readouterr().err
+    assert "do(es) not go with `repo adopt NAME DIR`" in capsys.readouterr().err
     assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--allow-history") == 2
-    assert "--allow-history goes with --adopt-repo DIR" in capsys.readouterr().err
+    assert "--allow-history goes with `repo adopt NAME DIR`" in capsys.readouterr().err
     assert run(lp, g, "release", "pkg", "--adopt-repo", str(g.repo.parent / "missing")) == 1
     assert "is not a git repository with a commit" in capsys.readouterr().err
     assert g.registry.read_text() == before

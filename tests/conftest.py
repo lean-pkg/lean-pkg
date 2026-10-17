@@ -43,6 +43,9 @@ def _scrub_git_local_env() -> None:
                  "COMPARATOR_RECEIPT_ALLOW_HOST", "COMPARATOR_RECEIPT_ALLOWED_HOSTS",
                  "SLURM_JOB_ID"):
         os.environ.pop(name, None)
+    # The comparator host policy's workstation default depends on whether this machine has Slurm; tests that
+    # want it enable it themselves (test_comparator_host_default.py).
+    os.environ["COMPARATOR_RECEIPT_WORKSTATION_DEFAULT"] = "0"
     # A committed-mode push that fails transiently retries with backoff (#68); tests never sleep for it.
     os.environ["LEAN_PKG_PUSH_RETRY_DELAY"] = "0"
 

@@ -48,7 +48,7 @@ def test_old_commit_only_hit_is_a_history_hit_redacted(lp, tmp_path, capsys):
     assert "[home-path]" in out and "[…]" in out
     assert leaked[:12] in out and "README.md:1" in out
     assert "1 hit(s) (0 tree, 1 history)" in out
-    assert "release pkg --fresh-repo DIR" in out
+    assert "repo export pkg DIR" in out
     assert run(lp, reg, "public-safety", "pkg", "--json") == 1
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is False and payload["tree_hits"] == 0 and payload["history_hits"] == 1
@@ -193,7 +193,7 @@ def test_promote_refuses_while_hits_remain(lp, env, fake_gh, capsys):
     assert run(lp, env.registry, "promote", "beta") == 1
     out = capsys.readouterr().out
     assert ("public-safety: 1 hit(s) — fix the tree, or publish a fresh-history tree with "
-            "`release --fresh-repo`; see `lean-pkg public-safety beta`") in out
+            "`repo export`; see `lean-pkg public-safety beta`") in out
     assert "refusing: checklist has failures" in out
     assert run(lp, env.registry, "promote", "beta", "--json") == 1
     payload = json.loads(capsys.readouterr().out)

@@ -71,7 +71,7 @@ reader who trusts Mathlib and nothing else.
 qualified. One configuration per claim, or per small group of claims, keeps
 failures readable. `definition_names` may be omitted: a missing (or `null`)
 list field means the empty list, the runner records it as `[]` and
-`lean-pkg comparator NAME --receipt R --check` reads the committed
+`lean-pkg comparator check NAME --receipt R` reads the committed
 configuration the same way. `permitted_axioms` must be written out (`[]`
 for none); the runner refuses a configuration without it before anything
 runs. Check the configurations alone, with no build, from the
@@ -116,7 +116,7 @@ names another configuration (`comparator*.json` or
 `comparator/config*.json`; created with the standard fields when absent).
 Each configuration's receipt log is named by its path without `.json`, `/`
 becoming `_`, so `comparator_config_a.json` and `comparator/config_a.json`
-would share `comparator_config_a.log`: `comparator-receipt` refuses such a
+would share `comparator_config_a.log`: `lean-pkg receipt comparator` refuses such a
 pair (exit 1, nothing written, both files named) and `--out` refuses to
 create one.
 It refuses when `claims.yaml` is not tracked at HEAD or the claims are not
@@ -162,7 +162,7 @@ says so.
 
 Every command that credits a comparator theorem to a claim uses one rule:
 `claims mark --from-comparator`, the claims ledger (and so `publish` and
-`promote`), `comparator config --coverage`, `status`, the headline subset
+`promote`), `comparator coverage`, `status`, the headline subset
 rule, and `page` / `coverage check` (R11). A `theorem_names` entry covers a
 claim only when it **ends in the claim's whole fully qualified `decl`**: it is
 the `decl` itself, or `<Prefix>.<decl>` for any prefix. With the claim
@@ -700,7 +700,7 @@ to trust, and is rewritten with one of the recipes above.
 
 ### Coverage at the gate-bound commit
 
-`lean-pkg comparator config --coverage NAME` is read-only. It writes nothing
+`lean-pkg comparator coverage NAME` is read-only. It writes nothing
 and takes no lock. It answers one question: which claims does the comparator
 configuration tracked at the gate-bound commit (the commit of the recorded gate
 receipt) cover? It reads the claims from `claims.yaml` at that commit, or from
@@ -720,8 +720,8 @@ changed or uncommitted configuration cannot certify the bound tree. A new
 gate at a commit that tracks the configuration is required. The command
 prints the exact next steps: commit the configuration, re-gate
 (`update --status gate-pending` first when the package is
-verified-private), then `comparator-receipt --prepare && comparator-receipt`
-and `lean-pkg comparator NAME --receipt ...`. When nothing is uncovered or
+verified-private), then `lean-pkg receipt comparator --prepare && lean-pkg receipt comparator`
+and `lean-pkg comparator attach NAME --receipt ...`. When nothing is uncovered or
 changed, it prints `next: nothing to do`. `--json`: `bound_commit`, `head`, `claims_source`,
 `configs`, `theorem_claims`, `covered`, `not_covered`, `todo`,
 `not_applicable`, `uncovered[]`, `config_changed`, `changed_configs[]`,
@@ -777,7 +777,7 @@ supply. comparator checks such a hole by name, universes, type and safety only
 (`Comparator/Compare.lean`), never by body, and its README says hole solutions
 must be checked by an additional, potentially human, verifier. So a
 configuration with a non-empty `definition_names` is refused — by
-`comparator-check.sh`, by `comparator-receipt` before anything is built, and by
+`comparator-check.sh`, by `lean-pkg receipt comparator` before anything is built, and by
 `gate --comparator`, `comparator` and `promote` against the files at the bound
 commit — unless that verifier is recorded.
 
@@ -839,8 +839,8 @@ the configuration wins when both exist). `palomar check` keeps refusing them.
 Move them with:
 
 ```bash
-lean-pkg comparator config --migrate-signoff comparator.json           # dry run: prints both files
-lean-pkg comparator config --migrate-signoff comparator.json --write   # writes the sidecar, then the config
+lean-pkg comparator migrate-signoff comparator.json           # dry run: prints both files
+lean-pkg comparator migrate-signoff comparator.json --write   # writes the sidecar, then the config
 ```
 
 The command needs no registry. It refuses an inline sign-off that would fail
@@ -853,7 +853,7 @@ bound to the migrated file.
 The configuration's bytes do change, and a comparator receipt binds each
 configuration's bytes (`configs[].sha256`). For a gated package the recorded
 comparator receipt therefore stops validating once the migration is
-committed: commit both files, run `comparator-receipt` at the new HEAD, re-gate
+committed: commit both files, run `lean-pkg receipt comparator` at the new HEAD, re-gate
 (the lower-tier receipt must bind the same commit), and attach the new
 comparator receipt. The command prints this and the commands.
 
@@ -936,7 +936,7 @@ separately.
   `== lean4export toolchain override:` line in every log, next to the usual
   `== lean4export @ <commit>` pin line the runner parses.
 
-## What `comparator-receipt` adds
+## What `lean-pkg receipt comparator` adds
 
 The runner wraps the script so that evidence is either complete or absent:
 
@@ -1072,11 +1072,11 @@ the current stage files only. `--from-prepared` or `--evidence-dir` pointing
 into an attempt is refused before anything runs. Receipts, `comparator --check`
 and `gate --check` bind the current run only, and an attempt's partial receipt
 is never evidence. The attempts sit inside `comparator-stages/`, so the
-ignored-evidence report, `public-safety` and `release --fresh-repo` treat them
+ignored-evidence report, `public-safety` and `repo export` treat them
 like the stage logs (the default evidence directory is under `.lake/`, which
 neither git nor `--fresh-repo` carries).
 
-`comparator-receipt --attempts [DIR] [--json]` lists them read-only and needs
+`lean-pkg receipt comparator --attempts [DIR] [--json]` lists them read-only and needs
 no host policy. DIR is an evidence directory, its `comparator-stages/` or its
 `attempts/`, and the evidence directory is the default. The list is in number
 order: verdict, failed stage, commit, times, file count and bytes, and whether
@@ -1139,7 +1139,7 @@ A SPEC that selects every slot is a full run. The legacy mechanism refuses
 `--slots`.
 
 **Estimate first.**
-`comparator-receipt --estimate [--sample K [--force-sample]] [--json]`
+`lean-pkg receipt comparator --estimate [--sample K [--force-sample]] [--json]`
 runs (or reuses) the setup stages, then judges a sample of the slots one slot per judge invocation, one at a time, and prints
 the timings, `per_slot_seconds`, `slots`, `estimated_seconds`,
 `estimated_seconds_max`, `lower_bound_seconds`, `recommended_cap` with its
@@ -1325,13 +1325,13 @@ with the `lean-toolchain` and the `lake-manifest.json` digest as
 reused or `--from-prepared` setup is refused before anything is written when
 the package's oleans no longer match, with the changed, missing and new
 files named; rebuild by removing that `stages.json` and the package's
-`.lake/build/lib`, then `comparator-receipt --prepare`. The comparator stage
+`.lake/build/lib`, then `lean-pkg receipt comparator --prepare`. The comparator stage
 rehashes before the first judge starts and after the last one exits, and
 any difference fails the stage (nothing written). The digest is part of the
 per-slot cache key, so a slot accepted against other oleans is judged
 again. A setup prepared by an older version recorded no manifest; it is
 captured at reuse and `captured` says so.
-`comparator-receipt --verify-oleans [DIR] [--json]` is the read-only check against the manifest
+`lean-pkg receipt comparator --verify-oleans [DIR] [--json]` is the read-only check against the manifest
 recorded in `DIR` (an evidence directory, its `comparator-stages/` or its
 `stages.json`; default: the evidence directory), with the recorded commit
 required to be `HEAD`: exit 0 same, 1 otherwise; it needs no host policy and
@@ -1372,7 +1372,7 @@ What cuts runtime for a package of about 250 slots:
   applies: if the sampled slots cost about the same (`per_slot_min_seconds`
   close to `per_slot_max_seconds`), the closure is shared, and sharding or
   per-slot judging multiplies the work.
-- Give the run a cap that fits. Run `comparator-receipt --estimate` after
+- Give the run a cap that fits. Run `lean-pkg receipt comparator --estimate` after
   `--prepare` and use its `recommended_cap`
   (`ceil_5min(1.25 * per_slot_seconds * slots / judges + 600)`, with
   `per_slot_max_seconds` in place of the mean when the sample covers less
@@ -1395,9 +1395,9 @@ What cuts runtime for a package of about 250 slots:
   `--evidence-dir` on local disk, not a network filesystem.
   `LEAN_NUM_THREADS` does not speed up the export.
 
-`comparator-receipt --prepare` runs only the setup stages and writes no
+`lean-pkg receipt comparator --prepare` runs only the setup stages and writes no
 receipt. It is idempotent: a second `--prepare` with a matching completed
-setup does nothing. A later `comparator-receipt` whose commit, toolchain and
+setup does nothing. A later `lean-pkg receipt comparator` whose commit, toolchain and
 config hash (sha256 over each configuration's path and bytes) match a
 completed setup in the evidence directory skips straight to the comparison,
 and the reused stages read `prepared`. Any mismatch reruns the setup.
@@ -1456,7 +1456,7 @@ warns when any of them is set in the calling environment.
 
 ## Mechanisms
 
-`comparator-receipt --mechanism auto|toolchain|legacy` chooses how the
+`lean-pkg receipt comparator --mechanism auto|toolchain|legacy` chooses how the
 solution is judged. The receipt records the choice in its `mechanism` field.
 
 | Mechanism | What judges | When it applies | What `tools` records |
@@ -1551,7 +1551,7 @@ mechanisms whose every requirement holds and says that Palomar accepts only
 the `toolchain` mechanism (when only `legacy` is usable it says so, and why
 `toolchain` fails). Exit 0 when either is usable, 1 when neither (`--json`:
 `checks`, `mechanisms`, `mechanism_detail` with `ok`, `needs`, `failing`,
-`palomar` per mechanism, `can`, `palomar`, `verdict`). `comparator-receipt`
+`palomar` per mechanism, `can`, `palomar`, `verdict`). `lean-pkg receipt comparator`
 prints the same verdict on stderr when it starts (a report, never a
 refusal), and `lean-pkg doctor` shows it as its `host` line.
 
@@ -1564,8 +1564,8 @@ when supported, the command lines to run.
 | Route | What it runs | Needs |
 |-------|--------------|-------|
 | `judge` | the official `lake comparator` judge, sandboxed in `bwrap` | everything `mechanism toolchain` needs: Linux, a `bwrap` that creates an unprivileged user namespace, `lean`, `lake`, `python3` |
-| `prepare` | `comparator-receipt --prepare` (dependency checkout, Mathlib cache, build), no judge | Linux, `lake`, `lean`, `git`, `python3`; no sandbox |
-| `transfer` | prepare here, pack `.lake/build` and the evidence directory with their sha256, check the copied oleans with `comparator-receipt --verify-oleans` on the judging host, judge there | `prepare`'s needs plus `tar` and `sha256sum` here; the judging host must say `judge: yes` |
+| `prepare` | `lean-pkg receipt comparator --prepare` (dependency checkout, Mathlib cache, build), no judge | Linux, `lake`, `lean`, `git`, `python3`; no sandbox |
+| `transfer` | prepare here, pack `.lake/build` and the evidence directory with their sha256, check the copied oleans with `lean-pkg receipt comparator --verify-oleans` on the judging host, judge there | `prepare`'s needs plus `tar` and `sha256sum` here; the judging host must say `judge: yes` |
 
 A host without unprivileged user namespaces gets `judge: no` (with the
 failing `bwrap` line) and, when its tools resolve, `prepare: yes` and
@@ -1595,7 +1595,7 @@ It also reports, read-only and with no network access:
   cgroup memory limit (v2 `memory.max`, v1 `memory.limit_in_bytes`, the
   tightest ancestor), `MemAvailable`, and the `SLURM_*` allocation
   variables when set. Size `--cpus-per-task` and the judge's memory cap
-  from these and from `comparator-receipt --estimate`.
+  from these and from `lean-pkg receipt comparator --estimate`.
 
 Run it where the job will run, inside the job's image with the job's
 binds and `PATH`, on the login node before `sbatch` (and on a compute
@@ -1635,8 +1635,8 @@ without `--host-label`) name the host itself in `host`, `job_id` and
 blocking `receipt-raw-host` hit, whatever the host is called (it reads the
 receipt's own `host` field; before, only a host whose name was also a
 registry-derived user or workspace name was caught). For a private package,
-re-run `comparator-receipt` before promotion, so the committed receipt names
-the label, and export with `release NAME --fresh-repo DIR` (one squashed
+re-run `lean-pkg receipt comparator` before promotion, so the committed receipt names
+the label, and export with `repo export NAME DIR` (one squashed
 commit, so the old receipt is not in the published history), or add an
 `allow:` line for a name that is public on purpose (`allow: ^node-1$`). For a
 package already public, the old receipt is in its public history; whether to
@@ -1669,7 +1669,7 @@ claim is sealed with the job's accounting record. After the job has finished,
 where `sacct` sees it (the login node), run:
 
 ```bash
-comparator-receipt --seal-sacct .lean-receipts/<commit12>-comparator.json
+lean-pkg receipt comparator --seal-sacct .lean-receipts/<commit12>-comparator.json
 ```
 
 The seal refuses (exit 1, nothing written) unless `sacct` shows the job's main
@@ -1688,7 +1688,7 @@ without Slurm, save the record on the cluster and pass it:
 ```bash
 SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j <J> \
   --format=JobID,State,ExitCode,Start,End,Elapsed,User,NodeList -P > job.sacct
-comparator-receipt --seal-sacct R.json --sacct-file job.sacct --user <cluster account>
+lean-pkg receipt comparator --seal-sacct R.json --sacct-file job.sacct --user <cluster account>
 ```
 
 `page`, `coverage check` and the publish checklist re-read the sealed file at
@@ -1697,7 +1697,7 @@ job, a window that does not contain the run) backs nothing, and the refusal says
 which. The receipt stays a valid comparator receipt either way: the seal only
 decides whether its job counts as compute. A receipt already recorded with
 `lean-pkg comparator` is recorded again after sealing with
-`lean-pkg comparator NAME --receipt R --replace`. The block is additive: the
+`lean-pkg comparator attach NAME --receipt R --replace`. The block is additive: the
 schema stays `comparator-receipt/2`, and a receipt written before 0.11.0 reads as
 before except that its unsealed Slurm claim no longer backs a `compute` job.
 
@@ -1777,7 +1777,7 @@ What is supported:
    `mechanism toolchain: ok` means this node can judge; anything else, read
    the failing items it names.
 2. Build on the cluster, judge on a host that passes. The `build` stage
-   needs no sandbox, and `comparator-receipt --prepare` runs no judge, so it
+   needs no sandbox, and `lean-pkg receipt comparator --prepare` runs no judge, so it
    may run in a cluster job. Copy the checkout's whole `.lake/build` to a
    checkout of the same commit on the judging host (same `lean-toolchain`
    and `lake-manifest.json`; see "Build provenance" above for why prebuilt
@@ -1786,7 +1786,7 @@ What is supported:
 
    ```bash
    # cluster job, inside the image
-   cd "$CHECKOUT" && comparator-receipt --prepare
+   cd "$CHECKOUT" && lean-pkg receipt comparator --prepare
    # judging host, same commit, after copying .lake/build across
    lean-pkg comparator host-check            # must print mechanism toolchain: ok
    export COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)"

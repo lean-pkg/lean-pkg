@@ -1,0 +1,94 @@
+usage: lean-pkg receipt comparator [-h] [--project PROJECT] [--check CHECK]
+                                   [--mechanism {auto,toolchain,legacy}] [--verify VERIFY]
+                                   [--evidence-dir DIR] [--prepare] [--from-prepared DIR]
+                                   [--no-resume] [--judges N] [--unit-size K] [--slots SPEC]
+                                   [--estimate] [--sample K] [--force-sample]
+                                   [--verify-oleans [DIR]] [--attempts [DIR]]
+                                   [--seal-sacct RECEIPT] [--sacct-file F] [--user NAME] [--json]
+                                   [--host-label LABEL]
+
+Run comparator-check.sh and write a comparator receipt. The same code and flags as the
+`comparator-receipt` program, which stays.
+
+options:
+  -h, --help            show this help message and exit
+  --project PROJECT     Lake project directory (default: cwd)
+  --check CHECK         comparator-check.sh to run (env COMPARATOR_CHECK; default: the copy
+                        shipped with lean-pkg)
+  --mechanism {auto,toolchain,legacy}
+                        toolchain: `lake comparator` with the toolchain's bundled kernels (Lean
+                        v4.35.0-rc2+, what Palomar runs); legacy: the pinned
+                        comparator/lean4export/nanoda/landrun stack; auto (default): toolchain
+                        when available, else legacy
+  --verify VERIFY       verify-comparator.sh for the toolchain mechanism (env COMPARATOR_VERIFY;
+                        default: the vendored PalomarTemplate copy)
+  --evidence-dir DIR    where the stage logs and stages.json go, kept on failure (default:
+                        <project>/.lake/comparator-receipt; its comparator-stages/ subdirectory);
+                        outside the project its path is written as <evidence> in every log and
+                        receipt
+  --prepare             run only the setup stages (dependency checkout, Mathlib cache, build of
+                        the configured modules); idempotent; a later run at the same commit,
+                        toolchain and config hash skips them and runs only the comparison
+  --from-prepared DIR   reuse the completed setup recorded in DIR (an evidence directory or its
+                        stages.json); refuses when it was prepared for another
+                        commit/toolchain/config
+  --no-resume           judge every slot again, ignoring the slots this commit and config hash
+                        already accepted (cached under <evidence-dir>/comparator-stages/04-slots/)
+  --judges N            run up to N judge processes at once, each on a contiguous shard of every
+                        configuration's theorem_names (toolchain mechanism; env
+                        LEAN_PKG_COMPARATOR_JOBS; default 1); with --unit-size, N is only how many
+                        units run at once. The merged verdict is exact; see docs/comparator.md
+                        (Runtime) for when it helps
+  --unit-size K         judge each configuration in contiguous units of at most K names (toolchain
+                        mechanism; env LEAN_PKG_COMPARATOR_UNIT_SIZE; default: the whole
+                        configuration, cut into --judges shards). --unit-size 1 --judges 1 judges
+                        each name alone, one at a time, so a capped run resumes per name
+  --slots SPEC          judge only these slots (theorem_names entries): comma-separated names,
+                        <config>:<name>, 1-based indices or ranges i-j over all configurations, or
+                        sample:K (a namespace-stratified sample). Writes a PARTIAL receipt into
+                        the stage directory, marked partial: true: diagnostic only, refused as
+                        evidence
+  --estimate            after setup, judge a sample of slots (the heaviest by olean size, then
+                        namespace-stratified) one at a time and print an estimate
+                        {per_slot_seconds, slots, estimated_seconds, recommended_cap,
+                        remaining_estimate_seconds}; writes no receipt (the judged slots are
+                        cached for the real run). The JSON is schema comparator-estimate/2; /1 ->
+                        /2 added the sample floor, the heaviest-first sample (per-row
+                        weight_bytes, weight_module, heavy) and the max cap model; later additions
+                        (weights_found, remaining_estimate_seconds, ...) are additive and keep /2.
+                        See docs/comparator.md (Estimate first)
+  --sample K            --estimate: sample size (default and floor: max(5, ceil(0.25 * slots)),
+                        capped at the slots); --slots overrides the sample
+  --force-sample        --estimate: accept a --sample (or --slots) below the floor; the estimate
+                        warns and records sample_forced: true
+  --verify-oleans [DIR]
+                        read-only, no host policy: rehash the package's compiled modules under
+                        .lake/build/lib and compare them with the olean manifest the setup
+                        recorded in DIR (an evidence directory, its comparator-stages/ or its
+                        stages.json; default: the evidence directory); the recorded commit must be
+                        HEAD; exit 0 same, 1 different or nothing recorded; writes nothing
+  --attempts [DIR]      read-only, no host policy: list the earlier runs kept under comparator-
+                        stages/attempts/NNN/ (verdict, failed stage, commit, times, files, whether
+                        every kept file still matches its recorded sha256) in DIR (an evidence
+                        directory, its comparator-stages/ or its attempts/; default: the evidence
+                        directory); exit 0, or 1 when a kept file changed or went missing; writes
+                        nothing
+  --seal-sacct RECEIPT  after the Slurm job finished, no host policy: corroborate RECEIPT's Slurm
+                        claim (job_id from SLURM_JOB_ID, which any shell can set) with the job's
+                        sacct record: COMPLETED, exit 0:0, Start..End containing the run, this
+                        account (live sacct, or --user) and the receipt's node (its h- host label
+                        against the node's); writes <c12>-comparator-sacct.txt beside RECEIPT (the
+                        record, normalized; no user or node names) and its sha256 into RECEIPT as
+                        slurm_sacct. Only a sealed receipt backs a coverage.yaml compute job. Exit
+                        0 sealed (or already), 1 refused, nothing written
+  --sacct-file F        --seal-sacct on a host without Slurm: the saved output of
+                        `SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j J
+                        --format=JobID,State,ExitCode,Start,End,Elapsed,User,NodeList -P` (with
+                        its header line); the account is then checked only with --user
+  --user NAME           --seal-sacct: the account the job must have run under (default with live
+                        sacct: this one); compared, never written
+  --json                --estimate, --verify-oleans, --attempts or --seal-sacct: print JSON
+  --host-label LABEL    name the host LABEL in the receipt (host, host_label, job_id, host_policy)
+                        and the output (env COMPARATOR_RECEIPT_HOST_LABEL); default: h- and 12 hex
+                        digits of the SHA-256 of the lower-cased host name, the label `receipt
+                        systemd` uses; the host name itself is never written

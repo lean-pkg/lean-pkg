@@ -104,7 +104,7 @@ def test_gate_warns_when_the_receipt_it_copied_is_ignored(lp, env, tmp_path, cap
     assert data["ignored_evidence"] == [{"path": rel, "rule": ".gitignore:1:.lean-receipts/"},
                                         {"path": sealed, "rule": ".gitignore:1:.lean-receipts/"}]
     assert (f"WARN: {rel} is git-ignored (.gitignore:1:.lean-receipts/): `git add` skips it and "
-            f"`promote` needs it committed; un-ignore it") in cap.err
+            f"`publish --yes` needs it committed; un-ignore it") in cap.err
 
 
 def test_gate_without_ignore_rules_reports_nothing(lp, env, tmp_path, capsys):

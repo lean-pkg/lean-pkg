@@ -1,19 +1,18 @@
 # lean-pkg publish -- the read-only release checklist from verified-private to listed
-"""`lean-pkg publish NAME --dry-run` (#22.1): one checklist for the whole path from a
-verified-private package to a public, tagged, listed one, composed from checks that
-already exist elsewhere (the promote checklist, the index license check, the
-formalization renderer, the claims cache, `page --check`), plus the exact next commands.
+"""`lean-pkg publish NAME` (#22.1): one checklist for the whole path from a verified-private
+package to a public, tagged, listed one, composed from checks that already exist elsewhere
+(the promotion checklist, the index license check, the formalization renderer, the claims
+cache, `page --check`), plus the exact next commands. Read-only (`--dry-run` says so
+explicitly): nothing is written, the registry is not locked, `--commit` is ignored.
 
-Read-only: nothing is written, the registry is not locked, `--commit` is ignored.
-`publish` without `--dry-run` is refused in this version: the steps it would take
-(`promote --yes`, `git tag`, `record`) each stay an explicit command of their own.
-
-The command is named `publish`, not `release`, because `release NAME` already
-releases a lease.
+`publish NAME --yes` publishes: the promotion checklist, then the GitHub repository goes public
+(the pre-1.0 `promote NAME --yes`, a permanent alias); `--yes --dry-run` runs the same checklist
+and flips nothing (the pre-1.0 `promote NAME`). Tagging and `record` stay commands of their own.
 """
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 
@@ -90,7 +89,7 @@ def warn_ignored_evidence(ignored: list[dict]) -> None:
     """stderr WARN lines for `gate`/`comparator` when the evidence they attached is git-ignored."""
     import sys
     for i in ignored:
-        print(f"WARN: {i['path']} is git-ignored ({i['rule']}): `git add` skips it and `promote` needs it "
+        print(f"WARN: {i['path']} is git-ignored ({i['rule']}): `git add` skips it and `publish --yes` needs it "
               f"committed; {IGNORE_REMEDY}", file=sys.stderr)
 
 
@@ -201,7 +200,7 @@ def tag_command(pkg: dict, repo) -> str:
     """The tag-and-push hint, naming the GitHub remote (#23.2)."""
     name = pkg["name"]
     tag = f"git -C {repo} tag -a vX.Y.Z -m '{name} vX.Y.Z'"
-    when = "" if pkg.get("status") in ALREADY_PUBLIC else ", after promote"
+    when = "" if pkg.get("status") in ALREADY_PUBLIC else ", after publish --yes"
     remote = github_remote(repo, pkg)
     if remote:
         return f"{tag} && git -C {repo} push {remote} vX.Y.Z   # push the tag to {remote} (GitHub){when}"
@@ -215,7 +214,7 @@ def next_commands(pkg: dict, repo, ready: bool, tags: list[str]) -> list[str]:
     if not ready:
         cmds.append(f"fix every ✗ above, then: lean-pkg publish {name} --dry-run")
     if status in PROMOTABLE:
-        cmds += [f"lean-pkg promote {name}", f"lean-pkg promote {name} --yes   # ONE-WAY"]
+        cmds += [f"lean-pkg publish {name} --yes --dry-run", f"lean-pkg publish {name} --yes   # ONE-WAY"]
     if not tags:
         cmds.append(tag_command(pkg, repo))
     nwo = core.gh_nwo(pkg.get("repo") or "")
@@ -246,7 +245,7 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
         led = {}
         items += core.promote_checklist(pkg, repo, ignored_sink=ignored, ledger_sink=led)
     elif status in ALREADY_PUBLIC:
-        items.append(("✓", f"status {status} (promoted at {pkg.get('promoted_at') or '?'}); promote not needed"))
+        items.append(("✓", f"status {status} (promoted at {pkg.get('promoted_at') or '?'}); publish --yes not needed"))
         items.append(core.head_pushed_item(repo))
     else:
         items.append(("✗", f"status {status}: publishing starts from verified-private "
@@ -273,7 +272,7 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
                  ("✗", "no package name in lakefile.lean or lakefile.toml (Reservoir indexes the Lake package)"))
     tags = tags_at_head(repo)
     items.append(("✓", f"tag at HEAD: {', '.join(tags)}") if tags else
-                 ("WARN", f"no tag at HEAD {head[:12]} (tag the release after promote)"))
+                 ("WARN", f"no tag at HEAD {head[:12]} (tag the release after publish --yes)"))
     from . import palomar_check   # advisory (feature request #6): a WARN item, never a ✗
     palomar = palomar_check.summary(pkg, repo, head)
     if warning := palomar_check.summary_warning(palomar):
@@ -301,9 +300,16 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
 
 
 def cmd_publish(args) -> int:
-    if not (args.dry_run or args.public_safety):
-        raise core.UsageError("publish is dry-run only in this version: pass --dry-run "
-                              "(then run the printed promote/tag/record commands yourself)")
+    if args.yes:   # the promotion: the pre-1.0 `promote NAME [--yes]`
+        if args.public_safety:
+            raise core.UsageError("--public-safety adds the scan to the read-only checklist; --yes always runs it "
+                                  "(unless --skip-public-safety)")
+        return core.cmd_promote(argparse.Namespace(**{**vars(args), "yes": not args.dry_run}))
+    extra = [f for f, on in (("--skip-public-safety", args.skip_public_safety), ("--agent", args.agent is not None))
+             if on]
+    if extra:
+        raise core.UsageError(f"{', '.join(extra)} go(es) with --yes (the read-only checklist takes no lease and "
+                              f"always lists the public-safety state with --public-safety)")
     reg_path = core.registry_path(args)
     lines, rc, payload = do_publish_check(core.load_registry(reg_path), args.name, args.public_safety)
     if getattr(args, "json_out", False):
@@ -314,14 +320,24 @@ def cmd_publish(args) -> int:
 
 
 def add_parsers(sub, add_json) -> None:
-    s = sub.add_parser("publish", help="read-only release checklist from verified-private to listed "
-                                       "(--dry-run only), with the exact next commands")
+    s = sub.add_parser("publish", help="the checklist from verified-private to listed, with the exact next commands "
+                                       "(read-only); --yes makes the repository public (`promote` is the same)")
     s.add_argument("name")
+    s.add_argument("--yes", action="store_true",
+                   help="publish: run the promotion checklist, then gh repo edit --visibility public (ONE-WAY); "
+                        "first fetches origin's branches, tags and pull-request heads so the public-safety scan "
+                        "covers them (a failed fetch refuses). With --dry-run: the same checklist, nothing flipped")
     s.add_argument("--dry-run", action="store_true",
-                   help="required: print the checklist and next commands; nothing is written")
+                   help="write nothing (the default without --yes); with --yes: the promotion checklist only")
     s.add_argument("--public-safety", action="store_true",
-                   help="also scan the tree and git history for private patterns (`lean-pkg public-safety`); "
-                        "implies --dry-run")
+                   help="read-only checklist: also scan the tree and git history for private patterns "
+                        "(`lean-pkg public-safety`); --yes always scans")
+    s.add_argument("--skip-public-safety", action="store_true",
+                   help="with --yes: do not run the public-safety scan of the tree and history (a WARN line "
+                        "instead; the scan covers the whole repository when the package is a subdirectory of it)")
+    s.add_argument("--agent", default=None,
+                   help="with --yes: the agent acting (recorded as the promoted event's actor); another agent's "
+                        "live lease then refuses")
     add_json(s)
     s.set_defaults(fn=cmd_publish)
 
