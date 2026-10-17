@@ -1,0 +1,9 @@
+# The discharging package at another pin of the statement module, where Hyp.A means something else.
+name = "other_pin"
+defaultTargets = ["Statements", "ProofA"]
+
+[[lean_lib]]
+name = "Statements"
+
+[[lean_lib]]
+name = "ProofA"
