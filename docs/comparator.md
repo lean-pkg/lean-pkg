@@ -1352,6 +1352,63 @@ the `toolchain` mechanism (when only `legacy` is usable it says so, and why
 prints the same verdict on stderr when it starts (a report, never a
 refusal), and `lean-pkg doctor` shows it as its `host` line.
 
+### Planning routes before sbatch
+
+`lean-pkg comparator host-check --routes [--json]` adds a plan to the
+same check: three routes, each `yes` or `no` with the exact reason and,
+when supported, the command lines to run.
+
+| Route | What it runs | Needs |
+|-------|--------------|-------|
+| `judge` | the official `lake comparator` judge, sandboxed in `bwrap` | everything `mechanism toolchain` needs: Linux, a `bwrap` that creates an unprivileged user namespace, `lean`, `lake`, `python3` |
+| `prepare` | `comparator-receipt --prepare` (dependency checkout, Mathlib cache, build), no judge | Linux, `lake`, `lean`, `git`, `python3`; no sandbox |
+| `transfer` | prepare here, pack `.lake/build` and the evidence directory with their sha256, check the copied oleans with `comparator-receipt --verify-oleans` on the judging host, judge there | `prepare`'s needs plus `tar` and `sha256sum` here; the judging host must say `judge: yes` |
+
+A host without unprivileged user namespaces gets `judge: no` (with the
+failing `bwrap` line) and, when its tools resolve, `prepare: yes` and
+`transfer: yes`: build there, judge elsewhere, as in "A cluster without
+unprivileged user namespaces" below. There is never an unsandboxed judge
+route, and the output never suggests disabling or replacing the sandbox.
+
+It also reports, read-only and with no network access:
+
+- `executables`: `lake`, `lean`, `git`, `python3`, `bwrap`, `sha256sum`,
+  `tar`, `time` and the required tools of the `receipt slurm --template`
+  wrapper (read from the template itself), each resolved like `type -P`:
+  the first executable regular file on `PATH`, never a shell keyword or
+  function. `time` is a bash keyword; only a `time` binary resolves, and a
+  missing one is a `warn`. Each row has `required_by` (routes and
+  `slurm-template`).
+- `locale`: `LANG`, `LC_ALL`, `LC_CTYPE`, whether `C.UTF-8` is installed,
+  and a `warn` when a set locale is not installed. Tools then print a
+  setlocale warning on stderr, which a strict receipt refuses; export
+  `LC_ALL=C LANG=C PYTHONUTF8=1` before any tool runs, as the template does.
+- `limits`: `ulimit -n` soft and hard and `/proc/sys/fs/file-nr`. A soft
+  limit below 4096 or fewer than 262144 free system file-table entries is
+  tight: build Mathlib-heavy packages with `LEAN_NUM_THREADS=3` (the run
+  lines then carry it) and raise the soft limit to the hard one. "Too many
+  open files in system" calls for fewer threads, not for excluding a node.
+- `resources`: the CPUs this process may use (`sched_getaffinity`), the
+  cgroup memory limit (v2 `memory.max`, v1 `memory.limit_in_bytes`, the
+  tightest ancestor), `MemAvailable`, and the `SLURM_*` allocation
+  variables when set. Size `--cpus-per-task` and the judge's memory cap
+  from these and from `comparator-receipt --estimate`.
+
+Run it where the job will run, inside the job's image with the job's
+binds and `PATH`, on the login node before `sbatch` (and on a compute
+node when they differ):
+
+```bash
+singularity exec --bind "$WORK" "$IMAGE" bash -c \
+  'export PATH=...; lean-pkg comparator host-check --routes --json'
+```
+
+`--json` adds `routes_schema` (`host-routes/1`), `routes[]` (`route`,
+`supported`, `needs`, `failing`, `reason`, `commands`, `notes`),
+`executables`, `locale`, `limits`, `resources` and `advice[]` to the
+host-check keys; `can` and `verdict` keep their meaning. With `--routes`
+the exit code is 0 when any route is supported here, 1 when none is.
+
 ## Host policy
 
 The receipt records the host name. Pass `--host-label LABEL` (or set

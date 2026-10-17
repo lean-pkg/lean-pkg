@@ -61,6 +61,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["comparator", "demo", "--receipt", R, "--check", "--repo", "d"], "comparator", False, False, False),
     (["comparator", "demo", "--receipt", R, "--replace"], "comparator", True, True, False),
     (["comparator", "host-check"], "comparator host-check", False, False, False),
+    (["comparator", "host-check", "--routes"], "comparator host-check", False, False, False),
+    (["comparator", "host-check", "--routes", "--json"], "comparator host-check", False, False, False),
     (["comparator", "host-check", "--receipt", R], "comparator", True, True, False),   # a package named so
     (["comparator", "config", "--from-claims", "demo"], "comparator config", False, False, False),
     (["comparator", "config", "--from-claims", "demo", "--claims-file", "c.yaml"], "comparator config",

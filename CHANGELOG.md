@@ -11,6 +11,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `comparator host-check --routes [--json]`: host and cluster planning
+  before `sbatch` (field report #5). Per route (`judge`: `lake comparator`
+  in `bwrap`; `prepare`: `comparator-receipt --prepare`; `transfer`: build
+  here, check the copied oleans with `--verify-oleans`, judge on a host
+  that passes `judge`), supported yes/no with the exact reason and the
+  recommended command lines; executables resolved like
+  `type -P` (the `receipt slurm --template` tool list read from the
+  template), locale (a set locale that is not installed warns: the stderr
+  warning a strict receipt refuses), `ulimit -n` and `/proc/sys/fs/file-nr`
+  with the `LEAN_NUM_THREADS=3` advice when tight, CPU affinity count and
+  the cgroup v1/v2 memory limit. Additive JSON keys (`routes_schema`
+  `host-routes/1`); read-only, no network; never an unsandboxed route.
 - `receipt slurm --template`: an exact-runtime preflight before any tool
   runs (field report #5). The wrapper sets `LC_ALL=C LANG=C PYTHONUTF8=1`
   (an `#SBATCH --export` line for the job's own shell and an `export`), so
