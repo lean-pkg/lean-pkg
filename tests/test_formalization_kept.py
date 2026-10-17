@@ -27,7 +27,7 @@ project:
   authors: [Ada]
   license: MIT
 sources:
-  - id: arXiv:2410.01234v2
+  - id: doi:10.1000/demo
     relationship: formalizes
 review:
   date: 2026-10-17
@@ -47,8 +47,8 @@ acknowledgements: "Thanks to B.\\nAI assistance: ToolA for proof search."
 # no spaces, non-ASCII as itself.
 CANONICAL = ('{"acknowledgements":"Thanks to B.","automation":{"methods":["agent"]},'
              '"project":{"authors":["Ada"],"description":"Démo — a test"},"review":{"date":"2026-10-17"},'
-             '"sources":[{"id":"arXiv:2410.01234v2","relationship":"formalizes"}],"status":{"scope":"all"}}')
-CANONICAL_SHA256 = "07628c5de6208e52c4c1a4404d1c28751698d0c98760ae8cf64b467bae9ed2da"
+             '"sources":[{"id":"doi:10.1000/demo","relationship":"formalizes"}],"status":{"scope":"all"}}')
+CANONICAL_SHA256 = "2b23febe0863aec50c126c5c90b78cefbde4d8ea1a100244e5f5303984a9c509"
 
 
 def repo_with(tmp_path: Path, text: str = DOC) -> Path:
