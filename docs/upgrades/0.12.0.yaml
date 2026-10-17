@@ -104,5 +104,6 @@ changes:
 # Read for this record, nothing for a package author: index data (#220), docs (#221, #225), the
 # changelog layout (#224), the released-CHANGELOG check of make check and CI, a maintainer gate (#227),
 # and the preflight follow-up (#228: moved options in doctor --upgrade-from, which first ships in this
-# release under doctor-upgrade-preflight, plus this record and test rows).
-no_author_change: [220, 221, 224, 225, 227, 228]
+# release under doctor-upgrade-preflight, plus this record and test rows), and this record's completion
+# with the pull request template's checkbox (#229).
+no_author_change: [220, 221, 224, 225, 227, 228, 229]
