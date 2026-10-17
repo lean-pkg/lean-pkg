@@ -7,7 +7,8 @@ intro: |
   (`--registry`, `--json`, `--commit`, `--push`, committed mode, `--registry-snapshot`) are on the
   [CLI overview](../cli.md).
 
-  **New here?** The usual path through the commands is
+  **New here?** The [quickstart](../quickstart.md) takes a new package from
+  [`new`](new.md) to a verified page. The usual path through the commands is
   [`init`](init.md) (once) → [`register`](register.md) → [`claim`](claim.md) →
   work → [`receipt slurm`](receipt.md#lean-pkg-receipt-slurm) or
   [`receipt systemd`](receipt.md#lean-pkg-receipt-systemd) → [`gate`](gate.md) →
