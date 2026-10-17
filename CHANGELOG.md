@@ -19,6 +19,27 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `publish --dry-run`), with measured times and a short section on the paper
   track. Linked from README.md, docs/index.md and docs/quickstart.md.
 
+### Changed
+
+- `lean-pkg page`: the verification page is written for mathematicians,
+  after Palomar's entry pages (docs/design/page-for-mathematicians.md). It
+  opens with one line telling the reader which statements to compare by eye
+  ("Lean has checked every step ...; that comparison is yours"), then gives one
+  block per result: verified or not, the paper's result, the Lean statement
+  copied from the source at the gate-bound commit (the Challenge module when
+  the comparator compared it; a link when the statement cannot be read
+  reliably), the hypotheses in words, the definitions a person signed off, the
+  axioms. *What the checks establish* says in plain words what Lean and the
+  comparator checked and what no tool checks; the receipts, hashes, commits and
+  reproduce commands move to a final *How this was checked*. lean-pkg's
+  internal words ("lower-tier", "evidence-only descendant", rule numbers, stage
+  names) no longer appear on any output. The HTML file takes a serif face and a
+  narrower measure; it still carries no script and no external asset. Every
+  published page is stale under this version: run `lean-pkg page NAME --write`
+  (and `--site`/`--html` if you ship them) once, and commit the result.
+  `receipt check` reads the page in both wordings, so a page published
+  with 0.10.0 or earlier is still checked.
+
 ## [0.10.0] - 2026-10-17
 
 ### Added

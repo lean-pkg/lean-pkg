@@ -48,10 +48,10 @@ def test_verification_md_is_the_full_page_and_coverage_md_every_row(lp, env, cap
     lines = ver.splitlines()
     assert rc == 0 and lines[0] == "# Verification" and sum(x.startswith("# ") for x in lines) == 1
     heads = [x[3:] for x in lines if x.startswith("## ")]
-    assert heads == ["Verification status", "Paper ↔ Lean map", "Not formalized", "Trust boundary", "Reproduce",
-                     "Evidence", "Citation", "License", "Acknowledgments"]
+    assert heads == ["Verification at a glance", "The paper's results in Lean", "Not formalized",
+                     "What the checks establish", "How this was checked", "Citation", "License", "Acknowledgments"]
     body = a["markdown"].split("\n", 3)[3].rsplit("\n<!-- lean-pkg:page:end -->", 1)[0]
-    assert "| Theorem 1 (Main bound) | Same assumptions |" in ver and "[Coverage](coverage.md)" in ver
+    assert "### Theorem 1: Main bound\n" in ver and "[Coverage](coverage.md)" in ver
     assert "](LICENSE)" not in ver and "[LICENSE](https://github.com/example/beta/blob/HEAD/LICENSE)" in ver
     assert body.split("## Not formalized")[1].split("## Citation")[0] in ver   # same sections as the README
     cov = (d / "coverage.md").read_text()
@@ -272,7 +272,9 @@ def test_scope_r12_definition_holes_name_their_reviewer(lp, env, capsys):
     _git(env.repo_b, "commit", "-q", "-am", "the hole is judged")
     assert cov_errors(lp, env, capsys) == []
     rc, a = page_json(lp, env, capsys)
-    assert rc == 0 and "definition holes: `Demo.weight` (bodies judged by Jane Doe on 2026-10-01)" in a["markdown"]
+    hole = "`Demo.weight` (bodies judged by Jane Doe on 2026-10-01)"
+    assert rc == 0 and f"definitions compared by name only: {hole}" in a["markdown"]
+    assert f"**Definitions checked by a person.** {hole}." in a["markdown"]          # beside the result too
 
 
 # --- --repo (CI) ------------------------------------------------------------------------------------

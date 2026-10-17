@@ -2,7 +2,9 @@
 """`lean-pkg page NAME [--write | --check | --out PATH] [--site DIR] [--html PATH] [--repo DIR]
 [--allow-private-manuscript] [--agent A]`.
 
-A public Lean verification repository needs one section a reader can trust: what is formalized and what
+Mathematics first (docs/design/page-for-mathematicians.md): one line telling the reader which statements to
+compare by eye, then each result with the paper's statement beside the Lean statement, then what the checks
+establish, and the receipts last. A public Lean verification repository needs one section a reader can trust: what is formalized and what
 is not, under which assumptions, what the receipts prove, how to reproduce it, how to cite it and whom to
 credit. Every number and status word in that section is rendered here from data, never typed:
 
@@ -12,8 +14,10 @@ credit. Every number and status word in that section is rendered here from data,
 * `claims.yaml` at HEAD: the declarations of each row;
 * the claims ledger (lean_pkg.ledger, promote stage): a row says `verified` only when the ledger closes
   every claim it names;
-* the receipts committed at HEAD under `.lean-receipts/`: the trust boundary, the expected axioms, the
-  evidence table. Fields are copied from an allow-list only (commit, toolchain, Mathlib revision, sorry
+* the Lean sources at the gate-bound commit: each result's Lean statement (lean_scan.statement), from the
+  Challenge module when the comparator compared it, else the claim's file; a link when it cannot be read;
+* the receipts committed at HEAD under `.lean-receipts/`: what the checks establish, the expected axioms,
+  the receipt table (last, under "How this was checked"). Fields are copied from an allow-list only (commit, toolchain, Mathlib revision, sorry
   count, axioms, theorem names, permitted axioms, definition names, date, SHA-256 of the file, a Slurm job
   id); hosts, paths, user names, checker commands and other job ids are never copied;
 * `lean-toolchain`, `lake-manifest.json`, `CITATION.cff` (authors must be non-empty), the registry's
@@ -79,20 +83,6 @@ LEDGER_WORDS = {
     "failed": "recorded evidence contradicts a required claim",
     "unknown": "the recorded evidence cannot be read, or establishes nothing yet",
 }
-TRUST_FOOTNOTE = (
-    "What these checks do not establish: the gate checks the build, the `sorry` count and the axioms at one "
-    "commit; the comparator checks that the Solution proves exactly the Challenge statement using only the "
-    "permitted axioms, and that the kernel accepts it. Neither checks that a Lean statement says what the "
-    "paper says: that correspondence is the map above, written by the authors. Definition holes "
-    "(`definition_names`) are compared by name only and need a human reviewer.")
-LIBRARY_TRUST_FOOTNOTE = (
-    "What these checks do not establish: the gate checks the build, the `sorry` count and the axioms at one "
-    "commit; the comparator checks that the Solution proves exactly the Challenge statement using only the "
-    "permitted axioms, and that the kernel accepts it. Neither checks that a Lean statement says what its "
-    "title above says: the titles and notes are written by the authors, and the Lean statement is the result. "
-    "Definition holes (`definition_names`) are compared by name only and need a human reviewer.")
-
-
 def _cell(s) -> str:
     return str(s).replace("|", "\\|").replace("\n", " ")
 
@@ -229,9 +219,9 @@ def _evidence(repo, gate: dict) -> tuple[list[dict], dict, dict]:
         if rec is None or not _c12(rec.get("commit")):
             continue
         if rec.get("schema") in core.COMPARATOR_SCHEMAS:   # /2 is what the runner writes; /1 still validates
-            tier = "comparator"
+            tier = "statement comparison"
         elif "sorry_count" in rec and "axioms" in rec:
-            tier = "lower tier"
+            tier = "build"
         else:
             continue
         m = DATE_RE.match(str(rec.get("generated_at") or ""))
@@ -261,11 +251,16 @@ def _context(pkg: dict, repo, allow_private: bool) -> dict:
     prefix = core.git(repo, "rev-parse", "--show-prefix").stdout.strip().strip("/")
     bound = lower.get("commit") if _c12(lower.get("commit")) else None
     github = bool(https and https.startswith("https://github.com/"))
+    from . import claims as claims_mod
+    from . import comparator_config as cc
+    configs = [c for c in comp.get("configs") or [] if isinstance(c, dict)] if comp else []
+    named = [claims[cid] for r in doc["rows"] for cid in r.get("claims") or [] if cid in claims]
+    qualified = cc.qualified_decls(claims_mod._reader(repo, bound or "HEAD"), named) if configs else set()
     return {
         "name": name, "pkg": pkg, "repo": repo, "doc": doc, "claims": claims, "warnings": warnings,
         "led": ledger_mod.ledger_for(pkg, "promote"), "gate": gate, "evidence": ev_rows, "lower": lower,
         "comp": comp, "backed": backed, "sites": profiles, "cite": citation(pkg, repo), "license": license_file(pkg, repo),
-        "https": https, "prefix": prefix, "bound": bound,
+        "https": https, "prefix": prefix, "bound": bound, "configs": configs, "qualified": qualified,
         "link_base": (f"{https}/blob/{bound}" + (f"/{prefix}" if prefix else "")) if github and bound else None,
         "head_base": (f"{https}/blob/HEAD" + (f"/{prefix}" if prefix else "")) if github else None,
         "library": cov.doc_kind(doc) == "library",
@@ -293,29 +288,6 @@ def _ledger_word(r: dict, statuses: list[str]) -> str:
     return ", ".join(sorted({s for s in statuses if s != "verified"}))
 
 
-def _notes(r: dict) -> str:
-    notes = []
-    if r.get("inputs"):
-        notes.append("Inputs: " + "; ".join(_md(x) for x in r["inputs"]))
-    if r.get("note"):
-        notes.append(_md(r["note"]))
-    return " ".join(notes) or "—"
-
-
-def _map_rows(doc: dict, claims: dict, led: dict, link_base: str | None) -> tuple[list[str], int]:
-    by_id = {r["id"]: r for r in led["claims"]}
-    out, verified = [], 0
-    for r in doc["rows"]:
-        p = r["paper"]
-        paper = f"{_md(p['number'])} ({_md(p['title'])})"
-        decls = [_decl_ref(claims[cid], cid, link_base) for cid in r.get("claims") or []]
-        word = _ledger_word(r, _row_statuses(r, by_id))
-        verified += word == "verified"
-        out.append(f"| {paper} | {cov.CLASS_GLOSS[r['class']]} | {'<br>'.join(decls) or '—'} | {word} | "
-                   f"{_notes(r)} |")
-    return out, verified
-
-
 def _file_ref(ctx: dict, rel: str, target: str) -> str:
     """A link to a file of the package: relative from the README; from a site page (whose directory is the
     caller's choice) the file on GitHub at the default branch, else the name alone."""
@@ -328,136 +300,257 @@ def _holes_line(configs: list[dict]) -> str:
     """The definition holes of the comparator receipt, each with the human who judged its body (the
     receipt's signoff copy of lean-pkg-signoff.json, else its deprecated judged_as, ADR-0058 D8):
     comparator compares a hole by name and type only."""
-    from .holes import receipt_judged
-    parts = []
-    for c in configs:
-        holes = _names(c.get("definition_names"))
-        if not holes:
-            continue
-        judged = receipt_judged(c)
-        who = str(judged.get("reviewer") or "").strip()
-        date = str(judged.get("date") or "")
-        by = (f" (bodies judged by {_md(who)}" + (f" on {date}" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) else "")
-              + ")") if who else " (no sign-off reviewer recorded)"
-        parts.append(", ".join(f"`{d}`" for d in holes) + by)
+    parts = [_hole_text(c) for c in configs if _names(c.get("definition_names"))]
     return "; ".join(parts) or "none"
 
 
+def _hole_text(c: dict) -> str:
+    from .holes import receipt_judged
+    holes = _names(c.get("definition_names"))
+    judged = receipt_judged(c)
+    who = str(judged.get("reviewer") or "").strip()
+    date = str(judged.get("date") or "")
+    by = (f" (bodies judged by {_md(who)}" + (f" on {date}" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) else "")
+          + ")") if who else " (no sign-off reviewer recorded)"
+    return ", ".join(f"`{d}`" for d in holes) + by
+
+
+# --------------------------------------------------------------------------
+# the Lean statement of a claim: what the reader compares with the paper
+
+def _fence(text: str) -> bool:
+    """True when `text` can sit inside a fenced code block unchanged (no line opens or closes a fence)."""
+    return not any(x.lstrip().startswith(("```", "~~~")) for x in text.splitlines())
+
+
+def _lean_statement(ctx: dict, cid: str) -> dict:
+    """{decl, file, source ('challenge' | 'declaration'), text or None, config or None} for one claim.
+    When the recorded comparator receipt compares the claim, the statement is the one in that
+    configuration's Challenge module (what the proof was checked against); otherwise the declaration in
+    the claim's own file. Read at the gate-bound commit (HEAD when there is none)."""
+    from . import comparator_config as cc
+    from . import lean_scan
+    from .formalization import module_path
+    c = ctx["claims"][cid]
+    decl = str(c.get("decl") or "")
+    rev = ctx["bound"] or "HEAD"
+
+    def read(rel: str | None) -> str | None:
+        raw = core.git_show_bytes(ctx["repo"], rel, rev) if rel else None
+        return raw.decode("utf-8", errors="replace") if raw is not None else None
+
+    for cfg in ctx["configs"]:
+        for t in cfg.get("theorem_names") or []:
+            if isinstance(t, str) and cc.covers({t}, decl, decl in ctx["qualified"]):
+                rel = module_path(cfg.get("challenge_module"))
+                src = read(rel)
+                text = lean_scan.statement(src, t) if src else None
+                return {"decl": t, "file": rel, "source": "challenge", "config": cfg, "found": src is not None,
+                        "text": text if text and _fence(text) else None}
+    rel = str(c.get("file") or "") or None
+    src = read(rel)
+    text = lean_scan.statement(src, decl) if src else None
+    return {"decl": decl, "file": rel, "source": "declaration", "config": None, "found": src is not None,
+            "text": text if text and _fence(text) else None}
+
+
+def _status_line(word: str) -> str:
+    if word == "verified":
+        return ("**Verified.** Lean accepts the proof, and lean-pkg's record shows every check of this result "
+                "passed (the build, and the statement comparison).")
+    return (f"**Not yet verified.** lean-pkg's record of the checks says: {_md(word or 'nothing recorded')}. "
+            f"Until it says verified, read the Lean statement below as work in progress.")
+
+
+def _lean_block(ctx: dict, st: dict) -> list[str]:
+    name = _safe(st["decl"]) or st["decl"]
+    rel = st["file"] or ""
+    where = (f"[{rel}]({ctx['link_base']}/{rel})" if ctx["link_base"] and re.fullmatch(
+        r"[A-Za-z0-9_./«»'-]+\.lean", rel) and ".." not in rel else f"`{_code(rel)}`") if rel else "its file"
+    if st["source"] == "challenge":
+        head = (f"**In Lean.** `{_code(name)}` in {where}: the statement the proof was checked against "
+                f"(the proof is in a separate file, and a second checker confirmed it proves exactly this).")
+    else:
+        head = f"**In Lean.** `{_code(name)}` in {where}."
+    if st["text"] is None and not st["found"]:
+        return [head + " The file is not committed at the checked commit, so its statement is not shown here.", ""]
+    if st["text"] is None:
+        return [head + " Its statement could not be read reliably from the source; open the file to read it.",
+                ""]
+    return [head, "", "```lean", st["text"], "```", ""]
+
+
+def _depends_lines(ctx: dict, sts: list[dict]) -> list[str]:
+    out = []
+    holes = [_hole_text(s["config"]) for s in sts if s["config"] and _names(s["config"].get("definition_names"))]
+    for h in dict.fromkeys(holes):
+        out.append(f"**Definitions checked by a person.** {h}. The comparison checks a definition by its name "
+                   f"and type only, not by what it computes: the named person read the definitions.")
+    axioms = _names(ctx["lower"].get("axioms")) if ctx["lower"] else []
+    if ctx["lower"]:
+        out.append("**Axioms.** At most " + (", ".join(f"`{a}`" for a in axioms) if axioms else "none")
+                   + " (what the build check records for the whole package).")
+    return [x for line in out for x in (line, "")]
+
+
+def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, hypotheses: str | None
+                  ) -> tuple[list[str], str]:
+    word = _ledger_word(r, _row_statuses(r, by_id))
+    sts = [_lean_statement(ctx, cid) for cid in r.get("claims") or []]
+    md = [f"### {heading}", "", _status_line(word), ""]
+    if not ctx["library"]:
+        md += [f"**In the paper.** {heading.split(':', 1)[0]} of the paper: read its statement there.", ""]
+    for st in sts:
+        md += _lean_block(ctx, st)
+    if hypotheses:
+        md += [hypotheses, ""]
+    md += _depends_lines(ctx, sts)
+    if r.get("note"):
+        md += [f"**Note.** {_md(r['note'])}", ""]
+    return md, word
+
+
+def _hypotheses(r: dict) -> str:
+    if r["class"] == "same-assumptions":
+        return "**Hypotheses.** The paper's own: the Lean statement assumes nothing the paper does not."
+    return ("**Hypotheses.** The paper's, plus these, which the Lean statement assumes and the paper proves or "
+            "assumes elsewhere: " + "; ".join(_md(x) for x in r["inputs"]) + ".")
+
+
+TRUST_LINE = ("**How to read this page.** Lean has checked every step of the proofs listed here. It cannot check "
+              "that a Lean statement says what the paper says: that comparison is yours. For each result below, "
+              "read the paper's statement beside the Lean statement, and check that the hypotheses match.")
+LIBRARY_TRUST_LINE = ("**How to read this page.** Lean has checked every step of the proofs listed here. Each "
+                      "result is exactly its Lean statement: read the statements below to see what is proved. The "
+                      "titles, the words and the notes are the authors' description, which Lean does not check.")
+
+
 def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
-    """The sections from the status capsule to the acknowledgments, and the facts. target: 'readme' (the
-    README block), 'site' (verification.md beside coverage.md) or 'html' (one page holding both)."""
-    doc, claims, led, kind = (ctx[k] for k in ("doc", "claims", "led", "kind"))
-    md: list[str] = []
-    # status capsule
-    md += ["## Verification status", ""]
-    if kind == "unposted":
+    """Every section, mathematics first, and the facts. target: 'readme' (the README block), 'site'
+    (verification.md beside coverage.md) or 'html' (one page holding both)."""
+    doc, led = ctx["doc"], ctx["led"]
+    by_id = {r["id"]: r for r in led["claims"]}
+    md: list[str] = ["## Verification at a glance", "", LIBRARY_TRUST_LINE if ctx["library"] else TRUST_LINE, ""]
+    if ctx["kind"] == "unposted":
         md += ["> **Manuscript not yet posted.** The paper numbers below refer to an unposted draft; a reader "
                "cannot check them until a version is posted.", ""]
     md += [_md(doc["summary"], lead=True), ""]
-    pstatus = led["package_status"]
-    req = led["required"]
-    n_req_ok = sum(1 for r in led["claims"] if r["required"] and r["status"] == "verified")
-    ledger_line = (f"- Claims ledger (promote stage): **{pstatus}**, {LEDGER_WORDS.get(pstatus, _md(pstatus))}; "
-                   f"{n_req_ok} of {req} required claim(s) verified (`{led['ledger_digest'][:23]}…`).")
+    blocks, words = [], []
+    for r in doc["rows"]:
+        if ctx["library"]:
+            b, w = _result_block(ctx, r, by_id, _md(r["title"], lead=True), None)
+        elif r["class"] == "outside":
+            continue
+        else:
+            p = r["paper"]
+            b, w = _result_block(ctx, r, by_id, f"{_md(p['number'], lead=True)}: {_md(p['title'])}",
+                                 _hypotheses(r))
+        blocks += b
+        words.append(w)
+    n_verified = sum(w == "verified" for w in words)
+    if target != "readme":
+        blocks += [f"Every result with each of its claims, in one table: [Coverage]"
+                   f"({'coverage.md' if target == 'site' else '#coverage'}).", ""]
     if ctx["library"]:
         counts = None
-        map_lines, n_verified = _library_rows(doc, claims, led, ctx["link_base"])
-        md += ["- Library: each row below is a main result of the library, stated by its Lean declarations.",
-               f"- Main results: {len(doc['rows'])}; {n_verified} of {len(doc['rows'])} main result(s) verified.",
-               ledger_line, ""]
-        md += ["## Main results", "",
-               "| Result | Lean declarations | Ledger | Notes |", "|---|---|---|---|", *map_lines, "",
-               "*verified*: `lean-pkg claims ledger` closes every claim of the row at the promote stage (gate and "
-               "comparator receipts); any other word is the ledger's status.", ""]
-        if target != "readme":
-            md += [f"Every claim of every row, with its ledger status: [Coverage]"
-                   f"({'coverage.md' if target == 'site' else '#coverage'}).", ""]
+        n = len(doc["rows"])
+        md += [f"- Main results: {n}; verified: {n_verified} of {n}.", ""]
+        md += ["## Main results", "", *blocks]
     else:
-        md, counts, n_verified = _paper_sections(ctx, target, md, ledger_line)
+        counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
+        formal = len(doc["rows"]) - counts["outside"]
+        md += [f"- Paper: {_manuscript_ref(doc['manuscript'])}.",
+               f"- Results listed: {len(doc['rows'])}. In Lean with the paper's own hypotheses: "
+               f"{counts['same-assumptions']}; in Lean with extra hypotheses, named below: "
+               f"{counts['inputs-supplied']}; not formalized: {counts['outside']}.",
+               f"- Verified: {n_verified} of the {formal} result(s) in Lean.", ""]
+        md += ["## The paper's results in Lean", "", *blocks]
+        md += ["## Not formalized", ""]
+        outside = [r for r in doc["rows"] if r["class"] == "outside"]
+        if outside:
+            md += [f"- {_md(r['paper']['number'])} ({_md(r['paper']['title'])})"
+                   + (f": {_md(r['note'])}" if r.get("note") else "") for r in outside]
+        else:
+            md.append(f"Nothing in the manuscript is excluded: {_md(doc['nothing_excluded']['reason'])}")
+        md.append("")
     return _body_rest(ctx, target, md, counts, n_verified)
-
-
-def _library_rows(doc: dict, claims: dict, led: dict, link_base: str | None) -> tuple[list[str], int]:
-    by_id = {r["id"]: r for r in led["claims"]}
-    out, verified = [], 0
-    for r in doc["rows"]:
-        decls = [_decl_ref(claims[cid], cid, link_base) for cid in r["claims"]]
-        word = _ledger_word(r, _row_statuses(r, by_id))
-        verified += word == "verified"
-        out.append(f"| {_md(r['title'])} | {'<br>'.join(decls)} | {word} | "
-                   f"{_md(r['note']) if r.get('note') else '—'} |")
-    return out, verified
-
-
-def _paper_sections(ctx: dict, target: str, md: list[str], ledger_line: str) -> tuple[list[str], dict, int]:
-    """The capsule lines, the paper-to-Lean map and Not formalized of a kind: paper coverage."""
-    doc, claims, led = ctx["doc"], ctx["claims"], ctx["led"]
-    counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
-    map_lines, n_verified = _map_rows(doc, claims, led, ctx["link_base"])
-    md += [f"- Manuscript: {_manuscript_ref(doc['manuscript'])}.",
-           f"- Paper results mapped: {len(doc['rows'])} ({counts['same-assumptions']} same assumptions, "
-           f"{counts['inputs-supplied']} inputs supplied, {counts['outside']} outside this formalization); "
-           f"{n_verified} of {len(doc['rows']) - counts['outside']} formalized row(s) verified.",
-           ledger_line, ""]
-    # map
-    md += ["## Paper ↔ Lean map", "",
-           "| Paper | Correspondence | Lean declarations | Ledger | Inputs and notes |",
-           "|---|---|---|---|---|", *map_lines, "",
-           "*Same assumptions*: the Lean statement carries the paper's hypotheses. *Inputs supplied*: the Lean "
-           "statement also takes the listed inputs as hypotheses. *Outside this formalization*: no Lean "
-           "counterpart. *verified*: `lean-pkg claims ledger` closes every claim of the row at the promote "
-           "stage (gate and comparator receipts); any other word is the ledger's status.", ""]
-    if target != "readme":
-        md += [f"Every claim of every row, with its ledger status: [Coverage]"
-               f"({'coverage.md' if target == 'site' else '#coverage'}).", ""]
-    # not formalized
-    md += ["## Not formalized", ""]
-    outside = [r for r in doc["rows"] if r["class"] == "outside"]
-    if outside:
-        md += [f"- {_md(r['paper']['number'])} ({_md(r['paper']['title'])})"
-               + (f": {_md(r['note'])}" if r.get("note") else "") for r in outside]
-    else:
-        md.append(f"Nothing in the manuscript is excluded: {_md(doc['nothing_excluded']['reason'])}")
-    md.append("")
-    return md, counts, n_verified
 
 
 def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_verified: int
                ) -> tuple[list[str], dict]:
-    """From the trust boundary to the acknowledgments (both kinds), and the facts."""
+    """What the checks establish, How this was checked, and the citation, license and acknowledgments."""
     name, pkg, repo, doc = (ctx[k] for k in ("name", "pkg", "repo", "doc"))
     lower, comp, gate, cite, led = ctx["lower"], ctx["comp"], ctx["gate"], ctx["cite"], ctx["led"]
     https, prefix, bound, kind = ctx["https"], ctx["prefix"], ctx["bound"], ctx["kind"]
     pstatus = led["package_status"]
-    # trust boundary
-    md += ["## Trust boundary", ""]
-    allowed = _names(gate.get("axioms_allowed") or core.DEFAULT_AXIOMS)
+    configs = ctx["configs"]
     warnings: list[str] = []
+    allowed = _names(gate.get("axioms_allowed") or core.DEFAULT_AXIOMS)
+    # what the checks establish, in plain words
+    md += ["## What the checks establish", ""]
     if lower:
         axioms = _names(lower.get("axioms"))
         sc = lower.get("sorry_count")
-        md.append(f"- Lower-tier gate receipt at `{_c12(lower.get('commit'))}` records: `sorry` count "
-                  f"{sc if isinstance(sc, int) else '(not recorded)'} after the build; axioms used: "
-                  f"{', '.join(f'`{a}`' for a in axioms) or 'none'}; allowed: "
-                  f"{', '.join(f'`{a}`' for a in allowed)}.")
+        sorry = ("no `sorry` (an unfinished proof) remains" if sc == 0 else
+                 f"the `sorry` count is {sc}" if isinstance(sc, int) else "the `sorry` count is not recorded")
+        md.append(f"- **Every proof is checked by Lean.** The package builds; {sorry}; the only axioms used are "
+                  f"{', '.join(f'`{a}`' for a in axioms) or 'none'} (allowed: "
+                  f"{', '.join(f'`{a}`' for a in allowed)}).")
     else:
-        md.append("- No lower-tier gate receipt is committed: nothing here is backed by one yet.")
+        md.append("- **No build check is recorded yet**: nothing on this page is backed by one.")
         warnings.append("the recorded gate receipt is not committed at HEAD (or none is recorded)")
-    configs = [c for c in comp.get("configs") or [] if isinstance(c, dict)] if comp else []
+    if comp and configs:
+        thms = sum(len(c.get("theorem_names") or []) for c in configs)
+        md.append(f"- **The statements shown are the ones proved.** For {thms} statement(s), a second checker "
+                  f"(comparator) confirmed that the proof proves exactly the statement shown, with only the "
+                  f"permitted axioms, and independent Lean kernels replayed the proof.")
+    else:
+        md.append("- **No statement comparison is recorded yet**: no Lean statement here has been compared "
+                  "with its proof by a second checker.")
+    if ctx["library"]:
+        md.append("- **Not checked by any tool:** that a title or note describes its Lean statement. A "
+                  "definition listed under *Definitions checked by a person* is compared by name and type only.")
+    else:
+        md.append("- **Not checked by any tool:** that a Lean statement says what the paper says. That is the "
+                  "comparison this page asks you to make. A definition listed under *Definitions checked by a "
+                  "person* is compared by name and type only.")
+    md += ["", "The full account of what each check covers and what it takes on trust is lean-pkg's "
+               "[trust model](https://github.com/lean-pkg/lean-pkg/blob/main/docs/trust-model.md).", ""]
+    # how this was checked: the receipts, last
+    md += ["## How this was checked", ""]
+    req = led["required"]
+    n_req_ok = sum(1 for r in led["claims"] if r["required"] and r["status"] == "verified")
+    md.append(f"- lean-pkg's claims ledger: **{pstatus}**, {LEDGER_WORDS.get(pstatus, _md(pstatus))}; "
+              f"{n_req_ok} of {req} required claim(s) verified (`{led['ledger_digest'][:23]}…`).")
+    if lower:
+        sc = lower.get("sorry_count")
+        md.append(f"- Build check (`lean-pkg gate`) at commit `{_c12(lower.get('commit'))}`: `sorry` count "
+                  f"{sc if isinstance(sc, int) else '(not recorded)'}; axioms used: "
+                  f"{', '.join(f'`{a}`' for a in _names(lower.get('axioms'))) or 'none'}.")
     if comp and configs:
         thms = sum(len(c.get("theorem_names") or []) for c in configs)
         permitted = sorted({a for c in configs for a in _names(c.get("permitted_axioms"))})
-        md.append(f"- Comparator receipt at `{_c12(comp.get('commit'))}`: {len(configs)} configuration(s), "
-                  f"{thms} theorem(s) compared (Challenge statement against Solution proof); permitted axioms: "
-                  f"{', '.join(f'`{a}`' for a in permitted) or 'none'}; definition holes: "
+        md.append(f"- Statement comparison (comparator) at commit `{_c12(comp.get('commit'))}`: "
+                  f"{len(configs)} configuration(s), {thms} theorem(s) compared (each Challenge statement "
+                  f"against its Solution proof); permitted axioms: "
+                  f"{', '.join(f'`{a}`' for a in permitted) or 'none'}; definitions compared by name only: "
                   f"{_holes_line(configs)}.")
+    md.append("")
+    ev_rows = ctx["evidence"]
+    md += ["### Receipts", ""]
+    if ev_rows:
+        md += ["| Receipt | Check | Commit | Date | Job | SHA-256 |", "|---|---|---|---|---|---|"]
+        for e in ev_rows:
+            md.append(f"| `{_code(e['path'])}`{' (used here)' if e['recorded'] else ''} | {e['tier']} | "
+                      f"`{e['commit'][:12]}` | {e['date'] or '—'} | {e['job'] or '—'} | `{e['sha256']}` |")
+        md += ["", "*(used here)*: the receipt the lean-pkg registry holds for this package, which the lines "
+                   "above read. SHA-256 is of the file as committed.", ""]
     else:
-        md.append("- No comparator receipt is committed: no statement has been compared.")
-    md += ["", LIBRARY_TRUST_FOOTNOTE if ctx["library"] else TRUST_FOOTNOTE, ""]
+        md += ["No receipt is committed under `.lean-receipts/`.", ""]
     # reproduce
     toolchain = _safe((_head_text(repo, "lean-toolchain") or "").strip())
     rev = _mathlib_rev(repo)
-    md += ["## Reproduce", "",
+    md += ["### Reproduce", "",
            f"- Lean toolchain: `{toolchain or '(lean-toolchain not committed)'}`.",
            "- Mathlib: " + (f"`{rev}` (lake-manifest.json)." if rev else "not a dependency (lake-manifest.json)."),
            "", "```bash"]
@@ -465,28 +558,16 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
     dirname = (https.rstrip("/").rsplit("/", 1)[-1] if https else "<checkout>")
     md += [f"git clone {clone}", f"cd {dirname}" + (f"/{prefix}" if prefix else "")]
     if bound:
-        md.append(f"git checkout {bound}   # the commit the gate receipt binds")
+        md.append(f"git checkout {bound}   # the commit the build check binds")
     if rev:
         md.append("lake exe cache get")
     md += ["lake build", "```", ""]
     if lower:
         axioms = _names(lower.get("axioms"))
-        md.append("Expected: `#print axioms` on any declaration of the map reports a subset of "
+        md.append("Expected: `#print axioms` on any declaration above reports a subset of "
                   + ("{" + ", ".join(f"`{a}`" for a in axioms) + "}" if axioms else "no axioms")
-                  + " (the union the gate receipt records); `sorryAx` never appears.")
+                  + " (the union the build check records); `sorryAx` never appears.")
         md.append("")
-    # evidence
-    md += ["## Evidence", ""]
-    ev_rows = ctx["evidence"]
-    if ev_rows:
-        md += ["| Receipt | Tier | Commit | Date | Job | SHA-256 |", "|---|---|---|---|---|---|"]
-        for e in ev_rows:
-            md.append(f"| `{_code(e['path'])}`{' (recorded)' if e['recorded'] else ''} | {e['tier']} | "
-                      f"`{e['commit'][:12]}` | {e['date'] or '—'} | {e['job'] or '—'} | `{e['sha256']}` |")
-        md += ["", "*(recorded)*: the receipt the lean-pkg registry holds for this package. SHA-256 is of the "
-                   "file as committed.", ""]
-    else:
-        md += ["No receipt is committed under `.lean-receipts/`.", ""]
     # citation
     md += ["## Citation", ""]
     line = f"{_join([_md(a, lead=not i) for i, a in enumerate(cite['authors'])])}. *{_md(cite['title'])}*."
@@ -533,7 +614,7 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
     md += [f"Manuscript: {_manuscript_ref(doc['manuscript'])}.", "",
            f"- Paper results: {len(doc['rows'])} ({counts['same-assumptions']} same assumptions, "
            f"{counts['inputs-supplied']} inputs supplied, {counts['outside']} outside this formalization).",
-           f"- Claims ledger (promote stage): **{led['package_status']}** (`{led['ledger_digest'][:23]}…`).", "",
+           f"- lean-pkg's claims ledger: **{led['package_status']}** (`{led['ledger_digest'][:23]}…`).", "",
            "| Paper | Title | Correspondence | Claims | Lean declarations | Ledger | Inputs | Note |",
            "|---|---|---|---|---|---|---|---|"]
     for r in doc["rows"]:
@@ -546,7 +627,7 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
                   f"{'<br>'.join(_md(x) for x in r.get('inputs') or []) or '—'} | "
                   f"{_md(r['note']) if r.get('note') else '—'} |")
     md += ["", "One line per paper result of `coverage.yaml`. *Ledger*: the status `lean-pkg claims ledger` "
-               "gives each claim at the promote stage, in the order of the claims; only *verified* means the "
+               "gives each claim, in the order of the claims; only *verified* means the "
                "recorded receipts close the claim.", ""]
     if not any(r["class"] == "outside" for r in doc["rows"]):
         md += [f"Nothing in the manuscript is excluded: {_md(doc['nothing_excluded']['reason'])}", ""]
@@ -561,7 +642,7 @@ def _library_coverage_lines(ctx: dict, target: str) -> list[str]:
     by_id = {r["id"]: r for r in led["claims"]}
     md = ["Library: each row is a main result of the library.", "",
           f"- Main results: {len(doc['rows'])}.",
-          f"- Claims ledger (promote stage): **{led['package_status']}** (`{led['ledger_digest'][:23]}…`).", "",
+          f"- lean-pkg's claims ledger: **{led['package_status']}** (`{led['ledger_digest'][:23]}…`).", "",
           "| Result | Claims | Lean declarations | Ledger | Note |", "|---|---|---|---|---|"]
     for r in doc["rows"]:
         ids = list(r["claims"])
@@ -569,7 +650,7 @@ def _library_coverage_lines(ctx: dict, target: str) -> list[str]:
                   f"{'<br>'.join(_decl_ref(claims[c], c, ctx['link_base']) for c in ids)} | "
                   f"{'<br>'.join(_row_statuses(r, by_id))} | {_md(r['note']) if r.get('note') else '—'} |")
     md += ["", "One line per main result of `coverage.yaml`. *Ledger*: the status `lean-pkg claims ledger` gives "
-               "each claim at the promote stage, in the order of the claims; only *verified* means the recorded "
+               "each claim, in the order of the claims; only *verified* means the recorded "
                "receipts close the claim.", "",
            f"Back to [Verification]({'verification.md' if target == 'site' else '#verification'})."]
     return md

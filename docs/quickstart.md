@@ -185,16 +185,23 @@ my-proof: page: current (README.md)
 
 The README now says, among other things:
 
-```text
+````text
 ## Main results
 
-| Result | Lean declarations | Ledger | Notes |
-|---|---|---|---|
-| n &lt;= 2 \* n for every natural number n | `MyProof.two_mul_le` (linked at the gated commit) | verified | — |
-```
+### n &lt;= 2 \* n for every natural number n
 
-with the trust boundary, the reproduce commands, the evidence table, the
-citation, the license and the credits. Run `lean-pkg page my-proof --check`
+**Verified.** Lean accepts the proof, and lean-pkg's record shows every check of this result passed (the build, and the statement comparison).
+
+**In Lean.** `MyProof.two_mul_le` in MyProof/Challenge.lean (linked at the gated commit): the statement the proof was checked against (...).
+
+```lean
+theorem MyProof.two_mul_le (n : Nat) : n ≤ 2 * n
+```
+````
+
+after a first section that tells the reader what to compare, and before what
+the checks establish, how this was checked (the receipts, their hashes and
+the reproduce commands), the citation, the license and the credits. Run `lean-pkg page my-proof --check`
 in CI. [The verification page](page.md) explains every section, and
 `--site docs --html docs/verification.html` writes the same page for a
 documentation site.

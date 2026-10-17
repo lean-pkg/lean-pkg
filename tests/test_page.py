@@ -39,6 +39,21 @@ authors:
     given-names: Jane
 """
 CREDIT_URL = "https://github.com/lean-pkg/lean-pkg"
+# the Challenge module of the env fixture's comparator.json (theorem BetaAudit.Demo.foo_le_bar)
+CHALLENGE = """\
+namespace BetaAudit.Demo
+
+/-- The main bound. -/
+theorem foo_le_bar (n : Nat) (h : 0 < n) :
+    n ≤ n * n := by
+  sorry
+
+end BetaAudit.Demo
+"""
+CHALLENGE_STATEMENT = "theorem foo_le_bar (n : Nat) (h : 0 < n) :\n    n ≤ n * n"
+# internal words that never reach a rendered page (the reader is a mathematician, not a lean-pkg user)
+JARGON = ("lower-tier", "lower tier", "evidence-only", "descendant", "promote stage", "R11", "R12",
+          "same-assumptions", "inputs-supplied", "Tier", "trust boundary")
 
 
 def prepare(env, coverage: dict | None = None, *, easley: bool = False, job: str = "slurm-12345",
@@ -54,7 +69,8 @@ def prepare(env, coverage: dict | None = None, *, easley: bool = False, job: str
     if easley:
         doc["compute"] = [{"cluster": "easley", "jobs": [job]}]
     files = {"coverage.yaml": yaml.safe_dump(doc, sort_keys=False), "CITATION.cff": citation,
-             "LICENSE": MIT_TEXT, "lake-manifest.json": MATHLIB_MANIFEST, **(extra or {})}
+             "LICENSE": MIT_TEXT, "lake-manifest.json": MATHLIB_MANIFEST, "Challenge.lean": CHALLENGE,
+             **(extra or {})}
     for rel, text in files.items():
         (repo / rel).write_text(text)
     _git(repo, "add", "-A", "--", *files)
@@ -105,13 +121,18 @@ def test_render_is_deterministic_and_states_only_what_the_ledger_closes(lp, env,
     md = a["markdown"]
     assert md.startswith("<!-- lean-pkg:page:begin -->\n") and md.endswith("<!-- lean-pkg:page:end -->\n")
     assert a["ledger_status"] == "ready" and a["verified_rows"] == 1
-    row = next(x for x in md.splitlines() if x.startswith("| Theorem 1 (Main bound)"))
-    assert "| Same assumptions |" in row and "`Demo.foo_le_bar`" in row and "| verified |" in row
+    block = md.split("### Theorem 1: Main bound\n", 1)[1].split("\n## ", 1)[0]
+    assert block.startswith("\n**Verified.**")
+    assert "**In the paper.** Theorem 1 of the paper: read its statement there." in block
+    assert f"**In Lean.** `BetaAudit.Demo.foo_le_bar` in [Challenge.lean]" in block
+    assert f"```lean\n{CHALLENGE_STATEMENT}\n```" in block                 # the statement, without its proof
+    assert "sorry\n```" not in block and "**Hypotheses.** The paper's own" in block
     assert "## Not formalized" in md and "- Theorem 2 (Sharpness): the lower-bound construction" in md
+    assert "### Theorem 2" not in md                               # an outside row has no result block
     assert LABEL not in md                                         # labels stay in coverage.yaml
-    for section in ("Verification status", "Paper ↔ Lean map", "Trust boundary", "Reproduce", "Evidence",
-                    "Citation", "License", "Acknowledgments"):
-        assert f"## {section}\n" in md
+    heads = [x[3:] for x in md.splitlines() if x.startswith("## ")]
+    assert heads == ["Verification at a glance", "The paper's results in Lean", "Not formalized",
+                     "What the checks establish", "How this was checked", "Citation", "License", "Acknowledgments"]
     assert "git clone https://github.com/example/beta" in md and "lake exe cache get" in md
     assert "Jane Doe. *Beta: a Lean companion*. Version 1.0.0." in md
     assert "Released under `MIT`" in md
@@ -126,9 +147,10 @@ def test_a_row_the_ledger_does_not_close_is_not_called_verified(lp, env, capsys)
     reg["packages"]["beta"]["gate"]["comparator"] = None             # promote stage needs the comparator tier
     write_reg(env, reg)
     rc, a = page_json(lp, env, capsys)
-    row = next(x for x in a["markdown"].splitlines() if x.startswith("| Theorem 1"))
-    assert rc == 0 and a["ledger_status"] == "open" and "| verified |" not in row and "| open |" in row
-    assert "0 of 1 formalized row(s) verified" in a["markdown"]
+    block = a["markdown"].split("### Theorem 1: Main bound\n", 1)[1].split("\n## ", 1)[0]
+    assert rc == 0 and a["ledger_status"] == "open" and "**Verified.**" not in a["markdown"]
+    assert block.startswith("\n**Not yet verified.** lean-pkg's record of the checks says: open.")
+    assert "Verified: 0 of the 1 result(s) in Lean." in a["markdown"]
 
 
 def test_receipt_fields_outside_the_allow_list_never_appear(lp, env, capsys):
@@ -224,7 +246,7 @@ def test_check_fails_on_a_stale_block(lp, env, capsys):
     prepare(env)
     assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
     readme = env.repo_b / "README.md"
-    readme.write_text(readme.read_text().replace("0 of", "9 of").replace("1 of 1 formalized", "2 of 1 formalized"))
+    readme.write_text(readme.read_text().replace("Verified: 1 of", "Verified: 9 of"))
     rc, problems = check(lp, env, capsys)
     assert rc == 1 and problems == ["README.md: the page block is stale (`lean-pkg page NAME --write`)"]
     rc, out, _err = run(lp, env, capsys, "page", "beta", "--check")
@@ -313,7 +335,7 @@ def test_a_schema_2_comparator_receipt_is_listed_and_backs_its_slurm_job(lp, env
     rc, data = page_json(lp, env, capsys)
     assert rc == 0
     row = next(x for x in data["markdown"].splitlines() if x.startswith(f"| `{rel}`"))
-    assert "(recorded) | comparator |" in row
+    assert "(used here) | statement comparison |" in row
 
 
 def test_a_bare_numeric_job_id_never_backs_easley_and_the_refusal_names_it(lp, env, capsys):
@@ -551,19 +573,21 @@ def test_a_library_page_claims_no_manuscript_and_states_what_was_verified(lp, en
     rc, a = page_json(lp, env, capsys, "--site", str(tmp_path / "site"), "--html", str(tmp_path / "v.html"))
     assert rc == 0 and a["kind"] == "library" and a["manuscript"] is None and a["verified_rows"] == 1
     md = a["markdown"]
-    row = next(x for x in md.splitlines() if x.startswith("| Main bound |"))
-    assert "`Demo.foo_le_bar`" in row and "| verified |" in row and "the headline estimate" in row
-    assert "## Main results\n" in md and "- Library: each row below is a main result" in md
-    assert "1 of 1 main result(s) verified" in md
+    block = md.split("### Main bound\n", 1)[1].split("\n## ", 1)[0]
+    assert block.startswith("\n**Verified.**") and "**In Lean.** `BetaAudit.Demo.foo_le_bar`" in block
+    assert f"```lean\n{CHALLENGE_STATEMENT}\n```" in block and "**Note.** the headline estimate" in block
+    assert "**In the paper.**" not in block and "**Hypotheses.**" not in block     # a library has neither
+    assert "## Main results\n" in md and "Each result is exactly its Lean statement" in md
+    assert "- Main results: 1; verified: 1 of 1." in md
     outputs = [md, (tmp_path / "site" / "verification.md").read_text(), (tmp_path / "site" / "coverage.md").read_text(),
                (tmp_path / "v.html").read_text()]
     for text in outputs:                            # nothing on any output claims a paper or a manuscript
         assert "Manuscript:" not in text and "formalizes results of" not in text
         assert "Paper ↔ Lean map" not in text and "Not formalized" not in text and "paper" not in text.lower()
         assert "manuscript" not in text.lower()
-    for section in ("Verification status", "Main results", "Trust boundary", "Reproduce", "Evidence",
-                    "Citation", "License", "Acknowledgments"):
-        assert f"## {section}\n" in md
+    heads = [x[3:] for x in md.splitlines() if x.startswith("## ")]
+    assert heads == ["Verification at a glance", "Main results", "What the checks establish",
+                     "How this was checked", "Citation", "License", "Acknowledgments"]
 
 
 def test_a_library_page_carries_easley_only_with_a_slurm_receipt(lp, env, capsys):
@@ -690,7 +714,7 @@ def test_a_library_page_passes_patterns_against_manuscript_and_private(lp, env, 
     assert rc == 0 and a["kind"] == "library"
     for text in _outputs(tmp_path, a["markdown"]):      # lean-pkg's own wording on a library page
         assert not re.search(r"(?i)manuscript|paper|private\b", text)
-    assert "- Library: each row below is a main result of the library" in a["markdown"]
+    assert "Each result is exactly its Lean statement" in a["markdown"]
     assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
     # negative control: a paper page names its manuscript, and the same patterns refuse it
     prepare(env, extra={".lean-pkg-private-patterns": PATTERNS})
@@ -723,7 +747,105 @@ def test_the_evidence_table_lists_a_comparator_receipt_of_the_current_schema(lp,
         raw = (env.repo_b / rel).read_bytes()
         rec = json.loads(raw)
         row = next(x for x in a["markdown"].splitlines() if x.startswith(f"| `{rel}`"))
-        assert row == (f"| `{rel}` (recorded) | comparator | `{rec['commit'][:12]}` | 2026-10-05 | — | "
+        assert row == (f"| `{rel}` (used here) | statement comparison | `{rec['commit'][:12]}` | 2026-10-05 | — | "
                        f"`{sha256(raw)}` |")
         tiers = [x.split(" | ")[1] for x in a["markdown"].splitlines() if x.startswith("| `.lean-receipts/")]
-        assert sorted(tiers) == ["comparator", "lower tier"]
+        assert sorted(tiers) == ["build", "statement comparison"]
+
+
+# --- the page for mathematicians: mathematics first, plain words, receipts last -------------------------
+
+def _all_outputs(lp, env, capsys, tmp_path) -> tuple[dict, list[str]]:
+    rc, a = page_json(lp, env, capsys, "--site", str(tmp_path / "site"), "--html", str(tmp_path / "v.html"))
+    assert rc == 0
+    return a, _outputs(tmp_path, a["markdown"])
+
+
+def test_no_internal_jargon_reaches_any_output_of_either_kind(lp, env, capsys, tmp_path):
+    for doc in (COVERAGE, LIBRARY):
+        prepare(env, doc)
+        _a, outputs = _all_outputs(lp, env, capsys, tmp_path)
+        for text in outputs:
+            for word in JARGON:
+                if word[0].isupper():
+                    assert word not in text, word
+                else:
+                    assert word not in text.lower(), word
+
+
+def test_the_trust_line_opens_the_page_and_names_what_to_compare(lp, env, capsys, tmp_path):
+    from lean_pkg.page import LIBRARY_TRUST_LINE, TRUST_LINE
+    for doc, line in ((COVERAGE, TRUST_LINE), (LIBRARY, LIBRARY_TRUST_LINE)):
+        prepare(env, doc)
+        a, outputs = _all_outputs(lp, env, capsys, tmp_path)
+        md = a["markdown"]
+        assert md.split("## Verification at a glance\n\n", 1)[1].startswith(line + "\n")
+        assert md.index(line) < md.index("##", md.index("## Verification at a glance") + 3)   # before any section
+        assert line in outputs[1]                                           # verification.md
+        assert "How to read this page." in outputs[3]                       # the HTML says it too
+    assert "read the paper's statement beside the Lean statement" in TRUST_LINE
+    assert "paper" not in LIBRARY_TRUST_LINE.lower()
+
+
+def test_every_receipt_is_listed_in_how_this_was_checked_and_nowhere_before(lp, env, capsys, tmp_path):
+    for doc in (COVERAGE, LIBRARY):
+        prepare(env, doc, comparator=COMP2)
+        a, _outputs_ = _all_outputs(lp, env, capsys, tmp_path)
+        md = a["markdown"]
+        before, after = md.split("## How this was checked\n", 1)
+        after = after.split("\n## Citation", 1)[0]
+        tracked = sorted(x for x in _git(env.repo_b, "ls-files", ".lean-receipts").stdout.split()
+                         if x.endswith(".json"))
+        assert len(tracked) == a["receipts"] == 2
+        for rel in tracked:
+            assert f"| `{rel}`" in after and rel not in before
+        assert "sha256:" not in before and "```bash" not in before            # hashes and commands come last
+        assert after.index("### Receipts") < after.index("### Reproduce")
+
+
+def test_the_lean_statement_falls_back_to_a_link_when_it_cannot_be_read(lp, env, capsys):
+    prepare(env, extra={"Challenge.lean": "namespace BetaAudit.Demo\ntheorem foo_le_bar : Nat → Nat\n"
+                                          "  | 0 => 1\n  | _ => 2\nend BetaAudit.Demo\n"})
+    rc, a = page_json(lp, env, capsys)
+    assert rc == 0 and "could not be read reliably from the source; open the file" in a["markdown"]
+    assert "```lean" not in a["markdown"]                              # never a guess
+    _git(env.repo_b, "rm", "-q", "Challenge.lean")
+    _git(env.repo_b, "commit", "-q", "-m", "no challenge")
+    prepare(env)
+    _git(env.repo_b, "rm", "-q", "Challenge.lean")                     # after the gate: not at the bound commit
+    _git(env.repo_b, "commit", "-q", "-m", "drop it")
+    rc, a = page_json(lp, env, capsys)
+    assert rc == 0 and "```lean" in a["markdown"]                       # read at the gate-bound commit
+
+
+def test_without_a_comparator_the_lean_statement_is_the_declaration_in_its_file(lp, env, capsys):
+    prepare(env)
+    reg = read_reg(env)
+    reg["packages"]["beta"]["gate"]["comparator"] = None
+    write_reg(env, reg)
+    rc, a = page_json(lp, env, capsys)
+    md = a["markdown"]
+    assert rc == 0 and "**In Lean.** `Demo.foo_le_bar` in [Demo/Main.lean]" in md
+    assert "```lean\ntheorem foo_le_bar : True\n```" in md and "checked against" not in md
+    assert "**No statement comparison is recorded yet**" in md
+
+
+def test_statement_extraction_reads_only_what_it_can_read_safely():
+    from lean_pkg.lean_scan import statement
+    text = ("namespace A\n/-- d -/\n@[simp] theorem t (n : Nat) {k : Nat := 3}\n    (h : n = k) :\n"
+            "    n + 0 = k := by\n  simp [h]\nlemma two : True := trivial\nlemma two : True := trivial\n"
+            "theorem e : Nat → Nat\n  | _ => 0\ntheorem nxt : True := trivial\nend A\n")
+    assert statement(text, "A.t") == "theorem t (n : Nat) {k : Nat := 3}\n    (h : n = k) :\n    n + 0 = k"
+    assert statement(text, "t") is None                                 # the qualified name, nothing else
+    assert statement(text, "A.two") is None                             # twice: ambiguous
+    assert statement(text, "A.e") is None                               # equation form: no `:=`
+    assert statement(text, "A.nxt") == "theorem nxt : True"
+    long = "theorem big : True ∧\n" + "  True ∧\n" * 50 + "  True := by sorry\n"
+    assert statement(long, "big") is None                               # too long to show
+
+
+def test_a_private_string_in_a_lean_statement_refuses_the_page(lp, env, capsys):
+    prepare(env, extra={".lean-pkg-private-patterns": "zz_secret_bound\n",
+                        "Challenge.lean": CHALLENGE.replace("n ≤ n * n", "n ≤ n * n ∧ zz_secret_bound")})
+    rc, _out, err = run(lp, env, capsys, "page", "beta")
+    assert rc == 1 and "private string(s)" in err and "nothing written" in err
