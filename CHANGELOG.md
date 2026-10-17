@@ -35,6 +35,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   comparator, tested end to end on a small package with no registry. Linked
   from the index, receipts, page and index docs.
 
+- `status`: the `scope:` block names the product the page certifies,
+  `product: library` or `product: paper`, read from `kind` in `coverage.yaml`
+  committed at HEAD (paper when the key is absent); `--json` adds
+  `scope.product` {kind, source, note}. With no committed or readable file it
+  says `not declared` and why, and never refuses. It is not the record's DOI
+  `track`, and nothing is stored in the record.
+- docs/design/two-tracks.md: the two product tracks, a formally verified
+  paper (Track P) and a reusable Lean library (Track L). Maps every module to
+  the shared core or to one track, gives each track's end-to-end path and
+  success gate, and a prioritized, sized gap list (Mathlib readiness,
+  per-declaration upstreaming, API diffs and versions for libraries; version
+  of record, submission bundle and referee re-verification for papers). The
+  site index gains a "Choose your track" section.
+
 - `lean-exercise` for course use (docs/exercise.md, "Course use").
   `--project DIR` allows `import Mathlib...` when `DIR` is a Lake project
   whose `lean-toolchain` and `lake-manifest.json` pin Mathlib and whose
