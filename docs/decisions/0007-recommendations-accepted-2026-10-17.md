@@ -82,7 +82,7 @@ is accepted, with its section 8 decisions as proposed.
     committed redacted log fails, and the allowed axioms are the default
     three;
   - a committed, verifiable docs-only opt-in is designed in proposal 0002
-    (PR2NUM), read only at the bound commit X.
+    (#212), read only at the bound commit X.
 - `receipt local --run` warns while a run is in progress and refuses at
   collection when lean-pkg itself changed; it does not stop the run (as
   shipped in #207).
