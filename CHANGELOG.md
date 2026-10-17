@@ -11,6 +11,24 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `receipt systemd --run --require-tools A,B,...` (repeatable) checks a
+  project's own run tools before the unit is created: each name must
+  resolve like `type -P` in the unit's `PATH` (this process's, or the last
+  `--setenv PATH=`), else the run is refused and nothing is started. The
+  resolved path, real path and SHA-256 of each go to stderr and to `--json`
+  `run_tools`; none goes into the receipt. docs/receipts.md, "Run tools",
+  gives the recipe for `--run`, the Slurm template's `RUN_TOOLS` and a custom
+  gate: a committed, per-version tools list checked with `type -P` in the
+  job's own `PATH`, logged with paths and hashes before the work.
+- `receipt systemd` exports `RemainAfterExit` (the mode `--run` sets, which
+  keeps the finished unit loaded for capture) as an optional, recorded
+  property: it is captured, copied into `<c12>-<slug>-unit.properties` and
+  shown as `--json` `unit.remain_after_exit`, and never required, so a
+  capture without it stays valid. The exact exported property set, what
+  each means at terminal capture and which ones are required, is now
+  documented (docs/receipts.md, the module docstring). `MainPID` is not
+  exported: it is 0 once the main process has exited.
+
 - LTS stacks, stage 0 of proposal 0004 (accepted 2026-10-17; open
   question 6 stays open): `docs/stacks/` with the first stack,
   `lts-2026.10` (Lean `v4.35.0`, Mathlib tag `v4.35.0` at

@@ -1,10 +1,11 @@
 usage: lean-pkg receipt systemd [-h] --unit U --log PATH --receipt-commit SHA [--stdout PATH]
                                 [--stderr PATH] [--properties-file F] [--run] [--memory-max BYTES]
                                 [--memory-swap-max BYTES] [--cpu-quota PCT] [--runtime-max SPAN]
-                                [--setenv NAME=VALUE] [--properties-out PATH] [--redact REGEX]
-                                [--checker TEXT] [--repo DIR] [--out PATH] [--compress-log]
-                                [--append-readme] [--readme-heading TEXT] [--readme-line TEXT]
-                                [--tar-sha256 HEX] [--json]
+                                [--setenv NAME=VALUE] [--require-tools A,B,...]
+                                [--properties-out PATH] [--redact REGEX] [--checker TEXT]
+                                [--repo DIR] [--out PATH] [--compress-log] [--append-readme]
+                                [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
+                                [--json]
                                 [-- CMD ...]
 
 positional arguments:
@@ -54,8 +55,8 @@ where the unit's terminal state comes from (default: `systemctl --user show U` n
                         ,InvocationID,ExecMainCode,ExecMainStatus,ExecMainStartTimestamp,ExecMainE
                         xitTimestamp,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotoni
                         c,NRestarts,MemoryPeak,CPUUsageNSec,MemoryMax,MemorySwapMax,CPUQuotaPerSec
-                        USec,RuntimeMaxUSec,OOMPolicy` output, captured before the unit was
-                        collected, plus a `Hostname=` line for the host it ran on
+                        USec,RuntimeMaxUSec,OOMPolicy,RemainAfterExit` output, captured before the
+                        unit was collected, plus a `Hostname=` line for the host it ran on
   --run                 start `-- CMD ...` as the bounded unit U (systemd-run --user,
                         RemainAfterExit, WorkingDirectory=--repo), wait for it, capture its
                         properties before stopping it; --log, --stdout, --stderr must not exist
@@ -70,5 +71,10 @@ where the unit's terminal state comes from (default: `systemctl --user show U` n
   --setenv NAME=VALUE   --run: an extra environment variable for the unit (repeatable; PATH is
                         passed; LAKE_CACHE_DIR=<fresh empty dir> and LAKE_ARTIFACT_CACHE=false
                         unless named here)
+  --require-tools A,B,...
+                        --run: executables the command needs (comma-separated, repeatable), each
+                        resolved with `type -P` in the unit's PATH before the unit is created; a
+                        missing one refuses and nothing is run. The resolved paths and SHA-256 are
+                        printed (stderr) and in --json run_tools
   --properties-out PATH
                         --run: where the captured properties go (default <log>.unit.properties)

@@ -62,6 +62,22 @@ changes:
       without links (cp -r --no-preserve=links) before packing.
     breaking: false
     changelog: Fixed
+  - pr: 250
+    id: systemd-require-tools-remain-after-exit
+    kind: command
+    area: receipts
+    summary: >-
+      receipt systemd --run gains --require-tools A,B,... (repeatable): before the unit is created each
+      named executable must resolve like type -P in the unit's PATH, else the run is refused and nothing is
+      started; resolved paths, real paths and SHA-256 go to stderr and --json run_tools, never into the
+      receipt. The exported unit property set gains RemainAfterExit, recorded and never required (captures
+      and receipts without it stay valid); the exact set is documented. MainPID is not exported.
+    action: >-
+      Optional. Commit a per-version run-tools list beside the verify script and pass it with
+      --require-tools (docs/receipts.md, "Run tools"); a wrapper reading unit.properties should require only
+      the documented required properties.
+    breaking: false
+    changelog: Added
   - pr: 246
     id: toolchain-advisories
     kind: behavior

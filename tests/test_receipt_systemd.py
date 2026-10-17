@@ -761,3 +761,135 @@ def test_signal_handlers_are_restored_after_a_run(lp, repo, tmp_path, fake_syste
     rc, _d = run_live(lp, repo, tmp_path)
     assert rc == 0, capsys.readouterr().err
     assert {s: signal.getsignal(s) for s in before} == before
+
+
+# --------------------------------------------------------------------------
+# the exported property set (field report: a wrapper assumed MainPID / RemainAfterExit were exported)
+
+def test_the_exported_property_set_is_exact_and_documented():
+    from lean_pkg import receipt_systemd as rs
+    assert rs.UNIT_PROPS == ("Id", "LoadState", "ActiveState", "SubState", "Result", "InvocationID",
+                             "ExecMainCode", "ExecMainStatus", "ExecMainStartTimestamp", "ExecMainExitTimestamp",
+                             "ExecMainStartTimestampMonotonic", "ExecMainExitTimestampMonotonic", "NRestarts",
+                             "MemoryPeak", "CPUUsageNSec", "MemoryMax", "MemorySwapMax", "CPUQuotaPerSecUSec",
+                             "RuntimeMaxUSec", "OOMPolicy", "RemainAfterExit")
+    assert "MainPID" not in rs.UNIT_PROPS and set(rs.REQUIRED) <= set(rs.UNIT_PROPS)
+    assert "RemainAfterExit" not in rs.REQUIRED            # older captures without it stay valid
+    docs = (Path(__file__).resolve().parents[1] / "docs" / "receipts.md").read_text()
+    for prop in rs.UNIT_PROPS:
+        assert f"`{prop}`" in docs, prop
+    assert ",".join(rs.UNIT_PROPS[-3:]) in docs.replace("\\\n", "")   # the --properties-file snippet
+    assert "MainPID" in (rs.__doc__ or "") and "RemainAfterExit" in (rs.__doc__ or "")
+
+
+def test_remain_after_exit_is_recorded_and_main_pid_ignored(lp, repo, tmp_path, capsys):
+    u = Unit(tmp_path, props=props_text(extra="MainPID=0\n", RemainAfterExit="yes"))
+    assert run(lp, repo, u, "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["unit"]["remain_after_exit"] == "yes"
+    kept = next(rdir(repo).glob("*-unit.properties")).read_text()
+    assert kept.endswith(f"OOMPolicy=stop\nRemainAfterExit=yes\nHostname={LABEL}\n") and "MainPID" not in kept
+
+
+def test_a_capture_without_remain_after_exit_still_passes(lp, repo, tmp_path, capsys):
+    assert "RemainAfterExit" not in props_text()
+    assert run(lp, repo, Unit(tmp_path), "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is True and data["unit"]["remain_after_exit"] is None
+
+
+def test_remain_after_exit_given_twice_is_refused(lp, repo, tmp_path, capsys):
+    u = Unit(tmp_path, props=props_text(extra="RemainAfterExit=yes\nRemainAfterExit=no\n"))
+    assert run(lp, repo, u) == 1
+    assert "`RemainAfterExit=` appears 2 times" in capsys.readouterr().err
+    assert_nothing_written(repo)
+
+
+def test_run_captures_remain_after_exit(lp, repo, tmp_path, fake_systemd, capsys):
+    props, calls_made = fake_systemd
+    props.write_text(props_text(host=None, RemainAfterExit="yes"))
+    rc, d = run_live(lp, repo, tmp_path)
+    assert rc == 0, capsys.readouterr().err
+    show = [c for c in calls_made() if c[2] == "show"][-1]
+    assert show[-1].split(",")[-1] == "RemainAfterExit"
+    assert "RemainAfterExit=yes" in (d / "verify.log.unit.properties").read_text()
+
+
+# --------------------------------------------------------------------------
+# --require-tools: the project's own executables, before the unit is created
+
+def _tool(bindir: Path, name: str, body: str = "#!/bin/sh\nexit 0\n") -> Path:
+    p = bindir / name
+    p.write_text(body)
+    p.chmod(0o755)
+    return p
+
+
+def test_require_tools_resolves_and_logs_before_the_unit(lp, repo, tmp_path, fake_systemd, capsys):
+    _props, calls_made = fake_systemd
+    bindir = tmp_path / "bin"
+    real = _tool(bindir, "rg-real")
+    (bindir / "rg").symlink_to(real)
+    _tool(bindir, "jq")
+    rc, _d = run_live(lp, repo, tmp_path, "--require-tools", "rg,jq", "--require-tools", "rg", "--json")
+    cap = capsys.readouterr()
+    assert rc == 0, cap.err
+    data = json.loads(cap.out)
+    rt = data["run_tools"]
+    assert rt["required"] == ["rg", "jq"] and rt["missing"] == []
+    by = {t["name"]: t for t in rt["resolved"]}
+    assert by["rg"]["path"] == str(bindir / "rg") and by["rg"]["realpath"] == str(real)
+    assert by["rg"]["sha256"] == sha(real.read_bytes()) and by["jq"]["sha256"] == sha((bindir / "jq").read_bytes())
+    assert f"run tool rg: {bindir / 'rg'} -> {real} sha256 {sha(real.read_bytes())}" in cap.err
+    assert any("✓ run tools: 2 resolved in the unit's PATH" in c for c in data["checks"])
+    assert calls_made()[0][0] == "systemd-run"
+    receipt = Path(next(e["path"] for e in data["sealed"] if e["role"] == "receipt")).read_text()
+    assert str(bindir) not in receipt and "run_tools" not in receipt     # local paths stay out of the receipt
+
+
+def test_require_tools_missing_refuses_and_creates_no_unit(lp, repo, tmp_path, fake_systemd, capsys):
+    _props, calls_made = fake_systemd
+    _tool(tmp_path / "bin", "jq")
+    rc, d = run_live(lp, repo, tmp_path, "--require-tools", "jq,lp-no-such-tool-x", "--json")
+    assert rc == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["run_tools"]["missing"] == ["lp-no-such-tool-x"]
+    assert any("--require-tools: not found in the unit's PATH (type -P): lp-no-such-tool-x; nothing was run" in r
+               for r in data["refusals"])
+    assert calls_made() == []
+    assert not (d / "verify.log.unit.properties").exists()
+    assert_nothing_written(repo)
+
+
+def test_require_tools_uses_the_units_path_and_type_p_semantics(lp, repo, tmp_path, fake_systemd, capsys):
+    _props, calls_made = fake_systemd
+    other = tmp_path / "otherbin"
+    other.mkdir()
+    _tool(other, "onlyhere")
+    (other / "notexec").write_text("x")                     # not executable: type -P skips it
+    rc, _d = run_live(lp, repo, tmp_path, "--require-tools", "onlyhere")
+    assert rc == 1 and "onlyhere" in capsys.readouterr().err and calls_made() == []
+    path = f"{tmp_path / 'bin'}{os.pathsep}{other}{os.pathsep}{os.environ['PATH']}"
+    rc, _d = run_live(lp, repo, tmp_path, "--setenv", f"PATH={path}", "--require-tools", "onlyhere",
+                      outdir="run2")
+    assert rc == 0, capsys.readouterr().err
+    rc, _d = run_live(lp, repo, tmp_path, "--setenv", f"PATH={path}", "--require-tools", "notexec,time",
+                      outdir="run3")
+    err = capsys.readouterr().err
+    assert rc == 1 and "notexec" in err
+
+
+@pytest.mark.parametrize("extra, needle", [
+    (("--require-tools", "a/b"), "a command name"),
+    (("--require-tools=rg,-x",), "a command name"),
+])
+def test_require_tools_usage_errors(lp, repo, tmp_path, fake_systemd, capsys, extra, needle):
+    _props, calls_made = fake_systemd
+    rc, _d = run_live(lp, repo, tmp_path, *extra)
+    assert rc == 2 and needle in capsys.readouterr().err
+    assert calls_made() == []
+
+
+def test_require_tools_is_only_for_run(lp, repo, tmp_path, capsys):
+    assert run(lp, repo, Unit(tmp_path), "--require-tools", "rg") == 2
+    assert "--require-tools is only for --run" in capsys.readouterr().err
