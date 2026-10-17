@@ -42,7 +42,7 @@
     <rect class="box" x="170" y="20" width="380" height="76" rx="10"/>
     <text class="lbl" x="360" y="46" text-anchor="middle">start: lean-pkg new NAME</text>
     <text class="sub" x="360" y="68" text-anchor="middle">scaffolds the package · no registry, no network</text>
-    <text class="sub" x="360" y="86" text-anchor="middle">1.0 adds --kind paper|library (not yet shipped)</text>
+    <text class="sub" x="360" y="86" text-anchor="middle">--kind paper|library · paper is the default</text>
   </g>
 
   <!-- fork: what the page is anchored to -->
