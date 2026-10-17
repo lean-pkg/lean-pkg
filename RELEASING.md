@@ -114,7 +114,12 @@ is refused before anything is written. The steps by hand:
    `docs/formalization.md`; a
    how-to recipe is welcome but not required. The test is the floor, not the
    whole pass. Numbered 0 so that references to steps 1 to 7 elsewhere stay
-   valid.
+   valid. The same pass completes the upgrade record
+   `docs/upgrades/X.Y.Z.yaml` and its page `docs/upgrades/X.Y.Z.md`
+   (docs/design/upgrade-preflight.md): `lean-pkg doctor --upgrade-from
+   PREVIOUS --json` must report an empty `uncurated[]` and
+   `record_problems[]`, every merged pull request being either an entry
+   or listed under `no_author_change`.
 1. Move the entries under `## [Unreleased]` in `CHANGELOG.md` to a new
    `## [X.Y.Z] - YYYY-MM-DD` section.
 2. Set `version` in `pyproject.toml` and `version` plus `date-released` in

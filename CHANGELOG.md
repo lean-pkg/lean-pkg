@@ -59,6 +59,31 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   trailing newline) is documented in docs/formalization.md, "The kept
   view", precisely enough to reproduce without lean-pkg; a test pins it
   byte for byte and against `jq -cjS` (field request).
+- `lean-pkg doctor --upgrade-from OLD [--to NEW] [--source DIR] [--json]`:
+  the upgrade preflight. What changed for a package author between two
+  lean-pkg versions or commits (also when the version string is the same),
+  read from a lean-pkg git checkout's objects and never by running the old
+  code: `requires-python`, dependencies and executables (pyproject.toml),
+  format markers (every `family/N` constant, the registry version, the
+  formalization.yaml version), the on-disk key lists (registry package and
+  lease, lower-tier and comparator receipts, formalization.yaml's derived
+  keys), command paths and options from the help goldens (a command or
+  flag renamed with a kept alias reads as renamed, not removed), the
+  `--json` key sets, the alias tables and the packaged data files. The
+  behaviour changes no diff shows come from a curated record per release,
+  `docs/upgrades/<version>.yaml` (schema `lean-pkg-upgrade-record/1`): an
+  entry applies when its pull request lies in OLD..NEW, and the range's
+  pull requests no record names are listed as `uncurated`. JSON schema
+  `lean-pkg-upgrade/1`; read-only, no registry, no network. The first
+  record, docs/upgrades/0.11.0.yaml with its page docs/upgrades/0.11.0.md,
+  covers the sealed-log refusal (#202), the sacct seal for Slurm claims
+  (#202), the page rewrite (#205), the producer fingerprint (#207), host
+  labels (#208), the command tree's aliases and the bare `lean-pkg` (#201),
+  the node-label seal (#210), `paper.statement` (#211) and `receipt check`'s
+  formalization.yaml exemption (#213), `new --kind` (#215), the kept view
+  (#216) and adopted-file licenses (#218). Design:
+  docs/design/upgrade-preflight.md; RELEASING.md step 0 now completes the
+  record before a release (field request).
 - `comparator-receipt --seal-sacct RECEIPT [--sacct-file F] [--user NAME]
   [--json]`: after a Slurm job finished, corroborate a comparator receipt's
   Slurm claim with the job's sacct record (main line `COMPLETED`, exit
