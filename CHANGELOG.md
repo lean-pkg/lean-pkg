@@ -22,6 +22,8 @@ change the registry schema or receipt format, always with a migration).
   defeq, 12 failed before; 32 exact, 3 defeq, 0 failed now, the 19 all still exact. Still flagged, documented in
   docs/comparator.md: an `Lp` element applied as a function (a proof argument differs) and an instance found by
   unification in a `have` type.
+- `test_cut_release_runs_every_step_in_order` no longer fails when a run crosses midnight: `scripts/cut-release.py`
+  stamps `LEAN_PKG_RELEASE_DATE` (YYYY-MM-DD, set only by the tests) when set, so the test and the script share one date.
 
 ## [0.7.52] - 2026-10-16
 

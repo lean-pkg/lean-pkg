@@ -184,7 +184,8 @@ itself still builds fresh
 
 Writing the comparator configuration:
 `lean-pkg comparator config --from-claims NAME --claims-file claims.yaml`
-scaffolds entries from a working-copy claims file, and `--challenge-from-type` pre-fills statements with typed numerals, such as
+scaffolds entries from a working-copy claims file, and `--challenge-from-type`
+pre-fills statements with typed numerals, such as
 `(3 / 2 : ℝ)`, so they elaborate back to the original. `comparator-receipt`
 checks early that every configured module is a Lake target and that no
 dependency is a symlink its sandbox cannot see, and
