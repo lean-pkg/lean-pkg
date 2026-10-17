@@ -240,9 +240,9 @@ def test_a_module_challenge_that_defines_something_is_refused(fake, capsys, decl
     assert rc == 2 and "--defs" in err and not calls(fake)
 
 
-@pytest.mark.parametrize("line,needle", [("public import Mathlib", "Mathlib-free"),
-                                         ("meta import Mathlib.Tactic", "Mathlib-free"),
-                                         ("import all Mathlib", "Mathlib-free"),
+@pytest.mark.parametrize("line,needle", [("public import Mathlib", "needs --project"),
+                                         ("meta import Mathlib.Tactic", "needs --project"),
+                                         ("import all Mathlib", "needs --project"),
                                          ("public meta import Challenge", "only Init, Std, Lean"),
                                          ("public import Defs", "--defs")])
 def test_module_system_imports_are_checked(fake, capsys, line, needle):
@@ -345,7 +345,7 @@ def test_import_defs_without_defs_and_mathlib_are_refused(fake, capsys):
     rc, _, err = run(capsys, files(fake.root, challenge="import Defs\n" + CHALLENGE))
     assert rc == 2 and "--defs" in err
     rc, _, err = run(capsys, files(fake.root, solution="import Mathlib\n"))
-    assert rc == 2 and "Mathlib-free" in err
+    assert rc == 2 and "needs --project DIR" in err
     rc, _, err = run(capsys, files(fake.root, solution="import Challenge\n"))
     assert rc == 2 and "only Init, Std, Lean" in err
 
@@ -357,7 +357,7 @@ def test_imports_of_the_core_library_are_allowed(fake, capsys):
 
 def test_mathlib_flag_is_refused(fake, capsys):
     rc, _, err = run(capsys, files(fake.root) + ["--mathlib"])
-    assert rc == 2 and "v1" in err
+    assert rc == 2 and "--project DIR" in err
 
 
 def test_host_refusal_writes_nothing_and_names_the_failing_line(fake, capsys, monkeypatch):

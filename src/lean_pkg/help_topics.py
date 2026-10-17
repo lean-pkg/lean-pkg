@@ -104,6 +104,9 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("COMPARATOR_LAKE",
          "the lake the setup stages run",
          "lake from elan's bin/, else from PATH"),
+        ("COMPARATOR_BWRAP",
+         "lean-exercise: the real bwrap its --project wrapper and its --forbid export sandbox run",
+         "bwrap on PATH"),
         ("ELAN_HOME",
          "elan's directory: toolchains and bin/ (comparator-receipt, lean-exercise, the types driver)",
          "~/.elan"),
@@ -309,6 +312,8 @@ The other programs:
                        stage part-way (a partial receipt may remain: diagnostic only, never evidence)
   lean-exercise check  0 every theorem accepted; 1 a theorem rejected (or the judge failed); 2 usage or
                        host refusal
+  lean-exercise batch  0 every Solution passed; 1 a Solution failed or was refused; 2 usage or host
+                       refusal
   types driver         0 every declaration filled; 1 an extraction error; 2 none filled
 
 A process killed by a signal N ends with the shell's 128+N (130 for Ctrl-C).
@@ -360,6 +365,7 @@ Payloads and files with a versioned "schema" field:
   claims-ledger/1        lean-pkg claims ledger NAME --json
   index-entry/2          index/<name>/entry.yaml (/1 still validates)
   exercise-check/1       lean-exercise check --json
+  exercise-batch/1       lean-exercise batch --json
 
 The lower-tier receipt `gate` reads is described under RECEIPT SCHEMA in `lean-pkg llms`.
 

@@ -24,6 +24,26 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   reporter is on: a paper, or a Lean package (a Mathlib contribution or a
   public GitHub repository with no manuscript).
 
+- `lean-exercise` for course use (docs/exercise.md, "Course use").
+  `--project DIR` allows `import Mathlib...` when `DIR` is a Lake project
+  whose `lean-toolchain` and `lake-manifest.json` pin Mathlib and whose
+  Mathlib is already built: the throwaway project requires the same pinned
+  dependencies and links to the project's packages, which a
+  `COMPARATOR_BWRAP` wrapper binds read-only into every `lake comparator`
+  sandbox; the wrapper also drops the sandbox's network, so judging never
+  downloads. Without `--project` an `import Mathlib` is still refused.
+  `--forbid PREFIX` and `--forbid-exact NAME` (repeatable) reject an accepted
+  theorem whose proof depends on a named constant, with the new verdict
+  `forbidden_constant` (`constant`, `constants`): computed on a sandboxed
+  `leanexport` of the built Solution, following the Solution's own
+  declarations (helpers, private lemmas, auxiliaries) so a helper cannot
+  launder a dependency (`--forbid-scope all` follows library constants too);
+  constants of the statement are never reported, and a failed check is a
+  `tool_error`. `lean-exercise batch --solutions DIR --csv FILE --logs DIR`
+  judges every `*.lean` file of a directory into one CSV row per file
+  (identified by its file name only) and one log per file, JSON schema
+  `exercise-batch/1`; `--no-sandbox` is refused in batch mode.
+
 ## [0.9.0] - 2026-10-17
 
 ### Added
