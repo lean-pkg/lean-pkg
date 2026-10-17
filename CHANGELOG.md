@@ -127,6 +127,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- Index: `markovprocess-pilot` refreshed with the package's re-run comparator
+  receipt at the same pin `05d99d75df82` (same verdicts and configuration
+  hashes; the host is now a hashed label). The entry was replaced with
+  `index add --from-registry`; only `added.at` changed in `entry.yaml`, and
+  `index check --clone` passes for all three entries.
+
 - `mathlib_rev: none` is an explicit value for a package without Mathlib (a
   readable `lake-manifest.json` that lists no `mathlib` package), not a
   string that passed because nothing was checked: `receipt slurm`/`systemd`
