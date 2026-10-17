@@ -22,6 +22,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   expected-reason check. `ok` and the exit code do not change; `*.lean`,
   `*.olean` and `*.ilean` are not matched (#239).
 
+### Fixed
+
+- Docs: the large-artifact recipe's `pack-artifacts.sh` (docs/receipts.md)
+  refuses, before it creates `OUT`, an `OUT` that is `RAW` or lies inside
+  it (field report: `RAW=raw OUT=raw/sealed` wrote the manifest and the
+  archive into the tree being archived) and a `RAW` inside `OUT`, both
+  compared after `realpath -m`. It also refuses two paths in `RAW` that are
+  hardlinks of one file, naming them: tar stored the second as a link
+  member, so the pack succeeded and `unpack-verify.py` refused it later.
+  Refused rather than dereferenced, which would store the data once per
+  path and outgrow the measured size; copy `RAW` without links first. A
+  file whose other link is outside `RAW` still packs as a file.
+
 ## [0.12.0] - 2026-10-17
 
 ### Added
