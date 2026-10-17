@@ -23,6 +23,24 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   with the `LEAN_NUM_THREADS=3` advice when tight, CPU affinity count and
   the cgroup v1/v2 memory limit. Additive JSON keys (`routes_schema`
   `host-routes/1`); read-only, no network; never an unsandboxed route.
+- `comparator-receipt` keeps earlier attempts. Before a run replaces an earlier
+  run's stage files (it reruns the setup, or reruns the comparison after an
+  earlier comparison, estimate or failure), it copies them to
+  `comparator-stages/attempts/NNN/`: `stages.json`, the stage logs, the olean
+  manifest, the partial report and the per-unit files. The copy gets an
+  `attempt.json` (schema `comparator-attempt/1`: `n`, `reason`, `commit`,
+  `started_at`, `finished_at`, `failed_stage`, `verdict`,
+  `olean_manifest_sha256`, and the sha256 of each kept file) and is made
+  read-only. Before this, a rerun overwrote `stages.json` and cleared the logs
+  of the failed run. Numbers are zero-padded and never reused (`attempts/NEXT`
+  survives a deleted attempt). lean-pkg never deletes an attempt or reads one
+  back: resume, the slot cache and setup reuse read the current stage files,
+  `--from-prepared` or `--evidence-dir` pointing into an attempt is refused,
+  and receipts bind the current run only. A reused `--prepare` setup carries
+  over without an attempt. `stages.json` gains `started_at`.
+  `comparator-receipt --attempts [DIR] [--json]` lists the attempts read-only
+  (exit 1 when a kept file changed or went missing). Nothing prunes attempts
+  automatically; docs/comparator.md (Attempts) shows how to prune by hand.
 - `receipt slurm --template`: an exact-runtime preflight before any tool
   runs (field report #5). The wrapper sets `LC_ALL=C LANG=C PYTHONUTF8=1`
   (an `#SBATCH --export` line for the job's own shell and an `export`), so

@@ -199,6 +199,11 @@ comparator stage fails when they change during the comparison.
 `comparator-receipt --verify-oleans [DIR] [--json]` is the read-only check
 (exit 0 same, 1 different or not recorded); see
 [Olean manifest](comparator.md#stages-and---prepare).
+A run that replaces an earlier run's stage files first keeps them, read-only,
+as `comparator-stages/attempts/NNN/` with an `attempt.json` (numbers never
+reused; lean-pkg never deletes or reads them back);
+`comparator-receipt --attempts [DIR] [--json]` lists them; see
+[Attempts](comparator.md#stages-and---prepare).
 `COMPARATOR_RECEIPT_LEAN_THREADS=N` sets `LEAN_NUM_THREADS=N` for those children
 (N = 1 serializes the build on a memory-tight host; recorded as the receipt's
 `lean_threads`; any other value exits 2); see
