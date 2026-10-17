@@ -634,6 +634,32 @@ def sacct_seal_problem(rec: dict, sealed: bytes | None) -> str | None:
     return None
 
 
+HASHED_HOST_RE = re.compile(r"h-[0-9a-f]{12}")
+_NODE_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def sacct_node_check(job: str, host: str, nodes: str, labelled: bool = False) -> str:
+    """The node check of the seal: "matched", "not checked (...)", or a refusal. The runner names its host
+    by a label (#208): `h-` + 12 hex of the SHA-256 of the lower-cased host name, compared with the label of
+    the NodeList entry and of its first DNS label; an operator's --host-label cannot be compared; a bare host
+    name (a receipt by lean-pkg 0.10.0 or earlier) is compared by its first DNS label. A node range
+    (`node[01-02]`) is not expanded."""
+    if not host or not nodes:
+        return "not checked"
+    if not _NODE_RE.fullmatch(nodes):
+        return "not checked (node range)"
+    if HASHED_HOST_RE.fullmatch(host):
+        from .receipt_systemd import host_label as hashed_host_label
+        ok = host in {hashed_host_label(nodes), hashed_host_label(nodes.split(".")[0])}
+    elif labelled:
+        return "not checked (host label)"
+    else:
+        ok = nodes.split(".")[0].lower() == host.split(".")[0].lower()
+    if not ok:
+        raise core.Fail(f"sacct: job {job} ran on another node than the receipt's host; not sealed")
+    return "matched"
+
+
 def seal_comparator_sacct(receipt_path: pathlib.Path, sacct_file: str | None = None,
                           user: str | None = None) -> dict:
     """`comparator-receipt --seal-sacct R`: corroborate R's Slurm claim with the job's accounting record and
@@ -689,14 +715,8 @@ def seal_comparator_sacct(receipt_path: pathlib.Path, sacct_file: str | None = N
         checks["user"] = "matched"
     else:
         checks["user"] = "not checked"
-    host = str(rec.get("host") or "")
-    nodes = str(seen.get("nodelist") or "")
-    if rec.get("host_label") or not host or not nodes:
-        checks["node"] = "not checked" + (" (host label)" if rec.get("host_label") else "")
-    elif re.fullmatch(r"[A-Za-z0-9._-]+", nodes) and nodes.split(".")[0] != host.split(".")[0]:
-        raise core.Fail(f"sacct: job {job} ran on another node than the receipt's host; not sealed")
-    else:
-        checks["node"] = "matched" if re.fullmatch(r"[A-Za-z0-9._-]+", nodes) else "not checked (node range)"
+    checks["node"] = sacct_node_check(job, str(rec.get("host") or ""), str(seen.get("nodelist") or ""),
+                                      labelled=bool(rec.get("host_label")))
     body = sacct_seal_text(job, seen, start, end).encode()
     rel = f".lean-receipts/{commit[:12]}{SACCT_SEAL_SUFFIX}"
     out = receipt_path.parent / pathlib.PurePosixPath(rel).name

@@ -114,6 +114,21 @@ def test_a_host_label_is_not_compared_with_the_node(tmp_path, capsys):
     assert json.loads(p.read_text())["slurm_sacct"]["checks"]["node"] == "not checked (host label)"
 
 
+def test_a_hashed_host_label_is_compared_with_the_node_label(tmp_path, capsys):
+    """Since host labels (#208) the runner writes host = h-<12 hex of sha256(lower-cased name)>: the seal
+    compares that with the label of the NodeList entry (or of its first DNS label)."""
+    from lean_pkg.receipt_systemd import host_label as hashed
+    h = hashed("node-1")
+    p = write(tmp_path, claim(host=h, host_label=h, host_policy=f"Slurm job {JOB} on {h}"))
+    assert cr_main("--seal-sacct", str(p), "--sacct-file",
+                   str(sacct(tmp_path, *ok_lines(node="node-1.cluster.example")))) == 0
+    assert json.loads(p.read_text())["slurm_sacct"]["checks"]["node"] == "matched"
+    q = write(tmp_path, claim(host=h, host_label=h, host_policy=f"Slurm job {JOB} on {h}"), name="q.json")
+    assert cr_main("--seal-sacct", str(q), "--sacct-file", str(sacct(tmp_path, *ok_lines(node="node-2"),
+                                                                       name="s2.txt"))) == 1
+    assert "ran on another node" in capsys.readouterr().err
+
+
 def test_the_validator_rejects_a_tampered_or_mismatched_seal(tmp_path):
     from lean_pkg import receipt
     p = write(tmp_path, claim())

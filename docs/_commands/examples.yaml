@@ -169,6 +169,8 @@ comparator-receipt:
     say: In the package checkout, run the comparator over every configuration and write .lean-receipts/<commit12>-comparator.json.
   - cmd: comparator-receipt --project src/my-proof --judges 4
     say: The same for another directory, with up to four judges at once.
+  - cmd: comparator-receipt --seal-sacct .lean-receipts/cb3d68a21454-comparator.json
+    say: After the Slurm job finished, seal its sacct record into the receipt so its job can back a compute site.
 
 lean-pkg comparator attach:
   - cmd: lean-pkg comparator attach my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json --check

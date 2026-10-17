@@ -1675,8 +1675,10 @@ comparator-receipt --seal-sacct .lean-receipts/<commit12>-comparator.json
 The seal refuses (exit 1, nothing written) unless `sacct` shows the job's main
 line `COMPLETED` with exit `0:0`, its `Start` and `End` (asked for with a zone)
 contain the receipt's `generated_at`, the job ran under the account sealing it,
-and, when the receipt names a host rather than a host label, it ran on that
-node. It then writes `.lean-receipts/<commit12>-comparator-sacct.txt` beside the
+and it ran on the receipt's node: the receipt's `h-` host label is compared with
+the label of the `NodeList` entry (or of its first DNS label), an older receipt's
+host name with the node's name; an operator's `--host-label` and a node range
+are not compared. It then writes `.lean-receipts/<commit12>-comparator-sacct.txt` beside the
 receipt (the record normalized to `JobID|State|ExitCode|Start|End|Elapsed`, UTC
 times, without user or node names) and adds the block `slurm_sacct` {`schema`
 `slurm-sacct-seal/1`, `job`, `file`, `sha256`, `state`, `exit_code`, `start`,

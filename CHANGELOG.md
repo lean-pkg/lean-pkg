@@ -90,6 +90,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   minor releases and 60 days, whichever is longer.
 
 ### Fixed
+
+- `comparator-receipt --seal-sacct` compares the node again: since host
+  labels, every receipt carries `host_label`, so the seal had skipped the
+  node check. A receipt's `h-` host label is now compared with the label of
+  the sacct `NodeList` entry (or of its first DNS label), and a mismatch
+  refuses; an operator's `--host-label` and a node range are still not
+  compared, and an older receipt's host name is compared by name.
+  docs/trust-model.md no longer lists the `coverage.yaml` row twice.
 - Soundness: a lower-tier receipt whose sealed verify log
   (`<c12>-<job>-verify.redacted.log`, or its `.gz`) is missing or
   unreadable is now refused instead of accepted with `· report_sha256 not

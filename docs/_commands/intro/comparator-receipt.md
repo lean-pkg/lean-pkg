@@ -21,6 +21,12 @@ as `comparator-stages/attempts/NNN/` with an `attempt.json` (numbers never
 reused; lean-pkg never deletes or reads them back);
 `comparator-receipt --attempts [DIR] [--json]` lists them; see
 [Attempts](../comparator.md#stages-and---prepare).
+`comparator-receipt --seal-sacct RECEIPT [--sacct-file F] [--user NAME] [--json]`
+(no host policy, after the Slurm job finished) corroborates the receipt's Slurm
+claim with the job's sacct record and seals it (`slurm_sacct`, and
+`<commit12>-comparator-sacct.txt` beside the receipt); only a sealed claim backs a
+`coverage.yaml` `compute` job; see
+[Seal the Slurm claim with sacct](../comparator.md#seal-the-slurm-claim-with-sacct).
 `COMPARATOR_RECEIPT_LEAN_THREADS=N` sets `LEAN_NUM_THREADS=N` for those children
 (N = 1 serializes the build on a memory-tight host; recorded as the receipt's
 `lean_threads`; any other value exits 2); see
