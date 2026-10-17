@@ -119,7 +119,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 - docs/upgrades/0.13.0.md lists #250 (`--require-tools`, the documented
   systemd property set), which its record entry already had; the
-  committed-records test requires every entry on the page (#PRSELF).
+  committed-records test requires every entry on the page (#253).
 
 - `lean_pkg.dup_constants` resolves a project's dependencies from
   lake-manifest.json as Lake lays them out: a `path` package at its `dir`
