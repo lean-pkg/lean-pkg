@@ -115,6 +115,36 @@ change the registry schema or receipt format, always with a migration).
   a tag or a link. A README block rendered by 0.7.54 from such text reads as
   stale once; render it again with `page NAME --write`.
 
+- The project template in docs/getting-started.md ("Start from scratch") and
+  the smallest Challenge/Solution pair in docs/comparator.md are written in
+  Lean's module system, which Palomar requires of every tracked `.lean` file:
+  `module` first, `public import Mathlib`, the theorems inside
+  `public section` ... `end` (`lake comparator` cannot export a private
+  theorem of a module), and `@[expose]` for a shared definition a proof
+  unfolds. The template builds and passes `lake comparator` on Lean
+  v4.35.0-rc2, and `palomar check` finds no source gap in it; a new section,
+  "The module header", explains each line and the form for older
+  toolchains. `lean-pkg init` writes only the registry and its event log and
+  lean-pkg scaffolds no `.lean` file, so the FAQ no longer plans
+  "module-headed files from `lean-pkg init`".
+
+### Fixed
+
+- `lean-exercise` reads module-headed files: the import rules now cover
+  `public import`, `meta import` and `import all` (only a line starting with
+  `import` was read, so `public import Mathlib` or `meta import Challenge`
+  passed the checks and `import all Init` was refused as a module named
+  `all`), and a `public def` (or `public structure`,
+  `public instance`, ...) in the Challenge is refused like any definition
+  (it was judged, and accepted). A private theorem of a `module` Challenge
+  is a `tool_error` ("the Challenge does not export this theorem"), not the
+  learner's `missing`, and a `missing` in a `module` Solution names the
+  private default (`public section` or `public theorem`).
+- The Lean declaration scanner behind `search`'s declaration fallback,
+  `comparator config --from-claims` (qualified names) and `lean-exercise`
+  reads the module-system modifiers `public` and `meta`: a `public theorem`
+  or `public meta def` was not seen as a declaration.
+
 ## [0.7.54] - 2026-10-16
 
 ### Added

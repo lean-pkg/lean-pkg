@@ -171,17 +171,29 @@ EOF
 
 mkdir -p MyProof
 cat > MyProof/Challenge.lean <<'EOF'
-import Mathlib
+module
+
+public import Mathlib
+
+public section
 
 theorem MyProof.two_mul_le (n : ℕ) : n ≤ 2 * n := by
   sorry
+
+end
 EOF
 
 cat > MyProof/Solution.lean <<'EOF'
-import Mathlib
+module
+
+public import Mathlib
+
+public section
 
 theorem MyProof.two_mul_le (n : ℕ) : n ≤ 2 * n := by
   omega
+
+end
 EOF
 
 cat > comparator.json <<'EOF'
@@ -206,7 +218,35 @@ GB with its cache); the build ends with `Build completed successfully` and
 one ``declaration uses `sorry` `` warning, from the Challenge. Add a `LICENSE`
 before you promote. `lake new MyProof math` is another start: it writes a
 Mathlib `lakefile.toml` with the library `MyProof`; put the two files in its
-`MyProof/` directory and write `comparator.json` as above.
+`MyProof/` directory and write `comparator.json` as above. Its own
+`MyProof.lean` and `MyProof/Basic.lean` have no `module` header (the
+template of Lean v4.35.0-rc2): give them one, as below, or delete them, before
+`palomar check`.
+
+#### The module header
+
+Both files use Lean's module system, which Palomar requires of every tracked
+`.lean` file (`lean-pkg palomar check NAME` reports a file without it as
+`source.module_required`). Three lines carry it:
+
+- `module` is the file's first command; only ordinary comments may come
+  before it.
+- `public import Mathlib`: the theorem statements mention Mathlib, so the
+  import must be public. A plain `import` is private to the module's
+  implementation, and a statement that uses a name it brings in fails with
+  `Unknown identifier`.
+- `public section` ... `end`: in a module a declaration is private unless it
+  is public, and `lake comparator` cannot export a private theorem (it stops
+  with `Constant ... not found in environment`). Writing `public theorem` on
+  each theorem works too.
+
+A definition that a Challenge and its Solution share, and whose body a proof
+unfolds, also needs `@[expose]` (`@[expose] public section` in the file that
+defines it); without it the body is hidden from importing modules and
+`unfold` fails. These forms were checked with `lake build` and
+`lake comparator` on Lean v4.35.0-rc2. On a toolchain below v4.35.0-rc2,
+which Palomar does not accept, leave out `module`, `public section` and
+`end`, and write `import Mathlib`.
 
 #### Module names are file paths
 
