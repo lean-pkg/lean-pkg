@@ -14,8 +14,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - `comparator host-check --routes [--json]`: host and cluster planning
   before `sbatch` (field report #5). Per route (`judge`: `lake comparator`
   in `bwrap`; `prepare`: `comparator-receipt --prepare`; `transfer`: build
-  here, judge on a host that passes `judge`), supported yes/no with the
-  exact reason and a recommended command line; executables resolved like
+  here, check the copied oleans with `--verify-oleans`, judge on a host
+  that passes `judge`), supported yes/no with the exact reason and the
+  recommended command lines; executables resolved like
   `type -P` (the `receipt slurm --template` tool list read from the
   template), locale (a set locale that is not installed warns: the stderr
   warning a strict receipt refuses), `ulimit -n` and `/proc/sys/fs/file-nr`

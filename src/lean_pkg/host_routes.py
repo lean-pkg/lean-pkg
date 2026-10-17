@@ -9,7 +9,8 @@ exactly why:
 - prepare: the setup stages only (`comparator-receipt --prepare`: dependency checkout, Mathlib cache, build);
   no sandbox, so it may run in a cluster job.
 - transfer: build here, judge on another host that passes the judge route: prepare here, pack and hash the
-  build, copy it to a checkout of the same commit there.
+  build and its evidence directory, copy them to a checkout of the same commit there, and check the copied
+  oleans with `comparator-receipt --verify-oleans` (#173) before judging.
 
 Plus the facts a job needs: executables resolved like `type -P` (the Slurm template's required-tool list is
 read from SBATCH_TEMPLATE itself, so there is one list), locale (the inherited-locale warning that broke a
@@ -268,7 +269,7 @@ def _route(name, ok, needs, failing, reason, commands, notes=()):
 
 def routes_report(hc: dict) -> dict:
     """The additive `--routes` keys for a host_checks() result."""
-    from .comparator_receipt import DEFAULT_EVIDENCE, TOOLCHAIN_FLOOR, BUILD_SOURCE_ENV
+    from .comparator_receipt import ALLOWED_HOSTS_ENV, BUILD_SOURCE_ENV, DEFAULT_EVIDENCE, TOOLCHAIN_FLOOR
     tmpl = template_host_tools()
     names = list(CORE_EXECUTABLES) + [t for t in tmpl if t not in CORE_EXECUTABLES]
     exes = {n: type_p(n) for n in names}
@@ -278,6 +279,8 @@ def routes_report(hc: dict) -> dict:
     common_notes = [f"locale: {loc['detail']}"] if loc["level"] != "ok" else []
 
     jd = hc["mechanism_detail"]["toolchain"]
+    policy_note = (f"host policy: inside a Slurm job comparator-receipt runs as is; elsewhere list this host in "
+                   f"{ALLOWED_HOSTS_ENV}")
     if jd["ok"]:
         judge = _route("judge", True, jd["needs"], [], (
             f"bwrap creates a user namespace and {', '.join(n for n in jd['needs'] if n not in ('kernel', 'bwrap'))} "
@@ -286,7 +289,7 @@ def routes_report(hc: dict) -> dict:
             [f"cd CHECKOUT && {threads}comparator-receipt --prepare",
              "comparator-receipt --estimate --json   # read recommended_cap",
              f"timeout \"$CAP\" comparator-receipt --from-prepared {DEFAULT_EVIDENCE.as_posix()}"],
-            common_notes)
+            common_notes + [policy_note])
     else:
         judge = _route("judge", False, jd["needs"], jd["failing"], (
             "; ".join(jd["failing"]) + ". The judge runs only inside bwrap; there is no unsandboxed route. "
@@ -308,15 +311,24 @@ def routes_report(hc: dict) -> dict:
         t_notes.append("this host can judge itself; the transfer is needed only to judge elsewhere")
     transfer = _route("transfer", not tf, ("kernel",) + PREPARE_TOOLS + TRANSFER_TOOLS, tf,
                       ("; ".join(tf) if tf else
-                       "this host can be the build side: prepare here, pack .lake/build with its sha256, copy it "
-                       "to a checkout of the same commit (same lean-toolchain and lake-manifest.json) on a host "
-                       "whose `host-check --routes` says judge: yes, and judge there"),
+                       "this host can be the build side: prepare here, pack .lake/build and the evidence "
+                       "directory with their sha256, copy them to a checkout of the same commit (same "
+                       "lean-toolchain and lake-manifest.json) on a host whose `host-check --routes` says "
+                       "judge: yes, check the copied oleans there with `comparator-receipt --verify-oleans`, "
+                       "and judge there"),
                       [f"cd CHECKOUT && {threads}comparator-receipt --prepare",
-                       "tar -cf build.tar .lake/build && sha256sum build.tar > build.tar.sha256",
-                       "# judging host, same commit: sha256sum -c build.tar.sha256 && tar -xf build.tar",
+                       f"tar -cf build.tar .lake/build && tar -cf evidence.tar -C {DEFAULT_EVIDENCE.parent.as_posix()} "
+                       f"{DEFAULT_EVIDENCE.name} && sha256sum build.tar evidence.tar > transfer.sha256",
+                       "# judging host, a checkout of the same commit, after copying the three files:",
+                       "sha256sum -c transfer.sha256 && tar -xf build.tar && mkdir -p \"$CLUSTER_EVIDENCE\" "
+                       "&& tar -xf evidence.tar -C \"$CLUSTER_EVIDENCE\"",
                        "lean-pkg comparator host-check --routes   # judge: yes required there",
-                       f"{BUILD_SOURCE_ENV}=\"cluster job $JOB\" comparator-receipt --prepare   # build: prebuilt",
-                       f"comparator-receipt --from-prepared {DEFAULT_EVIDENCE.as_posix()}"],
+                       f"export {BUILD_SOURCE_ENV}=\"cluster job $JOB\"",
+                       f"comparator-receipt --verify-oleans \"$CLUSTER_EVIDENCE/{DEFAULT_EVIDENCE.name}\"   "
+                       f"# the copied oleans are the job's",
+                       "comparator-receipt --prepare   # compiles nothing: build: prebuilt",
+                       "comparator-receipt --estimate --json   # read recommended_cap",
+                       "timeout \"$CAP\" comparator-receipt"],
                       t_notes)
     exe_rows = {n: {"path": p, "level": "ok" if p else ("warn" if n in ("time", "bwrap") else "fail"),
                     **({"note": TIME_NOTE} if n == "time" else {}),

@@ -1362,7 +1362,7 @@ when supported, the command lines to run.
 |-------|--------------|-------|
 | `judge` | the official `lake comparator` judge, sandboxed in `bwrap` | everything `mechanism toolchain` needs: Linux, a `bwrap` that creates an unprivileged user namespace, `lean`, `lake`, `python3` |
 | `prepare` | `comparator-receipt --prepare` (dependency checkout, Mathlib cache, build), no judge | Linux, `lake`, `lean`, `git`, `python3`; no sandbox |
-| `transfer` | prepare here, pack `.lake/build` with its sha256, judge on another host | `prepare`'s needs plus `tar` and `sha256sum` here; the judging host must say `judge: yes` |
+| `transfer` | prepare here, pack `.lake/build` and the evidence directory with their sha256, check the copied oleans with `comparator-receipt --verify-oleans` on the judging host, judge there | `prepare`'s needs plus `tar` and `sha256sum` here; the judging host must say `judge: yes` |
 
 A host without unprivileged user namespaces gets `judge: no` (with the
 failing `bwrap` line) and, when its tools resolve, `prepare: yes` and
