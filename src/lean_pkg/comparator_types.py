@@ -25,7 +25,10 @@ backoff} and per result `rc`, `failure` (declaration | resource | extraction | r
 when its printed type passed the round-trip check (ROUNDTRIP_SNIPPET). Also additive (field report
 #5): per result `round_trip_exact` (true when the re-elaborated type is syntactically the
 declaration's, `#guard_expr ... =ₛ ...`; false when it is only definitionally equal, with
-`round_trip_exact_error`), and `summary.round_trip_inexact` / `summary.resumed`.
+`round_trip_exact_error`), and `summary.round_trip_inexact` / `summary.resumed`. Also additive
+(LO-20261016-35): `round_trip_variant` / `round_trip_open` when the text that passed is the
+fallback (printed with pp.coercions.types, or checked under `open scoped Classical`), and
+`summary.round_trip_variant`.
 
 The driver prints `[k/N] DECL ok|fail` progress lines to stderr and appends every finished result
 to `OUT.json.checkpoint.jsonl`; a rerun with the same OUT.json (same package, commit and snippets)
@@ -66,6 +69,7 @@ set_option pp.fullNames true
 set_option pp.proofs true
 set_option pp.analyze true
 set_option pp.numericTypes true
+set_option pp.funBinderTypes true
 open Lean Elab Command in
 #eval show CommandElabM Unit from do
   let env ← getEnv
@@ -74,6 +78,7 @@ open Lean Elab Command in
   | none => IO.println s!"LEANPKG-ERROR unknown constant {n}"
   | some ci =>
     let fmt ← liftTermElabM (Meta.ppExpr ci.type)
+    let alt ← liftTermElabM (withOptions (·.setBool `pp.coercions.types true) (Meta.ppExpr ci.type))
     let mods := ci.type.getUsedConstants.toList.filterMap fun c =>
       (env.getModuleIdxFor? c).map fun i => (env.header.moduleNames[i.toNat]!).toString
     IO.println s!"LEANPKG-LEVELS {String.intercalate "," (ci.levelParams.map toString)}"
@@ -81,6 +86,9 @@ open Lean Elab Command in
     IO.println "LEANPKG-TYPE-BEGIN"
     IO.println (fmt.pretty 100)
     IO.println "LEANPKG-TYPE-END"
+    IO.println "LEANPKG-ALT-BEGIN"
+    IO.println (alt.pretty 100)
+    IO.println "LEANPKG-ALT-END"
 """
 
 # The round-trip check (#31): the printed type must elaborate, in the declaration's own module context
@@ -97,7 +105,8 @@ example :
     (__TYPE__) :=
   @_root_.__IDENT__
 -- LEANPKG-EXACT
-#guard_expr (__TYPE__) =ₛ type_of% @_root_.__IDENT____LEVELS__
+#guard_expr
+    (__TYPE__) =ₛ type_of% @_root_.__IDENT____LEVELS__
 """
 
 DRIVER_PY = r'''
@@ -115,6 +124,9 @@ SETTLED = (None, "declaration", "round_trip")      # failures a rerun would only
 # File-table exhaustion (ENFILE 23 / EMFILE 24), common with many Lean processes on Lustre/NFS (#30).
 RESOURCE = re.compile(r"too many open files|\bENFILE\b|\bEMFILE\b", re.I)
 RESOURCE_ERRNOS = (errno.ENFILE, errno.EMFILE)
+# A proposition Lean could not decide in the round trip: the declaration was stated under `open Classical`.
+DECIDABLE = re.compile(r"failed to synthesize[^\n]*\n?[^\n]*\bDecidable\b")
+CLASSICAL = "open scoped Classical\n"
 
 
 def refuse(msg):
@@ -233,57 +245,114 @@ def one(entry, work, lake_dir, timeout):
         res.pop("modules")
     else:
         res["modules"] = modules
+    alt = alt_text(out)
+    if alt:
+        res["alt_type"] = alt
     return round_trip(res, entry, module, work, lake_dir, timeout)
 
 
-def round_trip(res, entry, module, work, lake_dir, timeout):
-    """Re-elaborate the printed type against the declaration (#31); only a pass makes the result ok."""
+def alt_text(out):
+    """The LEANPKG-ALT block (the type printed with pp.coercions.types as well), or None."""
+    body, inside = [], False
+    for l in out.splitlines():
+        s = l.strip()
+        if s == "LEANPKG-ALT-BEGIN":
+            body, inside = [], True
+        elif s == "LEANPKG-ALT-END" and inside:
+            text = "\n".join(body).strip()
+            return text or None
+        elif inside:
+            body.append(l.rstrip())
+    return None
+
+
+def rt_attempt(res, typ, entry, module, work, lake_dir, timeout, n, classical):
+    """One round-trip run of the printed text `typ` -> (outcome, fields, output); outcome is exact,
+    defeq, failed or abort (timed out, OS error, file table exhausted: not a verdict on the text)."""
     src = (ROUNDTRIP.replace("__IMPORTS__", "import " + lean_ident(module))
            .replace("__DECL__", res["decl"])
            .replace("__UNIVERSES__", ("universe " + " ".join(res["levels"])) if res["levels"] else "")
            .replace("__LEVELS__", (".{" + ", ".join(res["levels"]) + "}") if res["levels"] else "")
            .replace("__IDENT__", lean_ident(res["decl"]))
-           .replace("__TYPE__", res["type"].replace("\n", "\n      ")))
+           .replace("__TYPE__", typ.replace("\n", "\n      ")))
+    if classical:
+        src = src.replace("set_option autoImplicit false\n", "set_option autoImplicit false\n" + CLASSICAL)
     marks = [i for i, l in enumerate(src.splitlines(), 1) if l.strip() == "-- LEANPKG-EXACT"]
     exact_from = marks[0] if marks else None
-    f = pathlib.Path(work) / ("r%05d.lean" % entry["index"])
+    f = pathlib.Path(work) / ("r%05d%s.lean" % (entry["index"], "" if n == 0 else "-%d" % n))
     try:
         f.write_text(src, encoding="utf-8")
         p = subprocess.run(["lake", "env", "lean", str(f)], cwd=lake_dir, stdin=subprocess.DEVNULL,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
     except subprocess.TimeoutExpired:
-        res["error"] = "round-trip check timed out after %ss" % timeout
-        return res
+        return "abort", {"error": "round-trip check timed out after %ss" % timeout}, ""
     except OSError as e:
-        res["error"] = "cannot run lake for the round-trip check: %s" % e
+        fields = {"error": "cannot run lake for the round-trip check: %s" % e}
         if e.errno in RESOURCE_ERRNOS:
-            res["failure"] = "resource"
-        return res
+            fields["failure"] = "resource"
+        return "abort", fields, ""
     out = p.stdout.decode("utf-8", "replace")
-    res["round_trip_rc"] = p.returncode
     if p.returncode == 0:
-        res.update(status="ok", failure=None, round_trip="ok")
+        fields = {"round_trip_rc": 0, "status": "ok", "failure": None, "round_trip": "ok"}
         if exact_from is not None:
-            res["round_trip_exact"] = True
-        return res
+            fields["round_trip_exact"] = True
+        return "exact", fields, out
     errs = [int(m.group(1)) for m in (ERRLINE.match(l) for l in out.splitlines()) if m]
     if exact_from is not None and errs and min(errs) > exact_from and not RESOURCE.search(out):
         # The `example` elaborated (defeq), only the syntactic `#guard_expr` failed.
         lines = [l.rstrip() for l in out.splitlines() if l.strip()]
         first = next(i for i, l in enumerate(lines) if ERRLINE.match(l))
         msg = " | ".join([DIAG.sub("", lines[first])] + lines[first + 1:first + 4])
-        res.update(status="ok", failure=None, round_trip="ok", round_trip_exact=False,
-                   round_trip_exact_error=msg[:800])
-        return res
-    res["output_tail"] = tail(out)
+        return "defeq", {"round_trip_rc": p.returncode, "status": "ok", "failure": None, "round_trip": "ok",
+                         "round_trip_exact": False, "round_trip_exact_error": msg[:800]}, out
     if RESOURCE.search(out):
-        res.update(error="round-trip check: " + tail(out, 1), failure="resource")
-        return res
+        return "abort", {"round_trip_rc": p.returncode, "output_tail": tail(out),
+                         "error": "round-trip check: " + tail(out, 1), "failure": "resource"}, out
     lines = [l.rstrip() for l in out.splitlines() if l.strip()]
     first = next((i for i, l in enumerate(lines) if DIAG.match(l) and DIAG.match(l).group(1) == "error"), 0)
     msg = [DIAG.sub("", lines[first])] + lines[first + 1:first + 8] if lines else ["no output"]
-    res.update(round_trip="failed", failure="round_trip",
-               error=("round-trip check failed (exit %d): %s" % (p.returncode, " | ".join(msg)))[:800])
+    return "failed", {"round_trip_rc": p.returncode, "output_tail": tail(out), "round_trip": "failed",
+                      "failure": "round_trip",
+                      "error": ("round-trip check failed (exit %d): %s" % (p.returncode, " | ".join(msg)))[:800]}, out
+
+
+RANK = {"exact": 2, "defeq": 1, "failed": 0}
+
+
+def round_trip(res, entry, module, work, lake_dir, timeout):
+    """Re-elaborate the printed type against the declaration (#31); only a pass makes the result ok.
+    When the first text is not syntactically exact, the fallbacks run in order (field report #5): the
+    text printed with pp.coercions.types, then, if Lean could not decide a proposition, both texts again
+    under `open scoped Classical`. The first exact attempt wins, else the best (defeq over failed, an
+    earlier one on a tie); `type` is the text that passed and `round_trip_variant` names what was added."""
+    primary = res["type"]
+    alt = res.pop("alt_type", None)
+    tries = [(primary, False)] + ([(alt, False)] if alt and alt != primary else [])
+    best, i, classical_added = None, 0, False
+    while i < len(tries):
+        typ, classical = tries[i]
+        outcome, fields, out = rt_attempt(res, typ, entry, module, work, lake_dir, timeout, i, classical)
+        if outcome == "abort":
+            if best is None or best[0] == "failed":     # not a verdict: report it, so a rerun repeats it
+                res.update(fields)
+                return res
+            break
+        if best is None or RANK[outcome] > RANK[best[0]]:
+            best = (outcome, fields, typ, classical)
+        if outcome == "exact":
+            break
+        if not classical_added and outcome == "failed" and DECIDABLE.search(out):
+            classical_added = True
+            tries += [(t, True) for t, _ in tries if (t, True) not in tries]
+        i += 1
+    outcome, fields, typ, classical = best
+    res.update(fields)
+    variant = [v for v, on in (("pp.coercions.types", typ != primary), ("open scoped Classical", classical)) if on]
+    if variant and outcome != "failed":
+        res["type"] = typ
+        res["round_trip_variant"] = "; ".join(variant)
+        if classical:
+            res["round_trip_open"] = "Classical"
     return res
 
 
@@ -298,7 +367,9 @@ def safe_one(entry, work, lake_dir, timeout):
 
 def verdict(res):
     if res.get("status") == "ok":
-        return "ok" if res.get("round_trip_exact") is not False else "ok (defeq, not syntactically equal)"
+        v = res.get("round_trip_variant")
+        return ("ok" if res.get("round_trip_exact") is not False else "ok (defeq, not syntactically equal)") + \
+            (" (with %s)" % v if v else "")
     return "fail (%s)" % (res.get("failure") or "error")
 
 
@@ -434,9 +505,11 @@ def summarize(results, jobs, backoff=(), resumed=0):
     rt = sum(1 for r in results if r["status"] != "ok" and r.get("failure") == "round_trip")
     errors = sum(1 for r in results if r["status"] != "ok" and r.get("failure") not in ("declaration", "round_trip"))
     inexact = sum(1 for r in results if r["status"] == "ok" and r.get("round_trip_exact") is False)
+    variant = sum(1 for r in results if r["status"] == "ok" and r.get("round_trip_variant"))
     return {"ok": errors == 0, "total": len(results), "filled": filled, "errors": errors,
             "round_trip_failed": rt, "declaration_errors": len(results) - filled - errors - rt, "jobs": jobs,
-            "backoff": list(backoff), "round_trip_inexact": inexact, "resumed": resumed}
+            "backoff": list(backoff), "round_trip_inexact": inexact, "resumed": resumed,
+            "round_trip_variant": variant}
 
 
 def checkpoint_key():
@@ -738,7 +811,10 @@ def fill(entry: dict, result: dict | None, summary: str, source: str) -> dict:
     head = f"theorem {tname}" + (".{" + ", ".join(levels) + "}" if levels else "")
     body = typ.strip()
     doc = summary.replace("-/", "- /").replace("\n", " ").strip()
-    challenge = f"/-- {doc} -/\n{head} :\n    {body.replace(chr(10), chr(10) + '    ')} := by\n  sorry"
+    # The text passed the round trip only under `open scoped Classical` (a decidability instance): the
+    # Challenge and Solution need it too.
+    opens = "open scoped Classical in\n" if result.get("round_trip_open") == "Classical" else ""
+    challenge = f"{opens}/-- {doc} -/\n{head} :\n    {body.replace(chr(10), chr(10) + '    ')} := by\n  sorry"
     if reason:
         challenge = f"-- TODO: restate in Mathlib vocabulary: {reason}\n" + challenge
     entry["type"] = body
@@ -746,6 +822,6 @@ def fill(entry: dict, result: dict | None, summary: str, source: str) -> dict:
     if reason:
         entry["restatement_reason"] = reason
     entry["challenge"] = challenge
-    entry["solution"] = (f"{head} :\n    {body.replace(chr(10), chr(10) + '    ')} := by\n"
+    entry["solution"] = (f"{opens}{head} :\n    {body.replace(chr(10), chr(10) + '    ')} := by\n"
                          f"  exact @_root_.{decl}")
     return entry

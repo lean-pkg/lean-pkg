@@ -198,6 +198,7 @@ set_option pp.fullNames true
 set_option pp.proofs true
 set_option pp.analyze true
 set_option pp.numericTypes true
+set_option pp.funBinderTypes true
 open Lean Elab Command in
 #eval show CommandElabM Unit from do
   let env ← getEnv
@@ -206,6 +207,7 @@ open Lean Elab Command in
   | none => IO.println s!"LEANPKG-ERROR unknown constant {n}"
   | some ci =>
     let fmt ← liftTermElabM (Meta.ppExpr ci.type)
+    let alt ← liftTermElabM (withOptions (·.setBool `pp.coercions.types true) (Meta.ppExpr ci.type))
     let mods := ci.type.getUsedConstants.toList.filterMap fun c =>
       (env.getModuleIdxFor? c).map fun i => (env.header.moduleNames[i.toNat]!).toString
     IO.println s!"LEANPKG-LEVELS {String.intercalate "," (ci.levelParams.map toString)}"
@@ -213,6 +215,9 @@ open Lean Elab Command in
     IO.println "LEANPKG-TYPE-BEGIN"
     IO.println (fmt.pretty 100)
     IO.println "LEANPKG-TYPE-END"
+    IO.println "LEANPKG-ALT-BEGIN"
+    IO.println (alt.pretty 100)
+    IO.println "LEANPKG-ALT-END"
 ```
 
 with `lake env lean <file>` from the checkout (one process per declaration,
@@ -224,8 +229,11 @@ constant in the type, and the type with all binders, implicit and instance
 ones included. `pp.analyze` adds the annotations a pretty-printed term
 needs to elaborate back to the same term (for instance
 `Eq.{u + 1} (α := α) Inhabited.default Inhabited.default`),
-`pp.proofs true` prints proofs inside types rather than `⋯`, and
-`pp.numericTypes true` prints the type of every numeral.
+`pp.proofs true` prints proofs inside types rather than `⋯`,
+`pp.numericTypes true` prints the type of every numeral, and
+`pp.funBinderTypes true` the type of every `fun` (and `∃`, set-builder)
+binder. A second text, printed with `pp.coercions.types` as well, is the
+fallback of the round-trip check below.
 
 Why `pp.numericTypes` (field report #5): without it a numeral's type is
 left to elaboration, which picks `ℕ` or another type than the original
@@ -245,8 +253,40 @@ With it all 19 re-elaborated to a syntactically equal type. Adding
 `pp.coercions.types true` as well made two of them worse
 (`(c • μ : Set ℝ → ENNReal) s`, a coercion ascription that elaborates to a
 definitionally equal but different term), so it
-is off; `pp.explicit` round-trips but prints every instance and is not
+is not a global option; `pp.explicit` round-trips but prints every instance and is not
 readable as a Challenge.
+
+What remained (field report #5, a Mathlib package of 339 declarations: 25
+round-trip failures and 6 definitionally equal only, LO-20261016-35), by
+cause, with what the driver does now:
+
+| class (count in the report) | printed | why it fails | fix |
+| --- | --- | --- | --- |
+| `fun` binder type lost (3) | `fun n => B ^ n / Real.Gamma (κ * ↑n + 1)` | `n` re-elaborates as `ℝ`, `n.factorial` on `ℝ` | `pp.funBinderTypes`: `fun (n : ℕ) => ...` |
+| set-builder, `∃` and nested `fun` binder types lost (1; 3 defeq, judged from their printed text) | `{n \| d ≤ \|↑n - ↑r\|}`, `∃ q, Measurable q ∧ ...` | binder type left to unification | `pp.funBinderTypes`: `{n : ℕ \| ...}`, `∃ (q : T → ℕ), ...` |
+| coercion with no expected type (13) | `↑↑f x` (an `Lp` element), `↑T v`, `Inner.inner ℝ z ↑v` | `invalid coercion notation, expected type is not known` | second text: `(↑(↑f : E →ₘ[μ] ℝ) : E → ℝ) x`, `(↑v : E)` |
+| coercion into a set (1) | `Dense ↑S.domain` | `Submodule ℝ E` against `Set ?m` | second text: `Dense (↑S.domain : Set E)` |
+| coercion targets in arithmetic (4) | `(↑r ^ k / ↑k.factorial) ^ κ` | `HDiv NNReal ℕ ?` | second text: `((↑r : ℝ) ^ k / (↑k.factorial : ℝ)) ^ κ` |
+| decidability under `open Classical` (3) | `if n ∈ s then ... else 0` (`s : Set ℕ`) | `failed to synthesize Decidable (n ∈ s)` | retry under `open scoped Classical`; the Challenge and Solution get `open scoped Classical in` |
+| `have` across lines in `#guard_expr` (1 defeq) | `have μ :=\n  HSMul.hSMul ... \n (dirac 0) + ...;` | continuation lines left of `(` end the application early: `unexpected token ';'` | the `#guard_expr` text starts on its own line, as the `example`'s does |
+
+The second text is tried only when the first is not exact, because globally
+it regresses the two `•` statements above. Measured the way #153 was (35 Mathlib toys: the 19
+above plus 16 reproducing these classes, real driver, Mathlib on Lean
+4.34.0-rc2): the options before this change 20 exact, 3 defeq, 12 failed;
+`+ pp.funBinderTypes` 25 / 2 / 8; `+ pp.coercions.types` globally 23 / 7 / 5;
+both globally 28 / 6 / 1 (two of the 19 regress); `pp.coercions false` with
+`pp.funBinderTypes` 19 / 3 / 13; the driver now (first text, second text,
+Classical retry, own-line `#guard_expr`) 32 / 3 / 0, the 19 all still exact.
+
+Still only definitionally equal, and flagged (`round_trip_exact: false`):
+an `Lp` element applied as a function, where the ascription `(↑f : E →ₘ[μ] ℝ)`
+re-elaborates a proof argument by instance search (`Lp._proof_4` against
+`SeminormedAddCommGroup.toIsTopologicalAddGroup`, equal by proof
+irrelevance); and a `have ν : MeasureTheory.Measure ℝ := ...` whose
+measurable-space instance was found by unification in the declaration and is
+synthesized (`Real.measurableSpace`) in the printed text. Printing cannot
+remove either short of `pp.explicit`.
 
 The pretty-printer does not guarantee a round trip, even with these options:
 on a real package it dropped coercion targets (`↑n + 1` for an integer cast),
@@ -264,7 +304,8 @@ example :
     (T) :=
   @_root_.Demo.wow
 -- LEANPKG-EXACT
-#guard_expr (T) =ₛ type_of% @_root_.Demo.wow.{u_1, v}
+#guard_expr
+    (T) =ₛ type_of% @_root_.Demo.wow.{u_1, v}
 ```
 
 The `example` passes only when `T` elaborates (no auto-bound names) and the
@@ -278,7 +319,22 @@ the `#guard_expr` (after the `-- LEANPKG-EXACT` line), the result is still
 `round_trip_exact_error` and a count in `summary.round_trip_inexact`; such an
 entry is pre-filled (its Challenge elaborates) and marked
 `needs_restatement`, since a type that is only definitionally equal may read
-differently from the claim. Any other non-zero exit makes it `status: "error"`, `failure: "round_trip"`,
+differently from the claim.
+
+When the first text is not exact, the check runs again on the fallbacks, in
+order, and stops at the first exact one: the second text
+(`pp.coercions.types`), then, only if Lean reported a `Decidable` instance it
+could not synthesize, both texts under `open scoped Classical` (a line after
+`set_option autoImplicit false`). The best attempt wins (exact, else defeq,
+else the first text's failure); when it is not the first text, `type` is the
+text that passed and `round_trip_variant` names what was added
+(`"pp.coercions.types"`, `"open scoped Classical"` or both), counted in
+`summary.round_trip_variant`; with Classical, `round_trip_open: "Classical"`
+and the pre-filled Challenge and Solution start with
+`open scoped Classical in`. Progress lines say `ok (with ...)`. Each fallback
+is one more `lake env lean` run, only for those declarations.
+
+Any other non-zero exit makes it `status: "error"`, `failure: "round_trip"`,
 `round_trip: "failed"`, with `round_trip_rc` and the error, and
 `summary.round_trip_failed` counts them (they are not extraction failures and
 do not change the exit status). The check runs with the declaration's own
@@ -341,8 +397,9 @@ runs on. It defaults `LEAN_NUM_THREADS` to 1 and keeps an explicit value (see
 ```
 
 `levels`, `modules`, `summary`, `rc`, `failure`, `output_tail`, `round_trip`,
-`round_trip_rc`, `round_trip_exact`, `round_trip_exact_error`,
-`summary.round_trip_inexact` and `summary.resumed` are additive; a result without `modules` is marked `needs_restatement`. `--from-output F` refuses (nothing written) a file whose
+`round_trip_rc`, `round_trip_exact`, `round_trip_exact_error`, `round_trip_variant`,
+`round_trip_open`, `summary.round_trip_inexact`, `summary.resumed` and
+`summary.round_trip_variant` are additive; a result without `modules` is marked `needs_restatement`. `--from-output F` refuses (nothing written) a file whose
 `schema` is not `comparator-types/1`, whose `package` is another package, or
 whose `commit` is not the checkout's HEAD; a declaration with no result in the
 file falls back to the TODO lines with a `type_error`. `--challenge-from-type`

@@ -7,6 +7,22 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Fixed
+
+- `comparator config --challenge-from-type` / `--emit-script`: fewer printed statements fail the round trip
+  (field report #5, LO-20261016-35: 25 failures and 6 only-defeq results among 339 declarations of a Mathlib
+  package). The type is printed with `pp.funBinderTypes` as well (`fun (n : ℕ) => ...`, `{n : ℕ | ...}`,
+  `∃ (q : T → ℕ), ...`); a second text printed with `pp.coercions.types` as well (`(↑v : E)`,
+  `(↑S.domain : Set E)`) is checked only when the first is not exact, since globally it regresses `•` statements;
+  when Lean cannot synthesize a `Decidable` instance both texts are checked again under `open scoped Classical`,
+  and the pre-filled Challenge and Solution then start with `open scoped Classical in`; and the `#guard_expr`
+  text starts on its own line (a `have` spanning lines no longer fails to parse there). The best attempt wins;
+  additive JSON: `round_trip_variant`, `round_trip_open`, `summary.round_trip_variant`; progress lines say
+  `ok (with ...)`. On 35 Mathlib toys (the 19 of #153 plus 16 reproducing the report's classes): 20 exact, 3
+  defeq, 12 failed before; 32 exact, 3 defeq, 0 failed now, the 19 all still exact. Still flagged, documented in
+  docs/comparator.md: an `Lp` element applied as a function (a proof argument differs) and an instance found by
+  unification in a `have` type.
+
 ## [0.7.52] - 2026-10-16
 
 ### Added

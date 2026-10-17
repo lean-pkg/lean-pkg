@@ -50,6 +50,15 @@ if rt:                                             # the round-trip check (#31)
         n = next(i for i, l in enumerate(src.splitlines(), 1) if l.startswith("#guard_expr"))
         print(args[2] + ":" + str(n) + ":0: error: Failed: `(True)` is not syntactically equal to `type_of% @_root_.x`")
         sys.exit(1)
+    alt_ok = "(True : Prop)" in src                 # the pp.coercions.types text (FAKE_LAKE_ALT)
+    if rt.group(1) in os.environ.get("FAKE_LAKE_RT_PRIMARY_REJECT", "").split(",") and not alt_ok:
+        print(args[2] + ":6:5: error: invalid coercion notation, expected type is not known")
+        sys.exit(1)
+    if rt.group(1) in os.environ.get("FAKE_LAKE_RT_DECIDABLE", "").split(",") and \
+            "\nopen scoped Classical\n" not in src:
+        print(args[2] + ":6:5: error(lean.synthInstanceFailed): failed to synthesize instance of type class")
+        print("  Decidable (p n)")
+        sys.exit(1)
     if rt.group(1) in os.environ.get("FAKE_LAKE_RT_REJECT", "").split(","):
         print(args[2] + ":6:5: error: type mismatch")
         print("  " + rt.group(1))
@@ -79,6 +88,10 @@ if decl == "Demo.gone":
     print("LEANPKG-ERROR unknown constant " + decl)
 elif decl == "Demo.baz":
     print("LEANPKG-LEVELS \nLEANPKG-MODULES Init.Prelude\nLEANPKG-TYPE-BEGIN\nTrue\nLEANPKG-TYPE-END")
+    if decl in os.environ.get("FAKE_LAKE_ALT", "").split(","):
+        print("LEANPKG-ALT-BEGIN\n(True : Prop)\nLEANPKG-ALT-END")
+    else:
+        print("LEANPKG-ALT-BEGIN\nTrue\nLEANPKG-ALT-END")
 elif decl == "Demo.wow":
     print(args[2] + ":3:0: warning: declaration uses 'sorry'")
     print("LEANPKG-LEVELS u_1,v")
@@ -113,7 +126,7 @@ def fake_lake(tmp_path, monkeypatch):
     monkeypatch.setenv("LEAN_PKG_TYPES_BACKOFF_SECONDS", "0")
     for v in ("LEAN_PKG_TYPES_JOBS", "LEAN_PKG_TYPES_TIMEOUT", "FAKE_LAKE_FAIL_ALL", "LEAN_NUM_THREADS",
               "FAKE_LAKE_ENFILE_FIRST", "FAKE_LAKE_RT_REJECT", "FAKE_LAKE_RT_INEXACT", "FAKE_LAKE_ALL_OK",
-              "LEAN_PKG_TYPES_RESUME"):
+              "LEAN_PKG_TYPES_RESUME", "FAKE_LAKE_ALT", "FAKE_LAKE_RT_PRIMARY_REJECT", "FAKE_LAKE_RT_DECIDABLE"):
         monkeypatch.delenv(v, raising=False)
     return bindir
 
@@ -262,7 +275,7 @@ def test_emit_then_ingest_equals_local_mode(lp, env, fake_lake, tmp_path, capsys
     assert doc["summary"] == {"ok": False, "total": 3, "filled": 2, "errors": 1, "round_trip_failed": 0,
                               "declaration_errors": 0,
                               "jobs": min(2, len(os.sched_getaffinity(0))), "backoff": [],
-                              "round_trip_inexact": 0, "resumed": 0}
+                              "round_trip_inexact": 0, "resumed": 0, "round_trip_variant": 0}
     zap = doc["results"][1]
     assert zap["rc"] == 1 and zap["failure"] == "extraction" and "Demo.olean" in zap["output_tail"]
     assert doc["schema"] == "comparator-types/1" and doc["package"] == "beta"
@@ -589,17 +602,23 @@ def test_driver_prints_numeral_types_and_checks_the_round_trip_syntactically(lp,
     script = tmp_path / "d.sh"
     assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
     text = script.read_text()
-    for opt in ("pp.fullNames true", "pp.proofs true", "pp.analyze true", "pp.numericTypes true"):
+    for opt in ("pp.fullNames true", "pp.proofs true", "pp.analyze true", "pp.numericTypes true",
+                "pp.funBinderTypes true"):
         assert "set_option " + opt in text, opt
-    assert "pp.coercions.types" not in text and "pp.explicit" not in text
+    # pp.coercions.types only for the second text (the fallback), never as a global option
+    assert "set_option pp.coercions.types" not in text and "pp.explicit" not in text
+    assert "withOptions" in text and "`pp.coercions.types true)" in text and "LEANPKG-ALT-BEGIN" in text
     run_driver(env, script, tmp_path / "out.json")
     rts = {json.loads(x)["decl"]: json.loads(x)["src"] for x in (tmp_path / "lake.log.rt").read_text().splitlines()}
     wow = rts["Demo.wow"].splitlines()
-    assert wow.index("-- LEANPKG-EXACT") < next(i for i, l in enumerate(wow) if l.startswith("#guard_expr"))
+    g = next(i for i, l in enumerate(wow) if l.startswith("#guard_expr"))
+    assert wow.index("-- LEANPKG-EXACT") < g and wow[g] == "#guard_expr"
     assert "universe u_1 v" in wow
-    assert any(l.startswith("#guard_expr (∀ {α : Type u_1}") for l in wow)
+    # the text starts on its own line, like the `example`'s, so continuation lines stay right of `(`
+    assert wow[g + 1].startswith("    (∀ {α : Type u_1}") and wow[g + 2].startswith("      ")
     assert wow[-1].endswith(" =ₛ type_of% @_root_.Demo.wow.{u_1, v}")
-    assert rts["Demo.baz"].splitlines()[-1] == "#guard_expr (True) =ₛ type_of% @_root_.Demo.baz"
+    assert rts["Demo.baz"].splitlines()[-2:] == ["#guard_expr", "    (True) =ₛ type_of% @_root_.Demo.baz"]
+    assert "open scoped Classical" not in rts["Demo.baz"]
 
 
 def test_defeq_but_not_syntactically_equal_is_filled_but_flagged(lp, env, fake_lake, tmp_path, monkeypatch, capsys):
@@ -633,6 +652,83 @@ def test_error_before_the_exact_check_is_still_a_round_trip_failure(lp, env, fak
     baz = json.loads(out.read_text())["results"][0]
     assert (baz["status"], baz["failure"], baz["round_trip"]) == ("error", "round_trip", "failed")
     assert "round_trip_exact" not in baz
+
+
+def rt_srcs(tmp_path, decl):
+    """The round-trip sources the fake lake saw for `decl`, in order."""
+    lines = (tmp_path / "lake.log.rt").read_text().splitlines()
+    return [json.loads(x)["src"] for x in lines if json.loads(x)["decl"] == decl]
+
+
+def test_coercion_types_text_is_the_fallback_when_the_first_does_not_round_trip(lp, env, fake_lake, tmp_path,
+                                                                               monkeypatch, capsys):
+    """Field report #5 (LO-20261016-35): `↑x` whose target Lean cannot infer. The second printed text
+    (pp.coercions.types) is tried only after the first fails; the one that passes becomes the type."""
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    monkeypatch.setenv("FAKE_LAKE_ALT", "Demo.baz")
+    monkeypatch.setenv("FAKE_LAKE_RT_PRIMARY_REJECT", "Demo.baz")
+    p = run_driver(env, script, out)
+    assert "Demo.baz ok (with pp.coercions.types)" in p.stderr, p.stderr
+    doc = json.loads(out.read_text())
+    baz, wow = doc["results"][0], doc["results"][2]
+    assert (baz["status"], baz["round_trip"], baz["round_trip_exact"]) == ("ok", "ok", True)
+    assert baz["type"] == "(True : Prop)" and baz["round_trip_variant"] == "pp.coercions.types"
+    assert "alt_type" not in baz and "round_trip_open" not in baz and "error" in baz and baz["error"] is None
+    assert [s.count("(True : Prop)") for s in rt_srcs(tmp_path, "Demo.baz")] == [0, 2]
+    assert len(rt_srcs(tmp_path, "Demo.wow")) == 1 and "round_trip_variant" not in wow
+    assert doc["summary"]["round_trip_variant"] == 1 and doc["summary"]["round_trip_failed"] == 0
+    rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--allow-partial", "--json")
+    assert rc == 0, cap.err
+    entry = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/baz"]
+    assert entry["type"] == "(True : Prop)" and entry["needs_restatement"] is False
+    assert entry["challenge"].startswith("/-- ") and "(True : Prop) := by" in entry["challenge"]
+
+
+def test_both_texts_failing_keeps_the_first_text_and_its_error(lp, env, fake_lake, tmp_path, monkeypatch, capsys):
+    """Negative control: when neither text round-trips, the result is the first text's failure."""
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    monkeypatch.setenv("FAKE_LAKE_ALT", "Demo.baz")
+    monkeypatch.setenv("FAKE_LAKE_RT_REJECT", "Demo.baz")
+    run_driver(env, script, out)
+    baz = json.loads(out.read_text())["results"][0]
+    assert (baz["status"], baz["failure"], baz["round_trip"]) == ("error", "round_trip", "failed")
+    assert baz["type"] == "True" and "type mismatch" in baz["error"] and "round_trip_variant" not in baz
+    assert len(rt_srcs(tmp_path, "Demo.baz")) == 2                 # no Decidable error: no Classical retry
+
+
+def test_undecidable_proposition_retries_under_open_scoped_classical(lp, env, fake_lake, tmp_path, monkeypatch,
+                                                                     capsys):
+    """A statement made under `open Classical` (`if n ∈ s then ...` for a Set) prints no instance; the
+    round trip retries with `open scoped Classical`, and the Challenge and Solution carry it."""
+    synced(lp, env, capsys)
+    script, out = tmp_path / "d.sh", tmp_path / "types.json"
+    assert cc(lp, env, capsys, "--emit-script", str(script))[0] == 0
+    monkeypatch.setenv("FAKE_LAKE_RT_DECIDABLE", "Demo.baz")
+    p = run_driver(env, script, out)
+    assert "Demo.baz ok (with open scoped Classical)" in p.stderr, p.stderr
+    baz = json.loads(out.read_text())["results"][0]
+    assert (baz["status"], baz["round_trip_exact"], baz["round_trip_open"]) == ("ok", True, "Classical")
+    srcs = rt_srcs(tmp_path, "Demo.baz")
+    assert len(srcs) == 2 and "open scoped Classical" not in srcs[0]
+    assert "set_option autoImplicit false\nopen scoped Classical\n" in srcs[1]
+    rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--allow-partial", "--json")
+    assert rc == 0, cap.err
+    entry = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/baz"]
+    assert entry["challenge"].startswith("open scoped Classical in\n/-- ")
+    assert entry["solution"].startswith("open scoped Classical in\ntheorem ")
+    other = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/wow"]
+    assert "Classical" not in other["challenge"]
+    # negative control: a failure that is not about decidability is not retried under Classical
+    (tmp_path / "lake.log.rt").unlink()
+    monkeypatch.delenv("FAKE_LAKE_RT_DECIDABLE")
+    monkeypatch.setenv("FAKE_LAKE_RT_REJECT", "Demo.baz")
+    monkeypatch.setenv("LEAN_PKG_TYPES_RESUME", "0")
+    run_driver(env, script, out)
+    assert len(rt_srcs(tmp_path, "Demo.baz")) == 1 and json.loads(out.read_text())["results"][0]["status"] == "error"
 
 
 def test_driver_reports_progress_and_resumes_from_its_checkpoint(lp, env, fake_lake, tmp_path, monkeypatch,
@@ -698,6 +794,18 @@ theorem int_pow (z : Int) : (1 : Int) ^ 1 * z = z := by simp
 def double (n : Nat) : Nat := n + n
 theorem double_eq (n : Nat) : double n = n + n := rfl
 theorem univ_poly {α : Type u} (a : α) : a = a := rfl
+-- field report #5, LO-20261016-35: one declaration per class the first round of options did not round-trip
+theorem map_cast (l : List Nat) : List.map (fun n : Nat => (n : Int)) l = List.map (fun n : Nat => (n : Int)) l := rfl
+structure Fn where
+  f : Nat → Nat
+attribute [coe] Fn.f
+instance : CoeFun Fn (fun _ => Nat → Nat) := ⟨Fn.f⟩
+theorem coe_fun (g : Fn) (n : Nat) : g n = g.f n := rfl
+open Classical in
+theorem classical_ite (p : Nat → Prop) (n : Nat) : (if p n then 1 else 1) = 1 := by split <;> rfl
+theorem have_app :
+    have aaaaaaaaaaaaaaaaaaaa := Nat.max (1000000000 + 2000000000 + 3000000000 + 4000000000) (5000000000 + 6000000000)
+    aaaaaaaaaaaaaaaaaaaa = aaaaaaaaaaaaaaaaaaaa := rfl
 end Toy
 """
 REAL_TOOLCHAIN = os.environ.get("LEAN_PKG_TEST_TOOLCHAIN", "leanprover/lean4:v4.35.0-rc2")
@@ -716,8 +824,10 @@ def _have_toolchain():
 @pytest.mark.skipif(not _have_toolchain(), reason=f"real Lean test: elan with {REAL_TOOLCHAIN} not installed")
 def test_real_lean_printed_types_re_elaborate_to_the_original(tmp_path):
     """Slow (real `lake env lean`, core only, no network): the emitted driver's printed statements
-    re-elaborate to the declarations' own types, syntactically; without pp.numericTypes (negative
-    control) the numerals and casts lose their types and the round trip fails."""
+    re-elaborate to the declarations' own types, syntactically. Negative controls: without
+    pp.numericTypes the numerals and casts lose their types; without pp.funBinderTypes, the
+    pp.coercions.types fallback, the Classical retry and the own-line `#guard_expr` text, the four
+    classes of LO-20261016-35 fail (or are only defeq) again."""
     from lean_pkg import comparator_types as ct
     pkg = tmp_path / "toy"
     (pkg / "Toy").mkdir(parents=True)
@@ -733,12 +843,13 @@ def test_real_lean_printed_types_re_elaborate_to_the_original(tmp_path):
     for cmd in (["git", "init", "-q"], ["git", "add", "-A"], ["git", "commit", "-qm", "toy"], ["lake", "build"]):
         subprocess.run(cmd, cwd=pkg, env=genv, check=True, capture_output=True, timeout=600)
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=pkg, env=genv, capture_output=True, text=True).stdout.strip()
-    decls = ["cast_one", "int_sub", "int_div", "int_pow", "double_eq", "univ_poly"]
+    decls = ["cast_one", "int_sub", "int_div", "int_pow", "double_eq", "univ_poly", "map_cast", "coe_fun",
+             "classical_ite", "have_app"]
     claims = [{"decl": "Toy." + d, "id": "toy/" + d, "file": "Toy/Main.lean"} for d in decls]
 
-    def run(cfg, name):
+    def run(cfg, name, edit=lambda t: t):
         script, out = tmp_path / (name + ".sh"), tmp_path / (name + ".json")
-        script.write_text(ct.driver_script(cfg))
+        script.write_text(edit(ct.driver_script(cfg)))
         p = subprocess.run(["bash", str(script), str(out)], cwd=pkg, env=genv, capture_output=True, text=True,
                            timeout=1200)
         assert p.returncode == 0, p.stderr
@@ -750,10 +861,32 @@ def test_real_lean_printed_types_re_elaborate_to_the_original(tmp_path):
     assert res["Toy.cast_one"]["type"] == "∀ (n : Nat), ↑(1 : Nat) ≤ ↑n + (1 : Int)"
     assert res["Toy.int_div"]["type"] == "(2 / 2 : Int) = (1 : Int)"
     assert res["Toy.univ_poly"]["levels"] == ["u"]
-    assert "[6/6]" in p.stderr
-    old = dict(cfg, snippet=cfg["snippet"].replace("set_option pp.numericTypes true\n", ""))
+    assert "[10/10]" in p.stderr
+    assert "(n : Nat) => ↑n" in res["Toy.map_cast"]["type"] and "round_trip_variant" not in res["Toy.map_cast"]
+    assert res["Toy.coe_fun"]["type"] == "∀ (g : Toy.Fn) (n : Nat), (↑g : Nat → Nat) n = (↑g : Nat → Nat) n"
+    assert res["Toy.coe_fun"]["round_trip_variant"] == "pp.coercions.types"
+    assert res["Toy.classical_ite"]["round_trip_open"] == "Classical"
+    assert [d for d, r in res.items() if r.get("round_trip_variant")] == ["Toy.coe_fun", "Toy.classical_ite"]
+    def no_alt(snippet):                     # only the first text: no pp.coercions.types fallback
+        return "\n".join(l for l in snippet.splitlines() if "alt" not in l and "LEANPKG-ALT" not in l) + "\n"
+
+    old = dict(cfg, snippet=no_alt(cfg["snippet"].replace("set_option pp.numericTypes true\n", "")))
     _, res = run(old, "old")
     assert res["Toy.cast_one"]["type"] == "∀ (n : Nat), ↑1 ≤ ↑n + 1"
     bad = sorted(d for d, r in res.items() if r["status"] != "ok")
-    assert bad == ["Toy.cast_one", "Toy.int_div", "Toy.int_sub"]
+    assert bad == ["Toy.cast_one", "Toy.coe_fun", "Toy.int_div", "Toy.int_sub"]    # coe_fun: no fallback text
     assert all(res[d]["failure"] == "round_trip" for d in bad)
+    # the options and checks before LO-20261016-35: no lambda binder types, no second text, no Classical
+    # retry, the `#guard_expr` text starting at column 12
+    snip = no_alt(cfg["snippet"].replace("set_option pp.funBinderTypes true\n", ""))
+    rt = cfg["roundtrip_snippet"].replace("#guard_expr\n    (__TYPE__)", "#guard_expr (__TYPE__)")
+    assert snip != cfg["snippet"] and rt != cfg["roundtrip_snippet"]
+    _, res = run(dict(cfg, snippet=snip, roundtrip_snippet=rt), "before",
+                 lambda t: t.replace('CLASSICAL = "open scoped Classical\\n"', 'CLASSICAL = ""'))
+    bad = sorted(d for d, r in res.items() if r["status"] != "ok")
+    assert bad == ["Toy.classical_ite", "Toy.coe_fun", "Toy.map_cast"], res
+    assert "invalid coercion notation" in res["Toy.coe_fun"]["error"]
+    assert "Decidable" in res["Toy.classical_ite"]["error"]
+    have = res["Toy.have_app"]
+    assert (have["status"], have["round_trip_exact"]) == ("ok", False) and "unexpected token" in \
+        have["round_trip_exact_error"]
