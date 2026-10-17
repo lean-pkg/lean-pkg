@@ -948,6 +948,49 @@ configurations in one `comparator-check.sh` run and does not resume.
 unit, cached the moment it is accepted, so a killed run loses at most the
 name being judged.
 
+**Attempts.** A run that would replace an earlier run's stage files keeps them
+first. That is a run that reruns the setup stages (another commit, toolchain or
+config hash, or an incomplete or failed setup), or that reruns the comparison
+after an earlier comparison, estimate or failure. Before it writes anything,
+the top-level files of `comparator-stages/` (`stages.json`, the stage logs, the
+olean manifest, `04-comparator.partial.json`, a partial receipt, an estimate)
+and the per-unit files under `04-units/` are copied to
+`comparator-stages/attempts/NNN/`. The copy gets an `attempt.json` (schema
+`comparator-attempt/1`: `n`, `reason`, `commit`, `started_at` and `finished_at`
+of the kept run, `kept_at`, `failed_stage`, `verdict` (`pass`, `partial`,
+`failed`, `estimate`, `prepared`, `incomplete`, or `unknown` without a readable
+`stages.json`), `olean_manifest_sha256` when one was recorded, and the sha256
+of each kept file under `files`). Then the copy is made read-only (`chmod a-w`).
+`stages.json` now records `started_at` for this. A completed `--prepare` that
+the next run reuses carries over as it is and is not kept, so `--prepare`
+followed by a run keeps nothing; an idempotent `--prepare` keeps nothing either.
+`NNN` is zero-padded and increases. It is never reused: `attempts/NEXT` holds
+the next number, so deleting the newest attempt does not hand its number to the
+next one (without `NEXT`, the highest kept number plus one). lean-pkg never
+deletes an attempt and never reads one back. Resume, the slot cache
+(`04-slots/`, which stays where it is and is not copied) and setup reuse read
+the current stage files only. `--from-prepared` or `--evidence-dir` pointing
+into an attempt is refused before anything runs. Receipts, `comparator --check`
+and `gate --check` bind the current run only, and an attempt's partial receipt
+is never evidence. The attempts sit inside `comparator-stages/`, so the
+ignored-evidence report, `public-safety` and `release --fresh-repo` treat them
+like the stage logs (the default evidence directory is under `.lake/`, which
+neither git nor `--fresh-repo` carries).
+
+`comparator-receipt --attempts [DIR] [--json]` lists them read-only and needs
+no host policy. DIR is an evidence directory, its `comparator-stages/` or its
+`attempts/`, and the evidence directory is the default. The list is in number
+order: verdict, failed stage, commit, times, file count and bytes, and whether
+every kept file still matches its recorded sha256. It exits 0, or 1 when a kept
+file changed, went missing or was added.
+
+Disk: an attempt holds the stage logs, so a build log or many unit logs can
+make it large. Nothing prunes attempts automatically. To prune by hand, make
+the attempt writable first, then remove it:
+`chmod -R u+w .lake/comparator-receipt/comparator-stages/attempts/003 && rm -rf .lake/comparator-receipt/comparator-stages/attempts/003`
+(`du -sh .../attempts/*` shows the sizes). Leave `attempts/NEXT` in place so
+that numbers stay unique.
+
 **Parallel judges.** `--judges N` (or `LEAN_PKG_COMPARATOR_JOBS`; default 1)
 splits each configuration's pending slots into at most N contiguous shards
 of near-equal size, each judged by its own `lake comparator` on a partial

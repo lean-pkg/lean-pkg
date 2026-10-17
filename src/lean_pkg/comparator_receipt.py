@@ -15,6 +15,9 @@ The setup ends by hashing the package's own compiled modules (comparator-stages/
 stages.json olean_manifest); a reused setup whose oleans changed is refused, and the comparator stage fails
 when they change during the comparison. `comparator-receipt --verify-oleans [DIR] [--json]` is the read-only
 check (exit 0 same, 1 different or not recorded).
+A run that replaces an earlier run's stage files first keeps them, read-only, as
+comparator-stages/attempts/NNN/ (numbers never reused; never deleted or read back by lean-pkg);
+`comparator-receipt --attempts [DIR] [--json]` lists them.
 
 Host policy: the run is allowed iff SLURM_JOB_ID is set (inside a Slurm job),
 OR this host's name is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
@@ -938,6 +941,15 @@ class Stages:
         self.build_provenance: dict | None = None   # #56: {compiled, modules_built, prebuilt, source}
         self.pool: dict | None = None        # #60: stage 04's {judges, unit_size} (toolchain mechanism)
         self.olean_manifest: dict | None = None   # the root package's compiled modules after setup
+        self.started_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+    def keep_attempt(self, reason: str) -> pathlib.Path | None:
+        """Keep the previous run's stages.json and stage logs as attempts/NNN/ before this run replaces them."""
+        kept = keep_attempt(self.dir, reason)
+        if kept is not None:
+            print(f"comparator-receipt: the previous run's stage files kept read-only as "
+                  f"{STAGES_DIR}/{ATTEMPTS_DIR}/{kept.name}/ ({reason})", file=sys.stderr)
+        return kept
 
     def log(self, stage: str) -> pathlib.Path:
         return self.dir / f"{STAGES.index(stage) + 1:02d}-{stage}.log"
@@ -961,6 +973,7 @@ class Stages:
                 **({"build_provenance": self.build_provenance} if self.build_provenance is not None else {}),
                 **({"olean_manifest": self.olean_manifest} if self.olean_manifest is not None else {}),
                 **(self.pool or {}),
+                "started_at": self.started_at,
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         tmp = self.json.with_name(STAGES_FILE + ".tmp")
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -1026,6 +1039,159 @@ def prepared_mismatch(data: dict | None, binding: dict) -> str | None:
     if undone:
         return f"setup incomplete there (stage(s) {', '.join(undone)} not done)"
     return None
+
+
+# ---------------------------------------------------------------------------
+# Attempts. Before a run replaces the stage files of an earlier run (it reruns the setup, or the
+# comparison after any earlier comparison, estimate or failure), the top-level files of comparator-stages/
+# (stages.json, the stage logs, the olean manifest, the partial report and partial receipt, an estimate)
+# and the per-unit judge logs under 04-units/ are copied to comparator-stages/attempts/NNN/ with an
+# attempt.json, then made read-only. NNN is zero-padded and never reused (attempts/NEXT survives a deleted
+# attempt). lean-pkg never deletes an attempt and never reads one back: resume, the slot cache and setup
+# reuse read the current stage files only, and receipts bind the current run only. Nothing prunes them;
+# see docs/comparator.md (Attempts) for pruning by hand.
+
+ATTEMPTS_DIR = "attempts"
+ATTEMPT_FILE = "attempt.json"
+ATTEMPT_SCHEMA = "comparator-attempt/1"
+ATTEMPT_NEXT = "NEXT"
+
+
+def _attempt_number(name: str) -> int | None:
+    return int(name) if re.fullmatch(r"\d{3,}", name) else None
+
+
+def attempt_verdict(data: dict | None, files: set[str]) -> str:
+    """pass | partial | failed | estimate | prepared | incomplete | unknown (no readable stages.json)."""
+    if data is None:
+        return "unknown"
+    by = {e.get("stage"): e for e in data.get("stages") or [] if isinstance(e, dict)}
+    failed = data.get("failed_stage")
+    if failed:
+        return "partial" if (by.get(failed) or {}).get("status") == "partial" else "failed"
+    if (by.get("receipt") or {}).get("status") == "ok":
+        return "partial" if any(f.endswith(".partial.json") for f in files) else "pass"
+    if (by.get("comparator") or {}).get("status") == "ok" and ESTIMATE_FILE in files:
+        return "estimate"
+    if "comparator" not in by and data.get("setup_complete"):
+        return "prepared"
+    return "incomplete"
+
+
+def _attempt_sources(stages_dir: pathlib.Path) -> list[tuple[str, pathlib.Path]]:
+    """(relative name, path) of the stage files an attempt keeps: regular files only, no *.tmp."""
+    out = [(p.name, p) for p in sorted(stages_dir.iterdir())
+           if p.is_file() and not p.is_symlink() and not p.name.endswith(".tmp")]
+    units = stages_dir / UNITS_DIR
+    if units.is_dir() and not units.is_symlink():
+        out += [(f"{UNITS_DIR}/{p.name}", p) for p in sorted(units.iterdir())
+                if p.is_file() and not p.is_symlink() and not p.name.endswith(".tmp")]
+    return out
+
+
+def keep_attempt(stages_dir: pathlib.Path, reason: str) -> pathlib.Path | None:
+    """Copy the previous run's stage files to attempts/NNN/ (read-only); None when there is nothing."""
+    if not stages_dir.is_dir():
+        return None
+    sources = _attempt_sources(stages_dir)
+    if not sources:
+        return None
+    data = read_stages(stages_dir / STAGES_FILE)
+    root = stages_dir / ATTEMPTS_DIR
+    root.mkdir(exist_ok=True)
+    nums = [n for n in (_attempt_number(p.name) for p in root.iterdir()) if n is not None]
+    try:
+        counter = int((root / ATTEMPT_NEXT).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        counter = 1
+    n = max([counter, *[x + 1 for x in nums]])
+    while True:
+        dest = root / f"{n:03d}"
+        try:
+            dest.mkdir()
+            break
+        except FileExistsError:
+            n += 1
+    tmp = root / f"{ATTEMPT_NEXT}.tmp"
+    tmp.write_text(f"{n + 1}\n", encoding="utf-8")
+    os.replace(tmp, root / ATTEMPT_NEXT)
+    hashes: dict[str, str] = {}
+    for rel, src in sources:
+        out = dest / rel
+        out.parent.mkdir(exist_ok=True)
+        shutil.copy2(src, out)
+        hashes[rel] = sha256_file(out)
+    om = (data or {}).get("olean_manifest")
+    meta = {"schema": ATTEMPT_SCHEMA, "n": n, "reason": reason,
+            "commit": (data or {}).get("commit"),
+            "started_at": (data or {}).get("started_at"), "finished_at": (data or {}).get("updated_at"),
+            "kept_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+            "failed_stage": (data or {}).get("failed_stage"),
+            "verdict": attempt_verdict(data, set(hashes)),
+            "olean_manifest_sha256": om.get("sha256") if isinstance(om, dict) else None,
+            "files": dict(sorted(hashes.items()))}
+    (dest / ATTEMPT_FILE).write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    for p in sorted(dest.rglob("*"), reverse=True):          # files first, then directories
+        p.chmod(0o555 if p.is_dir() else 0o444)
+    dest.chmod(0o555)
+    return dest
+
+
+def in_attempt(path: pathlib.Path) -> bool:
+    """True when path lies inside a kept attempt (comparator-stages/attempts/NNN/...)."""
+    parts = path.resolve().parts
+    return any(parts[i] == STAGES_DIR and parts[i + 1] == ATTEMPTS_DIR
+               for i in range(len(parts) - 1)) or (path / ATTEMPT_FILE).is_file() \
+        or (path.parent / ATTEMPT_FILE).is_file()
+
+
+def list_attempts(where: pathlib.Path) -> dict:
+    """--attempts: {dir, next, attempts[{n, verdict, failed_stage, commit, started_at, finished_at,
+    kept_at, reason, files, bytes, intact, problem}]} in attempt order; never writes."""
+    cands = [where / STAGES_DIR / ATTEMPTS_DIR, where / ATTEMPTS_DIR, where]
+    root = next((c for c in cands if c.is_dir() and c.name == ATTEMPTS_DIR), None)
+    out: dict = {"dir": str(root if root is not None else cands[0]), "next": None, "attempts": []}
+    if root is None:
+        return out
+    try:
+        out["next"] = int((root / ATTEMPT_NEXT).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        pass
+    for d in sorted((p for p in root.iterdir() if p.is_dir() and _attempt_number(p.name) is not None),
+                    key=lambda p: _attempt_number(p.name)):
+        row = {"n": _attempt_number(d.name), "name": d.name, "verdict": None, "failed_stage": None,
+               "commit": None, "started_at": None, "finished_at": None, "kept_at": None, "reason": None,
+               "olean_manifest_sha256": None, "files": 0, "bytes": 0, "intact": False, "problem": None}
+        try:
+            meta = json.loads((d / ATTEMPT_FILE).read_text(encoding="utf-8"))
+            if not isinstance(meta, dict) or meta.get("schema") != ATTEMPT_SCHEMA:
+                raise ValueError("not a " + ATTEMPT_SCHEMA)
+        except (OSError, ValueError) as e:
+            row["problem"] = f"no readable {ATTEMPT_FILE} ({e.__class__.__name__}): an interrupted copy?"
+            out["attempts"].append(row)
+            continue
+        for k in ("verdict", "failed_stage", "commit", "started_at", "finished_at", "kept_at", "reason",
+                  "olean_manifest_sha256"):
+            row[k] = meta.get(k)
+        files = meta.get("files") if isinstance(meta.get("files"), dict) else {}
+        row["files"] = len(files)
+        bad = []
+        for rel, sha in sorted(files.items()):
+            p = d / rel
+            if not p.is_file():
+                bad.append(f"{rel} missing")
+                continue
+            row["bytes"] += p.stat().st_size
+            if sha256_file(p) != sha:
+                bad.append(f"{rel} changed")
+        extra = sorted(p.relative_to(d).as_posix() for p in d.rglob("*")
+                       if p.is_file() and p.name != ATTEMPT_FILE
+                       and p.relative_to(d).as_posix() not in files)
+        bad += [f"{rel} not recorded" for rel in extra]
+        row["intact"] = not bad
+        row["problem"] = "; ".join(bad) or None
+        out["attempts"].append(row)
+    return out
 
 
 def setup_stages(project: pathlib.Path, configs: list[str], stages: Stages) -> None:
@@ -1664,6 +1830,11 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     evidence = evidence or project / DEFAULT_EVIDENCE
     set_redactions(project, evidence=evidence)   # #41: no checkout/evidence/HOME/TMPDIR path reaches a log or receipt
+    for what, where in (("--from-prepared", from_prepared), ("--evidence-dir", evidence)):
+        if where is not None and in_attempt(where):   # a kept attempt is never reused, resumed or rewritten
+            raise RunnerError(f"{what} {redact(str(where))}: a kept attempt ({STAGES_DIR}/{ATTEMPTS_DIR}/NNN/) "
+                              f"is a read-only record, never reused as setup or resumed; point at the "
+                              f"evidence directory instead; nothing written")
     if not prepare and not check.is_file():
         raise RunnerError(f"comparator-check script not found: {check}")
     dirty = dirty_paths(project, evidence)
@@ -1790,6 +1961,10 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                                  "note": f"setup done {when} ({e.get('status')}) in {prior_src}"}
         stages.build_provenance = carried_provenance(prior)   # #56: as recorded when it was built
         stages.olean_manifest = recorded
+        current = read_stages(stages.dir / STAGES_FILE)
+        if not (current is not None and current.get("failed_stage") is None and all(
+                isinstance(e, dict) and e.get("stage") in SETUP_STAGES for e in current.get("stages") or [])):
+            stages.keep_attempt("comparison rerun on the prepared setup")   # a pure prepared state carries over
         stages.clear(STAGES[3:])
         if recorded_text is not None and read_olean_manifest(stages.dir) != recorded_text:
             (stages.dir / OLEAN_MANIFEST_FILE).write_bytes(recorded_text)   # --from-prepared: kept beside
@@ -1810,6 +1985,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         if prior is not None:
             print(f"comparator-receipt: no reusable prepared state ({mismatch}); running setup",
                   file=sys.stderr)
+        stages.keep_attempt(f"setup rerun ({mismatch})" if prior is not None else "setup rerun")
         stages.clear(STAGES)
         for line in stack_lines:              # before the build stage's lean children
             print(line, file=sys.stderr)
@@ -2042,6 +2218,30 @@ def verify_oleans_main(args) -> int:
     return 0 if res["ok"] else 1
 
 
+def attempts_main(args) -> int:
+    project = pathlib.Path(args.project).resolve()
+    where = pathlib.Path(args.attempts).expanduser().resolve() if args.attempts else \
+        (pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else project / DEFAULT_EVIDENCE)
+    set_redactions(project, evidence=where)
+    res = list_attempts(where)
+    if args.json:
+        print(json.dumps(redact_json(res), indent=2, sort_keys=True))
+    else:
+        rows = res["attempts"]
+        print(f"attempts: {len(rows)} kept in {redact(res['dir'])}" + (" (read-only; nothing written)"
+                                                                     if rows else "; nothing written"))
+        for r in rows:
+            if r["verdict"] is None:
+                print(f"  {r['name']}  ?  {r['problem']}")
+                continue
+            failed = f" ({r['failed_stage']})" if r["failed_stage"] else ""
+            state = "intact" if r["intact"] else f"NOT INTACT: {r['problem']}"
+            print(f"  {r['name']}  {r['verdict']}{failed}  commit {str(r['commit'])[:12]}  "
+                  f"{r['started_at']} .. {r['finished_at']}  {r['files']} file(s), {r['bytes']} B  {state}"
+                  f"  [{r['reason']}]")
+    return 0 if all(r["intact"] for r in res["attempts"]) else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="comparator-receipt",
@@ -2111,7 +2311,13 @@ def main(argv: list[str] | None = None) -> int:
                          "(an evidence directory, its comparator-stages/ or its stages.json; default: the "
                          "evidence directory); the recorded commit must be HEAD; exit 0 same, 1 different or "
                          "nothing recorded; writes nothing")
-    ap.add_argument("--json", action="store_true", help="--estimate or --verify-oleans: print JSON")
+    ap.add_argument("--attempts", nargs="?", const="", default=None, metavar="DIR",
+                    help=f"read-only, no host policy: list the earlier runs kept under "
+                         f"{STAGES_DIR}/{ATTEMPTS_DIR}/NNN/ (verdict, failed stage, commit, times, files, "
+                         f"whether every kept file still matches its recorded sha256) in DIR (an evidence "
+                         f"directory, its {STAGES_DIR}/ or its {ATTEMPTS_DIR}/; default: the evidence "
+                         f"directory); exit 0, or 1 when a kept file changed or went missing; writes nothing")
+    ap.add_argument("--json", action="store_true", help="--estimate, --verify-oleans or --attempts: print JSON")
     ap.add_argument("--host-label", default=None, metavar="LABEL",
                     help=f"name the host LABEL instead of its host name in the receipt (host, host_label, "
                          f"job_id, host_policy) and the output (env {HOST_LABEL_ENV})")
@@ -2121,6 +2327,15 @@ def main(argv: list[str] | None = None) -> int:
             print("comparator-receipt: --host-label must not be empty", file=sys.stderr)
             return 2
         os.environ[HOST_LABEL_ENV] = args.host_label.strip()
+    if args.attempts is not None:
+        other = [f for f, v in (("--prepare", args.prepare), ("--from-prepared", args.from_prepared),
+                                ("--estimate", args.estimate), ("--slots", args.slots),
+                                ("--verify-oleans", args.verify_oleans is not None)) if v]
+        if other:
+            print(f"comparator-receipt: --attempts is a read-only listing; not with {', '.join(other)}",
+                  file=sys.stderr)
+            return 2
+        return attempts_main(args)
     if args.verify_oleans is not None:
         other = [f for f, v in (("--prepare", args.prepare), ("--from-prepared", args.from_prepared),
                                 ("--estimate", args.estimate), ("--slots", args.slots)) if v]
