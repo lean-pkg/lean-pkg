@@ -111,6 +111,13 @@ def test_workflow_diagram_exists_and_is_valid_svg():
     svg = ROOT / "docs" / "assets" / "workflow.svg"
     xml.dom.minidom.parse(str(svg))
     assert "assets/workflow.svg" in (ROOT / "docs" / "sample-workflow.md").read_text()
+    assert "../assets/workflow.svg" in (ROOT / "docs" / "design" / "two-tracks.md").read_text()
+    text = svg.read_text()
+    # both tracks, and every step of the sample workflow, drawn exactly once
+    for label in ("Track P · a verified paper", "Track L · a reusable library", "register + claim",
+                  "prove · build · audit", "state the claim", "comparator-receipt", "gate",
+                  "commit the evidence", "verification page", "promote (dry run)"):
+        assert text.count(f">{label}<") == 1, label
 
 
 def test_release_files_agree_and_release_script_refuses_bad_input():

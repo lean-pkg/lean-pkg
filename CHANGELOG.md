@@ -37,6 +37,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   verdict per check (`--json`: all of them); exit 0 only when none fails.
   docs/trust-model.md "Re-verify a page yourself" now uses it in place of a
   scratch `index add`; docs/receipts.md has the table of checks.
+- Docs: the workflow diagram (`docs/assets/workflow.svg`) covers both
+  product tracks. `new` forks into Track P (anchor the paper, a row per
+  numbered result, *Not formalized*) and Track L (`kind: library`, *Main
+  results*, no manuscript); both rejoin the seven shared steps of the sample
+  workflow, drawn once, with the verification page before the promotion dry
+  run; after `--yes` the path forks again (Reservoir, Palomar, Zenodo and the
+  citation in the paper; or a version tag, a Reservoir listing and Mathlib
+  PRs). 1.0 names are noted where they differ (`new --kind` and `verify` not
+  yet shipped, `publish --yes`). A vertical layout, legible at phone width;
+  shown on the sample workflow page and in docs/design/two-tracks.md.
 - Docs: open governance. GOVERNANCE.md (roles, including what the AI
   operations agent may and may not do, how decisions are made, how a second
   maintainer is added); a design-proposal process for schema, command-removal
