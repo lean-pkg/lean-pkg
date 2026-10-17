@@ -30,7 +30,8 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   against the committed redacted log (core.report_log_check; a missing log fails here); the additive evidence
   keys when present (manifest_sha256 against lake-manifest.json at X, artifacts_manifest_sha256 and
   unit_properties_sha256 against their committed files; job_stdout_sha256 is not checkable: the job's stdout
-  is not published).
+  is not published); the `container` key when present (#236: shown with its engine, digest and image ref;
+  a malformed one fails; the digest itself is not re-derivable, the image is not published).
 - claims: claims.yaml at X, with the claims/1 schema and declaration check gate runs (core.claims_schema_at).
 - per comparator receipt: gate's validator (core.validate_comparator: schema, binding, toolchain, the exact
   set of configurations tracked at X, each configuration's sha256 and fields, the sign-off of definition
@@ -57,6 +58,7 @@ import re
 import tempfile
 
 from . import cli as core
+from . import container as ctr
 
 RECEIPTS_DIR = ".lean-receipts"
 DEFAULT_AXIOMS = tuple(core.DEFAULT_AXIOMS)
@@ -313,6 +315,20 @@ def evidence_file_checks(c: Checks, repo: pathlib.Path, view: dict, x: str) -> N
               "artifacts_manifest_sha256, unit_properties_sha256)")
 
 
+def container_check(c: Checks, view: dict, tier: str = "lower") -> None:
+    """The additive `container` key (#236), when present: shown, and failed when malformed. The digest is what
+    the job measured; the image is not published, so it is not re-derived here."""
+    rec, rel = view["data"], view["path"]
+    if "container" not in rec:
+        return
+    bad = ctr.problems(rec["container"])
+    if bad:
+        c.add(f"{tier} {rel}: container", FAIL, "; ".join(bad))
+    else:
+        c.add(f"{tier} {rel}: container", PASS, f"{ctr.describe(rec['container'])}; recorded by the job, not "
+              f"re-derivable from git (the image is not published)")
+
+
 def olean_check(c: Checks, repo: pathlib.Path, view: dict, x: str) -> None:
     cid = f"comparator {view['path']}: olean manifest"
     om = view["data"].get("olean_manifest")
@@ -388,7 +404,7 @@ PAGE_ROW_RE = re.compile(r"^\| `([^`]+)`( \((?:recorded|used here)\))? \| (lower
                          r"[^|]*\|[^|]*\| `([0-9a-f]{64})` \|$", re.M)
 PAGE_LOWER_RES = (
     re.compile(r"^- Build check \(`lean-pkg gate`\) at commit `([0-9a-f]{12})`: `sorry` count ([^;\s]+); axioms "
-               r"used: (.*)\.$", re.M),
+               r"used: (.*?)(?:; run in a container \(\w+\), (?:SIF SHA-256|OCI digest) `([^`]+)`)?\.$", re.M),
     re.compile(r"^- Lower-tier gate receipt at `([0-9a-f]{12})` records: `sorry` count (\S+) after "
                r"the build; axioms used: (.*?); allowed:", re.M))
 PAGE_COMP_RES = (
@@ -464,6 +480,11 @@ def page_checks(c: Checks, repo: pathlib.Path, x: str, found: dict) -> None:
                      == axioms for v in lowers):
             problems.append(f"the trust boundary says sorry count {m.group(2)} and axioms "
                             f"{sorted(axioms)}; no lower-tier receipt bound to {x[:12]} says so")
+        elif m.re is PAGE_LOWER_RES[0] and m.group(4) and not any(
+                isinstance(v["data"].get("container"), dict) and not ctr.problems(v["data"]["container"])
+                and ctr.digest_of(v["data"]["container"])[1] == m.group(4) for v in lowers):
+            problems.append(f"the trust boundary names the container image {m.group(4)[:19]}…; no lower-tier "
+                            f"receipt bound to {x[:12]} records it")
     elif found["lower"]:
         problems.append("the page has no lower-tier trust-boundary line, yet a lower-tier receipt binds the commit")
     m = _search(PAGE_COMP_RES, block)
@@ -545,6 +566,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                 except core.Fail as e:
                     c.add(f"lower {rel}: report log", FAIL, str(e))
                 evidence_file_checks(c, repo, v, x)
+                container_check(c, v)
         cs = core.claims_schema_at(pkg_name, pkg, repo, x)
         if not cs["checked"]:
             c.add("claims", SKIP, f"no {cs['file']} at {x[:12]}")
@@ -558,6 +580,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                   f"{n_cfg} configuration(s) tracked at {x[:12]} re-derived from bytes (sha256, theorem names, "
                   f"sign-off), every log's sha256 and PASS line, same commit as the lower tier")
             olean_check(c, repo, v, x)
+            container_check(c, v, "comparator")
         claimed_theorems_check(c, repo, pkg, x, bool(found["comparator"]))
         coverage_check(c, repo, pkg)
         page_checks(c, repo, x, found)

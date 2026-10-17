@@ -1,0 +1,20 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.12.0. Same keys as 0.12.0.yaml; the human page is docs/upgrades/0.13.0.md.
+schema: lean-pkg-upgrade-record/1
+version: 0.13.0
+changes:
+  - pr: 245
+    id: receipt-container-image
+    kind: format
+    area: receipts, page
+    summary: >-
+      Receipts gain the additive key container {engine, image_sha256 (SIF) or oci_digest, ref} when the job
+      ran in a container: receipt slurm --template takes the image digest before the build (CONTAINER_IMAGE,
+      or a .sif word of RUN) and seals it on the log and the stdout; comparator-receipt records the SIF named by
+      APPTAINER_CONTAINER when readable. receipt check shows it (a malformed one fails); the page names the
+      engine and digest. No schema bump; a receipt without it is unchanged.
+    action: >-
+      Optional. To record the image, regenerate verify.sbatch with lean-pkg receipt slurm --template (or set
+      CONTAINER_IMAGE in it); after the next receipt, page NAME --write shows the digest.
+    breaking: false
+    changelog: Added
