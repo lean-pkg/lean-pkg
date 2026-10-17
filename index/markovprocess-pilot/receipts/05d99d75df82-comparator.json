@@ -1,11 +1,17 @@
 {
+  "build_provenance": {
+    "compiled": true,
+    "modules_built": 14,
+    "prebuilt": false,
+    "source": null
+  },
   "commit": "05d99d75df8235e79902220f0fe13e07e81867ca",
   "configs": [
     {
       "challenge_module": "Audit.Exit.Challenge",
       "definition_names": [],
       "log": ".lean-receipts/05d99d75df82-comparator-comparator_config-exit.log",
-      "log_sha256": "a6e31d37b9db2bcf873e9fa45ba8b60484ba62fab0efecac7b982e301a51838f",
+      "log_sha256": "86ffe88830515bdb1b42ba100ad0d7f72eff01fa8e04efe0626123c3bf7f83d1",
       "path": "comparator/config-exit.json",
       "permitted_axioms": [
         "propext",
@@ -23,7 +29,7 @@
       "challenge_module": "Audit.Smoke.Challenge",
       "definition_names": [],
       "log": ".lean-receipts/05d99d75df82-comparator-comparator_config-smoke.log",
-      "log_sha256": "96f5aa1ec0e0d880b20c0d9c4a087e7162fa3019a21b14b7aa74f884d7f1b5fc",
+      "log_sha256": "63a673a826d964eca01bf46276e4bb4ebe47a69e599a2f01417dfc482cfc017e",
       "path": "comparator/config-smoke.json",
       "permitted_axioms": [
         "propext",
@@ -38,14 +44,61 @@
       ]
     }
   ],
-  "generated_at": "2026-10-08T22:34:03+00:00",
-  "host": "home-workstation",
-  "host_policy": "host home-workstation listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS",
-  "job_id": "local-home-workstation-2040033-20261008T223403Z",
+  "generated_at": "2026-10-17T18:01:49+00:00",
+  "host": "h-24e00fc5da6c",
+  "host_label": "h-24e00fc5da6c",
+  "host_policy": "host h-24e00fc5da6c listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS",
+  "job_id": "local-h-24e00fc5da6c-2807017-20261017T180149Z",
+  "judges": 1,
+  "lean_threads": null,
   "lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
   "mechanism": "toolchain",
+  "olean_manifest": {
+    "captured": "build",
+    "files": 10,
+    "lake_manifest_sha256": "ab72e459cd29dce5fe5e21cc938651cb2bc10aa3cb5335e98635abe61ea87c9a",
+    "lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
+    "schema": "olean-manifest/1",
+    "sha256": "dd4c67ae283da6091732ea008f7470a196ee8288dad7d771dcbc24c78c9f4d09"
+  },
   "result": "pass",
   "schema": "comparator-receipt/2",
+  "stack_limit": {
+    "hard_kb": "unlimited",
+    "soft_kb": 8192,
+    "source": "inherited"
+  },
+  "stages": [
+    {
+      "exit": 0,
+      "stage": "checkout",
+      "status": "ok",
+      "wall_s": 30.829
+    },
+    {
+      "exit": 0,
+      "stage": "cache-get",
+      "status": "ok",
+      "wall_s": 4.811
+    },
+    {
+      "exit": 0,
+      "stage": "build",
+      "status": "ok",
+      "wall_s": 32.855
+    },
+    {
+      "exit": 0,
+      "stage": "comparator",
+      "status": "ok",
+      "wall_s": 313.112
+    }
+  ],
+  "toolchain_resolution": {
+    "lake": "<home>/.elan/bin/lake",
+    "source": "elan",
+    "version": "Lake version 5.0.0-src+11acb17 (Lean version 4.35.0-rc2)"
+  },
   "tools": {
     "con-ron_sha256": "4e5616d94374cae37324dad2594f6230c2bb2297240249fc78ff508f3bc5acef",
     "lake_sha256": "8ba83c98f76562d03b8dbc33f1057151ba6cbb121679dde76b2260ccc90495e1",
@@ -53,5 +106,6 @@
     "leanchecker_sha256": "9e36e955a251b1313c8eb5b7fa101282d51df109d34d8bb7c1cfdf51985aba29",
     "leanexport_sha256": "c5bc1a10a21e22cbb3671d65987cdef2076833b14182d823ccb2153adf2fa954",
     "nanoda_bin_sha256": "8241c5e6baa29490aa118d382f97961b208ae730fdb96545c2abed74c9ece5a8"
-  }
+  },
+  "unit_size": null
 }
