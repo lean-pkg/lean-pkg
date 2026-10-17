@@ -21,7 +21,7 @@ credit. Every number and status word in that section is rendered here from data,
 * the receipts committed at HEAD under `.lean-receipts/`: what the checks establish, the expected axioms,
   the receipt table (last, under "How this was checked"). Fields are copied from an allow-list only (commit, toolchain, Mathlib revision, sorry
   count, axioms, theorem names, permitted axioms, definition names, date, SHA-256 of the file, a Slurm job
-  id); hosts, paths, user names, checker commands and other job ids are never copied;
+  id, a container engine and image digest); hosts, paths, user names, checker commands and other job ids are never copied;
 * `lean-toolchain`, `lake-manifest.json`, `CITATION.cff` (authors must be non-empty), the registry's
   `repo`, `license_spdx` and `doi`. The registry `status` is not rendered: it changes on promote while
   the page is committed at one commit (it stays in `lean-pkg status` and `--json`).
@@ -502,6 +502,16 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     return _body_rest(ctx, target, md, counts, n_verified)
 
 
+def _container_clause(value) -> str:
+    """`; run in a container (Apptainer), SIF SHA-256 `<hex>`` for a well-formed `container` receipt key (#236),
+    else nothing. Only the engine and the digest are copied: never the image ref, which is a path."""
+    from . import container as ctr
+    if value is None or ctr.problems(value):
+        return ""
+    kind, digest = ctr.digest_of(value)
+    return f"; run in a container ({ctr.LABELS[value['engine']]}), {kind} `{digest}`"
+
+
 def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_verified: int
                ) -> tuple[list[str], dict]:
     """What the checks establish, How this was checked, and the citation, license and acknowledgments."""
@@ -552,7 +562,8 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
         sc = lower.get("sorry_count")
         md.append(f"- Build check (`lean-pkg gate`) at commit `{_c12(lower.get('commit'))}`: `sorry` count "
                   f"{sc if isinstance(sc, int) else '(not recorded)'}; axioms used: "
-                  f"{', '.join(f'`{a}`' for a in _names(lower.get('axioms'))) or 'none'}.")
+                  f"{', '.join(f'`{a}`' for a in _names(lower.get('axioms'))) or 'none'}"
+                  f"{_container_clause(lower.get('container'))}.")
     if comp and configs:
         thms = sum(len(c.get("theorem_names") or []) for c in configs)
         permitted = sorted({a for c in configs for a in _names(c.get("permitted_axioms"))})
