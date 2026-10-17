@@ -657,3 +657,73 @@ def test_warnings_never_turn_a_refused_plan_into_a_clean_one(vendored, tmp_path,
     plan = refused(capsys, repo, head, write_manifest(tmp_path, manifest(adopted=[adopted_entry()])),
                    "lean/blob.bin: unclassified")
     assert plan["totals"]["warnings"] == 1 and plan["totals"]["refusals"] == 1
+
+
+# --------------------------------------------------------------------------------------------------
+# disabled Lean sources (`*.lean.<suffix>`): a warning, since no import check reads them
+
+def disabled_warnings(plan: dict) -> list[str]:
+    return [w for w in plan["warnings"] if "disabled Lean source" in w]
+
+
+def test_excluded_disabled_fixtures_are_named_in_one_warning(src, tmp_path, capsys):
+    repo, _ = src
+    for name in ("NoInstance.lean.disabled", "Stale.lean.off", "Old.lean.skip"):
+        (repo / "verification/Controls" / name).write_text("open OldName\n")
+    head = commit_all(repo)
+    m = manifest(exclude=[{"path": "verification/Controls/*.lean.*", "reason": "disabled negative controls"}])
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, m))
+    assert rc == 0 and plan["ok"], plan["refusals"]
+    [w] = disabled_warnings(plan)
+    assert w.startswith("3 disabled Lean source file(s) (*.lean.<suffix>) are excluded or refused"), w
+    assert ("verification/Controls/NoInstance.lean.disabled, verification/Controls/Old.lean.skip, "
+            "verification/Controls/Stale.lean.off") in w
+    assert "lean_pkg.lean_diag" in w and ex.DISABLED_LEAN_DOC in w
+    assert plan["totals"]["warnings"] == len(plan["warnings"]) == 1
+    rc, text = run(capsys, repo, head, write_manifest(tmp_path, m))
+    assert rc == 0 and ", 1 warning(s);" in text.splitlines()[0]
+    assert "warnings (reported, not refused):\n  - 3 disabled Lean source file(s)" in text
+
+
+def test_unclassified_and_default_denied_disabled_fixtures_are_named_too(src, tmp_path, capsys):
+    repo, _ = src
+    (repo / "lean/Demo/Bad.lean.disabled").write_text("open OldName\n")       # unclassified: refused
+    (repo / "lean/reviews/Probe.lean.bak").write_text("import Old\n")         # default-denied: excluded
+    plan = refused(capsys, repo, commit_all(repo), write_manifest(tmp_path, manifest()),
+                   "lean/Demo/Bad.lean.disabled: unclassified")
+    [w] = disabled_warnings(plan)
+    assert "lean/Demo/Bad.lean.disabled, lean/reviews/Probe.lean.bak." in w, w
+    assert plan["totals"]["refusals"] == 1                    # the warning adds no refusal
+
+
+def test_a_plan_without_disabled_sources_prints_exactly_as_before(src, tmp_path, capsys, monkeypatch):
+    repo, sha = src
+    man = write_manifest(tmp_path, manifest())
+    outs = [run(capsys, repo, sha, man, *flags)[1] for flags in ((), ("--json",))]
+    assert "warnings (reported" not in outs[0] and "warning(s)" not in outs[0]
+    assert json.loads(outs[1])["warnings"] == []
+    monkeypatch.setattr(ex, "disabled_lean_check", lambda *a: None)       # the plan without the check
+    assert [run(capsys, repo, sha, man, *flags)[1] for flags in ((), ("--json",))] == outs
+
+
+def test_olean_ilean_and_plain_lean_are_not_disabled_sources(src, tmp_path, capsys):
+    repo, _ = src
+    for name in ("Demo.olean", "Demo.ilean", "Demo.olean.hash", "Demo.leanx", "lean.disabled", "Demo.lean"):
+        (repo / "lean/build-out" / name).parent.mkdir(exist_ok=True)
+        (repo / "lean/build-out" / name).write_text("x\n")
+    head = commit_all(repo)
+    m = manifest(exclude=[{"path": "lean/build-out/**", "reason": "build output"}])
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, m))
+    assert rc == 0 and len([x for x in plan["excluded"] if x["from"].startswith("lean/build-out/")]) == 6
+    assert disabled_warnings(plan) == [] and plan["warnings"] == [], plan["warnings"]
+
+
+def test_disabled_sources_outside_every_root_get_no_warning_and_the_pattern_is_exact(src, tmp_path, capsys):
+    repo, _ = src
+    (repo / "paper/Sketch.lean.disabled").write_text("open OldName\n")        # outside every root
+    head = commit_all(repo)
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, manifest()))
+    assert rc == 0 and plan["warnings"] == [], plan["warnings"]
+    assert [ex.DISABLED_LEAN.match(n) is not None for n in
+            ("A.lean.disabled", "A.lean.off", "A.lean.skip", "A.lean.x.y", "A.lean", "A.olean", "A.ilean",
+             "A.olean.x", ".lean.off")] == [True, True, True, True, False, False, False, False, False]

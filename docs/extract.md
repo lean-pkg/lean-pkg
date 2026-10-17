@@ -235,9 +235,18 @@ strict expected-reason audit refused all five.
 The plan does not pass over them silently, but it does not check them
 either. Such a file under a root has no class any root kind carries, so the
 plan is **refused** with its path until it is excluded or moved. Once it is
-excluded (or when it lies outside every root), it is only a line in the
-excluded list: the module inventory, `unowned_lean_files` and the import check
-read `*.lean` files only, so a stale `open` or `import` in it goes unreported.
+excluded, it is a line in the excluded list: the module inventory,
+`unowned_lean_files` and the import check read `*.lean` files only, so a stale
+`open` or `import` in it goes unreported there.
+
+The plan therefore **warns**: every excluded or unclassified file under a root
+whose name is `*.lean.<suffix>` (`Foo.lean.disabled`, `Foo.lean.off`,
+`Foo.lean.skip`, ...) is named in one entry of `warnings[]`, which points
+here and at `lean_diag`'s expected-reason check. It is a warning, not a
+refusal: `ok` and the exit code do not change. Only that pattern counts:
+`*.lean` itself, `*.olean` and `*.ilean` are not named. A file outside every
+root is not part of the plan, so it gets no warning; run the checklist below
+over the whole package anyway.
 
 Checklist item, after any namespace or import transport and before native,
 comparator or cluster gates: list the disabled fixtures and run each one's
@@ -314,6 +323,8 @@ git repository or a subdirectory of one).
 `write --output DIR` will materialize the plan into a new directory and verify
 every file against its recorded blob. `lean-pkg extract ...` as a subcommand of
 `lean-pkg` is left to the extension-dispatch work; use the `lean-pkg-extract`
-script. A plan warning that names excluded `*.lean.*` files (disabled
-controls the import check does not read) is a possible small follow-up. For consolidating several registered packages into one, see
+script. For excluded `*.lean.*` files (disabled controls the import check
+does not read) the plan warns; see
+[Disabled negative fixtures](#disabled-negative-fixtures-after-a-namespace-or-import-transport).
+For consolidating several registered packages into one, see
 [Consolidate several checkpoint packages into one](paper-companion.md#consolidate-several-checkpoint-packages-into-one).
