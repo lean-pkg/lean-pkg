@@ -55,6 +55,13 @@ CLI = [sys.executable, "-m", "lean_pkg.cli"]
 RECEIPT_CLI = [sys.executable, "-m", "lean_pkg.comparator_receipt"]
 
 
+def cli_reference_text() -> str:
+    """The CLI reference as published: docs/cli.md (global flags, shared sections) followed by every
+    generated page of docs/commands/ (per-command notes, flags, examples; scripts/command_docs.py)."""
+    pages = [ROOT / "docs" / "cli.md", *sorted((ROOT / "docs" / "commands").glob("*.md"))]
+    return "\n".join(p.read_text() for p in pages)
+
+
 def subprocess_env(extra: dict | None = None) -> dict:
     """os.environ with src/ importable, so `python -m lean_pkg...` works from
     a plain checkout as well as from an installed package."""

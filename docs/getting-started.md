@@ -455,4 +455,4 @@ DRY RUN — nothing changed. Re-run with --yes to execute.
 (`gh repo edit --visibility public`). Forks, clones, and caches stay public
 afterwards, so treat it as irreversible.
 
-Next: [How to](how-to.md) for task recipes, or the [CLI reference](cli.md).
+Next: [How to](how-to.md) for task recipes, or the [command reference](commands/index.md).

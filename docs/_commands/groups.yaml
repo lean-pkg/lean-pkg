@@ -1,0 +1,35 @@
+# The command reference's index page (docs/commands/index.md), grouped by purpose.
+# scripts/command_docs.py lists a command that no group names under "Not yet grouped", so a new
+# command is never missing from the index; place it in a group here when it lands.
+intro: |
+  Every `lean-pkg` command and subcommand, with its usage line, every flag, its exit codes, its
+  `--json` keys and, for the commands people run most, examples. Flags shared by every command
+  (`--registry`, `--json`, `--commit`, `--push`, committed mode, `--registry-snapshot`) are on the
+  [CLI overview](../cli.md).
+
+  **New here?** The usual path through the commands is
+  [`init`](init.md) (once) → [`register`](register.md) → [`claim`](claim.md) →
+  work → [`receipt slurm`](receipt.md#lean-pkg-receipt-slurm) or
+  [`receipt systemd`](receipt.md#lean-pkg-receipt-systemd) → [`gate`](gate.md) →
+  [`comparator-receipt`](comparator-receipt.md) and [`comparator`](comparator.md) →
+  [`coverage check`](coverage.md#lean-pkg-coverage-check) and [`page`](page.md) →
+  [`publish --dry-run`](publish.md) → [`promote`](promote.md). At any point
+  [`next NAME`](next.md) prints the one command to run now and [`status NAME`](status.md)
+  shows the record. The [sample workflow](../sample-workflow.md) walks the same path on a
+  real package.
+groups:
+  - title: Set up and get help
+    commands: [init, migrate, doctor, help, llms]
+  - title: See the registry
+    commands: [board, list, status, leases, next, wiki, validate, audit]
+  - title: Register, lease and edit packages
+    commands: [register, claim, renew, release, update]
+  - title: Produce and attach evidence
+    say: The lower tier (`receipt`, `gate`) moves a package to verified-private; the comparator tier is required to go public.
+    commands: [receipt, gate, comparator-receipt, comparator, record]
+  - title: Claims, coverage and the verification page
+    commands: [claims, coverage, page, formalization, search]
+  - title: Publish
+    commands: [publish, public-safety, promote, palomar, reservoir, index, lean-pkg-extract]
+  - title: Exercises and reports
+    commands: [lean-exercise, report]

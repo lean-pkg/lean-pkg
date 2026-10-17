@@ -97,6 +97,27 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   package whose `.lean-pkg-private-patterns` blocks that word (or *private*)
   can write its page. A paper page keeps its wording.
 
+- A command reference on the docs site, `docs/commands/`: one page per
+  top-level `lean-pkg` command (subcommands as sections) and one each for
+  `comparator-receipt`, `lean-exercise` and `lean-pkg-extract`, with an index
+  grouped by purpose and a newcomer path. Each page has the purpose, a usage
+  line, every argument and flag with its default and choices, the exit codes
+  of `lean-pkg help exit-codes`, the `--json` keys of the golden contract, the
+  per-command notes and examples. The pages are generated from the argparse
+  parsers by `scripts/command_docs.py` (`make docs` runs it), so they follow
+  any change to the command tree; the hand-written parts live in
+  `docs/_commands/` (`examples.yaml`, `groups.yaml`, `intro/`). Examples cover
+  the newcomer path and the most-used commands (init, register, claim,
+  release, status, next, receipt slurm and systemd, gate, comparator,
+  comparator-receipt, coverage check, page, publish, promote).
+  `tests/test_command_docs.py` fails when a committed page differs from the
+  generator's output, when an example no longer parses with the real parser
+  or runs another command than the one it is filed under, and when a link or
+  heading anchor from the reference does not resolve; a command without an
+  example is a warning. `docs/cli.md` is now the overview of the global
+  flags, committed mode, leases, the package record and the exit codes; its
+  per-command rows moved, unchanged, into the command pages.
+
 ## [0.9.0] - 2026-10-17
 
 ### Added

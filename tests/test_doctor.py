@@ -195,9 +195,10 @@ def test_doctor_exits_1_on_unsupported_schema_version_and_docs_agree(lp, env, fa
     assert line.startswith("warn registry:") and "schema version 999" in line and "unsupported" in line
     rule = "unreadable or its schema version is unsupported"
     assert rule in lp.LLMS_TEXT.replace("\n          ", " ")
-    assert rule in (ROOT / "docs" / "cli.md").read_text()
+    from .conftest import cli_reference_text
+    assert rule in cli_reference_text()
     assert rule in (ROOT / "CHANGELOG.md").read_text().replace("\n  ", " ")
-    for text in (lp.LLMS_TEXT, (ROOT / "docs" / "cli.md").read_text(), (ROOT / "CHANGELOG.md").read_text()):
+    for text in (lp.LLMS_TEXT, cli_reference_text(), (ROOT / "CHANGELOG.md").read_text()):
         assert "only when the registry is unreadable" not in text.replace("\n  ", " ").replace("\n          ", " ")
 
 
