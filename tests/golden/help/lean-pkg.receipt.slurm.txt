@@ -57,10 +57,10 @@ options:
   --compress-log        write the redacted log as deterministic gzip <...>-verify.redacted.log.gz
                         (level 9, mtime 0, no file name) instead of the plain .log; report_sha256
                         stays the SHA-256 of the uncompressed log and the receipt gains
-                        report_compressed {format: gzip, sha256 of the .gz, bytes uncompressed};
-                        gate decompresses (bounded) and checks report_sha256. Restore: gzip -dc
-                        X.log.gz > X.log. Without it, a log over 90 MiB prints a WARN naming this
-                        flag
+                        report_compressed {format: gzip, sha256 of the .gz, bytes = decoded
+                        length, not the .gz size}; gate decompresses (bounded) and checks
+                        report_sha256. Restore: gzip -dc X.log.gz > X.log. Without it, a log over
+                        90 MiB prints a WARN naming this flag
   --append-readme       append the entry block to README.md beside the receipt (created if absent;
                         an entry already naming the receipt is not repeated)
   --readme-heading TEXT

@@ -48,7 +48,7 @@ covered, and how a third party re-verifies a page, is the
 | `mathlib_rev` | nonempty; prefix-equal to the `mathlib` rev in `lake-manifest.json` committed at `commit`. A package without Mathlib (that file is readable and lists no `mathlib` package) has the explicit value `none`: `receipt slurm`/`systemd` write it from the manifest (a log `mathlib-rev:` line other than `none` is refused), `gate --check` prints `✓ mathlib_rev none: ...`, `none` beside a manifest that pins Mathlib is refused, and the package's `mathlib_pin` is null. A receipt written earlier with another value there is still read (`· mathlib_rev X not checked: ...`). With no readable manifest the rev is not checked |
 | `sorry_count` | integer, must be 0 |
 | `axioms` | list of strings, subset of `gate.axioms_allowed` (default `propext`, `Quot.sound`, `Classical.choice`) |
-| `report_sha256` | 64 hex characters: the frozen verification report; when the redacted verify log `<commit12>-<job slug>-verify.redacted.log` that `receipt slurm`/`systemd` writes is found (beside the receipt file, in the package's `.lean-receipts/`, or tracked there at HEAD), every copy must hash to it, else `gate` refuses; none found (or a copy that cannot be read) is refused too, as `report log missing: ...` naming where it looked and the path to restore it to (see [Restoring preserved evidence](#restoring-preserved-evidence)). The same rule holds wherever a recorded lower-tier receipt is judged: the claims ledger (and so `promote`), `next`, `comparator`, `palomar` and `index check`. A compressed copy `<...>-verify.redacted.log.gz` is checked the same way on its uncompressed bytes ([compressed sealed log](#a-compressed-sealed-log---compress-log)); report_sha256 is never the hash of the .gz |
+| `report_sha256` | 64 hex characters: the frozen verification report; when the redacted verify log `<commit12>-<job slug>-verify.redacted.log` that `receipt slurm`/`systemd` writes is found (beside the receipt file, in the package's `.lean-receipts/`, or tracked there at HEAD), every copy must hash to it, else `gate` refuses; none found (or a copy that cannot be read) is refused too, as `report log missing: ...` naming where it looked and the path to restore it to (see [Restoring preserved evidence](#restoring-preserved-evidence)). The same rule holds wherever a recorded lower-tier receipt is judged: the claims ledger (and so `promote`), `next`, `comparator`, `palomar` and `index check`. A compressed copy `<...>-verify.redacted.log.gz` is checked the same way on its uncompressed bytes ([compressed sealed log](#a-compressed-sealed-log---compress-log)); report_sha256 is never the hash of the .gz, and `report_compressed.bytes` is the decoded length, not the .gz size ([checking it yourself](#checking-a-compressed-log-yourself)) |
 | `job_id`, `checker`, `generated_at` | nonempty: the executor's terminal job identity, the exact checker mode, and an ISO-8601 time that must parse. The stored copy is named `<commit12>-<job_id>.json`, with characters outside `[A-Za-z0-9._-]` replaced by `-` and leading dots and dashes dropped |
 
 The frozen report named by `report_sha256` is expected to bind the candidate
@@ -242,7 +242,9 @@ nothing changes, except that a redacted log over 90 MiB prints a stderr
 
 - `report_sha256` stays the SHA-256 of the **uncompressed** redacted log.
 - The receipt gains the additive key `report_compressed`:
-  `{"format": "gzip", "sha256": "<SHA-256 of the .gz>", "bytes": <uncompressed length>}`.
+  `{"format": "gzip", "sha256": "<SHA-256 of the .gz>", "bytes": <decoded length>}`.
+  `bytes` is the length of the log after decoding (the uncompressed redacted
+  log), never the size of the `.gz` file.
   Older receipts are unchanged and still verify.
 - `--json` `log` names the `.gz`; `sealed[]` lists it with role
   `redacted-log.gz`, its own `sha256`, `receipt_key`
@@ -268,6 +270,59 @@ Restore the plain log and check it against the receipt:
 ```bash
 gzip -dc <commit12>-slurm-<J>-verify.redacted.log.gz > <commit12>-slurm-<J>-verify.redacted.log
 sha256sum <commit12>-slurm-<J>-verify.redacted.log   # must print report_sha256
+```
+
+### Checking a compressed log yourself
+
+A compressed receipt binds the log three ways, and each one is about a
+different set of bytes:
+
+| Receipt key | What it is | Compare it with |
+|---|---|---|
+| `report_compressed.sha256` | SHA-256 of the **`.gz` file** bytes | the hash of the file as stored |
+| `report_sha256` | SHA-256 of the **decoded** (uncompressed redacted log) bytes | the hash of what `gzip -dc` prints |
+| `report_compressed.bytes` | the **decoded length**, NOT the `.gz` file size | the number of bytes `gzip -dc` prints |
+
+The two lengths differ by design: in a field report the `.gz` was about
+146 KB and the decoded log about 1.49 MB, and `report_compressed.bytes`
+was 1.49 million. A collector that compares `bytes` with the `.gz` file's
+`stat` size refuses a genuine receipt.
+
+The supported check is lean-pkg's own, which verifies all three (and bounds
+the decompression):
+
+```bash
+lean-pkg gate NAME --check --receipt .lean-receipts/<commit12>-slurm-<J>.json   # an author; writes nothing
+lean-pkg receipt check --repo . --commit <X>                                   # a reader, from a clone; no registry
+```
+
+A wrapper that cannot call lean-pkg can run the same three comparisons with
+the standard library. The read is bounded: it stops as soon as the output
+passes `bytes`, so a gzip bomb is never expanded.
+
+```python
+import gzip
+import hashlib
+import json
+
+
+def check_compressed_log(receipt_path, gz_path, chunk=1 << 20):
+    """Raise AssertionError unless the .gz matches all three bindings of the receipt."""
+    receipt = json.load(open(receipt_path))
+    rc = receipt["report_compressed"]
+    gz_hash = hashlib.sha256()
+    with open(gz_path, "rb") as raw:                       # 1. the .gz bytes
+        while block := raw.read(chunk):
+            gz_hash.update(block)
+    assert gz_hash.hexdigest() == rc["sha256"], "report_compressed.sha256 differs"
+    decoded_hash, decoded_len = hashlib.sha256(), 0
+    with gzip.open(gz_path, "rb") as f:                    # 2. and 3. the decoded bytes
+        while block := f.read(min(chunk, rc["bytes"] + 1 - decoded_len)):
+            decoded_len += len(block)
+            assert decoded_len <= rc["bytes"], "decodes to more than report_compressed.bytes"
+            decoded_hash.update(block)
+    assert decoded_hash.hexdigest() == receipt["report_sha256"], "report_sha256 differs"
+    assert decoded_len == rc["bytes"], "report_compressed.bytes is not the decoded length"
 ```
 
 **The canonical copy keeps its log.** `gate --receipt PATH` stores the
