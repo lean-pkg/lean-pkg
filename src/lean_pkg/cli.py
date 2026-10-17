@@ -3245,7 +3245,15 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
         if log_p.is_symlink():
             raise Fail(f"comparator log {log_rel} is a symlink; evidence must be a regular file")
         if not log_p.is_file():
-            raise Fail(f"comparator log missing: {log_rel}")
+            # Field report #5: a comparator log is looked up only under the package checkout, never
+            # beside the receipt (unlike the redacted verify log). The hint names where it looked and
+            # how to bring preserved evidence back; the refusal itself is unchanged.
+            raise Fail(f"comparator log missing: {log_rel} (package checkout {repo.absolute()}; "
+                       f"tried {log_p.absolute()}). Comparator logs resolve relative to the package "
+                       f"checkout only, never beside the receipt; if they were preserved elsewhere, "
+                       f"restore each to the path its configs[].log names, byte-exact, and check it "
+                       f"against its log_sha256 (docs/receipts.md, \"Restoring preserved evidence\"); "
+                       f"nothing is rerun or resealed")
         log_bytes = log_p.read_bytes()
         # #21.2: a log produced after the bound commit cannot be read at that commit; once committed
         # (at HEAD, an evidence-only descendant), the committed bytes are the evidence, so a working

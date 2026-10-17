@@ -9,6 +9,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Fixed
+
+- `gate` / `gate --check` / `comparator`: `comparator log missing: <rel>`
+  now names the package checkout and the absolute path tried, says that
+  comparator logs resolve relative to the checkout only (never beside the
+  receipt, unlike the redacted verify log), and points at hash-checked
+  restoration (field report #5). Same refusal, same exit code; no new
+  lookup. docs/receipts.md "Restoring preserved evidence" contrasts the two
+  lookup rules and gives a copy that restores each `configs[].log` from a
+  preserved folder only when its bytes match `log_sha256`, never
+  overwriting.
+
 ## [0.8.0] - 2026-10-17
 
 ### Added

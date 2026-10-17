@@ -1041,6 +1041,59 @@ you: `gate` treats a changed `.gitattributes` as a build input, so adding one
 would itself require a new gate. Add it yourself, before gating, if you prefer
 it to a pathspec.
 
+### Restoring preserved evidence
+
+Two lookup rules apply, and they differ on purpose:
+
+- **The redacted verify log** of a lower-tier receipt (`report_sha256`) is
+  found beside the receipt file, in the package's `.lean-receipts/`, or
+  tracked there at HEAD. An archived receipt with its log next to it checks
+  wherever the pair lives.
+- **Comparator logs** resolve relative to the package checkout only (the
+  registered `local_path`, or `--repo DIR` for `--check`): each
+  `configs[].log` is `.lean-receipts/<commit12>-comparator-<cfgname>.log`
+  under that checkout, never beside the comparator receipt. A log that is
+  not there is refused as `comparator log missing: ...`, naming the
+  checkout and the absolute path tried.
+
+So evidence preserved outside the checkout (a paper repository's evidence
+folder, a backup) has to be put back before `gate --check` or
+`comparator --check` passes. Restore it; never rerun or reseal. This copy uses only what
+the comparator receipt records, refuses a file whose bytes differ from its
+`log_sha256`, and never overwrites a file already at the target:
+
+```bash
+python3 - PRESERVED/<commit12>-comparator.json PRESERVED PKG <<'EOF'
+import hashlib, json, pathlib, shutil, sys
+receipt, src, repo = json.loads(pathlib.Path(sys.argv[1]).read_text()), *map(pathlib.Path, sys.argv[2:4])
+sha = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+bad = 0
+for c in receipt["configs"]:
+    rel, want = c["log"], c["log_sha256"].lower()
+    if not rel.startswith(".lean-receipts/") or ".." in rel.split("/"):
+        print("REFUSED (log path outside .lean-receipts/):", rel); bad = 1; continue
+    s, d = src / pathlib.PurePosixPath(rel).name, repo / rel
+    if not s.is_file() or s.is_symlink() or sha(s) != want:
+        print("REFUSED (preserved copy missing or not the receipt's bytes):", s); bad = 1; continue
+    if d.exists():
+        print("present" if d.is_file() and sha(d) == want else "REFUSED (target differs):", d)
+        bad |= not (d.is_file() and sha(d) == want); continue
+    d.parent.mkdir(exist_ok=True); shutil.copyfile(s, d)
+    print("restored" if sha(d) == want else "REFUSED (copy differs):", d); bad |= sha(d) != want
+sys.exit(bad)
+EOF
+```
+
+`PRESERVED` is the folder holding the comparator receipt and its logs (flat,
+by file name); `PKG` is the package checkout the check reads (the registered
+`local_path`, which is the package directory, not necessarily the repository
+root, or the `--repo DIR` you pass). Then rerun
+`lean-pkg gate NAME --check --receipt ... --comparator ...`, which rehashes
+every log itself: the copy's own checks are a convenience, the validator is
+the judge. A log that was preserved with different bytes (re-encoded,
+whitespace-stripped, truncated) cannot be restored; only a new comparator
+run can replace it.
+
 ## Publishing a package incubated beside private work
 
 `promote` makes the whole repository public, history included. A package
