@@ -81,7 +81,7 @@ IMPLIED_VERBS: dict[str, ImpliedVerb] = {
     # `comparator NAME --receipt R [--check]`; `comparator config|host-check --receipt R` named a package
     "comparator": ImpliedVerb("attach", ("attach", "config", "host-check"), unless_flag="--receipt"),
     # `formalization NAME [--write]` renders formalization.yaml
-    "formalization": ImpliedVerb("render", ("render", "anchor")),
+    "formalization": ImpliedVerb("render", ("render", "anchor", "kept")),
 }
 
 FLAG_ALIASES: tuple[FlagAlias, ...] = (

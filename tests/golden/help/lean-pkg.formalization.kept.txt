@@ -1,0 +1,21 @@
+usage: lean-pkg formalization kept [-h] [--repo DIR] [--file REL] [--at REV] [--against REV2]
+                                   [--json] [--commit] [--push] [--no-commit]
+
+`lean-pkg formalization kept [--repo DIR] [--file REL] [--at REV] [--against REV2] [--json]`:
+print formalization.yaml without the keys `formalization render` derives
+(formalization.DERIVED_PATHS and the renderer's acknowledgements lines), as canonical JSON
+(sort_keys, separators ',' ':', UTF-8, no trailing newline) and the SHA-256 of those bytes; the
+recipe is in docs/formalization.md, "The kept view". --against REV2 lists the kept keys that
+differ from REV2 and exits 1 when any does. Reads no registry; writes nothing
+
+options:
+  -h, --help      show this help message and exit
+  --repo DIR      the package checkout (default: the current directory)
+  --file REL      the file's path inside the checkout (default formalization.yaml)
+  --at REV        read the file committed at REV (git objects) instead of the working tree
+  --against REV2  compare with the file committed at REV2: changed_kept_keys, exit 1 when any
+  --json          machine-readable JSON on stdout
+  --commit        write commands: pull --ff-only, then commit the registry files (default:
+                  $LEAN_PKG_COMMIT=1)
+  --push          --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit     never commit or push (overrides the env)
