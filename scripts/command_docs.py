@@ -57,10 +57,11 @@ def _sys_path() -> None:
 def clean_env():
     """Help texts and defaults read the environment when the parser is built (`set now`,
     COMPARATOR_CHECK, ...): build them as on a fresh machine, so the pages are reproducible."""
+    _sys_path()
+    from lean_pkg import help_topics
     saved = dict(os.environ)
-    for k in list(os.environ):
-        if k.startswith(("LEAN_PKG_", "COMPARATOR_")):
-            del os.environ[k]
+    for k in help_topics.environment_names():   # every variable the programs read (`help environment`)
+        os.environ.pop(k, None)
     try:
         yield
     finally:
