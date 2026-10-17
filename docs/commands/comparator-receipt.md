@@ -46,7 +46,7 @@ comparator-receipt [--project PROJECT] [--check CHECK]
 | `--sacct-file F` | --seal-sacct on a host without Slurm: the saved output of `SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j J --format=JobID,State,ExitCode,Start,End,Elapsed,User,NodeList -P` (with its header line); the account is then checked only with --user |
 | `--user NAME` | --seal-sacct: the account the job must have run under (default with live sacct: this one); compared, never written |
 | `--json` | --estimate, --verify-oleans, --attempts or --seal-sacct: print JSON |
-| `--host-label LABEL` | name the host LABEL instead of its host name in the receipt (host, host_label, job_id, host_policy) and the output (env COMPARATOR_RECEIPT_HOST_LABEL) |
+| `--host-label LABEL` | name the host LABEL in the receipt (host, host_label, job_id, host_policy) and the output (env COMPARATOR_RECEIPT_HOST_LABEL); default: h- and 12 hex digits of the SHA-256 of the lower-cased host name, the label `receipt systemd` uses; the host name itself is never written |
 
 ## Details
 

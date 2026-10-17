@@ -276,3 +276,58 @@ def _line_index(starts: list[int]):
     def line_of(pos: int) -> int:
         return bisect.bisect_right(starts, pos)
     return line_of
+
+
+# --------------------------------------------------------------------------
+# the statement of one theorem, as written (the verification page shows it beside the paper's)
+
+STATEMENT_MAX_CHARS = 3000
+STATEMENT_MAX_LINES = 40
+_TOP_LINE = re.compile(r"\n(?:\||where\b|@\[|#[a-z]|(?:" + "|".join(KEYWORDS + MODIFIERS) +
+                       r"|end|namespace|section|open|variable|universe)\b)")
+
+
+def statement(text: str, qual: str) -> str | None:
+    """The source text of the theorem or lemma whose fully qualified name is `qual`, from its keyword up
+    to (not including) the `:=` that starts its proof, outside every bracket; None when the file has no
+    such declaration, has it more than once, its statement has no top-level `:=` (an equation-compiler
+    or `where` form), or the statement is longer than STATEMENT_MAX_LINES lines / STATEMENT_MAX_CHARS
+    characters. Comments inside the statement are kept as written. A scanner, not a parser: when in
+    doubt it returns None and the page links the file instead of showing a guess."""
+    hits = [d for d in declarations(text) if d[1] in ("theorem", "lemma") and d[2] == qual]
+    if len(hits) != 1:
+        return None
+    masked, _docs = _mask(text)
+    starts, off = [], 0
+    for ln in masked.split("\n"):
+        starts.append(off)
+        off += len(ln) + 1
+    line = hits[0][0]
+    m = re.compile(r"\b" + hits[0][1] + r"\b").search(masked, starts[line - 1])
+    if not m:
+        return None
+    pairs = {"[": "]", "(": ")", "{": "}", "⦃": "⦄", "⟨": "⟩"}
+    stack: list[str] = []
+    i, end = m.start(), None
+    limit = min(len(masked), m.start() + STATEMENT_MAX_CHARS)
+    while i < limit:
+        c = masked[i]
+        if c in pairs:
+            stack.append(pairs[c])
+        elif stack and c == stack[-1]:
+            stack.pop()
+        elif not stack and masked.startswith(":=", i):
+            end = i
+            break
+        elif not stack and c == "\n" and _TOP_LINE.match(masked, i):
+            return None                                  # a new top-level line before any `:=`
+        i += 1
+    if end is None:
+        return None
+    out = text[m.start():end].rstrip()
+    lines = out.split("\n")
+    if len(lines) > STATEMENT_MAX_LINES:
+        return None
+    first = text[starts[line - 1]:m.start()]                # the keyword line's indentation: strip it
+    base = len(first) - len(first.lstrip())
+    return "\n".join([lines[0]] + [x[base:] if x[:base].strip() == "" else x.lstrip() for x in lines[1:]])

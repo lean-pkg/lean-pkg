@@ -134,6 +134,46 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   the entry was lost when the command reference was split into pages), and
   docs/design/two-tracks.md shows each track's path with the commands of
   0.10.0, where `new` scaffolds a library only.
+- Privacy: `comparator-receipt` no longer writes the machine's host name into
+  the receipt, which is committed into the package repository and goes public
+  with it. `host`, the host in `job_id` (`local-<host>-<pid>-<stamp>`) and in
+  `host_policy` (`Slurm job J on <host>`, `host <host> listed in ...`), this
+  host's name in `COMPARATOR_RECEIPT_BUILD_SOURCE`, and the runner's output
+  now name the host by its label: `h-` and 12 hex digits of the SHA-256 of
+  the lower-cased host name, the label `receipt systemd` already publishes
+  for the same host, or the operator's `--host-label`. `host_label` is now
+  always written (before, only with `--host-label`). The schema stays
+  `comparator-receipt/2`: no validator reads these fields' values, and
+  receipts that name the host still validate. `COMPARATOR_RECEIPT_ALLOWED_HOSTS`
+  accepts a host's name (any case) or its label; a refusal names the label.
+- `public-safety` reports a committed comparator receipt that names its host
+  (written by lean-pkg 0.10.0 or earlier without `--host-label`), in the tree
+  or the history, as the blocking `receipt-raw-host` hit, read from the
+  receipt's own `host` field. Before, such a receipt was caught only when the
+  host name was also a registry-derived user or workspace name. An `allow:`
+  line matching the name exempts it. docs/comparator.md ("Host policy") says
+  what owners of already-committed receipts can do.
+
+### Changed
+
+- `lean-pkg page`: the verification page is written for mathematicians,
+  after Palomar's entry pages (docs/design/page-for-mathematicians.md). It
+  opens with one line telling the reader which statements to compare by eye
+  ("Lean has checked every step ...; that comparison is yours"), then gives one
+  block per result: verified or not, the paper's result, the Lean statement
+  copied from the source at the gate-bound commit (the Challenge module when
+  the comparator compared it; a link when the statement cannot be read
+  reliably), the hypotheses in words, the definitions a person signed off, the
+  axioms. *What the checks establish* says in plain words what Lean and the
+  comparator checked and what no tool checks; the receipts, hashes, commits and
+  reproduce commands move to a final *How this was checked*. lean-pkg's
+  internal words ("lower-tier", "evidence-only descendant", rule numbers, stage
+  names) no longer appear on any output. The HTML file takes a serif face and a
+  narrower measure; it still carries no script and no external asset. Every
+  published page is stale under this version: run `lean-pkg page NAME --write`
+  (and `--site`/`--html` if you ship them) once, and commit the result.
+  `receipt check` reads the page in both wordings, so a page published
+  with 0.10.0 or earlier is still checked.
 
 ## [0.10.0] - 2026-10-17
 

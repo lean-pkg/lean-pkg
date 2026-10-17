@@ -950,8 +950,10 @@ The runner wraps the script so that evidence is either complete or absent:
   `.lean-receipts/<commit12>-comparator.json` into the repository, all or
   nothing (a late write failure removes what was staged);
 - records `host`, `job_id` (the Slurm job id, or `local-<host>-<pid>-<stamp>`),
-  `host_policy`, and `generated_at` (a Slurm job id backs a cluster
-  acknowledgment only once sealed: see "Seal the Slurm claim with sacct").
+  `host_policy`, and `generated_at`, `<host>` and `host` being the host's
+  label, never its name (see [Host policy](#host-policy)), with `host_label`
+  the same label. A Slurm job id backs a cluster acknowledgment only once
+  sealed: see "Seal the Slurm claim with sacct".
 
 ## Stages and `--prepare`
 
@@ -1418,9 +1420,9 @@ a partial unit (`--unit-size`, `--judges` above 1, a resumed run) reads a
 configuration copy from `<evidence>/comparator-stages/04-units/`, and its
 command line reaches the committed log. The receipt's hashes and bindings cover the tree's bytes and the
 logs as committed, not where the checkout lives, so validation is
-unaffected. `--host-label LABEL` (or `COMPARATOR_RECEIPT_HOST_LABEL`)
-replaces the host name in `host`, `job_id`, `host_policy` and the output,
-and is recorded as `host_label`; without it the host name is kept. Messages
+unaffected. The host name is never written either: `host`, `job_id`,
+`host_policy` and the output name the host by its label (see
+[Host policy](#host-policy)), recorded as `host_label`. Messages
 printed to the terminal keep real paths. `stages.json` keeps real paths as
 pointers for the operator; it is never committed.
 
@@ -1612,24 +1614,50 @@ the exit code is 0 when any route is supported here, 1 when none is.
 
 ## Host policy
 
-The receipt records the host name. Pass `--host-label LABEL` (or set
-`COMPARATOR_RECEIPT_HOST_LABEL`) to a public-safe label (for example
-`lab-workstation`) when the receipt will be copied into a public index; the
-label replaces the host name everywhere in the receipt, including the
-`host_policy` sentence, and is recorded as `host_label`.
+A comparator receipt is committed into the package repository, which may
+become public, so the receipt never names the host it ran on. Every place it
+would (`host`, the host in `job_id` and in the `host_policy` sentence, this
+host's name in `COMPARATOR_RECEIPT_BUILD_SOURCE`, and the runner's output)
+holds the host's label instead, recorded as `host_label`:
+
+- by default `h-` and the first 12 hex digits of the SHA-256 of the
+  lower-cased host name, the label `lean-pkg receipt systemd` publishes for
+  the same host (`receipt_systemd.host_label`): distinct hosts stay distinct,
+  and anyone who knows the name can recompute the label
+  (`printf %s "$(hostname)" | tr A-Z a-z | sha256sum | cut -c1-12`);
+- or the label given with `--host-label LABEL` (or
+  `COMPARATOR_RECEIPT_HOST_LABEL`), for example `lab-workstation`.
+
+**Receipts written before host labels** (lean-pkg 0.10.0 and earlier,
+without `--host-label`) name the host itself in `host`, `job_id` and
+`host_policy`. They still validate: no validator reads these fields' values.
+`public-safety` reports such a receipt, in the tree or in the history, as the
+blocking `receipt-raw-host` hit, whatever the host is called (it reads the
+receipt's own `host` field; before, only a host whose name was also a
+registry-derived user or workspace name was caught). For a private package,
+re-run `comparator-receipt` before promotion, so the committed receipt names
+the label, and export with `release NAME --fresh-repo DIR` (one squashed
+commit, so the old receipt is not in the published history), or add an
+`allow:` line for a name that is public on purpose (`allow: ^node-1$`). For a
+package already public, the old receipt is in its public history; whether to
+rewrite that history is the owner's call: a new receipt removes the name from
+the tree, not from the commits already pushed.
 
 The comparator build is heavy. The runner allows a run only when one of
 these holds, and records which in `host_policy`:
 
 | Condition | Reason recorded |
 |---|---|
-| `SLURM_JOB_ID` is set | `Slurm job <id> on <host>` |
-| the hostname is in `COMPARATOR_RECEIPT_ALLOWED_HOSTS` | `host <host> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS` |
+| `SLURM_JOB_ID` is set | `Slurm job <id> on <label>` |
+| the host's name (any case) or its label is in `COMPARATOR_RECEIPT_ALLOWED_HOSTS` | `host <label> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS` |
 | `COMPARATOR_RECEIPT_ALLOW_HOST=1` | `allowed by COMPARATOR_RECEIPT_ALLOW_HOST=1` |
 
-Otherwise it refuses with a message naming all three options. In CI, set the
-runner's hostname in `COMPARATOR_RECEIPT_ALLOWED_HOSTS` or use the explicit
-override; the override is visible in the receipt either way.
+Otherwise it refuses with a message naming all three options and this
+host's label. `COMPARATOR_RECEIPT_ALLOWED_HOSTS` may list a host by its name
+or by its label (the hashed label, or the `--host-label` given); only the
+label is ever written. In CI, list the runner's hostname or label in
+`COMPARATOR_RECEIPT_ALLOWED_HOSTS` or use the explicit override; the override
+is visible in the receipt either way.
 
 ### Seal the Slurm claim with sacct
 

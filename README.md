@@ -232,9 +232,10 @@ and `--cache-dir` keeps one search's cache apart ([Requiring a complete search](
 `formalization.yaml` is the mathlib-initiative self-report Palomar reads;
 `lean-pkg formalization NAME` renders it from the registry and the receipts
 ([formalization.yaml](docs/formalization.md)). For a public companion,
-`lean-pkg page NAME --write` renders the README's verification section (status,
-paper-to-Lean map, Not formalized, trust boundary, reproduce, evidence,
-citation, license, credits) from `coverage.yaml`, the claims ledger and the
+`lean-pkg page NAME --write` renders the README's verification section, mathematics
+first (what to compare, then each result with the paper's statement beside
+the Lean statement, Not formalized, what the checks establish, how this was
+checked, citation, license, credits) from `coverage.yaml`, the claims ledger and the
 committed receipts, and `lean-pkg page NAME --check` fails when it is stale;
 `lean-pkg coverage check NAME` validates `coverage.yaml`
 ([The verification page](docs/page.md)).

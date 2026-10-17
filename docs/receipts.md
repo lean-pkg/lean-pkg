@@ -815,8 +815,9 @@ what moved was the package's internal sources.
 | `commit` | equals the lower-tier receipt commit; HEAD, or HEAD is an evidence-only descendant |
 | `lean_toolchain` | equals the `lean-toolchain` file committed at `commit` |
 | `tools` | legacy: `comparator`, `lean4export`, `nanoda`, `landrun` as 40-hex commits; toolchain: `lean_toolchain` and the 64-hex sha256 of `lake`, `leanexport`, `leanchecker`, `nanoda_bin`, `con-ron` |
-| `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601 |
-| `host_policy` | the runner's host-policy reason (an override run is visible here) |
+| `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601. `host`, and the host in `job_id` (`local-<host>-<pid>-<stamp>` outside Slurm), is the host's label, never its name: `h-` and 12 hex digits of the SHA-256 of the lower-cased host name (the label `receipt systemd` uses) or the runner's `--host-label`; a receipt written by lean-pkg 0.10.0 or earlier may name the host itself (still valid; `public-safety` reports it as `receipt-raw-host`, see [Comparator](comparator.md#host-policy)) |
+| `host_label` | the label in `host` (always written since host labels; before, only with `--host-label`); not validated |
+| `host_policy` | the runner's host-policy reason (an override run is visible here), naming the host by its label |
 | `slurm_sacct` | optional, additive: the sacct seal of a Slurm claim (`job_id` J, `host_policy` `Slurm job J ...`), written after the job by `comparator-receipt --seal-sacct`: `{schema: slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source}`, `file` the normalized record `.lean-receipts/<commit12>-comparator-sacct.txt` it hashes. Only a sealed claim backs a `coverage.yaml` `compute` job; see [Comparator](comparator.md#seal-the-slurm-claim-with-sacct) |
 | `stack_limit` | optional, additive, not validated: `{soft_kb, hard_kb, source}`, the soft stack limit the runner's `lake`/`lean` children ran under (`soft_kb`/`hard_kb` an integer or `unlimited`; `source` `inherited` or `COMPARATOR_RECEIPT_STACK`); see [Comparator](comparator.md#stages-and---prepare) |
 | `lean_threads` | optional, additive, not validated: the `LEAN_NUM_THREADS` the runner gave its `lake`/`lean` children (`COMPARATOR_RECEIPT_LEAN_THREADS`), or `null` when unset; see [Comparator](comparator.md#stages-and---prepare) |
@@ -1148,7 +1149,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `... olean manifest` | the receipt's `olean_manifest` names the toolchain and `lake-manifest.json` of X (the manifest file itself is not published) |
 | `claimed theorems` | every `reusable` theorem or lemma claim at X is named by a comparator configuration at X |
 | `coverage` | `coverage.yaml` at REF passes `coverage check`, R11 included: each compared theorem is the declaration of a claim a row names |
-| `page: ...` | the README page block at REF states X, the pins of X, each Evidence row's path, commit and SHA-256 as committed, and the receipts' sorry count, axioms and comparator counts |
+| `page: ...` | the README page block at REF states X, the pins of X, each receipt row's path, commit and SHA-256 as committed (the *Receipts* table; *Evidence* on a page written before 0.11), and the receipts' sorry count, axioms and comparator counts |
 
 A check that does not apply (no `coverage.yaml`, no page block, no olean
 manifest) is `skip`, with the reason. Exit 0 only when no check fails, 1

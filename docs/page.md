@@ -26,10 +26,11 @@ lean-pkg page my-companion --site docs --html docs/verification.html   # docs pa
 
 | Input | Read how | Feeds |
 |---|---|---|
-| `coverage.yaml` | committed at `HEAD`, schema `coverage/1` ([below](#coverageyaml)) | the capsule sentence, the paper-to-Lean map, Not formalized, the manuscript reference, the compute acknowledgment (for a [library](#a-library-with-no-manuscript): the main results instead of the map, no manuscript) |
+| `coverage.yaml` | committed at `HEAD`, schema `coverage/1` ([below](#coverageyaml)) | the summary sentence, one block per paper result (number, title, the hypotheses), Not formalized, the manuscript reference, the compute acknowledgment (for a [library](#a-library-with-no-manuscript): the main results, no manuscript) |
 | `claims.yaml` | committed at `HEAD` | the Lean declarations of each row |
+| the Lean sources | the claim's `file`, or the Challenge module of the comparator configuration that compares it, at the gate-bound commit | the Lean statement shown beside the paper's ([below](#the-lean-statement)) |
 | the claims ledger | `lean-pkg claims ledger NAME`, promote stage | the word *verified*, per row and in the capsule |
-| receipts | `.lean-receipts/*.json` committed at `HEAD`; the registry's `gate.receipt` and `gate.comparator` mark the recorded ones | the trust boundary, the expected axioms, the evidence table |
+| receipts | `.lean-receipts/*.json` committed at `HEAD`; the registry's `gate.receipt` and `gate.comparator` mark the recorded ones | What the checks establish, How this was checked (the receipt table, the expected axioms) |
 | `lean-toolchain`, `lake-manifest.json` | committed at `HEAD` | the reproduce section |
 | `CITATION.cff` | committed at `HEAD`; it needs a title and at least one author | the citation |
 | registry | `repo` (as an https URL), `status`, `license_spdx` (checked against the committed license file), `doi` | the clone command, the capsule, the license, the citation DOI when `CITATION.cff` has none |
@@ -53,17 +54,37 @@ span on GitHub, in MkDocs or in the HTML file.
 
 ## The sections
 
+The page puts the mathematics first, after the model of Palomar's entry
+pages ([design](design/page-for-mathematicians.md)): what to compare, then the
+results, then what the checks establish, and only then the receipts.
+
 | Section | What it says |
 |---|---|
-| Verification status | the `summary` sentence from `coverage.yaml`; the manuscript version; the number of paper rows by class and how many formalized rows the ledger closes; the ledger's package status. The registry status is not shown: it changes on promote, while the page is committed at one commit |
-| Paper ↔ Lean map | one row per paper result: number and title, correspondence class, declarations (linked at the gate-bound commit when the repository is on GitHub), the ledger word, inputs and notes |
+| Verification at a glance | one fixed line, *How to read this page*: Lean has checked every step; it cannot check that a Lean statement says what the paper says, so the reader compares, for each result, the paper's statement with the Lean statement. Then the `summary` sentence, the manuscript, the number of results by class and how many the ledger closes. The registry status is not shown: it changes on promote, while the page is committed at one commit |
+| The paper's results in Lean (*Main results* for a library) | one block per formalized result, headed by its number and title: whether it is verified; **In the paper** (a pointer to the result in the paper; the paper's own text needs a new `coverage.yaml` field, [designed but not yet accepted](design/page-for-mathematicians.md#the-paper-statement-a-new-field)); **In Lean** (the declaration, linked at the gate-bound commit, and its statement in a `lean` code block); **Hypotheses** (the paper's own, or the paper's plus the named `inputs`); **Definitions checked by a person** (definition holes and who signed them off); **Axioms**; **Note** |
 | Not formalized | every `outside` row, or the `nothing_excluded` reason |
-| Trust boundary | what the gate receipt and the comparator receipt record, and a fixed paragraph on what neither checks (the full account: [Trust model](trust-model.md)) |
-| Reproduce | toolchain, Mathlib revision, a command template (clone, checkout of the gate-bound commit, `lake exe cache get` when Mathlib is a dependency, `lake build`), the expected `#print axioms` result |
-| Evidence | one row per receipt committed under `.lean-receipts/` (gate receipts and comparator receipts of either schema, `comparator-receipt/1` or `/2`): path, tier, commit, date, Slurm job, SHA-256 |
+| What the checks establish | in plain words: every proof is checked by Lean (no `sorry`, which axioms); the statements shown are the ones proved (the comparator); and what no tool checks. The full account: [Trust model](trust-model.md) |
+| How this was checked | the claims ledger with its digest; the build check and the statement comparison, with their commits; *Receipts*: one row per receipt committed under `.lean-receipts/` (path, check, commit, date, Slurm job, SHA-256); *Reproduce*: toolchain, Mathlib revision, the commands, the expected `#print axioms` result |
 | Citation | authors, title, version and DOI from `CITATION.cff`, and the manuscript |
 | License | `license_spdx` and the license file |
 | Acknowledgments | the lean-pkg credit, always; the Easley sentence only [with evidence](#the-easley-acknowledgment) |
+
+The page never uses lean-pkg's internal words (tiers, evidence-only
+descendants, rule numbers, stage names); a test holds every output to that.
+
+### The Lean statement
+
+When the recorded comparator receipt compares a claim (its theorem name is the
+claim's `decl`, or `<Prefix>.<decl>`), the page shows the statement from that
+configuration's Challenge module: the statement the proof was checked against.
+Otherwise it shows the declaration in the claim's own `file`. Both are read at
+the gate-bound commit, from the declaration keyword to the `:=` that starts the
+proof, comments kept. The text is copied, not parsed: when the file is not
+committed there, the name is not declared exactly once, the statement has no
+top-level `:=` (an equation-compiler form) or is longer than 40 lines, the
+page shows the linked name and says the statement could not be read, rather
+than a guess. Like every other output, the copied text passes the
+public-safety scan.
 
 The status words are tied to the ledger. A row says *verified* only when
 `lean-pkg claims ledger NAME` (promote stage, so the comparator tier as well
@@ -164,12 +185,11 @@ compute:                                       # optional; the Easley rule is th
 | comparator | as for a paper: every theorem the recorded comparator receipt compares is the declaration of a claim some row names, so the rows account for everything the page says was compared |
 | `compute`, `lean_pkg_version`, `summary` | as above |
 
-The page then carries a *Main results* table (result, declarations, ledger
-word, note) in place of the paper map and *Not formalized*; the capsule says
-each row is a main result of the library (lean-pkg's own wording on a library
+The page then carries *Main results* (one block per result, with its Lean
+statement) in place of the paper's results and *Not formalized*; the first line says
+each result is exactly its Lean statement (lean-pkg's own wording on a library
 page never uses the words *manuscript*, *paper* or *private*, so a package's
-private patterns may block them), the trust footnote says the Lean statement is
-the result, and the citation names no manuscript. `--allow-private-manuscript`
+private patterns may block them), and the citation names no manuscript. `--allow-private-manuscript`
 does not apply. `formalization anchor` refuses to bind a library coverage to an
 e-print, and `claims rebase` leaves it alone. A package that formalizes results
 of a paper, posted or not, stays `kind: paper`: a private draft is
@@ -264,7 +284,9 @@ generator) from the same data as the README block:
 | `coverage.md` | every row of `coverage.yaml`, one table line each: number, title, class, every claim id, its declaration, each claim's own ledger status, the inputs and the note |
 
 `--html PATH` writes one HTML file holding both pages: no script, no
-external stylesheet, font or image, a few lines of inline CSS (light and dark).
+external stylesheet, font or image, a few lines of inline CSS (light and dark;
+a serif text face, a 48rem measure, the Lean and TeX statements in marked code
+blocks).
 It is rendered from the same Markdown, so it says exactly what the pages say.
 Links are kept only to https targets and in-page anchors.
 

@@ -319,15 +319,29 @@ def coverage_check(c: Checks, repo: pathlib.Path, pkg: dict) -> None:
 # --------------------------------------------------------------------------
 # the page block (README.md at REF)
 
-PAGE_CHECKOUT_RE = re.compile(r"^git checkout ([0-9a-f]{40})\s+# the commit the gate receipt binds$", re.M)
+# Both wordings are read: the page of lean-pkg 0.11 and later (docs/design/page-for-mathematicians.md) and
+# the one before it, so a page published with an earlier version is still checked.
+PAGE_CHECKOUT_RE = re.compile(r"^git checkout ([0-9a-f]{40})\s+# the commit the (?:gate receipt|build check) binds$",
+                              re.M)
 PAGE_TOOLCHAIN_RE = re.compile(r"^- Lean toolchain: `([^`]*)`\.$", re.M)
 PAGE_MATHLIB_RE = re.compile(r"^- Mathlib: (?:`([0-9a-f]{7,40})` \(lake-manifest\.json\)|not a dependency)", re.M)
-PAGE_ROW_RE = re.compile(r"^\| `([^`]+)`( \(recorded\))? \| (lower tier|comparator) \| `([0-9a-f]{12})` \|"
+PAGE_ROW_RE = re.compile(r"^\| `([^`]+)`( \((?:recorded|used here)\))? \| (lower tier|comparator|build|statement "
+                         r"comparison) \| `([0-9a-f]{12})` \|"
                          r"[^|]*\|[^|]*\| `([0-9a-f]{64})` \|$", re.M)
-PAGE_LOWER_RE = re.compile(r"^- Lower-tier gate receipt at `([0-9a-f]{12})` records: `sorry` count (\S+) after "
-                           r"the build; axioms used: (.*?); allowed:", re.M)
-PAGE_COMP_RE = re.compile(r"^- Comparator receipt at `([0-9a-f]{12})`: (\d+) configuration\(s\), (\d+) "
-                          r"theorem\(s\) compared", re.M)
+PAGE_LOWER_RES = (
+    re.compile(r"^- Build check \(`lean-pkg gate`\) at commit `([0-9a-f]{12})`: `sorry` count ([^;\s]+); axioms "
+               r"used: (.*)\.$", re.M),
+    re.compile(r"^- Lower-tier gate receipt at `([0-9a-f]{12})` records: `sorry` count (\S+) after "
+               r"the build; axioms used: (.*?); allowed:", re.M))
+PAGE_COMP_RES = (
+    re.compile(r"^- Statement comparison \(comparator\) at commit `([0-9a-f]{12})`: (\d+) configuration\(s\), "
+               r"(\d+) theorem\(s\) compared", re.M),
+    re.compile(r"^- Comparator receipt at `([0-9a-f]{12})`: (\d+) configuration\(s\), (\d+) "
+               r"theorem\(s\) compared", re.M))
+
+
+def _search(patterns, text: str):
+    return next((m for m in (p.search(text) for p in patterns) if m), None)
 
 
 def _names_in(text: str) -> set[str]:
@@ -382,7 +396,7 @@ def page_checks(c: Checks, repo: pathlib.Path, x: str, found: dict) -> None:
           "; ".join(problems) or f"{len(rows)} Evidence row(s): every path, commit and SHA-256 as committed")
     recorded = {path for path, rec, *_ in rows if rec}
     problems = []
-    m = PAGE_LOWER_RE.search(block)
+    m = _search(PAGE_LOWER_RES, block)
     lowers = [v for v in found["lower"] if v["path"] in recorded] or found["lower"]
     if m:
         axioms = _names_in(m.group(3))
@@ -394,7 +408,7 @@ def page_checks(c: Checks, repo: pathlib.Path, x: str, found: dict) -> None:
                             f"{sorted(axioms)}; no lower-tier receipt bound to {x[:12]} says so")
     elif found["lower"]:
         problems.append("the page has no lower-tier trust-boundary line, yet a lower-tier receipt binds the commit")
-    m = PAGE_COMP_RE.search(block)
+    m = _search(PAGE_COMP_RES, block)
     comps = [v for v in found["comparator"] if v["path"] in recorded] or found["comparator"]
     if m:
         if m.group(1) != x[:12]:

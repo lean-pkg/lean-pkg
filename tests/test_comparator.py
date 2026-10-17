@@ -447,7 +447,7 @@ def test_rejects_config_that_is_a_directory_at_head(lp, env):
 
 def test_comparator_refuses_when_recorded_file_differs(lp, env, tmp_path, capsys):
     detach_beta(env)
-    comp = make_comparator_receipt(env.repo_b, job_id="local-build-host-9999-20261005T130000Z")
+    comp = make_comparator_receipt(env.repo_b, job_id="local-h-1f2e3d4c5b6a-9999-20261005T130000Z")
     # the fixture already left a DIFFERENT receipt at the canonical path
     assert attach(lp, env, tmp_path, "beta", comp) == 1
     assert "different" in capsys.readouterr().err
