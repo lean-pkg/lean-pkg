@@ -12,6 +12,7 @@ The checklist of CONTRIBUTING.md, "What a change must carry".
 - [ ] `make goldens` run and `git diff tests/golden` reviewed if help text or a `--json` payload changed
 - [ ] `make docs` run if the CLI contract or an index entry changed (CI fails on a stale generated file)
 - [ ] docs updated for any user-visible change; CHANGELOG `Unreleased` entry added
+- [ ] Upgrade record: docs/upgrades/<next>.yaml has an entry for this PR, or `no_author_change` with a reason (see RELEASING.md step 0)
 - [ ] no host name, user name, local path or private paper name in files, commit messages or this text
 - [ ] a schema change, a removed or renamed command, flag or JSON key, or a trust-model change links its accepted proposal (docs/proposals)
 
