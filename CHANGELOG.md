@@ -7,6 +7,23 @@ change the registry schema or receipt format, always with a migration).
 
 ## [Unreleased]
 
+### Added
+
+- `claims/1` accepts two optional claim keys for what a formalization finds in
+  the manuscript without any statement being wrong (#6): `manuscript_findings`
+  (each finding exactly `id`, `kind` `misprint`|`proof-gap`, `location`
+  {`label`, `tex_line`, `page`}, `summary`, `lean_evidence`, `fixed_in`
+  null|`arXiv:<id>v<N>`; ids unique in the package) and `statement_basis`
+  (`corrected` is required on a claim with a misprint, and refused without
+  one). `claims check`, `claims sync` and `gate` validate them and look up
+  every `lean_evidence` declaration like `decl`; the ledger reports a missing
+  one as `finding-evidence-missing`. `claims ledger` lists the findings per
+  claim and sums up what the formalization found (open vs fixed);
+  `publish --dry-run` and `palomar prepare` print that summary in one line
+  and carry it as JSON `manuscript_findings`. No status changes. A claims
+  file without the keys normalizes, caches and digests exactly as before; an
+  older lean-pkg refuses a file that uses them (unknown keys).
+
 ## [0.7.53] - 2026-10-16
 
 ### Fixed

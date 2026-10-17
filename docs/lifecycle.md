@@ -122,6 +122,7 @@ one.
 | `receipt-invalid` | failed | the gate receipt fails `gate`'s validator (toolchain, sorry count, fields) |
 | `axiom-not-allowed` | failed | the gate receipt lists an axiom outside `gate.axioms_allowed` |
 | `decl-missing` | failed | the declaration does not occur in its file at the gate-bound commit |
+| `finding-evidence-missing` | failed | a manuscript finding's `lean_evidence` declaration does not occur in its file at the gate-bound commit |
 | `no-comparator-receipt` | open | promote stage: no comparator receipt is recorded |
 | `comparator-unreadable` | unknown | the recorded comparator receipt is missing or not JSON |
 | `comparator-commit-mismatch` | open | the comparator receipt binds another commit than the gate receipt, or neither `HEAD` nor an evidence-only ancestor |
@@ -157,6 +158,32 @@ it runs the promote checklist. `next` recommends `publish --dry-run` only once
 the ledger is `ready`; otherwise it names the ledger's first fix. A comparator
 PASS therefore no longer suffices on its own: every `reusable` theorem and
 lemma has to be among the declarations it compared.
+
+### Manuscript findings
+
+A claim may record what the formalization found in the manuscript
+(`manuscript_findings`: a `misprint` or a `proof-gap`, with its location,
+the Lean declarations that show it, and the arXiv version that fixed it, if
+any) and that it is verified for the corrected statement
+(`statement_basis: corrected`, required with a misprint). The schema is in
+[Claims](prior-art.md#manuscript-findings).
+
+Findings are information, not evidence: no status reads them, so a claim
+with a proof gap the Lean proof closes stays `verified`, and the package can
+be `ready`. The one check is that each `lean_evidence` declaration exists at
+the gate-bound commit, like `decl`; one that does not is
+`finding-evidence-missing` (class failed). The ledger lists each claim's
+findings under it, marks a corrected-statement claim `[corrected statement]`,
+and prints one summary line,
+`manuscript findings (what the formalization found): N (K misprint, M proof-gap); A open, F fixed in a later arXiv version; ...; statuses unchanged`.
+`--json` gives each claim `statement_basis` and `manuscript_findings[]`
+(each finding with `state` `open` or `fixed`) and the package
+`manuscript_findings` {total, open, fixed, by_kind, corrected_statements[],
+findings[{claim, id, kind, label, summary, fixed_in, state}], source}.
+`publish --dry-run` and `palomar prepare` print the same line when there is a
+finding and always carry the JSON key. `ledger_digest` covers the findings
+and the basis of a claim that has them; a ledger without findings keeps the
+digest it had.
 
 ### Commit the claims before the gate
 
