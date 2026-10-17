@@ -24,6 +24,15 @@ receipts, the gate, the page.
 The [π-λ tutorial](docs/tutorial-pi-lambda.md) does the same with a real
 theorem, Dynkin's π-λ theorem, for a mathematician who has barely used Lean.
 
+<p align="center">
+  <a href="docs/sample-workflow.md"><img src="docs/assets/workflow.svg" width="720" alt="One workflow, two tracks: lean-pkg new, then Track P (anchor the paper, a row per numbered result, Not formalized) or Track L (a library, Main results, no manuscript); both rejoin the shared seven steps of the sample workflow (register and claim, prove-build-audit, state the claim, comparator receipt, gate, commit the evidence, promote dry run) with the verification page before step 7; after --yes, Track P goes to Reservoir, Palomar and Zenodo and is cited in the paper, Track L to a version tag, a Reservoir listing and Mathlib pull requests"></a>
+</p>
+
+One workflow, two products: a verified paper (Track P) or a reusable Lean
+library (Track L). Each step is explained in the
+[sample workflow](docs/sample-workflow.md); the tracks in
+[Two tracks](docs/design/two-tracks.md).
+
 ---
 
 ## Why lean-pkg

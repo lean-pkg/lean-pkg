@@ -6,7 +6,8 @@ title: "Design: compute sites and CI-runner receipts"
 
 *Status: section 1 (the site profile format) is implemented and stable; section 4 (CI-runner receipts) is
 a design, not yet implemented. Roadmap wave 3, "Core apart from the lab": a package can be verified and
-published with no lab account.*
+published with no lab account. The four decisions of section 6 were taken on 2026-10-17, as recommended
+([decision 0007](../decisions/0007-recommendations-accepted-2026-10-17.md)).*
 
 The user guide is [Compute sites](../sites.md). This page records the format contract, why it has the
 shape it has, the audit of lab couplings it came from, and the next step: a compute receipt from a CI
@@ -96,7 +97,7 @@ scheduler; **(c)** hard-coded, must change.
 | `if backed.get("easley")`, `"Easley" in problem` branches | `page.py` render, `readme_problems`, `publish_item` | (c) | **Done here**: a loop over profiles |
 | `CLUSTERS = ("easley",)` closed enum | `coverage.py` | (b) | **Done here**: the built-in profiles plus the package's own |
 | Slurm job id spelling and the sacct-checked receipt | `coverage.py` `SLURM_JOB_RE`, `slurm_job_of`; `receipt.py` | (b) | **Done here**: the `slurm` scheduler; its reader stays code (`coverage.JOB_INDEX`) |
-| JSON key `easley` in `page --json` | `page.py` facts | (c), kept | `sites` added; dropping `easley` is a 1.0 decision (below) |
+| JSON key `easley` in `page --json` | `page.py` facts | (c), kept | `sites` added; `easley` is dropped at the 1.0 freeze (decided, section 6) |
 | Comparator host policy: a Slurm job, or a host in `COMPARATOR_RECEIPT_ALLOWED_HOSTS`, or `COMPARATOR_RECEIPT_ALLOW_HOST=1` | `comparator_receipt.py` `host_policy_ok` | (b) | Generic enough to run anywhere today; a CI scheduler should add a recognized context (section 4.5) instead of the override; a lab's allowed hosts can later come from site files (section 5) |
 | Comparator `job_id` = `SLURM_JOB_ID`, else `local-<host>-<pid>-<stamp>` | `comparator_receipt.py` | (b) | Ask the scheduler for the job identity (section 4.5) |
 | Slurm template (`receipt slurm --template`) | `receipt.py` `SBATCH_TEMPLATE` | (a) | No partition, account or site names; "add the lines your site requires" |
@@ -124,9 +125,9 @@ corroborate without trusting the author.
 
 - A new scheduler `github-actions`. Job id spelling: `gha-<run_id>-<run_attempt>`
   (`^gha-\d+-\d+$`). Run ids are unique on github.com; the attempt separates re-runs.
-- A built-in site profile `github-actions` (title "GitHub Actions", the Actions docs URL). Whether its
-  sentence is rendered at all is a decision for Le (below); the profile is needed in any case so that
-  `compute` can name it.
+- A built-in site profile `github-actions` (title "GitHub Actions", the Actions docs URL). Its sentence
+  states evidence and is rendered only at corroboration level 2 or 3 (decided, section 6); the profile is
+  needed in any case so that `compute` can name it.
 - Runs on self-hosted runners are **not** this scheduler: such a runner is the author's machine, and its
   receipt is worth what `receipt local` is worth.
 
@@ -231,14 +232,20 @@ valid profile.
 | Lab-only keys | Under `x-NAME` in the same file (tolerated), or in a separate file. Private values (partitions, accounts, aliases, image paths) never go into a built-in profile or into a public package's `lean-pkg-sites/` |
 | Job script from a profile (`receipt slurm --template --site NAME`) | Intended, not in this change; it is the step that lets the lab retire its own sbatch wrapper. The built-in `easley` profile then stays public data only, and the lab's private values come from its own file through `LEAN_PKG_SITES` |
 
-## 6. Decisions for Le
+## 6. Decisions (decided 2026-10-17)
+
+The maintainer accepted all four recommendations on 2026-10-17
+([decision 0007](../decisions/0007-recommendations-accepted-2026-10-17.md)).
 
 1. **Package-defined sites** (implemented): a package may commit its own profile under `lean-pkg-sites/`.
    Recommendation: keep. The alternative, built-in only, makes every new cluster a lean-pkg release.
+   **Decided: kept.**
 2. **The `easley` JSON key**: keep until the 1.0 freeze, then drop in favour of `sites` (recorded in the
-   1.0 deprecation list). Recommendation: drop at 1.0.
+   1.0 deprecation list). Recommendation: drop at 1.0. **Decided: dropped at the 1.0 freeze.**
 3. **Does GitHub Actions get an acknowledgement sentence?** Recommendation: a built-in profile, but its
    sentence describes evidence ("Verification ran on GitHub Actions hosted runners (run R).") rather than
-   thanking a resource, and it is rendered only at corroboration level 2 or 3.
+   thanking a resource, and it is rendered only at corroboration level 2 or 3. **Decided: as
+   recommended.**
 4. **Require the pinned lean-pkg verify workflow for a CI receipt to back `compute`?** Recommendation: yes
-   for levels 2 and 3; level 1 accepts any workflow, as Slurm accepts any verify script.
+   for levels 2 and 3; level 1 accepts any workflow, as Slurm accepts any verify script. **Decided: as
+   recommended.**
