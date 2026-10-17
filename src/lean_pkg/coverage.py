@@ -184,6 +184,9 @@ def _statement_errors(v, where: str, errors: list[str]) -> None:
     elif any(x.lstrip().startswith(("```", "~~~")) for x in v.splitlines()):
         errors.append(f"{where}: a line may not start with ``` or ~~~ (the page shows the statement in a "
                       f"code block)")
+    elif "lean-pkg:page:" in v:
+        errors.append(f"{where}: may not contain the page markers (lean-pkg:page:...), which delimit the "
+                      f"README block")
 
 
 def doc_kind(doc) -> str:

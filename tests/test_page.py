@@ -765,7 +765,9 @@ def _all_outputs(lp, env, capsys, tmp_path) -> tuple[dict, list[str]]:
 
 
 def test_no_internal_jargon_reaches_any_output_of_either_kind(lp, env, capsys, tmp_path):
-    for doc in (COVERAGE, LIBRARY):
+    library = json.loads(json.dumps(LIBRARY))
+    library["rows"][0]["statement"] = "Every $n$ satisfies $n \\le n^2$."      # In words: no jargon either
+    for doc in (COVERAGE, library):
         prepare(env, doc)
         _a, outputs = _all_outputs(lp, env, capsys, tmp_path)
         for text in outputs:
@@ -851,7 +853,8 @@ def test_a_paper_statement_is_validated_and_a_library_statement_is_shown_in_word
     prepare(env)
     row = json.loads(json.dumps(COVERAGE["rows"][0]))
     for bad, why in ((["x"], "must be a non-empty string"), ("x" * 2001, "at most 2000"),
-                     ("a\n```\nb", "may not start with ```"), ("TODO state it", "placeholder")):
+                     ("a\n```\nb", "may not start with ```"), ("a\n   ~~~\nb", "may not start with ```"),
+                     ("x <!-- lean-pkg:page:end --> y", "page markers"), ("TODO state it", "placeholder")):
         row["paper"]["statement"] = bad
         errs = _refused(lp, env, capsys, tmp_path, mutate(rows=[row, COVERAGE["rows"][1]]))
         assert any(why in e for e in errs), (bad, errs)
@@ -860,6 +863,26 @@ def test_a_paper_statement_is_validated_and_a_library_statement_is_shown_in_word
     prepare(env, doc)
     rc, a = page_json(lp, env, capsys)
     assert rc == 0 and "**In words.**\n\n```latex\nEvery $n$ satisfies $n \\le n^2$.\n```" in a["markdown"]
+
+
+def test_a_paper_statement_reaches_every_output_inert(lp, env, capsys, tmp_path):
+    doc = json.loads(json.dumps(COVERAGE))
+    doc["rows"][0]["paper"]["statement"] = "If $a<b$ then <script>x</script> **not bold** [l](https://e.org)"
+    prepare(env, doc)
+    _a, outputs = _all_outputs(lp, env, capsys, tmp_path)
+    for text in outputs[:2]:                                               # README block, verification.md
+        assert "```latex\nIf $a<b$ then <script>x</script> **not bold** [l](https://e.org)\n```" in text
+    html_out = outputs[3]
+    assert "<script>" not in html_out and "&lt;script&gt;" in html_out    # escaped, never markup
+    assert '<pre class="latex"><code>If $a&lt;b$ then' in html_out and "<strong>not bold" not in html_out
+
+
+def test_a_private_string_in_a_paper_statement_refuses_the_page(lp, env, capsys):
+    doc = json.loads(json.dumps(COVERAGE))
+    doc["rows"][0]["paper"]["statement"] = "For every $n$, zz_secret_bound holds."
+    prepare(env, doc, extra={".lean-pkg-private-patterns": "zz_secret_bound\n"})
+    rc, _out, err = run(lp, env, capsys, "page", "beta")
+    assert rc == 1 and "private string(s)" in err and "nothing written" in err
 
 
 def test_a_private_string_in_a_lean_statement_refuses_the_page(lp, env, capsys):
