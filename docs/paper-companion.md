@@ -224,6 +224,26 @@ stays, the files are re-pointed, and the command prints the claims-ledger
 step, `lean-pkg claims rebase NAME --from-tex OLD.tex --to-tex NEW.tex`, so
 theorem numbers and labels follow the new text.
 
+### Moving to a new manuscript version
+
+Claims written against a private draft carry its numbering. When the posted
+version differs, do not re-key the rows by hand:
+
+```bash
+lean-pkg claims rebase my-paper-lean --from-tex draft.tex --to-tex posted.tex \
+  --to-aux posted.aux --from-aux draft.aux --to-version arXiv:IDvN --out-dir rebase-posted
+```
+
+Statements whose text is unchanged (up to comments, colour, whitespace and
+the other listed normalizations) are carried with their numbers, pages and
+lines re-keyed from the new `.aux`; reworded, deleted and moved statements
+are listed in `rebase-posted/rebase-report.md` with both excerpts, and their
+rows are left as they were. No status changes, and no finding is marked
+fixed: read each listed row against the new text, edit the proposals, then
+commit them. The old TeX must be the file `coverage.yaml` is bound to (its
+SHA-256), so the comparison is against what the claims were written for. See
+[Move to a new manuscript version](prior-art.md#move-to-a-new-manuscript-version).
+
 ## 7. Finish
 
 At submission the deliverable is:

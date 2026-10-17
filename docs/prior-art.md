@@ -138,6 +138,86 @@ the copy and the commit it was read at (registry version 3, keys
 `claims_file`, `claims`, `claims_synced_commit`; `lean-pkg migrate` adds
 them), so search works offline and from any machine that shares the registry.
 
+### Move to a new manuscript version
+
+Claims and `coverage.yaml` name the manuscript by theorem number, TeX label,
+page and line. When the paper moves (a private draft becomes the posted
+version, v1 becomes v2) `claims rebase` proposes the moved files and lists
+everything a person has to look at; it never edits anything in place, never
+changes a claim status and never sets a finding's `fixed_in`:
+
+```bash
+lean-pkg claims rebase my-lean --from-tex old/paper.tex --to-tex new/paper.tex \
+  --to-aux new/paper.aux --from-aux old/paper.aux \
+  --to-version arXiv:IDvN --out-dir rebase-v2          # or --to-commit HEX [--to-repo URL]
+lean-pkg claims rebase my-lean --from-tex old/paper.tex --to-tex new/paper.tex \
+  --to-aux new/paper.aux --from-sha256 HEX --json        # no --out-dir: the report only
+```
+
+It reads `claims.yaml` and `coverage.yaml` committed at `HEAD`
+(`--claims-file`, `--coverage-file`: working copies). The old TeX must be the
+file the package was written against: its SHA-256 must equal the
+`manuscript.version.sha256` that `coverage.yaml` records, or, for an arXiv
+version anchored with `formalization anchor`, one of the `.tex` hashes (or
+the accepted local `.tex`) of the source-baseline record committed for that
+version. When nothing is recorded (an unposted version, an arXiv version
+without a record, or no `coverage.yaml`) you state it with `--from-sha256`; a
+mismatch is refused. The proposal drops `manuscript.eprint_sha256`, which
+names the old e-print: anchor the new version once it is posted. Both TeX files must be single,
+flattened files (an `\input` is not followed and is warned about), UTF-8, with
+balanced `\begin`/`\end`. A label the package refers to that is defined twice
+in either file or in the new `.aux` is refused as ambiguous.
+
+The labels it checks: each coverage row's `paper.label` (a row without one is
+looked up by the number in `paper.number` in `--from-aux`), each manuscript
+finding's `location.label` (a TeX label, or a number such as `Lemma 4.2` or
+`(3.7)` looked up the same way, narrowed by the word before it or by the
+parentheses), and any TeX label spelled in a claim's `citation`. For each, it
+takes the innermost statement environment around the label (theorem, lemma,
+proposition, corollary, definition, remark and the other usual names, plus
+every `\newtheorem` of the file) or equation environment, in the old and the
+new TeX, and compares the two after exactly this normalization:
+
+- TeX comments removed; label commands removed;
+- `\textcolor{c}{X}`, `\colorbox{c}{X}` and a group `{\color{c} X}` read as
+  `X`, any other `\color{c}` removed; each `--unwrap-macro NAME` (a
+  revision-highlight macro) reads `\NAME{X}` as `X`;
+- an unescaped `~` read as a space, whitespace runs collapsed, spaces just
+  inside braces removed, trailing `.`, `,`, `;`, `:` at the very end removed.
+
+Nothing else: other braces, wording, notation and environment names count.
+
+| Class | Meaning | What the proposal does |
+|---|---|---|
+| `unchanged` | the normalized text is identical | carried: the number in `paper.number` (or a numeric `location.label`) re-keyed from the new `.aux`, a finding's `page` from the new `.aux`, its `tex_line` shifted when the environment is byte-identical (else null) |
+| `changed` | the text or the environment differs | left as it was; needs review |
+| `missing` | the new TeX does not define the label | left as it was; needs review |
+| `moved-into-proof` | a statement in the old TeX, inside a proof in the new | left as it was; needs review |
+| `not-in-old` | the package names a label the old TeX does not define | needs review |
+| `unsupported` | the label is in no statement or equation environment | needs review |
+| `unnumbered` | unchanged, but the new `.aux` has no number for it | needs review (rebuild the `.aux`) |
+
+A reference that cannot be tied to a label (a row with no label and no
+`--from-aux`) is `unresolved` and needs review. A claim's `citation` is never
+rewritten; one that still spells an old number is listed. Findings on a
+label that changed are listed too: whether the new version fixes them is a
+reading, recorded by you in `fixed_in`.
+
+`--out-dir DIR` (a new or empty directory; the files are written read-only)
+receives the proposed `claims.yaml` and `coverage.yaml` (its
+`manuscript.version` set from `--to-version`, or `{repo, commit, sha256}` from
+`--to-commit` with the new TeX's SHA-256; one of them is required when the
+package has a `coverage.yaml`), `rebase-report.json` (schema
+`claims-rebase/1`) and `rebase-report.md` with the old and new excerpt of
+every row that needs review, `review/NNN-LABEL.old.tex`, `.new.tex` and
+`.diff`, and a `MANIFEST.sha256` over all of them. The output is
+deterministic: the same inputs give byte-identical files. The excerpts quote
+the old manuscript, so keep the packet with the draft, not in a public
+repository. Exit 0 when every reference was carried, 1 when something needs
+review (or the run was refused), 2 on a usage error. Review, copy the
+proposals over the committed files, run `claims check --file claims.yaml` and
+`coverage check NAME --file coverage.yaml`, and commit.
+
 ## Searching
 
 ```bash

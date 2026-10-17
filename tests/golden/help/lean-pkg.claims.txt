@@ -1,8 +1,8 @@
 usage: lean-pkg claims [-h] [--json] [--commit] [--push] [--no-commit]
-                       {sync,list,check,migrate,ledger,mark} ...
+                       {sync,list,check,migrate,ledger,mark,rebase} ...
 
 positional arguments:
-  {sync,list,check,migrate,ledger,mark}
+  {sync,list,check,migrate,ledger,mark,rebase}
     sync                read claims.yaml at HEAD of the checkout; validate (TODO placeholders
                         refused); cache; event
     list                table of cached claims with status and trust
@@ -13,6 +13,9 @@ positional arguments:
                         diagnostics; read-only; exit 0 only when the package is ready
     mark                set the status of the claims a comparator config's theorem_names cover
                         (exact full-name match); read-only unless --write; never commits
+    rebase              move claims.yaml and coverage.yaml to a new manuscript version: carry
+                        unchanged statements re-keyed from the new .aux, list the rest for review;
+                        writes only --out-dir; never changes a status
 
 options:
   -h, --help            show this help message and exit

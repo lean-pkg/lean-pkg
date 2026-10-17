@@ -54,6 +54,7 @@ CASES = {
     "claims-list": ["claims", "list"],
     "claims-check": ["claims", "check", "beta"],
     "claims-ledger": ["claims", "ledger", "beta"],
+    "claims-rebase": lambda e, t: _rebase_argv(t),
     "comparator-host-check": ["comparator", "host-check"],
     "comparator-host-check-routes": ["comparator", "host-check", "--routes"],
     "public-safety": ["public-safety", "beta"],
@@ -81,6 +82,21 @@ CASES = {
     "page": lambda e, t: (_page_ready(e), ["page", "beta"])[1],
     "coverage-check": ["coverage", "check", "beta"],
 }
+
+
+def _rebase_argv(tmp_path) -> list[str]:
+    """A dry-run rebase of beta (no coverage.yaml yet) between two one-theorem TeX files."""
+    import hashlib
+    bs, key = "\\", "thm" + ":one"
+    tex = (f"{bs}begin{{document}}{bs}begin{{theorem}}{bs}lab" + f"el{{{key}}}X.{bs}end{{theorem}}"
+           f"{bs}end{{document}}\n")
+    d = tmp_path / "rebase-tex"
+    d.mkdir(exist_ok=True)
+    (d / "old.tex").write_text(tex)
+    (d / "new.tex").write_text(tex)
+    (d / "new.aux").write_text(f"{bs}newlabel{{{key}}}{{{{1}}{{1}}}}\n")
+    return ["claims", "rebase", "beta", "--from-tex", str(d / "old.tex"), "--to-tex", str(d / "new.tex"),
+            "--to-aux", str(d / "new.aux"), "--from-sha256", hashlib.sha256(tex.encode()).hexdigest()]
 
 
 def _page_ready(env) -> None:

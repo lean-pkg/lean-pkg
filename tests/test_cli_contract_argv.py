@@ -92,6 +92,10 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
      False),
     (["claims", "mark", "demo", "--from-comparator", "c.json", "--status", "reusable", "--write"], "claims mark",
      False, False, False),                                                                  # writes claims.yaml, not the registry
+    (["claims", "rebase", "demo", "--from-tex", "a", "--to-tex", "b", "--to-aux", "c"], "claims rebase",
+     False, False, False),                                  # dry run: prints the report only
+    (["claims", "rebase", "demo", "--from-tex", "a", "--to-tex", "b", "--to-aux", "c", "--out-dir", "d"],
+     "claims rebase", False, False, False),                 # writes --out-dir, never the registry
     (["search", "term"], "search", False, False, False),
     (["search", "term", "--record"], "search", True, False, False),   # locks only around its append
     (["formalization", "demo"], "formalization", False, False, False),

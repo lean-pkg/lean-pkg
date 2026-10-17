@@ -68,6 +68,29 @@
     "rc": 0,
     "type": "object"
   },
+  "claims-rebase": {
+    "keys": [
+      "citations",
+      "counts",
+      "files",
+      "findings",
+      "inputs",
+      "labels",
+      "name",
+      "needs_review",
+      "normalizations",
+      "ok",
+      "out_dir",
+      "proposed_errors",
+      "rows",
+      "statuses_changed",
+      "to_version",
+      "warnings",
+      "written"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
   "comparator-coverage": {
     "keys": [
       "bound_commit",
