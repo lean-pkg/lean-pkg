@@ -19,6 +19,7 @@ lean-exercise COMMAND
 ## Subcommands
 
 - [`lean-exercise check`](#lean-exercise-check): judge each sorry'd theorem of the Challenge against the Solution
+- [`lean-exercise batch`](#lean-exercise-batch): judge every .lean file of a directory: one CSV row and one log per file
 
 ## More from --help
 
@@ -27,8 +28,13 @@ examples:
   lean-exercise check --challenge Challenge.lean --solution Solution.lean
   lean-exercise check --challenge C.lean --solution S.lean --theorems add_zero',two_mul --json
   lean-exercise check --challenge C.lean --solution S.lean --defs Defs.lean --axioms propext
+  lean-exercise check --challenge C.lean --solution S.lean --project ~/course-mathlib \
+      --forbid MeasurableSpace.DynkinSystem. --forbid-exact MeasurableSpace.induction_on_inter
+  lean-exercise batch --challenge C.lean --solutions submissions/ --csv grades.csv --logs logs/ \
+      --project ~/course-mathlib
 
-exit codes: 0 every theorem accepted, 1 a theorem rejected (or the judge failed), 2 usage or host refusal.
+exit codes: 0 every theorem accepted (batch: every Solution), 1 a theorem rejected (or the judge failed),
+2 usage or host refusal.
 docs: https://lean-pkg.github.io/lean-pkg/exercise.html
 ```
 
@@ -44,11 +50,12 @@ judge each sorry'd theorem of the Challenge against the Solution.
 
 ```text
 lean-exercise check --challenge FILE --solution FILE [--theorems a,b] [--axioms a,b]
-                    [--defs FILE] [--toolchain T] [--timeout S] [--keep DIR]
-                    [--no-sandbox] [--json]
+                    [--defs FILE] [--project DIR] [--forbid PREFIX]
+                    [--forbid-exact NAME] [--forbid-scope {solution,all}]
+                    [--toolchain T] [--timeout S] [--keep DIR] [--no-sandbox] [--json]
 ```
 
-Judge each sorry'd theorem of the Challenge against the Solution, one `lake comparator` run per theorem, in its bwrap sandbox. Registry-free; writes only a temporary directory. Mathlib-free (v1).
+Judge each sorry'd theorem of the Challenge against the Solution, one `lake comparator` run per theorem, in its bwrap sandbox. Registry-free; writes only a temporary directory. Mathlib only with --project DIR.
 
 ### Arguments and flags
 
@@ -59,7 +66,11 @@ Judge each sorry'd theorem of the Challenge against the Solution, one `lake comp
 | `--theorems a,b` | judge only these (fully qualified) Challenge theorems |
 | `--axioms a,b` | permitted axioms, a subset of propext,Quot.sound,Classical.choice (default: all three) |
 | `--defs FILE` | shared definitions, module Defs, imported by both files |
-| `--toolchain T` | Lean toolchain (default: the newest installed, v4.35.0-rc2 or later) |
+| `--project DIR` | a Lake project whose lean-toolchain and lake-manifest.json pin Mathlib, built already (`lake exe cache get`): allows `import Mathlib...`; its packages are bound read-only into the sandbox, and nothing is downloaded |
+| `--forbid PREFIX` | reject a theorem whose proof depends on a constant whose name starts with PREFIX (repeatable; computed on the compiled environment, through the Solution's helpers) |
+| `--forbid-exact NAME` | as --forbid, for exactly this constant (repeatable) |
+| `--forbid-scope {solution,all}` | solution (default): follow the Solution's own declarations, report library constants they use; all: follow library constants too. Choices: `solution`, `all`. |
+| `--toolchain T` | Lean toolchain (default: the --project's, else the newest installed, v4.35.0-rc2 or later) |
 | `--timeout S` | seconds per theorem (default 600) |
 | `--keep DIR` | build in DIR (absent or empty) and keep it |
 | `--no-sandbox` | run without the bwrap sandbox: the Solution runs as you; a self-check of your OWN code only, never a grade (trust: self-check-only) |
@@ -76,3 +87,42 @@ Judge each sorry'd theorem of the Challenge against the Solution with `lake comp
 ```bash
 lean-exercise check --challenge Challenge.lean --solution Solution.lean
 ```
+
+## lean-exercise batch
+
+judge every .lean file of a directory: one CSV row and one log per file.
+
+### Usage
+
+```text
+lean-exercise batch --challenge FILE --solutions DIR --csv FILE --logs DIR
+                    [--theorems a,b] [--axioms a,b] [--defs FILE] [--project DIR]
+                    [--forbid PREFIX] [--forbid-exact NAME]
+                    [--forbid-scope {solution,all}] [--toolchain T] [--timeout S]
+                    [--json]
+```
+
+Judge every Solution (\*.lean, not recursive) in a directory as `check` would, sandboxed (--no-sandbox is refused), each in its own fresh project. Writes one CSV row per file (identified by its file name only) and one log per file. Registry-free.
+
+### Arguments and flags
+
+| Argument or flag | Description |
+|---|---|
+| `--challenge FILE` | the Challenge .lean (theorems := by sorry). Required. |
+| `--solutions DIR` | the directory of Solution .lean files. Required. |
+| `--csv FILE` | the CSV to write (must not exist). Required. |
+| `--logs DIR` | per-file logs &lt;stem&gt;.log (absent or empty). Required. |
+| `--theorems a,b` | judge only these (fully qualified) Challenge theorems |
+| `--axioms a,b` | permitted axioms, a subset of propext,Quot.sound,Classical.choice (default: all three) |
+| `--defs FILE` | shared definitions, module Defs, imported by both files |
+| `--project DIR` | a Lake project whose lean-toolchain and lake-manifest.json pin Mathlib, built already (`lake exe cache get`): allows `import Mathlib...`; its packages are bound read-only into the sandbox, and nothing is downloaded |
+| `--forbid PREFIX` | reject a theorem whose proof depends on a constant whose name starts with PREFIX (repeatable; computed on the compiled environment, through the Solution's helpers) |
+| `--forbid-exact NAME` | as --forbid, for exactly this constant (repeatable) |
+| `--forbid-scope {solution,all}` | solution (default): follow the Solution's own declarations, report library constants they use; all: follow library constants too. Choices: `solution`, `all`. |
+| `--toolchain T` | Lean toolchain (default: the --project's, else the newest installed, v4.35.0-rc2 or later) |
+| `--timeout S` | seconds per theorem (default 600) |
+| `--json` | JSON on stdout (schema exercise-batch/1) |
+
+### Exit codes
+
+0 every Solution passed; 1 a Solution failed or was refused; 2 usage or host refusal
