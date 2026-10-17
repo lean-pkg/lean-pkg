@@ -48,6 +48,7 @@ import tarfile
 import tempfile
 
 from . import cli as core
+from . import export_paths as xp
 from . import public_safety as ps
 
 DEFAULT_REASON = "fresh-history release"
@@ -93,7 +94,7 @@ def _extract(data: bytes, dest: pathlib.Path, drop) -> list[dict]:
 
 
 def drop_reason(name: str, keep_receipts: bool) -> str | None:
-    why = ps.excluded_from_export(name)
+    why = xp.excluded_from_export(name)
     if why:
         return why
     if name == ".lean-receipts" or name.startswith(".lean-receipts/"):
@@ -130,14 +131,11 @@ def _copy_tree(srcdir: pathlib.Path, dest: pathlib.Path, files: list[str], drop)
     a symlink is kept only when it is relative and stays inside the tree. The dropped files, as
     [{path, reason}]."""
     dropped: list[dict] = []
-    root = os.path.realpath(srcdir)
     for rel in files:
         why = drop(rel)
         src = srcdir / rel
         if not why and src.is_symlink():
-            link = os.readlink(src)
-            real = os.path.realpath(src)
-            if os.path.isabs(link) or not (real == root or real.startswith(root + os.sep)):
+            if xp.fs_link_leaves_tree(src, srcdir):
                 why = "symlink leaving the tree (not exported)"
         elif not why and src.is_dir():
             why = "submodule or nested repository (not exported)"

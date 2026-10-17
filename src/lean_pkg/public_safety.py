@@ -177,13 +177,6 @@ def internal_path(rel: str) -> str | None:
     return None
 
 
-def excluded_from_export(rel: str) -> str | None:
-    """Why a path is dropped from a fresh-history export, else None."""
-    if rel == PATTERNS_FILE or rel.endswith("/" + PATTERNS_FILE):
-        return "patterns file"
-    return internal_path(rel)
-
-
 def read_patterns_file(root: pathlib.Path) -> tuple[list[Pattern], list[tuple], list[str], bool]:
     """(patterns, allow entries (regex, path glob regex or None), problems, present) from
     <root>/.lean-pkg-private-patterns."""
