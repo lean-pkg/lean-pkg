@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-17
+
 ### Added
 
 - coverage/1 `kind: library`: a reusable library with no manuscript of its
@@ -69,6 +71,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   lookup rules and gives a copy that restores each `configs[].log` from a
   preserved folder only when its bytes match `log_sha256`, never
   overwriting.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.8.0] - 2026-10-17
 
