@@ -1,8 +1,8 @@
 usage: lean-pkg formalization [-h] [--write] [--no-registry] [--out PATH] [--force]
-                              [--reason REASON] [--author NAME] [--agent AGENT] [--arxiv ID]
-                              [--from-file E-PRINT] [--fetch] [--compare-tex LOCAL.tex]
-                              [--accept-diff REASON] [--main-tex PATH] [--json] [--commit]
-                              [--push] [--no-commit]
+                              [--reason REASON] [--author NAME] [--headline-config PATH]
+                              [--agent AGENT] [--arxiv ID] [--from-file E-PRINT] [--fetch]
+                              [--compare-tex LOCAL.tex] [--accept-diff REASON] [--main-tex PATH]
+                              [--json] [--commit] [--push] [--no-commit]
                               name [package]
 
 positional arguments:
@@ -25,6 +25,12 @@ options:
                         the updated event)
   --author NAME         project.authors entry (repeatable); otherwise kept from the file, else
                         consent[] owners/authors, else a placeholder
+  --headline-config PATH
+                        the headline comparator configuration (the paper's main results) for this
+                        render; --write also records it (registry headline_config). Default: the
+                        registry field, else comparator.headline.json when tracked.
+                        status.main_results then lists its theorems only, each covered by the
+                        gate-bound comparator receipt (else refused)
   --agent AGENT         lease holder, if one is live (for the registry update)
   --json                machine-readable JSON on stdout
   --commit              write commands: pull --ff-only, then commit the registry files (default:

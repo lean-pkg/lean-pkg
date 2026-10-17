@@ -3,7 +3,7 @@ usage: lean-pkg update [-h] [--automation AUTOMATION] [--notes TEXT] [--replace-
                        [--accept-docs-descendants | --no-accept-docs-descendants]
                        [--build-inputs GLOB,GLOB] [--reaudit-after ISO8601]
                        [--owner-project OWNER_PROJECT] [--repo REPO] [--license-spdx SPDX]
-                       [--formalization-yaml REL] [--paper-arxiv ID]
+                       [--formalization-yaml REL] [--headline-config REL] [--paper-arxiv ID]
                        [--paper-status {unpublished,preprint,published}]
                        [--source-paper-title TITLE] [--source-paper-author NAME]
                        [--source-paper-arxiv ID] [--source-paper-doi DOI] [--ai-tool TOOL]
@@ -53,6 +53,10 @@ options:
                         Apache-2.0' (what the index and Reservoir expect)
   --formalization-yaml REL
                         repository-relative path of the package's formalization.yaml
+  --headline-config REL
+                        repository-relative path of the headline comparator configuration (the
+                        paper's main results, fed to formalization.yaml status.main_results); ''
+                        clears it (then comparator.headline.json applies when tracked)
   --paper-arxiv ID      arXiv id of the paper this package verifies (sets paper.arxiv; status
                         defaults to preprint)
   --paper-status {unpublished,preprint,published}

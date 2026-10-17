@@ -6,7 +6,10 @@ lean-pkg makes no HTTP request and submits nothing; the README lists the manual 
 The bundle (default `<checkout>/.lean-receipts/palomar-<HEAD12>/`):
 
 - `formalization.yaml`: rendered by the formalization renderer, schema-valid (placeholders warn);
-- `configs/<path>`: every comparator configuration tracked at HEAD, byte-identical;
+- `configs/<path>`: every comparator configuration tracked at HEAD, byte-identical, and the headline
+  configuration (headline.py) when one is declared: Palomar takes exactly one configuration per
+  submission and any repository path, so README.txt names the headline one for the main-results
+  entry and says the others are submitted separately;
 - `receipts/<file>`: the recorded gate and comparator receipts, validated against HEAD (bound to it
   or to an ancestor whose difference is evidence only);
 - `README.txt`: the manual submission steps and the Palomar URLs;
@@ -41,10 +44,11 @@ def _write(root: pathlib.Path, rel: str, data: bytes) -> None:
     p.write_bytes(data)
 
 
-def readme_text(pkg: dict, head: str, configs: list[str], files: list[str], placeholders: list[str]) -> str:
+def readme_text(pkg: dict, head: str, configs: list[str], files: list[str], placeholders: list[str],
+                headline: str | None = None) -> str:
     from . import __version__
     name = pkg["name"]
-    cfg = configs[0] if configs else "comparator.json"
+    cfg = headline or (configs[0] if configs else "comparator.json")
     lines = [
         f"Palomar submission bundle for {name} at commit {head}",
         f"Built by lean-pkg {__version__} on {core.now_iso()}. Nothing was submitted: lean-pkg makes no",
@@ -55,7 +59,11 @@ def readme_text(pkg: dict, head: str, configs: list[str], files: list[str], plac
         f"   repository layout is described at {PALOMAR_SUBMISSION_URL}.",
         "3. Give the repository URL, the commit above and the comparator configuration(s):",
     ]
-    lines += [f"     {c}" for c in configs]
+    if headline:
+        lines += [f"     {headline}   (headline: the paper's main results; formalization.yaml",
+                  "     status.main_results lists its theorems)",
+                  "   Palomar takes one configuration per submission: submit any other separately."]
+    lines += [f"     {c}" for c in configs if c != headline]
     lines += [
         "4. Check this bundle first: sha256sum -c MANIFEST.sha256 (run inside this directory).",
         "5. Once Palomar returns a submission id, record it:",
@@ -121,14 +129,19 @@ def build(pkg: dict, repo: pathlib.Path, stage: pathlib.Path) -> tuple[list[str]
                                  for p in placeholders]
     _write(stage, "formalization.yaml", text.encode())
     configs = core.head_comparator_configs(repo, "HEAD")
-    for c in configs:
+    headline = (rep.get("headline") or {}).get("config")
+    if headline and not (rep.get("headline") or {}).get("covered"):
+        raise core.Fail(f"{name}: the headline configuration {headline} is not judged a subset of the comparison "
+                        f"the gate binds at HEAD {head[:12]}; nothing written (see lean-pkg palomar check "
+                        f"{name} --rev {head[:12]})")
+    for c in configs + ([headline] if headline and headline not in configs else []):
         blob = core.git_show_bytes(repo, c, "HEAD")
         _write(stage, f"configs/{c}", blob or b"")
     for rel in (gate["receipt"], gate["comparator"]):
         _write(stage, f"receipts/{pathlib.PurePosixPath(rel).name}", (repo / rel).read_bytes())
     files = sorted(p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file())
     _write(stage, "README.txt", readme_text(pkg, head, configs, files + ["README.txt", "MANIFEST.sha256"],
-                                            placeholders).encode())
+                                            placeholders, headline).encode())
     files = sorted(p.relative_to(stage).as_posix() for p in stage.rglob("*") if p.is_file())
     manifest = "".join(f"{hashlib.sha256((stage / f).read_bytes()).hexdigest()}  {f}\n" for f in files)
     _write(stage, "MANIFEST.sha256", manifest.encode())
@@ -143,7 +156,8 @@ def build(pkg: dict, repo: pathlib.Path, stage: pathlib.Path) -> tuple[list[str]
         warnings.append(f"public-safety: {scan['warn_hits']} warning(s) in the bundle "
                         f"({ps.warn_families(scan['hits'])}); review them")
     from . import ledger as ledger_mod
-    facts = {"commit": head, "configs": configs, "files": files + ["MANIFEST.sha256"],
+    facts = {"commit": head, "configs": configs, "headline_config": headline,
+             "files": files + ["MANIFEST.sha256"],
              "manuscript_findings": ledger_mod.package_findings(pkg, repo),
              "bundle_sha256": hashlib.sha256(manifest.encode()).hexdigest(), "placeholders": placeholders,
              "palomar_check": {"ready": True, "commit": head, "errors": 0, "warns": rep["counts"]["warn"],

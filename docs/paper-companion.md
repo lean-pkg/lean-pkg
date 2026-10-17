@@ -259,6 +259,15 @@ At submission the deliverable is:
 Publishing the companion follows the usual path: [scan for private strings](how-to.md#scan-for-private-strings-before-publishing),
 the comparator tier, and `promote`.
 
+When the comparison covers more than the paper's main results, add a
+[headline configuration](comparator.md#headline-configuration-the-papers-main-results)
+(`comparator.headline.json`, Palomar's six keys only) listing just the main
+results: `formalization.yaml` then advertises those in `status.main_results`
+and `palomar prepare` names it for the Palomar entry, while the receipt and
+the gate keep binding the full comparison. Every headline name must be covered
+by the gate-bound comparator receipt (same Challenge and Solution modules), or
+the render is refused.
+
 ### Credits
 
 `lean-pkg page NAME --write` writes both credits below into the README's

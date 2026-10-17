@@ -280,9 +280,13 @@ gated package then needs a new comparator receipt (and a re-gate at that
 commit). Keep `definition_names` empty where you can: Palomar's reviewers
 still judge each hole.
 
-**What is planned next?**
-An optional `comparator.headline.json` that feeds `status.main_results`
-(medium).
+**Can Palomar list only the paper's main results?**
+Yes. A headline configuration (`comparator.headline.json`, or the path in
+the registry's `headline_config`) names them, and `lean-pkg formalization`
+renders its theorems as `status.main_results` once the gate-bound
+comparator receipt covers every one of them; the receipt and the gate still
+bind the full comparison. See
+[Headline configuration](comparator.md#headline-configuration-the-papers-main-results).
 
 ## Reservoir
 

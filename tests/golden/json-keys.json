@@ -187,6 +187,7 @@
   },
   "formalization": {
     "keys": [
+      "headline",
       "main_results",
       "name",
       "ok",
@@ -358,6 +359,7 @@
       "configs",
       "counts",
       "gaps",
+      "headline",
       "lean_files",
       "lean_toolchain",
       "missing_module",

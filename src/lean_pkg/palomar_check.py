@@ -309,8 +309,6 @@ def layout_gaps(tree: Tree) -> list[dict]:
 
 
 def comparator_gaps(tree: Tree, policy: dict, only: str | None) -> tuple[list[dict], list[str]]:
-    cp = policy["comparator"]
-    required, allowed, standard = set(cp["required_keys"]), set(cp["allowed_keys"]), set(cp["standard_axioms"])
     configs = core.head_comparator_configs(tree.repo, tree.commit)
     if only is not None:
         if only not in configs:
@@ -325,69 +323,125 @@ def comparator_gaps(tree: Tree, policy: dict, only: str | None) -> tuple[list[di
                      "write one (`lean-pkg comparator config --from-claims NAME`), commit, run comparator-receipt")], []
     gaps: list[dict] = []
     for rel in configs:
-        path = tree.project(rel)
-        try:
-            cfg = json.loads(tree.blob(path) or b"")
-        except ValueError:
-            cfg = None
-        if not isinstance(cfg, dict):
-            gaps.append(_gap("comparator.invalid", "error", f"{rel} is not a JSON object", "fix the file", [path]))
-            continue
-        missing = sorted(required - cfg.keys())
-        if missing:
-            gaps.append(_gap("comparator.missing_key", "error", f"{rel} lacks {', '.join(missing)}",
-                             "add the keys; commit, re-run comparator-receipt, re-gate", [path]))
-        unknown = sorted(cfg.keys() - allowed)
-        if unknown:
-            ours = [k for k in INLINE_KEYS if k in unknown]
-            note = (f" ({' and '.join(ours)}: lean-pkg's own metadata, deprecated inside a configuration; it "
-                    f"belongs in {SIDECAR})" if ours else "")
-            fix = (f"`{migrate_command(rel)}` moves {' and '.join(ours)} to {SIDECAR} (the configuration's "
-                   f"Palomar keys unchanged)" + ("; remove the other key(s)" if set(unknown) - set(ours) else "")
-                   + "; commit, re-run comparator-receipt (the config's bytes change), re-gate") if ours else \
-                "remove them from the configuration you submit; commit, re-run comparator-receipt, re-gate"
-            gaps.append(_gap("comparator.unknown_key", "error",
-                             f"{rel} has key(s) Palomar refuses: {', '.join(unknown)} (allowed: "
-                             f"{', '.join(sorted(allowed))}){note}", fix, [path]))
-        names = cfg.get("theorem_names")
-        if not isinstance(names, list) or not names or not all(isinstance(x, str) and x for x in names):
-            gaps.append(_gap("comparator.invalid", "error", f"{rel}: theorem_names must be a non-empty list of names",
-                             "list the theorems the configuration certifies", [path]))
-        axioms = cfg.get("permitted_axioms")
-        if isinstance(axioms, list) and not set(map(str, axioms)) <= standard:
-            gaps.append(_gap("comparator.invalid_axioms", "error",
-                             f"{rel}: permitted_axioms {sorted(set(map(str, axioms)) - standard)} outside "
-                             f"{', '.join(sorted(standard))}", "permit only the standard axioms", [path]))
-        ch, so = cfg.get("challenge_module"), cfg.get("solution_module")
-        if ch and ch == so:
-            gaps.append(_gap("comparator.invalid", "error", f"{rel}: challenge_module and solution_module are both "
-                             f"{ch!r}", "use two distinct modules", [path]))
-        for key, mod in (("challenge_module", ch), ("solution_module", so)):
-            src = _module_source(mod)
-            if src is not None and tree.project(src) not in tree.entries:
-                gaps.append(_gap("comparator.path_missing", "error", f"{rel}: {key} {mod} has no source {src} "
-                                 f"tracked in the project", "commit it", [tree.project(src)]))
-        csrc = _module_source(ch)
-        blob = tree.blob(tree.project(csrc)) if csrc else None
-        if blob is not None and (len(blob) > CHALLENGE_MAX_BYTES
-                                 or physical_lines(blob.decode("utf-8", "replace")) > CHALLENGE_MAX_LINES):
-            gaps.append(_gap("challenge.too_large", "error",
-                             f"{csrc} exceeds the Challenge limits ({CHALLENGE_MAX_LINES:,} lines, 100 KiB)",
-                             "state fewer or shorter declarations in the Challenge", [tree.project(csrc)]))
-        holes = cfg.get("definition_names") or []
-        if isinstance(holes, list) and holes:
-            try:
-                so = check_definition_holes(cfg, rel, cfg_rel=rel, cfg_bytes=tree.blob(path) or b"",
-                                            sidecar=parse_sidecar(tree.blob(tree.project(SIDECAR))))
-                signed = f"; lean-pkg sign-off: {signoff_summary(so)['reviewer']} ({so['source']})"
-            except ValueError as e:
-                signed = f"; lean-pkg sign-off: none valid ({str(e).split(': ', 1)[-1][:160]})"
-            gaps.append(_gap("comparator.definition_holes", "warn",
-                             f"{rel}: {len(holes)} definition_names entr(y/ies); comparator compares them by name "
-                             f"and type, never by body, so reviewers must judge the bodies{signed}",
-                             "keep definition_names empty where you can; otherwise justify each in the submission",
-                             [path]))
+        gaps += config_gaps(tree, policy, rel)
     return gaps, configs
+
+
+def config_gaps(tree: Tree, policy: dict, rel: str) -> list[dict]:
+    """The gaps of one comparator configuration (package-relative `rel`) at the tree's commit."""
+    cp = policy["comparator"]
+    required, allowed, standard = set(cp["required_keys"]), set(cp["allowed_keys"]), set(cp["standard_axioms"])
+    gaps: list[dict] = []
+    path = tree.project(rel)
+    try:
+        cfg = json.loads(tree.blob(path) or b"")
+    except ValueError:
+        cfg = None
+    if not isinstance(cfg, dict):
+        gaps.append(_gap("comparator.invalid", "error", f"{rel} is not a JSON object", "fix the file", [path]))
+        return gaps
+    missing = sorted(required - cfg.keys())
+    if missing:
+        gaps.append(_gap("comparator.missing_key", "error", f"{rel} lacks {', '.join(missing)}",
+                         "add the keys; commit, re-run comparator-receipt, re-gate", [path]))
+    unknown = sorted(cfg.keys() - allowed)
+    if unknown:
+        ours = [k for k in INLINE_KEYS if k in unknown]
+        note = (f" ({' and '.join(ours)}: lean-pkg's own metadata, deprecated inside a configuration; it "
+                f"belongs in {SIDECAR})" if ours else "")
+        fix = (f"`{migrate_command(rel)}` moves {' and '.join(ours)} to {SIDECAR} (the configuration's "
+               f"Palomar keys unchanged)" + ("; remove the other key(s)" if set(unknown) - set(ours) else "")
+               + "; commit, re-run comparator-receipt (the config's bytes change), re-gate") if ours else \
+            "remove them from the configuration you submit; commit, re-run comparator-receipt, re-gate"
+        gaps.append(_gap("comparator.unknown_key", "error",
+                         f"{rel} has key(s) Palomar refuses: {', '.join(unknown)} (allowed: "
+                         f"{', '.join(sorted(allowed))}){note}", fix, [path]))
+    names = cfg.get("theorem_names")
+    if not isinstance(names, list) or not names or not all(isinstance(x, str) and x for x in names):
+        gaps.append(_gap("comparator.invalid", "error", f"{rel}: theorem_names must be a non-empty list of names",
+                         "list the theorems the configuration certifies", [path]))
+    axioms = cfg.get("permitted_axioms")
+    if isinstance(axioms, list) and not set(map(str, axioms)) <= standard:
+        gaps.append(_gap("comparator.invalid_axioms", "error",
+                         f"{rel}: permitted_axioms {sorted(set(map(str, axioms)) - standard)} outside "
+                         f"{', '.join(sorted(standard))}", "permit only the standard axioms", [path]))
+    ch, so = cfg.get("challenge_module"), cfg.get("solution_module")
+    if ch and ch == so:
+        gaps.append(_gap("comparator.invalid", "error", f"{rel}: challenge_module and solution_module are both "
+                         f"{ch!r}", "use two distinct modules", [path]))
+    for key, mod in (("challenge_module", ch), ("solution_module", so)):
+        src = _module_source(mod)
+        if src is not None and tree.project(src) not in tree.entries:
+            gaps.append(_gap("comparator.path_missing", "error", f"{rel}: {key} {mod} has no source {src} "
+                             f"tracked in the project", "commit it", [tree.project(src)]))
+    csrc = _module_source(ch)
+    blob = tree.blob(tree.project(csrc)) if csrc else None
+    if blob is not None and (len(blob) > CHALLENGE_MAX_BYTES
+                             or physical_lines(blob.decode("utf-8", "replace")) > CHALLENGE_MAX_LINES):
+        gaps.append(_gap("challenge.too_large", "error",
+                         f"{csrc} exceeds the Challenge limits ({CHALLENGE_MAX_LINES:,} lines, 100 KiB)",
+                         "state fewer or shorter declarations in the Challenge", [tree.project(csrc)]))
+    holes = cfg.get("definition_names") or []
+    if isinstance(holes, list) and holes:
+        try:
+            so = check_definition_holes(cfg, rel, cfg_rel=rel, cfg_bytes=tree.blob(path) or b"",
+                                        sidecar=parse_sidecar(tree.blob(tree.project(SIDECAR))))
+            signed = f"; lean-pkg sign-off: {signoff_summary(so)['reviewer']} ({so['source']})"
+        except ValueError as e:
+            signed = f"; lean-pkg sign-off: none valid ({str(e).split(': ', 1)[-1][:160]})"
+        gaps.append(_gap("comparator.definition_holes", "warn",
+                         f"{rel}: {len(holes)} definition_names entr(y/ies); comparator compares them by name "
+                         f"and type, never by body, so reviewers must judge the bodies{signed}",
+                         "keep definition_names empty where you can; otherwise justify each in the submission",
+                         [path]))
+    return gaps
+
+
+def headline_gaps(pkg: dict, tree: Tree, policy: dict, checked: list[str]) -> tuple[list[dict], dict | None]:
+    """The headline configuration (headline.py): its own configuration gaps when the loop above did not
+    check it, and the subset rule against the comparator receipt the gate records, validated at HEAD as
+    `gate --check` validates it (error: uncovered names or unsigned holes; warn: no receipt to judge by)."""
+    from . import headline as hl
+    try:
+        rel, source = hl.declared(pkg, tree.repo, rev=tree.commit)
+    except core.Fail as e:
+        return [_gap("comparator.headline_invalid", "error", str(e),
+                     f"lean-pkg update {pkg['name']} --headline-config REL (or '' to clear it)")], None
+    if rel is None:
+        return [], None
+    view = {"config": rel, "source": source, "judged": False, "covered": None}
+    path = tree.project(rel)
+    if path not in tree.entries:
+        return [_gap("comparator.headline_missing", "error",
+                     f"the headline configuration {rel} ({source}) is not tracked at {tree.commit[:12]}",
+                     "commit it, or clear the registry field (lean-pkg update NAME --headline-config '')",
+                     [path])], view
+    gaps = [] if rel in checked else config_gaps(tree, policy, rel)
+    try:
+        cfg = hl.parse(tree.blob(path), rel)
+    except ValueError as e:
+        if not gaps and rel not in checked:   # the loop above already reported a checked one
+            gaps.append(_gap("comparator.headline_invalid", "error", str(e),
+                             "keep only Palomar's six keys and name both modules and the theorems", [path]))
+        return gaps, view
+    try:
+        res = hl.judge(pkg, tree.repo, rel, cfg)
+    except core.Fail as e:
+        res = {"judged": False, "reason": str(e)}
+    if not res["judged"]:
+        gaps.append(_gap("comparator.headline_unjudged", "warn",
+                         f"headline configuration {rel} ({source}) cannot be judged: {res['reason']}; "
+                         f"formalization.yaml status.main_results falls back to every tracked configuration",
+                         "run comparator-receipt at the commit, record it (lean-pkg comparator NAME --receipt R) "
+                         "and re-gate", [path]))
+        return gaps, view
+    view.update(judged=True, covered=not (res["uncovered"] or res["unsigned"]))
+    why = hl.refusal(rel, res)
+    if why:
+        gaps.append(_gap("comparator.headline_uncovered", "error", why,
+                         "compare the missing names (a compared configuration, comparator-receipt, re-gate), "
+                         "or drop them from the headline configuration; commit", [path]))
+    return gaps, view
 
 
 def _module_source(mod) -> str | None:
@@ -575,11 +629,12 @@ def check(pkg: dict, repo: pathlib.Path, commit: str, policy: dict, source: dict
     tc_gaps, tc = toolchain_gaps(tree, policy)
     gaps += tc_gaps + layout_gaps(tree)
     cg, configs = comparator_gaps(tree, policy, config)
+    hg, headline = headline_gaps(pkg, tree, policy, configs)
     fg, doc = formalization_gaps(pkg, tree, policy)
-    gaps += cg + fg + license_gaps(pkg, tree, doc) + repository_gaps(pkg, tree)
+    gaps += cg + hg + fg + license_gaps(pkg, tree, doc) + repository_gaps(pkg, tree)
     errors = sum(g["severity"] == "error" for g in gaps)
     return {"ready": errors == 0, "commit": commit, "project_path": tree.prefix.rstrip("/") or ".",
-            "lean_toolchain": tc, "configs": configs, **facts,
+            "lean_toolchain": tc, "configs": configs, "headline": headline, **facts,
             "counts": {"error": errors, "warn": len(gaps) - errors}, "gaps": gaps,
             "rules": {**source, "toolchain_minimum": policy["toolchain"]["minimum"]},
             "not_checked": NOT_CHECKED}
