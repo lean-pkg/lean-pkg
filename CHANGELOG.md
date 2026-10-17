@@ -30,17 +30,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   yet shipped, `publish --yes`). A vertical layout, legible at phone width;
   shown on the sample workflow page and in docs/design/two-tracks.md.
 
-### Fixed
-
-- The `status` command page documents `scope.product` (added in 0.10.0;
-  the entry was lost when the command reference was split into pages), and
-  docs/design/two-tracks.md shows each track's path with the commands of
-  0.10.0, where `new` scaffolds a library only.
-
-## [0.10.0] - 2026-10-17
-
-### Added
-
 - The 1.0 command tree, stage 1 (docs/design/1.0-command-tree.md, accepted
   2026-10-17). New canonical spellings: `lease claim|renew|release|list`,
   `registry init|migrate|validate|audit|board|wiki`, `repo move NAME PATH`
@@ -59,6 +48,34 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `verify`, `status`, `page`, `publish`) with one line each and the paper
   and Lean-package tracks as two columns; a verb or flag not in this release
   is marked and named with what to run until then.
+
+### Changed
+
+- `comparator config`, `comparator host-check` and `formalization anchor`
+  are real subcommands, each with only its own flags (they were values of a
+  positional); every old argv parses as before, and a flag of another form
+  is now an argparse usage error (exit 2, as before). `lean-pkg comparator`
+  and `lean-pkg formalization` alone print their subcommands.
+- `lean-pkg` with no command prints the newcomer page when stdout is not a
+  terminal or no registry exists; on a terminal with a registry it opens the
+  board as before, and `lean-pkg --json` still prints the board's JSON
+  (decision 5 of the 1.0 command tree). `lean-pkg registry board` (alias
+  `board`) is unchanged.
+- RELEASING.md: renamed commands and flags are permanent aliases, never
+  deprecated; a deprecation removes behavior only, and lasts at least two
+  minor releases and 60 days, whichever is longer.
+
+
+### Fixed
+
+- The `status` command page documents `scope.product` (added in 0.10.0;
+  the entry was lost when the command reference was split into pages), and
+  docs/design/two-tracks.md shows each track's path with the commands of
+  0.10.0, where `new` scaffolds a library only.
+
+## [0.10.0] - 2026-10-17
+
+### Added
 
 - `lean-pkg receipt check --repo DIR --commit X [--at REF] [--docs-descendants] [--json]`:
   a registry-free receipt verifier for an outside referee. On a private clone
@@ -195,22 +212,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   forced a re-render; it stays in `lean-pkg status` and the JSON outputs.
   Re-render a page made by 0.9.0 or earlier (`lean-pkg page NAME --write`):
   `page --check` reports the old block as stale.
-
-### Changed
-
-- `comparator config`, `comparator host-check` and `formalization anchor`
-  are real subcommands, each with only its own flags (they were values of a
-  positional); every old argv parses as before, and a flag of another form
-  is now an argparse usage error (exit 2, as before). `lean-pkg comparator`
-  and `lean-pkg formalization` alone print their subcommands.
-- `lean-pkg` with no command prints the newcomer page when stdout is not a
-  terminal or no registry exists; on a terminal with a registry it opens the
-  board as before, and `lean-pkg --json` still prints the board's JSON
-  (decision 5 of the 1.0 command tree). `lean-pkg registry board` (alias
-  `board`) is unchanged.
-- RELEASING.md: renamed commands and flags are permanent aliases, never
-  deprecated; a deprecation removes behavior only, and lasts at least two
-  minor releases and 60 days, whichever is longer.
 
 ### Fixed
 
