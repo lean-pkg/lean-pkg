@@ -193,6 +193,9 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["formalization", "render", "demo"], "formalization render", False, False, False),
     (["formalization", "render", "demo", "--write"], "formalization render", True, True, False),
     (["formalization", "render", "demo", "--write", "--no-registry"], "formalization render", False, False, False),
+    (["formalization", "kept"], "formalization kept", False, False, False),            # read-only, no registry
+    (["formalization", "kept", "--repo", "d", "--at", "v1", "--against", "v0"], "formalization kept", False, False,
+     False),
     (["record", "demo", "doi-minted", "--doi-track", "doi-only"], "record", True, True, False),
     (["record", "demo", "doi-minted", "--track", "doi-only"], "record", True, True, False),     # flag alias
     (["update", "demo", "--doi-track", "doi-only", "--reason", "r"], "update", True, True, False),

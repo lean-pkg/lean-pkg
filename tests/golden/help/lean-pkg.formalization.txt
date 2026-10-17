@@ -1,11 +1,15 @@
-usage: lean-pkg formalization [-h] {render,anchor} ...
+usage: lean-pkg formalization [-h] {render,anchor,kept} ...
 
 positional arguments:
-  {render,anchor}
-    render         render formalization.yaml (v0.4, what Palomar reads) from the registry and the
-                   repo at HEAD; stdout unless --write/--out (`formalization NAME` is the same)
-    anchor         bind the companion to one posted arXiv version (writes package files, never the
-                   registry)
+  {render,anchor,kept}
+    render              render formalization.yaml (v0.4, what Palomar reads) from the registry and
+                        the repo at HEAD; stdout unless --write/--out (`formalization NAME` is the
+                        same)
+    anchor              bind the companion to one posted arXiv version (writes package files,
+                        never the registry)
+    kept                the canonical kept view of formalization.yaml (derived keys removed) and
+                        its SHA-256, for a release-input audit; --against REV: exit 1 when a kept
+                        key changed (read-only)
 
 options:
-  -h, --help       show this help message and exit
+  -h, --help            show this help message and exit

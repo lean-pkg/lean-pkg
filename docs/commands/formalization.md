@@ -20,6 +20,7 @@ lean-pkg formalization [--json] COMMAND
 
 - [`lean-pkg formalization render`](#lean-pkg-formalization-render): render formalization.yaml (v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout unless --write/--out (`formalization NAME` is the same)
 - [`lean-pkg formalization anchor`](#lean-pkg-formalization-anchor): bind the companion to one posted arXiv version (writes package files, never the registry)
+- [`lean-pkg formalization kept`](#lean-pkg-formalization-kept): the canonical kept view of formalization.yaml (derived keys removed) and its SHA-256, for a release-input audit; --against REV: exit 1 when a kept key changed (read-only)
 
 ## Details
 
@@ -27,6 +28,7 @@ lean-pkg formalization [--json] COMMAND
 |---|---|---|
 | `formalization NAME` | render `formalization.yaml` (mathlib-initiative v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout by default; `--write` writes `<repo>/<formalization_yaml or formalization.yaml>`, is a no-op when equal, refuses a differing file without `--force`, then sets the registry pointer (event `updated`), so `--write` is a registry write; `--write --no-registry` writes the file only and leaves the registry untouched (no pointer, no event, no lock, `--commit` ignored; `"registry_skipped": true`); the lease (another agent's live lease refuses unless `--force --reason`) and a dry run of the registry update are checked before the file is written; validated against the vendored schema; `--headline-config PATH` (else the registry's `headline_config`, else `comparator.headline.json` when tracked) makes `status.main_results` list that [headline configuration](../comparator.md#headline-configuration-the-papers-main-results)'s theorems only, refused unless the gate-bound comparator receipt covers every name and signs every hole, not applied (warning) when no receipt validates at HEAD; `--write` records it; `--json` `headline` {config, source, applied, reason, receipt, theorems} or null; see [formalization.yaml](../formalization.md) | `[--write [--no-registry]]` `[--out PATH]` `[--force [--reason TEXT]]` `[--author NAME]…` `[--headline-config PATH]` `[--agent A]` |
 | `formalization anchor NAME` | bind the companion to one posted arXiv version: read the e-print (`--from-file`, offline, or `--fetch`, the only network access: HTTPS, 60 s timeout, 64 MiB cap) in memory (gzip'd tar, gzip'd single `.tex` or tar; a PDF-only submission is refused; an absolute, `..`, link or device member, or the member and size caps, refuse the archive), hash it and each `.tex`/`.bib`/`.bbl`/`.sty`, find the main `.tex` (`\documentclass`; `--main-tex` when several), compare it with `--compare-tex LOCAL.tex` (normalised; differing lines shown), and record it deterministically in `data/source-baselines/arXiv-<id>v<N>.json` (schema `source-baseline/1`). `--arxiv` must carry the version. Without `--write` a dry run (`would_write`). `--write` refuses unless the e-print is tied to the manuscript `coverage.yaml` is bound to (that version already, a bound `{sha256}` equal to an e-print file, or `--compare-tex` identical, or differing with `--accept-diff REASON`, recorded); it writes the record, `coverage.yaml` `manuscript.version` and `eprint_sha256` (other lines kept) and the `formalization.yaml` source `id`; never the registry, never a commit. A move from another version prints `rebase_command`; see [Anchoring to an arXiv version](../paper-companion.md#anchoring-to-an-arxiv-version) | `--arxiv <id>v<N>` `--from-file E-PRINT`\|`--fetch` `[--compare-tex LOCAL.tex [--accept-diff REASON]]` `[--main-tex PATH]` `[--write]` `[--agent A]` |
+| `formalization kept` | the canonical **kept view** of `formalization.yaml` (every key `formalization render` derives removed: `formalization.DERIVED_PATHS` and the renderer's `acknowledgements` lines) as JSON with sorted keys, separators `,` `:`, UTF-8, no trailing newline, and the SHA-256 of those bytes, so a release-input audit can pin what a person wrote without tripping over a derived-key refresh; `--at REV` reads the committed file instead of the working tree; `--against REV2` lists `changed_kept_keys` and exits 1 when any; `--json` schema `formalization-kept/1` {kept_view, canonical, sha256, commit, derived_paths, against, changed_kept_keys, same}; reads no registry, writes nothing; the recipe is in [The kept view](../formalization.md#the-kept-view) | `[--repo DIR]` `[--file REL]` `[--at REV]` `[--against REV2]` |
 
 ## Exit codes
 
@@ -104,3 +106,33 @@ lean-pkg formalization anchor [--arxiv ID] [--from-file E-PRINT] [--fetch]
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `formalization-anchor` (exit 0): `arxiv`, `compare`, `eprint_sha256`, `files`, `format`, `ledger`, `main_tex`, `name`, `ok`, `rebase_command`, `record`, `record_path`, `registry_source_paper`, `source`, `tied`, `warnings`, `would_write`, `write`, `written`
+
+## lean-pkg formalization kept
+
+the canonical kept view of formalization.yaml (derived keys removed) and its SHA-256, for a release-input audit; --against REV: exit 1 when a kept key changed (read-only).
+
+### Usage
+
+```text
+lean-pkg formalization kept [--repo DIR] [--file REL] [--at REV] [--against REV2]
+                            [common flags]
+```
+
+`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
+
+`lean-pkg formalization kept [--repo DIR] [--file REL] [--at REV] [--against REV2] [--json]`: print formalization.yaml without the keys `formalization render` derives (formalization.DERIVED_PATHS and the renderer's acknowledgements lines), as canonical JSON (sort_keys, separators ',' ':', UTF-8, no trailing newline) and the SHA-256 of those bytes; the recipe is in docs/formalization.md, "The kept view". --against REV2 lists the kept keys that differ from REV2 and exits 1 when any does. Reads no registry; writes nothing
+
+### Arguments and flags
+
+| Argument or flag | Description |
+|---|---|
+| `--repo DIR` | the package checkout (default: the current directory) |
+| `--file REL` | the file's path inside the checkout (default formalization.yaml) |
+| `--at REV` | read the file committed at REV (git objects) instead of the working tree |
+| `--against REV2` | compare with the file committed at REV2: changed_kept_keys, exit 1 when any |
+
+### Exit codes
+
+Exit 1 is also a negative answer here:
+
+- `formalization kept --against`: a kept (hand-written) key changed

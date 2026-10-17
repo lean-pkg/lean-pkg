@@ -28,6 +28,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - `lean-pkg new` warns when the CITATION.cff author (`--author`, else `git
   config user.name`) has no space and so looks like a handle, and prints
   which source it used.
+- `lean-pkg formalization kept [--repo DIR] [--file REL] [--at REV]
+  [--against REV2] [--json]`: the canonical kept view of
+  `formalization.yaml` (every key `formalization render` derives removed,
+  `formalization.DERIVED_PATHS` and the renderer's acknowledgements lines)
+  and the SHA-256 of its canonical JSON bytes, so a package's own
+  release-input audit can pin what a person wrote without tripping over a
+  derived-key refresh after a new receipt. `--against REV2` lists the
+  changed kept keys (the evidence-only rule's `changed_kept_keys`) and
+  exits 1 when any changed. Read-only, no registry; JSON schema
+  `formalization-kept/1`. The recipe (YAML 1.1 safe schema with timestamps
+  kept as strings, JSON `sort_keys`, separators `,` `:`, UTF-8, no
+  trailing newline) is documented in docs/formalization.md, "The kept
+  view", precisely enough to reproduce without lean-pkg; a test pins it
+  byte for byte and against `jq -cjS` (field request).
 - `comparator-receipt --seal-sacct RECEIPT [--sacct-file F] [--user NAME]
   [--json]`: after a Slurm job finished, corroborate a comparator receipt's
   Slurm claim with the job's sacct record (main line `COMPLETED`, exit

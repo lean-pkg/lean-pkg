@@ -142,6 +142,68 @@ registry's `source_paper`; the command prints the `update` that aligns it. The
 whole flow, its refusals and the record: [Anchoring to an arXiv
 version](paper-companion.md#anchoring-to-an-arxiv-version).
 
+## The kept view
+
+A project that audits its own release inputs (hashes of the files a
+release depends on) cannot hash `formalization.yaml` whole: every new gate
+receipt legitimately changes `status.evidence`, and
+`gate --refresh-formalization` rewrites it. `lean-pkg formalization kept` prints
+the part a person wrote, the **kept view**, in one canonical byte form and
+its SHA-256. Pin that hash instead of the file's.
+
+```bash
+lean-pkg formalization kept                         # working tree, current directory
+lean-pkg formalization kept --repo DIR --at v1.2.0  # the file committed at a tag
+lean-pkg formalization kept --against v1.2.0        # exit 1 when a kept key changed since the tag
+lean-pkg formalization kept --file lean/formalization.yaml --json
+```
+
+Text mode prints the kept view (indented JSON) and a final line
+`kept-view sha256 HEX  FILE at WHERE`. `--json` (schema
+`formalization-kept/1`) gives `kept_view`, `canonical` (the exact string
+hashed), `sha256`, `commit` (null for the working tree), `derived_paths`,
+and with `--against` also `against {rev, commit, sha256}`,
+`changed_kept_keys` (dotted paths, one level deep, as the gate's
+evidence-only rule names them; `(kept view)` for a difference only the
+bytes show, such as `1` becoming `true`) and `same`. Exit 0 when the view
+is unchanged (or without `--against`), 1 when a kept key changed or on a
+refusal (a missing file, a revision that is not a commit, YAML that is not
+valid or not representable as JSON; `ok: false` and `error` tell the two
+apart). It reads no registry and writes nothing.
+
+The recipe, exact enough to reproduce without lean-pkg:
+
+1. **Parse.** Decode the file as UTF-8 and parse it as YAML 1.1 with the
+   safe schema (PyYAML `SafeLoader`), except that **no timestamp is
+   resolved**: an unquoted `2026-10-17` stays the string `"2026-10-17"`.
+   A document that is not a mapping reads as `{}`. Mapping keys must be
+   strings; NaN, infinities, `!!binary` and `!!set` values are refused.
+2. **Remove the derived keys**, the paths of `formalization.DERIVED_PATHS`:
+   `version`, `project.name`, `project.license`, `automation.notes`,
+   `status.sorry_count`, `status.axioms`, `status.evidence`,
+   `status.main_results` and `alignment`. A path that is absent is
+   skipped; a parent mapping left empty stays as `{}`. In
+   `acknowledgements` (when it is a string) drop every line that starts
+   with `Formalizes results of ` or `AI assistance: ` (the renderer's own
+   lines), strip leading and trailing newlines, and remove the key when
+   what is left is blank.
+3. **Serialise** as JSON with object keys sorted by Unicode code point
+   (Python `sort_keys=True`), separators `","` and `":"` with no spaces,
+   non-ASCII characters written as themselves rather than `\uXXXX`
+   (`ensure_ascii=False`), no NaN or Infinity, no trailing newline; then
+   encode as UTF-8. Integers are written in decimal; a float is written as
+   Python's `repr` (shortest round trip), which other languages match for
+   values without an exponent. `jq -cjS .` produces the same bytes for the
+   documents formalization.yaml v0.4 allows.
+4. **Hash**: the lowercase hex SHA-256 of those bytes.
+
+`tests/test_formalization_kept.py` pins the recipe on a fixture byte for
+byte (and checks it against `jq` when installed), and checks that the
+derived-key split is the one the evidence-only descendant rule uses. A
+change of `DERIVED_PATHS` or of the recipe changes the hash of the same
+file, so it is a format change: it gets a CHANGELOG entry and a new
+`schema` value.
+
 ## Validation
 
 The rendered document is validated before anything is printed or written.
