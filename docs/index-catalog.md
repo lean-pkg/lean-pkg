@@ -62,7 +62,7 @@ from its headline (no other key changes), so its headlines become searchable.
 | `schema` | `index-entry/2` (or `index-entry/1`) |
 | `name` | the directory name |
 | `repo` | public https URL |
-| `pin` | `commit` (40 hex, the receipts' commit) and `tag` (or null; at the pin or an evidence-only descendant) |
+| `pin` | `commit` (40 hex, the receipts' commit) and `tag` (or null; at the pin or an evidence-only descendant, or a docs-only one when the registry record opts in; see below) |
 | `lean_toolchain` | equals `lean-toolchain` at the pin |
 | `mathlib_rev` | equals the Mathlib rev in `lake-manifest.json` at the pin, or null |
 | `license_spdx` | SPDX id; a license file must exist at the pin |
@@ -137,6 +137,21 @@ headline files, and recomputes trust. Palomar ids and the Reservoir listing
 are verified by API when the network is reachable; otherwise they are
 reported as skipped, never as failed or passed. Exit 0 when every entry
 passes, 1 on any failure, 2 on a usage error.
+
+### Docs-only descendants
+
+The tag, and the commits the receipts are committed in, are bound by the
+same rule as `gate`, `publish` and `comparator`: an evidence-only descendant
+of the pin, or, when the package's registry record opts in
+(`docs_descendants: true`, set with
+`lean-pkg update NAME --accept-docs-descendants --reason R`), a docs-only
+descendant: one where no build input changed (see
+[Receipts](receipts.md)). `index add` and `index check --clone` /
+`--repo-dir` read the opt-in from the registry they resolve (`--registry`, `$LEAN_PKG_REGISTRY` or the user default), and only
+from the record with the entry's name and repository, never from a file in
+the package repository. Without a registry, or without the opt-in, the
+evidence-only rule binds; a tag the docs-only rule would admit is then
+refused with a clause that names the opt-in.
 
 A repository whose HEAD has moved past the pin still passes: the pin is the
 claim. The rendered table shows the pin, not HEAD.

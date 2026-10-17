@@ -332,10 +332,51 @@ def checkout_pin(clone: pathlib.Path, commit: str) -> None:
         raise core.Fail(f"pin {commit[:12]} is not in the repository: {p.stderr.strip()[:200]}")
 
 
-def find_evidence(clone: pathlib.Path, rel: str, pin: str | None) -> tuple[str, bytes]:
+def docs_record(reg: dict | None, name: str, repo: str) -> dict | None:
+    """The registry record whose docs-only opt-in binds this entry, or None. Index applies the opt-in
+    where gate, ledger, promote, publish and comparator read it: the package's registry record
+    (docs_descendants: true), never a file in the cloned repository (a tag or a descendant could add that
+    file itself). The record must be the entry's own: the same name and the same public repository.
+    Without a registry (a public `index check`), or with any other record, the evidence-only rule binds."""
+    pkg = ((reg or {}).get("packages") or {}).get(name) if isinstance(reg, dict) else None
+    if not isinstance(pkg, dict) or pkg.get("docs_descendants") is not True:
+        return None
+    try:
+        if _repo_key(https_repo(pkg.get("repo"))) != _repo_key(repo):
+            return None
+    except core.Fail:
+        return None
+    return pkg
+
+
+def receipt_checker(blob) -> str:
+    """The `checker` text of a lower-tier receipt's bytes ('' when absent): the files it names are build
+    inputs for the docs-only rule. Index passes it explicitly, so the rule never reads a working tree."""
+    try:
+        chk = json.loads(blob).get("checker")
+    except (ValueError, AttributeError, TypeError):
+        return ""
+    return chk if isinstance(chk, str) else ""
+
+
+def descends(clone: pathlib.Path, bound: str, head: str, record: dict | None = None,
+             checker: str = "") -> tuple[bool, str, list[str] | None]:
+    """The binding rule for the tag and the evidence commits: core.package_descendant, the rule every
+    other consumer applies, when `record` (docs_record) opts in; otherwise exactly the evidence-only rule.
+    The clone has no registered nested packages, and its formalization.yaml keeps the evidence-only
+    rule's stricter reading unless the record opts in. (ok, note, docs_paths)."""
+    if record is None:
+        ok, note = core.evidence_only_descendant(clone, bound, head)
+        return ok, note, None
+    return core.package_descendant(clone, bound, head, record, checker=checker or "", nested=())
+
+
+def find_evidence(clone: pathlib.Path, rel: str, pin: str | None, record: dict | None = None,
+                  checker: str = "") -> tuple[str, bytes]:
     """(pin, bytes) of the evidence file `rel` as committed in the pin itself or in an
-    evidence-only descendant of it, searched over every ref of the clone. With pin None,
-    the pin is read from the receipt's own `commit` field."""
+    evidence-only descendant of it (or, when `record` opts in, a docs-only one), searched over every
+    ref of the clone. With pin None, the pin is read from the receipt's own `commit` field.
+    `checker`: the lower-tier receipt's, unless the blob is a receipt with its own."""
     p = core.git(clone, "log", "--all", "--format=%H", "--", rel)
     for c in [x for x in p.stdout.split() if x]:
         blob = core.git_show_bytes(clone, rel, c)
@@ -349,10 +390,11 @@ def find_evidence(clone: pathlib.Path, rel: str, pin: str | None) -> tuple[str, 
                 continue
             if not core._HEX40.fullmatch(bound):
                 continue
-        ok, _ = core.evidence_only_descendant(clone, bound, c)
+        ok, _, _ = descends(clone, bound, c, record, receipt_checker(blob) or checker)
         if ok:
             return bound, blob
-    raise core.Fail(f"{rel} is not committed at the pin or in an evidence-only descendant of it "
+    raise core.Fail(f"{rel} is not committed at the pin or in an evidence-only "
+                    f"{'or docs-only ' if record is not None else ''}descendant of it "
                     f"on any branch; commit and push the evidence first (untracked files do not count)")
 
 
@@ -389,7 +431,8 @@ def _safe_write(clone: pathlib.Path, rel: str, blob: bytes) -> None:
     dest.write_bytes(blob)
 
 
-def materialize(clone: pathlib.Path, pin: str, rels: list[str]) -> dict[str, bytes]:
+def materialize(clone: pathlib.Path, pin: str, rels: list[str], record: dict | None = None,
+                checker: str = "") -> dict[str, bytes]:
     """Check out the pin and write each evidence file from its committed bytes into the
     working tree, so HEAD == pin and the existing validators read exactly those bytes.
     Symlinks are never followed: the tree at the pin is checked for symlink components and
@@ -400,22 +443,25 @@ def materialize(clone: pathlib.Path, pin: str, rels: list[str]) -> dict[str, byt
         links = _symlink_components_at(clone, pin, rel)
         if links:
             raise core.Fail(f"evidence path {rel!r} crosses a symlink at the pin ({', '.join(links)}); refused")
-        _, blob = find_evidence(clone, rel, pin)
+        _, blob = find_evidence(clone, rel, pin, record, checker)
         _safe_write(clone, rel, blob)
         out[rel] = blob
     return out
 
 
-def evidence_commit(clone: pathlib.Path, rel: str, pin: str) -> str:
-    """The commit (pin or evidence-only descendant) whose version of `rel` find_evidence uses."""
+def evidence_commit(clone: pathlib.Path, rel: str, pin: str, record: dict | None = None,
+                    checker: str = "") -> str:
+    """The commit (pin, or a descendant under `descends`) whose version of `rel` find_evidence uses."""
     p = core.git(clone, "log", "--all", "--format=%H", "--", rel)
     for c in [x for x in p.stdout.split() if x]:
-        if core.git_show_bytes(clone, rel, c) is None:
+        blob = core.git_show_bytes(clone, rel, c)
+        if blob is None:
             continue
-        ok, _ = core.evidence_only_descendant(clone, pin, c)
+        ok, _, _ = descends(clone, pin, c, record, receipt_checker(blob) or checker)
         if ok:
             return c
-    raise core.Fail(f"{rel} is not committed at the pin or in an evidence-only descendant of it")
+    raise core.Fail(f"{rel} is not committed at the pin or in an evidence-only "
+                    f"{'or docs-only ' if record is not None else ''}descendant of it")
 
 
 def reachable_on(clone: pathlib.Path, public_repo: str, shas: list[str]) -> list[str]:
@@ -502,13 +548,16 @@ PUBLIC_GATE_PKG = {"gate": {"axioms_allowed": list(core.DEFAULT_AXIOMS)}}
 
 
 def derive(clone: pathlib.Path, pin: str, lower_rel: str | None,
-           comp_rel: str | None) -> dict:
-    """Validate the receipts at the pin with the registry's own validators.
-    Returns {lower, comparator, lower_ok, comparator_ok, mechanism, bytes, failures}."""
-    rels = [r for r in (lower_rel, comp_rel) if r]
-    got = materialize(clone, pin, rels)
+           comp_rel: str | None, record: dict | None = None) -> dict:
+    """Validate the receipts at the pin with the registry's own validators. `record`: docs_record's
+    opt-in for the evidence lookup (descends). Returns {lower, comparator, lower_ok, comparator_ok,
+    mechanism, bytes, failures, checker} (checker: the lower-tier receipt's, for the docs-only rule)."""
+    got = materialize(clone, pin, [lower_rel], record) if lower_rel else {}
+    checker = receipt_checker(got[lower_rel]) if lower_rel else ""
+    if comp_rel:
+        got.update(materialize(clone, pin, [comp_rel], record, checker))
     res = {"lower": None, "comparator": None, "lower_ok": False, "comparator_ok": False,
-           "mechanism": None, "bytes": got, "failures": []}
+           "mechanism": None, "bytes": got, "failures": [], "checker": checker}
     if lower_rel:
         try:
             res["lower"] = json.loads(got[lower_rel])
@@ -524,7 +573,7 @@ def derive(clone: pathlib.Path, pin: str, lower_rel: str | None,
             res["mechanism"] = comparator_mechanism(res["comparator"])
             logs = [c.get("log") for c in res["comparator"].get("configs") or []
                     if isinstance(c, dict) and isinstance(c.get("log"), str)]
-            got.update(materialize(clone, pin, logs))
+            got.update(materialize(clone, pin, logs, record, checker))
             lower_commit = res["lower"]["commit"] if res["lower_ok"] else None
             core.validate_comparator(PUBLIC_GATE_PKG, clone, res["comparator"], lower_commit)
             if res["comparator"]["commit"] != pin:
@@ -590,8 +639,10 @@ def headline_problems(clone: pathlib.Path, headline: list[dict]) -> list[str]:
     return out
 
 
-def at_pin_problems(clone: pathlib.Path, entry: dict, receipts: dict) -> list[str]:
-    """Checks shared by add and check: toolchain, manifest, license, tag, headline."""
+def at_pin_problems(clone: pathlib.Path, entry: dict, receipts: dict,
+                    record: dict | None = None) -> list[str]:
+    """Checks shared by add and check: toolchain, manifest, license, tag, headline. The tag is bound by
+    `descends` (the docs-only rule too when `record`, docs_record, opts in)."""
     out = []
     tc = (clone / "lean-toolchain").read_text().strip() if (clone / "lean-toolchain").is_file() else None
     if tc != entry["lean_toolchain"]:
@@ -615,11 +666,25 @@ def at_pin_problems(clone: pathlib.Path, entry: dict, receipts: dict) -> list[st
         if p.returncode != 0:
             out.append(f"tag {tag!r} does not exist in the repository")
         else:
-            ok, _ = core.evidence_only_descendant(clone, entry["pin"]["commit"], p.stdout.strip())
+            pin, head, checker = entry["pin"]["commit"], p.stdout.strip(), receipts.get("checker") or ""
+            ok, note, _ = descends(clone, pin, head, record, checker)
             if not ok:
-                out.append(f"tag {tag!r} is neither the pin nor an evidence-only descendant of it")
+                out.append(f"tag {tag!r} is neither the pin nor an evidence-only descendant of it"
+                           + (f" ({note})" if record is not None else tag_docs_hint(clone, pin, head, checker, entry["name"])))
     out += headline_problems(clone, entry["headline"])
     return out
+
+
+def tag_docs_hint(clone: pathlib.Path, pin: str, head: str, checker: str, name: str) -> str:
+    """Without the opt-in: a clause naming the docs-only route when that rule would admit the tag."""
+    if not core._is_ancestor(clone, pin, head):
+        return ""
+    ok, note, _ = core.docs_only_descendant(clone, pin, head, {}, checker)
+    if not ok:
+        return ""
+    return (f"; it is a {note.replace('; opted in', '')}, which binds only when the package's registry record "
+            f"opts in (docs_descendants: true, `lean-pkg update {name} --accept-docs-descendants --reason R`) "
+            f"and index runs with that registry")
 
 
 def prior_art_notes(clone: pathlib.Path, headline: list[dict]) -> list[str]:
@@ -636,7 +701,8 @@ def prior_art_notes(clone: pathlib.Path, headline: list[dict]) -> list[str]:
 
 
 def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | None,
-                 name: str, opts: dict) -> tuple[list[str], dict]:
+                 name: str, opts: dict, opt_in_reg: dict | None = None) -> tuple[list[str], dict]:
+    """`opt_in_reg`: the registry docs_record reads the docs-only opt-in from (default: `reg`)."""
     if not NAME_RE.fullmatch(name):
         raise core.Fail(f"bad entry name {name!r}")
     d = root / name
@@ -672,9 +738,11 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
     source = opts.get("repo_dir")
     if not source and pkg.get("local_path") and core.repo_path(pkg).is_dir():
         source = str(core.repo_path(pkg))
+    record = docs_record(opt_in_reg if opt_in_reg is not None else reg, name, repo)
     with tempfile.TemporaryDirectory(prefix="lean-pkg-index-") as tmp:
         clone = clone_at(source or repo, pathlib.Path(tmp) / "pkg")
-        pin, _ = find_evidence(clone, lower_rel or comp_rel, None)
+        pin, first = find_evidence(clone, lower_rel or comp_rel, None, record)
+        checker = receipt_checker(first) if lower_rel else ""
         palomar = [{"id": p["id"], "version": int(p["version"])} for p in palomar_rows
                    if p.get("commit") == pin]          # a registration at another commit does not grade this pin
         for other in entry_names(root):
@@ -686,13 +754,14 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
                     (o.get("pin") or {}).get("commit") == pin:
                 raise core.Fail(f"duplicate: entry {other!r} already lists {repo} at {pin[:12]}")
         if source and not opts.get("allow_unpushed"):
-            shas = sorted({pin, *[evidence_commit(clone, r, pin) for r in (lower_rel, comp_rel) if r]})
+            shas = sorted({pin, *[evidence_commit(clone, r, pin, record, checker)
+                                  for r in (lower_rel, comp_rel) if r]})
             missing = reachable_on(clone, repo, shas)
             if missing:
                 raise core.Fail(f"commit(s) {', '.join(s[:12] for s in missing)} not reachable from any branch "
                                 f"of {repo}; push the pin and the evidence first (or pass --allow-unpushed "
                                 f"for a provisional entry that `index check --clone` will refuse until pushed)")
-        res = derive(clone, pin, lower_rel, comp_rel)
+        res = derive(clone, pin, lower_rel, comp_rel, record)
         if res["failures"]:
             raise core.Fail("; ".join(res["failures"]))
         notes = prior_art_notes(clone, headline)
@@ -729,7 +798,7 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
             "notes": opts.get("notes") or "",
         }
         errors = validate_entry(entry, name)
-        errors += at_pin_problems(clone, entry, res)
+        errors += at_pin_problems(clone, entry, res, record)
         if errors:
             raise core.Fail("index entry refused: " + "; ".join(errors))
         (d / RECEIPTS_DIR).mkdir(parents=True, exist_ok=True)
@@ -777,6 +846,18 @@ def cmd_index(args) -> int:
     return fn(args)
 
 
+def opt_in_registry(args) -> dict | None:
+    """The registry docs_record reads the docs-only opt-in from: the one --registry / $LEAN_PKG_REGISTRY /
+    the user default resolves to, when it exists and loads; else None (the evidence-only rule)."""
+    reg_path = core.registry_path(args)
+    if not reg_path.is_file():
+        return None
+    try:
+        return core.load_registry(reg_path)
+    except core.Fail:
+        return None
+
+
 def run_add(args) -> int:
     root = index_root(args)
     reg_path = core.registry_path(args)
@@ -790,7 +871,8 @@ def run_add(args) -> int:
             "notes": args.notes, "repo_dir": args.repo_dir,
             "allow_unpushed": args.allow_unpushed,
             "registry_lock": reg_path if reg_path.is_file() else None}
-    out, payload = do_index_add(root, events_p, reg, args.name, opts)
+    out, payload = do_index_add(root, events_p, reg, args.name, opts,
+                                opt_in_reg=reg if reg is not None else opt_in_registry(args))
     rc = _emit(args, out, payload)
     if not args.json_out:
         for note in payload["notes"]:        # advisory: stderr, so stdout's last line is the result
@@ -938,7 +1020,7 @@ def static_problems(root: pathlib.Path, name: str, entry: dict) -> list[str]:
 
 
 def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: bool,
-                seen: dict) -> dict:
+                seen: dict, reg: dict | None = None) -> dict:
     rep = {"name": name, "ok": False, "trust_stated": None, "trust_computed": None,
            "mechanism": None, "failures": [], "notes": [],
            "network": {"palomar": "n/a", "reservoir": "n/a"}}
@@ -961,11 +1043,15 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
         rep["notes"].append("static check only: pass --clone (or --repo-dir) to re-derive from bytes")
         rep["ok"] = not rep["failures"]
         return rep
+    record = docs_record(reg, name, entry["repo"])
+    if record is not None:
+        rep["notes"].append("docs-only descendants accepted for the tag and the evidence: the registry "
+                            "record opts in (docs_descendants: true)")
     with tempfile.TemporaryDirectory(prefix="lean-pkg-index-") as tmp:
         try:
             clone = clone_at(source or entry["repo"], pathlib.Path(tmp) / "pkg")
             res = derive(clone, entry["pin"]["commit"], entry["receipts"]["lower"],
-                         entry["receipts"]["comparator"])
+                         entry["receipts"]["comparator"], record)
         except core.Fail as e:
             rep["failures"].append(str(e))
             return rep
@@ -977,7 +1063,7 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
                 copy = (root / name / RECEIPTS_DIR / pathlib.PurePosixPath(rel).name).read_bytes()
                 if copy != res["bytes"][rel]:
                     rep["failures"].append(f"receipts.{k}: index copy differs from the bytes in the repository")
-        rep["failures"] += at_pin_problems(clone, entry, res)
+        rep["failures"] += at_pin_problems(clone, entry, res, record)
     comparator_covers = res["comparator_ok"]
     if res["comparator_ok"]:
         unjudged = unjudged_headlines(entry["headline"], res["comparator"])
@@ -1001,7 +1087,8 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
 
 
 def do_index_check(root: pathlib.Path, names: list[str], repo_dir: str | None,
-                   clone_it: bool) -> tuple[list[str], dict, int]:
+                   clone_it: bool, reg: dict | None = None) -> tuple[list[str], dict, int]:
+    """`reg`: the registry whose records may opt an entry in to the docs-only rule (docs_record)."""
     if repo_dir and len(names) != 1:
         raise core.UsageError("--repo-dir needs exactly one NAME")
     all_names = entry_names(root)
@@ -1021,7 +1108,7 @@ def do_index_check(root: pathlib.Path, names: list[str], repo_dir: str | None,
                             "notes": [], "network": {}, "trust_stated": None,
                             "trust_computed": None, "mechanism": None})
             continue
-        reports.append(check_entry(root, n, repo_dir, clone_it, seen))
+        reports.append(check_entry(root, n, repo_dir, clone_it, seen, reg))
     ok = all(r["ok"] for r in reports)
     summary = (f"{len(reports)} entr{'y' if len(reports) == 1 else 'ies'} checked: "
                + ("all pass" if ok else "FAILED"))
@@ -1038,7 +1125,8 @@ def do_index_check(root: pathlib.Path, names: list[str], repo_dir: str | None,
 
 
 def run_check(args) -> int:
-    out, payload, rc = do_index_check(existing_index_root(args), args.names, args.repo_dir, args.clone)
+    out, payload, rc = do_index_check(existing_index_root(args), args.names, args.repo_dir, args.clone,
+                                      opt_in_registry(args) if (args.repo_dir or args.clone) else None)
     return _emit(args, out, payload, rc)
 
 

@@ -11,6 +11,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `index check` / `index add`: the tag and the evidence commits are now bound
+  by the same rule as `gate`, `ledger`, `promote`, `publish` and
+  `comparator`. A package whose registry record opts in
+  (`docs_descendants: true`) may have its release tag on a docs-only
+  descendant of the pin, for example README.md or coverage.yaml committed
+  after the receipts. `index check` refused that tag ("tag is neither the
+  pin nor an evidence-only descendant") although `publish` accepted the same
+  HEAD. The opt-in is read from the registry record with the entry's name
+  and repository, never from the package repository. Without it nothing
+  changes: the evidence-only rule binds, and the refusal now names the
+  docs-only route when that rule would admit the tag. A build-input change
+  (a `.lean` file, a lakefile, `lake-manifest.json`) is refused either way.
 - `publish --dry-run`: the `page cannot be rendered` line now carries the
   reasons, not only the count line of a multi-line refusal (it showed
   `coverage.yaml at HEAD: 1 problem(s):` and nothing after it). JSON
