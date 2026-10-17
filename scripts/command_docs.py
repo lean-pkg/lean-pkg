@@ -43,7 +43,12 @@ GOLDEN_JSON = ROOT / "tests" / "golden" / "json-keys.json"
 COMMON_FLAGS = ("--json", "--commit", "--push", "--no-commit")
 OTHER_PROGRAMS = ("comparator-receipt", "lean-exercise", "lean-pkg-extract")
 # Values of a positional that select a keyword form documented under the command itself.
+# Until they are real subparsers; an entry that the parser has as a real node is ignored (_pseudo()).
 PSEUDO = {("comparator", "host-check"), ("comparator", "config"), ("formalization", "anchor")}
+# Mapping tables in lean_pkg.cli that name aliases, {alias: canonical}; a key or value is a command
+# path as a string ("lease claim") or a sequence, a value may also be {"canonical": ...}. Today
+# COMMAND_ALIASES ({"lease": "claim"}); the 1.0 stage-1 alias table is read under any of these names.
+ALIAS_TABLE_NAMES = ("COMMAND_ALIASES", "ALIASES", "ALIAS_TABLE", "COMMAND_ALIAS_TABLE")
 WIDTH = 88
 
 
@@ -157,7 +162,48 @@ def all_nodes(node: Node):
 
 
 def all_trees() -> dict[str, Node]:
-    return {prog: tree(prog, p) for prog, p in parsers().items()}
+    trees = {prog: tree(prog, p) for prog, p in parsers().items()}
+    for alias, canonical in alias_table(trees).items():   # aliases from the table, on the canonical node
+        node = find(trees, canonical)
+        if node is not None and alias[-1] not in node.aliases and alias != node.path:
+            node.aliases.append(alias[-1] if alias[:-1] == canonical[:-1] else " ".join(alias))
+    return trees
+
+
+def find(trees: dict[str, Node], path: tuple, program: str = "lean-pkg") -> Node | None:
+    node = trees.get(program)
+    for w in path:
+        node = next((c for c in node.children if c.path[-1] == w), None) if node else None
+    return node
+
+
+def _as_path(v) -> tuple:
+    if isinstance(v, dict):
+        v = v.get("canonical") or v.get("to") or ""
+    return tuple(v.split()) if isinstance(v, str) else tuple(v)
+
+
+def alias_table(trees: dict[str, Node]) -> dict[tuple, tuple]:
+    """{alias path: canonical path} below `lean-pkg`: the parser's own aliases (a name sharing a
+    subparser) and every mapping in ALIAS_TABLE_NAMES. One table feeds every page and aliases.md."""
+    _sys_path()
+    from lean_pkg import cli
+    out: dict[tuple, tuple] = {}
+    for n in all_nodes(trees["lean-pkg"]):
+        for a in n.aliases:
+            out[n.path[:-1] + tuple(a.split())] = n.path
+    for name in ALIAS_TABLE_NAMES:
+        table = getattr(cli, name, None)
+        if isinstance(table, dict):
+            for k, v in table.items():
+                alias, canonical = _as_path(k), _as_path(v)
+                if alias and canonical and alias != canonical:
+                    out.setdefault(alias, canonical)
+    return dict(sorted(out.items()))
+
+
+def _pseudo(all_paths) -> set:
+    return {p for p in PSEUDO if p not in set(all_paths)}
 
 
 # --------------------------------------------------------------------------
@@ -197,7 +243,7 @@ def example_target(program_trees: dict[str, Node], key: str) -> tuple[Node | Non
     for w in words[1:]:
         nxt = next((c for c in node.children if c.path[-1] == w or w in c.aliases), None)
         if nxt is None:
-            if (node.path + (w,)) in PSEUDO and node.program == "lean-pkg":
+            if (node.path + (w,)) in PSEUDO and node.program == "lean-pkg":   # not a real node (above)
                 return node, key
             return None, key
         node = nxt
@@ -243,7 +289,8 @@ def json_cases_for(node: Node, all_paths: list[tuple]) -> list[tuple[str, dict]]
     remainder, such as `dry-run`, names the variant)."""
     if node.program != "lean-pkg" or not node.path:
         return []
-    cands = [p for p in all_paths if p] + [p for p in PSEUDO]
+    pseudo = _pseudo(all_paths)
+    cands = [p for p in all_paths if p] + sorted(pseudo)
     out = []
     for case, shape in json_cases().items():
         best = None
@@ -254,7 +301,7 @@ def json_cases_for(node: Node, all_paths: list[tuple]) -> list[tuple[str, dict]]
                     best = p
         if best is not None and tuple(best) == node.path:
             out.append((case, shape))
-        elif best is not None and tuple(best) in PSEUDO and best[:-1] == node.path:
+        elif best is not None and tuple(best) in pseudo and best[:-1] == node.path:
             out.append((case, shape))
     return sorted(out)
 
@@ -467,8 +514,9 @@ def section(node: Node, level: int, ex, trees, all_paths, parent_epilog=None) ->
     if node.summary:
         out += [md_text(node.summary).rstrip(".") + ".", ""]
     if node.aliases:
-        out += ["Alias: " + ", ".join(f"`{' '.join((node.program,) + node.path[:-1] + (a,))}`"
-                                      for a in node.aliases) + ".", ""]
+        spelled = [a if " " in a else " ".join(node.path[:-1] + (a,)) for a in node.aliases]
+        out += ["Also spelled: " + ", ".join(f"`{node.program} {a}`" for a in spelled)
+                + " ([all aliases](aliases.md)).", ""]
     out += [heading(level + 1, "Usage"), "", *fence(usage(node)), ""]
     if node.program == "lean-pkg" and node.path and any(_is_common(a, node) for a in _visible(node.parser)):
         out += ["`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before "
@@ -526,7 +574,8 @@ def render_page(node: Node, ex, trees, all_paths) -> str:
 def render_index(trees) -> str:
     g = groups()
     lp = trees["lean-pkg"]
-    tops = {c.path[0]: c for c in lp.children}
+    aliases = alias_table(trees)
+    tops = {c.path[0]: c for c in lp.children if c.path not in aliases}
     others = {p: trees[p] for p in OTHER_PROGRAMS}
     placed = set()
     out = ["---", "title: Command reference", "---", "", HEADER, "",
@@ -555,7 +604,8 @@ def render_index(trees) -> str:
             label = " ".join((node.program,) + node.path)
             out.append(f"| [`{label}`]({page_name(node)}) | {md_text(node.summary, table=True)} |")
         out.append("")
-    out += ["## Regenerating these pages", "",
+    out += ["Other spellings of these commands are listed on [Command aliases](aliases.md).", "",
+            "## Regenerating these pages", "",
             "Every page here is generated by `scripts/command_docs.py` (`make docs`) from the argparse "
             "parsers, `lean-pkg help exit-codes`, the golden `--json` key sets and the curated sources in "
             "`docs/_commands/` (examples, groups, per-command notes). CI fails when a committed page "
@@ -563,15 +613,32 @@ def render_index(trees) -> str:
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+def render_aliases(trees, aliases: dict[tuple, tuple]) -> str:
+    out = ["---", "title: Command aliases", "---", "", HEADER, "",
+           "[&larr; Command reference](index.md) · [CLI overview](../cli.md)", "",
+           "# Command aliases", "",
+           "Every other spelling of a command, and the command it runs. An alias takes the same flags "
+           "and prints the same output; the canonical command's page documents both.", "",
+           "| Alias | Runs |", "|---|---|"]
+    for alias, canonical in aliases.items():
+        node = find(trees, canonical)
+        target = f"[`lean-pkg {' '.join(canonical)}`]({page_name(node)}#{anchor(node)})" if node and \
+            node.path else f"`lean-pkg {' '.join(canonical)}`"
+        out.append(f"| `lean-pkg {' '.join(alias)}` | {target} |")
+    return "\n".join(out) + "\n"
+
+
 def render_all() -> dict[Path, str]:
     with clean_env():
         trees = all_trees()
         ex = examples()
         all_paths = [n.path for n in all_nodes(trees["lean-pkg"])]
-        pages = {OUT / "index.md": render_index(trees)}
-        for top in trees["lean-pkg"].children:
+        aliases = alias_table(trees)
+        pages = {OUT / "index.md": render_index(trees), OUT / "aliases.md": render_aliases(trees, aliases)}
+        tops = [t for t in trees["lean-pkg"].children if t.path not in aliases]   # no page for an alias
+        for top in tops:
             pages[OUT / page_name(top)] = render_page(top, ex, trees, all_paths)
-        assert len(pages) == 1 + len(trees["lean-pkg"].children), "two commands share a page name"
+        assert len(pages) == 2 + len(tops), "two commands share a page name"
         for prog in OTHER_PROGRAMS:
             pages[OUT / page_name(trees[prog])] = render_page(trees[prog], ex, trees, all_paths)
     return pages
@@ -632,8 +699,10 @@ def check_examples() -> tuple[list[str], list[str]]:
             node, _ = example_target(trees, key)
             if node is not None:
                 have.add(node.key)
+        aliases = alias_table(trees)
         missing = [n.key for t in trees.values() for n in all_nodes(t)
-                   if n.runnable and n.key not in have and (n.path or n.program != "lean-pkg")]
+                   if n.runnable and n.key not in have and (n.path or n.program != "lean-pkg")
+                   and not (n.program == "lean-pkg" and n.path in aliases)]
     return errors, missing
 
 

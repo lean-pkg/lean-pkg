@@ -115,7 +115,7 @@ lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" --log verify-1
 
 a lower-tier receipt from a finished systemd --user service unit (run bounded with --run, or its saved properties), its verify log and its stdout seal.
 
-Alias: `lean-pkg receipt local`.
+Also spelled: `lean-pkg receipt local` ([all aliases](aliases.md)).
 
 ### Usage
 

@@ -10,7 +10,7 @@ title: lean-pkg claim
 
 CAS lease on a package (24h default TTL); alias: lease.
 
-Alias: `lean-pkg lease`.
+Also spelled: `lean-pkg lease` ([all aliases](aliases.md)).
 
 ## Usage
 
