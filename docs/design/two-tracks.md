@@ -199,6 +199,11 @@ depends on Mathlib can run the same environment linters with one line.
 lean-pkg checks none of this. `lean_scan.py` already attaches docstrings to
 declarations without running Lean, so a static readiness report is cheap; the
 linter run itself belongs in a receipt, so its result binds to a commit.
+Until then, the
+[`lean-upstreaming`](https://github.com/lean-pkg/lean-pkg/blob/main/skills/lean-upstreaming/SKILL.md)
+skill carries a nine-bucket pre-PR checklist (style, naming, documentation,
+placement and imports, assumptions, `simp`, instances, generated files,
+metadata and AI disclosure) that an author or agent can run by hand.
 
 **Toolchain against Mathlib master.** A Mathlib PR is built against Mathlib
 master, whose `lean-toolchain` moves (v4.36.0-rc1 on 2026-10-17). lean-pkg

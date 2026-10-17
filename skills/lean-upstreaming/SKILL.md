@@ -60,6 +60,77 @@ curl -s https://leanprover-community.github.io/contribute/index.html | grep -i -
 gh api 'repos/leanprover-community/mathlib4/labels?per_page=100' --paginate --jq '.[].name' | grep -i llm
 ```
 
+### Pre-PR review checklist (Mathlib leaf lane)
+
+Before a human contributor opens a Mathlib PR, review the branch against what
+Mathlib reviewers ask for. Most of it is library integration, not surface
+style. Each bucket names where Mathlib states the rule; re-read those pages
+at use time ([contributing], [style], [naming], [doc], [pr-review],
+[commit]).
+
+1. **Surface style.** Lines of at most 100 characters, `fun x ↦`, the
+   formatting and tactic layout of the style guide ([style]). Fix these
+   first; they are cheap and reviewers notice them first.
+2. **Naming and namespaces.** Proofs and theorem names `snake_case`, types,
+   structures and classes `UpperCamelCase`, other terms `lowerCamelCase`,
+   file names `UpperCamelCase`; a namespace that makes dot notation work for
+   callers ([naming]). Strip every paper-specific name. A rename or move of a
+   declaration that already exists upstream keeps a dated `@[deprecated]`
+   alias ([style], § Deprecation).
+3. **Documentation.** A docstring on every definition and major theorem, a
+   `/-! … -/` module docstring after the header and imports, cross references,
+   a proof sketch in comments for a long proof, and a literature reference for
+   a result taken from a paper ([doc], [pr-review]). No development history
+   ("we first tried", "the agent found") in docstrings or comments.
+4. **Placement and imports.** Search for an existing or more general result
+   first (`exact?`, `apply?`, Loogle; `search-before-building`). Put each
+   declaration in the lowest module that makes sense (`#find_home`), keep new
+   imports light, and split a file that grows past about 1000 lines or mixes
+   topics ([pr-review]). The file header is copyright, `module`, then public
+   imports and imports in their own blocks ([style]).
+5. **Weakest assumptions and API.** The weakest reasonable hypotheses,
+   arguments left of the colon, hypotheses that are not conjunctions and
+   usually not disjunctions ([style]); a definition that is the best way to formalize the concept and
+   comes with basic lemmas about it ([pr-review]). A public declaration whose
+   conclusion is vacuous (`∃ N, ∀ n ≥ N, True`) is not API: delete it or state
+   the real result (compare `lean-weakened-hypothesis-vacuity`).
+6. **Attributes and `simp`.** `@[simp]`, `@[ext]` and `@[simps]` exactly where
+   they belong ([pr-review]): a simp lemma's left side is in simp normal form,
+   its right side is simpler, and it creates no loop. Batteries' `simpNF`
+   linter, run by `#lint`, checks the first.
+7. **Instances.** No new diamond, either non-defeq or non-propeq
+   ([pr-review]); no instance that loops or forces hard unification; a
+   temporary structure that must not become a global instance is a `def`
+   with a docstring saying so. `Type*`, not `Type _`, for arbitrary universes.
+8. **Generated files and the module system.** After adding, renaming or
+   deleting a file, `lake exe mk_all` updates `Mathlib.lean`; the file uses
+   the `module` header and the right `public import`; `lake exe lint-style`
+   and `#lint` are clean against current Mathlib master.
+9. **Metadata and disclosure.** A PR title of the form `feat(Area): …`,
+   `fix`, `chore` and so on, without the `Mathlib/` prefix ([commit]); the
+   PR template's `Moves:` and `Deletions:` lines and `- [ ] depends on: #…`
+   lines when they apply; and the AI paragraph: which tools were used and
+   how, plus the `LLM-generated` label for substantial generated code
+   ([contributing]). lean-pkg and its agents may draft the description; the
+   human contributor rewrites it in their own words, opens the PR, adds the
+   label and answers every review comment without AI help.
+
+The checklist prepares a branch; it is not a review verdict. A green pass by
+an agent does not stand in for the human Lean expert Mathlib expects behind
+every PR.
+
+[contributing]: https://leanprover-community.github.io/contribute/index.html
+[style]: https://leanprover-community.github.io/contribute/style.html
+[naming]: https://leanprover-community.github.io/contribute/naming.html
+[doc]: https://leanprover-community.github.io/contribute/doc.html
+[pr-review]: https://leanprover-community.github.io/contribute/pr-review.html
+[commit]: https://leanprover-community.github.io/contribute/commit.html
+
+The nine buckets follow `mathlib-review-taxonomy.md` in Cameron Freer's
+[lean4-skills](https://github.com/cameronfreer/lean4-skills) (MIT), read at
+commit `b6243b8`; the wording and the disclosure bucket are ours, checked
+against the Mathlib pages above in October 2026.
+
 For a standalone package: OSI license, provenance, a canonical umbrella
 module, minimal library targets, CI, documentation, release tags; it can be
 listed on Reservoir and archived with a DOI (`lean-publishing`).
@@ -72,6 +143,8 @@ listed on Reservoir and archived with a DOI (`lean-publishing`).
 - Posting agent-written text on GitHub or Zulip.
 - Treating a sorry-free build as sufficient for Mathlib review (generality,
   integration, maintainability and style are reviewed too).
+- Opening a Mathlib PR, adding its label or posting its description from an
+  agent; the agent prepares, the contributor opens.
 
 ## Verification
 

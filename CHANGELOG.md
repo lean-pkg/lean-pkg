@@ -220,6 +220,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   and #227 and #228 listed under `no_author_change` with their reasons, so
   `doctor --upgrade-from v0.11.0` reports nothing uncurated.
 
+- Skills: `lean-elaboration-boundaries` repeats a result-type instance in a
+  tactic body with `let`, not `letI`, since Mathlib's default-on
+  `linter.style.haveILetI` warns on a `letI`/`haveI` tactic whose goal is a
+  proposition, and says why a data instance needs `let` rather than `have`.
+  `lean-upstreaming` gains a nine-bucket pre-PR review checklist for the
+  Mathlib leaf lane (style, naming, documentation, placement and imports,
+  assumptions, `simp`, instances, generated files, metadata and AI
+  disclosure), each bucket tied to the Mathlib page that states it; the
+  buckets follow Cameron Freer's lean4-skills (MIT), credited in the skill.
+  docs/design/two-tracks.md points to it from the Track L readiness gap.
+
 ### Fixed
 
 - Re-running the comparator receipt at the same commit after `verify.sh`
