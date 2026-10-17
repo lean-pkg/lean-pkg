@@ -11,7 +11,8 @@ usage: lean-pkg update [-h] [--automation AUTOMATION] [--notes TEXT] [--replace-
                        [--namespace NS]
                        [--status {scratch,active,gate-pending,verified-private,public,upstreamed,archived}]
                        [--reason REASON] [--redetect] [--agent AGENT] [--force]
-                       [--path HOME-RELATIVE] [--dry-run] [--json] [--commit] [--push]
+                       [--path HOME-RELATIVE] [--withdraw-publication |
+                       --release-publication-hold] [--dry-run] [--json] [--commit] [--push]
                        [--no-commit]
                        name
 
@@ -89,7 +90,17 @@ options:
   --path HOME-RELATIVE  relocate: move local_path to another checkout, keeping name, history and
                         claims (needs --reason; event relocated; commit-bound evidence not bound
                         to the new HEAD is cleared)
-  --dry-run             with --path: print the would-be changes, write nothing
+  --withdraw-publication
+                        the owner made a promoted (public) repository private again: record it
+                        (needs --reason; refused while gh still reports it public). status public
+                        -> verified-private (active when never gated), visibility private,
+                        publication_hold {reason, at, by}; promotion history kept; promote refuses
+                        while held; gate/regate keep the hold; --dry-run supported
+  --release-publication-hold
+                        lift a publication hold (needs --reason); status and visibility unchanged;
+                        a later public flip still goes through promote
+  --dry-run             with --path, --withdraw-publication or --release-publication-hold: print
+                        the would-be changes, write nothing
   --json                machine-readable JSON on stdout
   --commit              write commands: pull --ff-only, then commit the registry files (default:
                         $LEAN_PKG_COMMIT=1)

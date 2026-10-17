@@ -82,7 +82,8 @@ def test_status_without_fields_unchanged(lp, env, capsys):
     rc, cap = _run(lp, env, capsys, "status", "alpha", "--json")
     data = json.loads(cap.out)
     assert set(data) == {"ok", "name", "package", "history_count", "branch",   # branch: additive (#48)
-                         "lease_state"}                                       # additive: lapse warning
+                         "lease_state",                                       # additive: lapse warning
+                         "scope"}                                             # additive (#5 field report)
     assert data["package"]["name"] == "alpha"
 
 

@@ -33,7 +33,8 @@
   "claims-check": {
     "keys": [
       "ok",
-      "packages"
+      "packages",
+      "warnings"
     ],
     "rc": 1,
     "type": "object"
@@ -415,7 +416,8 @@
       "lease_state",
       "name",
       "ok",
-      "package"
+      "package",
+      "scope"
     ],
     "rc": 0,
     "type": "object"

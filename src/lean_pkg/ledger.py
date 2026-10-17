@@ -252,7 +252,10 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
     if not rows:
         reasons.append("no claims: nothing to verify (an empty claims set is not a clean one)")
     elif not required_rows:
-        reasons.append("no claim has status reusable: nothing is required, so nothing is established")
+        reasons.append("no claim has status reusable: nothing is required, so nothing is established; fix: "
+                       "mark the results others should rely on as status: reusable (`lean-pkg claims mark "
+                       f"{name} --from-comparator CONFIG.json --status reusable`, or edit claims.yaml), "
+                       "commit, claims sync, re-gate")
     if reasons:
         pstatus = "unknown"
     elif failed:

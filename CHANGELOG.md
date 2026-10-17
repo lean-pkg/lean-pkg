@@ -30,6 +30,41 @@ change the registry schema or receipt format, always with a migration).
   (collect, atomic terminal marker, each expected role exactly once, full
   hash, byte and source/job readback, then validate), composed from
   `--artifacts`, `--compress-log` and `receipt slurm --check`.
+- `update NAME --withdraw-publication --reason TEXT` (#5 field report)
+  records an owner's privacy withdrawal of a promoted package: refused while
+  `gh` still reports the repository public (lean-pkg never changes visibility
+  itself); status `public -> verified-private` (`active` when never gated),
+  `visibility: private`, and a new optional record field `publication_hold`
+  {reason, at, by}. The promotion history is kept (`promoted_at`,
+  `promoted_commit`, the `promoted` event) and one `publication-withdrawn`
+  event is added. `promote` and the promote checklist of `publish` fail while
+  the hold is set, `gate`/`--regate` keep it, `next` recommends nothing to
+  publish, and `audit --fix` never flips a held record public (and names the
+  withdrawal when a `public` record's repository went private).
+  `update NAME --release-publication-hold --reason TEXT` lifts it. `validate`
+  refuses a hold on a public record. docs/lifecycle.md, "Withdrawing
+  publication".
+- `status NAME` adds a `scope:` block (text) and `scope` (--json, additive):
+  the gated source commit, the recorded privacy and publication hold, the
+  exact declarations the recorded comparator receipt compared and how many
+  claimed theorem/lemma declarations they cover (never read as a whole-package
+  comparison), and the claims' counts by status (counts, not percentages).
+- `.lean-pkg-public-allow` (#6 field report): a committed file of `allow:`
+  lines that are public on purpose; `public-safety` reads it beside the
+  untracked patterns file. Inside it every allow line applies whatever its
+  path scope, a line a private block pattern matches is the blocking hit
+  `public-allow-private` (tree and history), and any other line is ignored
+  with a warning. `release --fresh-repo` carries the patterns file's `allow:`
+  lines (only those) into it, so the new repository's own scan no longer
+  reports the benign hits the export allowed; an allow line holding a private
+  string refuses the export (JSON `public_allow`).
+- `claims mark NAME --from-comparator CONFIG.json --status reusable
+  [--write]` (#6) sets the status of exactly the claims a comparator
+  configuration's `theorem_names` cover (the `--coverage` rule), in the
+  working copy only with `--write`, never committed, and lists the names that
+  cover no claim. `claims sync` and `claims check` warn (`warnings[]`) when a
+  gated package has claims and none is `reusable`, and the ledger's `unknown`
+  reason for that case now names the fix.
 
 - `page NAME --site DIR` writes `DIR/verification.md` (the full verification
   page: status, the paper-to-Lean map with every row, Not formalized, trust

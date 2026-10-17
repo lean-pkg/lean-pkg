@@ -1041,7 +1041,12 @@ current tree is clean. The sequence:
    `lean-pkg release NAME --fresh-repo DIR [--remote URL] --dry-run`, then
    the same without `--dry-run`. It exports the gate-bound tree (internal
    files and the patterns file dropped) into a new repository with one
-   commit, scans it, and moves the registry entry there. Gate and comparator
+   commit, scans it, and moves the registry entry there. The patterns file's
+   `allow:` lines, and only those, are carried into a committed
+   `.lean-pkg-public-allow`, so the new repository's own `public-safety`
+   still exempts the benign strings the export scan exempted (a fixture
+   address under `.invalid`, a generic CI runner path in an archived log);
+   an allow line that itself holds a private string refuses the export. Gate and comparator
    evidence is cleared, with a dated note keeping the old receipt paths and
    the source commit. When the publishable tree was cleaned by hand (files
    removed or edited) and is not a commit of the source repository, which

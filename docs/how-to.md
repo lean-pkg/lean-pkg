@@ -40,7 +40,16 @@ lean-pkg claims list my-proof
 lean-pkg claims check my-proof                  # the cached claims at the synced commit (commit + sync first)
 lean-pkg claims check --file claims.yaml        # schema-check the working copy, no registry
 lean-pkg claims migrate my-proof --from old-claims.json --dry-run   # legacy JSON to a claims/1 skeleton
+lean-pkg claims mark my-proof --from-comparator comparator.json --status reusable          # plan: the compared claims
+lean-pkg claims mark my-proof --from-comparator comparator.json --status reusable --write  # edit claims.yaml (not committed)
 ```
+
+Only `reusable` claims are required by the claims ledger, so a package whose
+claims are all `experimental` has a ledger that is `unknown` and can never be
+promoted; `claims sync` and `claims check` warn about it. `claims mark` sets
+the status of exactly the claims a comparator configuration's `theorem_names`
+cover, by the rule `comparator config --coverage` uses, and lists the names
+that cover no claim. Then commit, `claims sync`, and re-gate.
 
 `claims.yaml` (schema `claims/1`) at the repository root names the results
 someone might reuse. The schema, the search order and the search record:
@@ -97,6 +106,18 @@ lean-pkg update my-proof --reaudit-after 2027-01-15
 
 `verified-private` is reachable only through `gate`, and `public` only
 through `promote --yes`. See [Lifecycle](lifecycle.md).
+
+## Withdraw a publication the owner made private
+
+```bash
+lean-pkg update my-proof --withdraw-publication --reason "owner made it private" --dry-run
+lean-pkg update my-proof --withdraw-publication --reason "owner made it private"
+lean-pkg update my-proof --release-publication-hold --reason "owner approved publishing again"   # later, if ever
+```
+
+The record becomes private with a publication hold that `promote` refuses on;
+the promotion stays in the history. See
+[Withdrawing publication](lifecycle.md#withdrawing-publication).
 
 ## Move a package to another checkout
 
@@ -303,6 +324,14 @@ stale either:
 or keep the name and exempt it in that one file with a scoped allow of the
 exact name, `allow: PROGRESS.md: ^<agent-name>$` (escape `.` as `\.`); the
 same name anywhere else is still a hit.
+
+Strings that are public on purpose (a fixture address under `.invalid`, which
+is never declared by being used, or a generic CI runner path) can be allowed
+in a committed `.lean-pkg-public-allow` instead: `allow:` lines only (any
+other line there is ignored with a warning), read by every scan, and never
+able to exempt a private string written into the file itself (that is the
+blocking hit `public-allow-private`). `release --fresh-repo` writes it from
+the patterns file's allow lines.
 
 ## Publish a package incubated beside a paper
 
