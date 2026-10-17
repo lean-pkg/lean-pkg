@@ -1,0 +1,26 @@
+# Prototype for proposal 0003 (conditional claims and discharge). Core Lean only, no Mathlib.
+# Not built by lean-pkg's CI; run ./run.sh (it builds a copy in a temporary directory).
+name = "discharge_prototype"
+defaultTargets = ["Statements", "Conditional", "ProofA", "Discharge", "Challenge", "Solution"]
+
+[[lean_lib]]
+name = "Statements"
+
+[[lean_lib]]
+name = "Conditional"
+
+[[lean_lib]]
+name = "ProofA"
+
+[[lean_lib]]
+name = "Discharge"
+
+[[lean_lib]]
+name = "Challenge"
+
+[[lean_lib]]
+name = "Solution"
+
+[[lean_lib]]
+name = "Bad"
+globs = ["Bad.+"]
