@@ -2423,8 +2423,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seal-sacct", default=None, metavar="RECEIPT",
                     help="after the Slurm job finished, no host policy: corroborate RECEIPT's Slurm claim (job_id "
                          "from SLURM_JOB_ID, which any shell can set) with the job's sacct record: COMPLETED, "
-                         "exit 0:0, Start..End containing the run, this account and the receipt's node when "
-                         "sacct runs here; writes <c12>-comparator-sacct.txt beside RECEIPT (the record, "
+                         "exit 0:0, Start..End containing the run, this account (live sacct, or --user) and "
+                         "the receipt's node (its h- host label against the node's); writes <c12>-comparator-sacct.txt beside RECEIPT (the record, "
                          "normalized; no user or node names) and its sha256 into RECEIPT as slurm_sacct. Only a "
                          "sealed receipt backs a coverage.yaml compute job. Exit 0 sealed (or already), 1 "
                          "refused, nothing written")
