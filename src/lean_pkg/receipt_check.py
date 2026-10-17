@@ -476,10 +476,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                      f"schema, binding, pins (lean-toolchain, lake-manifest.json at {x[:12]}), sorry_count 0, "
                      f"axioms {sorted(rec.get('axioms') or [])} within {list(DEFAULT_AXIOMS)}"):
                 try:
-                    line, view = core.report_log_check(repo, rec, repo / rel)
-                    c.add(f"lower {rel}: report log", PASS if view["checked"] else FAIL,
-                          line[2:] if view["checked"] else f"no committed redacted log {view['log']} (or its .gz) "
-                          f"to check report_sha256 against")
+                    line, _view = core.report_log_check(repo, rec, repo / rel)   # a missing log refuses
+                    c.add(f"lower {rel}: report log", PASS, line[2:])
                 except core.Fail as e:
                     c.add(f"lower {rel}: report log", FAIL, str(e))
                 evidence_file_checks(c, repo, v, x)

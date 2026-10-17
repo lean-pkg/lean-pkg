@@ -11,7 +11,7 @@ import shutil
 
 import yaml
 
-from .conftest import (MATHLIB_MANIFEST, MIT_TEXT, _git, make_comparator_receipt, make_receipt, read_reg,
+from .conftest import (put_receipt, MATHLIB_MANIFEST, MIT_TEXT, _git, make_comparator_receipt, make_receipt, read_reg,
                        repo_head, set_lease, write_reg)
 
 # built at run time: the literal forms are latex-label hits for lean-pkg's own `make public-safety` (--strict)
@@ -78,8 +78,8 @@ def prepare(env, coverage: dict | None = None, *, easley: bool = False, job: str
     head = repo_head(repo)
     receipt_job = receipt_job or job
     lower = f".lean-receipts/{head[:12]}-{receipt_job}.json"
-    (repo / lower).write_text(json.dumps(make_receipt(repo, job_id=receipt_job, host="secret-host-xyz",
-                                                      checker="/home/someone/verify.sh"), indent=2))
+    put_receipt(repo / lower, make_receipt(repo, job_id=receipt_job, host="secret-host-xyz",
+                                           checker="/home/someone/verify.sh"), indent=2)
     comp = f".lean-receipts/{head[:12]}-comparator.json"
     (repo / comp).write_text(json.dumps(make_comparator_receipt(repo, **(comparator or {})), indent=2))
     _git(repo, "add", "-f", ".lean-receipts")
@@ -314,16 +314,18 @@ def test_slurm_job_of_accepts_only_a_slurm_spelling_or_a_corroborated_comparator
         assert slurm_job_of({"job_id": junk}) is None
     comp = {"schema": "comparator-receipt/1", "job_id": "5581013"}
     assert slurm_job_of(comp) is None                                   # no host policy: not corroborated
-    assert slurm_job_of({**comp, "host_policy": "Slurm job 5581013 (SLURM_JOB_ID set)"}) == "slurm-5581013"
+    # SLURM_JOB_ID is any shell's to set: without an sacct seal (test_comparator_sacct_seal) no backing
+    assert slurm_job_of({**comp, "host_policy": "Slurm job 5581013 (SLURM_JOB_ID set)"}) is None
     assert slurm_job_of({**comp, "host_policy": "Slurm job 999 (SLURM_JOB_ID set)"}) is None
 
 
-def test_a_schema_2_comparator_receipt_is_listed_and_backs_its_slurm_job(lp, env, capsys):
+def test_a_schema_2_comparator_receipt_is_listed(lp, env, capsys):
     # comparator-receipt writes schema 2; the Evidence table and the Easley rule once knew only schema 1
+    # (that a sealed schema-2 receipt backs its Slurm job: test_comparator_sacct_seal)
     from lean_pkg.coverage import slurm_job_of
     comp2 = {"schema": "comparator-receipt/2", "mechanism": "toolchain", "job_id": "5581013",
              "host_policy": "Slurm job 5581013 on node-1"}
-    assert slurm_job_of(comp2) == "slurm-5581013"
+    assert slurm_job_of(comp2) is None                                  # unsealed
     assert slurm_job_of({**comp2, "host_policy": "allowed by COMPARATOR_RECEIPT_ALLOW_HOST=1"}) is None
     head = prepare(env)
     rel = f".lean-receipts/{head[:12]}-comparator.json"
@@ -375,8 +377,8 @@ def _gated_root_with_easley_readme(env, job: str = "slurm-5581013") -> str:
     comp = f".lean-receipts/{root[:12]}-comparator.json"
     (repo / comp).write_text(json.dumps(make_comparator_receipt(repo), indent=2))
     lower = f".lean-receipts/{root[:12]}-{job}.json"
-    (repo / lower).write_text(json.dumps(make_receipt(repo, job_id=job), indent=2))
-    _git(repo, "add", "-f", lower)
+    put_receipt(repo / lower, make_receipt(repo, job_id=job), indent=2)
+    _git(repo, "add", "-f", lower, lower.replace(".json", "-verify.redacted.log"))
     _git(repo, "commit", "-q", "-m", "gate receipt")
     _git(repo, "add", "-f", ".lean-receipts")
     _git(repo, "commit", "-q", "-m", "comparator receipt")

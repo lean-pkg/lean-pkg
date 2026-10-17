@@ -59,7 +59,7 @@ the same commit render differently in each place.
 **Schedulers are code, not data.** A scheduler is how a committed receipt shows that a job ran: its
 `job_id` spelling and the rule that corroborates it. Slurm: `job_id: slurm-<J>` (written by `receipt
 slurm` only after sacct shows the job COMPLETED, exit 0:0), or a comparator receipt whose `host_policy`
-says it ran in Slurm job `J`. Adding a scheduler (section 4) is a code change with its own tests; adding a
+says it ran in Slurm job `J` and whose claim `comparator-receipt --seal-sacct` sealed with sacct. Adding a scheduler (section 4) is a code change with its own tests; adding a
 site that uses an existing scheduler is a data change only.
 
 ## 2. The rule a profile carries (the credit rule)

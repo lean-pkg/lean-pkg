@@ -157,7 +157,39 @@ def make_receipt(repo: Path, **overrides) -> dict:
     return receipt
 
 
-def write_receipt(tmp_path: Path, receipt: dict, name: str = "receipt.json") -> Path:
+FIXTURE_REPORT_SHA = "a" * 64      # make_receipt's placeholder; write_receipt replaces it with a sealed log's hash
+
+
+def write_report_log(where: Path, receipt: dict, text: str = "fixture verify log\n") -> Path | None:
+    """Write the redacted verify log a lower-tier receipt binds (<c12>-<job slug>-verify.redacted.log) into
+    `where` and set the receipt's report_sha256 to its hash: `gate` refuses a receipt whose log is missing.
+    None (nothing written) when the receipt has no usable commit or job_id."""
+    import hashlib
+    from lean_pkg.cli import Fail, report_log_name
+    try:
+        name = report_log_name(receipt)
+    except (Fail, KeyError, TypeError):
+        return None
+    log = where / name
+    log.write_text(text)
+    receipt["report_sha256"] = hashlib.sha256(log.read_bytes()).hexdigest()
+    return log
+
+
+def put_receipt(path: Path, receipt: dict, indent: int | None = None, tail: str = "") -> Path:
+    """Write a lower-tier receipt to `path` with its sealed log beside it (when it carries the placeholder
+    report_sha256): the layout `receipt slurm` writes and `gate` copies into .lean-receipts/."""
+    if receipt.get("report_sha256") == FIXTURE_REPORT_SHA:
+        write_report_log(path.parent, receipt)
+    path.write_text(json.dumps(receipt, indent=indent) + tail)
+    return path
+
+
+def write_receipt(tmp_path: Path, receipt: dict, name: str = "receipt.json", log: bool = True) -> Path:
+    """Write the receipt; a lower-tier receipt still carrying the placeholder report_sha256 also gets its
+    sealed log beside it (log=False: none, the missing-log refusal)."""
+    if log and receipt.get("report_sha256") == FIXTURE_REPORT_SHA and "sorry_count" in receipt:
+        write_report_log(tmp_path, receipt)
     p = tmp_path / name
     p.write_text(json.dumps(receipt))
     return p
@@ -309,6 +341,7 @@ def env(tmp_path: Path) -> Env:
     receipt_b = make_receipt(repo_b)               # bound to the new HEAD
     dest = repo_b / ".lean-receipts" / "seed.json"
     dest.parent.mkdir(exist_ok=True)
+    write_report_log(dest.parent, receipt_b)       # the sealed log the receipt binds, beside it
     dest.write_text(json.dumps(receipt_b, indent=2))
     comp_b = make_comparator_receipt(repo_b, cfg_b)
     comp_rel = f".lean-receipts/{repo_head(repo_b)[:12]}-comparator.json"
@@ -452,7 +485,7 @@ def make_index_package(root: Path, name: str = "demo", *, lower: bool = True,
     if lower:
         lower_rel = f".lean-receipts/{pin[:12]}-slurm-12345.json"
         (repo / ".lean-receipts").mkdir(exist_ok=True)
-        (repo / lower_rel).write_text(json.dumps(make_receipt(repo), indent=2) + "\n")
+        put_receipt(repo / lower_rel, make_receipt(repo), indent=2, tail="\n")
     if comparator:
         comp = make_comparator_receipt(repo, **comp_overrides)   # writes the log as well
         comp_rel = f".lean-receipts/{pin[:12]}-comparator.json"

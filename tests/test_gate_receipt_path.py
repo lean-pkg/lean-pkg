@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from .conftest import make_receipt, read_events, read_reg
+from .conftest import make_receipt, read_events, read_reg, write_report_log
 
 REL = ".lean-receipts/trial.json"
 
@@ -18,6 +18,7 @@ REL = ".lean-receipts/trial.json"
 def put(repo, receipt, rel=REL):
     p = repo / rel
     p.parent.mkdir(parents=True, exist_ok=True)
+    write_report_log(p.parent, receipt)           # the sealed log the receipt binds, beside it
     p.write_text(json.dumps(receipt))
     return p
 

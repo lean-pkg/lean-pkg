@@ -952,7 +952,8 @@ The runner wraps the script so that evidence is either complete or absent:
 - records `host`, `job_id` (the Slurm job id, or `local-<host>-<pid>-<stamp>`),
   `host_policy`, and `generated_at`, `<host>` and `host` being the host's
   label, never its name (see [Host policy](#host-policy)), with `host_label`
-  the same label.
+  the same label. A Slurm job id backs a cluster acknowledgment only once
+  sealed: see "Seal the Slurm claim with sacct".
 
 ## Stages and `--prepare`
 
@@ -1657,6 +1658,46 @@ or by its label (the hashed label, or the `--host-label` given); only the
 label is ever written. In CI, list the runner's hostname or label in
 `COMPARATOR_RECEIPT_ALLOWED_HOSTS` or use the explicit override; the override
 is visible in the receipt either way.
+
+### Seal the Slurm claim with sacct
+
+`Slurm job <id>` in `host_policy` (and the bare job number in `job_id`) comes
+from `SLURM_JOB_ID`, which any shell can set. That is enough to *allow* a run,
+but not to back a cluster acknowledgment: a `coverage.yaml` `compute` job
+(the Easley sentence on the page) counts a comparator receipt only once its
+claim is sealed with the job's accounting record. After the job has finished,
+where `sacct` sees it (the login node), run:
+
+```bash
+comparator-receipt --seal-sacct .lean-receipts/<commit12>-comparator.json
+```
+
+The seal refuses (exit 1, nothing written) unless `sacct` shows the job's main
+line `COMPLETED` with exit `0:0`, its `Start` and `End` (asked for with a zone)
+contain the receipt's `generated_at`, the job ran under the account sealing it,
+and, when the receipt names a host rather than a host label, it ran on that
+node. It then writes `.lean-receipts/<commit12>-comparator-sacct.txt` beside the
+receipt (the record normalized to `JobID|State|ExitCode|Start|End|Elapsed`, UTC
+times, without user or node names) and adds the block `slurm_sacct` {`schema`
+`slurm-sacct-seal/1`, `job`, `file`, `sha256`, `state`, `exit_code`, `start`,
+`end`, `elapsed`, `checks`, `source`} to the receipt. Commit both. On a host
+without Slurm, save the record on the cluster and pass it:
+
+```bash
+SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j <J> \
+  --format=JobID,State,ExitCode,Start,End,Elapsed,User,NodeList -P > job.sacct
+comparator-receipt --seal-sacct R.json --sacct-file job.sacct --user <cluster account>
+```
+
+`page`, `coverage check` and the publish checklist re-read the sealed file at
+HEAD, rehash it and parse it again; a missing, edited or mismatched seal (another
+job, a window that does not contain the run) backs nothing, and the refusal says
+which. The receipt stays a valid comparator receipt either way: the seal only
+decides whether its job counts as compute. A receipt already recorded with
+`lean-pkg comparator` is recorded again after sealing with
+`lean-pkg comparator NAME --receipt R --replace`. The block is additive: the
+schema stays `comparator-receipt/2`, and a receipt written before 0.11.0 reads as
+before except that its unsealed Slurm claim no longer backs a `compute` job.
 
 ### Which hosts can produce receipts
 

@@ -8,7 +8,7 @@ import json
 
 import yaml
 
-from .conftest import _git, make_comparator_receipt, make_receipt, publish_evidence, read_reg, repo_head, write_reg
+from .conftest import put_receipt, _git, make_comparator_receipt, make_receipt, publish_evidence, read_reg, repo_head, write_reg
 
 MIT = "MIT License\n\nPermission is hereby granted, free of charge, ...\n"
 LAKEFILE = "import Lake\nopen Lake DSL\n\npackage «beta» where\n"
@@ -33,7 +33,7 @@ def gated_with_formalization(lp, env, capsys) -> str:
     _git(repo, "add", "LICENSE", "lakefile.lean", "formalization.yaml")
     _git(repo, "commit", "-q", "-m", "gated source")
     g = repo_head(repo)
-    (repo / ".lean-receipts" / "g.json").write_text(json.dumps(make_receipt(repo), indent=2))
+    put_receipt(repo / ".lean-receipts" / "g.json", make_receipt(repo), indent=2)
     comp_rel = f".lean-receipts/{g[:12]}-comparator.json"
     (repo / comp_rel).write_text(json.dumps(make_comparator_receipt(repo), indent=2))
     reg = read_reg(env)

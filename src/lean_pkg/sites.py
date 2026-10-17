@@ -23,8 +23,8 @@ Where profiles come from, in this order (the order of the Acknowledgments senten
 
 A *scheduler* is code, not data: it is how a committed receipt shows a job ran (`job_re`, the receipt
 `job_id` spelling; coverage.JOB_INDEX, its reader). Slurm is the only one: `slurm-<J>`, which `receipt
-slurm` writes only after sacct shows the job COMPLETED, or a comparator receipt whose host_policy says it
-ran in Slurm job J.
+slurm` writes only after sacct shows the job COMPLETED, or a comparator receipt whose Slurm claim (job_id J,
+host_policy `Slurm job J ...`) carries a valid sacct seal (`comparator-receipt --seal-sacct`).
 
 The rule every profile carries (unchanged from the Easley-only code it replaced): a site's sentence
 appears only when coverage.yaml lists the site with job ids and every listed id is the job of a receipt of

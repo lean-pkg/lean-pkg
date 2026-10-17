@@ -11,6 +11,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `comparator-receipt --seal-sacct RECEIPT [--sacct-file F] [--user NAME]
+  [--json]`: after a Slurm job finished, corroborate a comparator receipt's
+  Slurm claim with the job's sacct record (main line `COMPLETED`, exit
+  `0:0`, a zoned Start..End containing the receipt's `generated_at`, the
+  sealing account and the receipt's node where known) and seal it: the
+  normalized record (no user or node names) as
+  `.lean-receipts/<c12>-comparator-sacct.txt` and an additive
+  `slurm_sacct` block with its SHA-256 in the receipt. Reuses `receipt
+  slurm`'s sacct parser, which now also reads `Start`, `End`, `User` and
+  `NodeList` when a header names them. See docs/comparator.md, "Seal the
+  Slurm claim with sacct".
 - Docs: a first worked-example tutorial, docs/tutorial-pi-lambda.md:
   Dynkin's π-λ theorem and the uniqueness of probability measures, from the
   textbook statement to a verified page on one workstation (`lean-pkg new`,
@@ -38,8 +49,53 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `sources_sha256`, and why a guard manifest over a git checkout must use
   `git --no-optional-locks status`.
 
-### Fixed
+### Changed
 
+- Soundness: a comparator receipt's Slurm claim (`job_id` J, `host_policy`
+  `Slurm job J ...`, both from `SLURM_JOB_ID`, which any shell can set) no
+  longer backs a `coverage.yaml` `compute` job, and so the Easley sentence,
+  on its own: only a claim sealed with `comparator-receipt --seal-sacct`
+  does, and `page`, `coverage check`, `receipt check` and the publish
+  checklist rehash and reparse the sealed record at HEAD (another job, a
+  window that does not contain the run, or an edited record backs
+  nothing; the refusal names the receipt and why). Receipt format: the
+  `slurm_sacct` block is additive, the schema stays `comparator-receipt/2`,
+  and old receipts keep their meaning and stay valid comparator receipts;
+  the one change is that an unsealed Slurm claim no longer backs compute.
+  Migration: run `comparator-receipt --seal-sacct R` where sacct sees the
+  job (or with `--sacct-file`), commit the receipt and the record, and
+  re-record it with `lean-pkg comparator NAME --receipt R --replace`.
+
+- `comparator config`, `comparator host-check` and `formalization anchor`
+  are real subcommands, each with only its own flags (they were values of a
+  positional); every old argv parses as before, and a flag of another form
+  is now an argparse usage error (exit 2, as before). `lean-pkg comparator`
+  and `lean-pkg formalization` alone print their subcommands.
+- `lean-pkg` with no command prints the newcomer page when stdout is not a
+  terminal or no registry exists; on a terminal with a registry it opens the
+  board as before, and `lean-pkg --json` still prints the board's JSON
+  (decision 5 of the 1.0 command tree). `lean-pkg registry board` (alias
+  `board`) is unchanged.
+- RELEASING.md: renamed commands and flags are permanent aliases, never
+  deprecated; a deprecation removes behavior only, and lasts at least two
+  minor releases and 60 days, whichever is longer.
+
+### Fixed
+- Soundness: a lower-tier receipt whose sealed verify log
+  (`<c12>-<job>-verify.redacted.log`, or its `.gz`) is missing or
+  unreadable is now refused instead of accepted with `· report_sha256 not
+  checked`: by `gate` and `gate --check`, and by every consumer of a
+  recorded receipt, which used to skip the log entirely: the claims ledger
+  (new code `report-log-missing`, class unknown, so `promote` refuses),
+  the promote checklist (which also needs the log committed),
+  `publish`'s evidence list, `next` (blocker `invalid-receipt`),
+  `comparator` and `comparator --check`, `palomar prepare`, and `index add`
+  / `index check` (the log must be committed at the pin or an
+  evidence-only descendant). The refusal names where it looked and the
+  path to restore the log to (docs/receipts.md, "Restoring preserved
+  evidence"); there is no bypass flag. A package gated with such a receipt
+  stays recorded, but its ledger is no longer `ready` until the log is
+  restored byte-exact (or a new run is gated).
 - `lean-pkg --version` and `doctor` probe an editable checkout with `git
   --no-optional-locks status`, so they no longer rewrite its `.git/index`
   (a stat refresh) and change a file a caller may have hashed.
@@ -73,25 +129,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `verify`, `status`, `page`, `publish`) with one line each and the paper
   and Lean-package tracks as two columns; a verb or flag not in this release
   is marked and named with what to run until then.
-
-### Changed
-
-- `comparator config`, `comparator host-check` and `formalization anchor`
-  are real subcommands, each with only its own flags (they were values of a
-  positional); every old argv parses as before, and a flag of another form
-  is now an argparse usage error (exit 2, as before). `lean-pkg comparator`
-  and `lean-pkg formalization` alone print their subcommands.
-- `lean-pkg` with no command prints the newcomer page when stdout is not a
-  terminal or no registry exists; on a terminal with a registry it opens the
-  board as before, and `lean-pkg --json` still prints the board's JSON
-  (decision 5 of the 1.0 command tree). `lean-pkg registry board` (alias
-  `board`) is unchanged.
-- RELEASING.md: renamed commands and flags are permanent aliases, never
-  deprecated; a deprecation removes behavior only, and lasts at least two
-  minor releases and 60 days, whichever is longer.
-
-
-### Fixed
 
 - The `status` command page documents `scope.product` (added in 0.10.0;
   the entry was lost when the command reference was split into pages), and

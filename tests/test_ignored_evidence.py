@@ -100,7 +100,9 @@ def test_gate_warns_when_the_receipt_it_copied_is_ignored(lp, env, tmp_path, cap
     cap = capsys.readouterr()
     data = json.loads(cap.out)
     rel = data["receipt"]
-    assert data["ignored_evidence"] == [{"path": rel, "rule": ".gitignore:1:.lean-receipts/"}]
+    sealed = rel.replace(".json", "-verify.redacted.log")          # the sealed log gate copied beside it
+    assert data["ignored_evidence"] == [{"path": rel, "rule": ".gitignore:1:.lean-receipts/"},
+                                        {"path": sealed, "rule": ".gitignore:1:.lean-receipts/"}]
     assert (f"WARN: {rel} is git-ignored (.gitignore:1:.lean-receipts/): `git add` skips it and "
             f"`promote` needs it committed; un-ignore it") in cap.err
 
@@ -122,5 +124,7 @@ def test_comparator_warns_when_its_log_is_ignored(lp, env, tmp_path, capsys):
     assert lp.main(reg_args(env, "comparator", "alpha", "--receipt", str(cp), "--json")) == 0
     cap = capsys.readouterr()
     log = f".lean-receipts/{repo_head(env.repo_a)[:12]}-comparator-comparator.log"
-    assert json.loads(cap.out)["ignored_evidence"] == [{"path": log, "rule": ".gitignore:1:*.log"}]
+    sealed = f".lean-receipts/{repo_head(env.repo_a)[:12]}-slurm-12345-verify.redacted.log"   # the gate's
+    assert json.loads(cap.out)["ignored_evidence"] == [{"path": log, "rule": ".gitignore:1:*.log"},
+                                                       {"path": sealed, "rule": ".gitignore:1:*.log"}]
     assert f"WARN: {log} is git-ignored (.gitignore:1:*.log)" in cap.err

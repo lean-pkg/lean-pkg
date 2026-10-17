@@ -48,6 +48,8 @@ CODES = {
     "bound-commit-missing": ("unknown", "the gate receipt's commit is not in the checkout"),
     "receipt-commit-mismatch": ("open", "the gate receipt binds neither HEAD nor an evidence-only ancestor"),
     "receipt-invalid": ("failed", "the gate receipt fails the gate validator (toolchain, sorry count, fields)"),
+    "report-log-missing": ("unknown", "the sealed verify log the gate receipt binds (report_sha256) is missing or "
+                                      "unreadable"),
     "axiom-not-allowed": ("failed", "the gate receipt lists an axiom outside gate.axioms_allowed"),
     "decl-missing": ("failed", "the declaration does not occur in its file at the gate-bound commit"),
     "finding-evidence-missing": ("failed", "a manuscript finding's lean_evidence declaration does not occur in "
@@ -107,6 +109,11 @@ def _gate_evidence(pkg: dict, repo: pathlib.Path) -> tuple[list[dict], str | Non
         except core.Fail as e:
             if not (extra and str(e).startswith("axioms ")):
                 diags.append(_diag("receipt-invalid", str(e)))
+        else:
+            why = core.recorded_report_log_problem(repo, rec, rel)
+            if why:
+                diags.append(_diag("report-log-missing" if why.startswith(core.REPORT_LOG_MISSING)
+                                   else "receipt-invalid", why))
     return diags, bound, hashes
 
 

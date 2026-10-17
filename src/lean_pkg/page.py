@@ -40,7 +40,8 @@ Easley rule, for every site profile (sites.py; Easley is the first). Receipts ca
 Slurm receipt says `slurm-<J>`, not where J ran), so a site's sentence needs both an explicit declaration
 and evidence: coverage.yaml `compute: [{cluster: easley, jobs: [slurm-<J>, ...]}]`, every listed job
 matching the `job_id` of a receipt of the site's scheduler committed at HEAD under `.lean-receipts/`
-(coverage.slurm_job_of for Slurm). Without both, no sentence.
+(coverage.slurm_job_of for Slurm; a comparator receipt's job counts only with its sacct seal,
+`comparator-receipt --seal-sacct`). Without both, no sentence.
 
 Not a registry write: the registry is read, never written (no lock, no --commit), like `formalization
 --write --no-registry`. `--write` honours a live lease held by another agent (pass --agent HOLDER).
@@ -226,7 +227,7 @@ def _evidence(repo, gate: dict) -> tuple[list[dict], dict, dict]:
             continue
         m = DATE_RE.match(str(rec.get("generated_at") or ""))
         rows.append({"path": rel, "tier": tier, "commit": rec["commit"], "date": m.group(1) if m else None,
-                     "sha256": core.sha256_bytes(raw), "job": cov.slurm_job_of(rec),
+                     "sha256": core.sha256_bytes(raw), "job": cov.slurm_job_of(rec, repo),
                      "recorded": rel in (gate.get("receipt"), gate.get("comparator"))})
     lower, _ = cov.receipt_at_head(repo, gate["receipt"]) if gate.get("receipt") else (None, None)
     comp, _ = cov.receipt_at_head(repo, gate["comparator"]) if gate.get("comparator") else (None, None)

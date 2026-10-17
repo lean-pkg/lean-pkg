@@ -10,7 +10,7 @@ import json
 import pytest
 import yaml
 
-from .conftest import (ROOT, _git, commit_claims, drop_claims, make_comparator_receipt, make_receipt,
+from .conftest import (put_receipt, ROOT, _git, commit_claims, drop_claims, make_comparator_receipt, make_receipt,
                        publish_evidence, read_events, read_reg, repo_head, write_reg)
 
 LEAN = ("namespace Demo\n"   # the claims name Demo.<decl>: exact covers() (#80 fix)
@@ -49,7 +49,7 @@ def gated(env, claims=None, names=ALL_NAMES, todo=(), receipt=None, comparator=T
     (repo / "comparator.json").write_text(json.dumps(cfg, indent=2) + "\n")
     doc = {"schema": "claims/1", "package": "beta", "claims": claims_list() if claims is None else claims}
     commit_claims(repo, yaml.safe_dump(doc, sort_keys=False), lean=LEAN)
-    (repo / ".lean-receipts" / "g.json").write_text(json.dumps(make_receipt(repo, **(receipt or {}))))
+    put_receipt(repo / ".lean-receipts" / "g.json", make_receipt(repo, **(receipt or {})))
     comp_rel = None
     if comparator:
         comp_rel = ".lean-receipts/c.json"
@@ -128,7 +128,7 @@ def test_an_empty_claims_set_is_unknown_not_ready(lp, env, capsys):
 
 def test_no_claims_file_and_no_cache_is_unknown(lp, env, capsys):
     drop_claims(env.repo_b)                              # then gate the commit without claims.yaml
-    (env.repo_b / ".lean-receipts" / "g.json").write_text(json.dumps(make_receipt(env.repo_b)))
+    put_receipt(env.repo_b / ".lean-receipts" / "g.json", make_receipt(env.repo_b))
     set_gate(env, receipt=".lean-receipts/g.json", comparator=None)
     rc, data = ledger(lp, env, capsys)
     assert rc == 1 and data["package_status"] == "unknown" and data["claims"] == []
@@ -195,6 +195,14 @@ def _receipt_invalid(lp, env, capsys):
     gated(env, receipt={"sorry_count": 1})
 
 
+def _report_log_missing(lp, env, capsys):
+    """Soundness: the gate receipt's sealed verify log is gone, so report_sha256 binds nothing (gate refuses
+    such a receipt; the ledger, and so promote, must not count it)."""
+    gated(env)
+    for p in (env.repo_b / ".lean-receipts").glob("*-verify.redacted.log"):
+        p.unlink()
+
+
 def _axiom_not_allowed(lp, env, capsys):
     gated(env, receipt={"axioms": ["propext", "sorryAx"]})
 
@@ -257,6 +265,7 @@ SCENARIOS = {
     "bound-commit-missing": (_bound_commit_missing, "foo-le-bar", "unknown", "unknown"),
     "receipt-commit-mismatch": (_receipt_commit_mismatch, "foo-le-bar", "open", "open"),
     "receipt-invalid": (_receipt_invalid, "foo-le-bar", "open", "failed"),
+    "report-log-missing": (_report_log_missing, "foo-le-bar", "unknown", "unknown"),
     "axiom-not-allowed": (_axiom_not_allowed, "foo-le-bar", "open", "failed"),
     "decl-missing": (_decl_missing, "foo-le-bar", "open", "failed"),
     "finding-evidence-missing": (_finding_evidence_missing, "foo-le-bar", "open", "failed"),

@@ -62,6 +62,9 @@ def lower_receipt(pkg: dict, repo: pathlib.Path) -> tuple[dict | None, list[dict
             continue
         try:
             core.validate_receipt(pkg, repo, obj)
+            why = core.recorded_report_log_problem(repo, obj, rel)   # gate refuses a receipt without its log
+            if why:
+                raise core.Fail(why)
         except core.Fail as e:
             bad.append({"path": rel, "error": str(e), "commit": str(obj.get("commit") or "")})
             continue
@@ -257,6 +260,15 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
                        f"the gate receipt no longer binds HEAD ({e}): produce a lower-tier receipt for HEAD "
                        f"{head[:12]} (checker job on HEAD), validate it with this command, then "
                        f"`lean-pkg gate {name} --receipt R --regate`")
+        why = core.recorded_report_log_problem(repo, rec, gate["receipt"])
+        if why:            # gate would refuse this receipt today: its sealed log is gone or differs
+            rp = _q(repo / gate["receipt"])
+            return blocked("invalid-receipt", f"invalid receipt {gate['receipt']}: {why}",
+                           f"lean-pkg gate {name} --check --receipt {rp}",
+                           f"invalid receipt: the recorded gate receipt {gate['receipt']} has no sealed log to "
+                           f"check report_sha256 against: restore it (docs/receipts.md, \"Restoring preserved "
+                           f"evidence\"), then validate with this command; a lost log needs a new run and "
+                           f"`gate --regate`")
         bound = str(rec["commit"])
         if gate.get("comparator"):
             if not isinstance(comp, dict):

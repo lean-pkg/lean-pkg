@@ -148,7 +148,7 @@ def test_promote_refuses_untracked_gate_receipt(lp, env, fake_gh, capsys):
     rc, data = promote_json(lp, env, capsys)           # env leaves .lean-receipts/ untracked
     assert rc == 1 and data["ok"] is False and data["refused"] is True
     bad = items(data, "fail")
-    assert any("gate receipt .lean-receipts/seed.json not committed at HEAD" in b for b in bad)
+    assert any("gate receipt .lean-receipts/seed.json and its sealed log not committed at HEAD" in b for b in bad)
     assert any("untracked files do not count" in b for b in bad)
 
 
@@ -162,7 +162,7 @@ def test_promote_refuses_untracked_comparator_log(lp, env, fake_gh, capsys):
     assert rc == 1
     bad = items(data, "fail")
     assert len(bad) == 1 and "comparator receipt" in bad[0] and log in bad[0]
-    assert any("gate receipt .lean-receipts/seed.json tracked at HEAD" in g
+    assert any("gate receipt .lean-receipts/seed.json and its sealed log tracked at HEAD (2 file(s))" in g
                for g in items(data, "pass"))
 
 
@@ -200,7 +200,8 @@ def test_promote_green_with_tracked_pushed_evidence(lp, env, fake_gh, capsys):
     rc, data = promote_json(lp, env, capsys)
     assert rc == 0 and data["ok"] is True and data["refused"] is False
     good = items(data, "pass")
-    assert any(g.startswith("gate receipt .lean-receipts/seed.json tracked at HEAD") for g in good)
+    assert any(g.startswith("gate receipt .lean-receipts/seed.json and its sealed log tracked at HEAD")
+               for g in good)
     assert any("and its 1 log(s) tracked at HEAD" in g for g in good)
     assert any(f"HEAD {head[:12]} contained in origin/" in g and "local refs" in g for g in good)
     assert items(data, "fail") == []

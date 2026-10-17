@@ -12,7 +12,7 @@ import json
 
 import yaml
 
-from .conftest import commit_claims, make_comparator_receipt, make_receipt, read_reg, repo_head, write_reg
+from .conftest import put_receipt, commit_claims, make_comparator_receipt, make_receipt, read_reg, repo_head, write_reg
 
 TW, TWONE = "RMTFoundations.TracyWidom.monotone_TW1R", "RMTFoundations.TWOneMonotone.monotone_TW1R"
 LEAN = ("namespace RMTFoundations.TracyWidom\n\ntheorem monotone_TW1R : True := trivial\n\n"
@@ -35,7 +35,7 @@ def gated(env, claims, names):
     (repo / "comparator.json").write_text(json.dumps(cfg, indent=2) + "\n")
     doc = {"schema": "claims/1", "package": "beta", "claims": claims}
     commit_claims(repo, yaml.safe_dump(doc, sort_keys=False), lean=LEAN)
-    (repo / ".lean-receipts" / "g.json").write_text(json.dumps(make_receipt(repo)))
+    put_receipt(repo / ".lean-receipts" / "g.json", make_receipt(repo))
     (repo / ".lean-receipts" / "c.json").write_text(json.dumps(make_comparator_receipt(repo, "comparator.json")))
     reg = read_reg(env)
     reg["packages"]["beta"]["gate"].update(receipt=".lean-receipts/g.json", comparator=".lean-receipts/c.json")

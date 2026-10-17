@@ -547,6 +547,31 @@ def license_problem(clone: pathlib.Path, spdx: str) -> str | None:
 PUBLIC_GATE_PKG = {"gate": {"axioms_allowed": list(core.DEFAULT_AXIOMS)}}
 
 
+def materialize_report_log(clone: pathlib.Path, pin: str, receipt: dict, lower_rel: str,
+                           record: dict | None = None, checker: str = "") -> dict[str, bytes]:
+    """The lower-tier receipt's sealed verify log (.log or .log.gz beside the receipt) as committed in the
+    pin or an evidence-only descendant, written into the clone like every other evidence file so that
+    report_log_check hashes those bytes. None committed: refused, as `gate` refuses (a receipt whose
+    report_sha256 binds nothing is not evidence; the index keeps the receipts, never the logs)."""
+    name = core.report_log_name(receipt)
+    base = pathlib.PurePosixPath(lower_rel).parent
+    out: dict[str, bytes] = {}
+    for fname in (name, name + core.REPORT_GZ_SUFFIX):
+        rel = str(base / fname)
+        try:
+            out.update(materialize(clone, pin, [rel], record, checker))
+        except core.Fail as e:
+            if "is not committed at the pin" not in str(e):
+                raise
+    if not out:
+        raise core.Fail(f"{core.REPORT_LOG_MISSING}{base / name} (or its {core.REPORT_GZ_SUFFIX}) is not committed "
+                        f"at the pin or in an evidence-only descendant of it; without it report_sha256 binds "
+                        f"nothing. Commit the sealed redacted log byte-exact at that path (a copy kept under "
+                        f"another name may be copied there when its SHA-256 is the receipt's report_sha256) and "
+                        f"push it ({core.REPORT_LOG_RESTORE})")
+    return out
+
+
 def derive(clone: pathlib.Path, pin: str, lower_rel: str | None,
            comp_rel: str | None, record: dict | None = None) -> dict:
     """Validate the receipts at the pin with the registry's own validators. `record`: docs_record's
@@ -564,6 +589,8 @@ def derive(clone: pathlib.Path, pin: str, lower_rel: str | None,
             core.validate_receipt(PUBLIC_GATE_PKG, clone, res["lower"])
             if res["lower"]["commit"] != pin:
                 raise core.Fail(f"lower-tier receipt binds {res['lower']['commit'][:12]}, not the pin")
+            got.update(materialize_report_log(clone, pin, res["lower"], lower_rel, record, checker))
+            core.report_log_check(clone, res["lower"], clone / lower_rel)
             res["lower_ok"] = True
         except (ValueError, core.Fail) as e:
             res["failures"].append(f"lower-tier receipt {lower_rel}: {e}")

@@ -163,6 +163,7 @@ one.
 | `bound-commit-missing` | unknown | the gate receipt's commit is not in the checkout |
 | `receipt-commit-mismatch` | open | the gate receipt binds neither `HEAD` nor an evidence-only ancestor: re-gate |
 | `receipt-invalid` | failed | the gate receipt fails `gate`'s validator (toolchain, sorry count, fields) |
+| `report-log-missing` | unknown | the sealed verify log the gate receipt binds (`report_sha256`) is missing or unreadable: restore it ([Restoring preserved evidence](receipts.md#restoring-preserved-evidence)) |
 | `axiom-not-allowed` | failed | the gate receipt lists an axiom outside `gate.axioms_allowed` |
 | `decl-missing` | failed | the declaration does not occur in its file at the gate-bound commit |
 | `finding-evidence-missing` | failed | a manuscript finding's `lean_evidence` declaration does not occur in its file at the gate-bound commit |

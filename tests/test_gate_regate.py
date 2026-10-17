@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import shlex
 
-from .conftest import _git, make_receipt, read_events, read_reg, repo_head, write_receipt, write_reg
+from .conftest import _git, make_receipt, read_events, read_reg, repo_head, write_receipt, write_reg, write_report_log
 
 
 def gate(lp, env, *argv):
@@ -137,6 +137,7 @@ def test_check_regate_writes_nothing(lp, env, tmp_path, capsys):
 def test_next_recommends_regate_and_the_command_succeeds(lp, env, tmp_path, capsys):
     advance(env.repo_b)
     receipt = make_receipt(env.repo_b, job_id="slurm-4")
+    write_report_log(env.repo_b / ".lean-receipts", receipt)
     (env.repo_b / ".lean-receipts" / "slurm-4.json").write_text(json.dumps(receipt))
     assert lp.main(["--registry", str(env.registry), "next", "beta", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)

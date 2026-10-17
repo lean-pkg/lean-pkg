@@ -166,8 +166,16 @@ def test_report_sha256_is_checked_against_the_log_beside_the_receipt(lp, env, tm
     log = b"redacted verify log\n"
     r = make_receipt(repo, report_sha256=hashlib.sha256(log).hexdigest())
     p = write_receipt(tmp_path, r)
-    assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 0
-    assert "· report_sha256 not checked (no redacted log beside the receipt)" in capsys.readouterr().out
+    before = env.registry.read_bytes()
+    # soundness: a receipt whose sealed log is absent binds nothing; refused (it used to pass with a `·` line)
+    for argv in (("--check",), ()):
+        assert main(lp, env, "gate", "alpha", "--receipt", str(p), *argv) == 1
+        err = capsys.readouterr().err
+        assert f"report log missing: {_log_name(r)} (or {_log_name(r)}.gz): none found" in err
+        assert f"Restore the sealed redacted log byte-exact to .lean-receipts/{_log_name(r)}" in err
+        assert 'docs/receipts.md, "Restoring preserved evidence"' in err
+    assert env.registry.read_bytes() == before and read_events(env) == []
+    assert not (env.repo_a / ".lean-receipts").exists()       # nothing copied
     (tmp_path / _log_name(r)).write_bytes(log)
     assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check", "--json") == 0
     data = json.loads(capsys.readouterr().out)
