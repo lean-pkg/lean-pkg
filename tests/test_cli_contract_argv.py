@@ -131,6 +131,10 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["palomar", "check", "demo"], "palomar check", False, False, False),            # read-only, offline
     (["palomar", "check", "demo", "--rev", "HEAD", "--config", "c.json", "--rules", "p.json", "--repo", "d"],
      "palomar check", False, False, False),
+    (["palomar", "port-modules", "demo"], "palomar port-modules", False, False, False),   # dry run by default
+    (["palomar", "port-modules", "demo", "--dry-run"], "palomar port-modules", False, False, False),
+    (["palomar", "port-modules", "demo", "--write"], "palomar port-modules", False, False, False),  # .lean files only
+    (["palomar", "port-modules", "demo", "--write", "--agent", "a"], "palomar port-modules", False, False, False),
     (["next", "demo"], "next", False, False, False),
     (["report", "--command", "x"], "report", False, False, False),
     (["report", "--command", "x", "--yes"], "report", False, False, False),   # files an issue, not a registry write

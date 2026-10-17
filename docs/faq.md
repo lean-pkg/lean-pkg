@@ -251,8 +251,21 @@ declared `public theorem`), since `lake comparator` cannot export a private
 declaration; `@[expose]` on a shared definition whose body a proof unfolds.
 The project template in [Getting started](getting-started.md#start-from-scratch)
 is written that way and `palomar check` finds no source gap in it.
-`lean-pkg init` creates only the registry and its event log; lean-pkg writes
-no `.lean` file into your project.
+`lean-pkg init` creates only the registry and its event log; the only
+command that writes `.lean` files is `palomar port-modules --write`, below.
+
+**How do I port an existing project to the module system?**
+`lean-pkg palomar port-modules NAME` plans the mechanical part from the
+package's tracked `.lean` files at HEAD and prints a per-file report and a
+unified diff, writing nothing: `module` first, `public import`, and the body
+in `public section` ... `end`. It flags, without fixing, what needs a human:
+definitions another file unfolds (`@[expose]`), `private` declarations,
+`#eval`/`native_decide`/`initialize` (`meta import`), imports of a
+non-module, and unbalanced scopes; `prelude` files are refused. With
+`--write` it applies the plan to a clean working tree and never commits.
+Then run `lake build`, add the `@[expose]` the build asks for, commit, and
+run `palomar check`; a gated package needs a new gate, since its sources
+changed. The flags are a heuristic: the build is the judge.
 
 **`palomar check` says `judged_as` is an unknown key. Is my configuration wrong?**
 For Palomar, yes: its verifier refuses any configuration key outside the six
@@ -268,10 +281,8 @@ commit). Keep `definition_names` empty where you can: Palomar's reviewers
 still judge each hole.
 
 **What is planned next?**
-`palomar port-modules --dry-run`, which inserts headers, rewrites imports to
-`public import` and builds to report definitions needing `@[expose]`, never
-committing (large); an optional `comparator.headline.json` that feeds
-`status.main_results` (medium).
+An optional `comparator.headline.json` that feeds `status.main_results`
+(medium).
 
 ## Reservoir
 

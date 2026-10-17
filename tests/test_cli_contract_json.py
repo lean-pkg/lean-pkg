@@ -77,6 +77,7 @@ CASES = {
                                           "--from-file", _eprint(t)],
     "publish-dry-run": ["publish", "beta", "--dry-run"],
     "palomar-check": ["palomar", "check", "beta"],
+    "palomar-port-modules": ["palomar", "port-modules", "beta"],
     "promote-dry-run": ["promote", "beta", "--skip-public-safety"],
     "register-dry-run": lambda e, t: ["register", "gamma", "--repo", "git@github.com:example/gamma.git",
                                       "--path", _gamma(e, t), "--dry-run"],

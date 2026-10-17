@@ -372,6 +372,26 @@
     "rc": 1,
     "type": "object"
   },
+  "palomar-port-modules": {
+    "keys": [
+      "commit",
+      "counts",
+      "diff",
+      "dry_run",
+      "excluded",
+      "expose",
+      "files",
+      "follow_ups",
+      "name",
+      "ok",
+      "outside_package",
+      "project_path",
+      "vendored_dirs",
+      "written"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
   "promote-dry-run": {
     "keys": [
       "checklist",

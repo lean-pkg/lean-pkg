@@ -1,0 +1,18 @@
+usage: lean-pkg palomar port-modules [-h] [--dry-run | --write] [--agent AGENT] [--json]
+                                     [--commit] [--push] [--no-commit]
+                                     name
+
+positional arguments:
+  name
+
+options:
+  -h, --help     show this help message and exit
+  --dry-run      the default: print the per-file plan and the unified diff; write nothing
+  --write        apply the plan to a clean working tree (a dirty tree is refused); never commits,
+                 never writes the registry
+  --agent AGENT  with --write: the lease holder, when the package is leased
+  --json         machine-readable JSON on stdout
+  --commit       write commands: pull --ff-only, then commit the registry files (default:
+                 $LEAN_PKG_COMMIT=1)
+  --push         --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit    never commit or push (overrides the env)
