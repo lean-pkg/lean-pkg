@@ -72,6 +72,11 @@ used by the other; the column says whose final product needs it.
 | Reservoir checks | `reservoir.py` | listing criteria; central to Track L, used by P companions too |
 | Palomar readiness and bundle | `palomar_check.py`, `palomar.py`, `port_modules.py`, `formalization.py` | Palomar accepts both (its `sources` allow an original proof), so shared; most P companions go there |
 
+Both tracks sit on top of Lean's own checks (`lake check`, `lake comparator`
+and `--paranoid`, in Lean v4.35.0) rather than beside them; the trust model
+says how, in
+[Positioning against Lean's own checks](../trust-model.md#positioning-against-leans-own-checks).
+
 ### Track P only
 
 | Feature | Module | What it does |

@@ -48,6 +48,23 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   "How this was checked" names the engine and digest. A site-profile key
   naming the expected digest is a documented follow-up (docs/sites.md).
 
+### Changed
+
+- FAQ: "What does lean-pkg add now that Lean has `lake check --paranoid`?"
+  Lean v4.35.0 already ships `lake check`, `lake comparator` and the
+  bundled kernels behind `--paranoid`; the entry separates that from what
+  the Lean FRO roadmap still announces, says what lean-pkg adds (commit-bound
+  receipts, statement fidelity, the page, `receipt check`, the route to
+  publication), what it already consumes (`lake comparator`), what it will
+  consume (`lake check`, once its result can be bound to a commit) and what
+  it will then stop doing. A second entry compares lean-pkg's role with AI
+  provers (Aristotle, AxiomProver, AXLE), from their own public pages. The
+  trust model gains *Positioning against Lean's own checks*, linked from
+  the two-tracks design.
+- An upgrade record may start with `changes: []` when `no_author_change`
+  lists the PRs read (docs/design/upgrade-preflight.md), so a docs-only
+  pull request can open a release's record (#247).
+
 ### Fixed
 
 - `lean_pkg.dup_constants` resolves a project's dependencies from

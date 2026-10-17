@@ -77,6 +77,23 @@ with what it is trusted for.
    records the DOI and that commit and checks their form, but does not
    download the archive and compare it.
 
+## Positioning against Lean's own checks
+
+Lean v4.35.0 (2026-10-12) ships `lake check`, which replays a build's
+export through Lean's kernel and refuses non-standard axioms, and
+`lake comparator`; with `--paranoid` both also run the independent kernels
+the toolchain now bundles. Those are items 1 and 2 of the chain above, and
+lean-pkg does not compete with them: its `toolchain` comparator mechanism
+already runs `lake comparator`. What a check run does not do is say which
+commit, toolchain and Mathlib pin it judged, who ran it and where, whether
+its Challenge is the result the paper claims, or how a referee re-checks it
+later. Those are lean-pkg's receipts, coverage rows, page and
+`receipt check`. lean-pkg will consume `lake check` as a receipt producer
+once its result can be bound to a commit (v4.35.0 documents no
+machine-readable report), and will then drop what it duplicates. The FAQ
+entry [What does lean-pkg add now that Lean has `lake check --paranoid`?](faq.md#about-verification)
+separates what has shipped from what the Lean FRO has announced.
+
 ## Threats
 
 ### Covered

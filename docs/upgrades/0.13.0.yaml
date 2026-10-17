@@ -62,7 +62,8 @@ changes:
       without links (cp -r --no-preserve=links) before packing.
     breaking: false
     changelog: Fixed
-# Read for this record, nothing for a package author: proposal 0004, a math LTS stack, as a draft
-# (#238), and proposal 0003, conditional claims and discharge, as a draft with a core-Lean prototype
-# under docs/proposals (#242).
-no_author_change: [238, 242]
+# Read for this record, nothing for a package author: two draft proposals (#238, a math LTS stack;
+# #242, conditional claims and discharge), the record follow-up for #238 (#248), and the FAQ entries on
+# `lake check --paranoid` and AI provers with the trust model's positioning paragraph, which also lets a
+# record start with `changes: []` (#247).
+no_author_change: [238, 242, 247, 248]
