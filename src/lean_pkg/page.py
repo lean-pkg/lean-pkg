@@ -836,16 +836,16 @@ def publish_item(pkg: dict, repo) -> tuple[tuple[str, str], dict]:
             return ("✗", f"page: {e}"), {"status": "fail", "adopted": False, "problems": [str(e)]}
         problems = readme_problems(readme, "", frozenset(), profiles)
         problems = [p for p in problems if "no page block" not in p] or []
-        easley = unbacked_site_problems(readme, frozenset(), profiles) if readme is not None else []
-        mark = "✗" if easley else "WARN"
+        unbacked = unbacked_site_problems(readme, frozenset(), profiles) if readme is not None else []
+        mark = "✗" if unbacked else "WARN"
         # The route: adopt the page (coverage.yaml with compute, then --write); committing README.md and
         # coverage.yaml after the gated commit keeps the receipts binding only under the docs-only opt-in.
         hint = (f"; README.md and coverage.yaml committed after the gated commit keep the receipts binding only "
                 f"with the docs-only opt-in (`lean-pkg update {name} --accept-docs-descendants --reason TEXT`)"
-                if easley and pkg.get("docs_descendants") is not True else "")
+                if unbacked and pkg.get("docs_descendants") is not True else "")
         label = (f"no verification page: `lean-pkg page {name} --write` (docs/page.md)"
                  + (f"; {'; '.join(problems)}" if problems else "") + hint)
-        return (mark, label), {"status": "fail" if easley else "warn", "adopted": False, "problems": problems}
+        return (mark, label), {"status": "fail" if unbacked else "warn", "adopted": False, "problems": problems}
     try:
         block, facts, _w = render(pkg, repo)
     except (core.Fail, core.UsageError) as e:
