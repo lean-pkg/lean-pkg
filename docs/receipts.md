@@ -1106,7 +1106,14 @@ Before freezing a candidate made from private history:
 2. Run `lean-pkg public-safety NAME --history --strict` and read the whole
    report, including `skipped[]` (`--json`) or the `skipped:` lines: a file
    or blob listed there was not scanned in full, so its content is not
-   covered by the verdict.
+   covered by the verdict. Gzip files and blobs are decoded and their
+   decoded content scanned (`decoded:` lines, JSON `decoded[]`; a hit
+   inside one reads `path (decoded):LINE`), so a `.gz` report or log needs
+   no `allow:` line for chance matches in its compressed bytes; one that
+   could not be decoded in full (corrupt, truncated, over `--gzip-limit`,
+   default 512M) is a blocking `unscanned` hit until you raise the limit or
+   allow it explicitly. A `.tar.gz` is decoded but not unpacked: its tar is
+   scanned through its printable runs.
 3. Treat 0 hits as "none of the patterns matched", not as "no private
    content". When the patterns file has no blocking line the report says
    so (`note: no project-specific patterns: built-ins only`, JSON

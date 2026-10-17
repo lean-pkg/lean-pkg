@@ -60,6 +60,10 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("LEAN_PKG_TOOLCHAIN_FLOOR",
          "the lowest Lean toolchain `audit` and `next` accept; --toolchain-floor wins",
          "leanprover/lean4:v4.35.0-rc2"),
+        ("LEAN_PKG_GZIP_LIMIT",
+         "decoded bytes of one gzip file or blob that `public-safety` (and promote, publish, release "
+         "--fresh-repo) decodes and scans; K, M, G suffixes; 0 turns decoding off; --gzip-limit wins",
+         "512M"),
         ("LEAN_PKG_RESERVOIR_INDEX",
          "an unpacked Reservoir index directory, used offline by `search` and `reservoir check`",
          "the index tarball fetched with gh into the cache"),

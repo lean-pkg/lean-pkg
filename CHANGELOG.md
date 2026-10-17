@@ -9,6 +9,23 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `public-safety` decodes gzip content (#8): a file or history blob whose
+  bytes start with 1f 8b, whatever its name, is stream-decoded and its
+  decoded text scanned in place of the compressed bytes, whose printable
+  runs produced chance matches (false positives) while the archive's content
+  was never read. Hits carry `encoding: gzip-decoded` (location
+  `path (decoded):LINE`, line numbers of the decoded text) or `gzip-header`
+  (the original file name and comment). `--gzip-limit BYTES` (env
+  `LEAN_PKG_GZIP_LIMIT`, default 512M, `0` turns decoding off) bounds the
+  decoded bytes per file, and a 500:1 ratio guard past 16 MiB refuses a
+  decompression bomb; a corrupt, truncated, over-limit or refused decode
+  keeps the hits found so far, scans the compressed bytes as before and is a
+  blocking `unscanned` entry of `skipped[]` unless allowed. A binary decoded
+  content (a `.tar.gz`; the tar is not unpacked) is scanned through its
+  printable runs and listed as `binary (gzip-decoded)`. New JSON keys
+  `decoded[]` and `gzip_limit`. A `receipt --compress-log` sealed log is
+  decoded and scanned like any other gzip file.
+
 - `claims/1` accepts two optional claim keys for what a formalization finds in
   the manuscript without any statement being wrong (#6): `manuscript_findings`
   (each finding exactly `id`, `kind` `misprint`|`proof-gap`, `location`

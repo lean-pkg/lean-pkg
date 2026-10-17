@@ -9,7 +9,12 @@ makes the whole GitHub repository public. A symbolic link is scanned as its targ
 text with a byte-order mark (and BOM-less UTF-16) is decoded; long lines are scanned whole, in
 overlapping chunks; a binary file is scanned through its printable runs and listed in `skipped[]`;
 bytes past MAX_SCAN_BYTES are listed there too and are a blocking `unscanned` hit unless an
-`allow: GLOB: ^unscanned$` line covers the file. Patterns:
+`allow: GLOB: ^unscanned$` line covers the file. A gzip file or blob (#8: content starting with the
+magic bytes 1f 8b, whatever its name) is stream-decoded up to `--gzip-limit` decoded bytes and its
+decoded content is scanned in place of its compressed bytes (whose printable runs only produced false
+positives); a decode that fails (corrupt, truncated, over the limit, over the compression-ratio guard)
+keeps the hits of the part decoded so far, falls back to the compressed bytes and is a blocking
+`unscanned` hit unless allowed. Patterns:
 
 - the package's `.lean-pkg-private-patterns` file: one regular expression per line, `#` comments;
   a bare line or `block: REGEX` is blocking, `warn: REGEX` is warn-only, `allow: REGEX` exempts a
@@ -52,10 +57,12 @@ scans the exported tree before it writes the new repository.
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import pathlib
 import re
 import subprocess
+import zlib
 
 from . import cli as core
 
@@ -68,6 +75,16 @@ MAX_SCAN_BYTES = 64_000_000   # bytes of one file or blob scanned; the rest is l
 LINE_CHUNK = 20_000           # a longer line is scanned in overlapping chunks of this many characters
 LINE_OVERLAP = 1_000          # overlap of two chunks: a match up to this long is never cut in two
 UNSCANNED = "unscanned"       # what an `allow:` line must match in full to exempt an unscanned portion
+# #8: gzip content (magic 1f 8b) is decoded, as a stream, and the decoded content scanned.
+GZIP_MAGIC = b"\x1f\x8b"
+GZIP_LIMIT_ENV = "LEAN_PKG_GZIP_LIMIT"
+GZIP_LIMIT_DEFAULT = 512 * 1024 ** 2   # decoded bytes of one gzip file or blob; 0 turns decoding off
+GZIP_MAX_RATIO = 500                   # decoded:compressed bytes past which a decode is refused (a bomb) ...
+GZIP_RATIO_FLOOR = 16 * 1024 ** 2      # ... once more than this many bytes are decoded
+GZIP_CHUNK = 1 << 20                   # bytes read, and at most decoded, per step
+GZIP_HEADER_MAX = 1 << 16              # a gzip member header (name, comment, extra field) longer than this is corrupt
+DECODED, GZIP_HEADER = "gzip-decoded", "gzip-header"   # a hit's `encoding`
+LISTED_ONLY = ("binary", "binary (gzip-decoded)")      # skipped[] reasons that are listed, never a hit
 EMAIL_RE = r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"
 # reserved example domains, GitHub noreply, and git@host (an SSH remote, not a mailbox)
 ALWAYS_ALLOWED_EMAIL = re.compile(
@@ -281,11 +298,14 @@ IDENTITY_EMAIL = Pattern("identity-email", "builtin", re.compile(r"(?!)"))
 
 class Scanner:
     def __init__(self, pkg: dict, patterns_root: pathlib.Path, repo_for_emails: pathlib.Path | None,
-                 scope_prefix: str = ""):
+                 scope_prefix: str = "", gzip_limit: int | None = None):
         """scope_prefix: when the scan root is a repository whose package is the subdirectory
         `scope_prefix` (with its trailing `/`), path-scoped lines apply to the package-relative part of
-        a path under it and never to a path outside the package."""
+        a path under it and never to a path outside the package. gzip_limit: decoded bytes of one gzip
+        file or blob (None: $LEAN_PKG_GZIP_LIMIT, else GZIP_LIMIT_DEFAULT; 0: no decoding)."""
         self.scope_prefix = scope_prefix
+        self.gzip_limit = resolve_gzip_limit(gzip_limit)
+        self.decoded: list[dict] = []
         file_pats, self.allow, self.problems, self.file_present = read_patterns_file(patterns_root)
         builtin = [Pattern(label, "builtin", re.compile(rx)) for label, rx in BUILTIN]
         builtin += [Pattern(label, "builtin", re.compile(rx), WARN) for label, rx in BUILTIN_WARN]
@@ -396,12 +416,13 @@ class Scanner:
         spans = [s for s in self.spans(path) if s[2].label not in PATH_READABLE]
         return _redact(path, spans)[0]
 
-    def scan_text(self, text: str, path: str | None = None) -> list[tuple[int, Pattern, str]]:
+    def scan_text(self, text: str, path: str | None = None, first_line: int = 1) -> list[tuple[int, Pattern, str]]:
         """(line number, pattern, redacted excerpt): one hit per pattern per line. `path`: the
         package-relative file the text is from, for path-scoped lines (#38). A line longer than
-        LINE_CHUNK characters is scanned whole, in chunks overlapping by LINE_OVERLAP."""
+        LINE_CHUNK characters is scanned whole, in chunks overlapping by LINE_OVERLAP. first_line: the
+        number of the text's first line (a decoded stream is scanned a batch of lines at a time)."""
         hits = []
-        for n, line in enumerate(text.splitlines(), 1):
+        for n, line in enumerate(text.splitlines(), first_line):
             seen: set = set()
             if len(line) <= LINE_CHUNK:
                 hits += self._line_hits(n, line, self.spans(line, path), seen)
@@ -476,25 +497,27 @@ def _decode(data: bytes) -> str | None:
 
 
 def _hit(sc: Scanner, where: str, path: str, line, pat_label: str, kind: str, excerpt: str,
-         commit: str | None = None, severity: str = BLOCK) -> dict:
+         commit: str | None = None, severity: str = BLOCK, encoding: str | None = None) -> dict:
     h = {"where": where, "path": sc.redact_path(path), "line": line, "pattern": pat_label, "kind": kind,
          "severity": severity, "excerpt": excerpt}
     if where == "history":
         h["commit"] = commit
+    if encoding:
+        h["encoding"] = encoding     # #8: found in the decoded content (or header) of a gzip file
     return h
 
 
 def _skip(sc: Scanner, skipped: list[dict], hits: list[dict], where: str, path: str, reason: str,
           commit: str | None = None, unscanned_bytes: int | None = None) -> None:
-    """Record a file or blob not (fully) scanned. A binary one is listed only (its printable runs were
-    scanned); any other unscanned portion is also a blocking `unscanned` hit, unless an `allow:` line
+    """Record a file or blob not (fully) scanned. A binary one (or a gzip one whose decoded content is
+    binary) is listed only (its printable runs were scanned); any other unscanned portion is also a blocking `unscanned` hit, unless an `allow:` line
     for the path matches `unscanned` in full."""
     rec = {"where": where, "path": sc.redact_path(path), "reason": reason}
     if commit:
         rec["commit"] = commit
     if unscanned_bytes is not None:
         rec["unscanned_bytes"] = unscanned_bytes
-    if reason != "binary":
+    if reason not in LISTED_ONLY:
         rec["allowed"] = sc.unscanned_allowed(path)
         if not rec["allowed"]:
             hits.append(_hit(sc, where, path, None, UNSCANNED, "skipped",
@@ -520,6 +543,229 @@ def _scan_bytes(sc: Scanner, data: bytes, size: int, where: str, rel: str, hits:
         if commit is None and commit_of is not None:
             commit = commit_of()
         _skip(sc, skipped, hits, where, rel, f"over the {MAX_SCAN_BYTES}-byte scan cap", commit, size - len(data))
+
+
+_SIZE_RE = re.compile(r"^\s*(\d+)\s*(?:([KMG])(?:i?B)?|B)?\s*$", re.I)
+
+
+def parse_size(text: str) -> int:
+    """A byte count: digits with an optional K, M or G suffix (powers of 1024; `KiB`, `MB` and so on
+    are read the same way). ValueError otherwise."""
+    m = _SIZE_RE.match(str(text))
+    if not m:
+        raise ValueError(f"not a byte count: {text!r} (digits, optionally with K, M or G)")
+    return int(m.group(1)) * 1024 ** " KMG".index((m.group(2) or " ").upper())
+
+
+def gzip_limit_arg(text: str) -> int:
+    """argparse type of --gzip-limit."""
+    try:
+        return parse_size(text)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+
+def resolve_gzip_limit(value: int | None) -> int:
+    """--gzip-limit, else $LEAN_PKG_GZIP_LIMIT, else GZIP_LIMIT_DEFAULT. A malformed env value is
+    refused, never ignored: a silent default could decode less than the caller asked for."""
+    if value is not None:
+        return int(value)
+    env = os.environ.get(GZIP_LIMIT_ENV, "").strip()
+    if not env:
+        return GZIP_LIMIT_DEFAULT
+    try:
+        return parse_size(env)
+    except ValueError as e:
+        raise core.Fail(f"{GZIP_LIMIT_ENV}: {e}") from None
+
+
+class _GzipStop(Exception):
+    """A gzip decode that did not reach the end: args[0] is the skipped[] reason."""
+
+
+def _gzip_header(buf: bytes) -> tuple[int, list[bytes]] | None:
+    """(length, [name, comment, extra field]) of the gzip member header at the start of buf, or None
+    when buf is too short to hold it. RFC 1952: FEXTRA 4, FNAME 8, FCOMMENT 16, FHCRC 2."""
+    if len(buf) < 10:
+        return None
+    flg, i, fields = buf[3], 10, []
+    if flg & 4:
+        if len(buf) < i + 2:
+            return None
+        n = int.from_bytes(buf[i:i + 2], "little")
+        if len(buf) < i + 2 + n:
+            return None
+        fields.append(buf[i + 2:i + 2 + n])
+        i += 2 + n
+    for bit in (8, 16):
+        if flg & bit:
+            end = buf.find(b"\0", i)
+            if end < 0:
+                return None
+            fields.append(buf[i:end])
+            i = end + 1
+    if flg & 2:
+        i += 2
+    return (i, fields) if len(buf) >= i else None
+
+
+def gunzip_stream(read, compressed_size: int, limit: int):
+    """Decode gzip content read with read(n): yields ("header", bytes) for each member header's name,
+    comment and extra field and ("data", bytes) for decoded content, at most GZIP_CHUNK at a time.
+    Multiple members (concatenated gzip) are decoded in turn; zero padding after the last is allowed.
+    Raises _GzipStop(reason) after yielding at most `limit` decoded bytes: corrupt data or CRC, a
+    truncated stream, more than `limit` decoded bytes, or more than GZIP_MAX_RATIO decoded bytes per
+    compressed byte once past GZIP_RATIO_FLOOR (a decompression bomb)."""
+    total = 0
+    ratio_cap = max(GZIP_RATIO_FLOOR, GZIP_MAX_RATIO * max(compressed_size, 1))
+    buf = read(GZIP_CHUNK)
+    while True:                                   # one gzip member per pass
+        while _gzip_header(buf) is None and len(buf) < GZIP_HEADER_MAX:
+            more = read(GZIP_CHUNK)
+            if not more:
+                break
+            buf += more
+        head = _gzip_header(buf)
+        if head is None:
+            raise _GzipStop("gzip corrupt" if len(buf) >= GZIP_HEADER_MAX else "gzip truncated")
+        for field in head[1]:
+            if field:
+                yield "header", field
+        d = zlib.decompressobj(wbits=31)
+        while not d.eof:
+            try:
+                out = d.decompress(buf, GZIP_CHUNK)
+            except zlib.error:
+                raise _GzipStop("gzip corrupt") from None
+            buf = d.unconsumed_tail
+            if out:
+                if total + len(out) > limit:
+                    if limit - total > 0:
+                        yield "data", out[:limit - total]
+                    raise _GzipStop(f"gzip over the {limit}-byte decode limit")
+                total += len(out)
+                if total > ratio_cap:
+                    raise _GzipStop(f"gzip over the {GZIP_MAX_RATIO}:1 compression-ratio guard")
+                yield "data", out
+                continue
+            if not d.eof and not buf:
+                buf = read(GZIP_CHUNK)
+                if not buf:
+                    raise _GzipStop("gzip truncated")
+        buf = d.unused_data
+        while len(buf) < 2:
+            more = read(GZIP_CHUNK)
+            if not more:
+                break
+            buf += more
+        if buf[:2] == GZIP_MAGIC:
+            continue                              # the next member
+        while True:                               # trailing bytes: zero padding only
+            if buf.strip(b"\0"):
+                raise _GzipStop("gzip corrupt")
+            buf = read(GZIP_CHUNK)
+            if not buf:
+                return
+
+
+def _scan_gzip(sc: Scanner, opener, size: int, where: str, rel: str, hits: list[dict], skipped: list[dict],
+               commit_of=None) -> str | None:
+    """#8: scan the decoded content of one gzip file or blob (opener(): a fresh binary reader of its
+    bytes), a batch of whole lines at a time (line numbers are those of the decoded text) or, when the
+    decoded content is binary (a .tar.gz), through its printable runs. Hits carry `encoding`. Returns
+    None when the decode reached the end, else the failure reason (hits of the decoded part are kept)."""
+    state = {"commit": None, "line": 1, "mode": None, "carry": b"", "wide": [], "decoded": 0}
+
+    def commit():
+        if state["commit"] is None and commit_of is not None:
+            state["commit"] = commit_of()
+        return state["commit"]
+
+    def add(found, encoding, numbered=True):
+        for n, pat, excerpt in found:
+            hits.append(_hit(sc, where, rel, n if numbered else None, pat.label, pat.kind, excerpt, commit(),
+                             pat.severity, encoding))
+
+    def text_batch(data: bytes, final: bool) -> None:
+        data = state["carry"] + data
+        cut = len(data) if final else data.rfind(b"\n") + 1
+        state["carry"], body = data[cut:], data[:cut]
+        if body:
+            text = body.decode("utf-8", errors="replace")
+            add(sc.scan_text(text, rel, state["line"]), DECODED)
+            state["line"] += len(text.splitlines())
+
+    def binary_batch(data: bytes, final: bool) -> None:
+        data = state["carry"] + data
+        cut = len(data) if final else re.search(rb"[\x20-\x7e\t]*\Z", data).start()
+        state["carry"], body = data[cut:], data[:cut]
+        runs = "\n".join(m.group(0).decode("ascii") for m in _PRINTABLE_RUN.finditer(body))
+        if runs:
+            add(sc.scan_text(runs, rel), DECODED, numbered=False)
+
+    def feed(data: bytes, final: bool) -> None:
+        if state["mode"] is None:
+            state["carry"] += data
+            if len(state["carry"]) < 8000 and not final:
+                return
+            head, data, state["carry"] = state["carry"], state["carry"], b""
+            if head.startswith(b"\xef\xbb\xbf"):
+                state["mode"], data = "text", data[3:]
+            elif any(head.startswith(bom) for bom, _enc in _BOMS) or (b"\0" in head[:8000] and _utf16_guess(head)):
+                state["mode"] = "wide"           # UTF-16/32: decoded whole (bounded by the limit)
+            elif b"\0" in head[:8000]:
+                state["mode"] = "binary"
+            else:
+                state["mode"] = "text"
+        if state["mode"] == "wide":
+            state["wide"].append(data)
+            if final:
+                text, _b = decode_blob(b"".join(state["wide"]))
+                add(sc.scan_text(text, rel), DECODED)
+        elif state["mode"] == "binary":
+            binary_batch(data, final)
+        else:
+            text_batch(data, final)
+
+    reason = None
+    with opener() as fh:
+        try:
+            for kind, data in gunzip_stream(fh.read, size, sc.gzip_limit):
+                if kind == "header":            # the original file name, a comment: ISO 8859-1 text
+                    add(sc.scan_text(data.decode("latin-1"), rel), GZIP_HEADER, numbered=False)
+                else:
+                    state["decoded"] += len(data)
+                    feed(data, False)
+        except _GzipStop as e:
+            reason = e.args[0]
+    feed(b"", True)
+    rec = {"where": where, "path": sc.redact_path(rel), "compressed_bytes": size,
+           "decoded_bytes": state["decoded"], "content": "binary" if state["mode"] == "binary" else "text",
+           "complete": reason is None}
+    if state["commit"]:
+        rec["commit"] = state["commit"]
+    sc.decoded.append(rec)
+    if state["mode"] == "binary":
+        _skip(sc, skipped, hits, where, rel, "binary (gzip-decoded)", state["commit"])
+    return reason
+
+
+def _scan_file_or_blob(sc: Scanner, opener, size: int, where: str, rel: str, hits: list[dict],
+                       skipped: list[dict], commit_of=None) -> None:
+    """One file's or blob's bytes (opener(): a fresh binary reader of them): gzip content (#8) is
+    decoded and scanned; anything else, or a gzip decode that failed, is scanned as before (the first
+    MAX_SCAN_BYTES bytes, see _scan_bytes), the failure then listed as a blocking `unscanned` portion."""
+    with opener() as fh:
+        data = fh.read(MAX_SCAN_BYTES)
+    reason = None
+    if sc.gzip_limit > 0 and data[:2] == GZIP_MAGIC:
+        reason = _scan_gzip(sc, opener, size, where, rel, hits, skipped, commit_of)
+        if reason is None:
+            return
+    _scan_bytes(sc, data, size, where, rel, hits, skipped, commit_of=commit_of)
+    if reason is not None:
+        _skip(sc, skipped, hits, where, rel, reason + ": the compressed bytes were scanned as before",
+              commit_of() if commit_of is not None else None)
 
 
 def tree_files(root: pathlib.Path, git_mode: bool = True) -> tuple[list[str], set[str], bool]:
@@ -582,12 +828,10 @@ def scan_tree(sc: Scanner, root: pathlib.Path, git_mode: bool = True,
             continue
         try:
             size = f.stat().st_size
-            with open(f, "rb") as fh:
-                data = fh.read(MAX_SCAN_BYTES)
+            _scan_file_or_blob(sc, lambda f=f: open(f, "rb"), size, "tree", rel, hits, skipped)
         except OSError:
             _skip(sc, skipped, hits, "tree", rel, "unreadable")
             continue
-        _scan_bytes(sc, data, size, "tree", rel, hits, skipped)
     return hits, warnings, pf_tracked
 
 
@@ -611,7 +855,7 @@ def _batch(root: pathlib.Path, args: list[str], stdin: bytes) -> bytes:
 
 
 def _batch_objects(root: pathlib.Path, shas: list[str]):
-    """(sha, size, the first MAX_SCAN_BYTES bytes) of each object, read with one cat-file --batch."""
+    """(sha, size, bytes) of each object, read with one cat-file --batch."""
     if not shas:
         return
     data = _batch(root, ["cat-file", "--batch"], ("\n".join(shas) + "\n").encode())
@@ -624,7 +868,7 @@ def _batch_objects(root: pathlib.Path, shas: list[str]):
             continue
         size = int(head[2])
         body, i = data[i:i + size], i + size + 1
-        yield head[0], size, body[:MAX_SCAN_BYTES]
+        yield head[0], size, body
 
 
 def _introducing_commit(root: pathlib.Path, sha: str) -> str | None:
@@ -705,8 +949,8 @@ def scan_history(sc: Scanner, root: pathlib.Path, skipped: list[dict] | None = N
                              _introducing_commit(root, sha)))
         to_read.append(sha)
     for sha, size, body in _batch_objects(root, to_read):
-        _scan_bytes(sc, body, size, "history", blobs[sha], hits, skipped,
-                    commit_of=lambda s=sha: _introducing_commit(root, s))
+        _scan_file_or_blob(sc, lambda b=body: io.BytesIO(b), size, "history", blobs[sha], hits, skipped,
+                           commit_of=lambda s=sha: _introducing_commit(root, s))
     scope = ["--", "."] if prefix else []
     log = core.git(root, "log", "--all", "--format=%H%x00%B%x1e", *scope)
     for rec in log.stdout.split("\x1e"):
@@ -775,9 +1019,11 @@ def repository_scope(root: pathlib.Path) -> tuple[pathlib.Path, str] | None:
 
 def scan(pkg: dict, root: pathlib.Path, history: bool = True,
          patterns_root: pathlib.Path | None = None, source_repo: pathlib.Path | None = None,
-         export: bool = False, strict: bool = False, whole_repo: bool = False) -> dict:
+         export: bool = False, strict: bool = False, whole_repo: bool = False,
+         gzip_limit: int | None = None) -> dict:
     """The scan result as the --json payload body: ok, hits[], tree_hits, history_hits, block_hits,
-    warn_hits, strict, scope, skipped[], patterns_source, warnings[]. ok: no blocking hit (strict: no
+    warn_hits, strict, scope, skipped[], decoded[] (gzip files and blobs decoded, #8), gzip_limit,
+    patterns_source, warnings[]. ok: no blocking hit (strict: no
     hit). export=True: root is a plain exported directory (every file, no git, no history);
     patterns_root/source_repo then name the package checkout whose patterns file and consent apply
     (default: root). whole_repo=True (promotion): when root is a subdirectory of its git repository,
@@ -790,7 +1036,7 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
             patterns_root, source_repo = patterns_root or root, source_repo or root
             root, prefix = rs
             scope = "repository"
-    sc = Scanner(pkg, patterns_root or root, source_repo or root, scope_prefix=prefix)
+    sc = Scanner(pkg, patterns_root or root, source_repo or root, scope_prefix=prefix, gzip_limit=gzip_limit)
     skipped: list[dict] = []
     tree, warnings, pf_tracked = scan_tree(sc, root, git_mode=not export, skipped=skipped)
     history = bool(history and not export and core.git_head(root) is not None)
@@ -810,7 +1056,8 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
             "latex_label_hits": sum(1 for h in hits if h["pattern"] == "latex-label"),
             "history_scanned": history, "scope": scope, "package_prefix": prefix,
             "skipped": skipped,
-            "skipped_blocking": sum(1 for s in skipped if s["reason"] != "binary" and not s.get("allowed")),
+            "skipped_blocking": sum(1 for s in skipped if s["reason"] not in LISTED_ONLY and not s.get("allowed")),
+            "decoded": sc.decoded, "gzip_limit": sc.gzip_limit,
             "builtins_only": sc.n_file - sc.n_file_warn == 0,
             "patterns_source": source, "warnings": sc.problems + warnings}
 
@@ -825,18 +1072,21 @@ SCOPE_NOTE = ("scanned the repository root: the package is a subdirectory, and p
 def skipped_note(result: dict) -> str:
     """'' or the summary-line note on what was not (fully) scanned."""
     sk = result.get("skipped") or []
+    dec = result.get("decoded") or []
+    note = f"; {len(dec)} gzip file(s)/blob(s) decoded" if dec else ""
     if not sk:
-        return ""
-    nb = sum(1 for s in sk if s["reason"] == "binary")
+        return note
+    nb = sum(1 for s in sk if s["reason"] in LISTED_ONLY)
     other = len(sk) - nb
     parts = [f"{nb} binary (printable text only)"] if nb else []
     if other:
         parts.append(f"{other} not scanned in full ({result.get('skipped_blocking', other)} blocking)")
-    return f"; {len(sk)} file(s)/blob(s) not fully scanned: " + ", ".join(parts)
+    return note + f"; {len(sk)} file(s)/blob(s) not fully scanned: " + ", ".join(parts)
 
 
 def hit_line(h: dict) -> str:
-    loc = h["path"] + (f":{h['line']}" if h.get("line") else "")
+    enc = {DECODED: " (decoded)", GZIP_HEADER: " (gzip header)"}.get(h.get("encoding") or "", "")
+    loc = h["path"] + enc + (f":{h['line']}" if h.get("line") else "")
     if h["where"] == "history":
         loc = f"{str(h.get('commit') or '?')[:12]} {loc}"
     mark = "WARN " if h.get("severity") == WARN else ""
@@ -884,6 +1134,10 @@ def report_lines(name: str, result: dict, quiet: bool = False) -> list[str]:
     lines += [f"  skipped: {s['where']} {(s.get('commit') or '')[:12] + ' ' if s.get('commit') else ''}{s['path']}  "
               f"({s['reason']}" + ("; allowed by an `allow: ... unscanned` line" if s.get("allowed") else "") + ")"
               for s in result.get("skipped") or []]
+    lines += [f"  decoded: {d['where']} {(d.get('commit') or '')[:12] + ' ' if d.get('commit') else ''}{d['path']}  "
+              f"(gzip, {d['compressed_bytes']} -> {d['decoded_bytes']} bytes, {d['content']}"
+              + ("" if d["complete"] else "; incomplete, see skipped") + ")"
+              for d in result.get("decoded") or []]
     lines += [hit_line(h) for h in fail]           # blocking hits first, then the warn-only ones as a group
     if rest:
         lines.append(f"  warn-only hit(s): {len(rest)} ({warn_families(rest)}); they do not block")
@@ -924,7 +1178,8 @@ def cmd_public_safety(args) -> int:
     if not repo.is_dir():
         raise core.Fail(f"{args.name}: local_path does not exist: {repo}")
     result = scan(pkg, repo, history=args.history, strict=args.strict,
-                  whole_repo=not getattr(args, "package_only", False))
+                  whole_repo=not getattr(args, "package_only", False),
+                  gzip_limit=getattr(args, "gzip_limit", None))
     if getattr(args, "json_out", False):
         core.print_json(dict(result, name=args.name))
     else:
@@ -944,6 +1199,10 @@ def add_parsers(sub, add_json) -> None:
                    help="scan only the package directory even when it is a subdirectory of its repository "
                         "(default: the whole repository then, which is what promote publishes; the package "
                         "directory alone is what `release --fresh-repo` exports)")
+    s.add_argument("--gzip-limit", type=gzip_limit_arg, default=None, metavar="BYTES",
+                   help="decode gzip files and blobs (content starting 1f 8b) up to this many decoded bytes "
+                        "each and scan the decoded content (K, M, G suffixes; default: $LEAN_PKG_GZIP_LIMIT, "
+                        "else 512M; 0: no decoding, the compressed bytes are scanned as binary)")
     s.add_argument("--quiet", action="store_true",
                    help="only the summary, patterns, warn-only count and verdict lines; no per-hit line "
                         "(--json is unchanged)")
