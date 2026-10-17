@@ -68,6 +68,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   judges every `*.lean` file of a directory into one CSV row per file
   (identified by its file name only) and one log per file, JSON schema
   `exercise-batch/1`; `--no-sandbox` is refused in batch mode.
+- Compute site profiles (`site-profile/1`, docs/sites.md): a site a page may
+  credit is now a YAML file naming the site, its verbatim acknowledgment and
+  link, a README pattern and its scheduler. A package can commit its own
+  under `lean-pkg-sites/<name>.yaml` (read at HEAD, so every machine renders
+  the same page) and name it in `coverage.yaml` `compute`; the rule is the
+  Easley rule for every profile: the sentence only with every listed job
+  backed by a committed receipt of the site's scheduler, and `page --check`
+  fails on an unbacked mention. A package profile may not reuse a built-in
+  name; a malformed one refuses `coverage check` and `page`; `x-NAME`
+  extension keys are tolerated and never read. `page --json`
+  gains `sites: {NAME: {backed, jobs}}` (the `easley` key is kept). Design
+  note, with the lab-coupling audit and the GitHub Actions compute receipt
+  design (not implemented): docs/design/sites-and-ci-receipts.md.
 
 - A command reference on the docs site, `docs/commands/`: one page per
   top-level `lean-pkg` command (subcommands as sections) and one each for
@@ -92,6 +105,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- Refactor, no behavior change for existing packages: the Easley
+  acknowledgment, link and README pattern moved from code to the built-in
+  profile `site_profiles/easley.yaml`, and the page and coverage code read
+  every profile alike; no source module names a site. Every rendered byte,
+  refusal and check result of an existing package is unchanged (the existing
+  tests pass unmodified).
 - `page`: the public page no longer prints the line `lean-pkg registry
   status: ...`. The registry status is mutable (promote changes it) while
   the page is committed at one commit, so the line went stale on promote and

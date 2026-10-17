@@ -1,0 +1,10 @@
+# The first built-in site profile (site-profile/1; docs/sites.md). The acknowledgement is the cluster's
+# official wording, verbatim: changing it changes every page that carries it.
+schema: site-profile/1
+name: easley
+title: Auburn University Easley Cluster
+url: https://hpc.auburn.edu/hpc/docs/hpcdocs/build/html/easley/intro.html
+acknowledgement: "This work was completed in part with resources provided by the [Auburn University Easley Cluster](https://hpc.auburn.edu/hpc/docs/hpcdocs/build/html/easley/intro.html)."
+mention: the Easley Cluster
+mention_pattern: 'Easley\s+Cluster'
+scheduler: slurm
