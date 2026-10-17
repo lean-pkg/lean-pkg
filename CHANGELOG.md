@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-17
+
 ### Added
 
 - Headline comparator configuration (Palomar follow-up item 5): a
@@ -321,6 +323,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `comparator config --from-claims` (qualified names) and `lean-exercise`
   reads the module-system modifiers `public` and `meta`: a `public theorem`
   or `public meta def` was not seen as a declaration.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.7.54] - 2026-10-16
 
