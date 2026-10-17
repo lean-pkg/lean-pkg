@@ -136,6 +136,31 @@
     "rc": 0,
     "type": "object"
   },
+  "formalization-anchor": {
+    "keys": [
+      "arxiv",
+      "compare",
+      "eprint_sha256",
+      "files",
+      "format",
+      "ledger",
+      "main_tex",
+      "name",
+      "ok",
+      "rebase_command",
+      "record",
+      "record_path",
+      "registry_source_paper",
+      "source",
+      "tied",
+      "warnings",
+      "would_write",
+      "write",
+      "written"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
   "gate": {
     "keys": [
       "claims_schema",

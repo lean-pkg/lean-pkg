@@ -88,6 +88,12 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["formalization", "demo"], "formalization", False, False, False),
     (["formalization", "demo", "--write"], "formalization", True, True, False),
     (["formalization", "demo", "--write", "--no-registry"], "formalization", False, False, False),
+    (["formalization", "anchor", "demo", "--arxiv", "X", "--from-file", "f"], "formalization anchor",
+     False, False, False),
+    (["formalization", "anchor", "demo", "--arxiv", "X", "--from-file", "f", "--write"], "formalization anchor",
+     False, False, False),                                  # writes package files only, never the registry
+    (["formalization", "anchor", "demo", "--arxiv", "X", "--fetch", "--compare-tex", "t", "--accept-diff", "r"],
+     "formalization anchor", False, False, False),
     (["publish", "demo", "--dry-run"], "publish", False, False, False),
     (["coverage", "check", "demo"], "coverage check", False, False, False),
     (["coverage", "check", "demo", "--file", "f", "--allow-private-manuscript"], "coverage check", False, False, False),
@@ -154,7 +160,7 @@ def test_argv_table_covers_every_command_path(ap):
     """A new command (nested ones and the comparator keyword forms included) needs a row."""
     paths = {" ".join(n.path) for n in command_tree(ap) if n.path}
     paths -= {"index", "claims", "reservoir", "palomar", "receipt", "coverage"}   # groups: a verb is required
-    paths |= {f"comparator {k}" for k in comparator_keywords()}
+    paths |= {f"comparator {k}" for k in comparator_keywords()} | {"formalization anchor"}
     covered = {row[1] for row in ARGV_TABLE}
     assert sorted(paths - covered) == [], "add ARGV_TABLE rows for these commands"
     assert sorted(covered - paths) == [], "ARGV_TABLE names commands the parser no longer has"

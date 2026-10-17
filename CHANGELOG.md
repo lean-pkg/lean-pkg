@@ -34,6 +34,27 @@ change the registry schema or receipt format, always with a migration).
   judged each hole's body. docs/page.md maps each lean-scope-page rule to its
   lean-pkg check.
 
+- `formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT | --fetch) [--compare-tex LOCAL.tex
+  [--accept-diff REASON]] [--main-tex PATH] [--write] [--agent A] [--json]` (feature request #6): bind a
+  companion to one posted arXiv version. The version is required (an unversioned id exits 2). The e-print
+  comes from a downloaded file (offline) or, only with `--fetch`, from the arXiv e-print URL over HTTPS
+  (60 s timeout, 64 MiB cap; the arXiv API entry of that version adds `published`/`updated`, never an
+  announce date). It is read in memory, never unpacked to disk: gzip'd tar, gzip'd single `.tex` or tar;
+  a PDF-only submission is refused; an absolute, `..`, link or device member, more than 5000 members or
+  256 MiB unpacked refuse the archive. The record `data/source-baselines/arXiv-<id>v<N>.json`
+  (`source-baseline/1`, deterministic JSON) holds the e-print SHA-256 and that of each
+  `.tex`/`.bib`/`.bbl`/`.sty`, the main `.tex` (`\documentclass`), the normalised comparison with
+  `--compare-tex` (differing lines are printed) and the accepted-diff reason. `--write` refuses an anchor
+  nothing ties to the manuscript `coverage.yaml` is bound to (that version already, a bound `sha256` equal
+  to an e-print file, or `--compare-tex` identical, or differing with `--accept-diff`), then writes the
+  record, `coverage.yaml` `manuscript.version` (other lines and comments kept) and the `formalization.yaml`
+  source `id`; it never writes the registry (it prints the `update --source-paper-arxiv` to run) and never
+  commits. A move from another version prints the `claims rebase` command (`rebase_command`). `anchor` is
+  now a reserved package name. Docs: docs/paper-companion.md, "Anchoring to an arXiv version".
+- `coverage.yaml` (coverage/1, additive): optional `manuscript.eprint_sha256` beside an `arXiv:<id>v<N>`
+  version; `coverage check` refuses a value that differs from the committed source-baseline record and
+  warns when none is committed. An older lean-pkg refuses the key.
+
 - `public-safety` decodes gzip content (#8): a file or history blob whose
   bytes start with 1f 8b, whatever its name, is stream-decoded and its
   decoded text scanned in place of the compressed bytes, whose printable

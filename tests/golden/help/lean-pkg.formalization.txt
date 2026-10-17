@@ -1,27 +1,57 @@
 usage: lean-pkg formalization [-h] [--write] [--no-registry] [--out PATH] [--force]
-                              [--reason REASON] [--author NAME] [--agent AGENT] [--json]
-                              [--commit] [--push] [--no-commit]
-                              name
+                              [--reason REASON] [--author NAME] [--agent AGENT] [--arxiv ID]
+                              [--from-file E-PRINT] [--fetch] [--compare-tex LOCAL.tex]
+                              [--accept-diff REASON] [--main-tex PATH] [--json] [--commit]
+                              [--push] [--no-commit]
+                              name [package]
 
 positional arguments:
-  name
+  name                  the package; or `anchor` followed by the package (the anchor form)
+  package               anchor form only: the package to anchor
 
 options:
-  -h, --help       show this help message and exit
-  --write          write <repo>/<formalization_yaml or formalization.yaml> and set the registry
-                   pointer (event updated); refuses a differing file without --force
-  --no-registry    with --write: write the file only; the registry is not updated (no pointer, no
-                   event), so this is not a registry write (no lock, no --commit)
-  --out PATH       write the render here instead; the registry is untouched
-  --force          with --write: overwrite a file that differs from the render; with --reason also
-                   override a live lease held by another agent
-  --reason REASON  with --write --force: why another agent's lease is overridden (recorded in the
-                   updated event)
-  --author NAME    project.authors entry (repeatable); otherwise kept from the file, else
-                   consent[] owners/authors, else a placeholder
-  --agent AGENT    lease holder, if one is live (for the registry update)
-  --json           machine-readable JSON on stdout
-  --commit         write commands: pull --ff-only, then commit the registry files (default:
-                   $LEAN_PKG_COMMIT=1)
-  --push           --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit      never commit or push (overrides the env)
+  -h, --help            show this help message and exit
+  --write               write <repo>/<formalization_yaml or formalization.yaml> and set the
+                        registry pointer (event updated); refuses a differing file without
+                        --force. Anchor form: write the source-baseline record, coverage.yaml
+                        manuscript.version and the formalization.yaml source id (never the
+                        registry; not committed)
+  --no-registry         with --write: write the file only; the registry is not updated (no
+                        pointer, no event), so this is not a registry write (no lock, no --commit)
+  --out PATH            write the render here instead; the registry is untouched
+  --force               with --write: overwrite a file that differs from the render; with --reason
+                        also override a live lease held by another agent
+  --reason REASON       with --write --force: why another agent's lease is overridden (recorded in
+                        the updated event)
+  --author NAME         project.authors entry (repeatable); otherwise kept from the file, else
+                        consent[] owners/authors, else a placeholder
+  --agent AGENT         lease holder, if one is live (for the registry update)
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)
+
+anchor form:
+  `lean-pkg formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT | --fetch)
+  [--compare-tex LOCAL.tex [--accept-diff REASON]] [--main-tex PATH] [--write]`: bind the
+  companion to one posted arXiv version. Reads the e-print (gzip'd tar, gzip'd .tex or tar; PDF-
+  only is refused) in memory, hashes it and its .tex/.bib/.bbl/.sty files, finds the main .tex
+  (\documentclass), compares it with LOCAL.tex and records it all in data/source-
+  baselines/arXiv-<id>v<N>.json. Without --write: a dry run. --write refuses unless the e-print
+  is tied to the manuscript coverage.yaml is bound to (same version, a matching bound sha256, or
+  --compare-tex identical / --accept-diff); a move to another version prints the `claims rebase`
+  command. Never writes the registry; never commits
+
+  --arxiv ID            the arXiv id WITH its version (<id>v<N> or arXiv:<id>v<N>); unversioned
+                        ids are refused
+  --from-file E-PRINT   the e-print as downloaded from arxiv.org/e-print/<id>v<N> (offline; no
+                        network)
+  --fetch               download the e-print over HTTPS (60 s timeout, 64 MiB cap) and the arXiv
+                        API entry of that version; the only network access this command makes
+  --compare-tex LOCAL.tex
+                        compare this local .tex with the e-print's main .tex (line endings and
+                        trailing whitespace normalised); the differing lines are shown
+  --accept-diff REASON  with --compare-tex: anchor although the files differ; the reason is
+                        recorded
+  --main-tex PATH       the e-print's main .tex when more than one file carries \documentclass
