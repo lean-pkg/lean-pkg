@@ -13,6 +13,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `lean_pkg.lean_diag`, a strict parser of Lean and Lake diagnostics for
+  negative tests (field report): `parse(text)` reads every form Lean 4 and
+  Lake print (`FILE:L:C: error:` and coded `error(lean.code):`, Lake's
+  `error: FILE:L:C:` without the code, `lean --json`), multi-line messages,
+  colours and progress lines, and tells Lake's build-failure summaries apart
+  from real errors; `expect(text, code=, message=, file=, line=)` checks that
+  the log holds exactly one error, the expected one (verdicts `expected`,
+  `no-error`, `wrong-reason`, `extra-errors`). Command line:
+  `python3 -m lean_pkg.lean_diag LOG [--error-code CODE] [--error-message
+  TEXT] [--file F] [--line N] [--json]`, exit 0/1/2. docs/negative-tests.md
+  lists the traps (coded vs uncoded errors, Lake dropping codes, warnings vs
+  errors, `sorry`, multi-line messages, wrong-reason failures).
 - `lean-pkg-extract plan` checks the licenses of adopted (vendored) files.
   A new manifest key `adopted` declares files taken from another project
   (`paths`, `upstream`, `upstream_commit`, `upstream_license_file`,
