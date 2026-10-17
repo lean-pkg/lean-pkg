@@ -107,7 +107,11 @@ echo "verify-log-sha256: $(sha256sum < verify.log | cut -d' ' -f1)" >> verify.lo
 satisfies it. The manifest check is skipped, and the output says so.
 
 **Stderr (`--stderr`).** The job's `.err` file must be empty. Without the
-flag the check is skipped, and the output says so.
+flag the check is skipped, and the output says so. Nothing on it is
+filtered or waived: a locale warning
+(`setlocale: LC_ALL: cannot change locale`) refuses the receipt like any other byte. Fix the job's runtime
+instead; the `--template` wrapper below sets the C locale before any tool
+runs.
 
 The commit's files (`lean-toolchain`, `lake-manifest.json`, the lakefile, the tracked tree) are read at the path of
 `--repo` inside its git repository, so a package in a subdirectory of a manuscript repository is read there. A copy
@@ -287,6 +291,25 @@ after the build. Comments say where to stage the Lean toolchain and
 container (`RUN=...`). A work directory outside `/tmp/<user>-job<J>` and
 `/scratch/<user>/` that appears in the log needs a `--redact` at receipt
 time.
+
+**Exact-runtime preflight.** Before any tool runs, the wrapper exports
+`LC_ALL=C LANG=C PYTHONUTF8=1` (and unsets `LANGUAGE`); an
+`#SBATCH --export=ALL,LC_ALL=C,LANG=C,PYTHONUTF8=1` line does the same for
+the job's own shell, which otherwise starts under the submitting shell's
+locale (a C.UTF-8 the node lacks made bash warn on stderr, and the strict
+receipt rightly refused 70 bytes of it). An `sbatch --export=...` on the
+command line replaces that line, so keep the three variables in it. Then,
+before the work, every executable the wrapper needs must resolve with
+`type -P` (an executable, never a shell keyword or function): the host tools
+(`git`, `tar`, `sha256sum`, `find`, `sort`, `xargs`, `awk`, `sed`, `grep`,
+`cut`, `tr`, `cp`, `mkdir`, `rm`, `ls`, `cat`, plus `EXTRA_TOOLS`), and,
+under `$RUN`, the first word of `VERIFY_CMD`, `AXIOMS_CMD` and
+`LEAN_PATH_CMD` (with `lean` beside a `lake` one, plus `RUN_TOOLS`, e.g.
+`RUN_TOOLS=python3`). A missing one fails the job at once, named on stderr
+(`error: runtime preflight: executable(s) not found: ...`), with nothing
+built or logged. The log gets
+`runtime-preflight: ok (LC_ALL=C LANG=C PYTHONUTF8=1; tools: ...)` (the probed command names, never a path). Stage
+the toolchain on `PATH` (the comment above) before the probe if you move it.
 
 Three optional settings (environment variables when submitting, or edits at
 the top of the wrapper):
@@ -493,6 +516,41 @@ job sealed. Never trust another attempt's hashes in its place. A job run
 without the artifact seal (no `ARTIFACTS_DIR`, so no
 `artifacts-manifest-sha256` line) can only cite its artifacts as
 provenance: the receipt binds the log, not the files beside it.
+
+**The collection barrier.** Compose the steps in this order, and stop at
+the first one that fails; a partial, stale or corrupt collection is
+refused, never repaired in place:
+
+1. **Collect** into a fresh attempt directory (step 1 above), only after
+   `sacct` reports the job terminal (`COMPLETED`, `0:0`): files copied from
+   a running job are partial by construction.
+2. **Write a terminal marker atomically** when the copy finished with exit
+   status 0: write `attempt-2/COLLECTED.tmp`, then `mv` it to
+   `attempt-2/COLLECTED` (a rename is atomic on one filesystem). An attempt
+   directory without the marker is partial: never read from it, never
+   reuse its hashes. The marker belongs to the harness; lean-pkg does not
+   write or read it.
+3. **Check the expected roles, each exactly once**: one `verify-<J>.log`,
+   one `verify-<J>.out`, one `verify-<J>.err` and, for a sealed job, one
+   `artifacts-<J>/` with its `artifacts.sha256`. A missing role or a
+   duplicate (two logs, an `.out` of another job) refuses; never pick one
+   of several candidates.
+4. **Read back full hashes and byte counts, the source and the job.** These
+   come from the job, never from the collector: the log's SHA-256 against
+   the stdout's `verify-log-sha256` line, every artifact's size and SHA-256
+   against the manifest whose hash the stdout carries (`--artifacts DIR`),
+   the log's `commit:` and `job-id:` lines against `--commit` and `--job`,
+   and `sacct` against the job (with `--sacct-file` on a host without
+   Slurm). `receipt slurm --check ... --artifacts DIR` runs all of them and
+   writes nothing; a stale attempt (another job's or another commit's
+   files) fails here.
+5. **Validate and write**: `receipt slurm --job J ... --artifacts DIR`
+   (add `--compress-log` for a large log: the receipt still binds the
+   uncompressed log's SHA-256), then 
+   `lean-pkg gate NAME --check --receipt PATH` before `gate`.
+
+Steps 1 to 3 are the harness's; steps 4 and 5 are lean-pkg's checks, which
+judge only the files they are given.
 
 ## A lower-tier receipt from a systemd unit
 

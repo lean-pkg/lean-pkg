@@ -138,9 +138,16 @@ SBATCH_TEMPLATE = r"""#!/bin/bash
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=02:00:00
+# An inherited locale the node does not have (C.UTF-8, say) makes bash and other tools print a warning on
+# stderr, which the receipt refuses (stderr must be empty; it is never filtered). The C locale is set for the
+# job's own shell here and again below for every tool it starts; drop neither line.
+#SBATCH --export=ALL,LC_ALL=C,LANG=C,PYTHONUTF8=1
 # Add the partition, account or QOS lines your site requires.
 
 set -euo pipefail
+# Exact runtime: the C locale before any tool runs (an sbatch --export on the command line replaces the line above).
+export LC_ALL=C LANG=C PYTHONUTF8=1
+unset LANGUAGE
 
 # The package's own commands (placeholders; edit them here or set them when submitting).
 VERIFY_CMD=${VERIFY_CMD:-"lake build"}
@@ -208,6 +215,32 @@ export MATHLIB_CACHE_DIR=${MATHLIB_CACHE_DIR:-$WORK/mathlib-cache}
 # /proc/sys/fs/file-nr goes into the log before and after the build.
 export LEAN_NUM_THREADS=${LEAN_NUM_THREADS:-3}
 
+# Required-executable probe, before the work: every host tool this script runs, and the first word of each
+# command it runs under $RUN (with `lean` beside a `lake` one), must resolve with `type -P` (not `command -v`:
+# a shell keyword or function is not an executable). A missing one fails the job here, with nothing built.
+# Add more with EXTRA_TOOLS (host) or RUN_TOOLS (under $RUN), e.g. RUN_TOOLS=python3.
+HOST_TOOLS="git tar sha256sum find sort xargs awk sed grep cut tr cp mkdir rm ls cat ${EXTRA_TOOLS:-}"
+run_tools="${RUN_TOOLS:-}"
+for c in "$VERIFY_CMD" "$AXIOMS_CMD" "$LEAN_PATH_CMD"; do
+  for w in $c; do
+    case "$w" in *=*) continue ;; esac
+    run_tools="$run_tools $w"
+    if [ "$w" = lake ]; then run_tools="$run_tools lean"; fi
+    break
+  done
+done
+missing=""
+for t in $HOST_TOOLS; do
+  type -P "$t" >/dev/null || missing="$missing $t"
+done
+for t in $($RUN bash -c 'for c in "$@"; do type -P "$c" >/dev/null || echo "$c"; done' _ $run_tools); do
+  missing="$missing $t${RUN:+ (under RUN)}"
+done
+if [ -n "$missing" ]; then
+  echo "error: runtime preflight: executable(s) not found:$missing" >&2
+  exit 1
+fi
+
 # The committed tree at COMMIT, never the working tree.
 case "$SRC_MODE" in
   archive)
@@ -242,6 +275,7 @@ fi
   echo "lean-toolchain: $(cat lean-toolchain)"
   echo "checker: $CHECKER"
   echo "lean-num-threads: $LEAN_NUM_THREADS"
+  echo "runtime-preflight: ok (LC_ALL=$LC_ALL LANG=$LANG PYTHONUTF8=$PYTHONUTF8; tools:$(echo $run_tools | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//;s/^/ /'))"
   echo "fs-file-nr-before: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)"
   echo "lake-cache-dir: fresh (empty, job-local)"
   echo "lake-artifact-cache: $LAKE_ARTIFACT_CACHE"
