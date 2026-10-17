@@ -154,6 +154,15 @@ is refused before anything is written. The steps by hand:
    section, which becomes the release notes, as printed (it names no path):
    `public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree,
    0 history); 0 blocking, 0 warning(s)`.
+   **3a.** The supported stacks' matrix passes: for every stack in
+   [docs/stacks/](docs/stacks/README.md) that is declared (`published`
+   set), whose `supported_until` has not passed and whose `lean_pkg` range
+   contains X.Y.Z, its matrix entries
+   (proposal 0004, "How a stack is tested") run through `verify`,
+   `page --write`, `publish --dry-run` and `receipt check` with this release.
+   `make cut-release` does not run it (the package builds are too large for
+   it); a release whose matrix has a failing entry is not tagged. Labelled
+   3a so that references to steps 4 to 7 elsewhere stay valid.
 4. Run `make check` on the tree with the version files written, then
    commit (`release: X.Y.Z`; the four version files by name, never
    `git add -A`; abort if anything else is modified or untracked) and push

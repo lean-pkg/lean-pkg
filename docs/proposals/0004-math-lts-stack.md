@@ -1,7 +1,8 @@
 # 0004: A math LTS stack
 
-Status: draft. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
+Decided: accepted 2026-10-17 by Le Chen, with the recommended answers to open questions 1 to 5 and 7;
+question 6 stays open (see Open questions). Implemented in: (release).
 
 ## Summary
 
@@ -315,26 +316,34 @@ stack page should say what it does and does not promise, in one line.
 1. **Cadence and names**: April and October, `lts-YYYY.MM`? Or tie the
    name to the Lean version (`lts-4.35`), which is clearer to Lean users
    but hides the date a referee cares about.
+   **Decided 2026-10-17:** names `lts-YYYY.MM`, cut in April and October.
 2. **Palomar's floor vs held back**: when Palomar's minimum is newer than
    the held-back choice (as on 2026-10-17: `v4.34.1` vs `v4.35.0-rc2`), the
    floor wins (recommended), or the stack is declared without Palomar
    support?
+   **Decided 2026-10-17:** the Palomar floor wins over the held-back choice.
 3. **Window**: about 18 months (two stacks supported at once, six months
    of overlap), or 12 months (one stack plus a short overlap)? The 18
    months roughly cover a journal review; whether it covers a revision
    cycle is Le's call.
+   **Decided 2026-10-17:** about 18 months.
 4. **Where the key lives**: `coverage.yaml` `stack:` (recommended for
    stage 1), or the committed binding file of 0002 if that is accepted.
+   **Decided 2026-10-17:** opt in by a `stack:` key in `coverage.yaml`.
 5. **What the stack pins beyond the triple**: the comparator tools (yes,
    recommended, since the comparator receipt depends on them), the Python
    floor, a container image?
+   **Decided 2026-10-17:** the stack also pins the comparator tools.
 6. **Who runs the release-gate matrix** for lab packages, and whether the
    lab's own packages are expected to stay on a stack (they currently
    follow the newest toolchain).
+   **Open:** not decided on 2026-10-17.
 7. **Should `new` default to the current stack** once stage 1 ships, instead
    of the newest toolchain? Recommended: yes for `--kind paper`, the
    newest for `--kind library` (libraries aimed at Mathlib must follow
    `master`).
+   **Decided 2026-10-17:** `new --kind paper` defaults to the current stack;
+   `--kind library` keeps the newest.
 
 ## Staged plan
 
@@ -366,6 +375,12 @@ proposal process).
   Palomar rules, templates).
 - **CI**: the scaffold and tutorial matrix per release (small; measured in
   stage 0) plus a cluster job per release for the larger packages.
+  Measured in stage 0 (2026-10-17, 8 CPUs, cold Mathlib cache) for the
+  `new --kind paper` scaffold on lts-2026.10: `lake update` with the cache
+  download 52.9 s wall and 139.1 s CPU (peak memory 8.7 GB, 7.3 GB on
+  disk), `lake build` 13.3 s wall and 20.9 s CPU (1.8 GB). The receipt
+  steps and the other five entries are not yet measured
+  ([lts-2026.10](../stacks/lts-2026.10.md)).
 - **Scope pressure**: a fix that cannot work on the older stack has to
   wait or carry a stack-specific branch in lean-pkg. That is the cost the
   promise is for.
