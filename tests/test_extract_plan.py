@@ -481,3 +481,179 @@ def test_help_is_short_with_examples(capsys):
 def test_console_script_is_declared():
     scripts = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["scripts"]
     assert scripts["lean-pkg-extract"] == "lean_pkg.extract:main"
+
+
+# --------------------------------------------------------------------------------------------------
+# licenses of adopted (vendored) files: warnings in the dry run, never a new refusal
+
+SHA_UP = "c" * 40
+UPSTREAM_MIT = "MIT License\n\nCopyright (c) 2024 Upstream Authors\n\nPermission is hereby granted ...\n"
+
+
+def adopted_entry(**over) -> dict:
+    a = {"paths": ["lean/Demo/Vendor/**"], "upstream": "https://github.com/example/Upstream",
+         "upstream_commit": SHA_UP, "upstream_license_file": "LICENSE", "license": "MIT"}
+    a.update(over)
+    return a
+
+
+@pytest.fixture
+def vendored(src):
+    """The demo source with two files adopted from an MIT upstream, its license and a provenance list."""
+    repo, _ = src
+    for name in ("A", "B"):
+        (repo / f"lean/Demo/Vendor/{name}.lean").parent.mkdir(parents=True, exist_ok=True)
+        (repo / f"lean/Demo/Vendor/{name}.lean").write_text(f"namespace Demo\ntheorem vendored_{name} : True "
+                                                             f":= trivial\nend Demo\n")
+    (repo / "lean/LICENSES").mkdir()
+    (repo / "lean/LICENSES/LicenseRef-Upstream-MIT.txt").write_text(UPSTREAM_MIT)
+    (repo / "lean/LICENSES/Upstream-files.txt").write_text(
+        f"Adopted from https://github.com/example/Upstream at {SHA_UP} under LicenseRef-Upstream-MIT:\n"
+        "Demo/Vendor/A.lean\nDemo/Vendor/B.lean\n")
+    return repo, commit_all(repo, "vendor")
+
+
+def carried(**over) -> dict:
+    return adopted_entry(**{"license_file": "lean/LICENSES/LicenseRef-Upstream-MIT.txt",
+                            "provenance": "lean/LICENSES/Upstream-files.txt", **over})
+
+
+def test_adopted_files_without_their_license_are_a_warning_naming_files_license_and_commit(vendored, tmp_path,
+                                                                                           capsys):
+    repo, head = vendored
+    man = write_manifest(tmp_path, manifest(adopted=[adopted_entry()]))
+    rc, plan = plan_json(capsys, repo, head, man)
+    assert rc == 0 and plan["ok"], plan["refusals"]          # a warning, not a refusal
+    assert plan["totals"]["warnings"] == 1, plan["warnings"]
+    w = plan["warnings"][0]
+    assert w.startswith("adopted[0]: 2 file(s) adopted from https://github.com/example/Upstream @ cccccccccccc "
+                        "(MIT, LICENSE) are extracted without the upstream license: Demo/Vendor/A.lean, "
+                        "Demo/Vendor/B.lean"), w
+    assert "Copy LICENSE at cccccccccccc byte for byte to LICENSES/LicenseRef-Upstream-MIT.txt" in w
+    assert plan["adopted"] == [{
+        "index": 0, "paths": ["lean/Demo/Vendor/**"], "upstream": "https://github.com/example/Upstream",
+        "upstream_commit": SHA_UP, "upstream_license_file": "LICENSE", "license": "MIT",
+        "files": ["Demo/Vendor/A.lean", "Demo/Vendor/B.lean"], "license_file": None, "provenance": None}]
+    rc, text = run(capsys, repo, head, man)
+    assert rc == 0
+    assert text.splitlines()[0].startswith("plan: OK: ") and ", 1 warning(s); source commit" in text.splitlines()[0]
+    assert "warnings (reported, not refused):\n  - adopted[0]: 2 file(s)" in text
+    assert "license file NOT CARRIED; provenance none" in text
+    assert run(capsys, repo, head, man)[1] == text            # deterministic with warnings too
+
+
+def test_carried_scoped_license_and_complete_provenance_give_no_warning(vendored, tmp_path, capsys):
+    repo, head = vendored
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, manifest(adopted=[carried()])))
+    assert rc == 0 and plan["ok"] and plan["warnings"] == [], plan["warnings"]
+    rec = plan["adopted"][0]
+    assert rec["files"] == ["Demo/Vendor/A.lean", "Demo/Vendor/B.lean"]   # the license and list are not "adopted"
+    assert rec["license_file"] == {"from": "lean/LICENSES/LicenseRef-Upstream-MIT.txt",
+                                   "to": "LICENSES/LicenseRef-Upstream-MIT.txt",
+                                   "sha256": hashlib.sha256(UPSTREAM_MIT.encode()).hexdigest()}
+    assert rec["provenance"]["to"] == "LICENSES/Upstream-files.txt"
+    # the scoped license is an ordinary included file; nothing grants a blanket project license
+    assert "LICENSE" not in {e["to"] for e in plan["included"]}
+
+
+def test_a_license_file_or_provenance_that_is_not_carried_is_a_warning(vendored, tmp_path, capsys):
+    repo, head = vendored
+    m = manifest(adopted=[carried()], exclude=[{"path": "lean/LICENSES/**", "reason": "left behind"}])
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, m))
+    assert rc == 0 and plan["ok"]
+    assert any("license_file lean/LICENSES/LicenseRef-Upstream-MIT.txt is not carried into the target "
+               "(excluded, manifest-exclude: left behind)" in w and "Demo/Vendor/A.lean, Demo/Vendor/B.lean" in w
+               for w in plan["warnings"]), plan["warnings"]
+    assert any("provenance lean/LICENSES/Upstream-files.txt is not carried" in w for w in plan["warnings"])
+    m = manifest(adopted=[carried(license_file="lean/LICENSES/Nope.txt")])
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, m))
+    assert rc == 0 and any("lean/LICENSES/Nope.txt is not carried into the target (missing at" in w
+                           for w in plan["warnings"])
+
+
+def test_provenance_that_misses_an_adopted_file_is_named(vendored, tmp_path, capsys):
+    repo, _ = vendored
+    (repo / "lean/LICENSES/Upstream-files.txt").write_text("Demo/Vendor/A.lean\n")
+    head = commit_all(repo)
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, manifest(adopted=[carried()])))
+    assert rc == 0 and plan["warnings"] == [
+        "adopted[0]: provenance LICENSES/Upstream-files.txt does not list 1 adopted file(s): Demo/Vendor/B.lean"]
+
+
+def test_a_license_under_licenses_not_named_by_its_id_gets_the_reuse_hint(vendored, tmp_path, capsys):
+    repo, _ = vendored
+    git(repo, "mv", "lean/LICENSES/LicenseRef-Upstream-MIT.txt", "lean/LICENSES/Upstream-MIT.txt")
+    head = commit_all(repo)
+    m = manifest(adopted=[carried(license_file="lean/LICENSES/Upstream-MIT.txt")])
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, m))
+    assert rc == 0 and len(plan["warnings"]) == 1
+    assert "`reuse lint` reports it as a bad license. Name it LICENSES/LicenseRef-Upstream-MIT.txt" in \
+        plan["warnings"][0]
+    # a file named by the SPDX id itself is REUSE-valid too
+    git(repo, "mv", "lean/LICENSES/Upstream-MIT.txt", "lean/LICENSES/MIT.txt")
+    m = manifest(adopted=[carried(license_file="lean/LICENSES/MIT.txt")])
+    rc, plan = plan_json(capsys, repo, commit_all(repo), write_manifest(tmp_path, m))
+    assert rc == 0 and plan["warnings"] == [], plan["warnings"]
+
+
+def test_undeclared_vendored_license_that_is_not_carried_is_a_warning(src, tmp_path, capsys):
+    repo, _ = src
+    (repo / "lean/Demo/Vendor").mkdir()
+    (repo / "lean/Demo/Vendor/A.lean").write_text("namespace Demo\ntheorem va : True := trivial\nend Demo\n")
+    (repo / "lean/Demo/Vendor/LICENSE").write_text(UPSTREAM_MIT)
+    head = commit_all(repo)
+    # negative control: the vendored LICENSE is included (legal-readme), so nothing is orphaned
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, manifest()))
+    assert rc == 0 and plan["warnings"] == [], plan["warnings"]
+    m = manifest(exclude=[{"path": "lean/Demo/Vendor/LICENSE", "reason": "dropped by mistake"}])
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, m))
+    assert rc == 0 and plan["ok"] and len(plan["warnings"]) == 1, plan["warnings"]
+    w = plan["warnings"][0]
+    assert w.startswith("lean/Demo/Vendor/LICENSE: the license over 1 included file(s) is not carried into the "
+                        "target (lean/Demo/Vendor/LICENSE: excluded, manifest-exclude: dropped by mistake): "
+                        "Demo/Vendor/A.lean."), w
+    assert "declare them under `adopted`" in w
+    # declaring the adoption replaces the heuristic with the declared check
+    m["adopted"] = [adopted_entry()]
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, m))
+    assert [w.split(":")[0] for w in plan["warnings"]] == ["adopted[0]"], plan["warnings"]
+
+
+def test_source_repository_license_left_behind_is_a_warning_unless_a_nearer_one_is_carried(src, tmp_path, capsys):
+    repo, _ = src
+    (repo / "LICENSE").write_text("All rights reserved.\n")
+    head = commit_all(repo)
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, manifest()))
+    assert rc == 0 and plan["ok"]
+    assert len(plan["warnings"]) == 1 and plan["warnings"][0].startswith(
+        "LICENSE: the source repository's license over 11 included file(s) is not carried into the target "
+        "(LICENSE: outside every root): Demo.lean, "), plan["warnings"]
+    assert "(and 1 more)" in plan["warnings"][0]              # the list is capped, and says so
+    (repo / "lean/LICENSE").write_text("Apache License 2.0\n")
+    (repo / "verification/LICENSE").write_text("Apache License 2.0\n")
+    rc, plan = plan_json(capsys, repo, commit_all(repo), write_manifest(tmp_path, manifest()))
+    assert rc == 0 and plan["warnings"] == [], plan["warnings"]
+
+
+def test_stale_adoption_is_a_warning_and_a_malformed_one_is_refused(vendored, tmp_path, capsys):
+    repo, head = vendored
+    m = manifest(adopted=[carried(), adopted_entry(paths=["lean/Nothing/**"])])
+    rc, plan = plan_json(capsys, repo, head, write_manifest(tmp_path, m))
+    assert rc == 0 and plan["warnings"] == [
+        "adopted[1] ['lean/Nothing/**']: matches no included file (a stale adoption entry)"]
+    for bad, needle in ((adopted_entry(upstream_commit="abc123"), "upstream_commit must be the full 40-hex"),
+                        (adopted_entry(license="MIT License"), "license must be an SPDX identifier"),
+                        (adopted_entry(paths=[]), "paths must be a non-empty list"),
+                        (adopted_entry(license_file="../LICENSE"), "license_file must be a relative path"),
+                        ({"paths": ["x"]}, "missing key(s)"),
+                        (adopted_entry(extra=1), "unknown key(s) ['extra']")):
+        refused(capsys, repo, head, write_manifest(tmp_path, manifest(adopted=[bad])), needle)
+
+
+def test_warnings_never_turn_a_refused_plan_into_a_clean_one(vendored, tmp_path, capsys):
+    repo, _ = vendored
+    (repo / "lean/blob.bin").write_bytes(b"\0")
+    head = commit_all(repo)
+    plan = refused(capsys, repo, head, write_manifest(tmp_path, manifest(adopted=[adopted_entry()])),
+                   "lean/blob.bin: unclassified")
+    assert plan["totals"]["warnings"] == 1 and plan["totals"]["refusals"] == 1

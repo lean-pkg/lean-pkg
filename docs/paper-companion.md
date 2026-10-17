@@ -378,6 +378,17 @@ says so. For an `imports-only` row, the diff between the two blobs with the
 public, check that the old names and paths the map cites may be public:
 `lean-pkg public-safety NAME --strict` scans the map like any other file.
 
+### Carry the license of adopted files
+
+Files adopted from another project (vendored, then ported) keep their
+upstream license. A port can pass the hash map and the import check while
+leaving that license behind. Copy the upstream license byte for byte from
+the commit you took the files from into a scoped file, for example
+`LICENSES/LicenseRef-Upstream-MIT.txt`, and list the files it covers (a
+`REUSE.toml` annotation or a provenance list); do not copy it to the root
+as a license for the whole package. `lean-pkg-extract plan` warns when this
+is missing; see [Licenses of adopted files](extract.md#licenses-of-adopted-files).
+
 ### Audit the collisions before the first gate
 
 Several inputs that each passed their own gate can still clash once they
