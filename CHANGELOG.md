@@ -9,6 +9,28 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `receipt slurm --template`: an exact-runtime preflight before any tool
+  runs (field report #5). The wrapper sets `LC_ALL=C LANG=C PYTHONUTF8=1`
+  (an `#SBATCH --export` line for the job's own shell and an `export`), so
+  an inherited locale the node lacks no longer puts a warning on the job's
+  stderr, and probes every executable it needs with `type -P` (host tools,
+  the first word of each command run under `$RUN`, `lean` beside `lake`,
+  plus `EXTRA_TOOLS` / `RUN_TOOLS`), failing the job before the work when
+  one is missing. The log gets a `runtime-preflight: ok (...)` line. The
+  receipt's stderr check is unchanged: nothing is filtered or waived.
+- `gate` / `gate --check` / `comparator`: a relative `--receipt` or
+  `--comparator` path that does not exist from the cwd but exists under the
+  package checkout (or `--check --repo DIR`) is resolved there, announced on
+  stderr, as a check line and in the additive JSON `resolved_paths[]`
+  (field report #5). A path that exists as given is used as given, and
+  another matching receipt is never picked. A path found nowhere is refused
+  naming the caller's cwd, the checkout, both paths tried and how to pass
+  it; `gate --check --agent` explains that `--check` takes no lease.
+- docs/receipts.md, "Recollecting a finished job": the collection barrier
+  (collect, atomic terminal marker, each expected role exactly once, full
+  hash, byte and source/job readback, then validate), composed from
+  `--artifacts`, `--compress-log` and `receipt slurm --check`.
+
 - `page NAME --site DIR` writes `DIR/verification.md` (the full verification
   page: status, the paper-to-Lean map with every row, Not formalized, trust
   boundary, reproduce, evidence, citation, license, acknowledgments) and

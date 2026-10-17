@@ -176,6 +176,7 @@
       "private_strings",
       "receipt",
       "report_log",
+      "resolved_paths",
       "rl_hint",
       "rl_reminder",
       "status",
@@ -202,6 +203,7 @@
       "recorded",
       "repo_override",
       "report_log",
+      "resolved_paths",
       "status"
     ],
     "rc": 0,
