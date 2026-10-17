@@ -71,6 +71,29 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
     and `aliases.md` lists the split modes and the `comparator-receipt`
     program.
 
+- `lean_pkg.lean_diag`, a strict parser of Lean and Lake diagnostics for
+  negative tests (field report): `parse(text)` reads every form Lean 4 and
+  Lake print (`FILE:L:C: error:` and coded `error(lean.code):`, Lake's
+  `error: FILE:L:C:` without the code, `lean --json`), multi-line messages,
+  colours and progress lines, and tells Lake's build-failure summaries apart
+  from real errors; `expect(text, code=, message=, file=, line=)` checks that
+  the log holds exactly one error, the expected one (verdicts `expected`,
+  `no-error`, `wrong-reason`, `extra-errors`). Command line:
+  `python3 -m lean_pkg.lean_diag LOG [--error-code CODE] [--error-message
+  TEXT] [--file F] [--line N] [--json]`, exit 0/1/2. docs/negative-tests.md
+  lists the traps (coded vs uncoded errors, Lake dropping codes, warnings vs
+  errors, `sorry`, multi-line messages, wrong-reason failures).
+
+- Docs: slogans. docs/design/slogans.md lists thirty-six candidate one-liners,
+  each with what it claims and whether the trust model bears it out, ranked.
+  The chosen ones are placed one per page: the README and site tagline
+  (*Lean checks the proofs. You check the statements. lean-pkg checks the
+  receipts.*, replacing *Prove it. Then prove you proved it.*, which called
+  a receipt a proof), the docs index, the trust model, the two-tracks
+  design, the README research loop (which now names the AI assistant's
+  place: it may draft, Lean checks the proof, the mathematician reads the
+  statement) and GOVERNANCE.md's AI operations agent.
+
 ### Changed
 
 - `page --write` on a gated package whose record says nothing about the
@@ -103,6 +126,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   quickstart and the π-λ tutorial use `verify`, `register --license-spdx`,
   `page --write` and `publish`, with fewer steps.
 
+- Index: `markovprocess-pilot` refreshed with the package's re-run comparator
+  receipt at the same pin `05d99d75df82` (same verdicts and configuration
+  hashes; the host is now a hashed label). The entry was replaced with
+  `index add --from-registry`; only `added.at` changed in `entry.yaml`, and
+  `index check --clone` passes for all three entries.
+
 ### Fixed
 
 - Re-running the comparator receipt at the same commit after `verify.sh`
@@ -116,18 +145,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
-- `lean_pkg.lean_diag`, a strict parser of Lean and Lake diagnostics for
-  negative tests (field report): `parse(text)` reads every form Lean 4 and
-  Lake print (`FILE:L:C: error:` and coded `error(lean.code):`, Lake's
-  `error: FILE:L:C:` without the code, `lean --json`), multi-line messages,
-  colours and progress lines, and tells Lake's build-failure summaries apart
-  from real errors; `expect(text, code=, message=, file=, line=)` checks that
-  the log holds exactly one error, the expected one (verdicts `expected`,
-  `no-error`, `wrong-reason`, `extra-errors`). Command line:
-  `python3 -m lean_pkg.lean_diag LOG [--error-code CODE] [--error-message
-  TEXT] [--file F] [--line N] [--json]`, exit 0/1/2. docs/negative-tests.md
-  lists the traps (coded vs uncoded errors, Lake dropping codes, warnings vs
-  errors, `sorry`, multi-line messages, wrong-reason failures).
 - `lean-pkg-extract plan` checks the licenses of adopted (vendored) files.
   A new manifest key `adopted` declares files taken from another project
   (`paths`, `upstream`, `upstream_commit`, `upstream_license_file`,
@@ -227,23 +244,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   docs/design/two-tracks.md mark their decisions as decided.
 - Docs: README.md shows the two-track workflow diagram under the quickstart
   link, linked to the sample workflow.
-- Docs: slogans. docs/design/slogans.md lists thirty-six candidate one-liners,
-  each with what it claims and whether the trust model bears it out, ranked.
-  The chosen ones are placed one per page: the README and site tagline
-  (*Lean checks the proofs. You check the statements. lean-pkg checks the
-  receipts.*, replacing *Prove it. Then prove you proved it.*, which called
-  a receipt a proof), the docs index, the trust model, the two-tracks
-  design, the README research loop (which now names the AI assistant's
-  place: it may draft, Lean checks the proof, the mathematician reads the
-  statement) and GOVERNANCE.md's AI operations agent.
 
 ### Changed
-
-- Index: `markovprocess-pilot` refreshed with the package's re-run comparator
-  receipt at the same pin `05d99d75df82` (same verdicts and configuration
-  hashes; the host is now a hashed label). The entry was replaced with
-  `index add --from-registry`; only `added.at` changed in `entry.yaml`, and
-  `index check --clone` passes for all three entries.
 
 - `mathlib_rev: none` is an explicit value for a package without Mathlib (a
   readable `lake-manifest.json` that lists no `mathlib` package), not a
