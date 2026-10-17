@@ -47,7 +47,7 @@ lean-pkg page [--write] [--check] [--out PATH] [--site DIR] [--html PATH] [--rep
 
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
-- `page` (exit 0): `counts`, `current`, `easley`, `kind`, `ledger_digest`, `ledger_status`, `manuscript`, `markdown`, `name`, `ok`, `private_manuscript`, `problems`, `readme`, `receipts`, `repo_override`, `rows`, `site_files`, `unchanged`, `verified_rows`, `warnings`, `written`
+- `page` (exit 0): `counts`, `current`, `easley`, `kind`, `ledger_digest`, `ledger_status`, `manuscript`, `markdown`, `name`, `ok`, `private_manuscript`, `problems`, `readme`, `receipts`, `repo_override`, `rows`, `site_files`, `sites`, `unchanged`, `verified_rows`, `warnings`, `written`
 
 ## Examples
 
