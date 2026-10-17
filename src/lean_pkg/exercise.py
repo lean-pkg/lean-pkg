@@ -23,6 +23,8 @@ import time
 
 from . import comparator_receipt as cr
 from . import lean_scan
+from .deps_closure import header_imports
+from .palomar_check import has_module_header
 from .cli import parse_lean_toolchain, scrubbed_env
 
 SCHEMA = "exercise-check/1"
@@ -58,12 +60,14 @@ def _masked(text: str) -> str:
 
 
 def imports(text: str) -> list[str]:
-    return re.findall(r"^\s*import\s+(\S+)", _masked(text), re.M)
+    """The header's imports, module-system forms included (`public import X`, `meta import X`,
+    `import all X`): a bare `^import` match missed those, so a `public import Mathlib` passed the checks."""
+    return header_imports(text)
 
 
 _BOUNDARY = re.compile(r"^(namespace|section|end|open|variable|universe|set_option|attribute|#|@\[|"
-                       r"private|protected|noncomputable|theorem|lemma|def|abbrev|structure|class|instance|"
-                       r"inductive|opaque|axiom|example|macro|syntax|notation|infix|prefix|postfix)\b",
+                       r"private|protected|public|meta|noncomputable|theorem|lemma|def|abbrev|structure|class|"
+                       r"instance|inductive|opaque|axiom|example|macro|syntax|notation|infix|prefix|postfix)\b",
                        re.M)
 
 
@@ -108,8 +112,8 @@ def check_imports(text: str, what: str, has_defs: bool) -> None:
                       f"imported (the exercise is judged as a standalone project)")
 
 
-_DEF_CMD = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|noncomputable|partial|unsafe|"
-                      r"scoped|local|nonrec)\s+)*(" + "|".join(DEF_KEYWORDS) + r")\b")
+_DEF_CMD = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:private|protected|public|meta|noncomputable|partial|"
+                      r"unsafe|scoped|local|nonrec)\s+)*(" + "|".join(DEF_KEYWORDS) + r")\b")
 
 
 def plan_theorems(challenge: str, requested: str | None) -> list[str]:
@@ -289,8 +293,15 @@ def _quoted(line: str, marker: str) -> str:
     return m.group(1) if m else ""
 
 
-def classify(rc: int | None, out: str) -> dict:
-    """{verdict, detail, axiom?, kernels} from the exit code and the marker lines of `lake comparator`."""
+# Lean's module system (`module` first): a declaration is private unless it is inside `public section`
+# or marked `public`, and `lake comparator` cannot export a private constant ("not found in environment").
+PRIVATE_HINT = ("in a `module` file a theorem is private unless it is inside `public section ... end` or "
+                "declared `public theorem`")
+
+
+def classify(rc: int | None, out: str, solution_module: bool = False) -> dict:
+    """{verdict, detail, axiom?, kernels} from the exit code and the marker lines of `lake comparator`.
+    `solution_module`: the Solution starts with `module`, so a `missing` theorem may only be private."""
     lines = out.splitlines()
     kernels = [m.group(1) for ln in lines for m in [re.match(r"^(.+?) kernel accepts the solution$", ln)] if m]
     kernels = ["lean" if k == "Lean default" else k for k in kernels]
@@ -311,7 +322,14 @@ def classify(rc: int | None, out: str) -> dict:
                      r"Solution constant is not a theorem", ln):
             return {**res, "verdict": "statement_mismatch", "detail": ln.removeprefix("error: ").strip()}
         if re.search(r"not found in solution|Constant \S+ not found in environment", ln):
-            return {**res, "verdict": "missing", "detail": "the Solution does not declare this theorem"}
+            # Exported before the Solution was built: the Challenge's own constant is missing (a private
+            # theorem of a `module` Challenge). That is the exercise's fault, not the learner's.
+            if "not found in environment" in ln and not any(x.startswith("Building Solution") for x in lines):
+                return {**res, "verdict": "tool_error",
+                        "detail": f"the Challenge does not export this theorem; {PRIVATE_HINT}"}
+            detail = "the Solution does not declare this theorem"
+            return {**res, "verdict": "missing",
+                    "detail": f"{detail} (or does not make it public: {PRIVATE_HINT})" if solution_module else detail}
         if "kernel rejected the solution" in ln:
             return {**res, "verdict": "kernel_rejected", "detail": ln.strip()}
     if "error: build failed" in lines or any(ln.startswith("Some required targets logged failures") for ln in lines):
@@ -378,7 +396,7 @@ def check(args) -> dict:
             print(f"judging {name} ({i}/{len(theorems)}) ...", file=sys.stderr)
             rc, out, secs = judge(lake, work, cfg, toolchain, args.timeout, args.no_sandbox)
             (work / "cfg" / f"{i}.log").write_text(out, encoding="utf-8")
-            row = classify(rc, out)
+            row = classify(rc, out, has_module_header(solution))
             row["detail"] = redact(row["detail"], work)
             rows.append({"name": name, **row, "seconds": round(secs, 1)})
             if row["verdict"] == "build_error" or row["detail"].startswith("the Challenge (or Defs) does not build"):

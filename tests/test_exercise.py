@@ -45,6 +45,9 @@ print("Building Challenge")
 print("Build completed successfully (3 jobs).")
 if shape == "challenge_build":
     print("error: Challenge.lean:1:8: unknown identifier 'x'"); print("error: build failed"); sys.exit(1)
+if shape == "challenge_private":   # a private theorem of a `module` Challenge: the export fails before the Solution
+    print(f"PANIC at LeanExport.dumpConstant LeanExport.Basic:254:48: Constant {name} not found in environment.")
+    print("error: Child exited with 134"); sys.exit(134)
 print("Building Solution")
 if shape == "ok":
     for k in ("con-ron", "nanoda", "Lean default"):
@@ -192,6 +195,67 @@ def test_a_challenge_that_does_not_build_is_a_tool_error(fake, capsys):
     rc, data, _ = run(capsys, files(fake.root, solution="-- FAKE t: challenge_build\n"))
     assert rc == 1 and data["theorems"][0]["verdict"] == "tool_error"
     assert "Challenge" in data["theorems"][0]["detail"]
+
+
+# ------------------------------------------------------------------------------------ module system
+
+MOD_CHALLENGE = "module\n\npublic section\n\ntheorem t (n : Nat) : n + 0 = n := by sorry\n\nend\n"
+MOD_SOLUTION = "module\n\npublic section\n\ntheorem t (n : Nat) : n + 0 = n := by simp\n\nend\n"
+
+
+def test_a_private_theorem_of_a_module_challenge_is_a_tool_error_not_missing(fake, capsys):
+    # Real run (v4.35.0-rc2): a `module` Challenge whose theorem is outside `public section` panics in the
+    # Challenge export, before `Building Solution`; it was reported as the learner's `missing`.
+    rc, data, _ = run(capsys, files(fake.root, MOD_CHALLENGE, "-- FAKE t: challenge_private\n"))
+    row = data["theorems"][0]
+    assert rc == 1 and row["verdict"] == "tool_error"
+    assert row["detail"].startswith("the Challenge does not export this theorem") and "public section" in row["detail"]
+
+
+def test_missing_in_a_module_solution_names_the_private_default(fake, capsys):
+    rc, data, _ = run(capsys, files(fake.root, MOD_CHALLENGE, "module\n-- FAKE t: missing\n"))
+    row = data["theorems"][0]
+    assert row["verdict"] == "missing" and "public section" in row["detail"]
+    rc, data, _ = run(capsys, files(fake.root, solution="-- FAKE t: missing\n"))
+    assert data["theorems"][0]["detail"] == "the Solution does not declare this theorem"
+
+
+def test_module_headed_files_are_judged(fake, capsys):
+    rc, data, _ = run(capsys, files(fake.root, MOD_CHALLENGE, MOD_SOLUTION))
+    assert rc == 0 and [r["name"] for r in data["theorems"]] == ["t"]
+
+
+def test_public_theorems_are_discovered(fake):
+    challenge = ("module\n\npublic theorem a : 1 = 1 := by sorry\n@[expose] public section\nnamespace N\n"
+                 "theorem b : 2 = 2 := by sorry\nend N\nend\n")
+    assert ex.plan_theorems(challenge, None) == ["a", "N.b"]
+
+
+@pytest.mark.parametrize("decl", ["public def f : Nat := 1", "@[expose] public def f : Nat := 1",
+                                  "public meta def f : Nat := 1", "public instance : Inhabited Nat := ⟨0⟩",
+                                  "public structure S where x : Nat"])
+def test_a_module_challenge_that_defines_something_is_refused(fake, capsys, decl):
+    # Before the fix `public def` passed the definition refusal and the exercise was judged (accepted).
+    rc, _, err = run(capsys, files(fake.root, challenge="module\n" + decl + "\npublic section\n" + CHALLENGE + "end\n"))
+    assert rc == 2 and "--defs" in err and not calls(fake)
+
+
+@pytest.mark.parametrize("line,needle", [("public import Mathlib", "Mathlib-free"),
+                                         ("meta import Mathlib.Tactic", "Mathlib-free"),
+                                         ("import all Mathlib", "Mathlib-free"),
+                                         ("public meta import Challenge", "only Init, Std, Lean"),
+                                         ("public import Defs", "--defs")])
+def test_module_system_imports_are_checked(fake, capsys, line, needle):
+    # Before the fix only a line starting with `import` was read: `public import Mathlib` passed.
+    rc, _, err = run(capsys, files(fake.root, challenge="module\n\n" + line + "\n\npublic section\n" + CHALLENGE
+                                   + "end\n"))
+    assert rc == 2 and needle in err and not calls(fake)
+
+
+def test_module_system_imports_of_the_core_library_are_allowed(fake, capsys):
+    rc, _, _ = run(capsys, files(fake.root, MOD_CHALLENGE, "module\n\npublic import Std.Data.HashMap\n"
+                                 "meta import Lean\nimport all Init.Data.Nat\n" + MOD_SOLUTION[len("module\n"):]))
+    assert rc == 0
 
 
 def test_timeout(fake, capsys):
@@ -417,6 +481,14 @@ REAL = [  # (case, solution, verdict, axiom)
      "accepted", None),
 ]
 
+REAL_MODULE = [  # (case, challenge, solution, verdict, detail fragment): Lean's module system, v4.35.0-rc2
+    ("m_honest", MOD_CHALLENGE, MOD_SOLUTION, "accepted", "okay"),
+    ("m_private_solution", MOD_CHALLENGE, "module\n\ntheorem t (n : Nat) : n + 0 = n := by simp\n", "missing",
+     "public section"),
+    ("m_private_challenge", "module\n\ntheorem t (n : Nat) : n + 0 = n := by sorry\n", MOD_SOLUTION, "tool_error",
+     "the Challenge does not export"),
+]
+
 
 @pytest.mark.skipif(_real_host_ready() is not None, reason=str(_real_host_ready()))
 @pytest.mark.parametrize("case,solution,verdict,axiom", REAL, ids=[r[0] for r in REAL])
@@ -433,6 +505,16 @@ def test_real_lake_comparator(tmp_path, monkeypatch, capsys, case, solution, ver
     if verdict == "accepted":
         assert row["kernels"] == ["con-ron", "nanoda", "lean"]
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith("lean-exercise-")] == []
+
+
+@pytest.mark.skipif(_real_host_ready() is not None, reason=str(_real_host_ready()))
+@pytest.mark.parametrize("case,challenge,solution,verdict,fragment", REAL_MODULE, ids=[r[0] for r in REAL_MODULE])
+def test_real_module_headed_exercise(tmp_path, monkeypatch, capsys, case, challenge, solution, verdict, fragment):
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    rc = ex.main(files(tmp_path, challenge, solution) + ["--toolchain", "v4.35.0-rc2", "--json"])
+    row = json.loads(capsys.readouterr().out)["theorems"][0]
+    print(f"{case}: {row['verdict']} ({row['detail']})", file=sys.__stderr__)
+    assert row["verdict"] == verdict and fragment in row["detail"] and rc == (0 if verdict == "accepted" else 1)
 
 
 @pytest.mark.skipif(_real_host_ready() is not None, reason=str(_real_host_ready()))

@@ -6,7 +6,7 @@ whole (`Demo.«a.b»` is two components). `declarations(text)` lists the declara
 with their fully qualified names: it skips nested `/- ... -/` block comments, `--` line comments and
 string literals, attaches a `/-- ... -/` docstring to the declaration after it (on the same line or
 across attribute lines), reads attributes with strings and nested brackets, modifiers
-(`private`, `noncomputable`, `local`, ...), `instance (priority := n)`, `class inductive` and «» names,
+(`private`, `public`, `noncomputable`, `local`, ...), `instance (priority := n)`, `class inductive` and «» names,
 and tracks `namespace` / `section` / `mutual` ... `end`. It is a scanner for search, not a parser:
 a declaration it cannot read is missed, never invented from a comment.
 """
@@ -17,7 +17,10 @@ import re
 
 KEYWORDS = ("theorem", "lemma", "def", "structure", "class", "instance", "abbrev", "inductive",
             "axiom", "opaque", "irreducible_def")
-MODIFIERS = ("private", "protected", "noncomputable", "partial", "unsafe", "nonrec", "scoped", "local")
+# `public` and `meta` are module-system modifiers (Lean v4.35: `public theorem`, `@[expose] public section`,
+# `public meta def`).
+MODIFIERS = ("private", "protected", "noncomputable", "partial", "unsafe", "nonrec", "scoped", "local",
+             "public", "meta")
 _IDENT_PART = r"(?:«[^»\n]*»|[^\s:({\[⦃«».,@)}\]⦄]+)"
 _NAME = re.compile(_IDENT_PART + r"(?:\." + _IDENT_PART + r")*")
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_']*")

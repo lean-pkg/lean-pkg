@@ -106,6 +106,14 @@ def test_namespaces_qualify_names_and_end_closes_them(scan):
     assert [n for _, n in names(scan, src)] == ["A.B.C.t1", "A.d1", "top", "A.m1", "A.t2", "outside"]
 
 
+def test_module_system_modifiers_and_public_sections(scan):
+    # Lean v4.35 module system: `public theorem`, `public meta def`, `@[expose] public section` ... `end`.
+    src = ("module\n\npublic import Mathlib\n\nnamespace A\npublic theorem t1 : True := trivial\n"
+           "@[expose] public section\npublic meta def m : Nat := 0\ndef d : Nat := 0\nend\n"
+           "theorem t2 : True := trivial\nend A\n")
+    assert names(scan, src) == [("theorem", "A.t1"), ("def", "A.m"), ("def", "A.d"), ("theorem", "A.t2")]
+
+
 def test_the_name_as_written_is_reported_too(scan):
     d = scan.declarations("namespace DemoA\ntheorem Sub.thing : True := trivial\nend DemoA\n")
     assert d[0][2] == "DemoA.Sub.thing" and d[0][5] == "Sub.thing"

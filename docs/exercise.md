@@ -86,6 +86,17 @@ not ask for is not judged, so a `native_decide` there does not matter. A
 - **No Mathlib in v1.** Imports are limited to `Init`, `Std`, `Lean` and
   `Defs`. An `import Mathlib` is refused with exit 2.
 - A `private theorem` cannot be judged by name and is refused.
+- **Module-headed files are judged as they are.** A Challenge, Solution or
+  `Defs.lean` may start with `module` (Lean's module system, what Palomar
+  requires); the import rules above then apply to `public import`,
+  `meta import` and `import all` too, and a `public def` in the Challenge is
+  refused like any definition. In a module a theorem is private unless it is
+  inside `public section` ... `end` or declared `public theorem`, and the
+  judge cannot export a private one: in the Challenge that is a `tool_error`
+  (`the Challenge does not export this theorem`), in the Solution a `missing`
+  whose detail says so. A module may import only modules, so with a
+  module-headed Challenge `Defs.lean` starts with `module` too, and a shared
+  definition whose body a proof unfolds needs `@[expose]`.
 
 ## Host
 

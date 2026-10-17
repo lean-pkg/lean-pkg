@@ -93,6 +93,23 @@ change the registry schema or receipt format, always with a migration).
   a tag or a link. A README block rendered by 0.7.54 from such text reads as
   stale once; render it again with `page NAME --write`.
 
+### Fixed
+
+- `lean-exercise` reads module-headed files: the import rules now cover
+  `public import`, `meta import` and `import all` (only a line starting with
+  `import` was read, so `public import Mathlib` or `meta import Challenge`
+  passed the checks and `import all Init` was refused as a module named
+  `all`), and a `public def` (or `public structure`,
+  `public instance`, ...) in the Challenge is refused like any definition
+  (it was judged, and accepted). A private theorem of a `module` Challenge
+  is a `tool_error` ("the Challenge does not export this theorem"), not the
+  learner's `missing`, and a `missing` in a `module` Solution names the
+  private default (`public section` or `public theorem`).
+- The Lean declaration scanner behind `search`'s declaration fallback,
+  `comparator config --from-claims` (qualified names) and `lean-exercise`
+  reads the module-system modifiers `public` and `meta`: a `public theorem`
+  or `public meta def` was not seen as a declaration.
+
 ## [0.7.54] - 2026-10-16
 
 ### Added
