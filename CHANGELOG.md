@@ -24,6 +24,18 @@ change the registry schema or receipt format, always with a migration).
   file without the keys normalizes, caches and digests exactly as before; an
   older lean-pkg refuses a file that uses them (unknown keys).
 
+### Fixed
+
+- Docs-only and evidence-only descendant rules: a committed Lake build cache or compiled artifact is now refused
+  (field report #5). With `docs_descendants` on, a descendant that force-added `.lake/build/lib/lean/X.olean`, a
+  `.trace` or `.hash` under `.lake/`, `.lake/packages/...`, a nested package's `.lake/`, or a top-level `Foo.olean`
+  was admitted as docs; under `.lean-receipts/` such a file was admitted as evidence by both rules. Any path with a
+  `.lake` component at any depth, or a file with a Lake 4.35 artifact suffix (`.olean`, `.olean.server`,
+  `.olean.private`, `.ilean`, `.ir`, `.ir.sig`, `.trace`, `.hash`, `.c`, `.c.o.export`, `.c.o.noexport`, `.bc`,
+  `.bc.o`, `.o`, `.ltar`, `.so`, `.dylib`, `.dll`, `.a`, `.lib`, `.exe`; case-insensitive), is now a build input
+  before any `build_inputs` or evidence admission; the refusal names the path and says `build cache/artifact`.
+  Ordinary docs and `.lean-receipts/` evidence are still admitted (docs/receipts.md).
+
 ## [0.7.53] - 2026-10-16
 
 ### Fixed

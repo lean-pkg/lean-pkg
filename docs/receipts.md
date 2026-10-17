@@ -645,7 +645,15 @@ can never be tracked at the commit it names. The rule:
 > descends from X and `git diff --name-only X H` is non-empty and contains
 > only paths under `.lean-receipts/`. Any other difference is drift.
 
-Two exceptions keep "evidence" from changing what the build reads:
+Three exceptions keep "evidence" from changing what the build reads:
+
+- A Lake build cache or compiled artifact is never evidence, even under
+  `.lean-receipts/`: a path with a `.lake` component at any depth, or a file
+  ending in one of Lake's artifact suffixes (`.olean`, `.olean.server`,
+  `.olean.private`, `.ilean`, `.ir`, `.ir.sig`, `.trace`, `.hash`, `.c`,
+  `.c.o.export`, `.c.o.noexport`, `.bc`, `.bc.o`, `.o`, `.ltar`, `.so`,
+  `.dylib`, `.dll`, `.a`, `.lib`, `.exe`; compared case-insensitively). The
+  refusal names the path and says `build cache/artifact`.
 
 - For a package in a subdirectory of its repository, a `.gitattributes`,
   `.gitmodules` or `.lfsconfig` changed at the repository root or in any
@@ -748,6 +756,18 @@ Build inputs, matched on paths relative to the package directory:
 
 Always refused under the opt-in, whatever `build_inputs` says:
 
+- a Lake build cache or compiled artifact (#5), checked before any other
+  admission, `.lean-receipts/` included: any path with a `.lake` component at
+  any depth (`.lake/build/lib/lean/X.olean`, a `.trace` or `.hash` there,
+  `.lake/packages/dep/...`, a nested package's `sub/.lake/...`), and any file
+  ending in a Lake artifact suffix anywhere (`Foo.olean`, `libFoo.so`,
+  `build/ir/Foo.c`; the list is the one above). Lake reads committed caches
+  in place of rebuilding, so such a commit could change what a build loads
+  while every `.lean` file stays the same. The refusal names the path and
+  says `build cache/artifact`; a `.lake` path inside `.lean-receipts/` is
+  refused too, while ordinary evidence there stays admitted. A nested
+  registered package this package does not depend on stays ignored as a
+  whole, its `.lake/` included;
 - a symlink (mode 120000) or a gitlink/submodule (mode 160000) added,
   changed or removed anywhere under the package directory;
 - a change to a file (or under a directory) that a symlink committed at X

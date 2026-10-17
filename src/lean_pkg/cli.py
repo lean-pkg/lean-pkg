@@ -563,6 +563,12 @@ def evidence_only_descendant(repo: pathlib.Path, bound: str,
     paths = [x for x in p.stdout.splitlines() if x.strip()]
     ignored = [x for x in paths if under_any(x, exclude)]
     paths = [x for x in paths if not under_any(x, exclude)]
+    # A Lake build cache or compiled artifact is never evidence, under .lean-receipts/ included (#5).
+    cached = [f"{x} ({lake_artifact(x)})" for x in paths if lake_artifact(x)]
+    if cached:
+        return False, (f"HEAD {head[:12]} differs from {bound[:12]} in {'; '.join(cached[:5])}"
+                       + (f" (+{len(cached) - 5} more)" if len(cached) > 5 else "")
+                       + "; Lake reads it in place of a build, so it is never evidence")
     foreign = [x for x in paths if not x.startswith(".lean-receipts/")]
     # Outside a subdirectory package: .gitattributes/.gitmodules/.lfsconfig at the repository root or between
     # it and the package still change the bytes the build sees (filters, eol, LFS); never evidence.
@@ -681,6 +687,26 @@ DOCS_ALWAYS_REFUSED = (".gitattributes", ".gitmodules", ".lfsconfig", "claims.ya
 # Files outside a subdirectory package that still change the bytes its build sees (filters, eol, LFS):
 # checked at the repository root and in every directory between it and the package directory.
 DOCS_ANCESTOR_FILES = (".gitattributes", ".gitmodules", ".lfsconfig")
+# Lake's build caches and compiled artifacts (Lake 4.35: Lake/Config/Module.lean, Build/Common.lean,
+# Util/NativeLib.lean): a `.lake` directory at any depth (build/, packages/, a dependency's own .lake) and
+# any file with one of these suffixes. Lake reads them in place of rebuilding, so a committed one is never
+# docs and never evidence, whatever the record's build_inputs say or where it lies (#5). Case-folded.
+LAKE_ARTIFACT_SUFFIXES = (".olean", ".olean.server", ".olean.private", ".ilean", ".ir", ".ir.sig",
+                          ".trace", ".hash", ".c", ".c.o.export", ".c.o.noexport", ".bc", ".bc.o", ".o",
+                          ".ltar", ".so", ".dylib", ".dll", ".a", ".lib", ".exe")
+
+
+def lake_artifact(path: str) -> str | None:
+    """`build cache/artifact ...` when the package-relative `path` has a `.lake` component at any depth
+    or ends in a Lake artifact suffix (LAKE_ARTIFACT_SUFFIXES); None otherwise."""
+    parts = [x.casefold() for x in path.replace("\\", "/").split("/") if x]
+    if ".lake" in parts:
+        return "build cache/artifact: under .lake/"
+    base = parts[-1] if parts else ""
+    for suf in sorted(LAKE_ARTIFACT_SUFFIXES, key=len, reverse=True):
+        if base.endswith(suf) and base != suf:
+            return f"build cache/artifact: *{suf}"
+    return None
 
 
 def resolve_tree_path(tree: dict[str, str], path: str) -> str | None:
@@ -817,6 +843,9 @@ def docs_build_input(path: str, globs, extra, scopes=None) -> str | None:
     The record's build_inputs globs never match under .lean-receipts/: an extension-wide glob (`*.json`,
     `**/*.json`) or an "everything but README" glob would otherwise turn new evidence into a build input."""
     from .build_scope import scope_reason
+    art = lake_artifact(path)   # before every admission, .lean-receipts/ included (#5)
+    if art:
+        return art
     base = posixpath.basename(path)
     if base in DOCS_ALWAYS_REFUSED:
         return base
@@ -848,7 +877,8 @@ def docs_only_descendant(repo: pathlib.Path, bound: str, head: str, pkg: dict | 
     lakefile.lean, no lakefile.toml, or one that cannot be read precisely), input_file/input_dir and
     `require` path targets, lakefile.*, lake-manifest.json,
     lean-toolchain at any depth, the record's build_inputs globs, the files the receipt's checker names;
-    always refused: a symlink or gitlink added/changed/removed, .gitattributes, .gitmodules, .lfsconfig,
+    always refused: a Lake build cache or compiled artifact (lake_artifact: a .lake component at any depth,
+    or an artifact suffix; .lean-receipts/ included), a symlink or gitlink added/changed/removed, .gitattributes, .gitmodules, .lfsconfig,
     claims.yaml (and the recorded claims_file); for a subdirectory package also a .gitattributes,
     .gitmodules or .lfsconfig at the repository root or in any directory between it and the package.
     The formalization.yaml keeps its derived-keys-only rule. `exclude`: as for evidence_only_descendant.
