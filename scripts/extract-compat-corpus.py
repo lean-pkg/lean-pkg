@@ -68,6 +68,11 @@ def vocabulary():
                 words.update(str(c) for c in a.choices)
             if a.type not in (None, str) and _accepts_number(a.type):
                 int_opts.update(a.option_strings)   # int, float, or a converter such as hours
+    from lean_pkg import command_tree as ct   # old spellings (claim, init, receipt local, ...) are commands too
+    for a in ct.COMMAND_ALIASES:
+        top.add(a.old[0])
+        words.update(a.old)
+    words.update(fa.old for fa in ct.FLAG_ALIASES)
     return top, groups, words, int_opts
 
 

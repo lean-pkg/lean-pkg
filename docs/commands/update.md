@@ -14,12 +14,12 @@ set fields of an already-registered package (register is for NEW ones).
 
 ```text
 lean-pkg update [--automation AUTOMATION] [--notes TEXT] [--replace-notes]
-                [--upstream-target {none,mathlib,palomar}] [--track {palomar,doi-only}]
-                [--accept-docs-descendants] [--no-accept-docs-descendants]
-                [--build-inputs GLOB,GLOB] [--reaudit-after ISO8601]
-                [--owner-project OWNER_PROJECT] [--repo REPO] [--license-spdx SPDX]
-                [--formalization-yaml REL] [--headline-config REL] [--paper-arxiv ID]
-                [--paper-status {unpublished,preprint,published}]
+                [--upstream-target {none,mathlib,palomar}]
+                [--doi-track {palomar,doi-only}] [--accept-docs-descendants]
+                [--no-accept-docs-descendants] [--build-inputs GLOB,GLOB]
+                [--reaudit-after ISO8601] [--owner-project OWNER_PROJECT] [--url URL]
+                [--license-spdx SPDX] [--formalization-yaml REL] [--headline-config REL]
+                [--paper-arxiv ID] [--paper-status {unpublished,preprint,published}]
                 [--source-paper-title TITLE] [--source-paper-author NAME]
                 [--source-paper-arxiv ID] [--source-paper-doi DOI] [--ai-tool TOOL]
                 [--ai-role ROLE] [--append-note TEXT] [--namespace-note TEXT]
@@ -41,13 +41,13 @@ lean-pkg update [--automation AUTOMATION] [--notes TEXT] [--replace-notes]
 | `--notes TEXT` | set the notes; refused when notes exist unless --replace-notes (use --append-note) |
 | `--replace-notes` | with --notes: replace non-empty notes (the old text stays in history as notes_from) |
 | `--upstream-target {none,mathlib,palomar}` | Choices: `none`, `mathlib`, `palomar`. |
-| `--track {palomar,doi-only}` | the DOI track (needs --reason): doi-only lets a public package record doi-minted without a palomar-\* event; palomar (the default when absent) keeps rule doi-in-palomar. Choices: `palomar`, `doi-only`. |
+| `--doi-track {palomar,doi-only}` | the DOI track (needs --reason): doi-only lets a public package record doi-minted without a palomar-\* event; palomar (the default when absent) keeps rule doi-in-palomar (old spelling --track, kept working). Choices: `palomar`, `doi-only`. |
 | `--accept-docs-descendants` | opt in (needs --reason): a receipt bound to commit C is also accepted at a descendant of C where no build input under the package directory changed (\*.lean, lakefile.\*, lake-manifest.json, lean-toolchain, --build-inputs globs, the checker's files; never a symlink/gitlink change, .gitattributes, .gitmodules, .lfsconfig, claims.yaml, nor those attribute files in a directory above a subdirectory package); the gated commit stays C (docs/receipts.md); --dry-run supported |
 | `--no-accept-docs-descendants` | opt out again (needs --reason): only the evidence-only rule applies |
 | `--build-inputs GLOB,GLOB` | extra build inputs for the docs-only rule (needs --reason): comma-separated package-relative fnmatch globs (`*` crosses /; a glob without / also matches a basename), replacing the recorded list; '' clears it |
 | `--reaudit-after ISO8601` |   |
 | `--owner-project OWNER_PROJECT` |   |
-| `--repo REPO` | remote URL (e.g. after publishing a private dep) |
+| `--url URL` | remote URL (e.g. after publishing a private dep) (old spelling --repo, kept working) |
 | `--license-spdx SPDX` | the package's license as an SPDX id or expression, e.g. 'MIT OR Apache-2.0' (what the index and Reservoir expect) |
 | `--formalization-yaml REL` | repository-relative path of the package's formalization.yaml |
 | `--headline-config REL` | repository-relative path of the headline comparator configuration (the paper's main results, fed to formalization.yaml status.main_results); '' clears it (then comparator.headline.json applies when tracked) |

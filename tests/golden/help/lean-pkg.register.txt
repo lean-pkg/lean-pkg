@@ -1,4 +1,4 @@
-usage: lean-pkg register [-h] [--repo REPO] --path PATH [--like OTHER]
+usage: lean-pkg register [-h] [--url URL] --path PATH [--like OTHER]
                          [--owner-project OWNER_PROJECT] [--visibility {private,public}]
                          [--status {scratch,active,gate-pending,public}]
                          [--upstream-target {none,mathlib,palomar}] [--automation AUTOMATION]
@@ -11,7 +11,8 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --repo REPO           git URL (or local bare path); required unless --like gives it
+  --url URL             git URL (or local bare path); required unless --like gives it (old
+                        spelling --repo, kept working)
   --path PATH           local checkout path, $HOME-relative
   --like OTHER          a sibling of registered package OTHER: copy its repo, owner-project,
                         upstream-target and automation (flags given here win; visibility is never

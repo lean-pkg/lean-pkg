@@ -27,6 +27,10 @@ Where the unit's terminal state comes from (one of three, like sacct / --sacct-f
   waiting (SIGINT, SIGTERM, SIGHUP), the unit is left running and its temporary cache is kept while the unit may
   still run; the recovery command (the same without --run) is printed, exit 128 + the signal (report_interrupt). A log showing a
   root-package module Reused, Replayed or Unpacked is refused, so run from a clean build (`lake clean`).
+  The running lean-pkg itself is fingerprinted before the start (producer.py: its package files, dist-info,
+  interpreter and entry point), checked about every PRODUCER_CHECK_SECONDS while waiting (a WARN, once) and
+  again at collection: a change refuses, naming the files; an unchanged one is sealed as the additive receipt
+  key `producer` (gate ignores it) and a `- Producer:` README line.
 - `--properties-file F`: the output of `systemctl --user show U -p <UNIT_PROPS>` saved before the unit was
   collected, plus a `Hostname=` line naming the host it ran on (the host is part of job_id).
 - neither: `systemctl --user show U` now, on this host (the unit must still be loaded, i.e. not --collect).
@@ -65,6 +69,7 @@ import threading
 import time
 
 from . import cli as core
+from . import producer as pr
 from . import receipt as rc
 
 UNIT_PROPS = ("Id", "LoadState", "ActiveState", "SubState", "Result", "InvocationID", "ExecMainCode",
@@ -80,6 +85,8 @@ INVOCATION_KEY = "invocation-id"
 CODES = {"1": "exited", "2": "killed", "3": "dumped", "exited": "exited", "killed": "killed", "dumped": "dumped"}
 DEFAULT_CAPS = {"memory_max": "8G", "memory_swap_max": "0", "cpu_quota": "400%", "runtime_max": "4h"}
 POLL_SECONDS = 2.0
+# --run re-fingerprints the running lean-pkg this often while it waits (producer.py); and always at collection
+PRODUCER_CHECK_SECONDS = 60.0
 SYSTEMCTL_TIMEOUT = 60
 _CAP_RE = re.compile(r"[0-9][0-9.]*[A-Za-z%]*")
 _UNIT_RE = re.compile(r"[A-Za-z0-9:_.@\\-]+")
@@ -423,9 +430,12 @@ def report_interrupt(args, signum: int, unit: str, running: bool | None, cache_d
 
 
 def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathlib.Path,
-             refusals: list[str], checks: list[str]) -> str | None:
+             refusals: list[str], checks: list[str], producer: dict | None = None) -> str | None:
     """Start the command as the bounded transient unit, wait for it to finish, capture its properties before
-    the unit is stopped and reset; returns the captured text (None when it never ran)."""
+    the unit is stopped and reset; returns the captured text (None when it never ran). `producer` (a dict)
+    receives the fingerprint of the running lean-pkg taken before the start ("start", producer.py), its
+    receipt key as of the start ("receipt") and, when it changed by collection, the changed entries
+    ("changed"; also a refusal)."""
     run_exe, ctl = shutil.which("systemd-run"), shutil.which("systemctl")
     if run_exe is None or ctl is None:
         refusals.append("systemd-run / systemctl are not on PATH; on a host without systemd run the unit "
@@ -437,6 +447,9 @@ def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathli
     if why:
         refusals.append(why + "; nothing was run")
         return None
+    producer = {} if producer is None else producer
+    producer["start"] = pr.fingerprint()
+    producer["receipt"] = pr.receipt_producer(producer["start"])   # commit and dirtiness as of the start
     argv = [run_exe, "--user", f"--unit={unit}", "--quiet", "-p", "RemainAfterExit=yes",
             "-p", f"WorkingDirectory={repo.resolve()}", "-p", "OOMPolicy=stop",
             "-p", f"MemoryMax={args.memory_max}", "-p", f"MemorySwapMax={args.memory_swap_max}",
@@ -461,7 +474,7 @@ def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathli
     keep_cache = False
     old = _set_handlers(_raise_interrupt)
     try:
-        return _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, checks)
+        return _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, checks, producer)
     except (KeyboardInterrupt, RunInterrupted) as e:
         _set_handlers(signal.SIG_IGN)            # no second interruption while the state is read and reported
         signum = e.signum if isinstance(e, RunInterrupted) else signal.SIGINT
@@ -477,7 +490,11 @@ def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathli
             shutil.rmtree(cache_dir, ignore_errors=True)
 
 
-def _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, checks) -> str | None:
+def _producer_changes(producer: dict) -> list[str]:
+    return pr.changes(producer["start"], pr.fingerprint(pathlib.Path(producer["start"]["pkg"])))
+
+
+def _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, checks, producer) -> str | None:
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=SYSTEMCTL_TIMEOUT, env=user_env())
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -488,6 +505,7 @@ def _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, ch
                         f"(a unit named {unit} may already be loaded: `systemctl --user status {unit}`)")
         return None
     print(f"lean-pkg: receipt systemd: started {unit}; waiting for it to finish", file=sys.stderr)
+    next_check, warned = time.monotonic() + PRODUCER_CHECK_SECONDS, False
     while True:
         text, why = systemctl_show(ctl, unit, STATE_PROPS)
         if why:
@@ -497,6 +515,15 @@ def _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, ch
         if (state.get("LoadState") != "loaded" or state.get("ActiveState") in ("failed", "inactive")
                 or state.get("SubState") == "exited"):
             break
+        if not warned and time.monotonic() >= next_check:
+            # Early, not only at the end: the receipt of this run will be refused, say so while it runs.
+            names = _producer_changes(producer)
+            next_check = time.monotonic() + PRODUCER_CHECK_SECONDS
+            if names:
+                warned = True
+                print(f"lean-pkg: receipt systemd: WARN {pr.changed_message(names, 'while ' + unit + ' runs')}; "
+                      f"this run's receipt will be refused at collection (the unit keeps running; stop it with "
+                      f"systemctl --user stop {unit})", file=sys.stderr)
         time.sleep(POLL_SECONDS)
     text, why = systemctl_show(ctl, unit, ",".join(UNIT_PROPS))
     if why is None:
@@ -511,6 +538,14 @@ def _run_started(argv, unit, ctl, repo, commit, outputs, props_out, refusals, ch
     why = source_problem(repo, commit, "during the run", outputs)
     if why:
         refusals.append(why)
+    names = _producer_changes(producer)
+    if names:
+        producer["changed"] = names
+        refusals.append(pr.changed_message(names, "during the run"))
+    else:
+        start = producer["start"]
+        what = "; ".join([f"{len(start['sources'])} source files", *start["environment"]])
+        checks.append(f"✓ producer: lean-pkg {start['version']} unchanged from run start to collection ({what})")
     return text
 
 
@@ -599,14 +634,18 @@ def cmd_receipt_systemd(args) -> int:
 
     refusals: list[str] = []
     checks: list[str] = []
-    json_extra = {"unit": None, "properties": None, "ran": run}
+    json_extra = {"unit": None, "properties": None, "ran": run, "producer": None}
+    producer: dict = {}
     if run:
         try:
-            text = run_unit(args, unit, repo, paths, props_out, refusals, checks)
+            text = run_unit(args, unit, repo, paths, props_out, refusals, checks, producer)
         except RunInterrupted as e:
             return 128 + e.signum
         if text is not None:
             json_extra["properties"] = str(props_out)
+        if "receipt" in producer:
+            json_extra["producer"] = {**producer["receipt"],
+                                      "changed": producer.get("changed", [])}
     elif args.properties_file is not None:
         text = pathlib.Path(args.properties_file).expanduser().read_text(encoding="utf-8", errors="replace")
         json_extra["properties"] = str(args.properties_file)
@@ -647,9 +686,19 @@ def cmd_receipt_systemd(args) -> int:
             refusals.append(f"{flag} {paths[flag].name}: the unit's stream was not written")
             return _refuse_early(args, job_id, refusals, checks, json_extra)
 
+    sealed_producer = None
+    if json_extra["producer"] is not None and not json_extra["producer"]["changed"]:
+        sealed_producer = {k: v for k, v in json_extra["producer"].items() if k != "changed"}
+
     def lines(receipt_name: str, tar: str) -> list[str]:
-        return [f"- Receipt: `{receipt_name}`. systemd --user unit `{unit}`, invocation `{inv}` on `{host}`:",
-                f"  Result success, exit `0`; {resources(s)}{tar}."]
+        out = [f"- Receipt: `{receipt_name}`. systemd --user unit `{unit}`, invocation `{inv}` on `{host}`:",
+               f"  Result success, exit `0`; {resources(s)}{tar}."]
+        if sealed_producer:
+            p = sealed_producer
+            build = f"editable {p['commit'][:12]}{'+dirty' if p['dirty'] else ''}" if p["commit"] else p["install"]
+            out.append(f"- Producer: lean-pkg {p['lean_pkg']} ({build}), sources SHA-256 `{p['sources_sha256']}`; "
+                       f"unchanged from run start to collection.")
+        return out
 
     def log_job_id(value: str) -> str | None:
         if value not in (job_id, inv):
@@ -672,12 +721,13 @@ def cmd_receipt_systemd(args) -> int:
                      redaction_note="local paths redacted", stdout_check=stdout_check,
                      evidence_files=[("unit.properties", normalised(props), "unit_properties_sha256",
                                       "- Unit properties: `{name}`, SHA-256 `{sha}` (captured before the unit "
-                                      "was collected).")])
+                                      "was collected).")],
+                     receipt_extra={"producer": sealed_producer} if sealed_producer else None)
     return rc.produce(args, ev, repo, paths, extra)
 
 
 def add_parser(rsub) -> None:
-    s = rsub.add_parser("systemd", aliases=["local"],
+    s = rsub.add_parser("systemd",   # `receipt local` is an alias (command_tree.COMMAND_ALIASES)
                         help="a lower-tier receipt from a finished systemd --user service unit (run bounded with "
                              "--run, or its saved properties), its verify log and its stdout seal")
     s.add_argument("--unit", required=True, metavar="U",
@@ -686,7 +736,7 @@ def add_parser(rsub) -> None:
     s.add_argument("--log", required=True, metavar="PATH",
                    help="the raw verify log the unit writes; when it has no `checker:` line, --checker TEXT is "
                         "required")
-    s.add_argument("--commit", dest="commit_sha", required=True, metavar="SHA",
+    s.add_argument("--receipt-commit", dest="commit_sha", required=True, metavar="SHA",
                    help="the verified commit; must exist in --repo (with --run: the checkout's clean HEAD)")
     s.add_argument("--stdout", default=None, metavar="PATH",
                    help=f"the unit's stdout file: {rc.SHA_KEY} = sha256(raw log), {rc.PRE_KEY} = {rc.POST_KEY} = "
@@ -702,7 +752,8 @@ def add_parser(rsub) -> None:
     src.add_argument("--run", action="store_true",
                      help="start `-- CMD ...` as the bounded unit U (systemd-run --user, RemainAfterExit, "
                           "WorkingDirectory=--repo), wait for it, capture its properties before stopping it; "
-                          "--log, --stdout, --stderr must not exist yet")
+                          "--log, --stdout, --stderr must not exist yet. The running lean-pkg's own files must "
+                          "not change during the run (sealed as the receipt key `producer`)")
     src.add_argument("--memory-max", default=DEFAULT_CAPS["memory_max"], metavar="BYTES",
                      help=f"--run: MemoryMax (default {DEFAULT_CAPS['memory_max']})")
     src.add_argument("--memory-swap-max", default=DEFAULT_CAPS["memory_swap_max"], metavar="BYTES",

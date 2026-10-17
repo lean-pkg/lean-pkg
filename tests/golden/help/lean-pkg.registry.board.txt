@@ -1,5 +1,5 @@
-usage: lean-pkg board [-h] [--only NAME[,NAME]] [--fields a,b,c] [--no-claims] [--json] [--commit]
-                      [--push] [--no-commit]
+usage: lean-pkg registry board [-h] [--only NAME[,NAME]] [--fields a,b,c] [--no-claims] [--json]
+                               [--commit] [--push] [--no-commit]
 
 options:
   -h, --help          show this help message and exit

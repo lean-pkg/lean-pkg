@@ -15,7 +15,7 @@ prior-art search over claims, the index and public sources.
 ```text
 lean-pkg search [--package PACKAGE] [--offline] [--loogle] [--loogle-query PATTERN]
                 [--require-complete] [--cache-dir DIR] [--sources a,b,c] [--index INDEX]
-                [--record] [--repo-dir REPO_DIR] [--agent AGENT] [common flags] TERM
+                [--record] [--repo DIR] [--agent AGENT] [common flags] TERM
 ```
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
@@ -36,7 +36,7 @@ Prior-art search. Packages without synced claims are searched by declaration (fu
 | `--sources a,b,c` | subset of: registry,index,loogle,leansearch,reservoir,palomar,github (order is fixed) |
 | `--index INDEX` | index root (default: $LEAN_PKG_INDEX, else ./index) |
 | `--record` | write docs/prior-art/&lt;date&gt;-&lt;slug&gt;.md in the package checkout (or --repo-dir) and a prior-art-searched event |
-| `--repo-dir REPO_DIR` | research repository for --record |
+| `--repo DIR` | research repository for --record (old spelling --repo-dir, kept working) |
 | `--agent AGENT` | with --record: the agent acting (recorded as the event's actor); another agent's live lease on --package then refuses |
 
 ## Details

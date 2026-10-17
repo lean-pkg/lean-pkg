@@ -11,14 +11,15 @@ title: Command reference
 Every `lean-pkg` command and subcommand, with its usage line, every flag, its exit codes, its
 `--json` keys and, for the commands people run most, examples. Flags shared by every command
 (`--registry`, `--json`, `--commit`, `--push`, committed mode, `--registry-snapshot`) are on the
-[CLI overview](../cli.md).
+[CLI overview](../cli.md). Older spellings (`claim`, `init`, `audit`, ...) keep working; see
+[Command aliases](aliases.md).
 
 **New here?** The [quickstart](../quickstart.md) takes a new package from
 [`new`](new.md) to a verified page. The usual path through the commands is
-[`init`](init.md) (once) → [`register`](register.md) → [`claim`](claim.md) →
+[`registry init`](registry.md#lean-pkg-registry-init) (once) → [`register`](register.md) → [`lease claim`](lease.md#lean-pkg-lease-claim) →
 work → [`receipt slurm`](receipt.md#lean-pkg-receipt-slurm) or
 [`receipt systemd`](receipt.md#lean-pkg-receipt-systemd) → [`gate`](gate.md) →
-[`comparator-receipt`](comparator-receipt.md) and [`comparator`](comparator.md) →
+[`comparator-receipt`](comparator-receipt.md) and [`comparator attach`](comparator.md#lean-pkg-comparator-attach) →
 [`coverage check`](coverage.md#lean-pkg-coverage-check) and [`page`](page.md) →
 [`publish --dry-run`](publish.md) → [`promote`](promote.md). At any point
 [`next NAME`](next.md) prints the one command to run now and [`status NAME`](status.md)
@@ -30,8 +31,6 @@ real package.
 | Command | Purpose |
 |---|---|
 | [`lean-pkg new`](new.md) | scaffold a new Lean package (Challenge/Solution, comparator.json, claims, coverage, verify.sh) in a new directory and git init it; no registry, no network |
-| [`lean-pkg init`](init.md) | bootstrap an empty registry and its event log |
-| [`lean-pkg migrate`](migrate.md) | upgrade the registry schema in place (additive; idempotent) |
 | [`lean-pkg doctor`](doctor.md) | installation, registry, index and tool diagnostics; exit 1 when the registry is unreadable or its schema version is unsupported |
 | [`lean-pkg help`](help.md) | help topics (exit-codes, environment, formatting) or a command's --help |
 | [`lean-pkg llms`](llms.md) | print the agent-oriented usage contract |
@@ -40,24 +39,19 @@ real package.
 
 | Command | Purpose |
 |---|---|
-| [`lean-pkg board`](board.md) | curses TUI on a tty; static table otherwise |
 | [`lean-pkg list`](list.md) | static table, pipe-friendly |
 | [`lean-pkg status`](status.md) | full record + last 5 history entries + scope (gated commit, privacy, the exact comparator-covered declarations) |
-| [`lean-pkg leases`](leases.md) | held leases, soonest expiry first; read-only |
 | [`lean-pkg next`](next.md) | read-only: the single recommended next command for a package, with a one-line reason (exit 0 a command to run, 1 blocked) |
-| [`lean-pkg wiki`](wiki.md) | render a Markdown status page |
-| [`lean-pkg validate`](validate.md) | schema + enum + history sanity; exit 0/1 |
-| [`lean-pkg audit`](audit.md) | report expired leases, gh visibility, drift; read-only without --fix |
+| [`lean-pkg registry`](registry.md) | the registry file itself: init, migrate, validate, audit, board, wiki (the old top-level spellings keep working) |
 
 ## Register, lease and edit packages
 
 | Command | Purpose |
 |---|---|
 | [`lean-pkg register`](register.md) | the ONLY write path for new packages: validated, deduping, auto-detecting |
-| [`lean-pkg claim`](claim.md) | CAS lease on a package (24h default TTL); alias: lease |
-| [`lean-pkg renew`](renew.md) | restart your own live lease from now (holder-only; refuses once it has lapsed: claim again) |
-| [`lean-pkg release`](release.md) | release a lease (holder-only unless --force); with --fresh-repo DIR: export the gated tree (or --from-tree SRCDIR) as a new single-commit repository and move the package there; with --adopt-repo DIR: adopt an existing one |
 | [`lean-pkg update`](update.md) | set fields of an already-registered package (register is for NEW ones) |
+| [`lean-pkg repo`](repo.md) | the package's checkout: move (relocate the record to another checkout) |
+| [`lean-pkg lease`](lease.md) | leases for agents sharing a registry: claim, renew, release, list (the old spellings claim, renew, release, leases keep working) |
 
 ## Produce and attach evidence
 
@@ -68,7 +62,7 @@ The lower tier (`receipt`, `gate`) moves a package to verified-private; the comp
 | [`lean-pkg receipt`](receipt.md) | produce lower-tier receipts (slurm, systemd: write files in the package checkout, never the registry); check a published package's receipts from git alone (check) |
 | [`lean-pkg gate`](gate.md) | validate a lower-tier receipt; gate-pending -&gt; verified-private; records the receipt's lean_toolchain and mathlib_rev as the package's pins |
 | [`comparator-receipt`](comparator-receipt.md) | run comparator-check.sh and write a comparator receipt |
-| [`lean-pkg comparator`](comparator.md) | attach a comparator receipt to a gated package; no status change |
+| [`lean-pkg comparator`](comparator.md) | comparator receipts: attach (or --check) one to a gated package; config (write a configuration from claims); host-check |
 | [`lean-pkg record`](record.md) | record a publication evidence event (consent, Palomar, DOI, Reservoir, Mathlib PR) |
 
 ## Claims, coverage and the verification page
@@ -78,7 +72,7 @@ The lower tier (`receipt`, `gate`) moves a package to verified-private; the comp
 | [`lean-pkg claims`](claims.md) | claims.yaml: sync \| list \| check \| migrate \| ledger \| mark \| rebase (named reusable results) |
 | [`lean-pkg coverage`](coverage.md) | coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main results) `page` renders |
 | [`lean-pkg page`](page.md) | render the README verification section from coverage.yaml, claims, the ledger and the receipts; stdout unless --write/--check/--out/--site/--html |
-| [`lean-pkg formalization`](formalization.md) | render formalization.yaml (v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout unless --write/--out |
+| [`lean-pkg formalization`](formalization.md) | formalization.yaml (v0.4, what Palomar reads): render it from the registry and the repo at HEAD; anchor the companion to one arXiv version |
 | [`lean-pkg search`](search.md) | prior-art search over claims, the index and public sources |
 
 ## Publish

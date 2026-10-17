@@ -29,7 +29,7 @@ RESERVED_VERBS = frozenset(CORE_RESERVED) | {
     "run", "attach", "coverage", "claim", "lease", "leases", "renew", "release", "promote", "fresh-repo",
     "adopt-repo", "formalization", "view", "register", "update", "record", "init", "migrate", "validate",
     "audit", "wiki", "snapshot", "add", "render", "sync", "ledger", "prepare", "slurm", "systemd", "local",
-    "extension", "exercise", "extract", "page", "anchor",
+    "extension", "exercise", "extract", "page", "anchor", "move",
 }
 
 REGISTRY_ENV = "LEAN_PKG_RESERVED_NAMES_REGISTRY"
@@ -48,6 +48,17 @@ def test_core_reserved_verbs_are_pinned():
 
 def test_comparator_keyword_forms_are_reserved(lp):
     assert {lp.HOST_CHECK, lp.CONFIG_CMD} <= RESERVED_VERBS
+
+
+def test_implied_verbs_are_reserved_and_match_the_parser():
+    """`lease NAME` is `lease claim NAME` only because no package is named like a lease verb; the verbs listed
+    in command_tree are exactly the noun's subcommands."""
+    from lean_pkg import command_tree as ct
+    tree = {n.path: n for n in command_tree(parser())}
+    for noun, iv in ct.IMPLIED_VERBS.items():
+        assert set(iv.verbs) <= RESERVED_VERBS, noun
+        assert iv.verb in iv.verbs
+        assert {p[1] for p in tree if len(p) == 2 and p[0] == noun} == set(iv.verbs), noun
 
 
 def test_fixture_registry_has_no_reserved_package_names(env):

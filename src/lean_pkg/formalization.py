@@ -799,17 +799,21 @@ def cmd_formalization(args) -> int:
 
 
 def add_parsers(sub, add_json) -> None:
-    s = sub.add_parser("formalization",
-                       help=f"render formalization.yaml ({SCHEMA_VERSION}, what Palomar reads) "
-                            f"from the registry and the repo at HEAD; stdout unless --write/--out")
-    s.add_argument("name", help="the package; or `anchor` followed by the package (the anchor form)")
-    s.add_argument("package", nargs="?", default=None,
-                   help="anchor form only: the package to anchor")
+    # `formalization render|anchor`: real subparsers (anchor was a value of the name positional before 1.0).
+    # Each sets the namespace the old single parser produced (anchor: name == "anchor", the package in
+    # `package`); `formalization NAME ...` is `formalization render NAME ...` (command_tree.IMPLIED_VERBS).
+    n = sub.add_parser("formalization",
+                       help=f"formalization.yaml ({SCHEMA_VERSION}, what Palomar reads): render it from the registry "
+                            f"and the repo at HEAD; anchor the companion to one arXiv version")
+    fsub = n.add_subparsers(dest="formalization_cmd", required=True, metavar="{render,anchor}")
+    s = fsub.add_parser("render",
+                        help=f"render formalization.yaml ({SCHEMA_VERSION}, what Palomar reads) "
+                             f"from the registry and the repo at HEAD; stdout unless --write/--out "
+                             f"(`formalization NAME` is the same)")
+    s.add_argument("name", help="the package")
     s.add_argument("--write", action="store_true",
                    help="write <repo>/<formalization_yaml or formalization.yaml> and set the "
-                        "registry pointer (event updated); refuses a differing file without --force. "
-                        "Anchor form: write the source-baseline record, coverage.yaml manuscript.version and "
-                        "the formalization.yaml source id (never the registry; not committed)")
+                        "registry pointer (event updated); refuses a differing file without --force")
     s.add_argument("--no-registry", action="store_true",
                    help="with --write: write the file only; the registry is not updated (no pointer, no "
                         "event), so this is not a registry write (no lock, no --commit)")
@@ -830,8 +834,11 @@ def add_parsers(sub, add_json) -> None:
                         "comparator.headline.json when tracked. status.main_results then lists its theorems "
                         "only, each covered by the gate-bound comparator receipt (else refused)")
     s.add_argument("--agent", default=None, help="lease holder, if one is live (for the registry update)")
-    a = s.add_argument_group(
-        "anchor form", "`lean-pkg formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT | --fetch) "
+    add_json(s)
+    render = s
+    a = fsub.add_parser(
+        "anchor", help="bind the companion to one posted arXiv version (writes package files, never the registry)",
+        description="`lean-pkg formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT | --fetch) "
         "[--compare-tex LOCAL.tex [--accept-diff REASON]] [--main-tex PATH] [--write]`: bind the companion to one "
         "posted arXiv version. Reads the e-print (gzip'd tar, gzip'd .tex or tar; PDF-only is refused) in memory, "
         "hashes it and its .tex/.bib/.bbl/.sty files, finds the main .tex (\\documentclass), compares it with "
@@ -839,6 +846,7 @@ def add_parsers(sub, add_json) -> None:
         "--write refuses unless the e-print is tied to the manuscript coverage.yaml is bound to (same version, a "
         "matching bound sha256, or --compare-tex identical / --accept-diff); a move to another version prints the "
         "`claims rebase` command. Never writes the registry; never commits")
+    a.add_argument("package", nargs="?", default=None, help="the package to anchor")
     a.add_argument("--arxiv", default=None, metavar="ID",
                    help="the arXiv id WITH its version (<id>v<N> or arXiv:<id>v<N>); unversioned ids are refused")
     a.add_argument("--from-file", dest="from_file", default=None, metavar="E-PRINT",
@@ -853,5 +861,12 @@ def add_parsers(sub, add_json) -> None:
                    help="with --compare-tex: anchor although the files differ; the reason is recorded")
     a.add_argument("--main-tex", dest="main_tex", default=None, metavar="PATH",
                    help="the e-print's main .tex when more than one file carries \\documentclass")
-    add_json(s)
-    s.set_defaults(fn=cmd_formalization)
+    a.add_argument("--write", action="store_true",
+                   help="write the source-baseline record, coverage.yaml manuscript.version and the "
+                        "formalization.yaml source id (never the registry; not committed); without it a dry run")
+    a.add_argument("--agent", default=None, help="lease holder, if one is live")
+    add_json(a)
+    core._hidden_copies(a, render)   # a render flag on anchor (and back) is refused as before, by name
+    core._hidden_copies(render, a)
+    a.set_defaults(fn=cmd_formalization, name=ANCHOR_CMD)
+    render.set_defaults(fn=cmd_formalization)

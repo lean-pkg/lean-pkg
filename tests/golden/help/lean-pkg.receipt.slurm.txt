@@ -1,5 +1,5 @@
-usage: lean-pkg receipt slurm [-h] [--job J] [--log PATH] [--commit SHA] [--template] [--check]
-                              [--preflight-deps] [--deps-tar PATH] [--deps-dir DIR]
+usage: lean-pkg receipt slurm [-h] [--job J] [--log PATH] [--receipt-commit SHA] [--template]
+                              [--check] [--preflight-deps] [--deps-tar PATH] [--deps-dir DIR]
                               [--entries GLOB] [--stdout PATH] [--stderr PATH] [--redact REGEX]
                               [--sacct-file F] [--artifacts DIR] [--artifacts-manifest NAME]
                               [--checker TEXT] [--repo DIR] [--out PATH] [--compress-log]
@@ -12,8 +12,8 @@ options:
                         --check
   --log PATH            the job's raw verify log (required unless --template); when it has no
                         `checker:` line, --checker TEXT is required
-  --commit SHA          the verified commit; must exist in --repo; required unless --template or
-                        --check
+  --receipt-commit SHA  the verified commit; must exist in --repo; required unless --template or
+                        --check (old spelling --commit, kept working)
   --template            print a minimal sbatch wrapper whose .out/.err/log meet every check below
                         (placeholders for the package's own commands); needs no other flag
   --check               preflight the files of a finished (trial) job: every seal, stderr and log-

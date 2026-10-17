@@ -18,6 +18,14 @@ lean-pkg status my-proof  # full record plus the last five history entries
 lean-pkg validate         # schema, enum and history sanity; exit 0 or 1
 ```
 
+New here? `lean-pkg help start` prints the five verbs and the two product
+tracks. Coordination and maintenance commands live under three nouns:
+`lean-pkg lease claim|renew|release|list` (agents sharing a registry),
+`lean-pkg registry board|init|migrate|validate|audit|wiki` (the registry
+file) and `lean-pkg repo move NAME PATH` (the package's checkout). The
+short spellings above (`board`, `validate`, `claim`, ...) are permanent
+aliases: `lean-pkg help aliases` lists them.
+
 ## Read one field, or the registry as it was
 
 ```bash

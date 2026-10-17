@@ -18,6 +18,85 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   comparator, both receipts, the gate, `coverage.yaml`, `page --write`,
   `publish --dry-run`), with measured times and a short section on the paper
   track. Linked from README.md, docs/index.md and docs/quickstart.md.
+- `receipt systemd --run` (alias `receipt local --run`) fingerprints the
+  running lean-pkg before it starts the unit: the SHA-256 of every file of
+  its package directory (sources, shipped scripts, schemas, templates), its
+  dist-info, the Python interpreter and the entry point. It checks again
+  about once a minute while it waits (a `WARN` naming the changed files) and
+  at final collection, where any change refuses before anything is written,
+  naming the files. A shared editable checkout that is pulled during a long
+  run no longer yields a receipt written by mixed code, and the failure is
+  lean-pkg's own, not only a user's guard (field report). A passing run
+  seals the additive receipt key `producer` (version, install kind, the
+  editable checkout's commit and dirtiness as of the start, `sources_sha256`,
+  file count, Python version; no path), which `gate` and `receipt check`
+  ignore, so no schema change, plus a `- Producer:` README line and a
+  `producer` object in `--json`. Receipts without `--run` are unchanged.
+- Docs: docs/receipts.md "Long runs: freeze the producer": install from a
+  release tag (pipx or a venv) rather than a shared editable checkout, how
+  to check with `--version` and `doctor`, how to recompute
+  `sources_sha256`, and why a guard manifest over a git checkout must use
+  `git --no-optional-locks status`.
+
+### Fixed
+
+- `lean-pkg --version` and `doctor` probe an editable checkout with `git
+  --no-optional-locks status`, so they no longer rewrite its `.git/index`
+  (a stat refresh) and change a file a caller may have hashed.
+
+- Docs: the workflow diagram (`docs/assets/workflow.svg`) covers both
+  product tracks. `new` forks into Track P (anchor the paper, a row per
+  numbered result, *Not formalized*) and Track L (`kind: library`, *Main
+  results*, no manuscript); both rejoin the seven shared steps of the sample
+  workflow, drawn once, with the verification page before the promotion dry
+  run; after `--yes` the path forks again (Reservoir, Palomar, Zenodo and the
+  citation in the paper; or a version tag, a Reservoir listing and Mathlib
+  PRs). 1.0 names are noted where they differ (`new --kind` and `verify` not
+  yet shipped, `publish --yes`). A vertical layout, legible at phone width;
+  shown on the sample workflow page and in docs/design/two-tracks.md.
+
+- The 1.0 command tree, stage 1 (docs/design/1.0-command-tree.md, accepted
+  2026-10-17). New canonical spellings: `lease claim|renew|release|list`,
+  `registry init|migrate|validate|audit|board|wiki`, `repo move NAME PATH`
+  (the same as `update NAME --path PATH`), `comparator attach NAME`,
+  `formalization render NAME`; flags `--doi-track` (`record`, `update`),
+  `--receipt-commit` (`receipt slurm|systemd`), `--url` (`register`,
+  `update`, `index add`), `--repo` (`index check`, `search`,
+  `comparator config`), `--target-repo` (`report`) and
+  `registry audit --write`. Every old spelling is a permanent alias: it
+  parses to the same namespace, with the same output and exit code, and in
+  text mode prints one stderr note after the command's own messages
+  (`note: 'lean-pkg claim' is now 'lean-pkg lease claim' (the old spelling keeps working)`);
+  `LEAN_PKG_NO_ALIAS_NOTE=1` silences it and `--json` never prints it. The
+  alias table is `lean_pkg.command_tree`; `lean-pkg help aliases` lists it.
+- `lean-pkg help start`: the newcomer page, the five verbs (`new`,
+  `verify`, `status`, `page`, `publish`) with one line each and the paper
+  and Lean-package tracks as two columns; a verb or flag not in this release
+  is marked and named with what to run until then.
+
+### Changed
+
+- `comparator config`, `comparator host-check` and `formalization anchor`
+  are real subcommands, each with only its own flags (they were values of a
+  positional); every old argv parses as before, and a flag of another form
+  is now an argparse usage error (exit 2, as before). `lean-pkg comparator`
+  and `lean-pkg formalization` alone print their subcommands.
+- `lean-pkg` with no command prints the newcomer page when stdout is not a
+  terminal or no registry exists; on a terminal with a registry it opens the
+  board as before, and `lean-pkg --json` still prints the board's JSON
+  (decision 5 of the 1.0 command tree). `lean-pkg registry board` (alias
+  `board`) is unchanged.
+- RELEASING.md: renamed commands and flags are permanent aliases, never
+  deprecated; a deprecation removes behavior only, and lasts at least two
+  minor releases and 60 days, whichever is longer.
+
+
+### Fixed
+
+- The `status` command page documents `scope.product` (added in 0.10.0;
+  the entry was lost when the command reference was split into pages), and
+  docs/design/two-tracks.md shows each track's path with the commands of
+  0.10.0, where `new` scaffolds a library only.
 
 ### Changed
 
@@ -58,16 +137,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   verdict per check (`--json`: all of them); exit 0 only when none fails.
   docs/trust-model.md "Re-verify a page yourself" now uses it in place of a
   scratch `index add`; docs/receipts.md has the table of checks.
-- Docs: the workflow diagram (`docs/assets/workflow.svg`) covers both
-  product tracks. `new` forks into Track P (anchor the paper, a row per
-  numbered result, *Not formalized*) and Track L (`kind: library`, *Main
-  results*, no manuscript); both rejoin the seven shared steps of the sample
-  workflow, drawn once, with the verification page before the promotion dry
-  run; after `--yes` the path forks again (Reservoir, Palomar, Zenodo and the
-  citation in the paper; or a version tag, a Reservoir listing and Mathlib
-  PRs). 1.0 names are noted where they differ (`new --kind` and `verify` not
-  yet shipped, `publish --yes`). A vertical layout, legible at phone width;
-  shown on the sample workflow page and in docs/design/two-tracks.md.
 - Docs: open governance. GOVERNANCE.md (roles, including what the AI
   operations agent may and may not do, how decisions are made, how a second
   maintainer is added); a design-proposal process for schema, command-removal

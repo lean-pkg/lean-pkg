@@ -79,4 +79,5 @@ def test_help_names_the_alias(lp, env, capsys):
         lp.main(["--help"])
     except SystemExit:
         pass
-    assert "alias: lease" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "lease" in out and "lean-pkg help aliases" in out   # `claim` is `lease claim`; old spellings listed there

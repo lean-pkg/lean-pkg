@@ -20,10 +20,12 @@ def test_list_static_contains_both_names(env):
     assert "alpha" in p.stdout and "beta" in p.stdout
 
 
-def test_default_no_subcommand_prints_static_board_when_not_tty(env):
-    # stdout is a pipe here, hence not a tty: board must fall back to the
-    # static table instead of starting curses.
+def test_default_no_subcommand_prints_the_start_page_when_not_tty(env):
+    # stdout is a pipe here, hence not a tty: a bare `lean-pkg` prints the newcomer page (decision 5 of the
+    # 1.0 command tree), and `board` falls back to the static table instead of starting curses.
     p = run_cli("--registry", str(env.registry))
+    assert p.returncode == 0 and "START HERE: five verbs" in p.stdout
+    p = run_cli("--registry", str(env.registry), "board")
     assert p.returncode == 0
     assert "NAME" in p.stdout and "alpha" in p.stdout and "beta" in p.stdout
 
