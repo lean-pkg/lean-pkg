@@ -14,6 +14,12 @@ public without two receipts, and the second one is re-derived from bytes.
 Source and issues: <https://github.com/lean-pkg/lean-pkg>. License:
 Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 
+**Start here:** [Tutorial: Dynkin's π-λ theorem, end to end](tutorial-pi-lambda.md)
+takes one textbook theorem from its statement to a verified page on your own
+machine, and explains each idea (statement and proof, the kernel, axioms, the
+comparator, receipts, the gate, the page) where it is first needed. *Lean
+checks every step; you check the statement.*
+
 ## Choose your track
 
 lean-pkg leads to one of two final products, and the page certifies each one:

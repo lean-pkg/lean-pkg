@@ -9,6 +9,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- Docs: a first worked-example tutorial, docs/tutorial-pi-lambda.md:
+  Dynkin's π-λ theorem and the uniqueness of probability measures, from the
+  textbook statement to a verified page on one workstation (`lean-pkg new`,
+  the Challenge read against the book line by line with its traps, the
+  comparator, both receipts, the gate, `coverage.yaml`, `page --write`,
+  `publish --dry-run`), with measured times and a short section on the paper
+  track. Linked from README.md, docs/index.md and docs/quickstart.md.
+
 ## [0.10.0] - 2026-10-17
 
 ### Added
