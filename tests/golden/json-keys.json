@@ -105,6 +105,27 @@
     "rc": "host",
     "type": "object"
   },
+  "comparator-host-check-routes": {
+    "keys": [
+      "advice",
+      "can",
+      "checks",
+      "env_warnings",
+      "executables",
+      "limits",
+      "locale",
+      "mechanism_detail",
+      "mechanisms",
+      "ok",
+      "palomar",
+      "resources",
+      "routes",
+      "routes_schema",
+      "verdict"
+    ],
+    "rc": "host",
+    "type": "object"
+  },
   "coverage-check": {
     "keys": [
       "counts",

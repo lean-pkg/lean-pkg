@@ -185,6 +185,25 @@ hash is in the entry. A differing file already at either path is refused;
 an identical one is left alone. The command prints the README entry and
 the next step, `lean-pkg gate NAME --check --receipt .lean-receipts/<commit12>-slurm-<J>.json`.
 
+### Before sbatch
+
+On the login node, before submitting, check the job's own runtime: run
+`lean-pkg comparator host-check --routes --json` inside the job's image
+with the job's binds and `PATH` export:
+
+```bash
+singularity exec --bind "$WORK" "$IMAGE" bash -c \
+  'export PATH=...; lean-pkg comparator host-check --routes --json'
+```
+
+It resolves every executable the template needs the way `type -P` does,
+names a set locale the image does not have (the stderr warning the receipt
+refuses), reports the open-file limits with the `LEAN_NUM_THREADS` advice,
+the CPUs and the cgroup memory limit, and says which comparator routes
+(judge, prepare, transfer) the host supports. See
+[Planning routes before sbatch](comparator.md#planning-routes-before-sbatch).
+Check a dependency tarball with `receipt slurm --preflight-deps` (below).
+
 ### A compressed sealed log (`--compress-log`)
 
 GitHub refuses a file over 100 MiB, and a full declaration audit can make the

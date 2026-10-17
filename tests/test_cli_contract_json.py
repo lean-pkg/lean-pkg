@@ -55,6 +55,7 @@ CASES = {
     "claims-check": ["claims", "check", "beta"],
     "claims-ledger": ["claims", "ledger", "beta"],
     "comparator-host-check": ["comparator", "host-check"],
+    "comparator-host-check-routes": ["comparator", "host-check", "--routes"],
     "public-safety": ["public-safety", "beta"],
     "version": ["--version"],
     "comparator-coverage": ["comparator", "config", "--coverage", "beta"],
@@ -103,7 +104,7 @@ def _shape(payload) -> dict:
 
 
 # exit codes that depend on the host (tools installed), not on the fixture: only the keys are pinned
-HOST_RC = {"comparator-host-check"}
+HOST_RC = {"comparator-host-check", "comparator-host-check-routes"}
 
 
 def _run(lp, env, argv, capsys) -> dict:
