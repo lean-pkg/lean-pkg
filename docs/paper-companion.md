@@ -176,6 +176,38 @@ At submission the deliverable is:
 Publishing the companion follows the usual path: [scan for private strings](how-to.md#scan-for-private-strings-before-publishing),
 the comparator tier, and `promote`.
 
+### Credits
+
+Give the companion's README an `## Acknowledgments` (or `## Tools`) section
+that names the tool used to develop and verify it, with the repository link
+and the concept DOI (which always resolves to the latest release):
+
+```markdown
+Developed and verified with [lean-pkg](https://github.com/lean-pkg/lean-pkg) ([doi:10.5281/zenodo.23272098](https://doi.org/10.5281/zenodo.23272098)).
+```
+
+To name the exact version, add it with its version DOI, taken from lean-pkg's
+[CITATION.cff](../CITATION.cff) (`identifiers`) or the README's
+[Citation](../README.md#citation) section for the version that produced the
+receipts (`lean-pkg --version`). The compute acknowledgment below goes in the
+same section.
+
+### Acknowledge the compute
+
+When the receipts show the gates ran on the Auburn University Easley Cluster
+(a `receipt slurm` receipt in `.lean-receipts/` whose job ran on that
+cluster), put the official sentence, with the cluster name linked, in the
+companion's README:
+
+```markdown
+This work was completed in part with resources provided by the [Auburn University Easley Cluster](https://hpc.auburn.edu/hpc/docs/hpcdocs/build/html/easley/intro.html).
+```
+
+Keep the wording verbatim ("in part" unless Easley was the only compute
+used). A companion whose receipts came from other hosts carries no such
+sentence: the acknowledgment is a statement about where the evidence was
+produced. Other clusters have their own required wording.
+
 ## Consolidate several checkpoint packages into one
 
 A long project can leave several verified-private packages behind, one per

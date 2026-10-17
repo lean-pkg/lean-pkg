@@ -311,7 +311,7 @@ Releases are listed in [CHANGELOG.md](CHANGELOG.md); the process is in
 
 ## Acknowledgments
 
-This work was completed in part with resources provided by the Auburn University Easley Cluster. The lower-tier receipts (`lake build`, sorry scan and axiom audit) and
+This work was completed in part with resources provided by the [Auburn University Easley Cluster](https://hpc.auburn.edu/hpc/docs/hpcdocs/build/html/easley/intro.html). The lower-tier receipts (`lake build`, sorry scan and axiom audit) and
 comparator receipts (statement comparison and kernel replay) that exercised
 lean-pkg during development were produced by Slurm jobs on Easley, alongside
 runs on lab workstations.
