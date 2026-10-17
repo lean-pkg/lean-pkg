@@ -256,17 +256,22 @@ no `.lean` file into your project.
 
 **`palomar check` says `judged_as` is an unknown key. Is my configuration wrong?**
 For Palomar, yes: its verifier refuses any configuration key outside the six
-above, and lean-pkg's definition-hole rule puts the human sign-off in
-`judged_as`. A configuration with definition holes cannot be submitted as it
-stands; keep `definition_names` empty where you can. A scaffold with a
-`lean_pkg_scaffold` key still has TODO entries.
+above. lean-pkg no longer needs such keys: the definition-hole sign-off and
+the scaffold's TODO markers live in `lean-pkg-signoff.json` beside the
+configuration ([Comparator](comparator.md#definition-holes-need-a-human-sign-off)).
+A configuration written by an earlier release still carries `judged_as` or
+`lean_pkg_scaffold`; lean-pkg reads them with a deprecation warning, and
+`lean-pkg comparator config --migrate-signoff comparator.json --write` moves
+them out without touching the Palomar keys. The file's bytes change, so a
+gated package then needs a new comparator receipt (and a re-gate at that
+commit). Keep `definition_names` empty where you can: Palomar's reviewers
+still judge each hole.
 
 **What is planned next?**
 `palomar port-modules --dry-run`, which inserts headers, rewrites imports to
 `public import` and builds to report definitions needing `@[expose]`, never
-committing (large); a sign-off beside the configuration instead of
-`judged_as` inside it (medium); an optional `comparator.headline.json` that
-feeds `status.main_results` (medium).
+committing (large); an optional `comparator.headline.json` that feeds
+`status.main_results` (medium).
 
 ## Reservoir
 

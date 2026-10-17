@@ -312,17 +312,19 @@ def _file_ref(ctx: dict, rel: str, target: str) -> str:
 
 def _holes_line(configs: list[dict]) -> str:
     """The definition holes of the comparator receipt, each with the human who judged its body (the
-    receipt's judged_as, ADR-0058 D8): comparator compares a hole by name and type only."""
+    receipt's signoff copy of lean-pkg-signoff.json, else its deprecated judged_as, ADR-0058 D8):
+    comparator compares a hole by name and type only."""
+    from .holes import receipt_judged
     parts = []
     for c in configs:
         holes = _names(c.get("definition_names"))
         if not holes:
             continue
-        judged = c.get("judged_as") if isinstance(c.get("judged_as"), dict) else {}
+        judged = receipt_judged(c)
         who = str(judged.get("reviewer") or "").strip()
         date = str(judged.get("date") or "")
         by = (f" (bodies judged by {_md(who)}" + (f" on {date}" if re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) else "")
-              + ")") if who else " (no judged_as reviewer recorded)"
+              + ")") if who else " (no sign-off reviewer recorded)"
         parts.append(", ".join(f"`{d}`" for d in holes) + by)
     return "; ".join(parts) or "none"
 

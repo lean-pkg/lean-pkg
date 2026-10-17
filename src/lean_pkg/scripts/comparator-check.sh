@@ -31,15 +31,21 @@
 #   name listed in definition_names by name, universes, type and safety only
 #   (Comparator/Compare.lean), never by body, and its README says such holes
 #   must be checked by an additional, potentially human, verifier. A config
-#   with non-empty definition_names is therefore REFUSED unless it carries
-#       "judged_as": {"reviewer": "<human name>", "date": "YYYY-MM-DD",
-#                     "definitions": [<every definition_names entry>],
-#                     "basis": "<how the bodies were compared, optional>"}
-#   where reviewer must not be an agent/model token (claude, codex, gpt, opus,
-#   sonnet, fable, agent, bot, opencode, assistant, llm, ai). This records the
-#   human verifier; it is a declaration, not a verification. comparator's
-#   Config derives Lean.FromJson, which ignores unknown fields, so judged_as
-#   may stay in the file; the checked copy strips it anyway.
+#   with non-empty definition_names is therefore REFUSED unless the sidecar
+#   lean-pkg-signoff.json in the project directory (never a comparator*.json:
+#   Palomar refuses keys outside its six in a configuration) signs it off:
+#       {"schema": "lean-pkg-signoff/1", "configs": {"<config path>": {
+#          "config_sha256": "<sha256 of the config's bytes>",
+#          "definitions": {"<hole>": {"reviewer": "<human name>",
+#                          "date": "YYYY-MM-DD", "judged_as": "<text>"}}}}}
+#   covering every definition_names entry, where reviewer must not be an
+#   agent/model token (claude, codex, gpt, opus, sonnet, fable, agent, bot,
+#   opencode, assistant, llm, ai) and config_sha256 binds the sign-off to the
+#   config's bytes (a changed config invalidates it). Deprecated fallback: an
+#   inline "judged_as": {"reviewer", "date", "definitions": [...], "basis"?}
+#   object in the config (warned; `lean-pkg comparator config --migrate-signoff
+#   PATH --write` moves it). This records the human verifier; it is a
+#   declaration, not a verification. The checked copy strips any inline key.
 # Palomar acceptance bar for one Lake project.
 #
 # leanprover/comparator -- with a lean4export matching the project's toolchain, the independent nanoda
@@ -69,6 +75,7 @@ ALLOW_MISMATCH="${LEAN4EXPORT_ALLOW_TOOLCHAIN_MISMATCH:-0}"
 STANDARD_AXIOMS='["propext","Quot.sound","Classical.choice"]'
 # Reviewer tokens that name a model or an agent, never a human (whole word or -/_ token, case-insensitive).
 REVIEWER_DENY='^(claude|codex|gpt|opus|sonnet|fable|agent|bot|opencode|assistant|llm|ai)$'
+SIGNOFF_SIDECAR=lean-pkg-signoff.json
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -100,29 +107,61 @@ done
 
 command -v jq >/dev/null 2>&1 || die "jq is required"
 
+# signoff_entry <cfg>: the config's entry in lean-pkg-signoff.json as compact JSON, `null` when none.
+signoff_entry() {
+  local rel="${1#./}"
+  if [ -L "$SIGNOFF_SIDECAR" ]; then
+    echo "error: $SIGNOFF_SIDECAR is a symlink; refusing to read a sign-off through it" >&2; return 1
+  fi
+  if [ ! -f "$SIGNOFF_SIDECAR" ]; then echo null; return 0; fi
+  jq -e '(type == "object") and (.schema == "lean-pkg-signoff/1") and ((.configs | type) == "object")' \
+    "$SIGNOFF_SIDECAR" >/dev/null 2>&1 \
+    || { echo "error: $SIGNOFF_SIDECAR: not a lean-pkg-signoff/1 document" >&2; return 1; }
+  jq -c --arg rel "$rel" '.configs[$rel] // null' "$SIGNOFF_SIDECAR"
+}
+
 # lint_config <cfg>: the configuration-level rules (axiom subset; definition holes need a human
 # sign-off). Prints "error: ..." to stderr and returns 1 on the first failing clause.
 lint_config() {
-  local cfg="$1" msg
+  local cfg="$1" msg entry sha
   jq -e 'type == "object"' "$cfg" >/dev/null 2>&1 \
     || { echo "error: $cfg: not a JSON object" >&2; return 1; }
   if ! jq -e --argjson std "$STANDARD_AXIOMS" '((.permitted_axioms // []) - $std) == []' "$cfg" >/dev/null; then
     echo "error: $cfg: permitted_axioms must be a subset of propext, Quot.sound, Classical.choice" >&2
     return 1
   fi
-  msg="$(jq -r --arg deny "$REVIEWER_DENY" '
+  entry="$(signoff_entry "$cfg")" || return 1
+  sha="$( (sha256sum "$cfg" 2>/dev/null || shasum -a 256 "$cfg") | cut -d' ' -f1)"
+  msg="$(jq -r --arg deny "$REVIEWER_DENY" --argjson entry "$entry" --arg sha "$sha" '
     def holes: (.definition_names // []);
-    if (holes | length) == 0 then empty
+    def blank: (type != "string") or ((gsub("^\\s+|\\s+$"; "") | length) == 0);
+    def agent: [ascii_downcase | splits("[^a-z0-9]+") | select(length > 0)] | any(test($deny));
+    def iso: (type == "string") and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+    ($entry // {} | .definitions) as $sig
+    | if (holes | length) == 0 then empty
+    elif ($sig | type) == "object" then
+      if ($entry.config_sha256 | tostring) != $sha then
+        "the sign-off in lean-pkg-signoff.json is bound to config_sha256 \($entry.config_sha256 | tostring | .[0:12]), but the configuration hashes to \($sha[0:12]): a changed configuration invalidates its sign-off; a human re-judges the bodies, then sets config_sha256 to \($sha)"
+      elif ((holes - ($sig | keys)) | length) > 0 then
+        "lean-pkg-signoff.json definitions do not cover definition hole(s): \((holes - ($sig | keys)) | join(", "))"
+      elif ((($sig | keys) - holes) | length) > 0 then
+        "lean-pkg-signoff.json signs off \((($sig | keys) - holes) | join(", ")), not a definition_names entry"
+      elif any($sig[]; (.reviewer | blank)) then
+        "lean-pkg-signoff.json: every reviewer must be a non-empty human name"
+      elif any($sig[]; (.reviewer | agent)) then
+        "lean-pkg-signoff.json: a reviewer names an agent/model token, not a human reviewer"
+      elif any($sig[]; (.date | iso) | not) then
+        "lean-pkg-signoff.json: every date must be an ISO date YYYY-MM-DD"
+      elif any($sig[]; (.judged_as | blank)) then
+        "lean-pkg-signoff.json: every judged_as must be a non-empty text"
+      else empty end
     elif (.judged_as | type) != "object" then
-      "definition_names is non-empty (\(holes | length) hole(s)) but there is no judged_as sign-off object"
-    elif ((.judged_as.reviewer | type) != "string")
-         or ((.judged_as.reviewer | gsub("^\\s+|\\s+$"; "") | length) == 0) then
+      "definition_names is non-empty (\(holes | length) hole(s)) but there is no sign-off: no entry in lean-pkg-signoff.json and no (deprecated) inline judged_as object"
+    elif (.judged_as.reviewer | blank) then
       "judged_as.reviewer must be a non-empty human name"
-    elif ([.judged_as.reviewer | ascii_downcase | splits("[^a-z0-9]+") | select(length > 0)]
-          | any(test($deny))) then
+    elif (.judged_as.reviewer | agent) then
       "judged_as.reviewer \(.judged_as.reviewer | tojson) names an agent/model token, not a human reviewer"
-    elif ((.judged_as.date | type) != "string")
-         or ((.judged_as.date | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) | not) then
+    elif (.judged_as.date | iso) | not then
       "judged_as.date must be an ISO date YYYY-MM-DD"
     elif (.judged_as.definitions | type) != "array" then
       "judged_as.definitions must be an array covering every definition_names entry"
@@ -130,16 +169,24 @@ lint_config() {
       "judged_as.definitions does not cover definition hole(s): \((holes - .judged_as.definitions) | join(", "))"
     else empty end' "$cfg")"
   if [ -n "$msg" ]; then
-    echo "error: $cfg: $msg (comparator checks definition holes by name and type only, never by body; a human must sign off in judged_as)" >&2
+    echo "error: $cfg: $msg (comparator checks definition holes by name and type only, never by body; a human must sign off in $SIGNOFF_SIDECAR)" >&2
     return 1
+  fi
+  if jq -e 'has("judged_as") or has("lean_pkg_scaffold")' "$cfg" >/dev/null; then
+    echo "warning: $cfg: inline judged_as/lean_pkg_scaffold is deprecated (Palomar refuses keys outside its six); move it to $SIGNOFF_SIDECAR: lean-pkg comparator config --migrate-signoff ${cfg#./} --write" >&2
   fi
   return 0
 }
 
 # hole_summary <cfg>: one line naming the signed-off holes, empty when the config has none.
 hole_summary() {
-  jq -r 'if ((.definition_names // []) | length) == 0 then empty
-         else "definition holes: \((.definition_names | length)) signed off by \(.judged_as.reviewer) on \(.judged_as.date)" end' "$1"
+  local entry
+  entry="$(signoff_entry "$1" 2>/dev/null)" || entry=null
+  jq -r --argjson entry "$entry" '
+    if ((.definition_names // []) | length) == 0 then empty
+    elif (($entry // {} | .definitions) | type) == "object" then
+      "definition holes: \((.definition_names | length)) signed off by \([$entry.definitions[].reviewer] | unique | join("; ")) in lean-pkg-signoff.json"
+    else "definition holes: \((.definition_names | length)) signed off by \(.judged_as.reviewer) on \(.judged_as.date) (inline judged_as, deprecated)" end' "$1"
 }
 
 shopt -s nullglob
@@ -311,13 +358,13 @@ for cfg in "${configs[@]}"; do
   log="$LOG_DIR/$name.log"
   # As in the registry: only the three standard axioms may be permitted, and the nanoda re-check is always
   # on (comparator is handed a copy of the configuration with enable_nanoda forced to true). Definition
-  # holes must carry a human judged_as sign-off (lab rule, ADR-0058 D8); the sign-off itself is not
-  # handed to comparator.
+  # holes must carry a human sign-off in lean-pkg-signoff.json (lab rule, ADR-0058 D8); no inline
+  # lean-pkg key is handed to comparator.
   lint_config "$cfg" || exit 1
   summary="$(hole_summary "$cfg")"
   [ -z "$summary" ] || echo "$cfg: $summary"
   checked_cfg="$LOG_DIR/$name.json"
-  jq '.enable_nanoda = true | del(.judged_as)' "$cfg" > "$checked_cfg"
+  jq '.enable_nanoda = true | del(.judged_as, .lean_pkg_scaffold)' "$cfg" > "$checked_cfg"
 
   echo "== comparator $cfg  (log: $log)"
   set +e

@@ -181,7 +181,7 @@ def test_definition_holes_without_sign_off_render_null_and_warn(lp, env, capsys)
     holed = [r for r in yaml.safe_load(out)["status"]["main_results"]
              if r["declaration"] == "holed"][0]
     assert holed["definition_holes"] == ["Challenge.witness"] and holed["judged_as"] is None
-    assert "no judged_as sign-off" in err and "judged_as is null" in err
+    assert "no sign-off" in err and "judged_as is null" in err
 
 
 # --- --write, --out ----------------------------------------------------------

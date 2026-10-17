@@ -280,7 +280,7 @@ explains what goes in each file.
 |---|---|
 | `challenge_module`, `solution_module` | the two module names, as above |
 | `theorem_names` | the theorems to compare, fully qualified; at least one |
-| `definition_names` | Challenge definitions whose body the Solution may supply (compared by name and type only); `[]` when there are none, as here. A non-empty list needs a human `judged_as` sign-off ([the comparator tier](comparator.md)) |
+| `definition_names` | Challenge definitions whose body the Solution may supply (compared by name and type only); `[]` when there are none, as here. A non-empty list needs a human sign-off in `lean-pkg-signoff.json` beside the configuration, never inside it ([the comparator tier](comparator.md#definition-holes-need-a-human-sign-off)) |
 | `permitted_axioms` | a subset of `["propext", "Quot.sound", "Classical.choice"]` |
 | `enable_nanoda` | `true`: also replay in the nanoda kernel |
 

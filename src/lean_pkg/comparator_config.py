@@ -4,15 +4,17 @@
 A package with hundreds of claims and a handful of hand-written comparator entries needs the
 rest listed before anyone can write their Challenge statements. This command adds one
 `theorem_names` entry per claimed theorem or lemma that no tracked comparator configuration
-covers yet, and records what a human still has to do in a `lean_pkg_scaffold.todo` list in the
-same file. It never removes, renames or reorders an existing entry or key.
+covers yet, and records what a human still has to do in a `scaffold.todo` list for that configuration
+in the sign-off sidecar `lean-pkg-signoff.json` (holes.py; never in the configuration itself, whose keys
+stay Palomar's six). It never removes, renames or reorders an existing entry or key.
 
 The added names are Challenge names, `<Namespace>.<decl>` (default namespace: the package name
 in CamelCase plus `Audit`, as docs/comparator.md recommends). Nothing here writes the Challenge
 or the Solution: until a human states each one in Mathlib vocabulary and bridges it to the
 project theorem, comparator fails on the missing name, which is the intended state. The
-formalization renderer leaves names still listed under `lean_pkg_scaffold.todo` out of
-`status.main_results`.
+formalization renderer leaves names still listed under `scaffold.todo` out of
+`status.main_results`. A configuration still carrying the deprecated inline `lean_pkg_scaffold` key is
+read as before, but not written: `--migrate-signoff PATH --write` first.
 
 Claims come from the registry cache, which must be synced at HEAD (or HEAD an evidence-only
 descendant of the synced commit): `lean-pkg claims sync NAME` first. Or (#13) from a working-copy
@@ -31,12 +33,13 @@ import re
 import shlex
 
 from . import cli as core
+from . import holes
 from . import lean_scan
 
-SCAFFOLD_KEY = "lean_pkg_scaffold"
+SCAFFOLD_KEY = "lean_pkg_scaffold"           # deprecated inline key; the scaffold lives in holes.SIDECAR
 NOT_DONE = ["the package lease was not consulted",
-            "the checkout's comparator.json was not written (copy the file there under the lease, or "
-            "re-run without --no-registry)",
+            f"the checkout's comparator.json and {holes.SIDECAR} were not written (copy both files there under "
+            "the lease, or re-run without --no-registry)",
             "nothing was written to the registry, evidence or receipts"]
 CLAIM_KINDS = ("theorem", "lemma")          # propositions a comparator configuration can certify
 STANDARD_AXIOMS = ["propext", "Quot.sound", "Classical.choice"]
@@ -52,9 +55,10 @@ def default_namespace(name: str) -> str:
     return (ns if ns[0].isalpha() else f"P{ns}") + "Audit"
 
 
-def scaffold_todo_names(cfg: dict) -> set[str]:
-    """Theorem names a scaffold still marks TODO (left out of formalization main_results)."""
-    block = cfg.get(SCAFFOLD_KEY) if isinstance(cfg, dict) else None
+def scaffold_todo_names(cfg: dict, rel: str | None = None, sidecar: dict | None = None) -> set[str]:
+    """Theorem names a scaffold still marks TODO (left out of formalization main_results): the sidecar's
+    scaffold block for `rel`, else the deprecated inline lean_pkg_scaffold key."""
+    block = holes.scaffold_block(cfg, rel, sidecar)
     todo = block.get("todo") if isinstance(block, dict) else None
     return {str(t.get("theorem_name")) for t in todo or [] if isinstance(t, dict) and t.get("theorem_name")}
 
@@ -124,10 +128,30 @@ def _load_out(repo: pathlib.Path, rel: str) -> dict | None:
     tn = cfg.get("theorem_names", [])
     if not isinstance(tn, list) or not all(isinstance(n, str) for n in tn):
         raise core.Fail(f"{rel}: theorem_names must be a list of strings; nothing written")
-    block = cfg.get(SCAFFOLD_KEY)
-    if block is not None and not (isinstance(block, dict) and isinstance(block.get("todo", []), list)):
-        raise core.Fail(f"{rel}: {SCAFFOLD_KEY} must be a mapping with a todo list; nothing written")
+    if SCAFFOLD_KEY in cfg:
+        raise core.Fail(f"{rel}: carries the deprecated inline {SCAFFOLD_KEY} key (Palomar refuses it); the "
+                        f"scaffold now lives in {holes.SIDECAR}: {holes.migrate_command(rel)} first; nothing written")
     return cfg
+
+
+def load_sidecar(repo: pathlib.Path) -> dict:
+    """The working copy's lean-pkg-signoff.json (holes.py), strictly parsed; empty when absent."""
+    path = repo / holes.SIDECAR
+    if path.is_symlink():
+        raise core.Fail(f"{holes.SIDECAR} is a symlink; refusing to read or write through it")
+    try:
+        return holes.parse_sidecar(path.read_bytes() if path.is_file() else None)
+    except ValueError as e:
+        raise core.Fail(f"{e}; nothing written")
+
+
+def _atomic_write(path: pathlib.Path, text: str) -> None:
+    if path.is_symlink():
+        raise core.Fail(f"{path.name} is a symlink; refusing to write through it")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
 
 
 def synced_claims(pkg: dict, repo: pathlib.Path, checkout: bool = False) -> list[dict]:
@@ -232,7 +256,10 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
         from . import comparator_types as ct
         ct.lake_dir_rel(repo, types.get("lake_env"))      # the Lake package must be there
     existing_cfg = _load_out(repo, rel)
+    old_bytes = (repo / rel).read_bytes() if existing_cfg is not None else None
     cfg = dict(existing_cfg) if existing_cfg is not None else json.loads(json.dumps(NEW_CONFIG))
+    sidecar = load_sidecar(repo)
+    entry = dict(sidecar["configs"].get(rel) or {})
     configured: set[str] = set(cfg.get("theorem_names") or [])
     for other in core.head_comparator_configs(repo):
         if other == rel:
@@ -243,7 +270,7 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
             continue
         if isinstance(o, dict) and isinstance(o.get("theorem_names"), list):
             configured |= {n for n in o["theorem_names"] if isinstance(n, str)}
-    block = dict(cfg.get(SCAFFOLD_KEY) or {})
+    block = dict(entry.get("scaffold") or {})
     todo = list(block.get("todo") or [])
     todo_claims = {str(t.get("claim")) for t in todo if isinstance(t, dict)}
     from .claims import _reader
@@ -337,33 +364,42 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
                                "needs_restatement: true marks entries a human must restate in Mathlib "
                                "vocabulary; type_error says why an entry kept its TODO lines")
     block["todo"] = todo + added
-    cfg[SCAFFOLD_KEY] = block
+    entry["scaffold"] = block
+    sidecar["configs"][rel] = entry
     text = json.dumps(cfg, indent=2, ensure_ascii=False) + "\n"
+    side_text = holes.dump_sidecar(sidecar)
+    payload["signoff_sidecar"] = holes.SIDECAR
+    if entry.get("definitions") and old_bytes is not None and \
+            entry.get("config_sha256") == holes.sha256_bytes(old_bytes):
+        lines.append(f"warning: {rel}'s definition-hole sign-off in {holes.SIDECAR} is bound to its current "
+                     f"bytes (config_sha256); this change invalidates it until a human re-judges the bodies and "
+                     f"sets config_sha256 to the new file's sha256")
     if scratch is not None:
+        side = scratch.parent / holes.SIDECAR
+        payload["sidecar_out"] = str(side)
         if dry_run:
+            payload["signoff"] = json.loads(side_text)
             return lines + [f"{scratch} (dry run, nothing written):"], payload, text
-        scratch.parent.mkdir(parents=True, exist_ok=True)
-        tmp = scratch.with_name(scratch.name + ".tmp")
-        tmp.write_text(text, encoding="utf-8")
-        tmp.replace(scratch)
+        _atomic_write(side, side_text)
+        _atomic_write(scratch, text)
         payload["written"] = True
         return lines + [f"wrote {scratch} (scratch: {len(added)} entr{'y' if len(added) == 1 else 'ies'} merged "
-                        f"into a copy of {rel})"] + [f"not done: {n}" for n in NOT_DONE], payload, None
+                        f"into a copy of {rel}) and {side} (its scaffold TODO markers)"] + \
+            [f"not done: {n}" for n in NOT_DONE], payload, None
     if dry_run:
+        payload["signoff"] = json.loads(side_text)
         return lines + [f"{rel} (dry run, nothing written):"], payload, text
     lease = pkg.get("lease")
     core.refuse_invalid_lease(name, lease)
     if core.lease_live(lease, core.dt.datetime.now(core.dt.timezone.utc)) and agent != lease.get("agent"):
         raise core.Fail(f"{name}: lease held by {lease.get('agent')} — pass --agent {lease.get('agent')}; "
                         f"nothing written")
-    path = repo / rel
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
+    _atomic_write(repo / holes.SIDECAR, side_text)       # the markers first: a config never lacks its TODO list
+    _atomic_write(repo / rel, text)
     payload["written"] = True
-    return lines + [f"wrote {rel}: {len(added)} TODO entr{'y' if len(added) == 1 else 'ies'} under "
-                     f"{SCAFFOLD_KEY}.todo (write each Challenge and Solution, then commit)"], payload, None
+    return lines + [f"wrote {rel}: {len(added)} theorem name(s), TODO entr{'y' if len(added) == 1 else 'ies'} "
+                     f"under configs[{rel!r}].scaffold.todo in {holes.SIDECAR} (write each Challenge and "
+                     f"Solution, then commit both files)"], payload, None
 
 
 # --------------------------------------------------------------------------
@@ -380,23 +416,33 @@ def _worktree_configs(repo: pathlib.Path) -> dict[str, bytes]:
     return {p.relative_to(repo).as_posix(): p.read_bytes() for p in found}
 
 
-def _names(configs: dict[str, bytes]) -> tuple[set[str], set[str]]:
-    """(theorem names, of which scaffold TODO names) over a set of configuration blobs."""
+def _sidecar_at(repo: pathlib.Path, rev: str) -> dict:
+    """lean-pkg-signoff.json tracked at <rev> (holes.py); empty when not tracked; Fail when malformed."""
+    try:
+        return core.sidecar_at(repo, rev)
+    except ValueError as e:
+        raise core.Fail(str(e))
+
+
+def _names(configs: dict[str, bytes], sidecar: dict | None = None) -> tuple[set[str], set[str]]:
+    """(theorem names, of which scaffold TODO names) over a set of configuration blobs; the TODO markers
+    from `sidecar` (lean-pkg-signoff.json at the same commit), else a config's deprecated inline key."""
     names: set[str] = set()
     todo: set[str] = set()
-    for blob in configs.values():
+    for path, blob in configs.items():
         try:
             cfg = json.loads(blob or b"{}")
         except ValueError:
             continue
         if isinstance(cfg, dict) and isinstance(cfg.get("theorem_names"), list):
             names |= {n for n in cfg["theorem_names"] if isinstance(n, str)}
-            todo |= scaffold_todo_names(cfg)
+            todo |= scaffold_todo_names(cfg, path, sidecar)
     return names, todo
 
 
-def _classify(claims: list[dict], configs: dict[str, bytes], qualified: set[str]) -> dict:
-    names, todo = _names(configs)
+def _classify(claims: list[dict], configs: dict[str, bytes], qualified: set[str],
+              sidecar: dict | None = None) -> dict:
+    names, todo = _names(configs, sidecar)
     real = names - todo
     out = {"covered": [], "todo": [], "not_covered": [], "not_applicable": 0}
     for c in claims:
@@ -445,7 +491,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
     at_bound = _configs_at(repo, bound)
     from .claims import _reader
     qualified = qualified_decls(_reader(repo, bound), claims)
-    cls = _classify(claims, at_bound, qualified)
+    cls = _classify(claims, at_bound, qualified, _sidecar_at(repo, bound))
     work = _worktree_configs(repo)
     at_head = _configs_at(repo, head) if head else {}
     changed: list[dict] = []
@@ -464,7 +510,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
         changed.append({"path": path, "change": why})
     candidate = None
     if changed:
-        cc_ = _classify(claims, work, qualified)
+        cc_ = _classify(claims, work, qualified, load_sidecar(repo))
         candidate = {"configs": sorted(work), "covered": len(cc_["covered"]), "todo": len(cc_["todo"]),
                      "not_covered": len(cc_["not_covered"]), "certifies": False}
     props = len(cls["covered"]) + len(cls["todo"]) + len(cls["not_covered"])
@@ -490,7 +536,8 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
         nxt += [f"lean-pkg comparator config --from-claims {name}   # scaffold TODO entries, then write each "
                 f"Challenge/Solution and commit"] + tail
     elif cls["todo"]:
-        nxt += [f"write the Challenge/Solution of each lean_pkg_scaffold.todo entry, commit, then:"] + tail
+        nxt += [f"write the Challenge/Solution of each scaffold.todo entry ({holes.SIDECAR}), remove the entry, "
+                f"commit, then:"] + tail
     lines = [f"{name}: coverage at the gate-bound commit {bound[:12]} (HEAD {head[:12]}); claims from {source}",
              f"  configs tracked at {bound[:12]}: {', '.join(at_bound) or 'none'}",
              f"  {props} theorem/lemma claim(s): {len(cls['covered'])} covered, {len(cls['not_covered'])} not "
@@ -518,10 +565,146 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
     return lines, payload
 
 
+# --------------------------------------------------------------------------
+# --migrate-signoff PATH [--write]: move the deprecated inline judged_as / lean_pkg_scaffold keys of one
+# configuration into lean-pkg-signoff.json (holes.py). Dry run by default; never a registry write; the
+# configuration's Palomar keys and their values are never changed.
+
+PALOMAR_KEYS = ("challenge_module", "solution_module", "theorem_names", "definition_names", "permitted_axioms",
+                "enable_nanoda")
+
+
+def _locate(path: str) -> tuple[pathlib.Path, str, pathlib.Path]:
+    """(package root, config path relative to it, the file) for a comparator configuration path."""
+    f = pathlib.Path(os.path.abspath(pathlib.Path(path).expanduser()))
+    if f.is_symlink():
+        raise core.Fail(f"{path} is a symlink; refusing to read or write through it")
+    if not f.is_file():
+        raise core.Fail(f"{path}: no such comparator configuration file")
+    if f.parent.name == "comparator" and holes.CONFIG_RE.match(f"comparator/{f.name}"):
+        return f.parent.parent, f"comparator/{f.name}", f
+    if holes.CONFIG_RE.match(f.name):
+        return f.parent, f.name, f
+    raise core.Fail(f"{path}: not a comparator configuration path (comparator*.json at the package root or "
+                    f"comparator/config*.json)")
+
+
+def do_migrate_signoff(path: str, write: bool) -> tuple[list[str], dict, str | None, str | None]:
+    """(lines, payload, new config text, new sidecar text); the texts are None when nothing moves."""
+    root, rel, f = _locate(path)
+    raw = f.read_bytes()
+    try:
+        cfg = json.loads(raw.decode("utf-8"), object_pairs_hook=holes._strict_pairs)
+    except (UnicodeDecodeError, ValueError) as e:
+        raise core.Fail(f"{rel}: not valid strict JSON ({e}); nothing written")
+    if not isinstance(cfg, dict):
+        raise core.Fail(f"{rel}: not a JSON object; nothing written")
+    before = holes.sha256_bytes(raw)
+    payload = {"ok": True, "config": rel, "sidecar": holes.SIDECAR, "dry_run": not write, "written": False,
+               "moved": [], "dropped": [], "config_sha256_before": before, "config_sha256_after": before,
+               "palomar_keys_unchanged": True, "receipt_impact": None, "next_commands": [], "other_keys": [],
+               "config_text": None, "signoff": None}        # the would-be files (dry run only)
+    inline = [k for k in holes.INLINE_KEYS if k in cfg]
+    if not inline:
+        return [f"{rel}: no inline {' or '.join(holes.INLINE_KEYS)} key; nothing to migrate; nothing written"], \
+            payload, None, None
+    sidecar = load_sidecar(root)
+    entry = dict(sidecar["configs"].get(rel) or {})
+    new_cfg = {k: v for k, v in cfg.items() if k not in holes.INLINE_KEYS}
+    new_text = json.dumps(new_cfg, indent=2, ensure_ascii=False) + "\n"
+    new_bytes = new_text.encode("utf-8")
+    after = holes.sha256_bytes(new_bytes)
+    lines: list[str] = []
+    hole_names = cfg.get("definition_names") or []
+    if "judged_as" in cfg:
+        if not isinstance(hole_names, list) or not all(isinstance(h, str) for h in hole_names):
+            raise core.Fail(f"{rel}: definition_names must be a list of strings; nothing written")
+        if hole_names:
+            try:
+                defs = holes._inline_check(cfg, hole_names, rel)
+            except ValueError as e:
+                raise core.Fail(f"{e}; fix the inline judged_as (or write the {holes.SIDECAR} entry by hand); "
+                                f"nothing written")
+            have = entry.get("definitions") or {}
+            clash = sorted(h for h in defs if h in have and have[h] != defs[h])
+            if clash:
+                raise core.Fail(f"{rel}: {holes.SIDECAR} already signs off {', '.join(clash)} differently from the "
+                                f"inline judged_as; reconcile them by hand; nothing written")
+            entry["definitions"] = {**have, **defs}
+            entry["config_sha256"] = after
+            payload["moved"].append({"key": "judged_as", "to": f"configs[{rel!r}].definitions",
+                                     "definitions": list(defs)})
+            lines.append(f"judged_as -> {holes.SIDECAR} configs[{rel!r}].definitions: {len(defs)} definition "
+                         f"hole(s) ({', '.join(defs)}), signed by {holes.summary({'definitions': defs})['reviewer']}; "
+                         f"config_sha256 bound to the migrated file")
+            listed = cfg["judged_as"].get("definitions") or []
+            stale = [d for d in listed if d not in hole_names]
+            if stale:
+                payload["dropped"].append({"key": "judged_as.definitions", "names": stale})
+                lines.append(f"judged_as.definitions {', '.join(map(str, stale))}: not a definition_names entry; "
+                             f"dropped")
+        else:
+            payload["dropped"].append({"key": "judged_as", "names": []})
+            lines.append("judged_as: the configuration has no definition holes, so there is nothing to sign off; "
+                         "dropped")
+    if "lean_pkg_scaffold" in cfg:
+        block = cfg["lean_pkg_scaffold"]
+        if not isinstance(block, dict) or not isinstance(block.get("todo", []), list):
+            raise core.Fail(f"{rel}: {SCAFFOLD_KEY} must be a mapping with a todo list; nothing written")
+        block = {k: v for k, v in block.items() if k in holes.SCAFFOLD_KEYS}
+        block.setdefault("todo", [])
+        if block["todo"]:
+            if entry.get("scaffold") not in (None, block):
+                raise core.Fail(f"{rel}: {holes.SIDECAR} already holds a different scaffold block for it; "
+                                f"reconcile them by hand; nothing written")
+            entry["scaffold"] = block
+            payload["moved"].append({"key": SCAFFOLD_KEY, "to": f"configs[{rel!r}].scaffold",
+                                     "todo": len(block["todo"])})
+            lines.append(f"{SCAFFOLD_KEY} -> {holes.SIDECAR} configs[{rel!r}].scaffold: {len(block['todo'])} "
+                         f"TODO marker(s)")
+        else:
+            payload["dropped"].append({"key": SCAFFOLD_KEY, "names": []})
+            lines.append(f"{SCAFFOLD_KEY}: its todo list is empty; dropped")
+    if entry:
+        sidecar["configs"][rel] = entry
+    side_text = holes.dump_sidecar(sidecar)
+    try:                                   # the result must satisfy the rule it feeds
+        doc = holes.parse_sidecar(side_text.encode("utf-8"))
+        holes.check_definition_holes(new_cfg, rel, cfg_rel=rel, cfg_bytes=new_bytes, sidecar=doc)
+    except ValueError as e:
+        raise core.Fail(f"{rel}: the migrated sign-off would not pass: {e}; nothing written")
+    assert all(new_cfg.get(k) == cfg.get(k) for k in PALOMAR_KEYS)
+    others = sorted(set(new_cfg) - set(PALOMAR_KEYS))
+    impact = (f"the configuration's bytes change (sha256 {before[:12]} -> {after[:12]}): a comparator receipt binds "
+              f"each configuration's bytes (configs[].sha256), so once this is committed a recorded comparator "
+              f"receipt no longer validates at the new HEAD; a gated package needs a new comparator receipt (and "
+              f"a lower-tier receipt at the same commit)")
+    payload.update(config_sha256_after=after, receipt_impact=impact, other_keys=others,
+                   next_commands=[f"git -C {root} add {rel} {holes.SIDECAR} && git -C {root} commit -m "
+                                  f"'comparator: move lean-pkg metadata to {holes.SIDECAR}'",
+                                  f"cd {root} && comparator-receipt --prepare && comparator-receipt",
+                                  "lean-pkg gate NAME --receipt R   # R: a lower-tier receipt bound to the new HEAD",
+                                  "lean-pkg comparator NAME --receipt .lean-receipts/<new-HEAD-12>-comparator.json",
+                                  f"lean-pkg palomar check NAME --config {rel}"])
+    lines = [f"{rel}: migrate {' and '.join(inline)} to {holes.SIDECAR} (Palomar keys and values unchanged)"] + \
+        lines + ([f"warning: {rel} still has key(s) outside Palomar's six: {', '.join(others)} (palomar check "
+                  f"refuses them; this command moves only lean-pkg's own keys)"] if others else []) + \
+        [f"receipt impact: {impact}"]
+    if not write:
+        payload["config_text"], payload["signoff"] = new_text, json.loads(side_text)
+        return lines + ["dry run: nothing written (--write writes both files)"], payload, new_text, side_text
+    _atomic_write(root / holes.SIDECAR, side_text)     # the sign-off first: the config never loses it
+    _atomic_write(f, new_text)
+    payload["written"] = True
+    return lines + [f"wrote {holes.SIDECAR} and {rel}", "next:"] + \
+        [f"  {c}" for c in payload["next_commands"]], payload, None, None
+
+
 USAGE = ("usage: lean-pkg comparator config --from-claims NAME [--out comparator.json] [--dry-run] "
          "[--challenge-namespace NS] [--agent A] [--challenge-from-type | --emit-script F | --from-output F] "
          "[--allow-partial] [--checkout DIR] [--claims-file PATH] [--no-registry --out FILE] "
-         "[--lake-env DIR] [--jobs N] [--timeout S]  |  lean-pkg comparator config --coverage NAME")
+         "[--lake-env DIR] [--jobs N] [--timeout S]  |  lean-pkg comparator config --coverage NAME  |  "
+         "lean-pkg comparator config --migrate-signoff PATH [--write]")
 
 
 def types_mode(args) -> dict | None:
@@ -549,6 +732,24 @@ def types_mode(args) -> dict | None:
 
 
 def cmd_comparator_config(args) -> int:
+    if getattr(args, "migrate_signoff", None):
+        if args.from_claims or getattr(args, "coverage", None) or args.out or args.dry_run or \
+                types_mode(args) is not None or args.agent or getattr(args, "checkout", None) or \
+                getattr(args, "claims_file", None) or getattr(args, "no_registry", False):
+            raise core.UsageError("--migrate-signoff PATH takes only --write and --json (a dry run without --write)")
+        lines, payload, cfg_text, side_text = do_migrate_signoff(args.migrate_signoff, bool(args.write))
+        if getattr(args, "json_out", False):
+            core.print_json(payload)
+        else:
+            print("\n".join(lines))
+            if cfg_text is not None:
+                print(f"--- {payload['config']} (would be):")
+                print(cfg_text, end="")
+                print(f"--- {holes.SIDECAR} (would be):")
+                print(side_text, end="")
+        return 0
+    if getattr(args, "write", False):
+        raise core.UsageError("--write: only with --migrate-signoff PATH")
     if getattr(args, "coverage", None):
         if args.from_claims or args.out or args.dry_run or types_mode(args) is not None or args.agent or \
                 getattr(args, "checkout", None) or getattr(args, "claims_file", None):
@@ -577,7 +778,11 @@ def cmd_comparator_config(args) -> int:
             payload["config"] = json.loads(text)
         core.print_json(payload)
     else:
+        side = payload.pop("signoff", None)
         print("\n".join(lines))
         if text is not None:
             print(text, end="")
+        if side is not None:
+            print(f"--- {holes.SIDECAR} (dry run, nothing written):")
+            print(holes.dump_sidecar(side), end="")
     return 0

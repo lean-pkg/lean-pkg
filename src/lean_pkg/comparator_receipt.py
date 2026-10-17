@@ -56,7 +56,7 @@ from .cli import build_provenance_line, comparator_pass  # noqa: E402
 from . import lake_hygiene as lh  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
-from .holes import check_definition_holes  # noqa: E402
+from .holes import SIDECAR, check_definition_holes, parse_sidecar  # noqa: E402
 from .comparator_stage import redact, redact_bytes, redact_json, set_redactions  # noqa: E402
 from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
                                JOBS_ENV, UNIT_SIZE_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, chunks, list_slots, parse_slot_spec, ranges, run_pool, shards, stratified_sample, unit_id, weighted_sample)
@@ -448,19 +448,23 @@ def parse_pins(text: str) -> dict:
 STANDARD_AXIOMS = frozenset({"propext", "Quot.sound", "Classical.choice"})
 
 
-def lint_configs(project: pathlib.Path, configs: list[str]) -> None:
+def lint_configs(project: pathlib.Path, configs: list[str], warn: bool = True) -> dict:
     """Configuration-level rules, checked before anything is built so a refusal
     writes nothing: permitted_axioms within the standard three, and definition
-    holes carrying a human judged_as sign-off (see holes.py), and no two configurations
-    whose log names (cfg_name) coincide: one log would overwrite the other."""
+    holes carrying a human sign-off (lean-pkg-signoff.json, else the deprecated inline judged_as; see
+    holes.py), and no two configurations whose log names (cfg_name) coincide: one log would overwrite the
+    other. Returns {config: sign-off} for the configurations with definition holes (recorded in the receipt)."""
     clash = cfg_name_collision(configs)
     if clash:
         a, b, name = clash
         raise RunnerError(f"{a} and {b} both map to the log name {name}.log (the '/' becomes '_'), so one "
                           f"configuration's log would overwrite the other's; rename one of them; nothing written")
+    sidecar = read_sidecar(project)
+    signoffs: dict = {}
     for cfg_rel in configs:
+        raw = (project / cfg_rel).read_bytes()
         try:
-            cfg = json.loads((project / cfg_rel).read_bytes())
+            cfg = json.loads(raw)
         except ValueError as e:
             raise RunnerError(f"{cfg_rel}: not valid JSON ({e}); nothing written")
         if not isinstance(cfg, dict):
@@ -476,9 +480,25 @@ def lint_configs(project: pathlib.Path, configs: list[str]) -> None:
             raise RunnerError(f"{cfg_rel}: permitted_axioms {extra} outside the standard "
                               f"{sorted(STANDARD_AXIOMS)}; nothing written")
         try:
-            check_definition_holes(cfg, cfg_rel)
+            so = check_definition_holes(cfg, cfg_rel, cfg_rel=cfg_rel, cfg_bytes=raw, sidecar=sidecar,
+                                        warn=(lambda m: print(f"comparator-receipt: warning: {m}", file=sys.stderr))
+                                        if warn else None)
         except ValueError as e:
             raise RunnerError(f"{e}; nothing written")
+        if so is not None:
+            signoffs[cfg_rel] = so
+    return signoffs
+
+
+def read_sidecar(project: pathlib.Path) -> dict:
+    """lean-pkg-signoff.json of the project (holes.py), strictly parsed; empty when absent."""
+    p = project / SIDECAR
+    if p.is_symlink():
+        raise RunnerError(f"{SIDECAR} is a symlink; refusing to read a sign-off through it; nothing written")
+    try:
+        return parse_sidecar(p.read_bytes() if p.is_file() else None)
+    except ValueError as e:
+        raise RunnerError(f"{e}; nothing written")
 
 
 def list_configs(project: pathlib.Path) -> list[str]:
@@ -1878,6 +1898,7 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
     sfx = ".partial" if partial else ""
     entries = []
     staged: list[tuple[pathlib.Path, pathlib.Path]] = []
+    signoffs = lint_configs(project, configs, warn=False)     # the sign-offs, as the run was linted
     for cfg_rel in configs:
         name = cfg_name(cfg_rel)
         src_log = log_dir / f"{name}.log"
@@ -1903,7 +1924,9 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
             "theorem_names": list(cfg.get("theorem_names") or []),
             "definition_names": list(cfg.get("definition_names") or []),
             "permitted_axioms": list(cfg.get("permitted_axioms") or []),
-            **({"judged_as": cfg["judged_as"]} if isinstance(cfg.get("judged_as"), dict) else {}),
+            **({"judged_as": cfg["judged_as"]} if isinstance(cfg.get("judged_as"), dict)
+               and cfg_rel in signoffs and signoffs[cfg_rel]["source"] == "inline" else {}),
+            **({"signoff": signoffs[cfg_rel]} if cfg_rel in signoffs else {}),
             "log": log_rel,
             "log_sha256": sha256_file(src_log),
             "result": "pass",

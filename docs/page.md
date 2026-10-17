@@ -292,7 +292,7 @@ them, and so does every `page` render (`page --check` included).
 | R9 every relative link resolves | by construction: the only relative links are `LICENSE` and `CITATION.cff` from the README (both required at `HEAD`) and `coverage.md`/`verification.md` beside each other |
 | R10 every comparator config is linked | `coverage check` (with R11): every configuration of the recorded comparator receipt is accounted for through its theorems |
 | R11 every `theorem_names` entry has a row | `coverage check`: every theorem the recorded comparator receipt compares is the declaration of a claim some row names (`<Prefix>.<decl>`, the Challenge form, counts) |
-| R12 definition holes name their reviewer | `coverage check`: a configuration of the recorded comparator receipt with `definition_names` must carry `judged_as.reviewer`; the trust boundary then names each hole and who judged its body, and when |
+| R12 definition holes name their reviewer | `coverage check`: a configuration of the recorded comparator receipt with `definition_names` must carry a sign-off reviewer (its `signoff` copy of `lean-pkg-signoff.json`, or the deprecated `judged_as.reviewer`); the trust boundary then names each hole and who judged its body, and when |
 
 Two differences. lean-pkg reads the comparator configurations from the
 recorded comparator receipt, not from the files in the tree: the page states

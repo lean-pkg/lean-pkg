@@ -145,7 +145,11 @@ def cc(lp, env, capsys, *extra):
 
 
 def dry_cfg(cap):
-    return json.loads(cap.out[cap.out.index("\n{") + 1:])
+    """A dry run's would-be documents: the configuration, then lean-pkg-signoff.json (its scaffold TODOs)."""
+    dec = json.JSONDecoder()
+    cfg, end = dec.raw_decode(cap.out, cap.out.index("\n{") + 1)
+    side, _ = dec.raw_decode(cap.out, cap.out.index("\n{", end) + 1)
+    return {"config": cfg, "signoff": side}
 
 
 def lake_calls(tmp_path, round_trip=False):
@@ -155,8 +159,10 @@ def lake_calls(tmp_path, round_trip=False):
     return [c for c in calls if os.path.basename(c["args"][2]).startswith("r") == round_trip]
 
 
-def todo_by_claim(cfg):
-    return {t["claim"]: t for t in cfg["lean_pkg_scaffold"]["todo"]}
+def todo_by_claim(where, rel="comparator.json"):
+    """The scaffold TODO entries by claim, from lean-pkg-signoff.json in the directory `where` (or a dry_cfg)."""
+    doc = where["signoff"] if isinstance(where, dict) else json.loads((where / "lean-pkg-signoff.json").read_text())
+    return {t["claim"]: t for t in doc["configs"][rel]["scaffold"]["todo"]}
 
 
 def test_local_mode_prefills_challenge_and_solution_with_per_entry_fallback(lp, env, fake_lake, tmp_path, capsys):
@@ -170,8 +176,7 @@ def test_local_mode_prefills_challenge_and_solution_with_per_entry_fallback(lp, 
     assert data["types"]["driver_summary"]["errors"] == 1 and data["types"]["driver_summary"]["filled"] == 2
     assert data["types"]["mode"] == "local" and data["types"]["commit"] == repo_head(env.repo_b)
     assert (data["types"]["prefilled"], data["types"]["type_errors"], data["types"]["needs_restatement"]) == (2, 1, 2)
-    cfg = json.loads((env.repo_b / "comparator.json").read_text())
-    todo = todo_by_claim(cfg)
+    todo = todo_by_claim(env.repo_b)
     baz = todo["beta/baz"]
     assert baz["type"] == "True" and baz["needs_restatement"] is False and "type_error" not in baz
     assert baz["challenge"] == ("/-- baz summary -/\ntheorem BetaAudit.Demo.baz :\n    True := by\n  sorry")
@@ -193,7 +198,7 @@ def test_local_mode_prefills_challenge_and_solution_with_per_entry_fallback(lp, 
     assert all(c["cwd"] == str(env.repo_b) for c in calls)
     assert all(not c["args"][2].startswith(str(env.repo_b)) for c in calls)     # scratch files in a temp dir
     status = _git(env.repo_b, "status", "--porcelain").stdout.split("\n")
-    assert [s for s in status if s.strip()] == [" M comparator.json"]           # nothing else in the checkout
+    assert sorted(s for s in status if s.strip()) == [" M comparator.json", "?? lean-pkg-signoff.json"]  # nothing else
 
 
 def test_dry_run_runs_lean_but_writes_nothing_and_second_run_adds_nothing(lp, env, fake_lake, tmp_path, capsys):
@@ -310,7 +315,7 @@ def test_ingest_a_good_file_with_per_entry_fallback(lp, env, tmp_path, capsys):
     assert rc == 0, cap.err
     data = json.loads(cap.out)
     assert data["types"]["mode"] == "ingest" and data["types"]["toolchain"] == "leanprover/lean4:v4.35.0"
-    todo = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))
+    todo = todo_by_claim(env.repo_b)
     assert todo["beta/baz"]["needs_restatement"] is False and "exact @_root_.Demo.baz" in todo["beta/baz"]["solution"]
     assert todo["beta/zap"]["type_error"] == "timed out after 120s" and todo["beta/zap"]["needs_restatement"]
     wow = todo["beta/wow"]                     # no `modules` in the result: cannot tell, so flagged
@@ -324,7 +329,7 @@ def test_ingest_missing_result_falls_back(lp, env, tmp_path, capsys):
     assert rc == 1 and "extraction failed for 3 of 3" in cap.err          # a missing result is a failure
     rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--json", "--allow-partial")
     assert rc == 0, cap.err
-    todo = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))
+    todo = todo_by_claim(env.repo_b)
     assert todo["beta/baz"]["type_error"].startswith("no result for Demo.baz in ")
 
 
@@ -392,7 +397,7 @@ def test_driver_exits_2_when_nothing_was_filled(lp, env, fake_lake, tmp_path, mo
     assert all(r["rc"] == 3 and r["error"] == "lake: error: something broke" for r in doc["results"])
     rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--allow-partial", "--json")
     assert rc == 0, cap.err
-    todo = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))
+    todo = todo_by_claim(env.repo_b)
     assert all(todo[c]["restatement_reason"] == "extraction_failed" for c in ("beta/baz", "beta/zap", "beta/wow"))
 
 
@@ -411,7 +416,7 @@ def test_declaration_errors_are_not_extraction_failures(lp, env, fake_lake, tmp_
     assert doc["summary"]["ok"] is True and doc["summary"]["declaration_errors"] == 1
     rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--json")
     assert rc == 0, cap.err
-    gone = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/gone"]
+    gone = todo_by_claim(env.repo_b)["beta/gone"]
     assert gone["type_error"] == "unknown constant Demo.gone" and "restatement_reason" not in gone
 
 
@@ -475,7 +480,7 @@ def test_round_trip_failure_keeps_the_todo(lp, env, fake_lake, tmp_path, monkeyp
     assert rc == 0, cap.err
     data = json.loads(cap.out)
     assert data["types"]["round_trip_failed"] == 1 and data["types"]["prefilled"] == 1
-    todo = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))
+    todo = todo_by_claim(env.repo_b)
     baz = todo["beta/baz"]
     assert baz["needs_restatement"] is True and baz["restatement_reason"] == "round_trip_failed"
     assert baz["type_error"].startswith("round-trip check failed (exit 1):") and "but is expected" in baz["type_error"]
@@ -490,7 +495,7 @@ def test_output_without_round_trip_is_never_ready(lp, env, tmp_path, capsys):
         {"decl": "Demo.baz", "type": "True", "status": "ok", "error": None, "levels": [], "modules": ["Init.Prelude"]}])
     rc, cap = cc(lp, env, capsys, "--from-output", str(f), "--allow-partial", "--json")
     assert rc == 0, cap.err
-    baz = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/baz"]
+    baz = todo_by_claim(env.repo_b)["beta/baz"]
     assert baz["needs_restatement"] is True and "no round-trip check" in baz["restatement_reason"]
 
 
@@ -516,7 +521,8 @@ def test_no_registry_writes_a_scratch_config_under_a_foreign_lease(lp, env, tmp_
     cfg = json.loads(scratch.read_text())
     base = json.loads(before_cfg)
     assert cfg["theorem_names"][:len(base["theorem_names"])] == base["theorem_names"]   # merged, not replaced
-    assert set(todo_by_claim(cfg)) == {"beta/baz", "beta/zap", "beta/wow"}
+    assert set(todo_by_claim(scratch.parent)) == {"beta/baz", "beta/zap", "beta/wow"}
+    assert "lean_pkg_scaffold" not in cfg
     assert (env.repo_b / "comparator.json").read_text() == before_cfg
     assert env.registry.read_text() == before_reg
     assert _git(env.repo_b, "status", "--porcelain").stdout.strip() == ""
@@ -551,9 +557,10 @@ def test_checkout_overrides_the_registry_path(lp, env, tmp_path, capsys):
     assert rc == 0, cap.err
     data = json.loads(cap.out)
     assert data["checkout"] == str(clone) and data["written"] is True
-    assert set(todo_by_claim(json.loads((clone / "comparator.json").read_text()))) == {"beta/baz", "beta/zap",
+    assert set(todo_by_claim(clone)) == {"beta/baz", "beta/zap",
                                                                                       "beta/wow"}
     assert "lean_pkg_scaffold" not in (env.repo_b / "comparator.json").read_text()   # registry path untouched
+    assert not (env.repo_b / "lean-pkg-signoff.json").exists()
     # a checkout whose HEAD moved past the synced commit with a source change: refused, with the paths
     (clone / "Demo" / "Main.lean").write_text(LEAN + "theorem more : True := trivial\n")
     _git(clone, "commit", "-qam", "more")
@@ -635,7 +642,7 @@ def test_defeq_but_not_syntactically_equal_is_filled_but_flagged(lp, env, fake_l
     assert wow["round_trip_exact"] is True and doc["summary"]["round_trip_inexact"] == 1
     rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--allow-partial", "--json")
     assert rc == 0, cap.err
-    baz = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/baz"]
+    baz = todo_by_claim(env.repo_b)["beta/baz"]
     assert baz["needs_restatement"] is True and "round_trip_exact false" in baz["restatement_reason"]
     assert "exact @_root_.Demo.baz" in baz["solution"]          # still pre-filled: it elaborates
 
@@ -681,7 +688,7 @@ def test_coercion_types_text_is_the_fallback_when_the_first_does_not_round_trip(
     assert doc["summary"]["round_trip_variant"] == 1 and doc["summary"]["round_trip_failed"] == 0
     rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--allow-partial", "--json")
     assert rc == 0, cap.err
-    entry = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/baz"]
+    entry = todo_by_claim(env.repo_b)["beta/baz"]
     assert entry["type"] == "(True : Prop)" and entry["needs_restatement"] is False
     assert entry["challenge"].startswith("/-- ") and "(True : Prop) := by" in entry["challenge"]
 
@@ -717,10 +724,10 @@ def test_undecidable_proposition_retries_under_open_scoped_classical(lp, env, fa
     assert "set_option autoImplicit false\nopen scoped Classical\n" in srcs[1]
     rc, cap = cc(lp, env, capsys, "--from-output", str(out), "--allow-partial", "--json")
     assert rc == 0, cap.err
-    entry = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/baz"]
+    entry = todo_by_claim(env.repo_b)["beta/baz"]
     assert entry["challenge"].startswith("open scoped Classical in\n/-- ")
     assert entry["solution"].startswith("open scoped Classical in\ntheorem ")
-    other = todo_by_claim(json.loads((env.repo_b / "comparator.json").read_text()))["beta/wow"]
+    other = todo_by_claim(env.repo_b)["beta/wow"]
     assert "Classical" not in other["challenge"]
     # negative control: a failure that is not about decidability is not retried under Classical
     (tmp_path / "lake.log.rt").unlink()

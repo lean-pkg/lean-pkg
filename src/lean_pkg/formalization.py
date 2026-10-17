@@ -46,7 +46,7 @@ import yaml
 
 from . import cli as core
 from . import claims as claims_mod
-from .holes import check_definition_holes
+from .holes import check_definition_holes, summary as signoff_summary
 
 SCHEMA_VERSION = "v0.4"
 SCHEMA_FILE = "formalization-0.4.schema.json"
@@ -256,17 +256,22 @@ def main_results(repo: pathlib.Path, warnings: list[str]) -> list[dict]:
             warnings.append(f"{rel}: theorem_names is empty; no main_results entry")
         holes = cfg.get("definition_names") or []
         judged = None
+        try:                                 # lean-pkg-signoff.json at HEAD (holes.py)
+            sidecar = core.sidecar_at(repo)
+        except ValueError as e:
+            raise core.Fail(str(e))
         if holes:
             try:
-                check_definition_holes(cfg, rel)
-                judged = cfg.get("judged_as")
+                so = check_definition_holes(cfg, rel, cfg_rel=rel, cfg_bytes=raw, sidecar=sidecar,
+                                            warn=warnings.append)
+                judged = cfg["judged_as"] if so["source"] == "inline" else signoff_summary(so)
             except ValueError as e:
                 warnings.append(f"{e}; judged_as is null in main_results")
         from .comparator_config import scaffold_todo_names
-        todo = scaffold_todo_names(cfg)      # #23.6: scaffolded, not yet written: not a main result
+        todo = scaffold_todo_names(cfg, rel, sidecar)  # #23.6: scaffolded, not yet written: not a main result
         if todo & set(names):
-            warnings.append(f"{rel}: {len(todo & set(names))} theorem name(s) still marked TODO under "
-                            f"lean_pkg_scaffold; left out of status.main_results")
+            warnings.append(f"{rel}: {len(todo & set(names))} theorem name(s) still marked TODO in the "
+                            f"scaffold; left out of status.main_results")
         for name in names:
             if name in todo:
                 continue
