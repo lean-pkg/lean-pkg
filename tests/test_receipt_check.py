@@ -296,3 +296,147 @@ def test_a_page_in_the_wording_before_0_11_is_still_checked(lp, env, capsys, tmp
     _git(repo, "commit", "-qam", "edit it")
     rc, a = check(lp, capsys, referee_clone(env, tmp_path / "again"), x, "--docs-descendants")
     assert rc == 1 and verdicts(a)["page: trust boundary"] == "fail"
+
+
+# --- formalization.yaml after the bound commit (gate's derived-keys exemption, registry-free) ------------
+
+FZ_DOC = {"version": "v0.4", "project": {"name": "beta", "description": "A demo package."},
+          "status": {"scope": "library", "sorry_count": 0, "evidence": []}}
+
+
+def evidence_tag(lp, env, capsys, edit, extra=None) -> str:
+    """beta with formalization.yaml committed before X, then a tag `v0.1.0` on the evidence commit (HEAD~1
+    of publish_fixture, before the page) that also rewrites formalization.yaml with `edit(doc)`, and writes
+    each `extra` {path: text}, as an author's evidence commit does. Returns X."""
+    repo = env.repo_b
+    (repo / "formalization.yaml").write_text(yaml.safe_dump(FZ_DOC, sort_keys=False))
+    _git(repo, "add", "formalization.yaml")
+    _git(repo, "commit", "-q", "-m", "formalization.yaml")
+    x = publish_fixture(lp, env, capsys)
+    _git(repo, "checkout", "-q", "-b", "evidence-tag", "HEAD~1")
+    doc = yaml.safe_load((repo / "formalization.yaml").read_text())
+    edit(doc)
+    (repo / "formalization.yaml").write_text(yaml.safe_dump(doc, sort_keys=False))
+    for rel, text in (extra or {}).items():
+        (repo / rel).write_text(text)
+    _git(repo, "add", "-A", "--", "formalization.yaml", *(extra or {}))
+    _git(repo, "commit", "-q", "-m", "refresh formalization evidence")
+    _git(repo, "tag", "v0.1.0")
+    _git(repo, "checkout", "-q", "-")
+    return x
+
+
+def cite_receipt(doc):
+    doc["status"]["evidence"] = [{"kind": "gate-receipt", "path": f".lean-receipts/x-{JOB}.json"}]
+    doc["status"]["axioms"] = ["propext", "Quot.sound", "Classical.choice"]
+
+
+def test_an_evidence_commit_that_refreshes_formalization_yaml_passes_strict(lp, env, capsys, tmp_path):
+    """The evidence commit must refresh formalization.yaml (it cites the receipt, so it cannot be in X). Only
+    derived keys changed: the strict rule (no --docs-descendants) admits it, as gate does, and says so."""
+    x = evidence_tag(lp, env, capsys, cite_receipt)
+    clone = referee_clone(env, tmp_path)
+    rc, a = check(lp, capsys, clone, x, "--at", "v0.1.0")
+    assert rc == 0 and a["ok"] is True, failed(a)
+    assert a["docs_descendants"] is False and a["tier"] == "comparator"
+    binding = next(c["detail"] for c in a["checks"] if c["id"] == "binding")
+    assert binding.startswith(f"evidence-only descendant of {x[:12]}")
+    assert "exemption applied: formalization.yaml differs" in binding and "only in derived keys" in binding
+    assert len(a["exemptions"]) == 1 and "status.evidence" in a["exemptions"][0]
+    capsys.readouterr()
+    assert lp.main(["receipt", "check", "--repo", str(clone), "--commit", x,
+                    "--at", "v0.1.0"]) == 0
+    assert "  exemption: formalization.yaml differs" in capsys.readouterr().out
+
+
+def test_no_exemption_is_printed_when_formalization_yaml_did_not_change(lp, env, capsys, tmp_path):
+    x = publish_fixture(lp, env, capsys)
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--at", "HEAD~1")
+    assert rc == 0 and a["exemptions"] == [], failed(a)
+
+
+def test_a_kept_key_change_in_formalization_yaml_fails(lp, env, capsys, tmp_path):
+    def edit(doc):
+        cite_receipt(doc)
+        doc["project"]["description"] = "A different claim about what was formalized."
+    x = evidence_tag(lp, env, capsys, edit)
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--at", "v0.1.0")
+    assert rc == 1 and verdicts(a)["binding"] == "fail" and a["exemptions"] == []
+    assert "kept (hand-authored) key(s) project.description" in " ".join(failed(a))
+
+
+def test_another_non_receipt_file_beside_the_refresh_still_fails(lp, env, capsys, tmp_path):
+    x = evidence_tag(lp, env, capsys, cite_receipt, {"NOTES.md": "later notes\n"})
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--at", "v0.1.0")
+    assert rc == 1 and verdicts(a)["binding"] == "fail"
+    assert "outside .lean-receipts/: ['NOTES.md']" in " ".join(failed(a))
+
+
+def test_a_build_input_change_beside_the_refresh_fails(lp, env, capsys, tmp_path):
+    main = (env.repo_b / "Demo" / "Main.lean").read_text()
+    x = evidence_tag(lp, env, capsys, cite_receipt, {"Demo/Main.lean": main + "\n-- later\n"})
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--at", "v0.1.0", "--docs-descendants")
+    assert rc == 1 and verdicts(a)["binding"] == "fail"
+    assert "Demo/Main.lean" in " ".join(failed(a))
+
+
+def test_a_formalization_yaml_first_committed_after_the_bound_commit_is_not_exempt(lp, env, capsys, tmp_path):
+    x = publish_fixture(lp, env, capsys)
+    repo = env.repo_b
+    _git(repo, "checkout", "-q", "-b", "evidence-tag", "HEAD~1")
+    (repo / "formalization.yaml").write_text(yaml.safe_dump(FZ_DOC, sort_keys=False))
+    _git(repo, "add", "formalization.yaml")
+    _git(repo, "commit", "-q", "-m", "a new formalization.yaml")
+    _git(repo, "tag", "v0.1.0")
+    _git(repo, "checkout", "-q", "-")
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--at", "v0.1.0")
+    assert rc == 1 and verdicts(a)["binding"] == "fail"
+    assert f"formalization.yaml is not tracked at {x[:12]}" in " ".join(failed(a))
+
+
+# --- non-receipt JSON under .lean-receipts/ ------------------------------------------------------------
+
+def sidecar_fixture(lp, env, capsys, data) -> str:
+    """beta with one more JSON file named for X under .lean-receipts/ in the evidence commit."""
+    x = publish_fixture(lp, env, capsys)
+    repo = env.repo_b
+    (repo / f".lean-receipts/{x[:12]}-comparator-stages.json").write_text(json.dumps(data, indent=2) + "\n")
+    _git(repo, "add", "-f", ".lean-receipts")
+    _git(repo, "commit", "-q", "-m", "a stages record")
+    return x
+
+
+def test_a_comparator_stages_record_named_for_the_commit_is_skipped_and_printed(lp, env, capsys, tmp_path):
+    x = sidecar_fixture(lp, env, capsys, {"schema": "comparator-stages/1", "commit": "0" * 40, "stages": []})
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--docs-descendants")
+    rel = f".lean-receipts/{x[:12]}-comparator-stages.json"
+    assert rc == 0 and verdicts(a)[f"receipt {rel}"] == "skip", failed(a)
+    assert a["skipped_records"] == [rel]
+    assert "comparator-stages/1" in next(c["detail"] for c in a["checks"] if c["id"] == f"receipt {rel}")
+
+
+@pytest.mark.parametrize("data", [
+    {"commit": "0" * 40, "stages": []},                     # no schema: may be a damaged receipt
+    {"schema": "comparator-stages/9", "stages": []},        # an unknown schema is not a known record
+    {"schema": "comparator-receipt/9", "configs": []},      # a receipt schema this version cannot read
+])
+def test_any_other_non_receipt_json_named_for_the_commit_still_fails(lp, env, capsys, tmp_path, data):
+    x = sidecar_fixture(lp, env, capsys, data)
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--docs-descendants")
+    rel = f".lean-receipts/{x[:12]}-comparator-stages.json"
+    assert rc == 1 and verdicts(a)[f"receipt {rel}"] == "fail"
+    assert f"does not start with {x[:12]}" in " ".join(failed(a))
+
+
+def test_a_receipt_shaped_file_with_a_record_schema_is_still_checked_as_a_receipt(lp, env, capsys, tmp_path):
+    """The skip needs both an exact record schema and no receipt shape: a lower-tier receipt that also carries
+    `schema: comparator-stages/1` is validated (here: sorry_count 1 fails), never skipped."""
+    x = publish_fixture(lp, env, capsys)
+    rec = json.loads((env.repo_b / f".lean-receipts/{x[:12]}-{JOB}.json").read_text())
+    repo = env.repo_b
+    rel = f".lean-receipts/{x[:12]}-comparator-stages.json"
+    (repo / rel).write_text(json.dumps({**rec, "schema": "comparator-stages/1", "sorry_count": 1}) + "\n")
+    _git(repo, "add", "-f", ".lean-receipts")
+    _git(repo, "commit", "-q", "-m", "a receipt in disguise")
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--docs-descendants")
+    assert rc == 1 and verdicts(a)[f"lower {rel}"] == "fail" and a["skipped_records"] == []

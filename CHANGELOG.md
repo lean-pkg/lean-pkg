@@ -98,6 +98,24 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `receipt check` passes a tag on an evidence commit that refreshed
+  `formalization.yaml`. Such a commit must refresh it (the file cites the
+  receipt, so it cannot be in the bound commit), and the strict rule failed
+  it ("differs outside .lean-receipts/: [formalization.yaml]"), so no
+  published commit carrying receipts could pass without
+  `--docs-descendants`. The check now applies `gate`'s own exemption
+  (derived keys only, compared as YAML data) with no registry, to
+  `formalization.yaml` at the package root, which must be tracked at the
+  bound commit; a change to a kept key, to any other non-receipt file or to
+  a build input still fails. The `binding` line, an `exemption:` line and
+  the JSON `exemptions` list say when it was applied.
+- `receipt check` no longer fails a comparator runner record named for the
+  commit (`<c12>-comparator-stages.json` with `schema: comparator-stages/1`,
+  and the runner's other record schemas): it is a `skip` line, and is listed
+  in JSON `skipped_records`. Only an exact record `schema` on a file that is
+  not receipt-shaped is skipped; any other non-receipt JSON named for the
+  commit still fails, and the message now gives the naming rule
+  (docs/receipts.md, "Naming rule for `.lean-receipts/`").
 - `comparator-receipt --seal-sacct` compares the node again: since host
   labels, every receipt carries `host_label`, so the seal had skipped the
   node check. A receipt's `h-` host label is now compared with the label of
