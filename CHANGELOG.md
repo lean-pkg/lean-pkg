@@ -13,6 +13,21 @@ change the registry schema or receipt format, always with a migration).
   and its topics, `receipt slurm`/`systemd` with `--compress-log` and the Slurm template's `SRC_MODE=clone` and `DEPS_TAR`,
   comparator configuration and readiness checks, `search` flags, the pre-freeze check and the consolidation recipe; Requirements
   states `lean-exercise`'s host needs.
+- `receipt slurm --template`: an optional artifact seal (`ARTIFACTS_DIR=<dir>`, relative to the job's package tree,
+  or to the work directory with `ARTIFACTS_BASE=work`). After the audit the job lists every regular file under it in
+  `artifacts.sha256` (sorted `<relative path> <size> <sha256>` lines), copies the directory and the manifest to
+  `ARTIFACTS_OUT` (default `$OUT_DIR/artifacts-<J>`, never overwritten), rehashes the copy against the manifest, and
+  prints `artifacts-manifest-sha256 <hex>` on stdout beside the seal lines; a symlink, a special file or a newline in
+  a file name fails the job. Without `ARTIFACTS_DIR` the template behaves as before (field report).
+- `receipt slurm --artifacts DIR [--artifacts-manifest NAME]` (and `--check`; needs `--stdout`): the manifest's
+  SHA-256 must equal the job stdout's `artifacts-manifest-sha256` line (the stdout is bound by the stdout seal and
+  sacct), and every file under `DIR` is rehashed in 1 MiB chunks against it; missing, extra or changed files,
+  symlinks, special files, path-traversal, duplicate or unsorted entries refuse. The receipt gains the additive key
+  `artifacts_manifest_sha256` (`gate` ignores it), the manifest is written beside the receipt as
+  `<c12>-slurm-<J>-artifacts.sha256` (`sealed[]` role `artifacts.sha256`), and `--json` gains `artifacts`. Without
+  `--artifacts` nothing changes. docs/receipts.md "Recollecting a finished job": `--check`, then the receipt, on
+  recollected files; previously copied files are adopted only by this rehash against the job's own manifest
+  (field report).
 
 ### Changed
 
@@ -31,6 +46,12 @@ change the registry schema or receipt format, always with a migration).
   docs change. `.lean-receipts/` is never a build input whatever `build_inputs` says; a matching file outside it
   still refuses, and symlinks, `claims.yaml`, the attribute files, the checker's files and the `formalization.yaml`
   derived-keys rule are unchanged (field report #5).
+- `receipt systemd --run` interrupted (SIGINT, SIGTERM, SIGHUP) while waiting for the unit deleted the unit's
+  temporary `LAKE_CACHE_DIR` while the unit could still be running and using it (and SIGTERM was not handled at
+  all). The cache is now kept while the unit is running or its state cannot be read (removed when the unit is gone
+  or finished), the unit is left alone, nothing is written, the exit status is 128 + the signal, and the recovery
+  command (`lean-pkg receipt systemd --unit U ...` without `--run`) is printed with a WARN that recovery skips the
+  "source tree unchanged during the run" check; documented in docs/receipts.md.
 
 ## [0.7.51] - 2026-10-16
 

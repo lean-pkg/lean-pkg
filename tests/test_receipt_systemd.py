@@ -647,3 +647,117 @@ def test_the_written_receipt_and_readme_keep_log_commit_bound(lp, env, repo, tmp
     data = json.loads(capsys.readouterr().out)
     assert json.loads(Path(data["receipt"]).read_text())["log_commit_bound"] is True
     assert "WARN" not in data["readme_block"]
+
+
+# --------------------------------------------------------------------------
+# --run interrupted while polling (field report): the unit's temporary Lake cache is never deleted while the
+# unit may still run, and the recovery command is printed
+
+RUNNING = props_text(host=None, ActiveState="active", SubState="running")
+GONE = props_text(host=None, LoadState="not-found", ActiveState="inactive", SubState="dead")
+
+
+def interrupt_poll(monkeypatch, tmp_path, props: Path, *, then: str | None, how: str = "int"):
+    """The unit reads as running; the first poll sleep is interrupted (Ctrl-C, or a real SIGTERM to this
+    process), after the unit's state is set to `then` (None: unchanged). The cache's temp dir is under tmp_path."""
+    import signal
+    import tempfile
+
+    from lean_pkg import receipt_systemd as rs
+    props.write_text(RUNNING)
+    tdir = tmp_path / "tmpdir"
+    tdir.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(tdir))
+
+    def sleep(_s):
+        if then is not None:
+            props.write_text(then)
+        if how == "int":
+            raise KeyboardInterrupt
+        os.kill(os.getpid(), signal.SIGTERM)
+        raise AssertionError("SIGTERM was not turned into an interruption")
+    monkeypatch.setattr(rs.time, "sleep", sleep)
+    return tdir
+
+
+def run_interrupted(lp, repo, tmp_path):
+    """run_live, with an escaping interruption turned into a test failure (never the end of the session): a
+    KeyboardInterrupt, or a SIGTERM reaching this test's own handler, means --run did not handle it."""
+    import signal
+
+    def unhandled(signum, _frame):
+        raise AssertionError("SIGTERM reached the caller: --run did not handle it")
+    old = signal.signal(signal.SIGTERM, unhandled)
+    try:
+        return run_live(lp, repo, tmp_path)
+    except KeyboardInterrupt:
+        pytest.fail("KeyboardInterrupt escaped receipt systemd --run")
+    finally:
+        signal.signal(signal.SIGTERM, old)
+
+
+def cache_of(calls) -> Path:
+    start = calls[0]
+    return Path(next(a for a in start if a.startswith("--setenv=LAKE_CACHE_DIR=")).split("=", 2)[2])
+
+
+def test_interrupted_run_keeps_the_cache_of_a_running_unit_and_prints_recovery(lp, env, repo, tmp_path,
+                                                                               fake_systemd, capsys, monkeypatch):
+    import shlex
+    import signal
+    props, calls_made = fake_systemd
+    tdir = interrupt_poll(monkeypatch, tmp_path, props, then=None)
+    rc, d = run_interrupted(lp, repo, tmp_path)
+    assert rc == 128 + signal.SIGINT
+    err = capsys.readouterr().err
+    cache = cache_of(calls_made())
+    assert cache.parent == tdir and cache.is_dir()                   # kept: the unit may still use it
+    assert "interrupted by SIGINT while waiting for lp-verify.service; the unit is still running and was not " \
+           "stopped" in err
+    assert f"LAKE_CACHE_DIR is kept at {cache}" in err and f"rm -rf {cache}" in err
+    assert "WARN recovery via --unit skips the --run check that the source tree was unchanged during the run" in err
+    verbs = [c[2] for c in calls_made()[1:]]
+    assert "stop" not in verbs and "reset-failed" not in verbs        # the unit is left alone
+    assert_nothing_written(repo)
+    assert not (d / "verify.log.unit.properties").exists()
+    # the printed recovery command (no --run) writes the receipt once the unit has finished
+    line = next(x.strip() for x in err.splitlines() if x.strip().startswith("lean-pkg receipt systemd --unit"))
+    argv = shlex.split(line)
+    assert "--run" not in argv and argv[argv.index("--unit") + 1] == UNIT
+    props.write_text(props_text(host=None))
+    assert lp.main(argv[1:]) == 0, capsys.readouterr().err
+    rp = next(rdir(repo).glob("*.json"))
+    assert json.loads(rp.read_text())["job_id"] == JOB_ID
+
+
+def test_interrupted_run_removes_the_cache_when_the_unit_is_gone(lp, repo, tmp_path, fake_systemd, capsys,
+                                                                 monkeypatch):
+    import signal
+    props, calls_made = fake_systemd
+    tdir = interrupt_poll(monkeypatch, tmp_path, props, then=GONE, how="term")
+    rc, _d = run_interrupted(lp, repo, tmp_path)
+    assert rc == 128 + signal.SIGTERM
+    err = capsys.readouterr().err
+    assert not cache_of(calls_made()).exists() and list(tdir.iterdir()) == []
+    assert "interrupted by SIGTERM" in err and "is no longer running" in err
+    assert "LAKE_CACHE_DIR was removed (the unit no longer runs)" in err
+    assert "lean-pkg receipt systemd --unit lp-verify.service" in err
+    assert_nothing_written(repo)
+
+
+def test_interrupted_run_keeps_the_cache_when_the_state_is_unknown(lp, repo, tmp_path, fake_systemd, capsys,
+                                                                   monkeypatch):
+    props, calls_made = fake_systemd
+    interrupt_poll(monkeypatch, tmp_path, props, then="")           # `show` prints nothing: state unknown
+    rc, _d = run_interrupted(lp, repo, tmp_path)
+    assert rc == 130
+    assert cache_of(calls_made()).is_dir()
+    assert "is in an unknown state" in capsys.readouterr().err
+
+
+def test_signal_handlers_are_restored_after_a_run(lp, repo, tmp_path, fake_systemd, capsys):
+    import signal
+    before = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
+    rc, _d = run_live(lp, repo, tmp_path)
+    assert rc == 0, capsys.readouterr().err
+    assert {s: signal.getsignal(s) for s in before} == before

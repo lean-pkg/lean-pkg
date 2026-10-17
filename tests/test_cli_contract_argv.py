@@ -97,6 +97,10 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["report", "--command", "x"], "report", False, False, False),
     (["report", "--command", "x", "--yes"], "report", False, False, False),   # files an issue, not a registry write
     (["receipt", "slurm"], "receipt slurm", False, False, False),
+    (["receipt", "slurm", "--job", "1", "--log", "l", "--commit", "c", "--stdout", "o", "--artifacts", "d",
+      "--artifacts-manifest", "m"], "receipt slurm", False, False, False),   # writes .lean-receipts, no registry
+    (["receipt", "slurm", "--check", "--log", "l", "--stdout", "o", "--artifacts", "d"], "receipt slurm", False,
+     False, False),
     (["receipt", "systemd", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),
     (["receipt", "local", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),   # alias
     # global flags never change the predicate (a snapshot is refused later, by run_snapshot)

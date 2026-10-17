@@ -283,7 +283,7 @@ container (`RUN=...`). A work directory outside `/tmp/<user>-job<J>` and
 `/scratch/<user>/` that appears in the log needs a `--redact` at receipt
 time.
 
-Two optional settings (environment variables when submitting, or edits at
+Three optional settings (environment variables when submitting, or edits at
 the top of the wrapper):
 
 - **`SRC_MODE=clone`** (default `archive`). `archive` extracts
@@ -318,6 +318,24 @@ the top of the wrapper):
   fresh: the empty Lake cache, the `.lake/build` refusal and the
   `Reused`/`Replayed`/`Unpacked` check are unchanged. The sha256 identifies
   the tarball; it is not what makes the build trustworthy.
+- **`ARTIFACTS_DIR=DIR`**: the artifact seal, for a job whose build or
+  audit leaves files that matter beyond the log (native executables,
+  generated certificates). `DIR` is relative to the job's package tree
+  (relative to the node-local work directory with `ARTIFACTS_BASE=work`);
+  an absolute path, a `..` component or a symlinked path component fails the
+  job. After the audit, every regular file under `DIR` is listed in
+  `artifacts.sha256`, one line per file sorted by path in the C locale:
+  `<relative path> <size> <sha256>`. The directory and the manifest are
+  copied to `ARTIFACTS_OUT` (default `$OUT_DIR/artifacts-<J>`, which must
+  not exist yet: a job never overwrites artifacts), and the copy is rehashed
+  against the manifest before the job may finish. A symlink or special file
+  under `DIR`, a file name holding a newline, or a file already named
+  `artifacts.sha256` at its top fails the job. The manifest's SHA-256 goes
+  to stdout as `artifacts-manifest-sha256 <hex>`, before
+  `post-manifest-sha256`, so the stdout seal (and through it sacct) binds
+  it; the log gets `artifacts-manifest: N file(s) from src/DIR, sha256 <hex>`
+  (never the work directory's path). Without `ARTIFACTS_DIR` nothing of
+  this runs and no such line is printed.
 
 ### Fresh builds and LEAN_PATH
 
@@ -386,6 +404,60 @@ is not run, so the job state is `not checked` unless `--sacct-file F` and
 acceptable, 1 otherwise; `--json` prints
 `{ok, check, written: [], raw_log_sha256, checks[], problems[]}`.
 
+**The artifact seal (`--artifacts DIR`).** For a job run with
+`ARTIFACTS_DIR` (above), `--artifacts DIR` names the collected copy of its
+`ARTIFACTS_OUT` (with `--check` too; it needs `--stdout`).
+`--artifacts-manifest NAME` names the manifest inside `DIR` when it is not
+`artifacts.sha256`. The manifest's SHA-256 must equal the job stdout's one
+`artifacts-manifest-sha256` line, and every file under `DIR` is rehashed
+in 1 MiB chunks, never following a symlink. A missing file (listed, not
+present), an extra file (present, not listed), a changed file (size or
+SHA-256), a symlink, a special file, a path-traversal entry (absolute, `..`,
+`.` or empty components), a duplicate entry, unsorted lines or a manifest
+without a final newline each refuse, every one named (the first five paths
+per kind). The receipt gains the additive key `artifacts_manifest_sha256`
+(`gate` ignores it, as it ignores `job_stdout_sha256`), the manifest is
+written beside the receipt as `<c12>-slurm-<J>-artifacts.sha256` and listed
+in `--json` `sealed[]` with role `artifacts.sha256`, the README entry gets a
+`- Artifacts:` line with the file count and bytes, and `--json` gains
+`artifacts` {ok, dir, files, bytes, manifest, manifest_sha256}. Without
+`--artifacts`, nothing changes: the same checks, keys and files as before.
+
+### Recollecting a finished job
+
+A collection that stopped part-way (a dropped connection while copying a
+job's artifacts back) leaves files whose only hashes are the collector's
+own. Those hashes prove nothing about the job. Recollect from what the job
+sealed:
+
+1. Copy the job's `.log`, `.out`, `.err` and its `ARTIFACTS_OUT` directory
+   again into a new attempt directory (`attempt-2/`, never over an earlier
+   attempt), and keep the copy's exit status. Numbered no-overwrite attempts
+   and that exit status belong to the project's harness, not to lean-pkg:
+   lean-pkg only judges the files it is given.
+2. Preflight the recollected files, which writes nothing:
+
+   ```bash
+   lean-pkg receipt slurm --check --commit "$(git rev-parse HEAD)" --log attempt-2/verify-123.log \
+     --stdout attempt-2/verify-123.out --stderr attempt-2/verify-123.err --artifacts attempt-2/artifacts-123
+   ```
+
+3. Then write the receipt from the same files:
+
+   ```bash
+   lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" --log attempt-2/verify-123.log \
+     --stdout attempt-2/verify-123.out --stderr attempt-2/verify-123.err --artifacts attempt-2/artifacts-123
+   ```
+
+Files an interrupted attempt already copied may be reused (moved or
+hard-linked into the new attempt instead of copied again): `--artifacts`
+rehashes every file against the job's own manifest, whose hash the job's
+stdout carries, so a reused file is adopted only when it matches what the
+job sealed. Never trust another attempt's hashes in its place. A job run
+without the artifact seal (no `ARTIFACTS_DIR`, so no
+`artifacts-manifest-sha256` line) can only cite its artifacts as
+provenance: the receipt binds the log, not the files beside it.
+
 ## A lower-tier receipt from a systemd unit
 
 `lean-pkg receipt systemd` (alias `receipt local`) writes the same receipt
@@ -445,6 +517,30 @@ rule below. Over ssh, when the
 session lacks them, `XDG_RUNTIME_DIR=/run/user/$UID` and
 `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$UID/bus` are set for
 `systemd-run` and `systemctl`.
+
+**An interrupted `--run`.** Ctrl-C (SIGINT), SIGTERM or SIGHUP while
+lean-pkg waits for the unit does not stop the unit: it keeps running under
+the user manager. lean-pkg reads the unit's state, keeps the temporary
+`LAKE_CACHE_DIR` while the unit is (or may be) still running, since the
+build may still be using it, and prints where it is with the `rm -rf`
+to run once the unit has finished; it removes the directory itself when the
+unit is gone or already finished. It writes nothing to `.lean-receipts/`,
+exits 128 + the signal number (130 for Ctrl-C) and prints the recovery
+command, the same command without `--run` (add any other flags of the
+first run, such as `--out` or `--append-readme`):
+
+```bash
+lean-pkg receipt systemd --unit audit-gate.service --log /tmp/gate/verify.log --commit <sha> \
+  --repo <repo> --stdout /tmp/gate/unit.out --stderr /tmp/gate/unit.err --checker "gate.sh (lake build; #print axioms)"
+```
+
+Run it once `systemctl --user show audit-gate.service -p ActiveState,SubState`
+says the unit finished (RemainAfterExit keeps it loaded until then), then
+`systemctl --user stop` and `reset-failed` it. Recovery through `--unit`
+reads the unit live and skips one `--run` check: that the source tree was
+unchanged during the run (HEAD at `--commit`, no tracked change, no
+untracked file); the interrupted run prints a WARN saying so. Check
+`git status` yourself before relying on such a receipt.
 
 **A unit that has already run.** `--properties-file F` reads saved
 properties, captured before the unit was collected:
