@@ -16,7 +16,9 @@ merged) and prints, per duplicate name, every owner's `ConstantInfo` compared fi
 `Expr.equal` (binder names and annotations included) against the `env.find?` winner, the module whose
 copy IS the winner (pointer identity), and the module `env.getModuleIdxFor?` records (the first owner;
 not necessarily the winner's). The toolchain's `lean --run` runs it with a LEAN_PATH built from the
-project's lake-manifest.json (`lake env` is not used: a lakefile.lean is code), inside the same bwrap
+project's lake-manifest.json (git packages under packagesDir, with their subDir; path packages at their
+dir; nothing escaping the project or through a symlink; `lake env` is not used: a lakefile.lean is
+code), inside the same bwrap
 sandbox lean-exercise uses unless --no-sandbox.
 
 Verdict per duplicate (fail closed):
@@ -54,6 +56,7 @@ import pathlib
 import subprocess
 import sys
 
+from . import build_scope
 from . import comparator_receipt as cr
 from . import exercise_forbid as fb
 
@@ -100,6 +103,64 @@ def toolchain_prefix(toolchain: str) -> pathlib.Path:
     return cr.elan_home() / "toolchains" / tc.replace("/", "--").replace(":", "---")
 
 
+def _inside(base: pathlib.Path, rel: str, what: str) -> pathlib.Path:
+    """base/rel, refused when rel is absolute or leaves base (build_scope.norm_dir, the same lexical rule the
+    gate applies to lake-manifest.json path packages), or when any component on the way is a symlink or
+    the result resolves outside base."""
+    norm = build_scope.norm_dir(rel)
+    if norm is None:
+        raise ProbeError(f"{what}: {rel!r} is absolute or leaves {base}; refused")
+    d = base
+    for part in [x for x in norm.split("/") if x]:
+        d = d / part
+        if d.is_symlink():
+            raise ProbeError(f"{what}: {rel!r} goes through the symlink {d}; refused")
+    if not d.resolve().is_relative_to(base.resolve()):
+        raise ProbeError(f"{what}: {rel!r} resolves outside {base}; refused")
+    return d
+
+
+def manifest_packages(project: pathlib.Path) -> dict[str, pathlib.Path]:
+    """{name: its .lake/build/lib/lean} for every package of the project's lake-manifest.json, read as data
+    (no lakefile is run): a `git` package at <packagesDir>/<name>[/<subDir>], a `path` package at its
+    `dir`, relative to the manifest's directory. A dir or subDir that is absolute, leaves its base or goes
+    through a symlink is refused, as is a package that is not checked out."""
+    man = project / "lake-manifest.json"
+    if not man.is_file():
+        return {}
+    try:
+        m = json.loads(man.read_text(encoding="utf-8"))
+        pkgs = m["packages"]
+        if not isinstance(pkgs, list):
+            raise TypeError("packages is not a list")
+    except (ValueError, KeyError, TypeError, OSError) as e:
+        raise ProbeError(f"{man}: not a Lake manifest ({e})") from None
+    pdir = _inside(project, m.get("packagesDir") or ".lake/packages", "lake-manifest.json packagesDir")
+    out: dict[str, pathlib.Path] = {}
+    for x in pkgs:
+        if not isinstance(x, dict) or not isinstance(x.get("name"), str) or not x["name"]:
+            raise ProbeError(f"{man}: a package entry without a name")
+        name, kind = x["name"], x.get("type")
+        if name in out:
+            raise ProbeError(f"{man}: package {name} is listed twice")
+        if kind == "path":
+            if not isinstance(x.get("dir"), str):
+                raise ProbeError(f"{man}: path package {name} has no dir")
+            d = _inside(project, x["dir"], f"path package {name} dir")
+        elif kind == "git":
+            d = _inside(pdir, name, f"git package {name}")
+            if x.get("subDir") is not None:
+                if not isinstance(x["subDir"], str):
+                    raise ProbeError(f"{man}: git package {name} subDir is not a string")
+                d = _inside(d, x["subDir"], f"git package {name} subDir")
+        else:
+            raise ProbeError(f"{man}: package {name} has type {kind!r} (only git and path are read)")
+        if not d.is_dir():
+            raise ProbeError(f"dependency {name} is not checked out ({d}); build the project first")
+        out[name] = d / PKG_LIB
+    return out
+
+
 def project_roots(project: pathlib.Path, toolchain: str | None = None) -> tuple[Roots, pathlib.Path]:
     """(Roots, toolchain prefix) of a built Lake project."""
     project = project.resolve()
@@ -113,19 +174,7 @@ def project_roots(project: pathlib.Path, toolchain: str | None = None) -> tuple[
     prefix = toolchain_prefix(toolchain)
     if not os.access(prefix / "bin" / "lean", os.X_OK):
         raise ProbeError(f"toolchain {toolchain} is not installed (`elan toolchain install {toolchain}`)")
-    packages: dict[str, pathlib.Path] = {}
-    man = project / "lake-manifest.json"
-    if man.is_file():
-        try:
-            m = json.loads(man.read_text(encoding="utf-8"))
-            pdir = project / (m.get("packagesDir") or ".lake/packages")
-            for x in m["packages"]:
-                d = pdir / x["name"]
-                if not d.is_dir():
-                    raise ProbeError(f"dependency {x['name']} is not checked out ({d}); build the project first")
-                packages[x["name"]] = d / PKG_LIB
-        except (ValueError, KeyError, TypeError) as e:
-            raise ProbeError(f"{man}: not a Lake manifest ({e})") from None
+    packages = manifest_packages(project)
     return Roots(project / PKG_LIB, packages, prefix / "lib" / "lean"), prefix
 
 
@@ -173,7 +222,7 @@ def probe(project: pathlib.Path, modules: list[str], toolchain: str | None = Non
     cmd = [str(prefix / "bin" / "lean"), "--run", str(SCRIPT)] + modules
     cwd = roots.project.parents[3]
     if sandboxed:
-        readable = [prefix, cwd, SCRIPT.parent] + list(roots.packages.values())
+        readable = [prefix, cwd, SCRIPT.parent] + [d for d in roots.packages.values() if d.is_dir()]
         cmd = fb.bwrap_args(readable, env, cwd) + cmd
         run_env: dict[str, str] = {}
     else:

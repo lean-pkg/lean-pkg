@@ -24,6 +24,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `lean_pkg.dup_constants` resolves a project's dependencies from
+  lake-manifest.json as Lake lays them out: a `path` package at its `dir`
+  (relative to the manifest's directory, e.g. `vendor/NAME`) and a `git`
+  package at `<packagesDir>/<name>/<subDir>` when it has a `subDir`. Before,
+  every package was looked up at `<packagesDir>/<name>`, so a project with
+  vendored path dependencies was refused before the duplicate audit. A
+  `dir`, `subDir` or `packagesDir` that is absolute, leaves its base or
+  goes through a symlink is refused; no lakefile is run.
+
 - Docs: the large-artifact recipe's `pack-artifacts.sh` (docs/receipts.md)
   refuses, before it creates `OUT`, an `OUT` that is `RAW` or lies inside
   it (field report: `RAW=raw OUT=raw/sealed` wrote the manifest and the

@@ -19,6 +19,19 @@ changes:
       transport").
     breaking: false
     changelog: Added
+  - pr: 240
+    id: dup-constants-path-subdir-deps
+    kind: behavior
+    area: tests
+    summary: >-
+      lean_pkg.dup_constants resolves lake-manifest.json packages as Lake lays them out: a path package at
+      its dir (relative to the manifest's directory, e.g. vendor/NAME) and a git package at
+      packagesDir/name/subDir when it has a subDir. 0.12.0 looked every package up at packagesDir/name and
+      refused a project with vendored path dependencies before the audit. A dir, subDir or packagesDir that
+      is absolute, leaves its base or goes through a symlink is refused.
+    action: Nothing; projects with path or subDir dependencies can now be audited.
+    breaking: false
+    changelog: Fixed
   - pr: 244
     id: large-artifact-pack-guards
     kind: behavior
