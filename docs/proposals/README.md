@@ -59,5 +59,5 @@ proposal when asked but never accepts one ([GOVERNANCE.md](../../GOVERNANCE.md))
 | # | Title | Status |
 |---|---|---|
 | [0000](0000-template.md) | Template | n/a |
-| [0001](0001-paper-statement.md) | The paper's statement in coverage.yaml | draft |
+| [0001](0001-paper-statement.md) | The paper's statement in coverage.yaml | `accepted` 2026-10-17 by Le Chen; implemented by the pull request that adds `paper.statement` |
 | [1.0 command tree](../design/1.0-command-tree.md) | The 1.0 command tree and format freeze (written before this process; kept at its path) | `accepted` 2026-10-17 by Le Chen; implementation in stages (stage 1: aliases, noun moves, real subparsers, newcomer page) |
