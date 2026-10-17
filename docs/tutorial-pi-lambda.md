@@ -4,6 +4,9 @@ title: "Tutorial: Dynkin's π-λ theorem, end to end"
 
 [&larr; lean-pkg documentation](index.md)
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lean-pkg/lean-pkg?devcontainer_path=.devcontainer/tutorial/devcontainer.json)
+Nothing to install: [try it in your browser](#try-it-in-your-browser).
+
 *Lean checks every step; you check the statement.*
 
 This tutorial takes one classical theorem from its textbook statement to a
@@ -46,6 +49,78 @@ You need what [the quickstart](quickstart.md) needs: Linux, `git`, Python
 installed (`pipx install git+https://github.com/lean-pkg/lean-pkg.git`).
 `lean-pkg comparator host-check` should end with a `verdict:` line saying the
 host can produce comparator receipts.
+
+## Try it in your browser
+
+The **Open in GitHub Codespaces** badge above starts a container in the cloud
+with everything this tutorial needs, and VS Code in your browser. It is
+defined by [`.devcontainer/tutorial/`](https://github.com/lean-pkg/lean-pkg/tree/main/.devcontainer/tutorial)
+in this repository, and any dev-container tool (VS Code's Dev Containers
+extension, the `devcontainer` CLI) builds the same container on your own
+machine.
+
+**What you get.** Ubuntu 24.04 with Lean v4.35.0 (through elan), lean-pkg
+0.12.0 installed from its release tag, `bwrap` for the comparator's sandbox,
+systemd for the lower-tier receipt's unit, and the Lean 4 extension. When the
+container is created, a script runs step 2 for you:
+`lean-pkg new pi-lambda --kind library` in `~/src/pi-lambda`, the toolchain and Mathlib pinned to
+v4.35.0 (the scaffold of 0.12.0 writes v4.35.0-rc2), `lake update`,
+`lake exe cache get` and a first `lake build`. Nothing of Mathlib is
+compiled. `LEAN_PKG_REGISTRY` already points at a throwaway registry inside
+the container: skip step 6's `export` and `mkdir`, and run its
+`registry init`. Open the package with `code ~/src/pi-lambda` and
+continue at step 3. To skip the typing, the finished files of steps 3 and 4
+(both Lean files, `Axioms.lean`, `comparator.json`, `claims.yaml`,
+`coverage.yaml`) are in `.devcontainer/tutorial/pi-lambda/`:
+`cp -r .devcontainer/tutorial/pi-lambda/. ~/src/pi-lambda/`.
+
+**Time to ready.** Measured with the `devcontainer` CLI and Docker on a Linux
+workstation (2026-10-17, two runs from an empty Docker cache), not in a
+Codespace: building the image took 1 min 40 s and 3 min 2 s, and the
+creation script 1 min 19 s and 1 min 36 s (`lake update`, Mathlib's cache,
+the first build), so the container was ready in 3 min 49 s and 4 min 24 s.
+Then, inside it, the two proofs built in 15 s, `lean-pkg verify` (both
+receipts and the gate) took 1 min 43 s, and steps 6 to 8 about 2 minutes in
+all. Download speed decides most of the first numbers.
+
+**Disk.** The image is 4.0 GB (Lean's toolchain is 3.1 GB of it), and the
+package with Mathlib's prebuilt files takes 7.3 GB more, plus 0.5 GB of
+Mathlib's download cache: about 12 GB in all.
+
+**Cost.** A Codespace runs on your GitHub account, not on lean-pkg's. Mathlib
+needs a machine of **at least 4 cores and 16 GB of memory** (the
+devcontainer asks for it, with 32 GB of disk); a smaller one is not offered.
+A personal GitHub Free account includes, each month, 120 core-hours (30 hours
+of a 4-core machine) and 15 GB-months of storage; beyond that GitHub bills
+the account, so stop the Codespace when you are done and delete it when you
+no longer need it (a stopped one still counts toward storage). GitHub's
+Codespaces billing page has the current quotas and rates.
+
+**How far it goes.** Steps 2 to 8 all run in the container: the comparator
+receipt and the lower-tier receipt from a systemd unit, the gate
+(`verified-private`), the page, `lean-pkg receipt check`, and the publish
+checklist as a dry run. The container runs privileged, because systemd
+needs it and Docker's default seccomp profile stops `bwrap` from creating
+its user namespace. All of this was run with Docker from the same
+definition the badge uses; it has not yet been run in a live Codespace. The
+checklist's `gh` line is a warning there (`gh` is not in the image). What a
+Codespace cannot do, or should not:
+
+- **Keep the evidence.** The registry and the package live inside the
+  container (`/var/lib/lean-pkg-trial` and the home directory), which a
+  rebuild discards. Push the package to a repository of your own if you
+  want to keep it; the registry is a throwaway on purpose.
+- **Publish.** `lean-pkg publish --yes` makes a real GitHub repository
+  public; do that from your own machine, after `lean-pkg public-safety`. A
+  receipt made in a Codespace records the container as its host (`h-...`),
+  which is a fair record of where it ran.
+- **Use a cluster or the lab registry.** There is no Slurm (`receipt slurm`)
+  and no lab registry; a Codespace is a single machine, like the
+  workstation of this tutorial.
+- **Run the comparator in an unprivileged container.** If you rebuild the
+  container without `"privileged": true`, `lean-pkg comparator host-check`
+  reports `bwrap` cannot create a user namespace and the comparator
+  refuses; there is no unsandboxed judge.
 
 ## 1. The paper statement
 

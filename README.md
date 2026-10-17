@@ -25,6 +25,13 @@ verified page on your own machine, with no lab account, in five verbs:
 The [π-λ tutorial](docs/tutorial-pi-lambda.md) does the same with a real
 theorem, Dynkin's π-λ theorem, for a mathematician who has barely used Lean.
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/lean-pkg/lean-pkg?devcontainer_path=.devcontainer/tutorial/devcontainer.json)
+**Nothing to install:** the badge opens the π-λ tutorial in your browser, with
+Lean, lean-pkg and Mathlib's prebuilt files ready, through to a verified page
+([Try it in your browser](docs/tutorial-pi-lambda.md#try-it-in-your-browser):
+the time to ready, the cost on your own GitHub account, and what needs a real
+machine).
+
 <p align="center">
   <a href="docs/sample-workflow.md"><img src="docs/assets/workflow.svg" width="720" alt="One workflow, two tracks: lean-pkg new, then Track P (anchor the paper, a row per numbered result, Not formalized) or Track L (a library, Main results, no manuscript); both rejoin the shared seven steps of the sample workflow (register and claim, prove-build-audit, state the claim, comparator receipt, gate, commit the evidence, promote dry run) with the verification page before step 7; after --yes, Track P goes to Reservoir, Palomar and Zenodo and is cited in the paper, Track L to a version tag, a Reservoir listing and Mathlib pull requests"></a>
 </p>

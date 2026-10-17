@@ -1,0 +1,18 @@
+schema: coverage/1
+package: pi-lambda
+kind: library
+summary: "Dynkin's pi-lambda theorem and the uniqueness of probability measures, in textbook form, each compared against its trusted statement."
+rows:
+  - title: "Dynkin's pi-lambda theorem: sigma(P) is contained in every lambda-system containing the pi-system P"
+    claims: [pi-lambda/pi-lambda]
+    note: "Billingsley, Probability and Measure, 3rd ed., Theorem 3.2; textbook definitions of pi- and lambda-system"
+    statement: |
+      If $\mathcal{P}$ is a $\pi$-system and $\mathcal{L}$ is a $\lambda$-system,
+      then $\mathcal{P} \subset \mathcal{L}$ implies $\sigma(\mathcal{P}) \subset \mathcal{L}$.
+  - title: "Uniqueness: probability measures agreeing on a generating pi-system are equal"
+    claims: [pi-lambda/measure-uniqueness]
+    note: "Billingsley, Probability and Measure, 3rd ed., Theorem 3.3; proved from the pi-lambda theorem"
+    statement: |
+      Let $\mathcal{P}$ be a $\pi$-system and $\mu_1$, $\mu_2$ probability measures
+      on $\sigma(\mathcal{P})$. If $\mu_1 = \mu_2$ on $\mathcal{P}$, then
+      $\mu_1 = \mu_2$ on $\sigma(\mathcal{P})$.

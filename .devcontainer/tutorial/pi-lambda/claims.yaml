@@ -1,0 +1,17 @@
+schema: claims/1
+package: pi-lambda
+claims:
+- id: pi-lambda/pi-lambda
+  decl: PiLambda.pi_lambda
+  kind: theorem
+  summary: Dynkin's pi-lambda theorem, with Billingsley's definitions of pi- and lambda-system written out.
+  keywords: [measure-theory, pi-system, dynkin]
+  file: PiLambda/Solution.lean
+  status: reusable
+- id: pi-lambda/measure-uniqueness
+  decl: PiLambda.measure_eq_of_eq_on_pi_system
+  kind: theorem
+  summary: Two probability measures that agree on a pi-system generating the sigma-algebra are equal.
+  keywords: [measure-theory, pi-system, uniqueness]
+  file: PiLambda/Solution.lean
+  status: reusable

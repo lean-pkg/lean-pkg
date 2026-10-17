@@ -1,0 +1,8 @@
+{
+  "challenge_module": "PiLambda.Challenge",
+  "solution_module": "PiLambda.Solution",
+  "theorem_names": ["PiLambda.pi_lambda", "PiLambda.measure_eq_of_eq_on_pi_system"],
+  "definition_names": [],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
+  "enable_nanoda": true
+}

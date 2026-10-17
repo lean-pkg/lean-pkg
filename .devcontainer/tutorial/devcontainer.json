@@ -1,0 +1,37 @@
+{
+  // Try lean-pkg in a browser: the π-λ tutorial (docs/tutorial-pi-lambda.md) with Mathlib prebuilt.
+  // What it can and cannot do: docs/tutorial-pi-lambda.md, "Try it in your browser".
+  "name": "lean-pkg: the π-λ tutorial",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "LEAN_TOOLCHAIN": "leanprover/lean4:v4.35.0",
+      "LEAN_PKG_REF": "v0.12.0"
+    }
+  },
+  // systemd is PID 1, for the lower-tier receipt's user unit; privileged lets it manage cgroups and lets
+  // bwrap (the comparator's sandbox) create a user namespace, which Docker's default seccomp profile blocks.
+  "overrideCommand": false,
+  "privileged": true,
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "LEAN_PKG_REGISTRY": "/var/lib/lean-pkg-trial/lean-packages.yaml"
+  },
+  // Mathlib's build cache is several GB and Lean needs memory: 4 cores and 16 GB at least.
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "16gb",
+    "storage": "32gb"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["leanprover.lean4"]
+    },
+    "codespaces": {
+      "openFiles": ["docs/tutorial-pi-lambda.md"]
+    }
+  },
+  // Scaffolds ~/src/pi-lambda, pins it to the stack and downloads Mathlib's prebuilt files; nothing of
+  // Mathlib is compiled.
+  "postCreateCommand": "bash .devcontainer/tutorial/post-create.sh"
+}
