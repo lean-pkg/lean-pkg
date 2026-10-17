@@ -165,6 +165,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - The pull request template asks for the upgrade record: a checkbox that
   docs/upgrades/<next>.yaml has an entry for the pull request, or lists it
   under `no_author_change` with a reason (RELEASING.md step 0).
+- Docs: docs/receipts.md, "Large artifacts: size first, then package
+  inside the job" (field request: a gate timed out reconciling 22.7 GB of
+  raw artifacts). A sizing preflight (total bytes, largest file, file
+  count, measured hash throughput), the I/O the seal and the collector
+  cost (`3S` read and `S` written inside the job; one rehash per
+  `receipt slurm --artifacts` run, so run the write once instead of
+  `--check` then write) with throughput measured on a desktop SSD, and
+  when to narrow, package, compress or split. A job-side packaging
+  example: the job writes an inner `<path> <size> <sha256>` manifest and a
+  deterministic POSIX tar compressed with zstd as ordinary `ARTIFACTS_DIR`
+  files, bound by the existing outer seal; a collector checks the outer
+  seal first, then unpacks the stream refusing absolute paths, `..`,
+  symlinks, hardlinks, devices and duplicates, and checks every inner hash.
+  No new receipt format; collector hashes are never job seals. Both
+  scripts are run from the page by tests/test_large_artifacts_recipe.py.
 
 - Docs: docs/extract.md, "Disabled negative fixtures after a namespace or
   import transport" (field report). Controls kept out of the build as
