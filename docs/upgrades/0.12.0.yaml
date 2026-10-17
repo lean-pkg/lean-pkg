@@ -75,6 +75,18 @@ changes:
     action: Optional. A package's negative tests can check for exactly the expected error.
     breaking: false
     changelog: Added
+  - pr: 230
+    id: dup-constants
+    kind: command
+    area: tests
+    summary: >-
+      lean_pkg.dup_constants: lists every constant present in more than one module's table of an
+      environment (owners, the env.find? winner, the recorded owner) and compares the copies exactly
+      (python3 -m lean_pkg.dup_constants --project DIR MOD ...); fail-closed, exit 0/1/2, schema
+      lean-pkg-dup-constants/1; --scope project (default) judges only duplicates with a project-built owner.
+    action: Optional. Packages auditing generated helpers can run it; see docs/duplicate-constants.md.
+    breaking: false
+    changelog: Added
   - pr: 223
     id: doctor-upgrade-preflight
     kind: command

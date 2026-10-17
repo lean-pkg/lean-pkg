@@ -176,6 +176,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- docs/upgrades/0.12.0: the upgrade record covers #230 (`lean_pkg.dup_constants`).
+
 - `page --write` on a gated package whose record says nothing about the
   docs-only exception now turns it on itself, through `lean-pkg update NAME
   --accept-docs-descendants --reason "page --write: ..."` (its own invocation,
