@@ -677,7 +677,7 @@ def cmd_receipt_systemd(args) -> int:
 
 
 def add_parser(rsub) -> None:
-    s = rsub.add_parser("systemd", aliases=["local"],
+    s = rsub.add_parser("systemd",   # `receipt local` is an alias (command_tree.COMMAND_ALIASES)
                         help="a lower-tier receipt from a finished systemd --user service unit (run bounded with "
                              "--run, or its saved properties), its verify log and its stdout seal")
     s.add_argument("--unit", required=True, metavar="U",
@@ -686,7 +686,7 @@ def add_parser(rsub) -> None:
     s.add_argument("--log", required=True, metavar="PATH",
                    help="the raw verify log the unit writes; when it has no `checker:` line, --checker TEXT is "
                         "required")
-    s.add_argument("--commit", dest="commit_sha", required=True, metavar="SHA",
+    s.add_argument("--receipt-commit", dest="commit_sha", required=True, metavar="SHA",
                    help="the verified commit; must exist in --repo (with --run: the checkout's clean HEAD)")
     s.add_argument("--stdout", default=None, metavar="PATH",
                    help=f"the unit's stdout file: {rc.SHA_KEY} = sha256(raw log), {rc.PRE_KEY} = {rc.POST_KEY} = "

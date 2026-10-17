@@ -1726,7 +1726,7 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--log", default=None, metavar="PATH",
                    help="the job's raw verify log (required unless --template); when it has no `checker:` line, "
                         "--checker TEXT is required")
-    s.add_argument("--commit", dest="commit_sha", default=None, metavar="SHA",
+    s.add_argument("--receipt-commit", dest="commit_sha", default=None, metavar="SHA",
                    help="the verified commit; must exist in --repo; required unless --template or --check")
     s.add_argument("--template", action="store_true",
                    help="print a minimal sbatch wrapper whose .out/.err/log meet every check below (placeholders "

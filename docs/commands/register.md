@@ -13,8 +13,8 @@ the ONLY write path for new packages: validated, deduping, auto-detecting.
 ## Usage
 
 ```text
-lean-pkg register [--repo REPO] --path PATH [--like OTHER]
-                  [--owner-project OWNER_PROJECT] [--visibility {private,public}]
+lean-pkg register [--url URL] --path PATH [--like OTHER] [--owner-project OWNER_PROJECT]
+                  [--visibility {private,public}]
                   [--status {scratch,active,gate-pending,public}]
                   [--upstream-target {none,mathlib,palomar}] [--automation AUTOMATION]
                   [--notes NOTES] [--reason REASON] [--workspace WORKSPACE]
@@ -28,7 +28,7 @@ lean-pkg register [--repo REPO] --path PATH [--like OTHER]
 | Argument or flag | Description |
 |---|---|
 | `NAME` |   |
-| `--repo REPO` | git URL (or local bare path); required unless --like gives it |
+| `--url URL` | git URL (or local bare path); required unless --like gives it (old spelling --repo, kept working) |
 | `--path PATH` | local checkout path, $HOME-relative. Required. |
 | `--like OTHER` | a sibling of registered package OTHER: copy its repo, owner-project, upstream-target and automation (flags given here win; visibility is never copied, default private), and report whether the toolchain and Mathlib pin match OTHER's |
 | `--owner-project OWNER_PROJECT` |   |
@@ -65,13 +65,13 @@ Top-level keys of `--json`, as recorded in the golden contract (tests/golden/jso
 Print the entry that would be written, detected toolchain and Mathlib pin included; nothing is written.
 
 ```bash
-lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof --dry-run
+lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof --dry-run
 ```
 
 Register a new package from its checkout (the path is relative to $HOME); it starts at status active.
 
 ```bash
-lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
+lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof
 ```
 
 Sample output:

@@ -30,6 +30,42 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   yet shipped, `publish --yes`). A vertical layout, legible at phone width;
   shown on the sample workflow page and in docs/design/two-tracks.md.
 
+- The 1.0 command tree, stage 1 (docs/design/1.0-command-tree.md, accepted
+  2026-10-17). New canonical spellings: `lease claim|renew|release|list`,
+  `registry init|migrate|validate|audit|board|wiki`, `repo move NAME PATH`
+  (the same as `update NAME --path PATH`), `comparator attach NAME`,
+  `formalization render NAME`; flags `--doi-track` (`record`, `update`),
+  `--receipt-commit` (`receipt slurm|systemd`), `--url` (`register`,
+  `update`, `index add`), `--repo` (`index check`, `search`,
+  `comparator config`), `--target-repo` (`report`) and
+  `registry audit --write`. Every old spelling is a permanent alias: it
+  parses to the same namespace, with the same output and exit code, and in
+  text mode prints one stderr note after the command's own messages
+  (`note: 'lean-pkg claim' is now 'lean-pkg lease claim' (the old spelling keeps working)`);
+  `LEAN_PKG_NO_ALIAS_NOTE=1` silences it and `--json` never prints it. The
+  alias table is `lean_pkg.command_tree`; `lean-pkg help aliases` lists it.
+- `lean-pkg help start`: the newcomer page, the five verbs (`new`,
+  `verify`, `status`, `page`, `publish`) with one line each and the paper
+  and Lean-package tracks as two columns; a verb or flag not in this release
+  is marked and named with what to run until then.
+
+### Changed
+
+- `comparator config`, `comparator host-check` and `formalization anchor`
+  are real subcommands, each with only its own flags (they were values of a
+  positional); every old argv parses as before, and a flag of another form
+  is now an argparse usage error (exit 2, as before). `lean-pkg comparator`
+  and `lean-pkg formalization` alone print their subcommands.
+- `lean-pkg` with no command prints the newcomer page when stdout is not a
+  terminal or no registry exists; on a terminal with a registry it opens the
+  board as before, and `lean-pkg --json` still prints the board's JSON
+  (decision 5 of the 1.0 command tree). `lean-pkg registry board` (alias
+  `board`) is unchanged.
+- RELEASING.md: renamed commands and flags are permanent aliases, never
+  deprecated; a deprecation removes behavior only, and lasts at least two
+  minor releases and 60 days, whichever is longer.
+
+
 ### Fixed
 
 - The `status` command page documents `scope.product` (added in 0.10.0;

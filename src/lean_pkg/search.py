@@ -841,7 +841,7 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--record", action="store_true",
                    help="write docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-dir) "
                         "and a prior-art-searched event")
-    s.add_argument("--repo-dir", default=None, help="research repository for --record")
+    s.add_argument("--repo", dest="repo_dir", metavar="DIR", default=None, help="research repository for --record")
     s.add_argument("--agent", default=None,
                    help="with --record: the agent acting (recorded as the event's actor); another agent's live "
                         "lease on --package then refuses")

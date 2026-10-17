@@ -78,9 +78,11 @@ def test_promote_dry_run_never_blocks_on_stdin(env, fake_gh_bin):
 
 
 def test_board_never_blocks_on_stdin(env):
-    p = run_cli(["--registry", str(env.registry)])
+    p = run_cli(["--registry", str(env.registry), "registry", "board"])
     assert p.returncode == 0
     assert "NAME" in p.stdout and "alpha" in p.stdout
+    p = run_cli(["--registry", str(env.registry)])   # bare, off a terminal: the newcomer page, never curses
+    assert p.returncode == 0 and "START HERE" in p.stdout
 
 
 class FakeTty:

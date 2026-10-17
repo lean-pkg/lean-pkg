@@ -1,0 +1,20 @@
+usage: lean-pkg repo move [-h] [--reason REASON] [--agent AGENT] [--force] [--dry-run] [--json]
+                          [--commit] [--push] [--no-commit]
+                          name HOME-RELATIVE
+
+positional arguments:
+  name
+  HOME-RELATIVE    the new checkout (event relocated; commit-bound evidence not bound to the new
+                   HEAD is cleared)
+
+options:
+  -h, --help       show this help message and exit
+  --reason REASON  required
+  --agent AGENT    lease holder, if one is live
+  --force          override a live lease held by another agent; needs --reason
+  --dry-run        print the would-be changes, write nothing
+  --json           machine-readable JSON on stdout
+  --commit         write commands: pull --ff-only, then commit the registry files (default:
+                   $LEAN_PKG_COMMIT=1)
+  --push           --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit      never commit or push (overrides the env)

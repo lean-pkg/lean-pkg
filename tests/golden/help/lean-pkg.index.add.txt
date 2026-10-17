@@ -1,4 +1,4 @@
-usage: lean-pkg index add [-h] [--from-registry] [--repo-dir REPO_DIR] [--repo REPO] [--tag TAG]
+usage: lean-pkg index add [-h] [--from-registry] [--repo-dir REPO_DIR] [--url URL] [--tag TAG]
                           [--lower REL] [--comparator REL] [--license SPDX]
                           [--headline 'NAME :: FILE :: SUMMARY'] [--field-tag TAG]
                           [--formalization-yaml REL] [--consent-recorded] --by BY
@@ -14,7 +14,8 @@ options:
   --from-registry       start from the registry row (repo, receipts, license, palomar, doi,
                         reservoir)
   --repo-dir REPO_DIR   local clone to read from (never modified)
-  --repo REPO           public https URL (a GitHub ssh URL is converted)
+  --url URL             public https URL (a GitHub ssh URL is converted) (old spelling --repo,
+                        kept working)
   --tag TAG             release tag at the pin or an evidence-only descendant
   --lower REL           lower-tier receipt, .lean-receipts/...json
   --comparator REL      comparator receipt, .lean-receipts/...json

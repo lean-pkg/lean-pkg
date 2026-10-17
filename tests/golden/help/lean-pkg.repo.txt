@@ -1,0 +1,9 @@
+usage: lean-pkg repo [-h] {move} ...
+
+positional arguments:
+  {move}
+    move      relocate: point the record at another checkout, keeping name, history and claims
+              (the same as `update NAME --path PATH`)
+
+options:
+  -h, --help  show this help message and exit

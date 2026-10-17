@@ -13,7 +13,7 @@ record a publication evidence event (consent, Palomar, DOI, Reservoir, Mathlib P
 ## Usage
 
 ```text
-lean-pkg record [--field KEY=VALUE] [--reason REASON] [--track {palomar,doi-only}]
+lean-pkg record [--field KEY=VALUE] [--reason REASON] [--doi-track {palomar,doi-only}]
                 [--agent AGENT] [common flags] NAME EVENT
 ```
 
@@ -27,7 +27,7 @@ lean-pkg record [--field KEY=VALUE] [--reason REASON] [--track {palomar,doi-only
 | `EVENT` | one of: consent-recorded, palomar-preflight-pass, palomar-submitted, palomar-review, palomar-registered, palomar-withdrawn, doi-minted, reservoir-listed, mathlib-pr-opened, mathlib-pr-merged, or retract (--field event=E --field ts=T --reason TEXT: mark an evidence entry retracted) |
 | `--field KEY=VALUE` | event field (repeatable); required keys per event are listed by `lean-pkg llms` |
 | `--reason REASON` | free-text reason stored with the event |
-| `--track {palomar,doi-only}` | doi-minted only: the DOI track for this event (default: the record's track, else palomar); doi-only skips rule doi-in-palomar for a public package. Choices: `palomar`, `doi-only`. |
+| `--doi-track {palomar,doi-only}` | doi-minted only: the DOI track for this event (default: the record's track, else palomar); doi-only skips rule doi-in-palomar for a public package (old spelling --track, kept working). Choices: `palomar`, `doi-only`. |
 | `--agent AGENT` | the agent acting (recorded as the event's actor); another agent's live lease then refuses |
 
 ## Details

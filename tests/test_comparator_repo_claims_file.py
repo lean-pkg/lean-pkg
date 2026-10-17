@@ -92,8 +92,7 @@ def test_attaching_comparator_refuses_repo(lp, env, capsys, tmp_path):
 
 def test_repo_on_config_and_host_check_is_a_usage_error(lp, env, capsys, tmp_path):
     before = snapshot(env)
-    rc, _, err = run(lp, env, capsys, "comparator", "config", "--from-claims", "beta", "--repo", str(env.repo_b))
-    assert rc == 2 and "takes --checkout DIR" in err
+    # since the 1.0 command tree `comparator config --repo DIR` is the checkout (old spelling --checkout)
     rc, _, err = run(lp, env, capsys, "comparator", "host-check", "--repo", str(env.repo_b))
     assert rc == 2 and "--repo goes with" in err
     assert snapshot(env) == before

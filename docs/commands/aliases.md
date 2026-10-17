@@ -12,5 +12,17 @@ Every other spelling of a command, and the command it runs. An alias takes the s
 
 | Alias | Runs |
 |---|---|
-| `lean-pkg lease` | [`lean-pkg claim`](claim.md#lean-pkg-claim) |
+| `lean-pkg audit` | [`lean-pkg registry audit`](registry.md#lean-pkg-registry-audit) |
+| `lean-pkg board` | [`lean-pkg registry board`](registry.md#lean-pkg-registry-board) |
+| `lean-pkg claim` | [`lean-pkg lease claim`](lease.md#lean-pkg-lease-claim) |
+| `lean-pkg comparator NAME` | [`lean-pkg comparator attach`](comparator.md#lean-pkg-comparator-attach) |
+| `lean-pkg formalization NAME` | [`lean-pkg formalization render`](formalization.md#lean-pkg-formalization-render) |
+| `lean-pkg init` | [`lean-pkg registry init`](registry.md#lean-pkg-registry-init) |
+| `lean-pkg lease NAME` | [`lean-pkg lease claim`](lease.md#lean-pkg-lease-claim) |
+| `lean-pkg leases` | [`lean-pkg lease list`](lease.md#lean-pkg-lease-list) |
+| `lean-pkg migrate` | [`lean-pkg registry migrate`](registry.md#lean-pkg-registry-migrate) |
 | `lean-pkg receipt local` | [`lean-pkg receipt systemd`](receipt.md#lean-pkg-receipt-systemd) |
+| `lean-pkg release` | [`lean-pkg lease release`](lease.md#lean-pkg-lease-release) |
+| `lean-pkg renew` | [`lean-pkg lease renew`](lease.md#lean-pkg-lease-renew) |
+| `lean-pkg validate` | [`lean-pkg registry validate`](registry.md#lean-pkg-registry-validate) |
+| `lean-pkg wiki` | [`lean-pkg registry wiki`](registry.md#lean-pkg-registry-wiki) |

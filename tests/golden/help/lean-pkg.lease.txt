@@ -1,0 +1,15 @@
+usage: lean-pkg lease [-h] {claim,renew,release,list} ...
+
+positional arguments:
+  {claim,renew,release,list}
+    claim               CAS lease on a package (24h default TTL)
+    release             release a lease (holder-only unless --force); with --fresh-repo DIR:
+                        export the gated tree (or --from-tree SRCDIR) as a new single-commit
+                        repository and move the package there; with --adopt-repo DIR: adopt an
+                        existing one
+    renew               restart your own live lease from now (holder-only; refuses once it has
+                        lapsed: claim again)
+    list                held leases, soonest expiry first; read-only
+
+options:
+  -h, --help            show this help message and exit
