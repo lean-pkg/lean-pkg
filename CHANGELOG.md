@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-17
+
 ### Added
 
 - `python3 -m lean_pkg.dup_constants --project DIR MOD [MOD ...]`
@@ -269,6 +271,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   as before. Pages written by 0.11.0 for a package with an umbrella
   Challenge are stale: re-render them once (`lean-pkg page NAME --write`,
   then commit the README). Other pages do not change.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.11.0] - 2026-10-17
 
