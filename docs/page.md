@@ -26,7 +26,7 @@ lean-pkg page my-companion --site docs --html docs/verification.html   # docs pa
 
 | Input | Read how | Feeds |
 |---|---|---|
-| `coverage.yaml` | committed at `HEAD`, schema `coverage/1` ([below](#coverageyaml)) | the capsule sentence, the paper-to-Lean map, Not formalized, the manuscript reference, the compute acknowledgment |
+| `coverage.yaml` | committed at `HEAD`, schema `coverage/1` ([below](#coverageyaml)) | the capsule sentence, the paper-to-Lean map, Not formalized, the manuscript reference, the compute acknowledgment (for a [library](#a-library-with-no-manuscript): the main results instead of the map, no manuscript) |
 | `claims.yaml` | committed at `HEAD` | the Lean declarations of each row |
 | the claims ledger | `lean-pkg claims ledger NAME`, promote stage | the word *verified*, per row and in the capsule |
 | receipts | `.lean-receipts/*.json` committed at `HEAD`; the registry's `gate.receipt` and `gate.comparator` mark the recorded ones | the trust boundary, the expected axioms, the evidence table |
@@ -119,6 +119,7 @@ compute:                              # optional; see the Easley acknowledgment
 | `nothing_excluded` | `{reason: TEXT}`, only when no row is `outside`. One of the two is required: a page always says where the formalization stops |
 | `compute` | `[{cluster: easley, jobs: [slurm-<J>, ...]}]`; each job must be a Slurm receipt committed under `.lean-receipts/` |
 | `lean_pkg_version` | optional `{version, doi}`: the exact lean-pkg version to credit. When lean-pkg's own `CITATION.cff` is readable it must list that version with exactly that DOI |
+| `kind` | optional: `paper` (the default, everything above) or `library` ([below](#a-library-with-no-manuscript)). An older lean-pkg refuses the key (coverage/1 is strict) |
 
 The file is strict: unknown and missing keys, values outside the enums and
 repeated mapping keys are refused. `lean-pkg coverage check NAME` validates the
@@ -134,6 +135,43 @@ rows carry `reference {label, number, page}` and a `status` becomes rows of
 and `outside-agreed-scope` to `outside`. A row that is not yet verified keeps its class: the ledger, not
 the class, decides the word *verified*. The per-theorem prose notes stay
 hand-written, outside the markers.
+
+### A library with no manuscript
+
+A reusable library that has no paper of its own (an adopted standalone
+package, say) states what it verified as `kind: library`. Its rows are the
+library's main results, each named by its Lean declarations, and nothing on
+the page names a manuscript or a paper:
+
+```yaml
+schema: coverage/1
+package: my-library
+kind: library
+summary: "The library's main estimates are formalized and every one of them is compared."
+rows:
+  - title: "Main estimate"                     # one line, unique in the file
+    claims: [my-library/main-estimate]         # at least one id in claims.yaml at HEAD
+    note: "the headline bound"                 # optional
+compute:                                       # optional; the Easley rule is the same
+  - cluster: easley
+    jobs: [slurm-123456]
+```
+
+| Rule | |
+|---|---|
+| refused | `manuscript` and `nothing_excluded` (each would state a manuscript), and a row's `paper`, `class` or `inputs` |
+| `rows[].title`, `rows[].claims`, `rows[].note` | one line each; at least one claim id, each in `claims.yaml` at `HEAD`, none superseded, each claim's `file` committed |
+| comparator | as for a paper: every theorem the recorded comparator receipt compares is the declaration of a claim some row names, so the rows account for everything the page says was compared |
+| `compute`, `lean_pkg_version`, `summary` | as above |
+
+The page then carries a *Main results* table (result, declarations, ledger
+word, note) in place of the paper map and *Not formalized*; the capsule says
+the library has no manuscript, the trust footnote says the Lean statement is
+the result, and the citation names no manuscript. `--allow-private-manuscript`
+does not apply. `formalization anchor` refuses to bind a library coverage to an
+e-print, and `claims rebase` leaves it alone. A package that formalizes results
+of a paper, posted or not, stays `kind: paper`: a private draft is
+`unposted`, never `library`.
 
 ## The README block
 
@@ -301,7 +339,7 @@ them, and so does every `page` render (`page --check` included).
 | R2 exactly one H1 title | by construction: `verification.md` and `coverage.md` each have one `#` title |
 | R3 the sections, in order | by construction: the fixed section order above; Not formalized always sits after the map |
 | R4 no `FILL-ME` placeholder | `coverage check`: any text of `coverage.yaml` carrying `FILL-ME`, `TODO`, `TBD`, `FIXME` or `XXX` is refused |
-| R5 Papers has a bullet | `coverage check`: `manuscript` {title, version} is required, the version posted (or `--allow-private-manuscript`) |
+| R5 Papers has a bullet | `coverage check`: `manuscript` {title, version} is required, the version posted (or `--allow-private-manuscript`); a `kind: library` coverage has no manuscript and refuses one |
 | R6 Scope has prose | `coverage check`: `summary` is required, one line |
 | R7 Not formalized is non-empty, or "nothing excluded" with a justification | `coverage check`: at least one `outside` row, or `nothing_excluded: {reason}` (never both) |
 | R8 the comparator table's links resolve | `coverage check`: every claim a row names has its `file` committed at `HEAD`; the declaration links point at the gate-bound commit |

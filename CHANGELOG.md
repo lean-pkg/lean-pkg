@@ -9,6 +9,27 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- coverage/1 `kind: library`: a reusable library with no manuscript of its
+  own (an adopted standalone package, say) can now adopt the verification
+  page. Its rows are the library's main results (`title`, `claims`, optional
+  `note`), each named by its Lean declarations; `manuscript`,
+  `nothing_excluded` and a row's `paper`, `class` or `inputs` are refused, so
+  a library page never claims a paper. As for a paper, every theorem the
+  recorded comparator receipt compares must be a claim some row names, and
+  an Easley sentence still needs `compute` backed by a committed `slurm-<J>`
+  receipt. The page shows a *Main results* table instead of the paper map and
+  *Not formalized*, and names no manuscript in the capsule, the trust
+  footnote or the citation. `formalization anchor` refuses to bind a library
+  coverage to an e-print and `claims rebase` leaves it alone. The optional
+  top-level `kind` defaults to `paper`, so every existing coverage/1 file is
+  valid and validated as before (an `unposted` manuscript still needs
+  `--allow-private-manuscript`); no migration is needed. An older lean-pkg
+  refuses the new key, as it does `eprint_sha256`. JSON: `coverage check` and
+  `page` carry `kind` (`paper` or `library`); for a library `manuscript` and
+  `counts` are null. docs/page.md, "A library with no manuscript".
+
 ### Fixed
 
 - `index check` / `index add`: the tag and the evidence commits are now bound

@@ -43,7 +43,8 @@ positional arguments:
                         the repo at HEAD; stdout unless --write/--out
     publish             read-only release checklist from verified-private to listed (--dry-run
                         only), with the exact next commands
-    coverage            coverage.yaml (coverage/1): the paper-to-Lean map `page` renders
+    coverage            coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main
+                        results) `page` renders
     page                render the README verification section from coverage.yaml, claims, the
                         ledger and the receipts; stdout unless --write/--check/--out/--site/--html
     reservoir           Reservoir: check (read-only listing criteria)
