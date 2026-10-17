@@ -18,3 +18,34 @@ changes:
       CONTAINER_IMAGE in it); after the next receipt, page NAME --write shows the digest.
     breaking: false
     changelog: Added
+  - pr: 239
+    id: extract-disabled-lean-warning
+    kind: behavior
+    area: extract
+    summary: >-
+      lean-pkg-extract plan warns, in one warnings[] entry, about every file under a root whose name is
+      *.lean.<suffix> (Foo.lean.disabled, .lean.off, .lean.skip) that the plan excludes or refuses as
+      unclassified: the module inventory and the import check read *.lean only, so a stale open or
+      import in such a disabled negative fixture went unreported after a namespace or import transport.
+      ok and the exit code do not change; *.lean, *.olean and *.ilean are not matched.
+    action: >-
+      Nothing is required. If the warning names files, run each one's expected-reason check
+      (lean_pkg.lean_diag; docs/extract.md, "Disabled negative fixtures after a namespace or import
+      transport").
+    breaking: false
+    changelog: Added
+  - pr: 240
+    id: dup-constants-path-subdir-deps
+    kind: behavior
+    area: tests
+    summary: >-
+      lean_pkg.dup_constants resolves lake-manifest.json packages as Lake lays them out: a path package at
+      its dir (relative to the manifest's directory, e.g. vendor/NAME) and a git package at
+      packagesDir/name/subDir when it has a subDir. 0.12.0 looked every package up at packagesDir/name and
+      refused a project with vendored path dependencies before the audit. A dir, subDir or packagesDir that
+      is absolute, leaves its base or goes through a symlink is refused.
+    action: Nothing; projects with path or subDir dependencies can now be audited.
+    breaking: false
+    changelog: Fixed
+# Read for this record, nothing for a package author: proposal 0004, a math LTS stack, as a draft (#238).
+no_author_change: [238]

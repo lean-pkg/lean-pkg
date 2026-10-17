@@ -89,8 +89,13 @@ not pass `--scope all` today.
 The probe is a small Lean program shipped with lean-pkg
 (`lean_pkg/scripts/DupConstants.lean`), run with the project's toolchain
 as `lean --run`. Its `LEAN_PATH` is built from the project's
-`lake-manifest.json`; `lake env` is not used, because a `lakefile.lean`
-is code. The modules are imported with `loadExts := false`, so no
+`lake-manifest.json`, read as data: a `git` package at
+`<packagesDir>/<name>`, or `<packagesDir>/<name>/<subDir>` when it has a
+`subDir`, and a `path` package at its `dir`, relative to the manifest's
+directory (for example `vendor/WalshIntegral`). A `dir`, `subDir` or
+`packagesDir` that is absolute, leaves its base or goes through a symlink
+is refused, as is a package that is not checked out. `lake env` is not
+used, because a `lakefile.lean` is code. The modules are imported with `loadExts := false`, so no
 initializer or environment extension of the project runs, and the probe
 runs inside the same bwrap sandbox `lean-exercise` uses (read-only file
 system, no network); `--no-sandbox` reads the files without it.

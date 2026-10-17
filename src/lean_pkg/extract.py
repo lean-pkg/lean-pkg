@@ -11,7 +11,9 @@ which must lie outside SRC. Every file under a declared root is classified, defa
 that cannot be classified, any unsafe path or link, a missing or floating pin, an unpinned
 dependency, an invalid claims file and an unresolved import is a refusal, all listed together.
 Files adopted from another project whose license is not carried into the target are a warning
-(manifest `adopted`, and a heuristic for a LICENSE left behind); warnings never change the verdict.
+(manifest `adopted`, and a heuristic for a LICENSE left behind), and so is a disabled Lean source
+(`*.lean.<suffix>`) the plan excludes or refuses, which no import check reads; warnings never change
+the verdict.
 
 Exit codes: 0 the plan is clean, 1 refused (every reason listed), 2 usage (argparse, SRC is not a
 git repository). Output is deterministic: sorted, no timestamps, no host paths.
@@ -54,6 +56,10 @@ SPDX_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+-]*")
 # a license file that governs the files beside and below it (the heuristic for undeclared adoption)
 DIR_LICENSE = re.compile(r"^(LICEN[SC]E|COPYING)([.-][A-Za-z0-9.-]+)?$", re.I)
 HEX40 = re.compile(r"[0-9a-f]{40}")
+# a Lean source kept out of the build by an extra suffix (Foo.lean.disabled, .lean.off, .lean.skip):
+# `*.lean.<suffix>` only, never `*.lean`, `*.olean` or `*.ilean`
+DISABLED_LEAN = re.compile(r"^[^/]+\.lean\.[^/]+$")
+DISABLED_LEAN_DOC = 'docs/extract.md, "Disabled negative fixtures after a namespace or import transport"'
 
 CORE_NAMESPACES = ("Init", "Std", "Lean", "Lake")
 # lake-manifest package name -> the root namespaces it provides, where capitalizing the name is wrong.
@@ -513,6 +519,7 @@ def build_plan(repo: pathlib.Path, commit_arg: str, manifest_bytes: bytes) -> di
     included: dict[str, dict] = {}                   # to-path -> entry
     by_src: dict[str, dict] = {}                     # from-path -> entry (included only)
     excluded: list[dict] = []
+    unclassified: list[str] = []                     # under a root, refused as unclassified
     symlinks: list[dict] = []
     for path in sorted(tree):
         r = owner(path)
@@ -544,6 +551,7 @@ def build_plan(repo: pathlib.Path, commit_arg: str, manifest_bytes: bytes) -> di
         if cls is None:
             cls = allow_class(path, r["kind"])
         if cls is None:
+            unclassified.append(path)
             refusals.append(f"{path}: unclassified in a {r['kind']} root (default deny); exclude it, move it, "
                             f"or put it in a root whose kind carries it")
             continue
@@ -786,6 +794,7 @@ def build_plan(repo: pathlib.Path, commit_arg: str, manifest_bytes: bytes) -> di
             plan["claims"].sort(key=lambda x: x["id"])
 
     license_checks(plan, man["adopted"], tree, by_src, excluded, blobs, commit)
+    disabled_lean_check(plan, excluded, unclassified)
 
     plan["included"] = [included[k] for k in sorted(included)]
     plan["excluded"] = sorted(excluded, key=lambda x: x["from"])
@@ -906,6 +915,22 @@ def license_checks(plan: dict, adopted: list[dict], tree: dict, by_src: dict, ex
                     f"({whys}): {_listed(sorted(tos))}. If these files were adopted from another project, "
                     f"declare them under `adopted` and carry the upstream license as a scoped LICENSES/ file; "
                     f"otherwise include or replace the license deliberately")
+
+
+def disabled_lean_check(plan: dict, excluded: list[dict], unclassified: list[str]) -> None:
+    """Warn about `*.lean.<suffix>` files under a root that the plan excludes or refuses as unclassified.
+
+    The module inventory, unowned_lean_files and the import check read `*.lean` only, so a disabled
+    negative fixture with a stale `open` or `import` (after a namespace or import transport) would go
+    unreported. A warning: the plan's verdict and exit code do not change."""
+    names = sorted({x["from"] for x in excluded} | set(unclassified))
+    hits = [p for p in names if DISABLED_LEAN.match(posixpath.basename(p))]
+    if hits:
+        plan["warnings"].append(
+            f"{len(hits)} disabled Lean source file(s) (*.lean.<suffix>) are excluded or refused, so the module "
+            f"inventory and the import check skip them: {', '.join(hits)}. After a namespace or import "
+            f"transport, a stale `open` or `import` in them goes unreported: run each one's expected-reason "
+            f"check (`python3 -m lean_pkg.lean_diag LOG --error-code CODE --file NAME`; {DISABLED_LEAN_DOC})")
 
 
 def _finish(plan: dict) -> dict:

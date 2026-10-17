@@ -24,6 +24,28 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   "How this was checked" names the engine and digest. A site-profile key
   naming the expected digest is a documented follow-up (docs/sites.md).
 
+- `lean-pkg-extract plan` warns about disabled Lean sources: every file
+  under a root whose name is `*.lean.<suffix>` (`Foo.lean.disabled`,
+  `.lean.off`, `.lean.skip`) that the plan excludes or refuses as
+  unclassified is named in one `warnings[]` entry, since the module
+  inventory and the import check read `*.lean` only and a stale `open` or
+  `import` in such a negative fixture went unreported after a namespace or
+  import transport. The entry points at docs/extract.md ("Disabled negative
+  fixtures after a namespace or import transport") and `lean_diag`'s
+  expected-reason check. `ok` and the exit code do not change; `*.lean`,
+  `*.olean` and `*.ilean` are not matched (#239).
+
+### Fixed
+
+- `lean_pkg.dup_constants` resolves a project's dependencies from
+  lake-manifest.json as Lake lays them out: a `path` package at its `dir`
+  (relative to the manifest's directory, e.g. `vendor/NAME`) and a `git`
+  package at `<packagesDir>/<name>/<subDir>` when it has a `subDir`. Before,
+  every package was looked up at `<packagesDir>/<name>`, so a project with
+  vendored path dependencies was refused before the duplicate audit. A
+  `dir`, `subDir` or `packagesDir` that is absolute, leaves its base or
+  goes through a symlink is refused; no lakefile is run.
+
 ## [0.12.0] - 2026-10-17
 
 ### Added
