@@ -29,6 +29,10 @@ exists; `make record-doi VERSION=X.Y.Z` finishes it later.
 
 LEAN_PKG_COMMIT_TRAILER adds `Key: value` trailers (one per line, e.g.
 `Co-Authored-By: Name <email>`) to every commit it makes, step 7's included.
+
+LEAN_PKG_RELEASE_DATE (YYYY-MM-DD) is the date steps 1-2 stamp in place of today's local
+date. It exists for the tests, which would otherwise compute "today" separately from this
+script and disagree when a run crosses midnight; a real release leaves it unset.
 """
 from __future__ import annotations
 
@@ -125,6 +129,21 @@ def push_main() -> tuple[bool, str]:
               file=sys.stderr, flush=True)
         time.sleep(wait)
     return False, ""
+
+
+def release_date() -> str:
+    """The date steps 1-2 stamp: LEAN_PKG_RELEASE_DATE when set (tests), else today's local date,
+    read once so the CHANGELOG heading and CITATION.cff's date-released always agree."""
+    d = os.environ.get("LEAN_PKG_RELEASE_DATE", "").strip()
+    if not d:
+        return dt.date.today().isoformat()
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+            return dt.date.fromisoformat(d).isoformat()
+    except ValueError:
+        pass
+    die(f"LEAN_PKG_RELEASE_DATE: not a YYYY-MM-DD date: {d!r}", 2)
+    raise AssertionError  # unreachable: die() exits
 
 
 def vtuple(v: str) -> tuple[int, ...]:
@@ -254,6 +273,7 @@ def main() -> int:
     if not re.fullmatch(r"\d+\.\d+\.\d+", v):
         die("usage: scripts/cut-release.py X.Y.Z [--doi-wait SECONDS | --no-doi]", 2)
     trailer_args()                    # refuse a malformed LEAN_PKG_COMMIT_TRAILER before anything is written
+    release_date()                    # likewise a malformed LEAN_PKG_RELEASE_DATE
 
     if git("rev-parse", "--abbrev-ref", "HEAD") != "main":
         die("not on main")
@@ -295,7 +315,7 @@ def main() -> int:
         step2a_citation(v)
         safety = step3_public_safety()
         say(f"step 3: {safety}")
-        steps12_versions(v, dt.date.today().isoformat(), safety)
+        steps12_versions(v, release_date(), safety)
         step4_check(v)
         step4_commit(v)
 

@@ -8,6 +8,7 @@ or Zenodo."""
 from __future__ import annotations
 
 import datetime as dt
+import importlib.util
 import json
 import os
 import shutil
@@ -21,7 +22,10 @@ OLD, V = "1.2.2", "1.2.3"
 REAL_GIT = shutil.which("git")
 CONCEPT = "10.5281/zenodo.100"
 DOI = "10.5281/zenodo.123"
-TODAY = dt.date.today().isoformat()
+# The date cut-release.py stamps, pinned through LEAN_PKG_RELEASE_DATE: computing "today" here and
+# again in the script disagreed whenever a CI run crossed midnight UTC. Not today's date, so a test
+# that passes proves the script stamped the pinned date rather than its own clock.
+TODAY = "1999-12-31"
 
 FAKE_MAKE = r'''#!/usr/bin/env python3
 import os, sys
@@ -102,7 +106,7 @@ def _env(tmp: Path, **extra: str) -> dict[str, str]:
         "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.org",
         "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.org",
         "LEAN_PKG_ZENODO_RECORDS_FILE": str(tmp / "state" / "zenodo.json"),
-        "LEAN_PKG_RELEASE_RETRY_DELAY": "0", "REAL_GIT": REAL_GIT,
+        "LEAN_PKG_RELEASE_RETRY_DELAY": "0", "LEAN_PKG_RELEASE_DATE": TODAY, "REAL_GIT": REAL_GIT,
     })
     env.update(extra)
     return env
@@ -520,3 +524,46 @@ if "push" in args:
         sys.stderr.write("fatal: unable to access 'origin': Connection reset by peer\n"); sys.exit(128)
 os.execv(os.environ["REAL_GIT"], ["git"] + args)
 """
+
+
+def _cut_release_module():
+    spec = importlib.util.spec_from_file_location("cut_release_under_test", ROOT / "scripts" / "cut-release.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _MidnightClock(dt.date):
+    """A clock whose first read is 23:59:59.9 and every later read is 00:00:00 the next day."""
+    reads: list[dt.datetime] = []
+
+    @classmethod
+    def today(cls):
+        now = dt.datetime(2026, 10, 16, 23, 59, 59, 900000) if not cls.reads else dt.datetime(2026, 10, 17)
+        cls.reads.append(now)
+        return cls(now.year, now.month, now.day)
+
+
+def test_release_date_is_pinned_across_midnight(monkeypatch):
+    """Regression: the release date must not depend on when, relative to midnight, it is read."""
+    mod = _cut_release_module()
+    fake_dt = type("fake_dt", (), {"date": _MidnightClock})
+    monkeypatch.setattr(mod, "dt", fake_dt)
+    _MidnightClock.reads = []
+    monkeypatch.setenv("LEAN_PKG_RELEASE_DATE", "2026-10-16")
+    assert [mod.release_date() for _ in range(3)] == ["2026-10-16"] * 3
+    assert _MidnightClock.reads == []          # the pinned date never consults the clock
+    # unpinned, the clock is read once per call: a caller that reads it once gets one date
+    monkeypatch.delenv("LEAN_PKG_RELEASE_DATE")
+    assert [mod.release_date(), mod.release_date()] == ["2026-10-16", "2026-10-17"]
+    assert len(_MidnightClock.reads) == 2
+
+
+def test_cut_release_refuses_a_malformed_release_date(tmp_path):
+    work = _setup(tmp_path)
+    for bad in ("2026-13-01", "16/10/2026", "2026-10-1"):
+        r = _cut(tmp_path, V, "--no-doi", LEAN_PKG_RELEASE_DATE=bad)
+        assert r.returncode == 2 and "LEAN_PKG_RELEASE_DATE: not a YYYY-MM-DD date" in r.stderr
+    assert _subjects(tmp_path) == [f"release: {OLD}"]   # refused before anything was written
+    assert not (work / "CHANGELOG.md").read_text().count(f"## [{V}]")
