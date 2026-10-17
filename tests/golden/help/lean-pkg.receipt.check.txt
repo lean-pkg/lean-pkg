@@ -1,0 +1,17 @@
+usage: lean-pkg receipt check [-h] --repo DIR --commit SHA [--at REF] [--docs-descendants]
+                              [--name NAME] [--json]
+
+options:
+  -h, --help          show this help message and exit
+  --repo DIR          a local clone of the package (the package directory; cloned privately, never
+                      modified)
+  --commit SHA        the commit the receipts bind (the page's `git checkout <commit>` line)
+  --at REF            the published ref whose .lean-receipts/, coverage.yaml and README.md are
+                      read (default HEAD of --repo); it must be the commit or an evidence-only
+                      descendant of it
+  --docs-descendants  also accept a docs-only descendant (no build input changed); the author's
+                      opt-in lives in a registry the referee cannot read, so this is the referee's
+                      choice, printed in the result
+  --name NAME         the package name the claims must carry (default: `package` in coverage.yaml,
+                      else claims.yaml, else the directory name)
+  --json              machine-readable JSON on stdout: every check with its verdict

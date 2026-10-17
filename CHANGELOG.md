@@ -11,6 +11,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `lean-pkg receipt check --repo DIR --commit X [--at REF] [--docs-descendants] [--json]`:
+  a registry-free receipt verifier for an outside referee. On a private clone
+  of DIR it runs `gate`'s and `comparator`'s own validators on the receipts
+  under `.lean-receipts/` that bind X, with no registry, no network and no
+  Lean run: the binding of the published ref (evidence-only descendants;
+  docs-only ones with `--docs-descendants`, the referee's choice, printed),
+  the pins against `lean-toolchain` and `lake-manifest.json` at X, every
+  SHA-256 (configurations, comparator logs, the redacted verify log, the
+  additive evidence keys, the olean manifest record), the claims at X, the
+  comparator configurations naming every reusable theorem claim,
+  `coverage.yaml` (R11) and the README page block against the receipts. One
+  verdict per check (`--json`: all of them); exit 0 only when none fails.
+  docs/trust-model.md "Re-verify a page yourself" now uses it in place of a
+  scratch `index add`; docs/receipts.md has the table of checks.
 - Docs: open governance. GOVERNANCE.md (roles, including what the AI
   operations agent may and may not do, how decisions are made, how a second
   maintainer is added); a design-proposal process for schema, command-removal

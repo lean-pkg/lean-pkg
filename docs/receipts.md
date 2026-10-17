@@ -10,8 +10,8 @@ title: Receipts and trust
 
 | Tier | Produced by | Validated by | Proves |
 |---|---|---|---|
-| **Lower** | any executor: `lake build`, sorry scan, `#print axioms`, frozen report | `gate --receipt` | the package builds at the pinned toolchain with `sorry_count = 0` and only the permitted axioms, at one commit |
-| **Comparator** | `comparator-receipt` running `comparator-check.sh` | `gate --comparator`, `comparator`, `promote` | each `Solution` theorem has exactly the statement of its trusted `Challenge` namesake, uses only the permitted axioms, and replays in the independent `nanoda` kernel |
+| **Lower** | any executor: `lake build`, sorry scan, `#print axioms`, frozen report | `gate --receipt`; from git alone, `receipt check` | the package builds at the pinned toolchain with `sorry_count = 0` and only the permitted axioms, at one commit |
+| **Comparator** | `comparator-receipt` running `comparator-check.sh` | `gate --comparator`, `comparator`, `promote`; from git alone, `receipt check` | each `Solution` theorem has exactly the statement of its trusted `Challenge` namesake, uses only the permitted axioms, and replays in the independent `nanoda` kernel |
 
 The comparator tier is optional at `gate`, so exploratory packages do not pay
 its cost. It is required at `promote`, so nothing becomes public without it.
@@ -1027,6 +1027,45 @@ the logs) and `index check --clone` re-derives them at the pin.
 package's `formalization.yaml` (commit, gate receipt, comparator receipt) and
 lists every tracked comparator configuration under `status.main_results`; see
 [formalization.yaml](formalization.md).
+
+### Checking a published package's receipts (`receipt check`)
+
+`gate`, `comparator` and `promote` read the author's registry record. A
+reader who has only the public repository runs the same validators with
+`receipt check`, which reads no registry, opens no network connection and never
+runs Lean:
+
+```bash
+git clone https://github.com/OWNER/REPO && cd REPO
+lean-pkg receipt check --repo . --commit <X>              # X: the page's `git checkout` commit
+lean-pkg receipt check --repo . --commit <X> --json       # every check with its verdict
+```
+
+It clones `--repo` privately (local transport only), checks out the published
+ref (`--at REF`, default HEAD) and reads everything from git there and at X;
+the working tree of `--repo` is never read or changed. It checks:
+
+| Check | What passes |
+|---|---|
+| `receipts` | at least one lower-tier receipt tracked under `.lean-receipts/` at REF binds X; a receipt file named for X that binds another commit fails |
+| `binding` | REF is X or an evidence-only descendant of it; with `--docs-descendants`, also a docs-only one ([Docs-only descendants](#docs-only-descendants-opt-in)) |
+| `lower <receipt>` | `gate`'s validator: every receipt key, the binding, `lean_toolchain` and `mathlib_rev` against `lean-toolchain` and `lake-manifest.json` at X, no path dependency outside the package, `sorry_count` 0, axioms within `propext`, `Quot.sound`, `Classical.choice` |
+| `... report log` | `report_sha256` is the SHA-256 of the committed redacted log (or of its `.gz`, decompressed); a missing log fails |
+| `... evidence files` | `manifest_sha256`, `artifacts_manifest_sha256`, `unit_properties_sha256` against the files they name, when present; `job_stdout_sha256` is not checkable (the job's stdout is not published) |
+| `claims` | `claims.yaml` at X passes the claims/1 schema and the declaration check `gate` runs |
+| `comparator <receipt>` | `gate`'s validator: the exact set of configurations tracked at X, each one's SHA-256, theorem names and sign-off, each log's SHA-256 and PASS line, the lower tier's commit |
+| `... olean manifest` | the receipt's `olean_manifest` names the toolchain and `lake-manifest.json` of X (the manifest file itself is not published) |
+| `claimed theorems` | every `reusable` theorem or lemma claim at X is named by a comparator configuration at X |
+| `coverage` | `coverage.yaml` at REF passes `coverage check`, R11 included: each compared theorem is the declaration of a claim a row names |
+| `page: ...` | the README page block at REF states X, the pins of X, each Evidence row's path, commit and SHA-256 as committed, and the receipts' sorry count, axioms and comparator counts |
+
+A check that does not apply (no `coverage.yaml`, no page block, no olean
+manifest) is `skip`, with the reason. Exit 0 only when no check fails, 1
+otherwise, 2 on a usage error. The docs-only opt-in is a field of the
+author's registry record, which the reader cannot see, so `--docs-descendants`
+is the reader's own choice; the result prints which rule was applied.
+Re-running Lean is not part of it: see
+[Re-verify a page yourself](trust-model.md#re-verify-a-page-yourself).
 
 ### Sealed logs and whitespace checks
 

@@ -195,28 +195,33 @@ SHA-256 of each committed receipt:
 sha256sum .lean-receipts/*.json
 ```
 
-Then let lean-pkg's own validators check the receipts at the pin. They need
-no registry when run through a scratch index you never publish
-(`--consent-recorded` and `--by` only satisfy `index add`; `--allow-unpushed`
-skips the public-branch check, drop it to have that checked too):
+Then let lean-pkg's own validators check the receipts, with no registry,
+no network and no Lean run:
 
 ```bash
-mkdir ../scratch-index
-lean-pkg index add REPO --index ../scratch-index --repo-dir . \
-  --repo https://github.com/OWNER/REPO --license SPDX --by referee --consent-recorded --allow-unpushed \
-  --lower .lean-receipts/<c12>-<job>.json --comparator .lean-receipts/<c12>-comparator.json \
-  --headline 'Decl.name :: Path/File.lean :: One sentence. :: Decl.name'
-lean-pkg index check REPO --index ../scratch-index --repo-dir .
+lean-pkg receipt check --repo . --commit "$X"
+lean-pkg receipt check --repo . --commit "$X" --json      # every check with its verdict
 ```
 
-`PASS REPO (comparator, toolchain)` means: both receipts bind X, the pins
-agree, every configuration and log hashes to what the receipt says, and the
-PASS line is in each log. It reads each evidence file as first committed in
-an evidence-only descendant of X, not the copy at HEAD, so also hash the
-files you see: `sha256sum` of the lower tier's `<c12>-<job>-verify.redacted.log`
-must print the receipt's `report_sha256`; `git show "$X":comparator.json | sha256sum`
-must print that configuration's `configs[].sha256`, and `sha256sum` of each
-`configs[].log` its `log_sha256`.
+It runs `gate`'s and `comparator`'s validators on a private clone of the
+checkout, at X and at HEAD (`--at REF` for a tag or another ref), and prints
+one line per check, `PASS`, `FAIL` or `SKIP` (not applicable, with the
+reason), then the verdict. `receipt check: PASS NAME at <X> (tier comparator; ...)`
+means: the lower-tier and comparator receipts bind X, HEAD is X or an
+evidence-only descendant of it, the toolchain and Mathlib pins agree with
+`lean-toolchain` and `lake-manifest.json` at X, every configuration, log and
+redacted log hashes to what the receipts say and each log has its PASS line,
+the comparator configurations at X name every reusable theorem claim,
+`coverage.yaml` accounts for every compared theorem (R11), and the page block
+states exactly what the receipts record. The table of checks is in
+[Checking a published package's receipts](receipts.md#checking-a-published-packages-receipts-receipt-check).
+Exit 0 only when no check fails.
+
+A package that committed its README or notes after the evidence (a docs-only
+descendant) fails the `binding` check: the author's opt-in to the docs-only
+rule is in their registry, which you cannot read. Look at step 1's list
+yourself; if every path there is a file the build does not read, re-run with
+`--docs-descendants`, and the result says that you accepted that rule.
 
 Steps 1 to 3 establish that the evidence is consistent. They do not
 establish that a run happened. Steps 4 and 5 do.
@@ -256,11 +261,13 @@ challenge module) against the paper: that last step is the one no tool does.
   the need for them.
 - **`page --check`.** It reads the author's registry record (status,
   recorded receipts), which is private, so a reader cannot re-render the page
-  from the repository alone. The page's facts can be checked one by one as
-  above.
+  from the repository alone. `receipt check` compares the page's facts (the
+  bound commit, the pins, the Evidence table, the trust boundary counts) with
+  the receipts instead; the prose around them is the author's.
 - **The docs-only opt-in.** It is recorded in the author's registry, not in
-  the repository. `index check` without that registry applies the stricter
-  evidence-only rule to the tag and the evidence commits; step 1 lets you
-  judge the later commits by eye.
+  the repository. `receipt check` and `index check` without that registry
+  apply the stricter evidence-only rule; `receipt check --docs-descendants`
+  applies the docs-only rule when you have judged the later commits yourself
+  (step 1).
 - **The olean manifest.** It describes the author's build directory, which is
   not published.
