@@ -2,8 +2,10 @@
 
 All notable changes to lean-pkg are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
-[Semantic Versioning](https://semver.org/) (while 0.x, a minor bump may
-change the registry schema or receipt format, always with a migration).
+[Semantic Versioning](https://semver.org/). While 0.x, a minor bump marks a
+new command or flag, a roadmap milestone, or a format change of an on-disk
+schema (always with a migration); a patch carries only fixes and docs. The
+full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
@@ -182,6 +184,17 @@ change the registry schema or receipt format, always with a migration).
   toolchains. `lean-pkg init` writes only the registry and its event log and
   lean-pkg scaffolds no `.lean` file, so the FAQ no longer plans
   "module-headed files from `lean-pkg init`".
+
+- Versioning policy (RELEASING.md, "When to tag"): while 0.x, a release
+  with any `### Added` entry, an on-disk format change (always with a
+  migration, named under `### Changed`) or a roadmap milestone is a minor;
+  a patch holds only `### Fixed` entries and docs. The next release is
+  0.8.0. The section also states the criteria for 1.0.0 (a final command
+  tree, versioned formats with migrations, the golden CLI contract as the
+  public API, a written deprecation policy, use in practice) and SemVer
+  proper after it. `make cut-release` step 0 warns, without refusing, when a
+  patch version is requested while `## [Unreleased]` has an `### Added` or
+  `### Changed` section, and prints the suggested minor version.
 
 ### Fixed
 

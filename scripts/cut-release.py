@@ -5,6 +5,8 @@ Runs the RELEASING.md checklist from `## [Unreleased]` to the recorded Zenodo DO
 
   0   lists the `### Added` entries being released (the documentation gap pass is a
       judgment; `make check` enforces its floor, the subcommand-coverage test)
+      and warns (never refuses) when X.Y.Z is a patch bump while `## [Unreleased]` has an
+      `### Added` or `### Changed` section, printing the suggested minor version
   2a  points the BibTeX examples in README.md and docs/index.md at X.Y.Z and commits
       them on their own (`citation: bibtex examples cite X.Y.Z`)
   3   runs `make public-safety` and refuses unless it reports 0 blocking, 0 warnings
@@ -157,6 +159,25 @@ def unreleased(chg: str) -> tuple[int, int]:
         die("CHANGELOG.md has no `## [Unreleased]` heading")
     nxt = re.search(r"^## \[", chg[m.end():], re.M)
     return m.end(), m.end() + (nxt.start() if nxt else len(chg) - m.end())
+
+
+def step0_version_kind(chg: str, v: str, current: str) -> None:
+    """Warn, never refuse, when X.Y.Z is a patch bump over the current version while `## [Unreleased]`
+    has an `### Added` or `### Changed` section: under RELEASING.md "When to tag" a new command or flag, a
+    format change or a milestone is a minor. A `### Changed` entry that changes no format may still be a
+    patch, so this stays a warning and the release goes on."""
+    new, cur = vtuple(v), vtuple(current)
+    if new[:2] != cur[:2]:
+        return
+    s, e = unreleased(chg)
+    found = [h for h in ("Added", "Changed")
+             if any(m.group(1).strip() for m in re.finditer(rf"^### {h}\n(.*?)(?=^### |\Z)", chg[s:e], re.M | re.S))]
+    if found:
+        suggested = f"{cur[0]}.{cur[1] + 1}.0"
+        say(f"WARN: step 0: {v} is a patch bump over {current}, but `## [Unreleased]` has "
+            + " and ".join(f"`### {h}`" for h in found)
+            + f"; RELEASING.md \"When to tag\" makes a new command, flag or format change a minor: "
+            f"suggested version {suggested} (`make cut-release VERSION={suggested}`). Continuing with {v}.")
 
 
 def step0_added(chg: str) -> None:
@@ -312,6 +333,7 @@ def main() -> int:
         if not chg[s:e].strip():
             die("`## [Unreleased]` is empty; nothing to release")
         step0_added(chg)
+        step0_version_kind(chg, v, current)
         step2a_citation(v)
         safety = step3_public_safety()
         say(f"step 3: {safety}")
