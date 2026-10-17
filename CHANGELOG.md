@@ -37,6 +37,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   to check with `--version` and `doctor`, how to recompute
   `sources_sha256`, and why a guard manifest over a git checkout must use
   `git --no-optional-locks status`.
+- Docs: decision 0007 (docs/decisions) records the design recommendations
+  the maintainer accepted on 2026-10-17: the 1.0 command tree and its
+  stage 2 scope, the newcomer path (`new --kind`, default paper, license
+  Apache-2.0, `mathlib-rev: none`), site profiles and CI receipts,
+  `receipt check` staying strict, the two-track decisions and the
+  verification page. docs/design/sites-and-ci-receipts.md and
+  docs/design/two-tracks.md mark their decisions as decided.
+- Docs: README.md shows the two-track workflow diagram under the quickstart
+  link, linked to the sample workflow.
 
 ### Fixed
 

@@ -4,9 +4,11 @@ title: Two tracks, paper and library
 
 # Two tracks: a verified paper, or a reusable Lean library
 
-Status: design proposal, 2026-10-17. Nothing here changes a format; the one
-change it ships is that `status` reports which product a package's page
-certifies (below). The gap list at the end is the work it proposes.
+Status: design proposal, 2026-10-17; its four decisions were taken the same
+day ([Decisions](#decisions), [decision 0007](../decisions/0007-recommendations-accepted-2026-10-17.md)).
+Nothing here changes a format; the one change it ships is that `status`
+reports which product a package's page certifies (below). The gap list at
+the end is the work it proposes.
 
 "Wave" refers to the maintainer roadmap's five steps: 1, a first outside
 user (`lean-pkg new` and a quickstart); 2, simplify to 1.0 and freeze the
@@ -298,13 +300,21 @@ waves 3 and 4.
 
 ## Decisions
 
-These are the maintainer's:
+These were the maintainer's; all four were decided on 2026-10-17
+([decision 0007](../decisions/0007-recommendations-accepted-2026-10-17.md)):
 
 - Whether the product kind stays derived from `coverage.yaml` (this
   proposal: `status` reports `scope.product.kind`, nothing is stored) or
   becomes a record field. `track` is taken by the DOI track.
+  **Decided: derived from `coverage.yaml`, as shipped; the DOI flag
+  `--track` is renamed `--doi-track` (done in the 1.0 tree's stage 1).**
 - Whether a library gate requires a lint receipt (item 5), or reports it only.
+  **Decided: the Mathlib lint is reported in 1.0, and required only for a
+  package with `upstream_target: mathlib`.**
 - Whether per-declaration upstreaming lives in `claims.yaml` (a new status or
-  key) or in a separate file.
+  key) or in a separate file. **Decided: optional `claims.yaml` keys
+  `upstream: {pr, merged_as, retired}`, additive within `claims/1`.**
 - Whether Track L's success includes Mathlib at all, or treats Reservoir as
-  the end and Mathlib PRs as optional.
+  the end and Mathlib PRs as optional. **Decided: a Reservoir listing is
+  success; Mathlib pull requests are optional, and lean-pkg prepares them
+  but never opens them.**

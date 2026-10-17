@@ -14,3 +14,4 @@ Changes to the tool's formats, commands and trust rules are designed in
 | [0004](0004-copyright-and-license-confirmed-by-auburn.md) | Copyright and license confirmed by Auburn University | 2026-10-08 | accepted |
 | [0005](0005-github-account-successor-until-a-deputy-is-named.md) | GitHub account successor until a deputy is named | 2026-10-08 | accepted |
 | [0006](0006-public-flip.md) | Public flip | 2026-10-08 | accepted 2026-10-09 (G1 waived, G2 with residue) |
+| [0007](0007-recommendations-accepted-2026-10-17.md) | Design recommendations accepted on 2026-10-17 | 2026-10-17 | accepted |

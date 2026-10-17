@@ -112,6 +112,10 @@ def test_workflow_diagram_exists_and_is_valid_svg():
     xml.dom.minidom.parse(str(svg))
     assert "assets/workflow.svg" in (ROOT / "docs" / "sample-workflow.md").read_text()
     assert "../assets/workflow.svg" in (ROOT / "docs" / "design" / "two-tracks.md").read_text()
+    readme = (ROOT / "README.md").read_text()                     # under the quickstart link, with alt text
+    img = re.search(r'<img src="docs/assets/workflow\.svg"[^>]*>', readme)
+    assert img and 'alt="One workflow, two tracks' in img.group(0) and "style=" not in img.group(0)
+    assert readme.index("docs/quickstart.md") < img.start() < readme.index("## Why lean-pkg")
     text = svg.read_text()
     # both tracks, and every step of the sample workflow, drawn exactly once
     for label in ("Track P · a verified paper", "Track L · a reusable library", "register + claim",
