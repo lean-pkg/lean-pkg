@@ -954,7 +954,10 @@ systemd-run --user --unit=audit-gate.service -p RemainAfterExit=yes \
 
 The caps are the defaults; `--memory-max`, `--memory-swap-max`,
 `--cpu-quota` and `--runtime-max` change them, and each must be finite.
-`--setenv NAME=VALUE` adds a variable (`PATH` is always passed). Lake's
+`--setenv NAME=VALUE` adds a variable (`PATH` is always passed).
+`--require-tools A,B,...` (repeatable) names the executables the command
+needs; each must resolve in the unit's `PATH` before the unit is created,
+else nothing is run (see [Run tools](#run-tools-preflight-the-projects-own-executables)). Lake's
 local artifact cache is isolated by default: unless `--setenv` names them,
 the unit gets `LAKE_CACHE_DIR` set to a fresh, empty temporary directory
 (removed after the run) and `LAKE_ARTIFACT_CACHE=false` (see
@@ -1018,7 +1021,7 @@ properties, captured before the unit was collected:
 { systemctl --user show audit-gate.service -p Id,LoadState,ActiveState,SubState,Result,InvocationID,\
 ExecMainCode,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp,ExecMainStartTimestampMonotonic,\
 ExecMainExitTimestampMonotonic,NRestarts,MemoryPeak,CPUUsageNSec,MemoryMax,MemorySwapMax,CPUQuotaPerSecUSec,\
-RuntimeMaxUSec,OOMPolicy; echo "Hostname=$(hostname)"; } > unit.properties
+RuntimeMaxUSec,OOMPolicy,RemainAfterExit; echo "Hostname=$(hostname)"; } > unit.properties
 ```
 
 The `Hostname=` line names the host the unit ran on; its label is part of
@@ -1043,11 +1046,44 @@ nothing written to `.lean-receipts/`):
 
 `MemoryPeak`, `CPUUsageNSec`, the runtime (exit minus start, monotonic)
 and the caps `MemoryMax`, `MemorySwapMax`, `CPUQuotaPerSecUSec`,
-`RuntimeMaxUSec` are recorded, not judged. The job's stdout may also carry
+`RuntimeMaxUSec` are recorded, not judged (the full list is below). The job's stdout may also carry
 `invocation-id $INVOCATION_ID` (systemd sets the variable in the unit);
 when present it must equal the unit's InvocationID, so a stdout from
 another run is refused. A log `job-id:` line must name the job_id or the
 InvocationID.
+
+**The exported property set.** These are exactly the properties lean-pkg
+asks `systemctl --user show` for (with `--run`, after the unit is terminal
+and before it is stopped and reset), reads from a `--properties-file`, and
+copies, in this order, into `<commit12>-<slug>-unit.properties`. Any other
+line of a saved capture is ignored and never copied. Validation uses
+exactly this set: the *required* ones must be present (else the receipt is
+refused, naming them), the others are recorded when present and never
+required, so a capture made with an older, shorter list stays valid.
+
+| Property | At terminal capture | Use |
+|---|---|---|
+| `Id` | the unit's name, `U.service` | required; must be `--unit` |
+| `LoadState` | `loaded` while the unit is retained | required; `not-found` refuses |
+| `ActiveState`, `SubState` | `active`/`exited` with RemainAfterExit; `failed` or `inactive` | required; must be terminal |
+| `Result` | how the unit ended: `success`, `oom-kill`, `timeout`, ... | required; must be `success` |
+| `InvocationID` | 32 hex: this run of the unit | required; part of `job_id` |
+| `ExecMainCode`, `ExecMainStatus` | how the main process ended: exited (`1`) with its exit status, or killed/dumped with the signal | required; exited `0` |
+| `ExecMainExitTimestampMonotonic` | when the main process exited (µs since boot); 0 if it never did | required; nonzero |
+| `ExecMainStartTimestampMonotonic` | when the main process started (µs since boot) | recorded: runtime = exit − start |
+| `ExecMainStartTimestamp`, `ExecMainExitTimestamp` | the same instants, wall clock | recorded |
+| `NRestarts` | how often systemd restarted the unit | `0` when present (a missing one counts as 0) |
+| `MemoryPeak`, `CPUUsageNSec` | peak memory and CPU time of the unit's cgroup | recorded |
+| `MemoryMax`, `MemorySwapMax`, `CPUQuotaPerSecUSec`, `RuntimeMaxUSec` | the caps the unit ran under | recorded (named when a cap stopped the run) |
+| `OOMPolicy` | `stop` for a `--run` unit | recorded |
+| `RemainAfterExit` | `yes` for a `--run` unit: the mode that kept the finished unit loaded for capture | recorded (from 0.13.0; `--json` `unit.remain_after_exit`) |
+| `Hostname` | not a systemd property: the host the unit ran on, appended to the capture | required; written only as its label |
+
+`MainPID` is deliberately not exported: once the main process has exited,
+systemd reports `MainPID=0`, and a process ID is host-local and recycled,
+so it identifies nothing a reader can check; `InvocationID` identifies the
+run. A wrapper that consumes `<log>.unit.properties` or the normalised file
+should expect exactly this set and must not require any other property.
 
 **Redaction.** A local run prints absolute paths. Before the scan the
 checkout's absolute path becomes `<repo>`, `$HOME` becomes `<HOME>`,
@@ -1183,10 +1219,92 @@ own, those look like a clean run. Two field reports lost a run this way.
     grep -qx "InvocationID=$INVOCATION" <<<"$props" || { echo "unit gone: run evidence incomplete"; exit 2; }
   ```
 
+- **Expect exactly the exported set.** A wrapper reading a capture should
+  require only the properties the
+  [exported set](#a-lower-tier-receipt-from-a-systemd-unit) marks
+  required; `MainPID` is never exported, and `RemainAfterExit` only by
+  lean-pkg 0.13.0 and later.
 - **A unit gone before capture is not a success.** Record that run's
   execution evidence as qualified or incomplete, never as passed. Checks
   that do not depend on the unit (the compile log, the binding of the
   source to the commit) still stand and can be kept.
+
+### Run tools: preflight the project's own executables
+
+A verify script calls more than `lake` and `lean`: an audit script of the
+project's own may need `rg`, `jq`, `python3` or `sha256sum`. Probing a
+fixed core list does not cover that call graph. A warm run that passed the
+build and the import audit then failed with exit 127 at the project's own
+inventory script, because `rg` was missing on that host. The project knows
+its stage commands, so it declares the list, and the run checks it before
+anything starts.
+
+1. **Declare the tools in the project, per version.** Commit a plain list
+   beside the verify script, one command name per line (`#` comments),
+   covering every executable any stage calls, including those called by the
+   project's shell and Python helpers, e.g. `verify/run-tools.txt`:
+
+   ```text
+   # every executable verify.sh and its helpers call (keep in step with them)
+   lake
+   lean
+   git
+   python3
+   rg
+   sha256sum
+   ```
+
+   It is committed, so the list that was checked is the one at `--commit`.
+   Derive it from the scripts, not from memory: `grep -ohE '^[[:space:]]*[a-z][a-z0-9_.+-]*' verify/*.sh`
+   is a start, and a dry run of the verify script under
+   `env -i PATH="$UNIT_PATH" bash -x verify.sh ...` shows what it really calls.
+2. **Check each with `type -P` in the job's own `PATH`.** Not `command -v`,
+   which also accepts keywords, builtins, aliases and functions (`time` is a
+   bash keyword, so `$RUN time ...` needs a binary that many images lack).
+3. **Log the resolved paths and SHA-256 before the job starts**, so the run
+   says which binaries it used.
+
+For `receipt systemd --run` the flag does steps 2 and 3, before the unit is
+created, in the unit's `PATH` (this process's, or the last
+`--setenv PATH=...`):
+
+```bash
+lean-pkg receipt systemd --unit audit-gate --commit "$(git rev-parse HEAD)" \
+  --log /tmp/gate/verify.log --stdout /tmp/gate/unit.out --stderr /tmp/gate/unit.err \
+  --require-tools "$(grep -v '^#' verify/run-tools.txt | paste -sd, -)" \
+  --run -- bash verify.sh /tmp/gate/verify.log
+```
+
+Each resolved tool is printed on stderr
+(`lean-pkg: receipt systemd: run tool rg: /usr/bin/rg sha256 <hex>`, with
+`-> <real path>` when it is a symlink) and returned by `--json` as
+`run_tools` {`required`, `resolved[]` {`name`, `path`, `realpath`,
+`sha256`}, `missing`}. A missing one refuses with
+`--require-tools: not found in the unit's PATH (type -P): rg; nothing was run`.
+The paths are local, so they are not written into the receipt.
+
+In a Slurm job the template's `RUN_TOOLS` does step 2 under `$RUN`:
+`RUN_TOOLS="$(grep -v '^#' verify/run-tools.txt | tr '\n' ' ')"`. For a
+custom gate of your own (no lean-pkg in the job), the same check in the
+job's environment, after its own `export PATH=...` line:
+
+```bash
+missing=
+while read -r t; do
+  case $t in ''|'#'*) continue ;; esac
+  if p=$(type -P "$t"); then
+    echo "run-tool $t $p $(sha256sum "$(readlink -f "$p")" | cut -d' ' -f1)"
+  else
+    missing="$missing $t"
+  fi
+done < verify/run-tools.txt
+[ -z "$missing" ] || { echo "error: run tools not found:$missing" >&2; exit 127; }
+```
+
+This establishes the named executables only, not their closure: shared
+libraries, Python modules and anything a tool runs in turn are not
+checked. Keep the list in step with the scripts, and treat a run that
+still exits 127 as an incomplete list, not as a host fault.
 
 ## Comparator receipt schema (`comparator-receipt/2`; `/1` still validates)
 

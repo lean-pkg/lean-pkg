@@ -31,9 +31,20 @@ Where the unit's terminal state comes from (one of three, like sacct / --sacct-f
   interpreter and entry point), checked about every PRODUCER_CHECK_SECONDS while waiting (a WARN, once) and
   again at collection: a change refuses, naming the files; an unchanged one is sealed as the additive receipt
   key `producer` (gate ignores it) and a `- Producer:` README line.
+  `--require-tools A,B,...` (repeatable): before the unit is created, each project-declared executable must
+  resolve like bash `type -P` in the unit's PATH (this process's, or the last --setenv PATH=); the resolved
+  path, its real path and SHA-256 are printed to stderr and returned as --json `run_tools`; a missing one
+  refuses and nothing is run. It checks only the names given, not their libraries, modules or what they call.
 - `--properties-file F`: the output of `systemctl --user show U -p <UNIT_PROPS>` saved before the unit was
   collected, plus a `Hostname=` line naming the host it ran on (the host is part of job_id).
 - neither: `systemctl --user show U` now, on this host (the unit must still be loaded, i.e. not --collect).
+
+The exported property set is exactly UNIT_PROPS plus Hostname: Id, LoadState, ActiveState, SubState, Result,
+InvocationID, ExecMainCode, ExecMainStatus, ExecMainStartTimestamp, ExecMainExitTimestamp,
+ExecMainStartTimestampMonotonic, ExecMainExitTimestampMonotonic, NRestarts, MemoryPeak, CPUUsageNSec, MemoryMax,
+MemorySwapMax, CPUQuotaPerSecUSec, RuntimeMaxUSec, OOMPolicy, RemainAfterExit. Only these keys are read and
+copied into the evidence (any other line is ignored); REQUIRED must be present, the others are recorded when
+present and never required. MainPID is not exported (0 once the main process has exited).
 
 Unit checks (every failure listed; any one refuses, exit 1, nothing written): LoadState=loaded and Id = U; a
 32-hex InvocationID; terminal (ActiveState failed or inactive, or active with SubState exited); Result=success
@@ -75,7 +86,12 @@ from . import receipt as rc
 UNIT_PROPS = ("Id", "LoadState", "ActiveState", "SubState", "Result", "InvocationID", "ExecMainCode",
               "ExecMainStatus", "ExecMainStartTimestamp", "ExecMainExitTimestamp",
               "ExecMainStartTimestampMonotonic", "ExecMainExitTimestampMonotonic", "NRestarts", "MemoryPeak",
-              "CPUUsageNSec", "MemoryMax", "MemorySwapMax", "CPUQuotaPerSecUSec", "RuntimeMaxUSec", "OOMPolicy")
+              "CPUUsageNSec", "MemoryMax", "MemorySwapMax", "CPUQuotaPerSecUSec", "RuntimeMaxUSec", "OOMPolicy",
+              "RemainAfterExit")
+# The exported set is exactly UNIT_PROPS (plus Hostname). REQUIRED must be present; the rest are recorded when
+# present and never required, so a capture made with an older, shorter list (RemainAfterExit was added in
+# 0.13.0) stays valid. MainPID is deliberately not exported: at terminal capture the main process is gone and
+# systemd reports MainPID=0, and a PID is host-local and recycled; InvocationID identifies the run.
 REQUIRED = ("Id", "LoadState", "ActiveState", "SubState", "Result", "InvocationID", "ExecMainCode",
             "ExecMainStatus", "ExecMainExitTimestampMonotonic")
 HOST_KEY = "Hostname"
@@ -91,6 +107,7 @@ SYSTEMCTL_TIMEOUT = 60
 _CAP_RE = re.compile(r"[0-9][0-9.]*[A-Za-z%]*")
 _UNIT_RE = re.compile(r"[A-Za-z0-9:_.@\\-]+")
 _HOST_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+_TOOL_RE = re.compile(r"[A-Za-z0-9_.+][A-Za-z0-9_.+-]*")
 _OTHER_TYPE_RE = re.compile(r"\.(scope|socket|timer|target|mount|automount|path|slice|swap|device)$")
 
 
@@ -225,7 +242,8 @@ def check_unit(props: dict, unit: str) -> tuple[dict | None, list[str], list[str
                "runtime_usec": exited_at - start if start and exited_at >= start else None,
                "cpu_usage_nsec": _int(props.get("CPUUsageNSec")), "memory_peak": _int(props.get("MemoryPeak")),
                "memory_max": props.get("MemoryMax"), "memory_swap_max": props.get("MemorySwapMax"),
-               "cpu_quota_per_sec": props.get("CPUQuotaPerSecUSec"), "runtime_max": props.get("RuntimeMaxUSec")}
+               "cpu_quota_per_sec": props.get("CPUQuotaPerSecUSec"), "runtime_max": props.get("RuntimeMaxUSec"),
+               "remain_after_exit": props.get("RemainAfterExit")}
     if host and _HOST_RE.fullmatch(host):
         summary["host"] = host_label(host)       # the name itself is never published
     checks = []
@@ -429,6 +447,56 @@ def report_interrupt(args, signum: int, unit: str, running: bool | None, cache_d
           f"Then: systemctl --user stop {unit}; systemctl --user reset-failed {unit}", file=err)
 
 
+def tool_names(values) -> list[str]:
+    """The --require-tools names (comma-separated, repeatable), in order, each once."""
+    names: list[str] = []
+    for value in values or []:
+        for name in (w.strip() for w in value.split(",")):
+            if not name:
+                continue
+            if not _TOOL_RE.fullmatch(name):
+                raise core.UsageError(f"--require-tools {name!r}: a command name (as `type -P` takes it, no '/')")
+            if name not in names:
+                names.append(name)
+    return names
+
+
+def unit_path(setenv) -> str:
+    """The PATH the unit gets: this process's, unless a --setenv PATH=... replaces it (the last one wins, as in
+    systemd's Environment=)."""
+    path = os.environ.get("PATH", "")
+    for kv in setenv or []:
+        if kv.startswith("PATH="):
+            path = kv[len("PATH="):]
+    return path
+
+
+def _file_sha256(path: str) -> str | None:
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()
+
+
+def require_tools(names: list[str], path: str) -> tuple[list[dict], list[str]]:
+    """(resolved, missing): each name resolved like bash `type -P` in the unit's PATH (an executable file;
+    never a keyword, builtin or function: `time` needs a binary), with its real path and SHA-256."""
+    from .host_routes import type_p
+    resolved, missing = [], []
+    for name in names:
+        hit = type_p(name, path)
+        if hit is None:
+            missing.append(name)
+            continue
+        real = os.path.realpath(hit)
+        resolved.append({"name": name, "path": hit, "realpath": real, "sha256": _file_sha256(real)})
+    return resolved, missing
+
+
 def run_unit(args, unit: str, repo: pathlib.Path, paths: dict, props_out: pathlib.Path,
              refusals: list[str], checks: list[str], producer: dict | None = None) -> str | None:
     """Start the command as the bounded transient unit, wait for it to finish, capture its properties before
@@ -610,6 +678,9 @@ def cmd_receipt_systemd(args) -> int:
                                       f"restored module's sorry warning need not be printed)")
     elif args.setenv:
         raise core.UsageError("--setenv is only for --run")
+    tools = tool_names(args.require_tools)
+    if tools and not run:
+        raise core.UsageError("--require-tools is only for --run (it is checked before the unit is created)")
     paths = {}
     for flag, value in (("--log", args.log), ("--stdout", args.stdout), ("--stderr", args.stderr)):
         if value is None:
@@ -636,7 +707,24 @@ def cmd_receipt_systemd(args) -> int:
     checks: list[str] = []
     json_extra = {"unit": None, "properties": None, "ran": run, "producer": None}
     producer: dict = {}
-    if run:
+    missing_tools: list[str] = []
+    if run and tools:
+        # Before the unit exists: every project-declared tool must resolve in the unit's own PATH.
+        resolved, missing_tools = require_tools(tools, unit_path(args.setenv))
+        json_extra["run_tools"] = {"required": tools, "resolved": resolved, "missing": missing_tools}
+        for t in resolved:
+            print(f"lean-pkg: receipt systemd: run tool {t['name']}: {t['path']}"
+                  + (f" -> {t['realpath']}" if t["realpath"] != t["path"] else "")
+                  + f" sha256 {t['sha256'] or 'unreadable'}", file=sys.stderr)
+        if missing_tools:
+            refusals.append(f"--require-tools: not found in the unit's PATH (type -P): {', '.join(missing_tools)}; "
+                            f"nothing was run")
+        else:
+            checks.append(f"✓ run tools: {len(resolved)} resolved in the unit's PATH (type -P) before the unit "
+                          f"was created: {', '.join(tools)}")
+    if run and missing_tools:
+        text = None
+    elif run:
         try:
             text = run_unit(args, unit, repo, paths, props_out, refusals, checks, producer)
         except RunInterrupted as e:
@@ -766,6 +854,11 @@ def add_parser(rsub) -> None:
     src.add_argument("--setenv", action="append", default=[], metavar="NAME=VALUE",
                      help="--run: an extra environment variable for the unit (repeatable; PATH is passed; "
                           "LAKE_CACHE_DIR=<fresh empty dir> and LAKE_ARTIFACT_CACHE=false unless named here)")
+    src.add_argument("--require-tools", action="append", default=[], metavar="A,B,...",
+                     help="--run: executables the command needs (comma-separated, repeatable), each resolved "
+                          "with `type -P` in the unit's PATH before the unit is created; a missing one refuses "
+                          "and nothing is run. The resolved paths and SHA-256 are printed (stderr) and in --json "
+                          "run_tools")
     src.add_argument("--properties-out", default=None, metavar="PATH",
                      help="--run: where the captured properties go (default <log>.unit.properties)")
     s.add_argument("--redact", action="append", default=[], metavar="REGEX",
