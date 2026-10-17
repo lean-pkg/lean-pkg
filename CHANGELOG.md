@@ -18,6 +18,31 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   comparator, both receipts, the gate, `coverage.yaml`, `page --write`,
   `publish --dry-run`), with measured times and a short section on the paper
   track. Linked from README.md, docs/index.md and docs/quickstart.md.
+- `receipt systemd --run` (alias `receipt local --run`) fingerprints the
+  running lean-pkg before it starts the unit: the SHA-256 of every file of
+  its package directory (sources, shipped scripts, schemas, templates), its
+  dist-info, the Python interpreter and the entry point. It checks again
+  about once a minute while it waits (a `WARN` naming the changed files) and
+  at final collection, where any change refuses before anything is written,
+  naming the files. A shared editable checkout that is pulled during a long
+  run no longer yields a receipt written by mixed code, and the failure is
+  lean-pkg's own, not only a user's guard (field report). A passing run
+  seals the additive receipt key `producer` (version, install kind, the
+  editable checkout's commit and dirtiness as of the start, `sources_sha256`,
+  file count, Python version; no path), which `gate` and `receipt check`
+  ignore, so no schema change, plus a `- Producer:` README line and a
+  `producer` object in `--json`. Receipts without `--run` are unchanged.
+- Docs: docs/receipts.md "Long runs: freeze the producer": install from a
+  release tag (pipx or a venv) rather than a shared editable checkout, how
+  to check with `--version` and `doctor`, how to recompute
+  `sources_sha256`, and why a guard manifest over a git checkout must use
+  `git --no-optional-locks status`.
+
+### Fixed
+
+- `lean-pkg --version` and `doctor` probe an editable checkout with `git
+  --no-optional-locks status`, so they no longer rewrite its `.git/index`
+  (a stat refresh) and change a file a caller may have hashed.
 
 - Docs: the workflow diagram (`docs/assets/workflow.svg`) covers both
   product tracks. `new` forks into Track P (anchor the paper, a row per

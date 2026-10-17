@@ -7904,7 +7904,8 @@ def install_detect(d: pathlib.Path) -> dict:
         info["install"] = "installed"   # not tracked: e.g. site-packages that sit inside a checkout
         return info
     root = pathlib.Path(top.stdout.strip())
-    st = registry_git(root, "status", "--porcelain", "--untracked-files=no")
+    # --no-optional-locks: a read-only probe must not refresh (rewrite) the checkout's .git/index
+    st = registry_git(root, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
     info.update(install="editable", path=str(root),
                 commit=registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?",
                 dirty=bool(st.stdout.strip()) if st.returncode == 0 else None)

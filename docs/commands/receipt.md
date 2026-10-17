@@ -143,7 +143,7 @@ lean-pkg receipt systemd --unit U --log PATH --receipt-commit SHA [--stdout PATH
 | `--stdout PATH` | the unit's stdout file: verify-log-sha256 = sha256(raw log), pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at the commit), optional invocation-id = InvocationID; without it the log must carry its own seal. With --run the unit writes it |
 | `--stderr PATH` | the unit's stderr file; must be empty. With --run the unit writes it |
 | `--properties-file F` | saved `systemctl --user show U -p Id,LoadState,ActiveState,SubState,Result,InvocationID,ExecMainCode,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp,ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic,NRestarts,MemoryPeak,CPUUsageNSec,MemoryMax,MemorySwapMax,CPUQuotaPerSecUSec,RuntimeMaxUSec,OOMPolicy` output, captured before the unit was collected, plus a `Hostname=` line for the host it ran on |
-| `--run` | start `-- CMD ...` as the bounded unit U (systemd-run --user, RemainAfterExit, WorkingDirectory=--repo), wait for it, capture its properties before stopping it; --log, --stdout, --stderr must not exist yet |
+| `--run` | start `-- CMD ...` as the bounded unit U (systemd-run --user, RemainAfterExit, WorkingDirectory=--repo), wait for it, capture its properties before stopping it; --log, --stdout, --stderr must not exist yet. The running lean-pkg's own files must not change during the run (sealed as the receipt key `producer`) |
 | `--memory-max BYTES` | --run: MemoryMax (default 8G) |
 | `--memory-swap-max BYTES` | --run: MemorySwapMax (default 0, so the memory cap is an OOM kill, not swapping) |
 | `--cpu-quota PCT` | --run: CPUQuota (default 400%) |
