@@ -90,6 +90,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["audit", "--fix"], "registry audit", True, True, False),
     (["validate"], "registry validate", False, False, False),
     (["doctor"], "doctor", False, False, False),
+    (["doctor", "--upgrade-from", "0.10.0"], "doctor", False, False, False),      # read-only, no registry
+    (["doctor", "--upgrade-from", "v1", "--to", "v2", "--source", "d"], "doctor", False, False, False),
     (["llms"], "llms", False, False, False),
     (["wiki"], "registry wiki", False, False, False),
     (["index", "add", "demo", "--by", "m"], "index add", True, False, False),   # locks only around its append

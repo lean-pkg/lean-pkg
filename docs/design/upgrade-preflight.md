@@ -120,7 +120,7 @@ lean-pkg doctor --upgrade-from 0.9.0 --source ~/src/lean-pkg
 | `mechanical.formats` | `{added {family: marker}, removed, changed {family: {from, to}}}` |
 | `mechanical.named` | `registry_version`, `registry_versions_read`, `formalization_yaml_version`: `{from, to, changed}` |
 | `mechanical.keys` | per on-disk key list: `{added, removed}` |
-| `mechanical.commands` | `{added, removed, renamed {old: new}, options {path: {added, removed, renamed}}}`, or null when a tree has no help goldens |
+| `mechanical.commands` | `{added, removed, renamed {old: new}, options {path: {added, removed, renamed, moved}}}` (`moved`: an option that went with a mode split off as its own command, `MODE_ALIASES`), or null when a tree has no help goldens |
 | `mechanical.json_keys` | `{added, removed, changed {command: {added, removed}}}`, or null |
 | `mechanical.aliases` | `commands`, `flags`, `implied_verbs`: `{added, removed}` |
 | `mechanical.data_files` | `{added, removed, changed}` (paths under `src/lean_pkg/`) |

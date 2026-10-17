@@ -36,6 +36,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (#216) and adopted-file licenses (#218). Design:
   docs/design/upgrade-preflight.md; RELEASING.md step 0 now completes the
   record before a release (field request).
+- `doctor --upgrade-from`: an option of a mode that became its own command
+  (`command_tree.MODE_ALIASES`: `release --fresh-repo` is `repo export`,
+  `comparator --check` is `comparator check`, ...) is reported as `moved`
+  to that command, not removed; docs/upgrades/0.12.0.yaml and .md record
+  the changes merged after 0.11.0 so far (#219 to #225, stage 2 of the
+  command tree among them); ARGV_TABLE rows pin `doctor --upgrade-from` as
+  read-only.
 - The 1.0 command tree, stage 2 (docs/design/1.0-command-tree.md, accepted
   2026-10-17). Every old argv keeps parsing to the same namespace (an
   ARGV_TABLE row and a namespace-equality pair each, new mode aliases
