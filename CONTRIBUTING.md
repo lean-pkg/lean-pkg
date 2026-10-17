@@ -55,7 +55,7 @@ maintainer's release steps ([RELEASING.md](RELEASING.md)).
   comes with a test that fails on the base revision; say how it failed in
   the PR. Tests use temporary registries (`--registry` under a temporary
   directory), never a real one.
-- **Goldens.** `tests/test_cli_contract_*.py` pin the command-line
+- **The golden CLI contract.** `tests/test_cli_contract_*.py` pin the command-line
   interface: the `--help` text of every command (`tests/golden/help/`), the
   top-level keys of each `--json` payload (`tests/golden/json-keys.json`), an
   argv table of which invocations write and lock the registry, and a corpus
@@ -95,6 +95,9 @@ with the version, `doctor` and `comparator host-check` lines, and every
 private path and address redacted; `--yes` files it. A good bug report has:
 
 - the version line of `lean-pkg --version` and your Python version;
+- which track you are on: a paper (formalizing a paper's results) or a
+  Lean package (a library, a Mathlib contribution or a public GitHub
+  repository with no manuscript); the bug template asks;
 - the exact command, run with `--json`, and its full output, including the
   JSON reason;
 - what you expected instead;
@@ -107,8 +110,9 @@ A report that the tool accepted evidence it should have refused (a false
 ## From a field report to a pull request
 
 A field report is what a package author saw while using lean-pkg on a real
-package: several findings from one session, each with a severity. File it
-with the *Field report* issue template. The maintainer (or the operations
+package: several findings from one session, each with a severity, and
+which track (paper or Lean package) the session was on. File it with the
+*Field report* issue template. The maintainer (or the operations
 agent, see [GOVERNANCE.md](GOVERNANCE.md)) triages it: each finding is
 reproduced on `main`, split into one pull request per logical change, and the
 PR scope names the report (for example "field report #5, finding 2"). A

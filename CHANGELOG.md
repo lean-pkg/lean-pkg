@@ -20,7 +20,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   requests; SECURITY.md routes reports, a false "verified" first among them,
   through the repository's private security advisories; issue templates for
   field reports and proposals, and a pull-request checklist that mirrors
-  CONTRIBUTING.md.
+  CONTRIBUTING.md. The bug and field-report templates ask which track the
+  reporter is on: a paper, or a Lean package (a Mathlib contribution or a
+  public GitHub repository with no manuscript).
 
 ## [0.9.0] - 2026-10-17
 

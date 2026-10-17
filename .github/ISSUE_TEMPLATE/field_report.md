@@ -11,6 +11,12 @@ private paths, host names and unposted paper names with placeholders. A way
 to get a false "verified" is a security report: use the private advisory form
 instead (SECURITY.md).
 
+**Track** (tick one):
+
+- [ ] Paper: formalizing the results of a paper, posted or not (a paper companion, coverage `kind: paper`)
+- [ ] Lean package: a library with no manuscript of its own, such as a Mathlib contribution or a public GitHub repository (coverage `kind: library`)
+- [ ] Not sure, or neither (say which workflow under *What you were trying to do*)
+
 **Version**: `lean-pkg --version`, Python version, OS; Lean toolchain and Mathlib revision of the package.
 
 **The package**: public URL, or a description if it is private (size in declarations, layout: Challenge/Solution, paper companion, library).
