@@ -1,0 +1,184 @@
+---
+title: The verification page
+---
+
+[&larr; lean-pkg documentation](index.md)
+
+*Every number and status word a reader sees is rendered from data. None is typed by hand.*
+
+A public Lean verification repository needs one section a reader can trust:
+what is formalized and what is not, under which assumptions, what the
+receipts prove, how to reproduce the result, how to cite it, and whom to
+credit. `lean-pkg page NAME` renders that section into the package's
+`README.md` from data the tool already checks. `lean-pkg page NAME --check`
+fails when the section no longer matches the data. Counts copied by hand into
+several files drift apart; a rendered block that is checked in CI cannot.
+
+```bash
+lean-pkg coverage check my-companion        # validate coverage.yaml (below)
+lean-pkg page my-companion                  # print the block
+lean-pkg page my-companion --write          # replace the marked block in README.md
+lean-pkg page my-companion --check          # exit 1 when it is missing or stale
+```
+
+## What it reads
+
+| Input | Read how | Feeds |
+|---|---|---|
+| `coverage.yaml` | committed at `HEAD`, schema `coverage/1` ([below](#coverageyaml)) | the capsule sentence, the paper-to-Lean map, Not formalized, the manuscript reference, the compute acknowledgment |
+| `claims.yaml` | committed at `HEAD` | the Lean declarations of each row |
+| the claims ledger | `lean-pkg claims ledger NAME`, promote stage | the word *verified*, per row and in the capsule |
+| receipts | `.lean-receipts/*.json` committed at `HEAD`; the registry's `gate.receipt` and `gate.comparator` mark the recorded ones | the trust boundary, the expected axioms, the evidence table |
+| `lean-toolchain`, `lake-manifest.json` | committed at `HEAD` | the reproduce section |
+| `CITATION.cff` | committed at `HEAD`; it needs a title and at least one author | the citation |
+| registry | `repo` (as an https URL), `status`, `license_spdx` (checked against the committed license file), `doi` | the clone command, the capsule, the license, the citation DOI when `CITATION.cff` has none |
+
+Only these receipt fields are copied: the commit, the toolchain, the Mathlib
+revision, the `sorry` count, the axioms, the theorem names, the permitted
+axioms and the definition names of each comparator configuration, the date
+part of `generated_at`, the SHA-256 of the committed file, and a job id of
+the form `slurm-<J>`. Host names, paths, user names, checker commands and
+every other job id (a systemd unit's or a local run's, which name a host) are
+never copied. The finished block then passes through the
+[public-safety scanner](how-to.md#scan-for-private-strings-before-publishing)
+with the package's `.lean-pkg-private-patterns`. A blocking hit refuses the
+render and nothing is written.
+
+## The sections
+
+| Section | What it says |
+|---|---|
+| Verification status | the `summary` sentence from `coverage.yaml`; the manuscript version; the number of paper rows by class and how many formalized rows the ledger closes; the ledger's package status; the registry status |
+| Paper ↔ Lean map | one row per paper result: number and title, correspondence class, declarations (linked at the gate-bound commit when the repository is on GitHub), the ledger word, inputs and notes |
+| Not formalized | every `outside` row, or the `nothing_excluded` reason |
+| Trust boundary | what the gate receipt and the comparator receipt record, and a fixed paragraph on what neither checks |
+| Reproduce | toolchain, Mathlib revision, a command template (clone, checkout of the gate-bound commit, `lake exe cache get` when Mathlib is a dependency, `lake build`), the expected `#print axioms` result |
+| Evidence | one row per receipt: path, tier, commit, date, Slurm job, SHA-256 |
+| Citation | authors, title, version and DOI from `CITATION.cff`, and the manuscript |
+| License | `license_spdx` and the license file |
+| Acknowledgments | the lean-pkg credit, always; the Easley sentence only [with evidence](#the-easley-acknowledgment) |
+
+The status words are tied to the ledger. A row says *verified* only when
+`lean-pkg claims ledger NAME` (promote stage, so the comparator tier as well
+as the gate) closes every claim the row names. Otherwise the row shows the
+ledger's own status (`open`, `blocked`, `unknown`, `out-of-scope`). Nothing in
+the block calls the paper verified.
+
+Commit the README and `coverage.yaml` after the gate, and the gate-bound
+commit is no longer `HEAD`. Opt the package into the docs-only rule
+(`lean-pkg update NAME --accept-docs-descendants --reason TEXT`, see
+[receipts](receipts.md)) so the receipts keep binding. Without it, the ledger
+reports the receipts as stale and the page says so.
+
+## coverage.yaml
+
+`claims.yaml` lists Lean results. `coverage.yaml` lists paper results: each
+numbered result of a citable manuscript and how the formalization relates to
+it. It lives in the package directory and is read at `HEAD`.
+
+```yaml
+schema: coverage/1
+package: telescoping-companion
+manuscript:
+  title: "Telescoping sums and a sharp estimate"
+  version: "arXiv:<id>v<N>"          # the posted id and version; or {repo: https://..., commit: <40 hex>, sha256: <64 hex>}
+summary: "Lemma 2.1 is formalized with the paper's hypotheses; Proposition 2.3 uses it with one supplied input."
+rows:
+  - paper: {number: "Lemma 2.1", title: "Partial sums", label: "L:partial"}   # label optional
+    class: same-assumptions
+    claims: [telescoping-companion/sum-inv-mul-succ]
+  - paper: {number: "Proposition 2.3", title: "The estimate"}
+    class: inputs-supplied
+    claims: [telescoping-companion/estimate]
+    inputs: ["the tail bound of Section 3"]
+    note: "the Lean statement takes the tail bound as a hypothesis"
+  - paper: {number: "Theorem 4.1", title: "Asymptotics"}
+    class: outside
+    note: "not formalized"
+compute:                              # optional; see the Easley acknowledgment
+  - cluster: easley
+    jobs: [slurm-123456]
+```
+
+| Key | Rule |
+|---|---|
+| `schema`, `package` | `coverage/1`; the package name |
+| `manuscript.version` | a posted version: `arXiv:<id>v<N>`, or `{repo, commit, sha256}` (a public https repository, a full commit, the SHA-256 of the manuscript file). `unposted` (a private draft) is refused unless `--allow-private-manuscript` is passed; the page then says the numbers cannot be checked yet |
+| `summary` | one line: the capsule's only hand-written sentence |
+| `rows[].class` | `same-assumptions` (the Lean statement carries the paper's hypotheses), `inputs-supplied` (it also takes the named `inputs` as hypotheses), `outside` (no Lean counterpart) |
+| `rows[].claims` | ids in `claims.yaml` at `HEAD`; at least one for the first two classes, none for `outside`; a superseded claim is refused |
+| `rows[].inputs` | required for `inputs-supplied`, refused for `same-assumptions` |
+| `nothing_excluded` | `{reason: TEXT}`, only when no row is `outside`. One of the two is required: a page always says where the formalization stops |
+| `compute` | `[{cluster: easley, jobs: [slurm-<J>, ...]}]`; each job must be a Slurm receipt committed under `.lean-receipts/` |
+| `lean_pkg_version` | optional `{version, doi}`: the exact lean-pkg version to credit. When lean-pkg's own `CITATION.cff` is readable it must list that version with exactly that DOI |
+
+The file is strict: unknown and missing keys, values outside the enums and
+repeated mapping keys are refused. `lean-pkg coverage check NAME` validates the
+committed file; `--file PATH` checks a working copy before you commit it (claim
+ids and receipts are still read at `HEAD`).
+
+Migrating an existing map is mechanical. A hand-written guide table with
+one row per theorem becomes one row each: its correspondence class, the
+declarations' claim ids, and the premises as `inputs`. A ledger JSON whose
+rows carry `reference {label, number, page}` and a `status` becomes rows of
+`paper {number, title, label}`. There `verified` maps to `same-assumptions`,
+`verified-conditional` to `inputs-supplied` with its conditions as inputs,
+and `outside-agreed-scope` to `outside`. A row that is not yet verified keeps its class: the ledger, not
+the class, decides the word *verified*. The per-theorem prose notes stay
+hand-written, outside the markers.
+
+## The README block
+
+The block sits between two markers:
+
+```markdown
+<!-- lean-pkg:page:begin -->
+...generated...
+<!-- lean-pkg:page:end -->
+```
+
+`--write` replaces exactly the marked block. When the README has no markers
+it appends the block, and when there is no README it creates one. Prose before
+and after the markers is never touched, so keep the title, the long reader
+guide and the per-theorem notes outside them. Unbalanced or repeated markers
+are refused. `--write` never commits and never writes the registry (no lock,
+no `--commit`). A live lease held by another agent refuses it unless you pass
+`--agent HOLDER`. `--out PATH` writes the block to another file instead.
+
+`--check` writes nothing and exits 1 when:
+
+- `README.md` is missing, or has no block, or its block differs from a fresh render;
+- the README lacks the lean-pkg credit (the repository link and the concept DOI);
+- the README mentions the Easley Cluster anywhere, inside the markers or not, without a backing receipt.
+
+Run it in the companion's CI. `lean-pkg publish NAME --dry-run` carries the
+same check as one checklist line (JSON `page {status, adopted, problems}`). For
+a package with no `coverage.yaml` and no block, the line is a WARN, except for
+an unbacked Easley sentence, which is a failure.
+
+## The Easley acknowledgment
+
+A receipt does not record where its job ran: a Slurm receipt says
+`slurm-<J>`, and the job number alone does not name the cluster. The sentence
+therefore needs two things: an explicit declaration in `coverage.yaml`
+(`compute: [{cluster: easley, jobs: [...]}]`), and, for every listed job, a
+committed receipt whose job is that Slurm job. That is a lower-tier receipt
+with `job_id: slurm-<J>` (what `lean-pkg receipt slurm` writes) or a comparator
+receipt whose `host_policy` says it ran in Slurm job `<J>`. With both, the
+Acknowledgments carry the official sentence with the cluster linked. Without
+them there is no sentence, and `--check` fails on one written by hand.
+
+## Citation
+
+`CITATION.cff` must be committed, with a `title` and at least one author
+with `family-names` or `name`: a citation without its human authors is not
+usable. The DOI is the file's `doi`, else the registry's concept DOI.
+
+## Not yet
+
+- `--site DIR`: docs pages (`docs/verification.md`, `docs/coverage.md`) for
+  MkDocs and a static HTML page, a CI snippet for the fresh-repo template, and
+  the lab's `lean-scope-page` lint rules folded in, so there is one tool.
+- A blueprint cross-check (`\lean{}` names against `claims.yaml`).
+- Measured wall time and peak memory in the reproduce section, once receipts
+  record them.

@@ -89,6 +89,13 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["formalization", "demo", "--write"], "formalization", True, True, False),
     (["formalization", "demo", "--write", "--no-registry"], "formalization", False, False, False),
     (["publish", "demo", "--dry-run"], "publish", False, False, False),
+    (["coverage", "check", "demo"], "coverage check", False, False, False),
+    (["coverage", "check", "demo", "--file", "f", "--allow-private-manuscript"], "coverage check", False, False, False),
+    (["page", "demo"], "page", False, False, False),
+    (["page", "demo", "--check"], "page", False, False, False),
+    (["page", "demo", "--out", "o"], "page", False, False, False),
+    (["page", "demo", "--write"], "page", False, False, False),   # writes README.md only, never the registry
+    (["page", "demo", "--write", "--agent", "a"], "page", False, False, False),
     (["reservoir", "check", "demo"], "reservoir check", False, False, False),
     (["public-safety", "demo"], "public-safety", False, False, False),
     (["palomar", "prepare", "demo"], "palomar prepare", True, True, False),
@@ -140,7 +147,7 @@ def test_argv_table_matches_predicates(row, ap, lp, monkeypatch):
 def test_argv_table_covers_every_command_path(ap):
     """A new command (nested ones and the comparator keyword forms included) needs a row."""
     paths = {" ".join(n.path) for n in command_tree(ap) if n.path}
-    paths -= {"index", "claims", "reservoir", "palomar", "receipt"}   # groups: a verb is required
+    paths -= {"index", "claims", "reservoir", "palomar", "receipt", "coverage"}   # groups: a verb is required
     paths |= {f"comparator {k}" for k in comparator_keywords()}
     covered = {row[1] for row in ARGV_TABLE}
     assert sorted(paths - covered) == [], "add ARGV_TABLE rows for these commands"

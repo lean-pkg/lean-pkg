@@ -104,6 +104,21 @@
     "rc": "host",
     "type": "object"
   },
+  "coverage-check": {
+    "keys": [
+      "counts",
+      "errors",
+      "file",
+      "manuscript",
+      "name",
+      "ok",
+      "private_manuscript",
+      "rows",
+      "warnings"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
   "formalization": {
     "keys": [
       "main_results",
@@ -217,6 +232,30 @@
     "rc": 0,
     "type": "object"
   },
+  "page": {
+    "keys": [
+      "counts",
+      "current",
+      "easley",
+      "ledger_digest",
+      "ledger_status",
+      "manuscript",
+      "markdown",
+      "name",
+      "ok",
+      "private_manuscript",
+      "problems",
+      "readme",
+      "receipts",
+      "rows",
+      "unchanged",
+      "verified_rows",
+      "warnings",
+      "written"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
   "palomar-check": {
     "keys": [
       "commit",
@@ -287,6 +326,7 @@
       "name",
       "next",
       "ok",
+      "page",
       "palomar_check",
       "ready"
     ],

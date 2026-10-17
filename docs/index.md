@@ -21,6 +21,7 @@ Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
 | **new here** | [Start here](newcomers.md): the reading path, then the [sample workflow](sample-workflow.md) |
 | **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
 | **writing a paper with a Lean companion** | [Develop a paper with its Lean companion](paper-companion.md): intermediate checkpoints, reuse, a coverage map |
+| **writing the public README of a companion** | [The verification page](page.md): `lean-pkg coverage check` and `lean-pkg page --write/--check` render the status, the paper-to-Lean map, the trust boundary, the evidence and the credits from data |
 | **using the tool** | [How to](how-to.md), the [CLI reference](cli.md) and [Prior-art search](prior-art.md) |
 | **auditing a package** | [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [formalization.yaml](formalization.md), [The index](index-catalog.md), [Lifecycle](lifecycle.md) |
 | **adding the comparator tier to your package** | [Add the comparator tier to an existing package](existing-package-comparator.md), step by step |
@@ -83,6 +84,9 @@ will automate the registry bootstrap; it is not implemented yet.
 - [formalization.yaml](formalization.md): render the mathlib-initiative v0.4
   report Palomar reads from the registry, the comparator configurations and
   the receipts; derived versus kept keys; placeholders; the audit drift check.
+- [The verification page](page.md): `coverage.yaml` and the README section
+  `lean-pkg page` renders from it, the claims ledger and the receipts; the
+  `--check` staleness and credits gate.
 - [The index](index-catalog.md): the public catalog of trust-graded packages, its
   entry schema, and how to add and check an entry.
 - [Prior-art search](prior-art.md): claims files, `lean-pkg search` across the

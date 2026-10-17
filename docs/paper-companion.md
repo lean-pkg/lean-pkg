@@ -40,10 +40,10 @@ Keep the Lean package in its own directory and the working notes outside it
 ```text
 telescoping-paper/              the manuscript repository
   paper/telescoping.tex
-  COVERAGE.md                   the paper-to-Lean map (below)
   progress/                     progress log, wave notes
   lean/                         the package: registered local_path
     lakefile.toml  lean-toolchain  lake-manifest.json  claims.yaml
+    coverage.yaml               the paper-to-Lean map (below)
     Telescoping/Basic.lean
 ```
 
@@ -150,17 +150,19 @@ before changing anything.
 
 ## 6. Keep a coverage map
 
-Next to the manuscript (not inside the package), record how each statement in
-the paper relates to the companion:
+Record how each numbered result of the paper relates to the companion in
+`coverage.yaml` (schema `coverage/1`) in the package directory: one row per
+paper result, with its correspondence class (`same-assumptions`,
+`inputs-supplied` with the named inputs, or `outside`) and the claim ids that
+formalize it. Do not keep a hand-written coverage table:
+`lean-pkg coverage check NAME` validates the file, and `lean-pkg page NAME --write` renders the
+map, the "Not formalized" list and the status into the companion's README
+from it, the claims ledger and the receipts. A row is called *verified* only
+when the ledger closes its claims. See [The verification page](page.md) for
+the schema and an example.
 
-| Paper | Claim | Coverage |
-|---|---|---|
-| Lemma 2.1 (partial sums) | `telescoping-companion/sum-inv-mul-succ` | formal, verified at `<commit12>` |
-| Proposition 2.3 (the estimate) | none | paper proof only; uses Lemma 2.1 |
-| Section 4 (asymptotics) | none | not formalized |
-
-Update the map at every checkpoint; it is what tells a reader where the
-certificate stops.
+Update the file at every checkpoint, and run `lean-pkg page NAME --check`:
+the map is what tells a reader where the certificate stops.
 
 ## 7. Finish
 
@@ -170,15 +172,20 @@ At submission the deliverable is:
 - the companion repository at a tagged commit, with exact toolchain and
   Mathlib pins and the receipts in `.lean-receipts/`;
 - the claims file and `lean-pkg claims ledger` output for the gated commit;
-- the coverage map, stating plainly which results are formal, which are
-  conditional on named hypotheses, and which are not formalized.
+- `coverage.yaml` and the README section `lean-pkg page` renders from it,
+  stating plainly which results are formal, which are conditional on named
+  hypotheses, and which are not formalized.
 
 Publishing the companion follows the usual path: [scan for private strings](how-to.md#scan-for-private-strings-before-publishing),
 the comparator tier, and `promote`.
 
 ### Credits
 
-Give the companion's README an `## Acknowledgments` (or `## Tools`) section
+`lean-pkg page NAME --write` writes both credits below into the README's
+Acknowledgments (the Easley sentence only with a backing Slurm receipt), and
+`--check` fails when the lean-pkg credit is missing or an Easley sentence has
+no backing ([The verification page](page.md#the-easley-acknowledgment)). By
+hand: give the companion's README an `## Acknowledgments` (or `## Tools`) section
 that names the tool used to develop and verify it, with the repository link
 and the concept DOI (which always resolves to the latest release):
 
