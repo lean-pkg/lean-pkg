@@ -1713,10 +1713,11 @@ def add_common_flags(s, kind: str, name_hint: str) -> None:
 
 def add_parsers(sub, add_json) -> None:
     del add_json   # its --commit flag (committed mode) would collide with `receipt slurm --commit SHA`
-    from . import receipt_systemd
-    r = sub.add_parser("receipt", help="produce lower-tier receipts (writes files in the package checkout, "
-                                       "never the registry)")
-    rsub = r.add_subparsers(dest="receipt_cmd", metavar="{slurm,systemd}", required=True)
+    from . import receipt_check, receipt_systemd
+    r = sub.add_parser("receipt", help="produce lower-tier receipts (slurm, systemd: write files in the package "
+                                       "checkout, never the registry); check a published package's receipts "
+                                       "from git alone (check)")
+    rsub = r.add_subparsers(dest="receipt_cmd", metavar="{slurm,systemd,check}", required=True)
     s = rsub.add_parser("slurm", help="a lower-tier receipt from a finished Slurm job, its verify log and "
                                       "its stdout seal (--template: an sbatch wrapper that meets it; --check: "
                                       "preflight the job's files)")
@@ -1770,3 +1771,4 @@ def add_parsers(sub, add_json) -> None:
     add_common_flags(s, "Slurm job J", "slurm-<J>")
     s.set_defaults(fn=cmd_receipt_slurm)
     receipt_systemd.add_parser(rsub)
+    receipt_check.add_parser(rsub)

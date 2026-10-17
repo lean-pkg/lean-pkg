@@ -59,8 +59,9 @@ positional arguments:
                         line reason (exit 0 a command to run, 1 blocked)
     report              read-only: a redacted bug report in the repository's issue format; dry run
                         unless --yes (files it with gh issue create)
-    receipt             produce lower-tier receipts (writes files in the package checkout, never
-                        the registry)
+    receipt             produce lower-tier receipts (slurm, systemd: write files in the package
+                        checkout, never the registry); check a published package's receipts from
+                        git alone (check)
 
 options:
   -h, --help            show this help message and exit

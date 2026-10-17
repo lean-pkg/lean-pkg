@@ -8,7 +8,7 @@ title: lean-pkg receipt
 
 # lean-pkg receipt
 
-produce lower-tier receipts (writes files in the package checkout, never the registry).
+produce lower-tier receipts (slurm, systemd: write files in the package checkout, never the registry); check a published package's receipts from git alone (check).
 
 ## Usage
 
@@ -20,12 +20,13 @@ lean-pkg receipt [--json] COMMAND
 
 - [`lean-pkg receipt slurm`](#lean-pkg-receipt-slurm): a lower-tier receipt from a finished Slurm job, its verify log and its stdout seal (--template: an sbatch wrapper that meets it; --check: preflight the job's files)
 - [`lean-pkg receipt systemd`](#lean-pkg-receipt-systemd): a lower-tier receipt from a finished systemd --user service unit (run bounded with --run, or its saved properties), its verify log and its stdout seal
+- [`lean-pkg receipt check`](#lean-pkg-receipt-check): validate a published package's receipts from git alone: no registry, no network, never runs Lean (an outside referee's check; exit 0 only when every check passes)
 
 ## Details
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `receipt` | produce lower-tier receipts; writes files in the package checkout, never the registry. Two forms, one pipeline: `receipt slurm` (a Slurm job) and `receipt systemd` (alias `receipt local`: a systemd --user service unit) | `slurm` `systemd` |
+| `receipt` | produce lower-tier receipts; writes files in the package checkout, never the registry. Two forms, one pipeline: `receipt slurm` (a Slurm job) and `receipt systemd` (alias `receipt local`: a systemd --user service unit). `receipt check` reads them back: a published package's receipts checked from git alone, with no registry | `slurm` `systemd` `check` |
 
 ## Exit codes
 
@@ -175,4 +176,59 @@ Run a light verify script locally in a capped systemd --user unit and write the 
 lean-pkg receipt systemd --unit audit-gate --commit "$(git rev-parse HEAD)" \
   --log gate/verify.log --stdout gate/unit.out --stderr gate/unit.err \
   --checker "gate.sh (lake build; #print axioms)" --run -- bash gate.sh gate/verify.log
+```
+
+## lean-pkg receipt check
+
+validate a published package's receipts from git alone: no registry, no network, never runs Lean (an outside referee's check; exit 0 only when every check passes).
+
+### Usage
+
+```text
+lean-pkg receipt check --repo DIR --commit SHA [--at REF] [--docs-descendants]
+                       [--name NAME] [common flags]
+```
+
+`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
+
+### Arguments and flags
+
+| Argument or flag | Description |
+|---|---|
+| `--repo DIR` | a local clone of the package (the package directory; cloned privately, never modified). Required. |
+| `--commit SHA` | the commit the receipts bind (the page's `git checkout <commit>` line). Required. |
+| `--at REF` | the published ref whose .lean-receipts/, coverage.yaml and README.md are read (default HEAD of --repo); it must be the commit or an evidence-only descendant of it |
+| `--docs-descendants` | also accept a docs-only descendant (no build input changed); the author's opt-in lives in a registry the referee cannot read, so this is the referee's choice, printed in the result |
+| `--name NAME` | the package name the claims must carry (default: `package` in coverage.yaml, else claims.yaml, else the directory name) |
+
+### Details
+
+| Form | What it does | Key flags |
+|---|---|---|
+| `receipt check` | an outside referee's check of a published package: reads no registry, opens no network connection and never runs Lean. Clones `--repo` privately (local transport only; its working tree is never read or changed), checks out the published ref (`--at`, default HEAD) and runs `gate`'s and `comparator`'s own validators on the receipts under `.lean-receipts/` that bind `--commit`: the binding (evidence-only descendants; docs-only ones too with `--docs-descendants`, the referee's choice, printed with the result), the toolchain and Mathlib pins at the commit, every SHA-256 (configurations, logs, the redacted verify log, `manifest_sha256` and the other additive evidence keys, the olean manifest record), the claims at the commit, the comparator configurations naming every reusable theorem claim, `coverage.yaml` (R11) and the README page block against the receipts. One line per check, `PASS`, `FAIL` or `SKIP` (not applicable, with the reason); `--json` lists them all. Exit 0 only when no check fails, 1 otherwise, 2 on a usage error. Re-running Lean is the comparator step of docs/trust-model.md, "Re-verify a page yourself". The 1.0 command tree's read-only verb on the `receipt` noun; the spelling `verify-receipts` is reserved for its alias table | `--repo DIR` `--commit SHA` `--at REF` `--docs-descendants` `--json` |
+
+### Examples
+
+In a fresh clone of a published package, check its receipts for the page's bound commit from git alone; no registry, no network, no Lean run.
+
+```bash
+lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567
+```
+
+Sample output:
+
+```text
+receipt check: PASS my-proof at 0123456789ab (tier comparator; 13 passed, 1 skipped)
+  commit 0123456789abcdef0123456789abcdef01234567 (published ref 89abcdef0123)
+  rule: evidence-only descendants (docs-only not accepted; --docs-descendants to accept them)
+  ...
+  PASS binding: evidence-only descendant of 0123456789ab (+3 evidence file(s))
+  ...
+receipt check: PASS my-proof at 0123456789ab (tier comparator; 13 passed, 1 skipped)
+```
+
+The same at a release tag, also accepting a README or notes committed after the evidence (the docs-only rule, the referee's choice); every check with its verdict as JSON.
+
+```bash
+lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --at v1.0.0 --docs-descendants --json
 ```

@@ -1,0 +1,548 @@
+# lean-pkg receipt check -- validate a published package's receipts from git alone
+"""`lean-pkg receipt check --repo DIR --commit X [--at REF] [--docs-descendants] [--name NAME] [--json]`:
+the registry-free receipt verifier an outside referee runs on a clone of a published package. It needs no
+lean-pkg registry, no lab account and no network, and it never runs Lean: everything is read from git, at the
+bound commit X and at the published ref REF (default: the checkout's HEAD), in a private clone of DIR (the
+referee's checkout is never modified; its working tree and untracked files are never read).
+
+Re-deriving a run (rebuilding at X, `#print axioms`, re-running the comparator) is a separate step: steps 4
+and 5 of docs/trust-model.md#re-verify-a-page-yourself. This command checks that the published evidence is
+consistent with itself and with the committed tree, nothing more.
+
+Checks, each with a verdict pass | fail | skip (skip: the check does not apply, and says why):
+
+- receipts: the JSON files tracked directly under .lean-receipts/ at REF; those whose `commit` is X are the
+  ones checked (a comparator receipt has a comparator-receipt/N schema; a lower-tier receipt has sorry_count
+  and axioms). At least one lower-tier receipt must bind X; a receipt file named for X that binds another
+  commit fails. A comparator `.replaced-` copy is history and is skipped.
+- binding: REF is X, or an evidence-only descendant of X (only .lean-receipts/ changed; formalization.yaml
+  keeps the stricter reading, since its pointer lives in the author's registry). With --docs-descendants the
+  referee also accepts a docs-only descendant (no build input changed: the docs-only rule of
+  docs/receipts.md). That opt-in lives in the author's registry today, which a referee cannot read, so it is
+  the referee's choice here and is printed with the result.
+- per lower-tier receipt: gate's own validator (core.validate_receipt: the receipt keys, the binding, the
+  toolchain and Mathlib pins against lean-toolchain and lake-manifest.json committed at X, no path dependency
+  outside the package, sorry_count 0, axioms within propext, Quot.sound, Classical.choice); report_sha256
+  against the committed redacted log (core.report_log_check; a missing log fails here); the additive evidence
+  keys when present (manifest_sha256 against lake-manifest.json at X, artifacts_manifest_sha256 and
+  unit_properties_sha256 against their committed files; job_stdout_sha256 is not checkable: the job's stdout
+  is not published).
+- claims: claims.yaml at X, with the claims/1 schema and declaration check gate runs (core.claims_schema_at).
+- per comparator receipt: gate's validator (core.validate_comparator: schema, binding, toolchain, the exact
+  set of configurations tracked at X, each configuration's sha256 and fields, the sign-off of definition
+  holes, each log's sha256 and its PASS line, the same commit as the lower-tier receipt); the olean manifest
+  record when present (its lean_toolchain and lake_manifest_sha256 against X; the manifest file itself
+  describes the author's build directory and is not published).
+- claimed theorems: every theorem or lemma claim with status reusable in claims.yaml at X is named by a
+  comparator configuration tracked at X (the rule `comparator config --coverage` applies).
+- coverage: coverage.yaml at REF, when tracked, passes `coverage check` (schema, claim ids, backed compute
+  jobs, R8 to R12: every theorem the comparator receipt compares is the declaration of a claim a row names).
+- page: the README.md verification block at REF, when present, states what the receipts say: the bound
+  commit, the toolchain and Mathlib pins, every Evidence row (path, commit, SHA-256 of the committed file), the
+  lower-tier sorry count and axioms, the comparator's configuration and theorem counts.
+
+Exit 0 only when no check fails; 1 otherwise; 2 on a usage error (DIR is not a git checkout, X or REF does
+not resolve).
+"""
+
+from __future__ import annotations
+
+import json
+import pathlib
+import re
+import tempfile
+
+from . import cli as core
+
+RECEIPTS_DIR = ".lean-receipts"
+DEFAULT_AXIOMS = tuple(core.DEFAULT_AXIOMS)
+RERUN_NOTE = ("this command never runs Lean and never uses the network: rebuilding at the commit and re-running "
+              "the comparator are steps 4 and 5 of docs/trust-model.md#re-verify-a-page-yourself")
+# Additive lower-tier keys that bind a file `receipt slurm|systemd` writes beside the receipt as
+# <c12>-<job slug>-<suffix>: the key's value is the file's sha256.
+EVIDENCE_FILE_KEYS = {"artifacts_manifest_sha256": "artifacts.sha256",
+                      "unit_properties_sha256": "unit.properties"}
+PASS, FAIL, SKIP = "pass", "fail", "skip"
+
+
+# --------------------------------------------------------------------------
+# the source: a private clone of the referee's checkout, at REF
+
+def _resolve(repo: pathlib.Path, rev: str, what: str) -> str:
+    p = core.git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}")
+    if p.returncode != 0 or not core._HEX40.fullmatch(p.stdout.strip()):
+        raise core.UsageError(f"{what} {rev!r} is not a commit in {repo}")
+    return p.stdout.strip()
+
+
+def open_source(repo_dir: str, commit: str, at: str | None, tmp: pathlib.Path) -> dict:
+    """{clone (package directory inside the clone), commit, at, prefix}: DIR cloned (local transport only, no
+    other protocol allowed) and checked out at REF, detached, symlinks as plain files."""
+    src = pathlib.Path(repo_dir).expanduser()
+    if not src.is_dir():
+        raise core.UsageError(f"--repo {repo_dir}: not a directory (a local clone of the package; this command "
+                              f"never fetches a URL)")
+    top = core.git(src, "rev-parse", "--show-toplevel")
+    if top.returncode != 0:
+        raise core.UsageError(f"--repo {repo_dir}: not a git checkout")
+    prefix = core.git(src, "rev-parse", "--show-prefix").stdout.strip().strip("/")
+    x = _resolve(src, commit, "--commit")
+    ref = _resolve(src, at or "HEAD", "--at")
+    dest = tmp / "pkg"
+    p = core.run(["git", "-c", "protocol.allow=never", "-c", "protocol.file.allow=always", "clone", "--quiet",
+                  "--no-checkout", "--no-hardlinks", top.stdout.strip(), str(dest)], scrub=True)
+    if p.returncode != 0:
+        raise core.Fail(f"cannot clone {repo_dir}: {p.stderr.strip()[:300]}")
+    for sha in (x, ref):   # a detached HEAD or a commit on no branch is not cloned: fetch it locally
+        if core.git(dest, "cat-file", "-e", f"{sha}^{{commit}}").returncode != 0:
+            f = core.run(["git", "-C", str(dest), "-c", "protocol.allow=never", "-c", "protocol.file.allow=always",
+                          "fetch", "--quiet", "--no-tags", top.stdout.strip(), sha], scrub=True)
+            if f.returncode != 0:
+                raise core.Fail(f"cannot copy commit {sha[:12]} from {repo_dir}: {f.stderr.strip()[:200]}")
+    p = core.git(dest, "-c", "core.symlinks=false", "checkout", "--quiet", "--detach", ref)
+    if p.returncode != 0:
+        raise core.Fail(f"cannot check out {ref[:12]} in the private clone: {p.stderr.strip()[:200]}")
+    clone = dest / prefix if prefix else dest
+    if not clone.is_dir():
+        raise core.Fail(f"the package directory {prefix}/ does not exist at {ref[:12]}")
+    return {"clone": clone, "commit": x, "at": ref, "prefix": prefix}
+
+
+def referee_pkg(name: str, docs_descendants: bool, comparator_rel: str | None = None) -> dict:
+    """The package record the validators read, built from nothing but the referee's choices: the default
+    axioms, the default claims file, no formalization.yaml pointer (the stricter evidence rule), the docs-only
+    opt-in only when the referee passed --docs-descendants."""
+    pkg = {"name": name, "gate": {"axioms_allowed": list(DEFAULT_AXIOMS), "comparator": comparator_rel}}
+    if docs_descendants:
+        pkg["docs_descendants"] = True
+    return pkg
+
+
+# --------------------------------------------------------------------------
+# reading at REF and at X
+
+def _json_at(repo: pathlib.Path, rel: str, rev: str = "HEAD") -> tuple[dict | None, bytes | None]:
+    raw = core.git_show_bytes(repo, rel, rev)
+    if raw is None:
+        return None, None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None, raw
+    return (data if isinstance(data, dict) else None), raw
+
+
+def tier_of(rec: dict | None) -> str | None:
+    if not isinstance(rec, dict):
+        return None
+    if rec.get("schema") in core.COMPARATOR_SCHEMAS:
+        return "comparator"
+    if "sorry_count" in rec and "axioms" in rec:
+        return "lower"
+    return None
+
+
+def discover(repo: pathlib.Path, x: str) -> dict:
+    """{lower: [view], comparator: [view], other: [view], misnamed: [view], unreadable: [rel]} for the receipt
+    JSON files tracked directly under .lean-receipts/ at HEAD (REF). view: {path, sha256, commit, tier,
+    data}."""
+    from . import coverage as cov
+    out: dict = {"lower": [], "comparator": [], "other": [], "misnamed": [], "unreadable": []}
+    for rel in cov.tracked_receipts(repo):
+        name = rel.rsplit("/", 1)[-1]
+        if ".replaced-" in name:          # `comparator --replace` keeps the older receipt beside it: history
+            continue
+        data, raw = _json_at(repo, rel)
+        tier = tier_of(data)
+        if raw is None or tier is None:
+            if name.startswith(x[:12]):
+                out["unreadable"].append(rel)
+            continue
+        view = {"path": rel, "sha256": core.sha256_bytes(raw), "commit": str(data.get("commit") or ""),
+                "tier": tier, "data": data}
+        if view["commit"] == x:
+            out[tier].append(view)
+        elif name.startswith(x[:12]):
+            out["misnamed"].append(view)
+        else:
+            out["other"].append(view)
+    return out
+
+
+def _sha_at(repo: pathlib.Path, rel: str, rev: str) -> str | None:
+    raw = core.git_show_bytes(repo, rel, rev)
+    return core.sha256_bytes(raw) if raw is not None else None
+
+
+def toolchain_at(repo: pathlib.Path, rev: str) -> str | None:
+    raw = core.git_show_bytes(repo, "./lean-toolchain", rev)
+    return raw.decode("utf-8", "replace").strip() if raw is not None else None
+
+
+# --------------------------------------------------------------------------
+# the checks
+
+class Checks:
+    def __init__(self) -> None:
+        self.items: list[dict] = []
+
+    def add(self, cid: str, verdict: str, detail: str) -> None:
+        self.items.append({"id": cid, "verdict": verdict, "detail": detail})
+
+    def run(self, cid: str, fn, ok_detail: str) -> bool:
+        """Run fn(); pass with ok_detail, or fail with the refusal's text."""
+        try:
+            fn()
+        except (core.Fail, ValueError, KeyError, TypeError) as e:
+            self.add(cid, FAIL, str(e))
+            return False
+        self.add(cid, PASS, ok_detail)
+        return True
+
+    def failed(self) -> int:
+        return sum(i["verdict"] == FAIL for i in self.items)
+
+
+def check_binding(c: Checks, repo: pathlib.Path, x: str, ref: str, pkg: dict, checker) -> None:
+    ok, note, docs = core.package_descendant(repo, x, ref, pkg, checker=checker, nested=())
+    if ok:
+        what = ("the published ref is the bound commit" if x == ref
+                else f"{note} (accepted with --docs-descendants)" if docs is not None
+                else note)
+        c.add("binding", PASS, what)
+    else:
+        c.add("binding", FAIL, f"{ref[:12]} is not {x[:12]} or an evidence-only"
+              + (" or docs-only" if pkg.get("docs_descendants") else "") + f" descendant of it: {note}; the "
+              f"receipts certify {x[:12]}, not this tree (check the tree they bind with --at {x[:12]}, or an "
+              f"evidence commit after it)")
+
+
+def evidence_file_checks(c: Checks, repo: pathlib.Path, view: dict, x: str) -> None:
+    """The additive keys of a lower-tier receipt that bind another file by its sha256."""
+    rec, rel = view["data"], view["path"]
+    cid = f"lower {rel}: evidence files"
+    problems, passed, skipped = [], [], []
+    if rec.get("manifest_sha256"):
+        got = _sha_at(repo, "./lake-manifest.json", x)
+        if got != str(rec["manifest_sha256"]).lower():
+            problems.append(f"manifest_sha256 {str(rec['manifest_sha256'])[:12]} != sha256 of lake-manifest.json "
+                            f"at {x[:12]} ({(got or 'not tracked')[:12]})")
+        else:
+            passed.append("manifest_sha256 = lake-manifest.json at X")
+    try:
+        slug = core.receipt_job_slug(rec.get("job_id"))
+    except core.Fail:
+        slug = None
+    for key, suffix in EVIDENCE_FILE_KEYS.items():
+        if not rec.get(key):
+            continue
+        frel = f"{RECEIPTS_DIR}/{x[:12]}-{slug}-{suffix}"
+        got = _sha_at(repo, frel, "HEAD") if slug else None
+        if got is None:
+            skipped.append(f"{key}: {frel} is not committed")
+        elif got != str(rec[key]).lower():
+            problems.append(f"{key} {str(rec[key])[:12]} != sha256 of {frel} ({got[:12]})")
+        else:
+            passed.append(f"{key} = {frel}")
+    if rec.get("job_stdout_sha256"):
+        skipped.append("job_stdout_sha256: the job's stdout is not published")
+    if problems:
+        c.add(cid, FAIL, "; ".join(problems))
+    elif passed:
+        c.add(cid, PASS, "; ".join(passed + skipped))
+    else:
+        c.add(cid, SKIP, "; ".join(skipped) or "no additive evidence key (manifest_sha256, "
+              "artifacts_manifest_sha256, unit_properties_sha256)")
+
+
+def olean_check(c: Checks, repo: pathlib.Path, view: dict, x: str) -> None:
+    cid = f"comparator {view['path']}: olean manifest"
+    om = view["data"].get("olean_manifest")
+    if not isinstance(om, dict):
+        c.add(cid, SKIP, "the receipt records no olean_manifest")
+        return
+    problems = []
+    tc = toolchain_at(repo, x)
+    if str(om.get("lean_toolchain") or "").strip() != (tc or ""):
+        problems.append(f"olean_manifest.lean_toolchain {om.get('lean_toolchain')!r} != lean-toolchain at "
+                        f"{x[:12]} {tc!r}")
+    if om.get("lake_manifest_sha256") is not None:
+        got = _sha_at(repo, "./lake-manifest.json", x)
+        if got != str(om["lake_manifest_sha256"]).lower():
+            problems.append(f"olean_manifest.lake_manifest_sha256 != sha256 of lake-manifest.json at {x[:12]}")
+    if problems:
+        c.add(cid, FAIL, "; ".join(problems))
+    else:
+        c.add(cid, PASS, f"toolchain and lake-manifest.json digests agree with {x[:12]} ({om.get('files')} "
+              f"module file(s); the manifest file describes the author's build directory and is not published)")
+
+
+def claimed_theorems_check(c: Checks, repo: pathlib.Path, pkg: dict, x: str, have_comparator: bool) -> None:
+    from . import comparator_config as cc
+    from .claims import _reader
+    cid = "claimed theorems"
+    if not have_comparator:
+        c.add(cid, SKIP, "no comparator receipt binds the commit: the claims rest on the lower tier only")
+        return
+    try:
+        claims, source = cc._claims_at({**pkg, "claims": None}, repo, x)
+    except core.Fail:
+        c.add(cid, SKIP, f"no claims.yaml at {x[:12]}: no claimed theorem to match")
+        return
+    cls = cc._classify(claims, cc._configs_at(repo, x), cc.qualified_decls(_reader(repo, x), claims),
+                       cc._sidecar_at(repo, x))
+    required = [cl for cl in cls["not_covered"] + cls["todo"] if cl.get("status") == "reusable"]
+    if required:
+        c.add(cid, FAIL, f"reusable theorem/lemma claim(s) named by no comparator configuration at {x[:12]}: "
+              + ", ".join(f"{cl.get('id')} ({cl.get('decl')})" for cl in required[:10]))
+        return
+    rest = len(cls["not_covered"]) + len(cls["todo"])
+    c.add(cid, PASS, f"every reusable theorem/lemma claim of {source} is named by a comparator configuration "
+          f"({len(cls['covered'])} covered" + (f"; {rest} not covered, none of them reusable" if rest else "") + ")")
+
+
+def coverage_check(c: Checks, repo: pathlib.Path, pkg: dict) -> None:
+    from . import coverage as cov
+    cid = "coverage"
+    if not core.tracked_at(repo, cov.DEFAULT_COVERAGE_FILE):
+        c.add(cid, SKIP, f"no {cov.DEFAULT_COVERAGE_FILE} at the published ref")
+        return
+    try:
+        doc, _claims, warnings = cov.load_checked(pkg, repo, None, False)
+    except core.Fail as e:
+        c.add(cid, FAIL, " ".join(str(e).split()))
+        return
+    c.add(cid, PASS, f"{cov.DEFAULT_COVERAGE_FILE}: {len(doc['rows'])} row(s); every compared theorem is the "
+          f"declaration of a claim a row names (R11)" + (f"; warning: {warnings[0]}" if warnings else ""))
+
+
+# --------------------------------------------------------------------------
+# the page block (README.md at REF)
+
+PAGE_CHECKOUT_RE = re.compile(r"^git checkout ([0-9a-f]{40})\s+# the commit the gate receipt binds$", re.M)
+PAGE_TOOLCHAIN_RE = re.compile(r"^- Lean toolchain: `([^`]*)`\.$", re.M)
+PAGE_MATHLIB_RE = re.compile(r"^- Mathlib: (?:`([0-9a-f]{7,40})` \(lake-manifest\.json\)|not a dependency)", re.M)
+PAGE_ROW_RE = re.compile(r"^\| `([^`]+)`( \(recorded\))? \| (lower tier|comparator) \| `([0-9a-f]{12})` \|"
+                         r"[^|]*\|[^|]*\| `([0-9a-f]{64})` \|$", re.M)
+PAGE_LOWER_RE = re.compile(r"^- Lower-tier gate receipt at `([0-9a-f]{12})` records: `sorry` count (\S+) after "
+                           r"the build; axioms used: (.*?); allowed:", re.M)
+PAGE_COMP_RE = re.compile(r"^- Comparator receipt at `([0-9a-f]{12})`: (\d+) configuration\(s\), (\d+) "
+                          r"theorem\(s\) compared", re.M)
+
+
+def _names_in(text: str) -> set[str]:
+    return set(re.findall(r"`([^`]+)`", text))
+
+
+def page_checks(c: Checks, repo: pathlib.Path, x: str, found: dict) -> None:
+    from . import page as page_mod
+    raw = core.git_show_bytes(repo, page_mod.README)
+    split = page_mod.split_block(raw.decode("utf-8", "replace")) if raw is not None else None
+    if not split or split[1] is None:
+        c.add("page", SKIP, f"no lean-pkg page block in {page_mod.README} at the published ref")
+        return
+    block = split[1]
+    m = PAGE_CHECKOUT_RE.search(block)
+    if not m:
+        c.add("page: commit", FAIL, "the page names no bound commit (no `git checkout <commit>` line)")
+    elif m.group(1) != x:
+        c.add("page: commit", FAIL, f"the page binds {m.group(1)[:12]}, not {x[:12]}")
+    else:
+        c.add("page: commit", PASS, f"the page's Reproduce section checks out {x[:12]}")
+    problems = []
+    tc = toolchain_at(repo, x)
+    m = PAGE_TOOLCHAIN_RE.search(block)
+    if not m or m.group(1) != tc:
+        problems.append(f"toolchain {m.group(1) if m else '(none)'!r} != lean-toolchain at {x[:12]} {tc!r}")
+    rev = core.committed_mathlib_rev(repo, x)
+    m = PAGE_MATHLIB_RE.search(block)
+    if not m or (m.group(1) or None) != (rev or None):
+        problems.append(f"Mathlib {(m.group(1) or 'not a dependency') if m else '(none)'} != lake-manifest.json "
+                        f"at {x[:12]} ({rev or 'no mathlib'})")
+    c.add("page: pins", FAIL if problems else PASS,
+          "; ".join(problems) or f"toolchain {tc} and Mathlib {rev or 'none'} as committed at {x[:12]}")
+    rows = PAGE_ROW_RE.findall(block)
+    problems = []
+    listed = set()
+    for path, _rec, _tier, c12, sha in rows:
+        listed.add(path)
+        got = _sha_at(repo, path, "HEAD")
+        data, _raw = _json_at(repo, path)
+        if got is None:
+            problems.append(f"{path} is not committed")
+        elif got != sha:
+            problems.append(f"{path}: the page says SHA-256 {sha[:12]}, the committed file hashes to {got[:12]}")
+        elif not data or str(data.get("commit") or "")[:12] != c12:
+            problems.append(f"{path}: the page says commit {c12}, the receipt binds "
+                            f"{str((data or {}).get('commit') or '?')[:12]}")
+    bound = found["lower"] + found["comparator"]
+    problems += [f"{v['path']} binds {x[:12]} but is not in the page's Evidence table"
+                 for v in bound if v["path"] not in listed]
+    c.add("page: evidence", FAIL if problems else PASS,
+          "; ".join(problems) or f"{len(rows)} Evidence row(s): every path, commit and SHA-256 as committed")
+    recorded = {path for path, rec, *_ in rows if rec}
+    problems = []
+    m = PAGE_LOWER_RE.search(block)
+    lowers = [v for v in found["lower"] if v["path"] in recorded] or found["lower"]
+    if m:
+        axioms = _names_in(m.group(3))
+        if m.group(1) != x[:12]:
+            problems.append(f"the trust boundary names the lower-tier receipt at {m.group(1)}, not {x[:12]}")
+        elif not any(str(v["data"].get("sorry_count")) == m.group(2) and set(map(str, v["data"].get("axioms") or []))
+                     == axioms for v in lowers):
+            problems.append(f"the trust boundary says sorry count {m.group(2)} and axioms "
+                            f"{sorted(axioms)}; no lower-tier receipt bound to {x[:12]} says so")
+    elif found["lower"]:
+        problems.append("the page has no lower-tier trust-boundary line, yet a lower-tier receipt binds the commit")
+    m = PAGE_COMP_RE.search(block)
+    comps = [v for v in found["comparator"] if v["path"] in recorded] or found["comparator"]
+    if m:
+        if m.group(1) != x[:12]:
+            problems.append(f"the trust boundary names the comparator receipt at {m.group(1)}, not {x[:12]}")
+        elif not any(len(v["data"].get("configs") or []) == int(m.group(2)) and sum(
+                len(cf.get("theorem_names") or []) for cf in v["data"].get("configs") or [] if isinstance(cf, dict))
+                == int(m.group(3)) for v in comps):
+            problems.append(f"the trust boundary says {m.group(2)} configuration(s) and {m.group(3)} theorem(s) "
+                            f"compared; no comparator receipt bound to {x[:12]} says so")
+    elif found["comparator"]:
+        problems.append("the page says no comparator receipt is committed, yet one binds the commit")
+    c.add("page: trust boundary", FAIL if problems else PASS,
+          "; ".join(problems) or "sorry count, axioms and comparator counts as the receipts record them")
+
+
+# --------------------------------------------------------------------------
+# the command
+
+def package_name(repo: pathlib.Path, x: str, given: str | None) -> str:
+    """--name, else `package` of coverage.yaml at REF, else of claims.yaml at X, else the directory name."""
+    import yaml
+    if given:
+        return given
+    for rel, rev in (("coverage.yaml", "HEAD"), ("claims.yaml", x)):
+        raw = core.git_show_bytes(repo, rel, rev)
+        try:
+            doc = yaml.safe_load(raw) if raw is not None else None
+        except yaml.YAMLError:
+            doc = None
+        if isinstance(doc, dict) and isinstance(doc.get("package"), str) and doc["package"].strip():
+            return doc["package"].strip()
+    return repo.name
+
+
+def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants: bool = False,
+             name: str | None = None) -> tuple[list[str], dict, int]:
+    from . import index as index_mod
+    with tempfile.TemporaryDirectory(prefix="lean-pkg-receipt-check-") as tmp:
+        src = open_source(repo_dir, commit, at, pathlib.Path(tmp))
+        repo, x, ref = src["clone"], src["commit"], src["at"]
+        pkg_name = package_name(repo, x, name)
+        found = discover(repo, x)
+        comp_rel = found["comparator"][0]["path"] if found["comparator"] else None
+        pkg = referee_pkg(pkg_name, docs_descendants, comp_rel)
+        c = Checks()
+        bound = len(found["lower"]) + len(found["comparator"])
+        if not found["lower"]:
+            c.add("receipts", FAIL, f"no lower-tier receipt tracked under {RECEIPTS_DIR}/ at {ref[:12]} binds "
+                  f"{x[:12]}" + (f" ({len(found['other'])} receipt(s) bind other commits: "
+                                 f"{', '.join(sorted({v['commit'][:12] for v in found['other']}))})"
+                                 if found["other"] else ""))
+        else:
+            c.add("receipts", PASS, f"{len(found['lower'])} lower-tier and {len(found['comparator'])} comparator "
+                  f"receipt(s) bind {x[:12]}")
+        for v in found["misnamed"]:
+            c.add(f"receipt {v['path']}", FAIL, f"named for {x[:12]} but binds {v['commit'][:12] or '?'}")
+        for rel in found["unreadable"]:
+            c.add(f"receipt {rel}", FAIL, "named for the commit but not a readable receipt (not JSON, or neither "
+                  "a lower-tier nor a comparator receipt)")
+        checker = found["lower"][0]["data"].get("checker") if found["lower"] else None
+        check_binding(c, repo, x, ref, pkg, checker)
+        for v in found["lower"]:
+            rec, rel = v["data"], v["path"]
+            if c.run(f"lower {rel}", lambda: core.validate_receipt(pkg, repo, rec),
+                     f"schema, binding, pins (lean-toolchain, lake-manifest.json at {x[:12]}), sorry_count 0, "
+                     f"axioms {sorted(rec.get('axioms') or [])} within {list(DEFAULT_AXIOMS)}"):
+                try:
+                    line, view = core.report_log_check(repo, rec, repo / rel)
+                    c.add(f"lower {rel}: report log", PASS if view["checked"] else FAIL,
+                          line[2:] if view["checked"] else f"no committed redacted log {view['log']} (or its .gz) "
+                          f"to check report_sha256 against")
+                except core.Fail as e:
+                    c.add(f"lower {rel}: report log", FAIL, str(e))
+                evidence_file_checks(c, repo, v, x)
+        cs = core.claims_schema_at(pkg_name, pkg, repo, x)
+        if not cs["checked"]:
+            c.add("claims", SKIP, f"no {cs['file']} at {x[:12]}")
+        else:
+            c.add("claims", PASS if cs["ok"] else FAIL, core.claims_schema_line(cs)[2:])
+        lower_commit = x if found["lower"] else None
+        for v in found["comparator"]:
+            rel = v["path"]
+            n_cfg = len(v["data"].get("configs") or [])
+            c.run(f"comparator {rel}", lambda: core.validate_comparator(pkg, repo, v["data"], lower_commit),
+                  f"{n_cfg} configuration(s) tracked at {x[:12]} re-derived from bytes (sha256, theorem names, "
+                  f"sign-off), every log's sha256 and PASS line, same commit as the lower tier")
+            olean_check(c, repo, v, x)
+        claimed_theorems_check(c, repo, pkg, x, bool(found["comparator"]))
+        coverage_check(c, repo, pkg)
+        page_checks(c, repo, x, found)
+    failed = c.failed()
+    lower_ok = bool(found["lower"]) and not any(
+        i["verdict"] == FAIL for i in c.items if i["id"].startswith(("lower ", "receipts", "binding")))
+    comp_ok = lower_ok and bool(found["comparator"]) and not any(
+        i["verdict"] == FAIL for i in c.items if i["id"].startswith(("comparator ", "claimed theorems")))
+    tier = index_mod.compute_trust(lower_ok, comp_ok, [])
+    rule = ("evidence-only or docs-only descendants (docs-only accepted by the referee: --docs-descendants)"
+            if docs_descendants else "evidence-only descendants (docs-only not accepted; --docs-descendants to "
+                                     "accept them)")
+    ok = failed == 0
+    counts = {v: sum(i["verdict"] == v for i in c.items) for v in (PASS, FAIL, SKIP)}
+    summary = (f"receipt check: {'PASS' if ok else 'FAIL'} {pkg_name} at {x[:12]} "
+               + (f"(tier {tier}; {counts[PASS]} passed, {counts[SKIP]} skipped)" if ok
+                  else f"({counts[FAIL]} check(s) failed; tier {tier or 'none'})"))
+    lines = [summary,
+             f"  commit {x} (published ref {ref[:12]}{', the same commit' if ref == x else ''})",
+             f"  rule: {rule}",
+             f"  note: {RERUN_NOTE}"]
+    lines += [f"  {i['verdict'].upper():4} {i['id']}: {i['detail']}" for i in c.items]
+    lines.append(summary)
+    receipts = {k: [{"path": v["path"], "sha256": v["sha256"], "commit": v["commit"]} for v in found[k]]
+                for k in ("lower", "comparator")}
+    receipts["other"] = [{"path": v["path"], "sha256": v["sha256"], "commit": v["commit"]} for v in found["other"]]
+    payload = {"ok": ok, "name": pkg_name, "commit": x, "at": ref, "prefix": src["prefix"] or None,
+               "docs_descendants": bool(docs_descendants), "rule": rule, "tier": tier, "runs_lean": False,
+               "network": False, "note": RERUN_NOTE, "receipts": receipts, "bound_receipts": bound,
+               "counts": counts, "checks": c.items}
+    return lines, payload, 0 if ok else 1
+
+
+def cmd_receipt_check(args) -> int:
+    lines, payload, rc = do_check(args.repo, args.commit_sha, args.at, args.docs_descendants, args.name)
+    if getattr(args, "json_out", False):
+        core.print_json(payload)
+    else:
+        print("\n".join(lines))
+    return rc
+
+
+def add_parser(rsub) -> None:
+    import argparse
+    s = rsub.add_parser("check", help="validate a published package's receipts from git alone: no registry, no "
+                                      "network, never runs Lean (an outside referee's check; exit 0 only when "
+                                      "every check passes)")
+    s.add_argument("--repo", required=True, metavar="DIR",
+                   help="a local clone of the package (the package directory; cloned privately, never modified)")
+    s.add_argument("--commit", dest="commit_sha", required=True, metavar="SHA",
+                   help="the commit the receipts bind (the page's `git checkout <commit>` line)")
+    s.add_argument("--at", default=None, metavar="REF",
+                   help="the published ref whose .lean-receipts/, coverage.yaml and README.md are read (default "
+                        "HEAD of --repo); it must be the commit or an evidence-only descendant of it")
+    s.add_argument("--docs-descendants", action="store_true",
+                   help="also accept a docs-only descendant (no build input changed); the author's opt-in lives "
+                        "in a registry the referee cannot read, so this is the referee's choice, printed in the result")
+    s.add_argument("--name", default=None,
+                   help="the package name the claims must carry (default: `package` in coverage.yaml, else "
+                        "claims.yaml, else the directory name)")
+    s.add_argument("--json", dest="json_out", action="store_true", default=argparse.SUPPRESS,
+                   help="machine-readable JSON on stdout: every check with its verdict")
+    s.set_defaults(fn=cmd_receipt_check)
+

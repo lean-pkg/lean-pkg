@@ -64,7 +64,7 @@ The lower tier (`receipt`, `gate`) moves a package to verified-private; the comp
 
 | Command | Purpose |
 |---|---|
-| [`lean-pkg receipt`](receipt.md) | produce lower-tier receipts (writes files in the package checkout, never the registry) |
+| [`lean-pkg receipt`](receipt.md) | produce lower-tier receipts (slurm, systemd: write files in the package checkout, never the registry); check a published package's receipts from git alone (check) |
 | [`lean-pkg gate`](gate.md) | validate a lower-tier receipt; gate-pending -&gt; verified-private; records the receipt's lean_toolchain and mathlib_rev as the package's pins |
 | [`comparator-receipt`](comparator-receipt.md) | run comparator-check.sh and write a comparator receipt |
 | [`lean-pkg comparator`](comparator.md) | attach a comparator receipt to a gated package; no status change |

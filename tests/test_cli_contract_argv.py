@@ -156,6 +156,9 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["receipt", "slurm", "--preflight-deps", "--deps-dir", "d"], "receipt slurm", False, False, False),
     (["receipt", "systemd", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),
     (["receipt", "local", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),   # alias
+    (["receipt", "check", "--repo", "d", "--commit", "c"], "receipt check", False, False, False),   # no registry
+    (["receipt", "check", "--repo", "d", "--commit", "c", "--at", "v1", "--docs-descendants", "--name", "n",
+      "--json"], "receipt check", False, False, False),
     # global flags never change the predicate (a snapshot is refused later, by run_snapshot)
     (["--json", "list"], "list", False, False, False),
     (["--registry", "r.yaml", "--commit", "claim", "demo", "--workspace", "w", "--agent", "a"], "claim", True, True, False),

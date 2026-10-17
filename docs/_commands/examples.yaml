@@ -136,6 +136,20 @@ lean-pkg receipt systemd:
         --checker "gate.sh (lake build; #print axioms)" --run -- bash gate.sh gate/verify.log
     say: Run a light verify script locally in a capped systemd --user unit and write the same lower-tier receipt as receipt slurm.
 
+lean-pkg receipt check:
+  - cmd: lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567
+    say: In a fresh clone of a published package, check its receipts for the page's bound commit from git alone; no registry, no network, no Lean run.
+    output: |
+      receipt check: PASS my-proof at 0123456789ab (tier comparator; 13 passed, 1 skipped)
+        commit 0123456789abcdef0123456789abcdef01234567 (published ref 89abcdef0123)
+        rule: evidence-only descendants (docs-only not accepted; --docs-descendants to accept them)
+        ...
+        PASS binding: evidence-only descendant of 0123456789ab (+3 evidence file(s))
+        ...
+      receipt check: PASS my-proof at 0123456789ab (tier comparator; 13 passed, 1 skipped)
+  - cmd: lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --at v1.0.0 --docs-descendants --json
+    say: The same at a release tag, also accepting a README or notes committed after the evidence (the docs-only rule, the referee's choice); every check with its verdict as JSON.
+
 lean-pkg gate:
   - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --check
     say: Validate the receipt against HEAD and record nothing; exit 1 when gate would refuse it.
