@@ -104,6 +104,7 @@ def src(tmp_path) -> pathlib.Path:
         "tests/golden/help/lean-pkg.foo.txt": HELP_FOO_V1, "tests/golden/help/lean-pkg.record.txt": HELP_REC_V1,
         "tests/golden/help/lean-pkg.claim.txt": "usage: lean-pkg claim [-h]\n",
         "tests/golden/help/lean-pkg.bar.txt": "usage: lean-pkg bar [-h]\n",
+        "tests/golden/help/lean-pkg.rel.txt": "usage: lean-pkg rel\n\noptions:\n  --fresh-repo DIR  x\n  --from-tree T  y\n",
         "tests/golden/json-keys.json": json.dumps({"foo": {"keys": ["a", "b"], "rc": 0, "type": "object"},
                                                    "bar": {"keys": ["x"], "rc": 0, "type": "object"}}),
     })
@@ -118,7 +119,10 @@ def src(tmp_path) -> pathlib.Path:
         "src/lean_pkg/other.py": OTHER_V1.replace("widget/1", "widget/2") + 'SEAL_SCHEMA = "seal/1"\n',
         "src/lean_pkg/command_tree.py": TREE_V1.replace("FLAG_ALIASES = ()",
                                                         'FLAG_ALIASES = (FlagAlias(("record",), "--track", '
-                                                        '"--doi-track"),)'),
+                                                        '"--doi-track"),)')
+        + 'MODE_ALIASES = (ModeAlias(("rel",), "--fresh-repo", ("repo", "export"), True),)\n',
+        "tests/golden/help/lean-pkg.rel.txt": "usage: lean-pkg rel\n",
+        "tests/golden/help/lean-pkg.repo.export.txt": "usage: lean-pkg repo export\n\noptions:\n  --from-tree T  y\n",
         "src/lean_pkg/templates/LICENSE.txt": "v2\n", "src/lean_pkg/schemas/b.schema.json": "{}\n",
         "tests/golden/help/lean-pkg.foo.txt": HELP_FOO_V2, "tests/golden/help/lean-pkg.record.txt": HELP_REC_V2,
         "tests/golden/help/lean-pkg.claim.txt": None,
@@ -163,9 +167,11 @@ def test_mechanical_delta_between_two_releases(lp, capsys, src):
     assert m["keys"]["registry package"] == {"added": [], "removed": []}   # rows read by their first item
     c = m["commands"]
     assert c["renamed"] == {"claim": "lease claim"}           # an alias in the new tree, not a removal
-    assert c["removed"] == ["bar"] and c["added"] == ["lease"]
-    assert c["options"]["foo"] == {"added": ["--new"], "removed": ["--old"], "renamed": {}}
-    assert c["options"]["record"] == {"added": [], "removed": [], "renamed": {"--track": "--doi-track"}}
+    assert c["removed"] == ["bar"] and c["added"] == ["lease", "repo export"]
+    assert c["options"]["foo"] == {"added": ["--new"], "removed": ["--old"], "renamed": {}, "moved": {}}
+    assert c["options"]["record"] == {"added": [], "removed": [], "renamed": {"--track": "--doi-track"}, "moved": {}}
+    assert c["options"]["rel"]["moved"] == {"--fresh-repo": "repo export", "--from-tree": "repo export"}
+    assert c["options"]["rel"]["removed"] == []
     j = m["json_keys"]
     assert j["added"] == ["baz"] and j["removed"] == ["bar"]
     assert j["changed"] == {"foo": {"added": ["c"], "removed": ["b"]}}

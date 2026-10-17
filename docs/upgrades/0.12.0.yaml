@@ -1,0 +1,91 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.11.0. Same keys as 0.11.0.yaml; the human page is docs/upgrades/0.12.0.md.
+schema: lean-pkg-upgrade-record/1
+version: 0.12.0
+changes:
+  - pr: 222
+    id: command-tree-stage-2
+    kind: command
+    area: cli
+    summary: >-
+      New canonical commands: verify NAME (comparator receipt, lower-tier receipt and gate in one step),
+      repo export|adopt (were release --fresh-repo|--adopt-repo), publish NAME --yes (was promote --yes;
+      promote NAME is publish --yes --dry-run), comparator check|coverage|migrate-signoff (were comparator
+      --check and comparator config --coverage|--migrate-signoff), receipt comparator (the
+      comparator-receipt program), verify-receipts (alias of receipt check), register --license-spdx.
+      Every old spelling is a permanent alias (MODE_ALIASES for the split modes); the root --help is
+      tiered; command pages are one per canonical node (promote.md and comparator-receipt.md are gone).
+    action: >-
+      Nothing is required. Links to docs/commands/promote.md or comparator-receipt.md move to publish.md
+      and receipt-comparator.md; scripts may move to the new spellings at leisure (lean-pkg help aliases).
+    breaking: false
+    changelog: Added
+  - pr: 222
+    id: page-write-turns-on-docs-descendants
+    kind: behavior
+    area: page, registry
+    summary: >-
+      page --write on a gated package whose record does not set docs_descendants runs lean-pkg update NAME
+      --accept-docs-descendants (its own invocation, lock, committed mode and updated event), so a later
+      README-only commit keeps the receipts bound; a record that says true or false is left alone.
+    action: >-
+      Expect one registry write (and, in committed mode, a registry commit) from the first page --write;
+      set docs_descendants: false first if the package must not use the docs-only rule.
+    breaking: false
+    changelog: Changed
+  - pr: 222
+    id: comparator-workstation-default
+    kind: behavior
+    area: comparator receipts
+    summary: >-
+      With COMPARATOR_RECEIPT_ALLOWED_HOSTS unset and no Slurm on the machine, the machine running the
+      command may produce comparator receipts (host_policy names it by its label); a Slurm login node is
+      refused as before.
+    action: Set COMPARATOR_RECEIPT_WORKSTATION_DEFAULT=0 to keep the old allow-list-only behaviour.
+    breaking: false
+    changelog: Changed
+  - pr: 222
+    id: install-path-redaction
+    kind: format
+    area: comparator receipts, stage logs
+    summary: >-
+      Stage logs and comparator receipts write lean-pkg's install directory as <lean-pkg> and elan's home
+      as <elan> (toolchain_resolution.lake included); the schema stays comparator-receipt/2.
+    action: Nothing; older receipts keep their meaning.
+    breaking: false
+    changelog: Changed
+  - pr: 222
+    id: comparator-rerun-after-verify-sh
+    kind: behavior
+    area: comparator receipts
+    summary: >-
+      Re-running the comparator receipt at the same commit after verify.sh removed .lake/build no longer
+      refuses on its own resume state when modules were only removed; a changed olean or --from-prepared is
+      still refused.
+    action: Nothing.
+    breaking: false
+    changelog: Fixed
+  - pr: 219
+    id: lean-diag-negative-tests
+    kind: command
+    area: tests
+    summary: >-
+      lean_pkg.lean_diag: a strict parser of Lean and Lake diagnostics for negative tests (python3 -m
+      lean_pkg.lean_diag LOG --error-code CODE ...), exit 0/1/2; docs/negative-tests.md lists the traps.
+    action: Optional. A package's negative tests can check for exactly the expected error.
+    breaking: false
+    changelog: Added
+  - pr: 223
+    id: doctor-upgrade-preflight
+    kind: command
+    area: doctor
+    summary: >-
+      lean-pkg doctor --upgrade-from OLD [--to NEW] [--source DIR] reports what changed between two lean-pkg
+      versions or commits (formats, keys, commands, flags, aliases, Python floor, data files) plus the
+      curated docs/upgrades records; read-only.
+    action: Optional. Run it before moving a package to a newer lean-pkg.
+    breaking: false
+    changelog: Added
+# Read for this record, nothing for a package author: index data (#220), docs (#221, #225), the
+# changelog layout (#224).
+no_author_change: [220, 221, 224, 225]

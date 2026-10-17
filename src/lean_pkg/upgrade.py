@@ -248,7 +248,13 @@ def alias_map(consts: dict) -> dict:
         if isinstance(a, dict) and len(a.get("args", ())) == 3:
             cmd, old, new = a["args"]
             flags.setdefault(" ".join(cmd), {})[old] = new
-    return {"commands": cmds, "implied": implied, "flags": flags}
+    modes: dict[str, dict[str, str]] = {}
+    for a in consts.get("MODE_ALIASES") or ():   # ModeAlias(command, flag, new command, ...): a split mode
+        if isinstance(a, dict) and len(a.get("args", ())) >= 3:
+            cmd, flag, new = a["args"][:3]
+            if isinstance(cmd, tuple) and isinstance(new, tuple) and isinstance(flag, str):
+                modes.setdefault(" ".join(cmd), {})[flag] = " ".join(new)
+    return {"commands": cmds, "implied": implied, "flags": flags, "modes": modes}
 
 
 def command_delta(old: dict, new: dict, amap: dict) -> dict:
@@ -287,10 +293,18 @@ def command_delta(old: dict, new: dict, amap: dict) -> dict:
               for o, n in amap["flags"].get(p, {}).items()}
         gone = sorted(set(old[path]) - have)
         ren = {o: fl[o] for o in gone if o in fl}
-        lost = [o for o in gone if o not in fl]
+        modes = amap.get("modes", {}).get(t, {})   # a mode split off as its own command (MODE_ALIASES)
+        moved = {o: modes[o] for o in gone if o in modes}
+        for o in gone:
+            if o not in ren and o not in moved:
+                hit = next((m for m in sorted(set(modes.values())) if o in new.get(m, ())), None)
+                if hit:
+                    moved[o] = hit
+        lost = [o for o in gone if o not in fl and o not in moved]
         added = sorted(set(new[t]) - set(old[path]) - set(ren.values()))
-        if lost or ren or added:
-            options[path if t == path else f"{path} -> {t}"] = {"added": added, "removed": lost, "renamed": ren}
+        if lost or ren or added or moved:
+            options[path if t == path else f"{path} -> {t}"] = {"added": added, "removed": lost, "renamed": ren,
+                                                                "moved": moved}
     added_paths = sorted(p for p in new if p not in old and p not in targets)
     return {"added": added_paths, "removed": removed, "renamed": renamed, "options": options}
 
@@ -550,7 +564,9 @@ def _lines(payload: dict) -> list[str]:
             + [f"renamed: {o} -> {n} (the old spelling keeps working)" for o, n in c["renamed"].items()]
             + [f"{k or 'lean-pkg'}: " + "; ".join(([f"new {', '.join(v['added'])}"] if v["added"] else [])
                                                   + ([f"removed {', '.join(v['removed'])}"] if v["removed"] else [])
-                                                  + [f"renamed {o} -> {n}" for o, n in v["renamed"].items()])
+                                                  + [f"renamed {o} -> {n}" for o, n in v["renamed"].items()]
+                                                  + [f"{o} moved to `{n}` (the old form keeps working)"
+                                                     for o, n in v.get("moved", {}).items()])
                for k, v in c["options"].items()])
     if d["json_keys"] is not None:
         j = d["json_keys"]
