@@ -107,3 +107,8 @@ is a test in `tests/test_lean_diag.py`, on verbatim Lean output.
 Keep controls out of every `lean_lib`: a file a library owns is built by
 `lake build`, so a control that fails as intended breaks the build. Check each
 one with `lake env lean FILE` from the package directory.
+
+Controls kept out of the build by a suffix (`*.lean.disabled` and similar)
+are missed by every `*.lean` inventory; after a namespace or import transport,
+list them and re-run their checks before expensive gates
+([Disabled negative fixtures](extract.md#disabled-negative-fixtures-after-a-namespace-or-import-transport)).

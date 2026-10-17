@@ -221,6 +221,43 @@ project's own files as missing licensing information. That is the honest
 state, not a defect to fix by licensing everything under the upstream's
 terms.
 
+## Disabled negative fixtures after a namespace or import transport
+
+Negative controls are often stored with a second suffix, such as
+`Controls/NoInstance.lean.disabled`, so that no `lean_lib` glob or `*.lean`
+search picks them up. After a namespace isolation or an import transport
+(renamed modules, a vendored namespace, rewritten `open` lines), those files
+are easy to leave behind: they still name the old modules and namespaces, and
+an ordinary `*.lean` inventory never lists them. In one port, five such
+fixtures kept their old unqualified `open` names, and nothing noticed until a
+strict expected-reason audit refused all five.
+
+The plan does not pass over them silently, but it does not check them
+either. Such a file under a root has no class any root kind carries, so the
+plan is **refused** with its path until it is excluded or moved. Once it is
+excluded (or when it lies outside every root), it is only a line in the
+excluded list: the module inventory, `unowned_lean_files` and the import check
+read `*.lean` files only, so a stale `open` or `import` in it goes unreported.
+
+Checklist item, after any namespace or import transport and before native,
+comparator or cluster gates: list the disabled fixtures and run each one's
+expected-reason check ([negative tests](negative-tests.md)).
+
+```bash
+# from the package directory: every control kept out of the build by its suffix
+git ls-files '*.lean.disabled' '*.lean.off' '*.lean.skip'
+find . -path ./.lake -prune -o -type f -name '*.lean.*' -print
+
+# each one must still fail, and for the reason it was written for
+lake env lean Controls/NoInstance.lean.disabled > out.log 2>&1
+python3 -m lean_pkg.lean_diag out.log --error-code lean.synthInstanceFailed --file NoInstance.lean.disabled
+```
+
+Lean compiles a file whatever its suffix, so no copy to `.lean` is needed. A
+fixture that still says `open OldName` fails with ``unknown namespace `OldName` ``,
+which `lean_diag` reports as `wrong-reason`, not `expected`. Fix those files
+before an expensive gate, not after it.
+
 ## Refusals
 
 The plan lists every refusal at once (exit 1), sorted:
@@ -277,5 +314,6 @@ git repository or a subdirectory of one).
 `write --output DIR` will materialize the plan into a new directory and verify
 every file against its recorded blob. `lean-pkg extract ...` as a subcommand of
 `lean-pkg` is left to the extension-dispatch work; use the `lean-pkg-extract`
-script. For consolidating several registered packages into one, see
+script. A plan warning that names excluded `*.lean.*` files (disabled
+controls the import check does not read) is a possible small follow-up. For consolidating several registered packages into one, see
 [Consolidate several checkpoint packages into one](paper-companion.md#consolidate-several-checkpoint-packages-into-one).

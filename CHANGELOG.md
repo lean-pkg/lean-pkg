@@ -150,6 +150,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   docs/upgrades/<next>.yaml has an entry for the pull request, or lists it
   under `no_author_change` with a reason (RELEASING.md step 0).
 
+- Docs: docs/extract.md, "Disabled negative fixtures after a namespace or
+  import transport" (field report). Controls kept out of the build as
+  `*.lean.disabled` are missed by `*.lean` inventories, and once excluded
+  the extract plan's import check does not read them; after a namespace or
+  import transport, list them (`git ls-files '*.lean.disabled'`) and run
+  each one's `lean_diag` expected-reason check before native or cluster
+  gates. docs/negative-tests.md links to it.
+
 ### Changed
 
 - `page --write` on a gated package whose record says nothing about the
