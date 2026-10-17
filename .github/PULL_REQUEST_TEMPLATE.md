@@ -1,12 +1,19 @@
 ## Scope
 
-One logical change. What it does and why, in two or three sentences.
+One logical change. What it does and why, in two or three sentences. Name the
+issue, field-report finding or accepted proposal it implements, if any.
 
 ## Checks run
 
-- [ ] `make check` is green (tests, private-boundary check, tab scan, version agreement)
+The checklist of CONTRIBUTING.md, "What a change must carry".
+
+- [ ] `make check` is green (tests, private-boundary check, tab scan, version agreement, REUSE)
+- [ ] new behaviour and every new refusal path have a test; tests use temporary registries only
+- [ ] `make goldens` run and `git diff tests/golden` reviewed if help text or a `--json` payload changed
 - [ ] `make docs` run if the CLI contract or an index entry changed (CI fails on a stale generated file)
 - [ ] docs updated for any user-visible change; CHANGELOG `Unreleased` entry added
+- [ ] no host name, user name, local path or private paper name in files, commit messages or this text
+- [ ] a schema change, a removed or renamed command, flag or JSON key, or a trust-model change links its accepted proposal (docs/proposals)
 
 ### Commands that actually ran
 

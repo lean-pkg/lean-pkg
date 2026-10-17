@@ -5,6 +5,10 @@ title: ""
 labels: bug
 ---
 
+`lean-pkg report --command "ARGS"` fills this template for you, with private
+paths redacted. A way to get a false "verified" is a security report: use the
+repository's private advisory form instead (SECURITY.md).
+
 **Version**: output of `lean-pkg --version` (the release and the build that runs: commit for an editable install, install path otherwise), and your Python version.
 
 **Command** (exact, with flags; redact private paths):

@@ -48,7 +48,9 @@ def test_docs_site_has_entry_pages():
 def test_relative_links_resolve():
     broken = []
     pages = [ROOT / "README.md", ROOT / "AGENTS.md", ROOT / "CONTRIBUTING.md",
-             ROOT / "DESIGN.md", *sorted((ROOT / "docs").glob("*.md"))]
+             ROOT / "DESIGN.md", ROOT / "GOVERNANCE.md", ROOT / "SECURITY.md",
+             ROOT / "MAINTAINERS.md", *sorted((ROOT / "docs").glob("*.md")),
+             *sorted((ROOT / "docs" / "proposals").glob("*.md"))]
     for md in pages:
         for target in _relative_targets(md):
             if not (md.parent / target).exists():
@@ -148,7 +150,9 @@ def test_governance_files_exist_and_agree():
               "RELEASING.md", "scripts/check-versions.py", "scripts/release.sh",
               ".githooks/pre-push",
               ".github/ISSUE_TEMPLATE/bug_report.md", ".github/ISSUE_TEMPLATE/index_entry.md",
+              ".github/ISSUE_TEMPLATE/field_report.md", ".github/ISSUE_TEMPLATE/proposal.md",
               ".github/PULL_REQUEST_TEMPLATE.md", "docs/decisions/README.md",
+              "GOVERNANCE.md", "docs/proposals/README.md", "docs/proposals/0000-template.md",
               "docs/decisions/0001-files-and-git-only.md",
               "docs/decisions/0002-benevolent-maintainer-with-deputies.md"):
         assert (ROOT / f).is_file(), f
