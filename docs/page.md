@@ -177,6 +177,22 @@ receipt whose `host_policy` says it ran in Slurm job `<J>`. With both, the
 Acknowledgments carry the official sentence with the cluster linked. Without
 them there is no sentence, and `--check` fails on one written by hand.
 
+A lower-tier receipt whose `job_id` is a bare number (`5581013`) does not
+back the sentence: nothing in it shows the number is a Slurm job. The refusal
+names such a receipt. Write it with `lean-pkg receipt slurm --job <J>`, which
+checks sacct first, rather than editing `job_id` by hand.
+
+A repository whose gated commit already has a README with an Easley sentence
+adopts the page after the gate. First opt in to the docs-only rule:
+
+```bash
+lean-pkg update NAME --accept-docs-descendants --reason TEXT
+```
+
+Then commit `coverage.yaml` with its `compute` entry, run
+`lean-pkg page NAME --write` and commit the README. Both receipts stay bound to the gated commit, so no new
+gate is needed.
+
 ## Citation
 
 `CITATION.cff` must be committed, with a `title` and at least one author
