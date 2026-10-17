@@ -41,7 +41,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `new --kind paper` scaffold moves with no source change and builds; the
   other five entries are pending) and a read-only survey of the lab's
   packages. RELEASING.md gains step 3a, "the supported stacks' matrix
-  passes", for declared stacks. No CLI change (#PRNUM).
+  passes", for declared stacks. No CLI change (#249).
 
 - Receipts record the container image a job ran in (#236), as the additive
   key `container` {`engine`, `image_sha256` (the SIF file) or `oci_digest`,
