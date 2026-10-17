@@ -63,7 +63,7 @@ def publish_fixture(lp, env, capsys) -> str:
 def referee_clone(env, tmp_path):
     """A fresh clone, as an outside referee makes it."""
     dest = tmp_path / "referee" / "beta"
-    dest.parent.mkdir()
+    dest.parent.mkdir(parents=True)
     subprocess.run(["git", "clone", "-q", str(env.repo_b), str(dest)], check=True, capture_output=True)
     return dest
 
@@ -267,3 +267,32 @@ def test_usage_errors_exit_2(lp, env, capsys, tmp_path):
     assert lp.main(["receipt", "check", "--repo", str(tmp_path / "nowhere"), "--commit", x]) == 2
     assert lp.main(["receipt", "check", "--repo", str(env.repo_b), "--commit", "f" * 40]) == 2
     assert lp.main(["receipt", "check", "--repo", str(env.repo_b), "--commit", x, "--at", "no-such-ref"]) == 2
+
+
+def test_a_page_in_the_wording_before_0_11_is_still_checked(lp, env, capsys, tmp_path):
+    """A page published with an earlier lean-pkg says "Lower-tier gate receipt", "(recorded) | comparator" and
+    "the commit the gate receipt binds"; receipt check reads that wording too (and still catches an edit)."""
+    import re
+    x = publish_fixture(lp, env, capsys)
+    repo = env.repo_b
+    readme = repo / "README.md"
+    text = readme.read_text()
+    old = (text.replace("# the commit the build check binds", "# the commit the gate receipt binds")
+           .replace(" (used here) | statement comparison |", " (recorded) | comparator |")
+           .replace(" (used here) | build |", " (recorded) | lower tier |"))
+    old = re.sub(r"^- Build check \(`lean-pkg gate`\) at commit `([0-9a-f]{12})`: `sorry` count (\d+); axioms used: "
+                 r"(.*)\.$", r"- Lower-tier gate receipt at `\1` records: `sorry` count \2 after the build; axioms "
+                 r"used: \3; allowed: `propext`.", old, flags=re.M)
+    old = re.sub(r"^- Statement comparison \(comparator\) at commit `([0-9a-f]{12})`: ",
+                 r"- Comparator receipt at `\1`: ", old, flags=re.M)
+    assert "Lower-tier gate receipt at" in old and "(recorded) | lower tier |" in old and old != text
+    readme.write_text(old)
+    _git(repo, "commit", "-qam", "a page in the earlier wording")
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path), x, "--docs-descendants")
+    v = verdicts(a)
+    assert rc == 0, failed(a)
+    assert all(v[k] == "pass" for k in ("page: commit", "page: pins", "page: evidence", "page: trust boundary"))
+    readme.write_text(old.replace("`sorry` count 0 after", "`sorry` count 1 after"))
+    _git(repo, "commit", "-qam", "edit it")
+    rc, a = check(lp, capsys, referee_clone(env, tmp_path / "again"), x, "--docs-descendants")
+    assert rc == 1 and verdicts(a)["page: trust boundary"] == "fail"

@@ -1146,7 +1146,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `... olean manifest` | the receipt's `olean_manifest` names the toolchain and `lake-manifest.json` of X (the manifest file itself is not published) |
 | `claimed theorems` | every `reusable` theorem or lemma claim at X is named by a comparator configuration at X |
 | `coverage` | `coverage.yaml` at REF passes `coverage check`, R11 included: each compared theorem is the declaration of a claim a row names |
-| `page: ...` | the README page block at REF states X, the pins of X, each Evidence row's path, commit and SHA-256 as committed, and the receipts' sorry count, axioms and comparator counts |
+| `page: ...` | the README page block at REF states X, the pins of X, each receipt row's path, commit and SHA-256 as committed (the *Receipts* table; *Evidence* on a page written before 0.11), and the receipts' sorry count, axioms and comparator counts |
 
 A check that does not apply (no `coverage.yaml`, no page block, no olean
 manifest) is `skip`, with the reason. Exit 0 only when no check fails, 1

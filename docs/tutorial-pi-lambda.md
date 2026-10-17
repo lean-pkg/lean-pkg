@@ -506,40 +506,51 @@ pi-lambda: page: current (README.md)
 README) keep the receipts bound to the gated commit. An excerpt of the
 rendered page today:
 
-> **Note.** The page layout is being redesigned for mathematicians. This
-> excerpt shows the current layout and will be refreshed when the new one
-> lands.
+````markdown
+## Verification at a glance
 
-```markdown
-## Verification status
+**How to read this page.** Lean has checked every step of the proofs listed here. Each result is exactly its Lean statement: read the statements below to see what is proved. The titles, the words and the notes are the authors' description, which Lean does not check.
 
 Dynkin's pi-lambda theorem and the uniqueness of probability measures, in textbook form, each compared against its trusted statement.
 
-- Library: each row below is a main result of the library, stated by its Lean declarations.
-- Main results: 2; 2 of 2 main result(s) verified.
-- Claims ledger (promote stage): **ready**, every required claim is closed by the recorded receipts; 2 of 2 required claim(s) verified (`sha256:7b772a33c624a42d…`).
+- Main results: 2; verified: 2 of 2.
 
 ## Main results
 
-| Result | Lean declarations | Ledger | Notes |
-|---|---|---|---|
-| Dynkin's pi-lambda theorem: sigma(P) is contained in every lambda-system containing the pi-system P | [`PiLambda.pi_lambda`](https://github.com/you/pi-lambda/blob/ff6e3c27425b1dc921921aa75cc7a2ee1b796e05/PiLambda/Solution.lean) | verified | Billingsley, Probability and Measure, 3rd ed., Theorem 3.2; textbook definitions of pi- and lambda-system |
-| Uniqueness: probability measures agreeing on a generating pi-system are equal | [`PiLambda.measure_eq_of_eq_on_pi_system`](https://github.com/you/pi-lambda/blob/ff6e3c27425b1dc921921aa75cc7a2ee1b796e05/PiLambda/Solution.lean) | verified | Billingsley, Probability and Measure, 3rd ed., Theorem 3.3; proved from the pi-lambda theorem |
+### Dynkin's pi-lambda theorem: sigma(P) is contained in every lambda-system containing the pi-system P
 
-## Trust boundary
+**Verified.** Lean accepts the proof, and lean-pkg's record shows every check of this result passed (the build, and the statement comparison).
 
-- Lower-tier gate receipt at `ff6e3c27425b` records: `sorry` count 0 after the build; axioms used: `Classical.choice`, `Quot.sound`, `propext`; allowed: `propext`, `Quot.sound`, `Classical.choice`.
-- Comparator receipt at `ff6e3c27425b`: 1 configuration(s), 2 theorem(s) compared (Challenge statement against Solution proof); permitted axioms: `Classical.choice`, `Quot.sound`, `propext`; definition holes: none.
+**In Lean.** `PiLambda.pi_lambda` in [PiLambda/Challenge.lean](https://github.com/you/pi-lambda/blob/ff6e3c27425b1dc921921aa75cc7a2ee1b796e05/PiLambda/Challenge.lean): the statement the proof was checked against (the proof is in a separate file, and a second checker confirmed it proves exactly this).
 
-What these checks do not establish: ... Neither checks that a Lean statement says what its title above says: the titles and notes are written by the authors, and the Lean statement is the result. ...
+```lean
+theorem PiLambda.pi_lambda {Ω : Type*} (P L : Set (Set Ω))
+    (hP : ∀ A ∈ P, ∀ B ∈ P, A ∩ B ∈ P)
+    (hL_univ : Set.univ ∈ L)
+    (hL_compl : ∀ A ∈ L, Aᶜ ∈ L)
+    (hL_iUnion : ∀ f : ℕ → Set Ω, (∀ i j, i ≠ j → Disjoint (f i) (f j)) →
+      (∀ i, f i ∈ L) → (⋃ i, f i) ∈ L)
+    (hPL : P ⊆ L) :
+    ∀ A, MeasurableSet[MeasurableSpace.generateFrom P] A → A ∈ L
 ```
 
-The page goes on with *Reproduce* (the toolchain, the Mathlib revision and
-the commands to rebuild the gated commit), *Evidence* (one row per receipt,
-with its SHA-256), *Citation*, *License* and *Acknowledgments*. Read the
-trust boundary twice: the page says *verified* about the Lean statements, and
-says in so many words that it does not check that a title matches its
-statement. [The verification page](page.md) explains every section, and the
+**Axioms.** At most `Classical.choice`, `Quot.sound`, `propext` (what the build check records for the whole package).
+
+**Note.** Billingsley, Probability and Measure, 3rd ed., Theorem 3.2; textbook definitions of pi- and lambda-system
+
+### Uniqueness: probability measures agreeing on a generating pi-system are equal
+
+...
+````
+
+The block of each result is what a reader compares with the book: the
+title and note are yours, the Lean statement is what was proved. The page
+goes on with *What the checks establish* (in plain words: every proof is
+checked by Lean, the statements shown are the ones proved, and no tool
+checks that a title describes its statement), then *How this was checked*
+(the claims ledger, the two receipts with their SHA-256, and the commands to
+rebuild the gated commit), *Citation*, *License* and *Acknowledgments*.
+[The verification page](page.md) explains every section, and the
 [trust model](trust-model.md) says what a reader may and may not conclude.
 
 ### A reader's check
@@ -624,9 +635,9 @@ rows:
 nothing_excluded: {reason: "Section 3 has no other numbered results"}
 ```
 
-The page then shows a *Paper ↔ Lean map* (each numbered result, its
-correspondence class, its declarations) and a *Not formalized* section in
-place of *Main results*. `same-assumptions` says the Lean statement carries
+The page then shows *The paper's results in Lean* (each numbered result,
+with the paper's result beside its Lean statement and its hypotheses in
+words) and a *Not formalized* section in place of *Main results*. `same-assumptions` says the Lean statement carries
 the paper's hypotheses; a result proved under an extra hypothesis is
 `inputs-supplied`, with the hypothesis named, and an unformalized one is
 `outside`. Everything else (Challenge, Solution, receipts, gate) is the same.

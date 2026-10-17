@@ -1,5 +1,5 @@
 # lean-pkg page --html -- one static HTML file from the page's own Markdown
-"""The Markdown `lean-pkg page` writes is a closed subset: `#`/`##` headings, paragraphs, `- ` bullets,
+"""The Markdown `lean-pkg page` writes is a closed subset: `#`/`##`/`###` headings, paragraphs, `- ` bullets,
 `> ` quotes, pipe tables, fenced code, HTML comments, and inline code spans, `*em*`, `**strong**`,
 `[text](url)`, `<br>`, backslash escapes and the entities `&amp;`, `&lt;`, `&gt;` (all user text arrives
 escaped by page._md). This module turns exactly that subset into one HTML document: no script, no
@@ -12,12 +12,15 @@ import html
 import re
 
 CSS = """\
-body{font-family:system-ui,sans-serif;line-height:1.5;max-width:60rem;margin:2rem auto;padding:0 1rem;\
-color:#1a1a1a;background:#fff}
-h1,h2{line-height:1.2}h2{margin-top:2rem;border-bottom:1px solid #ddd}
-table{border-collapse:collapse;display:block;overflow-x:auto}th,td{border:1px solid #ccc;padding:.3rem .5rem;\
-vertical-align:top;text-align:left}
-code,pre{font-family:ui-monospace,monospace;font-size:.9em;background:#f4f4f4}pre{padding:.6rem;overflow-x:auto}
+body{font-family:Georgia,"Times New Roman",serif;font-size:17px;line-height:1.55;max-width:48rem;\
+margin:2rem auto;padding:0 1rem;color:#111;background:#fff}
+h1,h2,h3{line-height:1.25;font-weight:normal}h2{margin-top:2.2rem;border-bottom:1px solid #ddd}\
+h3{margin-top:1.8rem;font-style:italic}
+table{border-collapse:collapse;display:block;overflow-x:auto;font-size:.85em}th,td{border:1px solid #ccc;\
+padding:.3rem .5rem;vertical-align:top;text-align:left}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85em;background:#f5f5f2}\
+pre{padding:.6rem .8rem;overflow-x:auto;border-left:3px solid #ccc}pre.lean{border-left-color:#4a7}\
+pre.latex{border-left-color:#47a}
 blockquote{margin:0;padding:0 1rem;border-left:4px solid #ccc}a{color:#0645ad}
 @media (prefers-color-scheme:dark){body{color:#e6e6e6;background:#141414}code,pre{background:#262626}\
 th,td{border-color:#444}h2{border-color:#444}a{color:#8ab4f8}}"""
@@ -98,9 +101,9 @@ def body(lines: list[str]) -> list[str]:
         elif line.startswith("<!--") and line.rstrip().endswith("-->"):
             flush()
             i += 1
-        elif line.startswith("# ") or line.startswith("## "):
+        elif line.startswith(("# ", "## ", "### ")):
             flush()
-            level = 1 if line.startswith("# ") else 2
+            level = len(line) - len(line.lstrip("#"))
             text = line[level + 1:]
             out.append(f'<h{level} id="{_slug(re.sub(r"[`*]", "", text), seen)}">{inline(text)}</h{level}>')
             i += 1
@@ -109,7 +112,9 @@ def body(lines: list[str]) -> list[str]:
             j = i + 1
             while j < len(lines) and not lines[j].startswith("```"):
                 j += 1
-            out.append("<pre><code>" + html.escape("\n".join(lines[i + 1:j]), quote=False) + "</code></pre>")
+            lang = line[3:].strip()
+            cls = f' class="{lang}"' if lang in ("lean", "latex", "bash") else ""
+            out.append(f"<pre{cls}><code>" + html.escape("\n".join(lines[i + 1:j]), quote=False) + "</code></pre>")
             i = j + 1
         elif line.startswith("- "):
             flush()
