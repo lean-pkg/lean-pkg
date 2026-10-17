@@ -36,11 +36,34 @@ is why it is a warning.
 - The golden CLI contract (`tests/golden`: help texts and `--json` key sets)
   is the public API: it changes only in a minor (a major after 1.0), with a
   CHANGELOG entry.
-- A written deprecation policy is in force: an old spelling or flag keeps
-  working, with a warning, for at least one minor release before it is
-  removed, and a schema changes only together with a migration command.
+- The deprecation policy below is in force, and a schema changes only
+  together with a migration command.
 - It is used in practice: several public companions run `page --check` in
   CI, and at least one package has gone through a Palomar submission.
+
+### Aliases and deprecations
+
+Decided with the 1.0 command tree
+([docs/design/1.0-command-tree.md](docs/design/1.0-command-tree.md),
+accepted 2026-10-17). Renaming and removing are different things:
+
+- **A renamed command or flag is an alias forever.** The old spelling parses
+  to exactly the namespace of the new one, prints the same output (JSON
+  included) and exits with the same code. In text mode it prints one stderr
+  line, `note: 'lean-pkg claim' is now 'lean-pkg lease claim' (the old
+  spelling keeps working)`, which `LEAN_PKG_NO_ALIAS_NOTE=1` silences;
+  `--json` never prints it. Every alias is a row of the alias table
+  (`src/lean_pkg/command_tree.py`) and of `ARGV_TABLE`
+  (`tests/test_cli_contract_argv.py`), so removing one fails the suite.
+  `lean-pkg help aliases` lists them. A spelling is never deprecated.
+- **A deprecation removes behavior** (a flag, mode, key or command whose
+  effect goes away). It is announced in a `### Deprecated` CHANGELOG section
+  with its replacement; it keeps working, with a stderr
+  `WARN: deprecated: ...` line naming the replacement and the earliest
+  version that may remove it (and a `deprecations[]` key in `--json`
+  output); it lives for at least **two minor releases and 60 days, whichever
+  is longer**; and it is removed only in a release whose `### Removed`
+  section names it. After 1.0.0 a removal is a major release anyway.
 
 After 1.0.0, versions follow [Semantic Versioning](https://semver.org/)
 proper: a breaking change (a removed command, flag or JSON key, or a format

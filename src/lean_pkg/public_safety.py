@@ -40,6 +40,11 @@ keeps the hits of the part decoded so far, falls back to the compressed bytes an
   (#38) and exempt it only where one of their matches covers the token, so allowing a public URL
   that contains the token does not exempt the bare token elsewhere.
 - internal files by path: `approvals/`, `notes/`, `drafts/`, `scratch/`, `*.priv`, `*.private`.
+- `receipt-raw-host`: a committed comparator receipt (`.lean-receipts/<c12>-comparator[.partial].json`,
+  schema `comparator-receipt/*`) whose `host` is a host name, not a label (no `host_label`, not `h-` + 12
+  hex): one written before host labels names its host in `host`, `job_id` and `host_policy`. Read from the
+  receipt's own field, so it is caught whatever the host is called; an `allow:` line matching the name
+  exempts it.
 - the warn-only built-in family `latex-label` (#36): references to a LaTeX manuscript, which leak an
   unposted paper even with no path in them: cross-reference keys (`lem:`, `thm:`, `eq:`, `sec:`, ...),
   `main.tex`, ref/eqref/cite/label/input/include command fragments, Overleaf, arXiv ids. Calibrated
@@ -587,11 +592,49 @@ def _skip(sc: Scanner, skipped: list[dict], hits: list[dict], where: str, path: 
     skipped.append(rec)
 
 
+# A comparator receipt that names its host (written before host labels, lean-pkg 0.10.0 and earlier): the
+# host name is read from the receipt's own `host` field, so it is caught whatever the host is called, not only
+# when a registry field or pattern happens to hold the same string. Only committed comparator receipts
+# (.lean-receipts/<c12>-comparator[.partial].json, schema comparator-receipt/*) are parsed; a receipt
+# whose `host` is a label (`host_label` set, or an `h-` + 12 hex label) is never a hit.
+RECEIPT_HOST = "receipt-raw-host"
+_RECEIPT_HOST_PAT = Pattern(RECEIPT_HOST, "builtin", re.compile(r"(?!)"))
+_COMPARATOR_RECEIPT_RE = re.compile(r"(?:^|/)\.lean-receipts/[^/]+-comparator(?:\.partial)?\.json$")
+
+
+def receipt_host_hit(sc: Scanner, text: str, rel: str) -> tuple[int | None, str] | None:
+    """(line, redacted excerpt) when `rel` is a comparator receipt whose `host` is a raw host name that no
+    `allow:` line applying to `rel` matches; else None."""
+    if not _COMPARATOR_RECEIPT_RE.search(rel):
+        return None
+    import json
+    try:
+        rec = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(rec, dict) or not str(rec.get("schema") or "").startswith("comparator-receipt/"):
+        return None
+    from .comparator_receipt import raw_host_problem
+    if raw_host_problem(rec) is None:
+        return None
+    host = str(rec["host"]).strip()
+    if sc.allowed(_RECEIPT_HOST_PAT, host, sc.active(rel)[1]):
+        return None
+    line = next((n for n, ln in enumerate(text.splitlines(), 1) if '"host"' in ln), None)
+    return line, (f'"host": "{REDACTED}": a comparator receipt naming its host (no host_label); the same name is '
+                  f'in job_id and host_policy')
+
+
 def _scan_bytes(sc: Scanner, data: bytes, size: int, where: str, rel: str, hits: list[dict],
                 skipped: list[dict], commit=None, commit_of=None) -> None:
     """Scan one file's or blob's bytes (data: at most MAX_SCAN_BYTES of its `size` bytes). commit_of():
     the commit to label history hits with, computed only when there is one."""
     text, binary = decode_blob(data)
+    rh = None if binary else receipt_host_hit(sc, text, rel)
+    if rh is not None:
+        if commit is None and commit_of is not None:
+            commit = commit_of()
+        hits.append(_hit(sc, where, rel, rh[0], RECEIPT_HOST, "builtin", rh[1], commit))
     found = sc.scan_text(text, rel)
     if found and commit_of is not None:
         commit = commit_of()

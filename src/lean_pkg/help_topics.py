@@ -48,6 +48,10 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("LEAN_PKG_DEBUG",
          "1/true/yes/on: print the Python traceback of an internal error on stderr",
          "off (a one-line `internal error: ...`)"),
+        ("LEAN_PKG_NO_ALIAS_NOTE",
+         "1/true/yes/on: no `note: 'lean-pkg OLD' is now 'lean-pkg NEW'` line on stderr when an old spelling "
+         "is used (old spellings are permanent aliases; --json never prints the note)",
+         "off (one note per old spelling used, text mode only)"),
         ("LEAN_PKG_NOTIFY_CMD",
          "command run (split shell-style, no shell) with a notification on stdin when `promote --yes` "
          "makes a package public",
@@ -84,7 +88,8 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
     ]),
     ("COMPARATOR-RECEIPT", [
         ("COMPARATOR_RECEIPT_ALLOWED_HOSTS",
-         "comma-separated host names allowed to run outside Slurm (host policy, recorded in host_policy)",
+         "comma-separated host names or labels allowed to run outside Slurm (host policy, recorded in "
+         "host_policy by the label)",
          "none (only a Slurm job may run)"),
         ("COMPARATOR_RECEIPT_ALLOW_HOST",
          "1: allow this host whatever its name (an override, visible in the receipt's host_policy)",
@@ -93,8 +98,8 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
          "inside a Slurm job: the host policy allows the run and the receipt's job_id is this value",
          "job_id local-<host>-<pid>-<time>"),
         ("COMPARATOR_RECEIPT_HOST_LABEL",
-         "label that replaces the host name in the receipt and in the runner's output",
-         "the host name"),
+         "label that names the host in the receipt and in the runner's output (the host name never does)",
+         "h- + 12 hex of the SHA-256 of the lower-cased host name"),
         ("COMPARATOR_CHECK",
          "comparator-check.sh to run; --check wins",
          "the copy shipped inside the lean_pkg package"),
@@ -395,7 +400,15 @@ lean-pkg has no --jq flag; pipe --json into jq:
 
 # --------------------------------------------------------------------------
 
+def _command_tree_text(name: str) -> str:
+    from . import command_tree
+    return command_tree.newcomer_text() if name == "start" else command_tree.aliases_text()
+
+
 TOPICS: dict[str, tuple[str, object]] = {
+    "start": ("New here: the five verbs and the two product tracks",
+              lambda: _command_tree_text("start")),
+    "aliases": ("Old command and flag spellings: permanent aliases", lambda: _command_tree_text("aliases")),
     "environment": ("Environment variables lean-pkg, comparator-receipt and lean-exercise read",
                     _render_environment),
     "exit-codes": ("Exit codes, and what 1 means for the commands that answer yes or no", lambda: EXIT_CODES),

@@ -718,6 +718,94 @@ unit, the invocation, the host, the result, the runtime, CPU time, memory
 peak and the caps, and a `- Unit properties:` line names the file and its
 SHA-256.
 
+**The producer (`--run`).** A `--run` lives as long as the verification,
+hours for a large package, and writes the receipt only at the end. Before
+it starts the unit, lean-pkg fingerprints itself: the SHA-256 of every file
+of the imported `lean_pkg` package directory (its Python sources and the
+scripts, schemas and templates it ships; `__pycache__/` and `*.pyc` are
+skipped), of the installed distribution's `*.dist-info` files (`RECORD`,
+`METADATA`, `direct_url.json`, `entry_points.txt`) when it is the one the
+package was imported from, of the Python interpreter and of the entry-point
+script. It checks the fingerprint again about once a minute while it waits
+(the first change prints a `WARN` naming the files and saying the receipt
+will be refused; the unit keeps running) and always at final collection,
+before anything is written: any entry added, removed or changed refuses,
+naming it:
+
+```text
+✗ lean-pkg itself changed during the run: 1 file(s) of the running lean-pkg differ from the run start:
+  lean_pkg/receipt_check.py; the receipt would be written by other code than the one that started the run. ...
+```
+
+A change outside the package directory (the rest of an editable checkout:
+README, tests, `.git/`) does not count. A passing run seals what produced
+it into the receipt as the additive key `producer`, which `gate` and
+`receipt check` ignore (an older lean-pkg reads such a receipt unchanged,
+so this is no schema change):
+
+```json
+"producer": {"lean_pkg": "0.11.0", "install": "installed", "commit": null, "dirty": null,
+             "sources_sha256": "<64 hex>", "source_files": 57, "python": "3.13.1"}
+```
+
+`install` is what `lean-pkg --version` detects (`editable`, `installed` or
+`unknown`); `commit` and `dirty` are the editable checkout's HEAD and
+whether a tracked file differed, both as of the run start; no path is
+written. The README entry gains a `- Producer:` line. `sources_sha256` can
+be recomputed from any install of the same release:
+
+```bash
+cd "$(python3 -c 'import lean_pkg, os; print(os.path.dirname(lean_pkg.__file__))')" &&
+  find . -type f ! -path '*/__pycache__/*' ! -name '*.pyc' | sed 's|^\./||' | LC_ALL=C sort |
+  xargs -d '\n' sha256sum | sha256sum
+```
+
+The forms without `--run` (`receipt slurm`, `receipt systemd --unit` or
+`--properties-file`) only post-process evidence lean-pkg did not run, in
+seconds, and carry no `producer` key.
+
+### Long runs: freeze the producer
+
+Run a long `receipt local --run` from a lean-pkg nobody else updates while
+it runs. A shared editable checkout (`pip install -e` of a clone other
+agents `git pull` in) moves under a running job: the field report that led
+to the check above lost a capped full run when such a checkout went from
+0.9.0 to 0.10.0 mid-run. Hashing only the version string or the
+`lean-pkg` entry-point script would have missed it: the version changes only
+at a release, and the entry point is a short wrapper that imports the package;
+what moved was the package's internal sources.
+
+- **Install from a tag, per run or per release.** Install with pipx or
+  into a venv of its own, and call that install's `lean-pkg` by its full
+  path in the job. Install a new tag next to the old one rather than
+  upgrading in place under a running job:
+
+  ```bash
+  pipx install "git+https://github.com/lean-pkg/lean-pkg.git@vX.Y.Z"
+  # or a venv per release
+  python3 -m venv /opt/lean-pkg-X.Y.Z
+  /opt/lean-pkg-X.Y.Z/bin/pip install "git+https://github.com/lean-pkg/lean-pkg.git@vX.Y.Z"
+  ```
+
+- **Never a shared editable checkout for a long run.** If you must run from
+  a checkout, use a private `git worktree` at a tag that only this job uses.
+- **Check before you start.** `lean-pkg --version` prints
+  `lean-pkg X.Y.Z (installed <dir>)` for a frozen install and
+  `lean-pkg X.Y.Z (<sha>[+dirty], editable <checkout>)` for an editable
+  one; `lean-pkg doctor` shows the same and how far the checkout is behind.
+- **Your own guard, if you keep one.** A manifest of the producer's files
+  hashed before and after the run is a good second check; hash the package
+  directory's files (as above), not only the version or the entry point.
+  When the manifest covers a git checkout, inspect it with
+  `git --no-optional-locks status` (or set `GIT_OPTIONAL_LOCKS=0`): a plain
+  `git status` refreshes the stat cache in `.git/index` and rewrites the
+  file (always so in a copied checkout, whose files' inodes and change
+  times differ from those the index records), so an index hashed before it
+  is changed by the check itself. Byte-compare such a file before and after
+  a git command when in doubt. `lean-pkg --version`, `doctor` and the
+  producer fingerprint probe an editable checkout with
+  `--no-optional-locks`.
+
 ## Comparator receipt schema (`comparator-receipt/2`; `/1` still validates)
 
 | Field | Rule |
@@ -727,8 +815,9 @@ SHA-256.
 | `commit` | equals the lower-tier receipt commit; HEAD, or HEAD is an evidence-only descendant |
 | `lean_toolchain` | equals the `lean-toolchain` file committed at `commit` |
 | `tools` | legacy: `comparator`, `lean4export`, `nanoda`, `landrun` as 40-hex commits; toolchain: `lean_toolchain` and the 64-hex sha256 of `lake`, `leanexport`, `leanchecker`, `nanoda_bin`, `con-ron` |
-| `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601 |
-| `host_policy` | the runner's host-policy reason (an override run is visible here) |
+| `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601. `host`, and the host in `job_id` (`local-<host>-<pid>-<stamp>` outside Slurm), is the host's label, never its name: `h-` and 12 hex digits of the SHA-256 of the lower-cased host name (the label `receipt systemd` uses) or the runner's `--host-label`; a receipt written by lean-pkg 0.10.0 or earlier may name the host itself (still valid; `public-safety` reports it as `receipt-raw-host`, see [Comparator](comparator.md#host-policy)) |
+| `host_label` | the label in `host` (always written since host labels; before, only with `--host-label`); not validated |
+| `host_policy` | the runner's host-policy reason (an override run is visible here), naming the host by its label |
 | `stack_limit` | optional, additive, not validated: `{soft_kb, hard_kb, source}`, the soft stack limit the runner's `lake`/`lean` children ran under (`soft_kb`/`hard_kb` an integer or `unlimited`; `source` `inherited` or `COMPARATOR_RECEIPT_STACK`); see [Comparator](comparator.md#stages-and---prepare) |
 | `lean_threads` | optional, additive, not validated: the `LEAN_NUM_THREADS` the runner gave its `lake`/`lean` children (`COMPARATOR_RECEIPT_LEAN_THREADS`), or `null` when unset; see [Comparator](comparator.md#stages-and---prepare) |
 | `judges`, `unit_size` | optional, additive, not validated (toolchain mechanism): the judge pool width (`--judges`, `LEAN_PKG_COMPARATOR_JOBS`) and the names per judge unit (`--unit-size`, `LEAN_PKG_COMPARATOR_UNIT_SIZE`), `unit_size` `null` when each configuration was cut into `judges` shards (the default); see [Comparator](comparator.md#stages-and---prepare) |

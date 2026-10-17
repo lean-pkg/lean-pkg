@@ -1705,7 +1705,7 @@ def lease_expires_label(lease: dict | None, now: dt.datetime) -> str:
 
 
 LEASE_WARN_HOURS = 2    # doctor warns about leases that lapse within this window
-COMMAND_ALIASES = {"lease": "claim"}   # the registry's own word for what claim takes (field report)
+# Old command and flag spellings (claim, lease NAME, init, --track, ...) are permanent aliases: command_tree.
 # Commands that act on a lease themselves, or print its state, get no lapse warning (lease_warning).
 LEASE_WARNING_SKIP = {"claim", "renew", "release", "leases", "audit", "status", "new"}
 
@@ -6575,7 +6575,8 @@ lean_toolchain  MUST equal the lean-toolchain file committed at `commit`, stripp
 tools           legacy: {comparator, lean4export, nanoda, landrun}: 40-hex commits actually used
                 toolchain: {lean_toolchain, lake_sha256, leanexport_sha256, leanchecker_sha256, nanoda_bin_sha256, con-ron_sha256}:
                 64-hex sha256 of the judging binaries under `lean --print-prefix`/bin
-host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>); generated_at MUST parse as ISO-8601
+host, job_id, generated_at   nonempty (Slurm job id, or local-<host>-<pid>-<utc-stamp>); generated_at MUST parse as ISO-8601; host (and <host>) is the host's label, never its name: h- + 12 hex of the SHA-256 of the lower-cased host name, or --host-label (a receipt by lean-pkg 0.10.0 or earlier may name the host: still valid; public-safety reports them as receipt-raw-host)
+host_label      optional, not validated: the label in host (always written since host labels)
 host_policy     optional; the runner's host-policy reason (an override run is visible here); stack_limit optional, not validated: {soft_kb, hard_kb, source} the lake/lean children ran under (COMPARATOR_RECEIPT_STACK=unlimited|<kB> raises it; WARN at <= 8 MiB); build_provenance optional, not validated: {compiled, modules_built, prebuilt, source} whether the build stage compiled any of the package's oleans or found them prebuilt (source: COMPARATOR_RECEIPT_BUILD_SOURCE, redacted); comparator --check and gate --check print it; lean_threads optional, not validated: N or null, the LEAN_NUM_THREADS given to the lake/lean children (COMPARATOR_RECEIPT_LEAN_THREADS=N); olean_manifest optional, not validated: {schema olean-manifest/1, files, sha256, lean_toolchain, lake_manifest_sha256, captured} the digest of the sorted `<path> <size> <sha256>` lines of the package's own compiled modules under .lake/build/lib (comparator-stages/03-build.oleans.sha256), recorded after setup and rechecked by the runner before and after the comparison (a difference fails the stage, nothing written; it also keys the slot cache); `comparator-receipt --verify-oleans [DIR] [--json]` is the read-only check (exit 0 same, 1 different/none recorded)
 test_only, partial  if present and true (a test-only override; a --slots subset run) the receipt is REFUSED
 result          "pass" (the runner writes a receipt only on PASS)
@@ -6686,7 +6687,8 @@ def _subparsers_action(parser):
 def help_index(root) -> str:
     """`lean-pkg help` with no argument: the commands and the help topics, gh-style."""
     from . import help_topics
-    out = [root.description or "", "", "USAGE", "  lean-pkg [global flags] <command> [flags]",
+    out = [root.description or "", "", "New here? `lean-pkg help start`: the five verbs and the two product tracks.",
+           "", "USAGE", "  lean-pkg [global flags] <command> [flags]",
            "  lean-pkg help <command> | <topic>", "", "COMMANDS"]
     rows = [(a.dest, a.help or "") for a in _subparsers_action(root)._choices_actions]
     width = max(len(n) for n, _ in rows) + 2
@@ -6704,20 +6706,17 @@ def help_index(root) -> str:
 
 
 def help_command_parser(root, words: list[str]):
-    """The parser `help WORDS...` names: a command, or a nested one (`help index add`). comparator's verbs
-    (`comparator config`, `comparator host-check`) are positionals of `comparator`, so its help covers them.
-    Anything else is a usage error naming what exists."""
+    """The parser `help WORDS...` names: a command, or a nested one (`help index add`, `help lease claim`); an
+    old spelling names its canonical command (`help claim` is `help lease claim`). Anything else is a usage
+    error naming what exists."""
+    from . import command_tree
+    words, _hits = command_tree.rewrite_words(words, implied=False)
     parser, path = root, ["lean-pkg"]
-    for i, word in enumerate(words):
+    for word in words:
         action = _subparsers_action(parser)
         if action is None:
-            if path == ["lean-pkg", "comparator"] and word in (HOST_CHECK, CONFIG_CMD) and i == len(words) - 1:
-                return parser
-            if path == ["lean-pkg", "formalization"] and word == "anchor" and i == len(words) - 1:
-                return parser
             raise UsageError(f"help: `{' '.join(path[1:])}` has no subcommand {word!r}; "
                              f"see `lean-pkg help {' '.join(path[1:])}`")
-        word = COMMAND_ALIASES.get(word, word) if parser is root else word
         if word not in action.choices:
             if parser is root:
                 from . import help_topics
@@ -7906,7 +7905,8 @@ def install_detect(d: pathlib.Path) -> dict:
         info["install"] = "installed"   # not tracked: e.g. site-packages that sit inside a checkout
         return info
     root = pathlib.Path(top.stdout.strip())
-    st = registry_git(root, "status", "--porcelain", "--untracked-files=no")
+    # --no-optional-locks: a read-only probe must not refresh (rewrite) the checkout's .git/index
+    st = registry_git(root, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
     info.update(install="editable", path=str(root),
                 commit=registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?",
                 dirty=bool(st.stdout.strip()) if st.returncode == 0 else None)
@@ -8178,11 +8178,52 @@ class _Parser(argparse.ArgumentParser):
     {ok: false, error, usage: true} on stdout; the stderr usage text and exit 2 are unchanged.
     Subparsers inherit the class."""
     json_requested = False
+    alias_root = False   # the root parser: rewrite old spellings to canonical ones first (command_tree)
+    alias_hits: list = []
+
+    def parse_known_args(self, args=None, namespace=None):
+        if self.alias_root:
+            from . import command_tree
+            args, self.alias_hits = command_tree.rewrite_argv(list(sys.argv[1:] if args is None else args))
+        return super().parse_known_args(args, namespace)
 
     def error(self, message):
         if _Parser.json_requested:
             print_json({"ok": False, "error": f"{self.prog}: {message}", "usage": True})
         super().error(message)
+
+
+def _hidden_copies(target, *sources) -> None:
+    """Give target every option of sources it lacks, hidden from its help (help=SUPPRESS). A form split out
+    of one parser (`comparator config`, `formalization anchor`) then parses any old argv exactly as before:
+    a flag of another form still reaches the command, which refuses it with the message naming the right
+    form, as it always did."""
+    import copy
+    for src in sources:
+        for a in src._actions:
+            if not a.option_strings or isinstance(a, argparse._HelpAction):
+                continue
+            if any(o in target._option_string_actions for o in a.option_strings) \
+                    or any(b.dest == a.dest for b in target._actions):
+                continue
+            b = copy.copy(a)
+            b.option_strings = list(a.option_strings)
+            b.help = argparse.SUPPRESS
+            target._add_action(b)
+        target.set_defaults(**{k: v for k, v in _defaults_except(src, target).items()})
+
+
+def _defaults_except(source, target) -> dict:
+    """source's argument defaults for every dest target does not define: a form split out of a command parses
+    to the namespace that command produced (`repo move` = `update --path`, `comparator config` = the old
+    keyword form)."""
+    own = {a.dest for a in target._actions}
+    out = {}
+    for a in source._actions:
+        if a.dest in own or a.dest in out or a.default is argparse.SUPPRESS or isinstance(a, argparse._HelpAction):
+            continue
+        out[a.dest] = a.default
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -8192,7 +8233,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = _Parser(
         prog="lean-pkg",
         description="Lean 4 package registry: board, leases, trust gate, "
-                    "promotion")
+                    "promotion",
+        epilog="New here? `lean-pkg help start`: the five verbs (new, verify, status, page, publish) and the two "
+               "product tracks. Old spellings (claim, init, audit, ...) keep working: `lean-pkg help aliases`.")
     ap.add_argument("--registry", default=None,
                     help=f"registry yaml (default: ${REGISTRY_ENV}, else "
                          f"~/.lean-pkg/registry, else ./{DEFAULT_REGISTRY_NAME})")
@@ -8245,7 +8288,14 @@ def main(argv: list[str] | None = None) -> int:
                         "`fields` list, text prints the selected keys of each package as YAML")
     no_claims_help = ("drop the bulk cached arrays (" + ", ".join(BULK_FIELDS) + "; the [bulk] keys below) from "
                       "each package record; every other key unchanged; --json adds an `omitted` list")
-    s = sub.add_parser("board", help="curses TUI on a tty; static table otherwise",
+    # 1.0 command tree (docs/design/1.0-command-tree.md): coordination and maintenance commands live under
+    # nouns; each keeps its pre-1.0 `cmd` (set_defaults) so every predicate below is unchanged, and its old
+    # top-level spelling is a permanent alias (command_tree.COMMAND_ALIASES).
+    s = sub.add_parser("registry", help="the registry file itself: init, migrate, validate, audit, board, wiki "
+                                        "(the old top-level spellings keep working)")
+    registry_sub = s.add_subparsers(dest="registry_cmd", required=True,
+                                    metavar="{board,init,migrate,validate,audit,wiki}")
+    s = registry_sub.add_parser("board", help="curses TUI on a tty; static table otherwise",
                        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=package_fields_help())
     s.add_argument("--only", metavar="NAME[,NAME]", default=None,
                    help=only_help + "; never opens the TUI")
@@ -8253,7 +8303,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--no-claims", dest="no_claims", action="store_true",
                    help=no_claims_help + "; never opens the TUI")
     add_json(s)
-    s.set_defaults(fn=cmd_board)
+    s.set_defaults(fn=cmd_board, cmd="board")
     s = sub.add_parser("list", help="static table, pipe-friendly",
                        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=package_fields_help())
     s.add_argument("--only", metavar="NAME[,NAME]", default=None, help=only_help)
@@ -8280,16 +8330,16 @@ def main(argv: list[str] | None = None) -> int:
     from . import scaffold as scaffold_mod   # `new`: placed beside `init`, the other way to start
     scaffold_mod.add_parsers(sub, add_json)
 
-    s = sub.add_parser("init", help="bootstrap an empty registry and its event log")
+    s = registry_sub.add_parser("init", help="bootstrap an empty registry and its event log")
     s.add_argument("--force", action="store_true",
                    help="re-create only if the existing registry is empty")
     add_json(s)
-    s.set_defaults(fn=cmd_init)
+    s.set_defaults(fn=cmd_init, cmd="init")
 
-    s = sub.add_parser("migrate", help="upgrade the registry schema in place (additive; idempotent)")
+    s = registry_sub.add_parser("migrate", help="upgrade the registry schema in place (additive; idempotent)")
     s.add_argument("--dry-run", action="store_true", help="print the changes; write nothing")
     add_json(s)
-    s.set_defaults(fn=cmd_migrate)
+    s.set_defaults(fn=cmd_migrate, cmd="migrate")
 
     s = sub.add_parser("record", help="record a publication evidence event (consent, Palomar, DOI, Reservoir, Mathlib PR)")
     s.add_argument("name")
@@ -8298,7 +8348,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--field", action="append", metavar="KEY=VALUE",
                    help="event field (repeatable); required keys per event are listed by `lean-pkg llms`")
     s.add_argument("--reason", default="", help="free-text reason stored with the event")
-    s.add_argument("--track", choices=TRACKS, default=None,
+    s.add_argument("--doi-track", dest="track", choices=TRACKS, default=None,
                    help="doi-minted only: the DOI track for this event (default: the record's track, else palomar); "
                         "doi-only skips rule doi-in-palomar for a public package")
     s.add_argument("--agent", default=None,
@@ -8309,7 +8359,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("register", help="the ONLY write path for new packages: "
                                         "validated, deduping, auto-detecting")
     s.add_argument("name")
-    s.add_argument("--repo", default=None, help="git URL (or local bare path); required unless --like gives it")
+    s.add_argument("--url", dest="repo", metavar="URL", default=None,
+                   help="git URL (or local bare path); required unless --like gives it")
     s.add_argument("--path", required=True,
                    help="local checkout path, $HOME-relative")
     s.add_argument("--like", default=None, metavar="OTHER",
@@ -8335,7 +8386,10 @@ def main(argv: list[str] | None = None) -> int:
     add_json(s)
     s.set_defaults(fn=cmd_register)
 
-    s = sub.add_parser("claim", aliases=["lease"], help="CAS lease on a package (24h default TTL); alias: lease")
+    s = sub.add_parser("lease", help="leases for agents sharing a registry: claim, renew, release, list (the old "
+                                     "spellings claim, renew, release, leases keep working)")
+    lease_sub = s.add_subparsers(dest="lease_cmd", required=True, metavar="{claim,renew,release,list}")
+    s = lease_sub.add_parser("claim", help="CAS lease on a package (24h default TTL)")
     s.add_argument("name")
     s.add_argument("--workspace", required=True)
     s.add_argument("--agent", required=True)
@@ -8350,9 +8404,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--force", action="store_true",
                    help="override a live lease; requires --reason")
     add_json(s)
-    s.set_defaults(fn=cmd_claim)
+    s.set_defaults(fn=cmd_claim, cmd="claim")
 
-    s = sub.add_parser("release", help="release a lease (holder-only unless --force); with --fresh-repo DIR: "
+    s = lease_sub.add_parser("release", help="release a lease (holder-only unless --force); with --fresh-repo DIR: "
                                        "export the gated tree (or --from-tree SRCDIR) as a new single-commit "
                                        "repository and move the package there; with --adopt-repo DIR: adopt "
                                        "an existing one")
@@ -8384,9 +8438,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dry-run", action="store_true",
                    help="with --fresh-repo or --adopt-repo: stage and scan, print the plan; nothing written")
     add_json(s)
-    s.set_defaults(fn=cmd_release)
+    s.set_defaults(fn=cmd_release, cmd="release")
 
-    s = sub.add_parser("renew", help="restart your own live lease from now (holder-only; refuses once it "
+    s = lease_sub.add_parser("renew", help="restart your own live lease from now (holder-only; refuses once it "
                                      "has lapsed: claim again)")
     s.add_argument("name")
     s.add_argument("--agent", required=True)
@@ -8401,14 +8455,14 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--no-contact", action="store_true",
                    help="clear the lease's contact while renewing (not with --contact)")
     add_json(s)
-    s.set_defaults(fn=cmd_renew)
+    s.set_defaults(fn=cmd_renew, cmd="renew")
 
-    s = sub.add_parser("leases", help="held leases, soonest expiry first; read-only")
+    s = lease_sub.add_parser("list", help="held leases, soonest expiry first; read-only")
     s.add_argument("--agent", default=None, help="only leases held by this agent")
     s.add_argument("--expiring", type=nonneg_hours, default=None, metavar="HOURS",
                    help="only leases that lapse within HOURS (or have already lapsed)")
     add_json(s)
-    s.set_defaults(fn=cmd_leases)
+    s.set_defaults(fn=cmd_leases, cmd="leases")
 
     s = sub.add_parser("update", help="set fields of an already-registered "
                                       "package (register is for NEW ones)")
@@ -8421,7 +8475,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="with --notes: replace non-empty notes (the old text stays in history as notes_from)")
     s.add_argument("--upstream-target", dest="upstream_target",
                    choices=UPSTREAM_TARGETS)
-    s.add_argument("--track", choices=TRACKS, default=None,
+    s.add_argument("--doi-track", dest="track", choices=TRACKS, default=None,
                    help="the DOI track (needs --reason): doi-only lets a public package record doi-minted "
                         "without a palomar-* event; palomar (the default when absent) keeps rule doi-in-palomar")
     g = s.add_mutually_exclusive_group()
@@ -8441,7 +8495,7 @@ def main(argv: list[str] | None = None) -> int:
                         "basename), replacing the recorded list; '' clears it")
     s.add_argument("--reaudit-after", dest="reaudit_after", metavar="ISO8601")
     s.add_argument("--owner-project", dest="owner_project")
-    s.add_argument("--repo", help="remote URL (e.g. after publishing a private dep)")
+    s.add_argument("--url", dest="repo", metavar="URL", help="remote URL (e.g. after publishing a private dep)")
     s.add_argument("--license-spdx", dest="license_spdx", metavar="SPDX",
                    help="the package's license as an SPDX id or expression, e.g. 'MIT OR Apache-2.0' (what the index and Reservoir expect)")
     s.add_argument("--formalization-yaml", dest="formalization_yaml", metavar="REL",
@@ -8505,6 +8559,24 @@ def main(argv: list[str] | None = None) -> int:
                         "changes, write nothing")
     add_json(s)
     s.set_defaults(fn=cmd_update)
+    update_parser = s
+
+    s = sub.add_parser("repo", help="the package's checkout: move (relocate the record to another checkout)")
+    repo_sub = s.add_subparsers(dest="repo_cmd", required=True, metavar="{move}")
+    s = repo_sub.add_parser("move", help="relocate: point the record at another checkout, keeping name, history "
+                                         "and claims (the same as `update NAME --path PATH`)")
+    s.add_argument("name")
+    s.add_argument("path", metavar="HOME-RELATIVE",
+                   help="the new checkout (event relocated; commit-bound evidence not bound to the new HEAD is "
+                        "cleared)")
+    s.add_argument("--reason", default="", help="required")
+    s.add_argument("--agent", default=None, help="lease holder, if one is live")
+    s.add_argument("--force", action="store_true",
+                   help="override a live lease held by another agent; needs --reason")
+    s.add_argument("--dry-run", dest="dry_run", action="store_true",
+                   help="print the would-be changes, write nothing")
+    add_json(s)
+    s.set_defaults(**_defaults_except(update_parser, s), fn=cmd_update, cmd="update")
 
     s = sub.add_parser("gate", help="validate a lower-tier receipt; "
                                     "gate-pending -> verified-private; records the receipt's "
@@ -8545,11 +8617,17 @@ def main(argv: list[str] | None = None) -> int:
     add_json(s)
     s.set_defaults(fn=cmd_gate)
 
-    s = sub.add_parser("comparator", help="attach a comparator receipt to a gated "
-                                          "package; no status change")
+    # `comparator attach|config|host-check`: real subparsers, each with only its flags (config and host-check
+    # were values of a positional before 1.0). Each sets `name` as the positional did and the other forms' flags
+    # to their defaults, so cmd_comparator sees the namespace it always saw; `comparator NAME ...` is
+    # `comparator attach NAME ...` (command_tree.IMPLIED_VERBS).
+    s = sub.add_parser("comparator", help="comparator receipts: attach (or --check) one to a gated package; "
+                                          "config (write a configuration from claims); host-check")
+    comparator_sub = s.add_subparsers(dest="comparator_cmd", required=True, metavar="{attach,config,host-check}")
+    s = comparator_sub.add_parser("attach", help="attach a comparator receipt to a gated package; no status change "
+                                                 "(`comparator NAME --receipt R` is the same)")
     s.add_argument("name")
-    s.add_argument("--receipt", default=None, help="path to comparator receipt JSON (required, except for "
-                                                   "`comparator host-check`)")
+    s.add_argument("--receipt", default=None, help="path to comparator receipt JSON (required)")
     s.add_argument("--check", action="store_true",
                    help="validate only; record nothing (works at any status)")
     s.add_argument("--refuse-private", action="store_true",
@@ -8561,64 +8639,74 @@ def main(argv: list[str] | None = None) -> int:
                    help="when .lean-receipts/ already holds a different comparator receipt for the same commit: "
                         "keep it as <c12>-comparator.replaced-<UTC stamp>.json, attach the new one, record "
                         "comparator-replaced")
-    s.add_argument("--from-claims", default=None, metavar="NAME",
-                   help="`comparator config --from-claims NAME`: add a TODO theorem_names entry per synced "
-                        "claim (theorem/lemma) no comparator configuration covers yet; never overwrites")
-    s.add_argument("--coverage", default=None, metavar="NAME",
-                   help="`comparator config --coverage NAME`: read-only; claims covered by the comparator config "
-                        "tracked at the gate-bound commit, and why a changed config needs a new gate")
-    s.add_argument("--migrate-signoff", dest="migrate_signoff", default=None, metavar="PATH",
-                   help="`comparator config --migrate-signoff PATH`: move the deprecated inline judged_as / "
-                        "lean_pkg_scaffold keys of that configuration into lean-pkg-signoff.json (dry run unless "
-                        "--write); the Palomar keys are unchanged, the file's bytes (and so its receipt hash) change")
-    s.add_argument("--write", action="store_true", help="with config --migrate-signoff: write both files")
-    s.add_argument("--out", default=None, help="with config: the configuration to extend or create "
-                                               "(default comparator.json)")
-    s.add_argument("--dry-run", action="store_true", help="with config: print the would-be JSON; write nothing")
-    s.add_argument("--challenge-namespace", default=None,
-                   help="with config: namespace of the new Challenge names (default <Package>Audit)")
     s.add_argument("--agent", default=None, help="the agent acting (recorded as the event's actor; another "
-                                                  "agent's live lease then refuses); with config: lease holder, "
-                                                  "if one is live")
+                                                  "agent's live lease then refuses)")
+    s.add_argument("--repo", default=None, metavar="DIR",
+                   help="with --check only: validate against the checkout DIR instead of the registered "
+                        "local_path, for this call (never saved; JSON repo_override). DIR must be a git work "
+                        "tree, and when it has remotes one must be the package's repo. Attaching refuses it: "
+                        "it binds the registered checkout (move that with `repo move`)")
+    add_json(s)
+    attach = s
+    s = comparator_sub.add_parser("config", help="write a comparator configuration from claims (--from-claims), "
+                                                 "report its coverage (--coverage), or move inline sign-off keys "
+                                                 "(--migrate-signoff)")
+    s.add_argument("--from-claims", default=None, metavar="NAME",
+                   help="add a TODO theorem_names entry per synced claim (theorem/lemma) no comparator "
+                        "configuration covers yet; never overwrites")
+    s.add_argument("--coverage", default=None, metavar="NAME",
+                   help="read-only; claims covered by the comparator config tracked at the gate-bound commit, "
+                        "and why a changed config needs a new gate")
+    s.add_argument("--migrate-signoff", dest="migrate_signoff", default=None, metavar="PATH",
+                   help="move the deprecated inline judged_as / lean_pkg_scaffold keys of that configuration into "
+                        "lean-pkg-signoff.json (dry run unless --write); the Palomar keys are unchanged, the file's "
+                        "bytes (and so its receipt hash) change")
+    s.add_argument("--write", action="store_true", help="with --migrate-signoff: write both files")
+    s.add_argument("--out", default=None, help="the configuration to extend or create (default comparator.json)")
+    s.add_argument("--dry-run", action="store_true", help="print the would-be JSON; write nothing")
+    s.add_argument("--challenge-namespace", default=None,
+                   help="namespace of the new Challenge names (default <Package>Audit)")
+    s.add_argument("--agent", default=None, help="lease holder, if one is live")
     s.add_argument("--challenge-from-type", action="store_true",
-                   help="with config: pre-fill each new Challenge/Solution from the declaration's elaborated "
+                   help="pre-fill each new Challenge/Solution from the declaration's elaborated "
                         "type (runs `lake env lean` in the checkout)")
     s.add_argument("--emit-script", default=None, metavar="F",
-                   help="with config: write the type driver to F (run it elsewhere: cd CHECKOUT && bash F OUT.json); "
+                   help="write the type driver to F (run it elsewhere: cd CHECKOUT && bash F OUT.json); "
                         "no Lean runs here")
     s.add_argument("--from-output", default=None, metavar="F",
-                   help="with config: fill the scaffold from the driver's comparator-types/1 JSON F")
-    s.add_argument("--checkout", default=None, metavar="DIR",
-                   help="with config --from-claims: use this package checkout instead of the registry's "
+                   help="fill the scaffold from the driver's comparator-types/1 JSON F")
+    s.add_argument("--repo", dest="checkout", default=None, metavar="DIR",
+                   help="with --from-claims: use this package checkout instead of the registry's "
                         "local_path (HEAD must be the claims-synced commit or an evidence-only descendant)")
     s.add_argument("--claims-file", dest="claims_file", default=None, metavar="PATH",
-                   help="with config --from-claims: read the claims from this working-copy claims.yaml instead of "
+                   help="with --from-claims: read the claims from this working-copy claims.yaml instead of "
                         "the registry's synced cache (no `claims sync` needed); schema-checked exactly like "
                         "`claims check --file`; never written to the registry; the output names the file and "
                         "its sha256")
-    s.add_argument("--repo", default=None, metavar="DIR",
-                   help="with NAME --check only: validate against the checkout DIR instead of the registered "
-                        "local_path, for this call (never saved; JSON repo_override). DIR must be a git work "
-                        "tree, and when it has remotes one must be the package's repo. Attaching refuses it: "
-                        "it binds the registered checkout (move that with `update --path`)")
     s.add_argument("--no-registry", action="store_true",
-                   help="with config --from-output/--challenge-from-type and --out FILE: scratch mode; write "
+                   help="with --from-output/--challenge-from-type and --out FILE: scratch mode; write "
                         "the merged config to FILE outside the checkout, lease not consulted")
     s.add_argument("--allow-partial", action="store_true",
-                   help="with config --from-output/--challenge-from-type: ingest a run with extraction failures "
+                   help="with --from-output/--challenge-from-type: ingest a run with extraction failures "
                         "(the failed entries keep TODO, restatement_reason extraction_failed)")
     s.add_argument("--lake-env", default=None, metavar="DIR",
-                   help="with config types: Lake directory inside the checkout (default: the checkout)")
-    s.add_argument("--jobs", type=int, default=None, help="with config types: parallel Lean processes (default 2, at most the CPUs; halved and retried on too many open files)")
+                   help="with the type flags: Lake directory inside the checkout (default: the checkout)")
+    s.add_argument("--jobs", type=int, default=None, help="with the type flags: parallel Lean processes (default 2, at most the CPUs; halved and retried on too many open files)")
     s.add_argument("--timeout", type=int, default=None,
-                   help="with config types: seconds per declaration (default 120)")
+                   help="with the type flags: seconds per declaration (default 120)")
+    add_json(s)
+    config = s
+    s = comparator_sub.add_parser("host-check", help="can this host run the comparator; read-only")
     s.add_argument("--routes", action="store_true",
-                   help="with host-check: per route (judge = `lake comparator` in bwrap, prepare = setup "
+                   help="per route (judge = `lake comparator` in bwrap, prepare = setup "
                         "stages, transfer = build here, judge elsewhere) supported yes/no with the reason, "
                         "executables (type -P), locale, open-file limits, CPUs, cgroup memory and a command "
                         "line per supported route; read-only; exit 0 when any route is supported")
     add_json(s)
-    s.set_defaults(fn=cmd_comparator)
+    host = s
+    for p, name in ((attach, None), (config, CONFIG_CMD), (host, HOST_CHECK)):
+        _hidden_copies(p, *(q for q in (attach, config, host) if q is not p))
+        p.set_defaults(fn=cmd_comparator, **({"name": name} if name else {}))
 
     s = sub.add_parser("promote", help="promotion checklist; DRY-RUN unless --yes")
     s.add_argument("name")
@@ -8634,8 +8722,8 @@ def main(argv: list[str] | None = None) -> int:
     add_json(s)
     s.set_defaults(fn=cmd_promote)
 
-    s = sub.add_parser("audit", help="report expired leases, gh visibility, drift; read-only without --fix")
-    s.add_argument("--fix", action="store_true",
+    s = registry_sub.add_parser("audit", help="report expired leases, gh visibility, drift; read-only without --write")
+    s.add_argument("--write", dest="fix", action="store_true",
                    help="clear expired leases and update visibility/archive state from gh")
     s.add_argument("--toolchain-floor", default=None, metavar="VERSION",
                    help=f"oldest acceptable lean_toolchain (default: ${TOOLCHAIN_FLOOR_ENV}, "
@@ -8648,11 +8736,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="only the count line (\"N finding(s): W warn, I info\", or \"no findings\"); no "
                         "per-finding line (--json is unchanged)")
     add_json(s)
-    s.set_defaults(fn=cmd_audit)
+    s.set_defaults(fn=cmd_audit, cmd="audit")
 
-    s = sub.add_parser("validate", help="schema + enum + history sanity; exit 0/1")
+    s = registry_sub.add_parser("validate", help="schema + enum + history sanity; exit 0/1")
     add_json(s)
-    s.set_defaults(fn=cmd_validate)
+    s.set_defaults(fn=cmd_validate, cmd="validate")
 
     s = sub.add_parser("doctor", help="installation, registry, index and tool diagnostics; "
                                       "exit 1 when the registry is unreadable or its schema "
@@ -8678,14 +8766,14 @@ def main(argv: list[str] | None = None) -> int:
     add_json(s)
     s.set_defaults(fn=cmd_help, help_root=ap)
 
-    s = sub.add_parser("wiki", help="render a Markdown status page")
+    s = registry_sub.add_parser("wiki", help="render a Markdown status page")
     s.add_argument("--out", default=None,
                    help="write the Markdown here instead of stdout")
     s.add_argument("--candidates", default=None,
                    help="adoption ledger path (default: lean-adoption-candidates.yaml "
                         "next to the registry)")
     add_json(s)
-    s.set_defaults(fn=cmd_wiki)
+    s.set_defaults(fn=cmd_wiki, cmd="wiki")
 
     from . import index as index_mod
     index_mod.add_parsers(sub, add_json)
@@ -8714,26 +8802,65 @@ def main(argv: list[str] | None = None) -> int:
     from . import receipt as receipt_mod
     receipt_mod.add_parsers(sub, add_json)
 
+    from . import command_tree
+    command_tree.apply_flag_aliases(ap)
+    command_tree.register_root(ap)
+    ap.alias_root = True   # old spellings are rewritten to canonical ones before parsing
     ap.set_defaults(fn=cmd_board)
     args = ap.parse_args(argv)
-    if getattr(args, "cmd", None) in COMMAND_ALIASES:   # every later check keys on the canonical name
-        args.cmd = COMMAND_ALIASES[args.cmd]
-    if getattr(args, "show_version", False):   # before the registry lock: --version reads no registry
-        return cmd_version(args)
-    if getattr(args, "cmd", None) == "help":   # reads no registry: never a snapshot, never a lock
-        return run_command(args)
-    snapshot = registry_snapshot_arg(args)
-    if snapshot:   # #34: a historical registry, read-only; no lock (nothing is written)
-        return run_snapshot(args, snapshot)
+    notes = alias_notes(args, raw, ap.alias_hits)
+    args.alias_note_lines = notes   # run_command prints them before its NOT COMMITTED line (always the last)
     try:
-        with write_lock(args):
+        if getattr(args, "show_version", False):   # before the registry lock: --version reads no registry
+            return cmd_version(args)
+        if getattr(args, "cmd", None) == "help":   # reads no registry: never a snapshot, never a lock
             return run_command(args)
-    except Fail as e:   # the lock itself could not be taken
-        _report_fail(args, e)
-        return 1
-    except OSError as e:   # init could not create the registry directory for its lock
-        _report_fail(args, Fail(f"cannot prepare the registry lock: {e}"))
-        return 1
+        if getattr(args, "cmd", None) is None and bare_shows_help(args):   # decision 5 of the 1.0 command tree
+            print(command_tree.newcomer_text(ap), end="")
+            return 0
+        snapshot = registry_snapshot_arg(args)
+        if snapshot:   # #34: a historical registry, read-only; no lock (nothing is written)
+            return run_snapshot(args, snapshot)
+        try:
+            with write_lock(args):
+                return run_command(args)
+        except Fail as e:   # the lock itself could not be taken
+            _report_fail(args, e)
+            return 1
+        except OSError as e:   # init could not create the registry directory for its lock
+            _report_fail(args, Fail(f"cannot prepare the registry lock: {e}"))
+            return 1
+    finally:   # after the command: its own first stderr line (a refusal) stays first
+        flush_alias_notes(args)
+
+
+def alias_notes(args, raw: list[str], hits: list) -> list[str]:
+    """The stderr lines main prints after the command, one per old spelling used (text mode only; LEAN_PKG_NO_ALIAS_NOTE=1 silences it). Old
+    spellings are permanent aliases: the note never changes output, JSON or the exit code."""
+    from . import command_tree
+    if getattr(args, "json_out", False) or not command_tree.notes_enabled():
+        return []
+    hits = list(hits) + command_tree.flag_hits(raw, command_tree.canonical_command(args))
+    return command_tree.note_lines(hits)
+
+
+def flush_alias_notes(args) -> None:
+    for line in getattr(args, "alias_note_lines", None) or []:
+        print(line, file=sys.stderr)
+    args.alias_note_lines = []
+
+
+def bare_shows_help(args) -> bool:
+    """`lean-pkg` with no command: the newcomer page when stdout is not a terminal or no registry exists;
+    otherwise the board, as before 1.0. --json still prints the board's JSON."""
+    if getattr(args, "json_out", False):
+        return False
+    if not board_interactive():
+        return True
+    try:
+        return not registry_path(args).is_file()
+    except (Fail, OSError, ValueError):
+        return True
 
 
 def _report_fail(args, e: Fail) -> None:
@@ -8889,6 +9016,7 @@ def run_command(args) -> int:
     if ctx is not None:
         with _registry_lock_if_present(args):
             rc = commit_finish(ctx, rc)
+    flush_alias_notes(args)
     uncommitted = uncommitted_notice(args) if (mode is None and writes and not registry_snapshot_arg(args)) else None
     if buf is not None:
         _emit_with_commit(buf.getvalue(), ctx, rc_before, rc, uncommitted)

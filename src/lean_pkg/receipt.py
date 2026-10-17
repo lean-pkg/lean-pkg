@@ -1144,7 +1144,8 @@ class Evidence:
     def __init__(self, *, verb: str, job_id: str, refusals: list[str], checks: list[str],
                  executor_lines, default_heading: str, check_log_job_id, json_extra: dict,
                  redactions=DEFAULT_REDACTIONS, redaction_note: str = "per-job paths redacted",
-                 stdout_check=None, evidence_files=(), redact_help: str = "add a --redact REGEX for it"):
+                 stdout_check=None, evidence_files=(), redact_help: str = "add a --redact REGEX for it",
+                 receipt_extra: dict | None = None):
         self.verb, self.job_id = verb, job_id
         self.refusals, self.checks = refusals, checks
         self.executor_lines = executor_lines          # (receipt file name, tar clause) -> list[str]
@@ -1157,6 +1158,7 @@ class Evidence:
         # as `<c12>-<slug>-<suffix>`, its SHA-256 stored under the receipt key
         self.evidence_files = list(evidence_files)
         self.redact_help = redact_help
+        self.receipt_extra = dict(receipt_extra or {})   # additive receipt keys (e.g. `producer`), gate ignores
 
 
 def check_seal(paths: dict, raw: bytes, manifest: bytes | None, c12: str | None, refusals: list[str],
@@ -1348,6 +1350,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     # Additive and informational only (field report): whether the verify log's own `commit:` line names --commit.
     # Gate never reads it: a receipt claiming `true` passes or fails gate exactly as one without the key.
     receipt["log_commit_bound"] = log_commit_bound
+    receipt.update(ev.receipt_extra)
     files = []                     # (path, bytes) of the executor's evidence files
     sealed_files = []              # {role, path, sha256, receipt_key} of each evidence file, for --json
     evidence_lines = []
@@ -1726,7 +1729,7 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--log", default=None, metavar="PATH",
                    help="the job's raw verify log (required unless --template); when it has no `checker:` line, "
                         "--checker TEXT is required")
-    s.add_argument("--commit", dest="commit_sha", default=None, metavar="SHA",
+    s.add_argument("--receipt-commit", dest="commit_sha", default=None, metavar="SHA",
                    help="the verified commit; must exist in --repo; required unless --template or --check")
     s.add_argument("--template", action="store_true",
                    help="print a minimal sbatch wrapper whose .out/.err/log meet every check below (placeholders "

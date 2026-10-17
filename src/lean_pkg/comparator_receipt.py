@@ -20,9 +20,15 @@ comparator-stages/attempts/NNN/ (numbers never reused; never deleted or read bac
 `comparator-receipt --attempts [DIR] [--json]` lists them.
 
 Host policy: the run is allowed iff SLURM_JOB_ID is set (inside a Slurm job),
-OR this host's name is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
+OR this host's name or its label is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
 (comma-separated), OR COMPARATOR_RECEIPT_ALLOW_HOST=1. The reason is recorded
 in the receipt's host_policy field.
+
+Host label: the receipt never names the host. `host`, `host_label`, the host in
+`job_id` and `host_policy` (and in COMPARATOR_RECEIPT_BUILD_SOURCE) are the label: the
+operator's --host-label / COMPARATOR_RECEIPT_HOST_LABEL, else `h-` and 12 hex digits
+of the SHA-256 of the lower-cased host name (receipt_systemd.host_label, the label
+`receipt systemd` publishes).
 
 Env: COMPARATOR_CHECK (script path; default: the comparator-check.sh shipped
 inside the lean_pkg package), COMPARATOR_LAKE (the lake the setup stages run), SLURM_JOB_ID (job identity when under Slurm),
@@ -61,6 +67,7 @@ from . import lake_hygiene as lh  # noqa: E402
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .holes import SIDECAR, check_definition_holes, parse_sidecar  # noqa: E402
 from .comparator_stage import redact, redact_bytes, redact_json, set_redactions  # noqa: E402
+from .receipt_systemd import host_label as hashed_host_label  # noqa: E402
 from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
                                JOBS_ENV, UNIT_SIZE_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, chunks, list_slots, parse_slot_spec, ranges, run_pool, shards, stratified_sample, unit_id, weighted_sample)
 MECHANISMS = ("auto", "toolchain", "legacy")
@@ -393,23 +400,28 @@ ALLOW_HOST_ENV = "COMPARATOR_RECEIPT_ALLOW_HOST"
 
 
 def parse_allowed_hosts(value: str | None) -> set[str]:
-    """Comma-separated host names; blanks and surrounding spaces ignored."""
+    """Comma-separated host names or labels; blanks and surrounding spaces ignored."""
     return {h.strip() for h in (value or "").split(",") if h.strip()}
 
 
 def host_policy_ok(slurm_job: str | None, allow: bool,
                    hostname: str | None = None,
-                   allowed_hosts: set[str] | None = None) -> tuple[bool, str]:
+                   allowed_hosts: set[str] | None = None,
+                   label: str | None = None) -> tuple[bool, str]:
+    """(allowed, reason). An allow-list entry may be the host's name (any case) or its label (the hashed
+    `h-...` label or the operator's --host-label); the reason names the label only, never the name."""
     hostname = hostname or socket.gethostname()
+    label = label or published_host(hostname)
     allowed_hosts = allowed_hosts or set()
     if allow:
         return True, f"allowed by {ALLOW_HOST_ENV}=1"
     if slurm_job:
-        return True, f"Slurm job {slurm_job} on {hostname}"
-    if hostname in allowed_hosts:
-        return True, f"host {hostname} listed in {ALLOWED_HOSTS_ENV}"
-    return False, (f"{hostname} is not an allowed host: run inside a Slurm job "
-                   f"(SLURM_JOB_ID set), list this host in {ALLOWED_HOSTS_ENV} "
+        return True, f"Slurm job {slurm_job} on {label}"
+    names = {hostname.strip().lower(), label, hashed_host_label(hostname)}
+    if any(h.lower() in names or h in names for h in allowed_hosts):
+        return True, f"host {label} listed in {ALLOWED_HOSTS_ENV}"
+    return False, (f"this host ({label}) is not an allowed host: run inside a Slurm job "
+                   f"(SLURM_JOB_ID set), list this host's name or its label {label} in {ALLOWED_HOSTS_ENV} "
                    f"(comma-separated), or set {ALLOW_HOST_ENV}=1 for an "
                    f"explicitly authorized run")
 
@@ -638,14 +650,14 @@ def stack_preexec():
 # `Built` line for its module counts as `restored` (additive key, present when non-zero), and the distinct
 # `Reused` / `Replayed` / `Unpacked` targets with no earlier `Built` line as `cache_reused` (likewise). prebuilt = the stage ran, passed
 # and compiled nothing. COMPARATOR_RECEIPT_BUILD_SOURCE declares where a prebuilt tree came from (free text,
-# redacted).
+# redacted; this host's name in it becomes its label).
 BUILD_SOURCE_ENV = "COMPARATOR_RECEIPT_BUILD_SOURCE"
 BUILT_LINE_RE = re.compile(r"\[\d+/\d+\](?:\s+\(Optional\))?\s+Built\s+([^\s(]+)")
 
 
 def build_source() -> str | None:
     v = (os.environ.get(BUILD_SOURCE_ENV) or "").strip()
-    return redact(v) if v else None
+    return replace_host(redact(v)) if v else None
 
 
 def root_oleans(project: pathlib.Path):
@@ -2108,8 +2120,7 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
             "result": "pass",
             **((config_extra or {}).get(cfg_rel) or {}),
         })
-    label = host_label()
-    host = label or socket.gethostname()
+    host = published_host()          # never the host name (the hashed label unless --host-label)
     now = dt.datetime.now(dt.timezone.utc)
     job = (os.environ.get("SLURM_JOB_ID")
            or f"local-{host}-{os.getpid()}-{now.strftime('%Y%m%dT%H%M%SZ')}")
@@ -2119,9 +2130,9 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
         **({"test_only": True} if os.environ.get(FAKE_LAKE_ENV) is not None else {}), "host_policy": host_policy, "job_id": job,
         "generated_at": now.isoformat(timespec="seconds"),
         "result": "pass", "configs": entries, "stages": stage_summary, **(extra or {}),
-        **({"host_label": label} if label else {}),
+        "host_label": host,
     }
-    receipt = redact_json(receipt)    # #41: <checkout>/, <home>/, <tmp>/ instead of host paths
+    receipt = label_host_fields(redact_json(receipt))   # #41: <checkout>/, <home>/, <tmp>/ instead of host paths
     rec_tmp = tmp / "receipt.json"
     rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     rec_dir = dest if partial else project / ".lean-receipts"
@@ -2161,8 +2172,60 @@ HOST_LABEL_ENV = "COMPARATOR_RECEIPT_HOST_LABEL"
 
 
 def host_label() -> str:
-    """The label that replaces the host name in the receipt and its output (--host-label or the env)."""
+    """The operator's label for this host (--host-label or the env), or "" when none is set."""
     return os.environ.get(HOST_LABEL_ENV, "").strip()
+
+
+HASHED_LABEL_RE = re.compile(r"h-[0-9a-f]{12}")
+
+
+def published_host(hostname: str | None = None) -> str:
+    """The host as every receipt field and output line names it: the operator's label when set, else the
+    hashed label `h-` + 12 hex of the SHA-256 of the lower-cased host name (receipt_systemd.host_label, the
+    same label `receipt systemd` publishes for the same host). The name itself is never written."""
+    return host_label() or hashed_host_label(hostname or socket.gethostname())
+
+
+def host_tokens(hostname: str | None = None) -> list[str]:
+    """This host's name, full and its first label, as replace_host matches them (longest first); the first
+    label only when it is distinctive (lean-pkg receipt's identity rules: 3+ characters, a letter, not a
+    stop word such as `localhost`)."""
+    from .receipt import IDENTITY_MIN_LEN, IDENTITY_STOPWORDS
+    name = (hostname if hostname is not None else socket.gethostname() or "").strip()
+    out = []
+    for v in (name, name.split(".")[0]):
+        if (v and v not in out and len(v) >= IDENTITY_MIN_LEN and v.casefold() not in IDENTITY_STOPWORDS
+                and re.search(r"[A-Za-z]", v)):
+            out.append(v)
+    return out
+
+
+def replace_host(text: str, hostname: str | None = None, label: str | None = None) -> str:
+    """text with this host's name (full or first label, any case, as a whole word) replaced by its label."""
+    label = label or published_host(hostname)
+    for tok in host_tokens(hostname):
+        text = re.sub(r"(?<![A-Za-z0-9_-])" + re.escape(tok) + r"(?![A-Za-z0-9_-])", label, text, flags=re.I)
+    return text
+
+
+# The receipt fields that name where the run happened (build_source() labels the operator's free text).
+HOST_FIELDS = ("host", "host_policy", "job_id")
+
+
+def label_host_fields(receipt: dict) -> dict:
+    """The receipt with this host's name replaced by its label in HOST_FIELDS; other fields (configs,
+    theorem names, hashes) are bound to bytes and never rewritten."""
+    return {k: replace_host(v) if k in HOST_FIELDS and isinstance(v, str) else v for k, v in receipt.items()}
+
+
+def raw_host_problem(rec: dict) -> str | None:
+    """Why a comparator receipt names a raw host (None when it does not): a receipt written before host
+    labels (lean-pkg 0.10.0 and earlier) records socket.gethostname() in `host`, `job_id` and `host_policy`
+    unless its writer gave --host-label (then `host_label` is set). Read-only; old receipts still validate."""
+    host = str(rec.get("host") or "").strip()
+    if not host or rec.get("host_label") or HASHED_LABEL_RE.fullmatch(host):
+        return None
+    return "names its host in `host` (no `host_label`): a receipt written before host labels"
 
 
 def resume_command(argv: list[str]) -> str:
@@ -2319,8 +2382,10 @@ def main(argv: list[str] | None = None) -> int:
                          f"directory); exit 0, or 1 when a kept file changed or went missing; writes nothing")
     ap.add_argument("--json", action="store_true", help="--estimate, --verify-oleans or --attempts: print JSON")
     ap.add_argument("--host-label", default=None, metavar="LABEL",
-                    help=f"name the host LABEL instead of its host name in the receipt (host, host_label, "
-                         f"job_id, host_policy) and the output (env {HOST_LABEL_ENV})")
+                    help=f"name the host LABEL in the receipt (host, host_label, job_id, host_policy) and the "
+                         f"output (env {HOST_LABEL_ENV}); default: h- and 12 hex digits of the SHA-256 of "
+                         f"the lower-cased host name, the label `receipt systemd` uses; the host name itself "
+                         f"is never written")
     args = ap.parse_args(argv)
     if args.host_label is not None:
         if not args.host_label.strip():
@@ -2393,16 +2458,13 @@ def main(argv: list[str] | None = None) -> int:
                              hostname=socket.gethostname(),
                              allowed_hosts=parse_allowed_hosts(
                                  os.environ.get(ALLOWED_HOSTS_ENV)))
+    why = replace_host(why)       # the label replaces the host name everywhere a receipt or its output names it
     if not ok:
         print(f"comparator-receipt: refusing: {why}", file=sys.stderr)
         return 1
     if os.environ.get(FAKE_LAKE_ENV) is None and not args.prepare:   # the host check (#22.5); never a refusal
         hc = host_checks()
         print(f"comparator-receipt: host-check: {hc['verdict']}", file=sys.stderr)
-    label = host_label()
-    if label:
-        # the label replaces the host name everywhere a receipt or its output names the host
-        why = why.replace(socket.gethostname(), label)
     try:
         project = pathlib.Path(args.project).resolve()
         evidence = pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else None

@@ -219,7 +219,10 @@ def _writes(cmd: str, ns) -> str | None:
 
 
 def plan_rerun(tokens: list[str]) -> dict:
-    """{"argv": tokens to run (or None: not re-run), "json_added": bool, "skip": reason or None}."""
+    """{"argv": tokens to run (or None: not re-run), "json_added": bool, "skip": reason or None}. Old spellings
+    (`claim`, `init`, ...) are rewritten to the canonical ones first, so a moved writer is still recognised."""
+    from . import command_tree
+    tokens, _hits = command_tree.rewrite_argv(tokens, GLOBAL_VALUE_FLAGS)
     i = 0
     while i < len(tokens) and tokens[i].startswith("-"):
         i += 2 if tokens[i] in GLOBAL_VALUE_FLAGS else 1
@@ -230,6 +233,7 @@ def plan_rerun(tokens: list[str]) -> dict:
     ns = _parse_quietly(parser, tokens[i + 1:])
     if ns is None:
         return {"argv": tokens, "json_added": False, "skip": None}   # a usage error or --help: no work done
+    cmd = getattr(ns, "cmd", None) or cmd   # a noun's verb keeps its pre-1.0 cmd (`lease claim`: claim)
     ns.cmd = cmd
     why = _writes(cmd, ns)
     if why:
@@ -554,7 +558,8 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--title", default=None, help="issue title (default: report: <the command>, else "
                                                   "report: lean-pkg <version>)")
     s.add_argument("--enhancement", action="store_true", help="label enhancement instead of bug")
-    s.add_argument("--repo", default=None, metavar="OWNER/NAME", help=f"repository to file on (default {REPO})")
+    s.add_argument("--target-repo", dest="repo", default=None, metavar="OWNER/NAME",
+                   help=f"repository to file on (default {REPO})")
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true", help="print title, labels and body; file nothing (default)")
     mode.add_argument("--yes", action="store_true",

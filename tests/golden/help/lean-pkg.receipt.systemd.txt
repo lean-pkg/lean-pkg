@@ -1,4 +1,4 @@
-usage: lean-pkg receipt systemd [-h] --unit U --log PATH --commit SHA [--stdout PATH]
+usage: lean-pkg receipt systemd [-h] --unit U --log PATH --receipt-commit SHA [--stdout PATH]
                                 [--stderr PATH] [--properties-file F] [--run] [--memory-max BYTES]
                                 [--memory-swap-max BYTES] [--cpu-quota PCT] [--runtime-max SPAN]
                                 [--setenv NAME=VALUE] [--properties-out PATH] [--redact REGEX]
@@ -17,8 +17,8 @@ options:
                         SHA-256)
   --log PATH            the raw verify log the unit writes; when it has no `checker:` line,
                         --checker TEXT is required
-  --commit SHA          the verified commit; must exist in --repo (with --run: the checkout's
-                        clean HEAD)
+  --receipt-commit SHA  the verified commit; must exist in --repo (with --run: the checkout's
+                        clean HEAD) (old spelling --commit, kept working)
   --stdout PATH         the unit's stdout file: verify-log-sha256 = sha256(raw log), pre-manifest-
                         sha256 = post-manifest-sha256 = sha256(lake-manifest.json at the commit),
                         optional invocation-id = InvocationID; without it the log must carry its
@@ -59,7 +59,8 @@ where the unit's terminal state comes from (default: `systemctl --user show U` n
   --run                 start `-- CMD ...` as the bounded unit U (systemd-run --user,
                         RemainAfterExit, WorkingDirectory=--repo), wait for it, capture its
                         properties before stopping it; --log, --stdout, --stderr must not exist
-                        yet
+                        yet. The running lean-pkg's own files must not change during the run
+                        (sealed as the receipt key `producer`)
   --memory-max BYTES    --run: MemoryMax (default 8G)
   --memory-swap-max BYTES
                         --run: MemorySwapMax (default 0, so the memory cap is an OOM kill, not

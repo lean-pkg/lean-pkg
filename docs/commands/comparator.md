@@ -8,53 +8,19 @@ title: lean-pkg comparator
 
 # lean-pkg comparator
 
-attach a comparator receipt to a gated package; no status change.
+comparator receipts: attach (or --check) one to a gated package; config (write a configuration from claims); host-check.
 
 ## Usage
 
 ```text
-lean-pkg comparator [--receipt RECEIPT] [--check] [--refuse-private] [--refuse-dirty]
-                    [--replace] [--from-claims NAME] [--coverage NAME]
-                    [--migrate-signoff PATH] [--write] [--out OUT] [--dry-run]
-                    [--challenge-namespace CHALLENGE_NAMESPACE] [--agent AGENT]
-                    [--challenge-from-type] [--emit-script F] [--from-output F]
-                    [--checkout DIR] [--claims-file PATH] [--repo DIR] [--no-registry]
-                    [--allow-partial] [--lake-env DIR] [--jobs JOBS] [--timeout TIMEOUT]
-                    [--routes] [common flags] NAME
+lean-pkg comparator [--json] COMMAND
 ```
 
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
+## Subcommands
 
-## Arguments and flags
-
-| Argument or flag | Description |
-|---|---|
-| `NAME` |   |
-| `--receipt RECEIPT` | path to comparator receipt JSON (required, except for `comparator host-check`) |
-| `--check` | validate only; record nothing (works at any status) |
-| `--refuse-private` | refuse (exit 1, nothing copied) when the receipt holds private strings; default is a WARN line and the receipt is kept |
-| `--refuse-dirty` | refuse when tracked files are modified in the checkout; default is a WARN line |
-| `--replace` | when .lean-receipts/ already holds a different comparator receipt for the same commit: keep it as &lt;c12&gt;-comparator.replaced-&lt;UTC stamp&gt;.json, attach the new one, record comparator-replaced |
-| `--from-claims NAME` | `comparator config --from-claims NAME`: add a TODO theorem_names entry per synced claim (theorem/lemma) no comparator configuration covers yet; never overwrites |
-| `--coverage NAME` | `comparator config --coverage NAME`: read-only; claims covered by the comparator config tracked at the gate-bound commit, and why a changed config needs a new gate |
-| `--migrate-signoff PATH` | `comparator config --migrate-signoff PATH`: move the deprecated inline judged_as / lean_pkg_scaffold keys of that configuration into lean-pkg-signoff.json (dry run unless --write); the Palomar keys are unchanged, the file's bytes (and so its receipt hash) change |
-| `--write` | with config --migrate-signoff: write both files |
-| `--out OUT` | with config: the configuration to extend or create (default comparator.json) |
-| `--dry-run` | with config: print the would-be JSON; write nothing |
-| `--challenge-namespace CHALLENGE_NAMESPACE` | with config: namespace of the new Challenge names (default &lt;Package&gt;Audit) |
-| `--agent AGENT` | the agent acting (recorded as the event's actor; another agent's live lease then refuses); with config: lease holder, if one is live |
-| `--challenge-from-type` | with config: pre-fill each new Challenge/Solution from the declaration's elaborated type (runs `lake env lean` in the checkout) |
-| `--emit-script F` | with config: write the type driver to F (run it elsewhere: cd CHECKOUT && bash F OUT.json); no Lean runs here |
-| `--from-output F` | with config: fill the scaffold from the driver's comparator-types/1 JSON F |
-| `--checkout DIR` | with config --from-claims: use this package checkout instead of the registry's local_path (HEAD must be the claims-synced commit or an evidence-only descendant) |
-| `--claims-file PATH` | with config --from-claims: read the claims from this working-copy claims.yaml instead of the registry's synced cache (no `claims sync` needed); schema-checked exactly like `claims check --file`; never written to the registry; the output names the file and its sha256 |
-| `--repo DIR` | with NAME --check only: validate against the checkout DIR instead of the registered local_path, for this call (never saved; JSON repo_override). DIR must be a git work tree, and when it has remotes one must be the package's repo. Attaching refuses it: it binds the registered checkout (move that with `update --path`) |
-| `--no-registry` | with config --from-output/--challenge-from-type and --out FILE: scratch mode; write the merged config to FILE outside the checkout, lease not consulted |
-| `--allow-partial` | with config --from-output/--challenge-from-type: ingest a run with extraction failures (the failed entries keep TODO, restatement_reason extraction_failed) |
-| `--lake-env DIR` | with config types: Lake directory inside the checkout (default: the checkout) |
-| `--jobs JOBS` | with config types: parallel Lean processes (default 2, at most the CPUs; halved and retried on too many open files) |
-| `--timeout TIMEOUT` | with config types: seconds per declaration (default 120) |
-| `--routes` | with host-check: per route (judge = `lake comparator` in bwrap, prepare = setup stages, transfer = build here, judge elsewhere) supported yes/no with the reason, executables (type -P), locale, open-file limits, CPUs, cgroup memory and a command line per supported route; read-only; exit 0 when any route is supported |
+- [`lean-pkg comparator attach`](#lean-pkg-comparator-attach): attach a comparator receipt to a gated package; no status change (`comparator NAME --receipt R` is the same)
+- [`lean-pkg comparator config`](#lean-pkg-comparator-config): write a comparator configuration from claims (--from-claims), report its coverage (--coverage), or move inline sign-off keys (--migrate-signoff)
+- [`lean-pkg comparator host-check`](#lean-pkg-comparator-host-check): can this host run the comparator; read-only
 
 ## Details
 
@@ -70,44 +36,98 @@ lean-pkg comparator [--receipt RECEIPT] [--check] [--refuse-private] [--refuse-d
 
 0 success (dry runs and no-ops included), 1 refused or failed, 2 usage error; see [Exit codes](../cli.md#exit-codes).
 
-Exit 1 is also a negative answer here:
-
-- `comparator host-check`: this host cannot run the comparator
-
 ## JSON output
 
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `comparator-coverage` (exit 0): `bound_commit`, `candidate`, `changed_configs`, `claims_source`, `config_changed`, `configs`, `covered`, `head`, `hints`, `name`, `next_commands`, `not_applicable`, `not_covered`, `ok`, `statement`, `theorem_claims`, `todo`, `uncovered`
-- `comparator-host-check` (exit depends on the host): `can`, `checks`, `env_warnings`, `mechanism_detail`, `mechanisms`, `ok`, `palomar`, `verdict`
-- `comparator-host-check-routes` (exit depends on the host): `advice`, `can`, `checks`, `env_warnings`, `executables`, `limits`, `locale`, `mechanism_detail`, `mechanisms`, `ok`, `palomar`, `resources`, `routes`, `routes_schema`, `verdict`
 - `comparator-migrate-signoff` (exit 0): `config`, `config_sha256_after`, `config_sha256_before`, `config_text`, `dropped`, `dry_run`, `moved`, `next_commands`, `ok`, `other_keys`, `palomar_keys_unchanged`, `receipt_impact`, `sidecar`, `signoff`, `written`
 
-## Examples
+## lean-pkg comparator attach
+
+attach a comparator receipt to a gated package; no status change (`comparator NAME --receipt R` is the same).
+
+Also spelled: `lean-pkg comparator NAME` ([all aliases](aliases.md)).
+
+### Usage
+
+```text
+lean-pkg comparator attach [--receipt RECEIPT] [--check] [--refuse-private]
+                           [--refuse-dirty] [--replace] [--agent AGENT] [--repo DIR]
+                           [common flags] NAME
+```
+
+`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
+
+### Arguments and flags
+
+| Argument or flag | Description |
+|---|---|
+| `NAME` |   |
+| `--receipt RECEIPT` | path to comparator receipt JSON (required) |
+| `--check` | validate only; record nothing (works at any status) |
+| `--refuse-private` | refuse (exit 1, nothing copied) when the receipt holds private strings; default is a WARN line and the receipt is kept |
+| `--refuse-dirty` | refuse when tracked files are modified in the checkout; default is a WARN line |
+| `--replace` | when .lean-receipts/ already holds a different comparator receipt for the same commit: keep it as &lt;c12&gt;-comparator.replaced-&lt;UTC stamp&gt;.json, attach the new one, record comparator-replaced |
+| `--agent AGENT` | the agent acting (recorded as the event's actor; another agent's live lease then refuses) |
+| `--repo DIR` | with --check only: validate against the checkout DIR instead of the registered local_path, for this call (never saved; JSON repo_override). DIR must be a git work tree, and when it has remotes one must be the package's repo. Attaching refuses it: it binds the registered checkout (move that with `repo move`) |
+
+### Examples
 
 Validate a comparator receipt against the package without recording it; works at any status.
 
 ```bash
-lean-pkg comparator my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json --check
+lean-pkg comparator attach my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json --check
 ```
 
 Attach the comparator receipt to the gated package (event comparator-attached); promote needs it.
 
 ```bash
-lean-pkg comparator my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
+lean-pkg comparator attach my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
 ```
 
-Can this machine produce comparator receipts? Needs no registry; exit 1 when it cannot.
+## lean-pkg comparator config
 
-```bash
-lean-pkg comparator host-check
+write a comparator configuration from claims (--from-claims), report its coverage (--coverage), or move inline sign-off keys (--migrate-signoff).
+
+### Usage
+
+```text
+lean-pkg comparator config [--from-claims NAME] [--coverage NAME]
+                           [--migrate-signoff PATH] [--write] [--out OUT] [--dry-run]
+                           [--challenge-namespace CHALLENGE_NAMESPACE] [--agent AGENT]
+                           [--challenge-from-type] [--emit-script F] [--from-output F]
+                           [--repo DIR] [--claims-file PATH] [--no-registry]
+                           [--allow-partial] [--lake-env DIR] [--jobs JOBS]
+                           [--timeout TIMEOUT] [common flags]
 ```
 
-Per route (judge here, prepare here, build here and judge elsewhere), whether it is supported and why.
+`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
-```bash
-lean-pkg comparator host-check --routes
-```
+### Arguments and flags
+
+| Argument or flag | Description |
+|---|---|
+| `--from-claims NAME` | add a TODO theorem_names entry per synced claim (theorem/lemma) no comparator configuration covers yet; never overwrites |
+| `--coverage NAME` | read-only; claims covered by the comparator config tracked at the gate-bound commit, and why a changed config needs a new gate |
+| `--migrate-signoff PATH` | move the deprecated inline judged_as / lean_pkg_scaffold keys of that configuration into lean-pkg-signoff.json (dry run unless --write); the Palomar keys are unchanged, the file's bytes (and so its receipt hash) change |
+| `--write` | with --migrate-signoff: write both files |
+| `--out OUT` | the configuration to extend or create (default comparator.json) |
+| `--dry-run` | print the would-be JSON; write nothing |
+| `--challenge-namespace CHALLENGE_NAMESPACE` | namespace of the new Challenge names (default &lt;Package&gt;Audit) |
+| `--agent AGENT` | lease holder, if one is live |
+| `--challenge-from-type` | pre-fill each new Challenge/Solution from the declaration's elaborated type (runs `lake env lean` in the checkout) |
+| `--emit-script F` | write the type driver to F (run it elsewhere: cd CHECKOUT && bash F OUT.json); no Lean runs here |
+| `--from-output F` | fill the scaffold from the driver's comparator-types/1 JSON F |
+| `--repo DIR` | with --from-claims: use this package checkout instead of the registry's local_path (HEAD must be the claims-synced commit or an evidence-only descendant) (old spelling --checkout, kept working) |
+| `--claims-file PATH` | with --from-claims: read the claims from this working-copy claims.yaml instead of the registry's synced cache (no `claims sync` needed); schema-checked exactly like `claims check --file`; never written to the registry; the output names the file and its sha256 |
+| `--no-registry` | with --from-output/--challenge-from-type and --out FILE: scratch mode; write the merged config to FILE outside the checkout, lease not consulted |
+| `--allow-partial` | with --from-output/--challenge-from-type: ingest a run with extraction failures (the failed entries keep TODO, restatement_reason extraction_failed) |
+| `--lake-env DIR` | with the type flags: Lake directory inside the checkout (default: the checkout) |
+| `--jobs JOBS` | with the type flags: parallel Lean processes (default 2, at most the CPUs; halved and retried on too many open files) |
+| `--timeout TIMEOUT` | with the type flags: seconds per declaration (default 120) |
+
+### Examples
 
 Print one comparator configuration entry per synced theorem claim that no configuration covers yet.
 
@@ -119,4 +139,49 @@ Which claims the comparator configuration at the gate-bound commit covers, and w
 
 ```bash
 lean-pkg comparator config --coverage my-proof
+```
+
+## lean-pkg comparator host-check
+
+can this host run the comparator; read-only.
+
+### Usage
+
+```text
+lean-pkg comparator host-check [--routes] [common flags]
+```
+
+`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
+
+### Arguments and flags
+
+| Argument or flag | Description |
+|---|---|
+| `--routes` | per route (judge = `lake comparator` in bwrap, prepare = setup stages, transfer = build here, judge elsewhere) supported yes/no with the reason, executables (type -P), locale, open-file limits, CPUs, cgroup memory and a command line per supported route; read-only; exit 0 when any route is supported |
+
+### Exit codes
+
+Exit 1 is also a negative answer here:
+
+- `comparator host-check`: this host cannot run the comparator
+
+### JSON output
+
+Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
+
+- `comparator-host-check` (exit depends on the host): `can`, `checks`, `env_warnings`, `mechanism_detail`, `mechanisms`, `ok`, `palomar`, `verdict`
+- `comparator-host-check-routes` (exit depends on the host): `advice`, `can`, `checks`, `env_warnings`, `executables`, `limits`, `locale`, `mechanism_detail`, `mechanisms`, `ok`, `palomar`, `resources`, `routes`, `routes_schema`, `verdict`
+
+### Examples
+
+Can this machine produce comparator receipts? Needs no registry; exit 1 when it cannot.
+
+```bash
+lean-pkg comparator host-check
+```
+
+Per route (judge here, prepare here, build here and judge elsewhere), whether it is supported and why.
+
+```bash
+lean-pkg comparator host-check --routes
 ```

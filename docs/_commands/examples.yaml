@@ -18,8 +18,8 @@ lean-pkg new:
   - cmd: lean-pkg new my-proof --no-mathlib --author "Ada Lovelace" --license MIT
     say: The same in core Lean, with the author and the license named.
 
-lean-pkg init:
-  - cmd: lean-pkg init
+lean-pkg registry init:
+  - cmd: lean-pkg registry init
     say: Create the registry and its event log once, at the default location (~/.lean-pkg/registry, or $LEAN_PKG_REGISTRY).
     output: |
       registry created: ~/.lean-pkg/registry/lean-packages.yaml (version 3); events: ~/.lean-pkg/registry/lean-package-events.jsonl
@@ -69,50 +69,50 @@ lean-pkg next:
   - cmd: lean-pkg next my-proof --json
     say: The same as JSON (`command`, `reason`, `blockers`, `state`) for an agent or a script.
 
-lean-pkg leases:
-  - cmd: lean-pkg leases --agent alice --expiring 2
+lean-pkg lease list:
+  - cmd: lean-pkg lease list --agent alice --expiring 2
     say: Your own leases that lapse within two hours, the ones to renew.
 
-lean-pkg validate:
-  - cmd: lean-pkg validate
+lean-pkg registry validate:
+  - cmd: lean-pkg registry validate
     say: Schema, enum and history sanity of the whole registry; exit 0 valid, 1 errors.
 
-lean-pkg audit:
-  - cmd: lean-pkg audit
+lean-pkg registry audit:
+  - cmd: lean-pkg registry audit
     say: Report expired leases, receipt and comparator drift and visibility mismatches; read-only.
-  - cmd: lean-pkg audit --fix
+  - cmd: lean-pkg registry audit --write
     say: Clear expired leases and copy GitHub's visibility and archived flag into the registry.
 
 # --- register, lease, edit --------------------------------------------------------------------------
 
 lean-pkg register:
-  - cmd: lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof --dry-run
+  - cmd: lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof --dry-run
     say: Print the entry that would be written, detected toolchain and Mathlib pin included; nothing is written.
-  - cmd: lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
+  - cmd: lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof
     say: Register a new package from its checkout (the path is relative to $HOME); it starts at status active.
     output: |
       my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.24.0, pin=?)
 
-lean-pkg claim:
-  - cmd: lean-pkg claim my-proof --workspace laptop --agent alice --reason "chapter 2"
+lean-pkg lease claim:
+  - cmd: lean-pkg lease claim my-proof --workspace laptop --agent alice --reason "chapter 2"
     say: Take the 24-hour lease before working on the package, so other agents see who holds it.
     output: |
       my-proof: lease claimed for alice@laptop until 2026-10-18T14:24:32+00:00
-  - cmd: lean-pkg claim my-proof --workspace laptop --agent alice --contact lab-desk/my-session
+  - cmd: lean-pkg lease claim my-proof --workspace laptop --agent alice --contact lab-desk/my-session
     say: The same, with an address where others can reach the holding session.
 
-lean-pkg renew:
-  - cmd: lean-pkg renew my-proof --agent alice
+lean-pkg lease renew:
+  - cmd: lean-pkg lease renew my-proof --agent alice
     say: Restart your own live lease from now; once it has lapsed, claim again.
 
-lean-pkg release:
-  - cmd: lean-pkg release my-proof --agent alice
+lean-pkg lease release:
+  - cmd: lean-pkg lease release my-proof --agent alice
     say: Give the lease back when you are done.
     output: |
       my-proof: lease released (was alice@laptop)
-  - cmd: lean-pkg release my-proof --fresh-repo ../my-proof-public --dry-run
+  - cmd: lean-pkg lease release my-proof --fresh-repo ../my-proof-public --dry-run
     say: Plan a fresh single-commit public repository from the gated tree; nothing is written.
-  - cmd: lean-pkg release my-proof --adopt-repo ../my-proof-public
+  - cmd: lean-pkg lease release my-proof --adopt-repo ../my-proof-public
     say: Adopt an existing repository, already the intended public one, as the package's repository.
 
 lean-pkg update:
@@ -170,10 +170,10 @@ comparator-receipt:
   - cmd: comparator-receipt --project src/my-proof --judges 4
     say: The same for another directory, with up to four judges at once.
 
-lean-pkg comparator:
-  - cmd: lean-pkg comparator my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json --check
+lean-pkg comparator attach:
+  - cmd: lean-pkg comparator attach my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json --check
     say: Validate a comparator receipt against the package without recording it; works at any status.
-  - cmd: lean-pkg comparator my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
+  - cmd: lean-pkg comparator attach my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
     say: Attach the comparator receipt to the gated package (event comparator-attached); promote needs it.
 
 lean-pkg comparator host-check:
