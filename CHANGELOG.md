@@ -9,6 +9,31 @@ change the registry schema or receipt format, always with a migration).
 
 ### Added
 
+- `page NAME --site DIR` writes `DIR/verification.md` (the full verification
+  page: status, the paper-to-Lean map with every row, Not formalized, trust
+  boundary, reproduce, evidence, citation, license, acknowledgments) and
+  `DIR/coverage.md` (every row of `coverage.yaml` with its claims,
+  declarations, each claim's ledger status, inputs and notes) for MkDocs.
+  `--html PATH` writes one static HTML file holding both, with no script and
+  no external asset. All outputs come from one render, carry the same bytes
+  wherever they are written, pass the public-safety scan together (a blocking
+  hit in any of them writes none), and follow the credits rule (the Easley
+  sentence only with backing Slurm receipts). With `--check`, the files are
+  compared instead and a missing or stale one exits 1 (JSON `site_files[]`).
+  Never a registry write.
+- `page --repo DIR` reads another checkout for one call (CI), as `next` and
+  `palomar check` do. docs/page.md ships a GitHub Actions job and a Makefile
+  target that run `page --check` (with `--site`); `release --fresh-repo` adds
+  no generated files, so the job is copied in by hand.
+- `coverage check` (and so every `page` render) enforces the rules of the
+  lab's `lean-scope-page` lint that apply to a rendered page: no placeholder
+  text (`FILL-ME`, `TODO`, `TBD`, `FIXME`, `XXX`), every named claim's `file`
+  committed at `HEAD`, every theorem of the recorded comparator receipt the
+  declaration of a claim some row names, and `judged_as.reviewer` on every
+  configuration with definition holes. The trust boundary now names who
+  judged each hole's body. docs/page.md maps each lean-scope-page rule to its
+  lean-pkg check.
+
 - `public-safety` decodes gzip content (#8): a file or history blob whose
   bytes start with 1f 8b, whatever its name, is stream-decoded and its
   decoded text scanned in place of the compressed bytes, whose printable
@@ -25,6 +50,14 @@ change the registry schema or receipt format, always with a migration).
   printable runs and listed as `binary (gzip-decoded)`. New JSON keys
   `decoded[]` and `gzip_limit`. A `receipt --compress-log` sealed log is
   decoded and scanned like any other gzip file.
+
+### Changed
+
+- `page`: text from data (titles, notes, inputs, the summary, authors) is
+  written inert in the README block too: `&`, `<` and `>` as entities and the
+  Markdown markup characters backslash-escaped, so a note can no longer open
+  a tag or a link. A README block rendered by 0.7.54 from such text reads as
+  stale once; render it again with `page NAME --write`.
 
 ## [0.7.54] - 2026-10-16
 

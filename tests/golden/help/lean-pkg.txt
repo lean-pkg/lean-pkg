@@ -44,7 +44,7 @@ positional arguments:
                         only), with the exact next commands
     coverage            coverage.yaml (coverage/1): the paper-to-Lean map `page` renders
     page                render the README verification section from coverage.yaml, claims, the
-                        ledger and the receipts; stdout unless --write/--check/--out
+                        ledger and the receipts; stdout unless --write/--check/--out/--site/--html
     reservoir           Reservoir: check (read-only listing criteria)
     public-safety       read-only: scan the package's tree and git history for private patterns
                         (exit 1 on hits; promote runs it)

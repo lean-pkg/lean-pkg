@@ -96,6 +96,10 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["page", "demo", "--out", "o"], "page", False, False, False),
     (["page", "demo", "--write"], "page", False, False, False),   # writes README.md only, never the registry
     (["page", "demo", "--write", "--agent", "a"], "page", False, False, False),
+    (["page", "demo", "--site", "d"], "page", False, False, False),   # site files only, never the registry
+    (["page", "demo", "--html", "h"], "page", False, False, False),
+    (["page", "demo", "--check", "--site", "d", "--html", "h"], "page", False, False, False),
+    (["page", "demo", "--check", "--repo", "r"], "page", False, False, False),
     (["reservoir", "check", "demo"], "reservoir check", False, False, False),
     (["public-safety", "demo"], "public-safety", False, False, False),
     (["public-safety", "demo", "--gzip-limit", "64M"], "public-safety", False, False, False),
