@@ -257,6 +257,13 @@ def test_a_bad_record_is_reported_not_trusted(lp, capsys, src):
     assert out["behavior"] == []          # the string "5" is not PR 5
 
 
+def test_a_record_of_only_record_only_prs_is_valid():
+    base = {"schema": "lean-pkg-upgrade-record/1", "version": "1.1.0", "changes": []}
+    assert up.validate_record({**base, "no_author_change": [238]}) == []
+    for doc in (base, {**base, "no_author_change": []}):
+        assert any("changes must be a non-empty list" in p for p in up.validate_record(doc)), doc
+
+
 def test_committed_records_are_valid_and_documented():
     records = sorted((ROOT / "docs" / "upgrades").glob("*.yaml"))
     assert records, "docs/upgrades/ has no record"

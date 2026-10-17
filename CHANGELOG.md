@@ -9,6 +9,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Changed
+
+- An upgrade record (`docs/upgrades/X.Y.Z.yaml`) may have an empty
+  `changes` list while its `no_author_change` lists PRs: the state of a
+  release whose merged pull requests so far need nothing from a package
+  author. A record that names no PR at all is still refused.
+
 ## [0.12.0] - 2026-10-17
 
 ### Added

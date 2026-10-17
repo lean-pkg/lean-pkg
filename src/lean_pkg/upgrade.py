@@ -448,8 +448,10 @@ def validate_record(doc) -> list[str]:
     if not isinstance(doc.get("version"), str) or not re.fullmatch(r"\d+\.\d+\.\d+", doc.get("version") or ""):
         out.append("version must be X.Y.Z")
     changes = doc.get("changes")
-    if not isinstance(changes, list) or not changes:
-        return out + ["changes must be a non-empty list"]
+    # Empty only while the release so far holds PRs read for the record and nothing else (a record opened
+    # by a docs-only pull request); a record must name at least one PR somewhere.
+    if not isinstance(changes, list) or not (changes or doc.get("no_author_change")):
+        return out + ["changes must be a non-empty list (or empty, with no_author_change listing PRs)"]
     extra = set(doc) - {"schema", "version", "changes", "no_author_change"}
     if extra:
         out.append(f"unknown key(s) {', '.join(sorted(extra))}")
