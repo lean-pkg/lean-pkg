@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-17
+
 ### Added
 
 - `lean-pkg-extract plan` checks the licenses of adopted (vendored) files.
@@ -284,6 +286,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (and `--site`/`--html` if you ship them) once, and commit the result.
   `receipt check` reads the page in both wordings, so a page published
   with 0.10.0 or earlier is still checked.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.10.0] - 2026-10-17
 
