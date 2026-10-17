@@ -1,4 +1,4 @@
-usage: lean-pkg record [-h] [--field KEY=VALUE] [--reason REASON] [--track {palomar,doi-only}]
+usage: lean-pkg record [-h] [--field KEY=VALUE] [--reason REASON] [--doi-track {palomar,doi-only}]
                        [--agent AGENT] [--json] [--commit] [--push] [--no-commit]
                        name event
 
@@ -15,7 +15,7 @@ options:
   --field KEY=VALUE     event field (repeatable); required keys per event are listed by `lean-pkg
                         llms`
   --reason REASON       free-text reason stored with the event
-  --track {palomar,doi-only}
+  --doi-track, --track {palomar,doi-only}
                         doi-minted only: the DOI track for this event (default: the record's
                         track, else palomar); doi-only skips rule doi-in-palomar for a public
                         package

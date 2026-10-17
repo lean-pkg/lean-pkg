@@ -1,8 +1,8 @@
-usage: lean-pkg release [-h] [--agent AGENT] [--force] [--reason REASON] [--fresh-repo DIR]
-                        [--remote URL] [--keep-receipts] [--source-commit SHA]
-                        [--from-tree SRCDIR] [--adopt-repo DIR] [--allow-history] [--dry-run]
-                        [--json] [--commit] [--push] [--no-commit]
-                        name
+usage: lean-pkg lease release [-h] [--agent AGENT] [--force] [--reason REASON] [--fresh-repo DIR]
+                              [--remote URL] [--keep-receipts] [--source-commit SHA]
+                              [--from-tree SRCDIR] [--adopt-repo DIR] [--allow-history]
+                              [--dry-run] [--json] [--commit] [--push] [--no-commit]
+                              name
 
 positional arguments:
   name

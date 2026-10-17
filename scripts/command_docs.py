@@ -125,7 +125,8 @@ class Node:
     path: tuple            # primary names below the program
     parser: argparse.ArgumentParser
     summary: str = ""
-    aliases: list = field(default_factory=list)
+    aliases: list = field(default_factory=list)          # parser-level aliases: sibling names
+    table_aliases: list = field(default_factory=list)    # alias-table spellings: full paths ("claim")
     children: list = field(default_factory=list)
 
     @property
@@ -165,8 +166,10 @@ def all_trees() -> dict[str, Node]:
     trees = {prog: tree(prog, p) for prog, p in parsers().items()}
     for alias, canonical in alias_table(trees).items():   # aliases from the table, on the canonical node
         node = find(trees, canonical)
-        if node is not None and alias[-1] not in node.aliases and alias != node.path:
-            node.aliases.append(alias[-1] if alias[:-1] == canonical[:-1] else " ".join(alias))
+        spelled = " ".join(alias)
+        if node is not None and alias != node.path and alias[-1] not in node.aliases \
+                and spelled not in node.table_aliases:
+            node.table_aliases.append(spelled)
     return trees
 
 
@@ -192,6 +195,11 @@ def alias_table(trees: dict[str, Node]) -> dict[tuple, tuple]:
     for n in all_nodes(trees["lean-pkg"]):
         for a in n.aliases:
             out[n.path[:-1] + tuple(a.split())] = n.path
+    from lean_pkg import command_tree   # the 1.0 alias table: old spelling -> canonical command path
+    for a in command_tree.COMMAND_ALIASES:
+        out.setdefault(a.old, a.new)
+    for noun, iv in command_tree.IMPLIED_VERBS.items():   # `lease NAME` is `lease claim NAME`
+        out.setdefault((noun, "NAME"), (noun, iv.verb))
     for name in ALIAS_TABLE_NAMES:
         table = getattr(cli, name, None)
         if isinstance(table, dict):
@@ -513,8 +521,8 @@ def section(node: Node, level: int, ex, trees, all_paths, parent_epilog=None) ->
     out = [heading(level, title), ""]
     if node.summary:
         out += [md_text(node.summary).rstrip(".") + ".", ""]
-    if node.aliases:
-        spelled = [a if " " in a else " ".join(node.path[:-1] + (a,)) for a in node.aliases]
+    if node.aliases or node.table_aliases:
+        spelled = [" ".join(node.path[:-1] + (a,)) for a in node.aliases] + node.table_aliases
         out += ["Also spelled: " + ", ".join(f"`{node.program} {a}`" for a in spelled)
                 + " ([all aliases](aliases.md)).", ""]
     out += [heading(level + 1, "Usage"), "", *fence(usage(node)), ""]

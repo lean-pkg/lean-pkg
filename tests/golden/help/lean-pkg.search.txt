@@ -1,7 +1,7 @@
 usage: lean-pkg search [-h] [--package PACKAGE] [--offline] [--loogle] [--loogle-query PATTERN]
                        [--require-complete] [--cache-dir DIR] [--sources a,b,c] [--index INDEX]
-                       [--record] [--repo-dir REPO_DIR] [--agent AGENT] [--json] [--commit]
-                       [--push] [--no-commit]
+                       [--record] [--repo DIR] [--agent AGENT] [--json] [--commit] [--push]
+                       [--no-commit]
                        term
 
 Prior-art search. Packages without synced claims are searched by declaration (fully qualified
@@ -33,7 +33,8 @@ options:
   --index INDEX         index root (default: $LEAN_PKG_INDEX, else ./index)
   --record              write docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-
                         dir) and a prior-art-searched event
-  --repo-dir REPO_DIR   research repository for --record
+  --repo, --repo-dir DIR
+                        research repository for --record
   --agent AGENT         with --record: the agent acting (recorded as the event's actor); another
                         agent's live lease on --package then refuses
   --json                machine-readable JSON on stdout

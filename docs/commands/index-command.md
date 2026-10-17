@@ -36,7 +36,7 @@ write &lt;index&gt;/&lt;name&gt;/entry.yaml from a clone at the pin.
 ### Usage
 
 ```text
-lean-pkg index add [--from-registry] [--repo-dir REPO_DIR] [--repo REPO] [--tag TAG]
+lean-pkg index add [--from-registry] [--repo-dir REPO_DIR] [--url URL] [--tag TAG]
                    [--lower REL] [--comparator REL] [--license SPDX]
                    [--headline 'NAME :: FILE :: SUMMARY'] [--field-tag TAG]
                    [--formalization-yaml REL] [--consent-recorded] --by BY
@@ -53,7 +53,7 @@ lean-pkg index add [--from-registry] [--repo-dir REPO_DIR] [--repo REPO] [--tag 
 | `NAME` |   |
 | `--from-registry` | start from the registry row (repo, receipts, license, palomar, doi, reservoir) |
 | `--repo-dir REPO_DIR` | local clone to read from (never modified) |
-| `--repo REPO` | public https URL (a GitHub ssh URL is converted) |
+| `--url, --repo URL` | public https URL (a GitHub ssh URL is converted) |
 | `--tag TAG` | release tag at the pin or an evidence-only descendant |
 | `--lower REL` | lower-tier receipt, .lean-receipts/...json |
 | `--comparator REL` | comparator receipt, .lean-receipts/...json |
@@ -80,8 +80,7 @@ static check, or re-derive entries from bytes at the pin; exit 0/1/2.
 ### Usage
 
 ```text
-lean-pkg index check [--clone] [--repo-dir REPO_DIR] [--index INDEX] [common flags]
-                     [NAME ...]
+lean-pkg index check [--clone] [--repo DIR] [--index INDEX] [common flags] [NAME ...]
 ```
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
@@ -92,7 +91,7 @@ lean-pkg index check [--clone] [--repo-dir REPO_DIR] [--index INDEX] [common fla
 |---|---|
 | `NAME` |   |
 | `--clone` | clone each entry's repo at the pin into a temp dir |
-| `--repo-dir REPO_DIR` | local clone for a single NAME (never modified) |
+| `--repo, --repo-dir DIR` | local clone for a single NAME (never modified) |
 | `--index INDEX` | index root (default: $LEAN_PKG_INDEX, else index/ beside the registry when present, else ./index) |
 
 ### Details

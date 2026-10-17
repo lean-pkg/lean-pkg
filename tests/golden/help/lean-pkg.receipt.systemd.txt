@@ -1,4 +1,4 @@
-usage: lean-pkg receipt systemd [-h] --unit U --log PATH --commit SHA [--stdout PATH]
+usage: lean-pkg receipt systemd [-h] --unit U --log PATH --receipt-commit SHA [--stdout PATH]
                                 [--stderr PATH] [--properties-file F] [--run] [--memory-max BYTES]
                                 [--memory-swap-max BYTES] [--cpu-quota PCT] [--runtime-max SPAN]
                                 [--setenv NAME=VALUE] [--properties-out PATH] [--redact REGEX]
@@ -17,7 +17,8 @@ options:
                         SHA-256)
   --log PATH            the raw verify log the unit writes; when it has no `checker:` line,
                         --checker TEXT is required
-  --commit SHA          the verified commit; must exist in --repo (with --run: the checkout's
+  --receipt-commit, --commit SHA
+                        the verified commit; must exist in --repo (with --run: the checkout's
                         clean HEAD)
   --stdout PATH         the unit's stdout file: verify-log-sha256 = sha256(raw log), pre-manifest-
                         sha256 = post-manifest-sha256 = sha256(lake-manifest.json at the commit),

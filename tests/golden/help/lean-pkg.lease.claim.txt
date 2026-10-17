@@ -1,6 +1,7 @@
-usage: lean-pkg claim [-h] --workspace WORKSPACE --agent AGENT [--ttl HOURS] [--reason REASON]
-                      [--contact TEXT] [--force] [--json] [--commit] [--push] [--no-commit]
-                      name
+usage: lean-pkg lease claim [-h] --workspace WORKSPACE --agent AGENT [--ttl HOURS]
+                            [--reason REASON] [--contact TEXT] [--force] [--json] [--commit]
+                            [--push] [--no-commit]
+                            name
 
 positional arguments:
   name

@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from lean_pkg import command_tree
+
 from .conftest import CLI, RECEIPT_CLI, ROOT, subprocess_env
 
 SKILLS = ROOT / "skills"
@@ -151,6 +153,7 @@ def test_quoted_lean_pkg_commands_exist():
             if not words or words[0].startswith("<"):
                 continue
             seen += 1
+            words = command_tree.rewrite_words(words)[0]   # old spellings (claim, init, ...) are aliases
             sub = words[0]
             if sub not in subs:
                 bad.append(f"{md.name}: unknown subcommand {sub!r}")

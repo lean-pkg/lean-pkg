@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-from lean_pkg import help_topics
+from lean_pkg import command_tree, help_topics
 
 from .conftest import ROOT, SRC, make_repo
 from .envscan import env_reads
@@ -66,7 +66,7 @@ def test_help_lists_commands_and_topics(lp, capsys, no_registry):
     for t in TOPICS:
         assert re.search(rf"^  {t} ", out, re.M), t
     for path in _command_paths(lp):
-        if len(path) == 1 and path[0] not in lp.COMMAND_ALIASES:   # an alias is named on its command's line
+        if len(path) == 1:   # old spellings (lean_pkg.command_tree) are not parser names: `help aliases`
             assert re.search(rf"^  {re.escape(path[0])} ", out, re.M), path
     assert all(len(line) <= 100 for line in out.splitlines())
     assert not (no_registry / "absent").exists()
@@ -107,12 +107,11 @@ def test_help_command_is_exactly_its_help(lp, capsys, no_registry):
 
 
 def test_help_alias_and_comparator_verbs(lp, capsys, no_registry):
-    assert lp.main(["help", "lease"]) == 0
-    assert capsys.readouterr().out == _help_of(lp, capsys, ["claim"])
-    comparator = _help_of(lp, capsys, ["comparator"])
-    for verb in (lp.CONFIG_CMD, lp.HOST_CHECK):
+    assert lp.main(["help", "claim"]) == 0
+    assert capsys.readouterr().out == _help_of(lp, capsys, ["lease", "claim"])
+    for verb in ("attach", lp.CONFIG_CMD, lp.HOST_CHECK):   # real subcommands since the 1.0 command tree
         assert lp.main(["help", "comparator", verb]) == 0
-        assert capsys.readouterr().out == comparator
+        assert capsys.readouterr().out == _help_of(lp, capsys, ["comparator", verb])
 
 
 @pytest.mark.parametrize("argv, needle", [
@@ -240,6 +239,7 @@ def test_exit_codes_cite_real_commands(lp):
     assert len(rows) >= 12, rows
     for row in rows:
         words = [w for w in row.split() if w.isidentifier() or "-" in w]
+        words = command_tree.rewrite_words(words, implied=False)[0]   # an old spelling names its command
         assert any(" ".join(words[:k]) in paths for k in (2, 1)), row
 
 
@@ -256,3 +256,44 @@ def test_formatting_jq_example_matches_the_list_shape(lp, capsys, env):
     payload = json.loads(capsys.readouterr().out)
     assert isinstance(payload["packages"], dict) and "alpha" in payload["packages"]
     assert "'.packages | to_entries[]" in help_topics.FORMATTING
+
+
+def test_help_names_old_spellings_by_their_canonical_command(lp, capsys, no_registry):
+    assert lp.main(["help", "claim"]) == 0
+    claim = capsys.readouterr().out
+    assert lp.main(["help", "lease", "claim"]) == 0
+    assert capsys.readouterr().out == claim and claim.startswith("usage: lean-pkg lease claim")
+    assert lp.main(["help", "receipt", "local"]) == 0
+    assert capsys.readouterr().out.startswith("usage: lean-pkg receipt systemd")
+
+
+def test_start_page_lists_the_five_verbs_and_both_tracks(lp, capsys, no_registry):
+    assert lp.main(["help", "start"]) == 0
+    out = capsys.readouterr().out
+    for verb in ("new", "verify", "status", "page", "publish"):
+        assert re.search(rf"^  {verb} NAME", out, re.M), verb
+    assert "paper (the paper is the product)" in out and "library (the Lean package is)" in out
+    assert "formalization anchor NAME --arxiv IDvN" in out
+    root = {a.dest for a in lp._subparsers_action(_root(lp))._choices_actions}
+    for verb in ("new", "verify"):   # not in this release unless the parser has it: marked, never invented
+        assert (f"  {verb} NAME *" in out) == (verb not in root), verb
+    assert "status NAME *" not in out and "page NAME *" not in out
+
+
+def _root(lp):
+    from .cli_contract import parser
+    return parser()
+
+
+def test_bare_lean_pkg_prints_the_start_page_off_a_terminal(lp, capsys, no_registry, monkeypatch, tmp_path):
+    reg = tmp_path / "r.yaml"
+    assert lp.main(["--registry", str(reg), "registry", "init"]) == 0
+    capsys.readouterr()
+    monkeypatch.setattr(lp, "board_interactive", lambda: False)
+    assert lp.main(["--registry", str(reg)]) == 0
+    assert capsys.readouterr().out.startswith("lean-pkg: a registry and trust gate")
+    assert lp.main(["--registry", str(reg), "--json"]) == 0        # --json: the board's JSON, as before
+    assert "packages" in json.loads(capsys.readouterr().out)
+    monkeypatch.setattr(lp, "board_interactive", lambda: True)
+    assert lp.main(["--registry", str(tmp_path / "absent.yaml")]) == 0   # a terminal, but no registry
+    assert "START HERE: five verbs" in capsys.readouterr().out

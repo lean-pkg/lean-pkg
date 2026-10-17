@@ -143,6 +143,13 @@ sections. The other console scripts have pages there too:
 [`lean-exercise`](commands/lean-exercise.md) and
 [`lean-pkg-extract`](commands/lean-pkg-extract.md).
 
+Since the 1.0 command tree (stage 1), coordination and maintenance commands
+sit under the `lease`, `registry` and `repo` nouns. Every older spelling
+(`claim`, `init`, `audit --fix`, `--track`, `receipt slurm --commit`, ...)
+is a permanent alias with the same output and exit code; text mode adds one
+stderr note after the command (`LEAN_PKG_NO_ALIAS_NOTE=1` silences it).
+`lean-pkg help aliases` lists them all.
+
 ## Lease holders
 
 A lease records `workspace`, `agent`, `claimed_at`, `ttl_hours` and `reason`, and, when the claim

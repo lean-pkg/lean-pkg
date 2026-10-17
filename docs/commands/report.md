@@ -14,8 +14,8 @@ read-only: a redacted bug report in the repository's issue format; dry run unles
 
 ```text
 lean-pkg report [--command ARGS] [--body TEXT] [--from-log FILE[:N]] [--package NAME]
-                [--title TITLE] [--enhancement] [--repo OWNER/NAME] [--dry-run] [--yes]
-                [common flags]
+                [--title TITLE] [--enhancement] [--target-repo OWNER/NAME] [--dry-run]
+                [--yes] [common flags]
 ```
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
@@ -30,7 +30,7 @@ lean-pkg report [--command ARGS] [--body TEXT] [--from-log FILE[:N]] [--package 
 | `--package NAME` | add the package's registry record (status, lease, receipt commits); its .lean-pkg-private-patterns joins the redaction |
 | `--title TITLE` | issue title (default: report: &lt;the command&gt;, else report: lean-pkg &lt;version&gt;) |
 | `--enhancement` | label enhancement instead of bug |
-| `--repo OWNER/NAME` | repository to file on (default lean-pkg/lean-pkg) |
+| `--target-repo, --repo OWNER/NAME` | repository to file on (default lean-pkg/lean-pkg) |
 | `--dry-run` | print title, labels and body; file nothing (default) |
 | `--yes` | file it with `gh issue create` and print the URL (needs `gh auth login`) |
 

@@ -1,8 +1,8 @@
 usage: lean-pkg update [-h] [--automation AUTOMATION] [--notes TEXT] [--replace-notes]
-                       [--upstream-target {none,mathlib,palomar}] [--track {palomar,doi-only}]
+                       [--upstream-target {none,mathlib,palomar}] [--doi-track {palomar,doi-only}]
                        [--accept-docs-descendants | --no-accept-docs-descendants]
                        [--build-inputs GLOB,GLOB] [--reaudit-after ISO8601]
-                       [--owner-project OWNER_PROJECT] [--repo REPO] [--license-spdx SPDX]
+                       [--owner-project OWNER_PROJECT] [--url URL] [--license-spdx SPDX]
                        [--formalization-yaml REL] [--headline-config REL] [--paper-arxiv ID]
                        [--paper-status {unpublished,preprint,published}]
                        [--source-paper-title TITLE] [--source-paper-author NAME]
@@ -28,7 +28,7 @@ options:
   --replace-notes       with --notes: replace non-empty notes (the old text stays in history as
                         notes_from)
   --upstream-target {none,mathlib,palomar}
-  --track {palomar,doi-only}
+  --doi-track, --track {palomar,doi-only}
                         the DOI track (needs --reason): doi-only lets a public package record doi-
                         minted without a palomar-* event; palomar (the default when absent) keeps
                         rule doi-in-palomar
@@ -48,7 +48,7 @@ options:
                         also matches a basename), replacing the recorded list; '' clears it
   --reaudit-after ISO8601
   --owner-project OWNER_PROJECT
-  --repo REPO           remote URL (e.g. after publishing a private dep)
+  --url, --repo URL     remote URL (e.g. after publishing a private dep)
   --license-spdx SPDX   the package's license as an SPDX id or expression, e.g. 'MIT OR
                         Apache-2.0' (what the index and Reservoir expect)
   --formalization-yaml REL

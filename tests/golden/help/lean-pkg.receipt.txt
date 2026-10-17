@@ -1,16 +1,12 @@
-usage: lean-pkg receipt [-h] {slurm,systemd,check} ...
+usage: lean-pkg receipt [-h] {slurm,systemd} ...
 
 positional arguments:
-  {slurm,systemd,check}
-    slurm               a lower-tier receipt from a finished Slurm job, its verify log and its
-                        stdout seal (--template: an sbatch wrapper that meets it; --check:
-                        preflight the job's files)
-    systemd (local)     a lower-tier receipt from a finished systemd --user service unit (run
-                        bounded with --run, or its saved properties), its verify log and its
-                        stdout seal
-    check               validate a published package's receipts from git alone: no registry, no
-                        network, never runs Lean (an outside referee's check; exit 0 only when
-                        every check passes)
+  {slurm,systemd}
+    slurm          a lower-tier receipt from a finished Slurm job, its verify log and its stdout
+                   seal (--template: an sbatch wrapper that meets it; --check: preflight the job's
+                   files)
+    systemd        a lower-tier receipt from a finished systemd --user service unit (run bounded
+                   with --run, or its saved properties), its verify log and its stdout seal
 
 options:
-  -h, --help            show this help message and exit
+  -h, --help       show this help message and exit
