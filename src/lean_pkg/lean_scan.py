@@ -287,14 +287,18 @@ _TOP_LINE = re.compile(r"\n(?:\||where\b|@\[|#[a-z]|(?:" + "|".join(KEYWORDS + M
                        r"|end|namespace|section|open|variable|universe)\b)")
 
 
-def statement(text: str, qual: str) -> str | None:
+def statement(text: str, qual: str, decls: list | None = None) -> str | None:
     """The source text of the theorem or lemma whose fully qualified name is `qual`, from its keyword up
     to (not including) the `:=` that starts its proof, outside every bracket; None when the file has no
     such declaration, has it more than once, its statement has no top-level `:=` (an equation-compiler
     or `where` form), or the statement is longer than STATEMENT_MAX_LINES lines / STATEMENT_MAX_CHARS
-    characters. Comments inside the statement are kept as written. A scanner, not a parser: when in
-    doubt it returns None and the page links the file instead of showing a guess."""
-    hits = [d for d in declarations(text) if d[1] in ("theorem", "lemma") and d[2] == qual]
+    characters. Comments inside the statement (`/- ... -/`, nested as in Lean, and `--` to the end of the
+    line) are kept as written: the brackets and the `:=` are found in the masked text, where comments and
+    string literals are blanks, so a `:=`, a bracket or a `-/` inside a comment or a string never ends or
+    unbalances the statement. A scanner, not a parser: when in doubt it returns None and the page links
+    the file instead of showing a guess. `decls` is `declarations(text)` when the caller has it."""
+    hits = [d for d in (declarations(text) if decls is None else decls)
+            if d[1] in ("theorem", "lemma") and d[2] == qual]
     if len(hits) != 1:
         return None
     masked, _docs = _mask(text)
@@ -331,3 +335,122 @@ def statement(text: str, qual: str) -> str | None:
     first = text[starts[line - 1]:m.start()]                # the keyword line's indentation: strip it
     base = len(first) - len(first.lstrip())
     return "\n".join([lines[0]] + [x[base:] if x[:base].strip() == "" else x.lstrip() for x in lines[1:]])
+
+
+# --------------------------------------------------------------------------
+# a statement declared in a module the Challenge imports (an umbrella Challenge.lean holds only imports)
+
+IMPORT_MAX_DEPTH = 32          # import edges followed from the root module
+IMPORT_MAX_FILES = 1000        # package files read in one closure
+_HEADER_MODIFIERS = ("public", "private", "meta")
+
+
+def header_imports(text: str) -> list[str]:
+    """The modules a Lean 4 file imports, as written («» kept): its header is an optional `module` and
+    `prelude`, then `[public|private] [meta] import [all] Name` commands, comments anywhere; the first
+    other token ends it."""
+    masked, _docs = _mask(text)
+    out: list[str] = []
+    i, after_import, started = _skip_ws(masked, 0), False, False
+    while i < len(masked):
+        m = _NAME.match(masked, i)
+        if not m:
+            break
+        tok = m.group(0)
+        i = _skip_ws(masked, m.end())
+        if after_import:
+            if tok == "all":
+                continue
+            out.append(tok)
+            after_import = False
+        elif tok in ("module", "prelude") and not started:
+            continue
+        elif tok in _HEADER_MODIFIERS or tok == "import":
+            started, after_import = True, tok == "import"
+        else:
+            break
+    return out
+
+
+def module_file(module: str) -> str | None:
+    """Lake's source path of a module of the package, `A.B.C` -> `A/B/C.lean` (a «quoted» component is one
+    path component); None when the name is malformed or a component could leave the package directory
+    (empty, `.`, `..`, a path separator, a NUL)."""
+    parts = split_name(module)
+    if not parts:
+        return None
+    comps = []
+    for p in parts:
+        c = p[1:-1] if p.startswith("«") and p.endswith("»") else p
+        if not c or c in (".", "..") or any(ch in c for ch in "/\\\0") or c != c.strip():
+            return None
+        comps.append(c)
+    return "/".join(comps) + ".lean"
+
+
+def import_closure(read, root: str) -> tuple[list[tuple[str, str]], bool]:
+    """([(path, text)] of the package's own files in the import closure of module `root`, the root first),
+    complete. `read(path)` returns the text of a file committed in the package, or None (not committed, or
+    outside the package, such as Mathlib's modules: their imports are not followed). Breadth first, each
+    file once (cycle-safe); complete is False when a module name cannot be a package path, or the walk
+    stopped at IMPORT_MAX_DEPTH or IMPORT_MAX_FILES with imports left to read."""
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    complete = True
+    frontier = [root]
+    depth = 0
+    while frontier:
+        nxt: list[str] = []
+        for module in frontier:
+            rel = module_file(module)
+            if rel is None:
+                complete = False
+                continue
+            if rel in seen:
+                continue
+            seen.add(rel)
+            if len(out) >= IMPORT_MAX_FILES:
+                return out, False
+            text = read(rel)
+            if text is None:
+                continue
+            out.append((rel, text))
+            nxt += header_imports(text)
+        if nxt and depth >= IMPORT_MAX_DEPTH:
+            return out, False
+        frontier, depth = nxt, depth + 1
+    return out, complete
+
+
+class DeclarationIndex:
+    """The declarations of a module's import closure within the package, read once; `statement(qual)`
+    finds the one file that declares `qual` and copies its statement from there."""
+
+    def __init__(self, read, root: str):
+        self.files, self.complete = import_closure(read, root)
+        self._decls: dict[str, list] = {}
+        self.by_name: dict[str, list[tuple[str, int, str]]] = {}
+        for rel, text in self.files:
+            ds = declarations(text)
+            self._decls[rel] = ds
+            for d in ds:
+                self.by_name.setdefault(d[2], []).append((rel, d[0], d[1]))
+        self._text = dict(self.files)
+
+    def statement(self, qual: str) -> dict:
+        """{file, line, text, reason}: the declaring file and the keyword's line, with the copied statement;
+        text None and a reason when the closure is incomplete, the name is declared in no file or in more
+        than one, it is not a theorem or lemma, or `statement` refuses it. When the name is not declared
+        anywhere, file is the root module's file and line None."""
+        root = self.files[0][0] if self.files else None
+        hits = self.by_name.get(qual) or []
+        if not self.complete:
+            return {"file": root, "line": None, "text": None, "reason": "the import closure was not read in full"}
+        if not hits:
+            return {"file": root, "line": None, "text": None, "reason": "declared in no file of the closure"}
+        if len(hits) > 1:
+            return {"file": root, "line": None, "text": None, "reason": "declared more than once"}
+        rel, line, kw = hits[0]
+        text = statement(self._text[rel], qual, self._decls[rel]) if kw in ("theorem", "lemma") else None
+        return {"file": rel, "line": line, "text": text,
+                "reason": None if text is not None else "the statement could not be copied"}

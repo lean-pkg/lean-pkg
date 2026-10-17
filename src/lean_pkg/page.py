@@ -15,7 +15,9 @@ credit. Every number and status word in that section is rendered here from data,
 * the claims ledger (lean_pkg.ledger, promote stage): a row says `verified` only when the ledger closes
   every claim it names;
 * the Lean sources at the gate-bound commit: each result's Lean statement (lean_scan.statement), from the
-  Challenge module when the comparator compared it, else the claim's file; a link when it cannot be read;
+  Challenge module when the comparator compared it (or, for an umbrella Challenge, from the one package file
+  of its import closure that declares the theorem, linked at its line), else the claim's file; a link when it
+  cannot be read;
 * the receipts committed at HEAD under `.lean-receipts/`: what the checks establish, the expected axioms,
   the receipt table (last, under "How this was checked"). Fields are copied from an allow-list only (commit, toolchain, Mathlib revision, sorry
   count, axioms, theorem names, permitted axioms, definition names, date, SHA-256 of the file, a Slurm job
@@ -346,13 +348,29 @@ def _lean_statement(ctx: dict, cid: str) -> dict:
                 rel = module_path(cfg.get("challenge_module"))
                 src = read(rel)
                 text = lean_scan.statement(src, t) if src else None
-                return {"decl": t, "file": rel, "source": "challenge", "config": cfg, "found": src is not None,
-                        "text": text if text and _fence(text) else None}
+                line = None
+                if src is not None and text is None:
+                    # an umbrella Challenge: the theorem is declared in a module it imports, in the package
+                    found = _challenge_index(ctx, str(cfg.get("challenge_module")).strip(), read).statement(t)
+                    if found["text"] is not None and found["file"] != rel:
+                        rel, line, text = found["file"], found["line"], found["text"]
+                return {"decl": t, "file": rel, "line": line, "source": "challenge", "config": cfg,
+                        "found": src is not None, "text": text if text and _fence(text) else None}
     rel = str(c.get("file") or "") or None
     src = read(rel)
     text = lean_scan.statement(src, decl) if src else None
-    return {"decl": decl, "file": rel, "source": "declaration", "config": None, "found": src is not None,
-            "text": text if text and _fence(text) else None}
+    return {"decl": decl, "file": rel, "line": None, "source": "declaration", "config": None,
+            "found": src is not None, "text": text if text and _fence(text) else None}
+
+
+def _challenge_index(ctx: dict, module: str, read):
+    """The declarations of a Challenge module's import closure within the package, at the gate-bound commit;
+    read once per module for the whole page (the closure can hold large files)."""
+    from . import lean_scan
+    cache = ctx.setdefault("challenge_index", {})
+    if module not in cache:
+        cache[module] = lean_scan.DeclarationIndex(read, module)
+    return cache[module]
 
 
 def _status_line(word: str) -> str:
@@ -366,8 +384,10 @@ def _status_line(word: str) -> str:
 def _lean_block(ctx: dict, st: dict) -> list[str]:
     name = _safe(st["decl"]) or st["decl"]
     rel = st["file"] or ""
-    where = (f"[{rel}]({ctx['link_base']}/{rel})" if ctx["link_base"] and re.fullmatch(
-        r"[A-Za-z0-9_./«»'-]+\.lean", rel) and ".." not in rel else f"`{_code(rel)}`") if rel else "its file"
+    line = st.get("line")
+    where = (f"[{rel}]({ctx['link_base']}/{rel}" + (f"#L{line}" if line else "") + ")"
+             if ctx["link_base"] and re.fullmatch(r"[A-Za-z0-9_./«»'-]+\.lean", rel) and ".." not in rel
+             else f"`{_code(rel)}`" + (f" (line {line})" if line else "")) if rel else "its file"
     if st["source"] == "challenge":
         head = (f"**In Lean.** `{_code(name)}` in {where}: the statement the proof was checked against "
                 f"(the proof is in a separate file, and a second checker confirmed it proves exactly this).")

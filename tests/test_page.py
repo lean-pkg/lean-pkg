@@ -73,6 +73,7 @@ def prepare(env, coverage: dict | None = None, *, easley: bool = False, job: str
              "LICENSE": MIT_TEXT, "lake-manifest.json": MATHLIB_MANIFEST, "Challenge.lean": CHALLENGE,
              **(extra or {})}
     for rel, text in files.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
         (repo / rel).write_text(text)
     _git(repo, "add", "-A", "--", *files)
     _git(repo, "commit", "-q", "-m", "page inputs")
@@ -371,6 +372,7 @@ def _gated_root_with_easley_readme(env, job: str = "slurm-5581013") -> str:
     files = {"CITATION.cff": CITATION, "LICENSE": MIT_TEXT, "lake-manifest.json": MATHLIB_MANIFEST,
              "README.md": f"# beta\n\n{CREDIT}\n\n{EASLEY}\n"}
     for rel, text in files.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
         (repo / rel).write_text(text)
     _git(repo, "add", "-A", "--", *files)
     _git(repo, "commit", "-q", "-m", "root")
@@ -847,6 +849,86 @@ def test_statement_extraction_reads_only_what_it_can_read_safely():
     assert statement(text, "A.nxt") == "theorem nxt : True"
     long = "theorem big : True ∧\n" + "  True ∧\n" * 50 + "  True := by sorry\n"
     assert statement(long, "big") is None                               # too long to show
+
+
+# an umbrella Challenge.lean (#9 of the 0.11.0 field reports): only imports; the theorem is declared in a module
+# it imports, reached through a cycle-safe walk of the package's own committed files
+UMBRELLA = "/- an umbrella: import Fake.Module in a comment is not an import -/\nimport Mathlib\nimport Challenge.Ref.Main\n"
+REF_MAIN = ("module\n\npublic import Challenge.Ref.Defs\n\nnamespace BetaAudit.Demo\n\n/-- The main bound. -/\n"
+            "theorem foo_le_bar (n : Nat /- [definition] -/ ) (h : 0 < n) :\n    n ≤ n * n := by\n  sorry\n\n"
+            "end BetaAudit.Demo\n")
+REF_DEFS = "import Challenge.Ref.Main\nimport Challenge\n-- a cycle back to both\ndef helper : Nat := 0\n"
+
+
+def test_an_umbrella_challenge_resolves_the_statement_in_the_declaring_module(lp, env, capsys):
+    prepare(env, extra={"Challenge.lean": UMBRELLA, "Challenge/Ref/Main.lean": REF_MAIN,
+                        "Challenge/Ref/Defs.lean": REF_DEFS})
+    rc, a = page_json(lp, env, capsys)
+    md = a["markdown"]
+    assert rc == 0 and "could not be read reliably" not in md
+    assert ("**In Lean.** `BetaAudit.Demo.foo_le_bar` in [Challenge/Ref/Main.lean](https://github.com/example/beta/"
+            "blob/") in md and "/Challenge/Ref/Main.lean#L8): the statement the proof was checked against" in md
+    assert ("```lean\ntheorem foo_le_bar (n : Nat /- [definition] -/ ) (h : 0 < n) :\n    n ≤ n * n\n```"
+            in md)                                                      # the binder's comment kept verbatim
+    rc2, b = page_json(lp, env, capsys)
+    assert rc2 == 0 and b["markdown"] == md                            # deterministic
+
+
+def test_an_umbrella_challenge_keeps_the_fallback_when_the_declaration_is_not_unique(lp, env, capsys):
+    dup = REF_DEFS + "namespace BetaAudit.Demo\ntheorem foo_le_bar : True := trivial\nend BetaAudit.Demo\n"
+    prepare(env, extra={"Challenge.lean": UMBRELLA, "Challenge/Ref/Main.lean": REF_MAIN,
+                        "Challenge/Ref/Defs.lean": dup})
+    rc, a = page_json(lp, env, capsys)
+    assert rc == 0 and "could not be read reliably from the source" in a["markdown"]
+    assert "```lean" not in a["markdown"] and "[Challenge.lean](" in a["markdown"]   # the Challenge, unlinked line
+
+
+def test_an_umbrella_challenge_keeps_the_fallback_when_the_declaring_module_is_missing(lp, env, capsys):
+    prepare(env, extra={"Challenge.lean": UMBRELLA + "import Challenge.Ref.Gone\n",
+                        "Challenge/Ref/Defs.lean": "def helper : Nat := 0\n"})
+    rc, a = page_json(lp, env, capsys)
+    assert rc == 0 and "could not be read reliably from the source" in a["markdown"]
+    assert "```lean" not in a["markdown"]
+
+
+def test_the_import_closure_never_leaves_the_package_and_refuses_when_unsure():
+    from lean_pkg import lean_scan as ls
+    assert ls.header_imports("/- import X -/ module\nprelude\npublic meta import all A.B -- import C\n"
+                             "import «x.y».Z\nimport D\n\ntheorem t : True := trivial\nimport E\n") == \
+        ["A.B", "«x.y».Z", "D"]
+    assert ls.module_file("A.B.C") == "A/B/C.lean" and ls.module_file("«x.y».Z") == "x.y/Z.lean"
+    for bad in ("«..».Evil", "A.«.»", "«a/b».C", "«».C", "A..B", ""):
+        assert ls.module_file(bad) is None, bad
+    files = {"Challenge.lean": "import «..».Evil\nimport Ref\n",
+             "Ref.lean": "namespace N\ntheorem t : True := trivial\nend N\n"}
+    asked: list[str] = []
+
+    def read(rel):
+        asked.append(rel)
+        return files.get(rel)
+    idx = ls.DeclarationIndex(read, "Challenge")
+    assert all(".." not in r for r in asked) and not idx.complete
+    got = idx.statement("N.t")
+    assert got["text"] is None and got["file"] == "Challenge.lean"     # incomplete closure: no guess
+    files["Challenge.lean"] = "import Ref\nimport Mathlib\n"
+    got = ls.DeclarationIndex(read, "Challenge").statement("N.t")
+    assert (got["file"], got["line"], got["text"]) == ("Ref.lean", 2, "theorem t : True")
+    assert ls.DeclarationIndex(read, "Challenge").statement("N.nope")["text"] is None
+    chain = {f"M{i}.lean": f"import M{i + 1}\n" for i in range(ls.IMPORT_MAX_DEPTH + 5)}
+    assert not ls.DeclarationIndex(chain.get, "M0").complete                # bounded depth
+
+
+def test_statement_extraction_survives_comments_and_strings_in_binders():
+    from lean_pkg.lean_scan import statement
+    text = ("/-- A doc with /- a nested comment -/ and `:=` in it. -/\n"
+            "theorem c (x : Nat /- [definition] -/ ) (y : Nat /- outer /- inner := -/ ) -/ )\n"
+            "    (h : \"-/ := (\" = \"s\") -- a line comment := with ( an open bracket\n"
+            "    : x = x := rfl\n")
+    assert statement(text, "c") == ("theorem c (x : Nat /- [definition] -/ ) (y : Nat /- outer /- inner := -/ ) -/ )\n"
+                                    "    (h : \"-/ := (\" = \"s\") -- a line comment := with ( an open bracket\n"
+                                    "    : x = x")
+    unclosed = "theorem u (x : Nat /- never closed ) : x = x := rfl\n"
+    assert statement(unclosed, "u") is None
 
 
 def test_a_paper_statement_is_validated_and_a_library_statement_is_shown_in_words(lp, env, capsys, tmp_path):
