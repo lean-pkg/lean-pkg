@@ -113,6 +113,81 @@ def covers(names: set[str], decl: str, qualified: bool) -> bool:
     return False
 
 
+COVER_RULE = ("a comparator theorem name covers a claim only when it ends in the claim's whole fully qualified "
+              "decl: the decl itself, or <Prefix>.<decl> (FooAudit.Foo.Sec.thm covers the decl Foo.Sec.thm; "
+              "FooAudit.Sec.thm, the root Foo dropped, covers nothing)")
+
+
+def near_miss(name: str, decl: str) -> str | None:
+    """How `name` misses `decl` by exactly its leading namespace component, or None (field report #6). Strict
+    and explainable: `root-dropped` when the name is the decl without its root (`Sec.thm` for `Foo.Sec.thm`);
+    `root-replaced` when the name has the decl's length and differs only in the first component
+    (`FooAudit.Sec.thm` for `Foo.Sec.thm`). Every other component must agree, so a different suffix is never
+    a near miss. A hint for the user, never a match: `covers` alone decides what is credited."""
+    have, want = _components(name), _components(decl)
+    if not have or not want or len(want) < 2:
+        return None
+    if have == want[1:]:
+        return "root-dropped"
+    if len(have) == len(want) and have[1:] == want[1:] and have[0] != want[0]:
+        return "root-replaced"
+    return None
+
+
+def _hint(name: str, decl: str, shape: str) -> dict:
+    root = _components(decl)[0]
+    if shape == "root-replaced":
+        pre = _components(name)[0]
+        how, target = f"with its root namespace {root} replaced by {pre}", f"{pre}.{decl}"
+    else:
+        how, target = f"with its root namespace {root} dropped", f"<Prefix>.{decl}"
+    return {"name": name, "decl": decl, "shape": shape, "rename_to": target,
+            "hint": (f"{name} looks like the decl {decl} {how}, and covers nothing: the name must end in the "
+                     f"whole decl, e.g. {target} (rename the Challenge and Solution theorem; never applied "
+                     f"automatically)")}
+
+
+def name_hints(names, decls: list[tuple[str, bool]]) -> list[dict]:
+    """For each name that covers none of `decls` ((decl, qualified) pairs): the qualified decl it near-misses,
+    when exactly one does (an ambiguous near miss gives no hint). [{name, decl, shape, rename_to, hint}]."""
+    out = []
+    for n in sorted(set(names)):
+        if any(covers({n}, d, q) for d, q in decls):
+            continue
+        cands = sorted({(d, s) for d, q in decls if q for s in [near_miss(n, d)] if s})
+        if len(cands) == 1:
+            out.append(_hint(n, *cands[0]))
+    return out
+
+
+def decl_hint(names, decl: str, qualified: bool) -> dict | None:
+    """The reverse direction (ledger, --coverage): for a qualified decl no name covers, the configured name
+    that near-misses it, when exactly one does; else None."""
+    if not qualified or covers(set(names), decl, qualified):
+        return None
+    cands = sorted({(n, s) for n in names for s in [near_miss(n, decl)] if s})
+    return _hint(cands[0][0], decl, cands[0][1]) if len(cands) == 1 else None
+
+
+def hint_lines(hints: list[dict], limit: int = 3, indent: str = "  ") -> list[str]:
+    """Text lines for name hints: one line when every hint has the same shape and roots, then at most `limit`
+    examples and a count of the rest."""
+    if not hints:
+        return []
+    keys = {(h["shape"], _components(h["name"])[0], _components(h["decl"])[0]) for h in hints}
+    out = []
+    if len(hints) > 1 and len(keys) == 1:
+        shape, pre, root = next(iter(keys))
+        how, form = ((f"{root} replaced by {pre}", f"{pre}.{root}.<rest>") if shape == "root-replaced" else
+                     (f"{root} dropped", f"<Prefix>.{root}.<rest>"))
+        out.append(f"{indent}hint: all {len(hints)} look like a claim's decl with its root namespace {how}; "
+                   f"rename them to {form} (the whole decl after the prefix)")
+    out += [f"{indent}hint: {h['hint']}" for h in hints[:limit]]
+    if len(hints) > limit:
+        out.append(f"{indent}hint: ... {len(hints) - limit} more (--json lists every hint)")
+    return out
+
+
 def _load_out(repo: pathlib.Path, rel: str) -> dict | None:
     path = repo / rel
     if path.is_symlink():
@@ -546,6 +621,12 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
     if cls["not_covered"]:
         lines.append("  not covered: " + ", ".join(f"{c.get('id')} ({c.get('decl')})" for c in cls["not_covered"][:10])
                      + (" ..." if len(cls["not_covered"]) > 10 else ""))
+    configured = _names(at_bound, _sidecar_at(repo, bound))[0]
+    hints = [h for c in cls["not_covered"]
+             for h in [decl_hint(configured, str(c.get("decl") or ""), str(c.get("decl") or "") in qualified)] if h]
+    if hints:                                # #6: a configured name that misses the decl by its root namespace
+        lines.append(f"  rule: {COVER_RULE}")
+        lines += hint_lines(hints)
     if changed:
         lines += [f"  config changed since {bound[:12]}: " + "; ".join(f"{c['path']} {c['change']}" for c in changed),
                   f"  candidate (working tree; NOT counted above, certifies nothing): {candidate['covered']} covered, "
@@ -560,6 +641,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
                "not_covered": len(cls["not_covered"]), "todo": len(cls["todo"]),
                "not_applicable": cls["not_applicable"],
                "uncovered": [{"id": c.get("id"), "decl": c.get("decl")} for c in cls["not_covered"]],
+               "hints": hints,
                "config_changed": bool(changed), "changed_configs": changed, "candidate": candidate,
                "statement": statement, "next_commands": nxt}
     return lines, payload

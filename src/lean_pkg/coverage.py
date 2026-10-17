@@ -566,9 +566,10 @@ def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.
         where = c.get("path") or "?"
         for t in c.get("theorem_names") or []:
             if isinstance(t, str) and not any(cc.covers({t}, d, q) for d, q in decls):
+                near = cc.name_hints([t], decls)            # #6: a root-namespace near miss, named, never credited
                 errors.append(f"comparator theorem {t!r} ({where}, recorded comparator receipt) is the declaration "
                               f"of no claim a row names: map it to its paper result (a row's claims), or drop it "
-                              f"from the configuration")
+                              f"from the configuration" + (f"; hint: {near[0]['hint']}" if near else ""))
         judged = receipt_judged(c)
         if c.get("definition_names") and not str(judged.get("reviewer") or "").strip():
             errors.append(f"comparator configuration {where} (recorded comparator receipt) has definition holes "

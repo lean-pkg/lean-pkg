@@ -213,6 +213,8 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
                     why = "" if q else (f" ({decl} is not the fully qualified name of a declaration in "
                                         f"{c.get('file')}: a bare or partial name is credited to no "
                                         f"comparator name)")
+                    near = cc.decl_hint(names, decl, q)     # #6: detail only; the digest covers codes
+                    why += f"; hint: {near['hint']}" if near else ""
                     diags.append(_diag(code, f"{decl} at {bound[:12]}{why}"))
         for d in c.get("depends_on") or []:
             if d not in ids:

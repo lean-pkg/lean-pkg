@@ -24,6 +24,26 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   reporter is on: a paper, or a Lean package (a Mathlib contribution or a
   public GitHub repository with no manuscript).
 
+### Fixed
+
+- `claims mark --from-comparator`: when theorem names match no claim (or
+  only some), the output now states the matching rule. A name covers a claim
+  only when it ends in the claim's whole fully qualified `decl`: the decl
+  itself, or `<Prefix>.<decl>`. A name that differs from exactly one claim's
+  decl only in its leading namespace component gets a hint naming that decl
+  and the covering name. For example `ChemoAudit.Hopf.thm` for the decl
+  `Chemo.Hopf.thm`, the root replaced by the prefix, should be
+  `ChemoAudit.Chemo.Hopf.thm`. Before, 83 such names reported `0 claim(s)
+  covered` and nothing said why. When every hint has the same shape, one
+  line says so. The `claims ledger` detail of a `no-comparator-config`
+  claim, `comparator config --coverage` and the R11
+  error of `coverage check` / `page --check` carry the same hint. A hint is
+  never applied and credits nothing: the rule itself is unchanged, and every
+  consumer still uses it. A name with a different suffix gets no hint. JSON:
+  `claims mark` adds `rule` and `hints[]` {name, decl, shape, rename_to,
+  hint}, and `--coverage` adds `hints[]`. docs/comparator.md, "How a theorem
+  name maps to a claim"; docs/page.md R11.
+
 ## [0.9.0] - 2026-10-17
 
 ### Added

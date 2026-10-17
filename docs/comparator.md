@@ -158,6 +158,46 @@ configuration whose holes are signed off with `config_sha256` bound to its
 current bytes loses that binding when the scaffold appends names; the command
 says so.
 
+### How a theorem name maps to a claim
+
+Every command that credits a comparator theorem to a claim uses one rule:
+`claims mark --from-comparator`, the claims ledger (and so `publish` and
+`promote`), `comparator config --coverage`, `status`, the headline subset
+rule, and `page` / `coverage check` (R11). A `theorem_names` entry covers a
+claim only when it **ends in the claim's whole fully qualified `decl`**: it is
+the `decl` itself, or `<Prefix>.<decl>` for any prefix. With the claim
+
+```yaml
+- id: chemo/cubic
+  decl: Chemo.Hopf.cubic_coeff        # declared in namespace Chemo.Hopf
+```
+
+| Challenge/Solution name | covers `Chemo.Hopf.cubic_coeff`? |
+|---|---|
+| `ChemoAudit.Chemo.Hopf.cubic_coeff` | yes (`<Prefix>.<decl>`, the form `--from-claims` writes) |
+| `Chemo.Hopf.cubic_coeff` | yes, but a Solution importing the project cannot restate it |
+| `ChemoAudit.Hopf.cubic_coeff` | **no**: the root `Chemo` was replaced by the prefix |
+| `Hopf.cubic_coeff` | **no**: the root dropped |
+| `ChemoAudit.cubic_coeff` | **no**: only the last component shared |
+
+So the Challenge namespace is a prefix *in front of* the project's full
+name, not a replacement for its root: put the statements in
+`namespace ChemoAudit.Chemo.Hopf`, not `namespace ChemoAudit.Hopf`. There is
+no prefix map: which proof backs which claim is decided by the name alone,
+and the receipt binds exactly those names.
+
+When names match nothing, `claims mark` prints the rule (JSON `rule`) and,
+for a name that differs from exactly one claim's `decl` only in its leading
+namespace component (dropped, or replaced by another single component), a
+hint naming that decl and the covering name (JSON `hints[]`
+{name, decl, shape `root-dropped`|`root-replaced`, rename_to, hint}). When
+every hint has the same shape, one line says so (`all 83 look like ...`).
+The ledger detail of a `no-comparator-config` claim, `--coverage` (JSON
+`hints[]`) and the R11 error of `coverage check` carry the same hint. A hint
+is never applied and credits nothing: rename the Challenge and Solution
+theorems, commit, and re-run the comparator receipt. A name with a different
+suffix gets no hint.
+
 ### Pre-filling statements from the elaborated types
 
 `--challenge-from-type` fills each entry the scaffold adds with a starting
