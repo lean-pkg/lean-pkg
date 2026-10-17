@@ -1,7 +1,7 @@
 # 0001: The paper's statement in coverage.yaml
 
-Status: draft. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
+Decided: accepted 2026-10-17 by Le Chen (see Decision below). Implemented in: (release).
 
 ## Summary
 
@@ -15,7 +15,7 @@ compare the two by eye without opening the paper.
 The verification page now opens with "Lean has checked every step of the
 proofs listed here. It cannot check that a Lean statement says what the paper
 says: that comparison is yours", and shows each result's Lean statement copied
-from the source ([design](https://github.com/lean-pkg/lean-pkg/pull/205), `docs/design/page-for-mathematicians.md` in that pull request). The other
+from the source ([design](../design/page-for-mathematicians.md), pull request #205). The other
 half of that comparison, the paper's statement, is not in any file lean-pkg
 reads. Today the page can only say "Theorem 1 of the paper: read its
 statement there". Palomar's entry pages lead with the informal account before
@@ -80,6 +80,15 @@ environment).
 
 - The 2000-character limit.
 - Whether `coverage check` should warn when a formalized row has no statement.
+
+## Decision
+
+Accepted on 2026-10-17 by Le Chen, the maintainer of record, as designed
+above. Typeset mathematics stays out for now: the page shows the statement
+as TeX source only, so no script and no markup renderer touches the
+authors' text. The open questions were not decided: the first
+implementation uses the 2000-character limit and does not warn about a row
+without a statement.
 
 ## AI assistance
 
