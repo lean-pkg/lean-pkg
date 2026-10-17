@@ -48,6 +48,24 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   fixtures after a namespace or import transport") and `lean_diag`'s
   expected-reason check. `ok` and the exit code do not change; `*.lean`,
   `*.olean` and `*.ilean` are not matched (#239).
+- Toolchain advisories (#237): lean-pkg ships a dated list of Lean
+  releases with a known kernel or runtime soundness bug,
+  `src/lean_pkg/data/toolchain-advisories.yaml` (schema
+  `lean-pkg-toolchain-advisories/1`, validated strictly when loaded), each
+  entry citing the Lean release notes and the lean4 issue or pull request,
+  with the fixed release. Four entries, fixed in v4.32.1, v4.32.2, v4.33.1
+  and v4.34.1. `gate`, `gate --check`, `receipt check` and `palomar check`
+  print one `WARN: toolchain advisory ID: ...` line per entry that names the
+  receipt's `lean_toolchain` (for `palomar check`, `lean-toolchain` at the
+  commit), naming the fixed release and linking the release notes, and
+  their `--json` gains `toolchain_advisories[]` (`[]` when none). Never a
+  refusal: no verdict or exit code changes. `page --write` adds a line
+  under *How this was checked*; `page --check` leaves advisory lines out
+  of its comparison, so a page written earlier stays current, and prints a
+  non-failing NOTE line per advisory the page does not show yet (page
+  `--json` gains `toolchain_advisories[]`). docs/receipts.md, docs/trust-model.md
+  (the trust chain), CONTRIBUTING.md ("Toolchain advisories": how to add an
+  entry).
 
 - Receipts record the container image a job ran in (#236), as the additive
   key `container` {`engine`, `image_sha256` (the SIF file) or `oci_digest`,

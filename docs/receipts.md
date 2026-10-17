@@ -1544,6 +1544,43 @@ is the reader's own choice; the result prints which rule was applied.
 Re-running Lean is not part of it: see
 [Re-verify a page yourself](trust-model.md#re-verify-a-page-yourself).
 
+**Toolchain advisories.** A receipt made on a Lean release with a known
+kernel or runtime soundness bug is weaker evidence than one made on the
+release that fixed it. lean-pkg ships a dated list of such releases,
+[`toolchain-advisories.yaml`](../src/lean_pkg/data/toolchain-advisories.yaml)
+(schema `lean-pkg-toolchain-advisories/1`), each entry naming the affected
+releases, the fixed release and its primary sources (the Lean release notes,
+the lean4 issue and pull request). When the receipts' `lean_toolchain` (for
+`palomar check`, `lean-toolchain` at the commit) is on it, `gate`,
+`gate --check`, `receipt check` and `palomar check` print one line per
+matching entry:
+
+```text
+WARN: toolchain advisory lean-v4.32.1-kernel-opaque-fvars: leanprover/lean4:v4.32.0 has a known Lean soundness bug, fixed in v4.32.1; https://lean-lang.org/doc/reference/latest/releases/v4.32.1/ (a warning, not a refusal; a receipt made on v4.32.1 or later is stronger evidence)
+```
+
+(`gate` on stderr; `receipt check` and `palomar check` in their report, after
+the verdict line). `--json` gains `toolchain_advisories`: one object per
+match with `id`, `toolchain`, `summary`, `fixed_in`, `links` and
+`date_added`, an empty list when none matches. It is never a refusal and
+never changes a verdict or an exit code: the proofs may well be sound, and
+the comparator tier's independent kernels catch several of these bugs. The
+verification page adds a line under *How this was checked* naming the entry
+and linking its release notes (`page --write`). Advisory lines never count
+towards staleness: `page --check` (and `publish`'s page line) compares the
+block, `verification.md` and `coverage.md` without them (an `--html` file is
+current when it matches the render with or without them), so a page written
+before an entry existed stays current. It prints one non-failing
+`NOTE: toolchain advisory ID applies; the next page --write will show it`
+per entry the block does not show yet, and the page `--json` lists the
+entries that apply in `toolchain_advisories[]`. To lose the warning, rebuild on the
+fixed release (or later) and re-gate. A release matches when it sorts below
+the entry's `affected.below` (an rc sorts before its release), or is one of
+`affected.also` (release candidates of the next line cut before the fix was
+backported); a `nightly-YYYY-MM-DD` toolchain matches when dated on or before
+`affected.nightlies_through`. Channel names (`stable`), pull-request
+toolchains and other strings match nothing.
+
 **`formalization.yaml` after X.** An evidence commit has to refresh
 `formalization.yaml`: its `status.evidence` cites the receipt, so the file
 cannot be inside the commit the receipt binds. `gate` admits that change in an

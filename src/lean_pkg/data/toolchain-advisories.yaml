@@ -1,0 +1,77 @@
+# Lean toolchains with a known kernel or runtime soundness bug (schema lean-pkg-toolchain-advisories/1).
+# `gate`, `receipt check` and `palomar check` print a WARN line for each entry that names the toolchain a
+# receipt (or the commit) was built with; they never refuse because of it. Each entry is one upstream
+# point release and the soundness fixes it shipped. Every link is a primary source: the Lean release
+# notes and the lean4 issues and pull requests they cite. How to add an entry: CONTRIBUTING.md,
+# "Toolchain advisories". The format: lean_pkg/toolchain_advisories.py (validated when loaded).
+#
+# affected.below: every release and release candidate that sorts below this version (an rc sorts before
+#   its release: v4.33.0-rc1 < v4.33.0 < v4.33.1).
+# affected.also: releases at or above `below` that lack the fix anyway (release candidates of the next
+#   line cut before the fix was backported), checked against the lean4 tags.
+# affected.nightlies_through: nightly-YYYY-MM-DD toolchains dated on or before this day (the day the last
+#   fix merged into master; the nightly of that day may already carry it, so this errs towards warning).
+schema: lean-pkg-toolchain-advisories/1
+advisories:
+  - id: lean-v4.32.1-kernel-opaque-fvars
+    summary: >-
+      Kernel soundness bug: the kernel did not check an opaque declaration's value for free variables, so a
+      malicious metaprogram running in the same process could make it accept a proof of False. The
+      comparator route (lean4export) is not affected.
+    affected:
+      below: v4.32.1
+      also: [v4.33.0-rc1]
+      nightlies_through: 2026-07-22
+    fixed_in: v4.32.1
+    links:
+      - https://lean-lang.org/doc/reference/latest/releases/v4.32.1/
+      - https://github.com/leanprover/lean4/issues/14484
+      - https://github.com/leanprover/lean4/pull/14498
+    date_added: 2026-10-17
+  - id: lean-v4.32.2-kernel-nested-inductive
+    summary: >-
+      Kernel soundness bug: incomplete handling of nested inductive types with phantom type parameters let
+      a crafted proof of False through the kernel, also when checked with comparator.
+    affected:
+      below: v4.32.2
+      also: [v4.33.0-rc1]
+      nightlies_through: 2026-07-28
+    fixed_in: v4.32.2
+    links:
+      - https://lean-lang.org/doc/reference/latest/releases/v4.32.2/
+      - https://github.com/leanprover/lean4/issues/14576
+      - https://github.com/leanprover/lean4/pull/14577
+    date_added: 2026-10-17
+  - id: lean-v4.33.1-kernel-and-runtime
+    summary: >-
+      Kernel soundness bugs in is_def_eq caching and in is_prop (each used to derive False), a reference
+      count overflow in the runtime that could be extended into a proof of False on a machine with 18 GB
+      of free RAM, and portable Linux releases linked against a GMP with known unsound corner cases.
+    affected:
+      below: v4.33.1
+      also: [v4.34.0-rc1]
+      nightlies_through: 2026-08-20
+    fixed_in: v4.33.1
+    links:
+      - https://lean-lang.org/doc/reference/latest/releases/v4.33.1/
+      - https://github.com/leanprover/lean4/pull/14806
+      - https://github.com/leanprover/lean4/pull/14807
+      - https://github.com/leanprover/lean4/pull/14843
+      - https://github.com/leanprover/lean4/pull/14838
+      - https://github.com/leanprover/lean4/pull/14833
+    date_added: 2026-10-17
+  - id: lean-v4.34.1-runtime-refcounts
+    summary: >-
+      Runtime soundness bugs: reference count overflows in maximal sharing (inputs above 100 GB) and in
+      deletion cascades (18 GB of free RAM) could trigger undefined behaviour in the official kernel that
+      could be extended into a proof of False; kernels not built on the Lean runtime are not affected.
+    affected:
+      below: v4.34.1
+      also: [v4.35.0-rc1, v4.35.0-rc2]
+      nightlies_through: 2026-09-24
+    fixed_in: v4.34.1
+    links:
+      - https://lean-lang.org/doc/reference/latest/releases/v4.34.1/
+      - https://github.com/leanprover/lean4/pull/15289
+      - https://github.com/leanprover/lean4/pull/15241
+    date_added: 2026-10-17

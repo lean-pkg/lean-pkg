@@ -59,6 +59,7 @@ import tempfile
 
 from . import cli as core
 from . import container as ctr
+from . import toolchain_advisories
 
 RECEIPTS_DIR = ".lean-receipts"
 DEFAULT_AXIOMS = tuple(core.DEFAULT_AXIOMS)
@@ -584,6 +585,10 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
         claimed_theorems_check(c, repo, pkg, x, bool(found["comparator"]))
         coverage_check(c, repo, pkg)
         page_checks(c, repo, x, found)
+        # #237: the toolchain the receipts bind (else lean-toolchain at X) against the shipped advisories
+        toolchains = [v["data"].get("lean_toolchain") for k in ("lower", "comparator") for v in found[k]]
+        advisories, advisory_lines = toolchain_advisories.warn_lines(
+            [t for t in toolchains if isinstance(t, str) and t.strip()] or [toolchain_at(repo, x)])
     failed = c.failed()
     lower_ok = bool(found["lower"]) and not any(
         i["verdict"] == FAIL for i in c.items if i["id"].startswith(("lower ", "receipts", "binding")))
@@ -602,7 +607,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
              f"  commit {x} (published ref {ref[:12]}{', the same commit' if ref == x else ''})",
              f"  rule: {rule}",
              *[f"  exemption: {e}" for e in c.exemptions],
-             f"  note: {RERUN_NOTE}"]
+             f"  note: {RERUN_NOTE}",
+             *[f"  {w}" for w in advisory_lines]]
     lines += [f"  {i['verdict'].upper():4} {i['id']}: {i['detail']}" for i in c.items]
     lines.append(summary)
     receipts = {k: [{"path": v["path"], "sha256": v["sha256"], "commit": v["commit"]} for v in found[k]]
@@ -612,7 +618,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                "docs_descendants": bool(docs_descendants), "rule": rule, "tier": tier, "runs_lean": False,
                "network": False, "note": RERUN_NOTE, "receipts": receipts, "bound_receipts": bound,
                "counts": counts, "exemptions": c.exemptions,
-               "skipped_records": [v["path"] for v in found["sidecar"]], "checks": c.items}
+               "skipped_records": [v["path"] for v in found["sidecar"]], "checks": c.items,
+               "toolchain_advisories": advisories}
     return lines, payload, 0 if ok else 1
 
 

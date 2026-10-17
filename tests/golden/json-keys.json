@@ -249,7 +249,8 @@
       "rl_hint",
       "rl_reminder",
       "status",
-      "status_unchanged"
+      "status_unchanged",
+      "toolchain_advisories"
     ],
     "rc": 0,
     "type": "object"
@@ -273,7 +274,8 @@
       "repo_override",
       "report_log",
       "resolved_paths",
-      "status"
+      "status",
+      "toolchain_advisories"
     ],
     "rc": 0,
     "type": "object"
@@ -348,6 +350,7 @@
       "rows",
       "site_files",
       "sites",
+      "toolchain_advisories",
       "unchanged",
       "verified_rows",
       "warnings",
@@ -373,7 +376,8 @@
       "project_path",
       "ready",
       "repo_override",
-      "rules"
+      "rules",
+      "toolchain_advisories"
     ],
     "rc": 1,
     "type": "object"
