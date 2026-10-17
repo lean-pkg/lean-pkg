@@ -105,6 +105,8 @@ will automate the registry bootstrap; it is not implemented yet.
 - [The verification page](page.md): `coverage.yaml` and the README section
   `lean-pkg page` renders from it, the claims ledger and the receipts; the
   `--check` staleness and credits gate.
+- [Compute sites](sites.md): site profiles, the acknowledgment of the cluster
+  that ran the gates, and how to add a site of your own.
 - [The index](index-catalog.md): the public catalog of trust-graded packages, its
   entry schema, and how to add and check an entry.
 - [Prior-art search](prior-art.md): claims files, `lean-pkg search` across the

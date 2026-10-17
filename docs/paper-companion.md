@@ -302,7 +302,9 @@ This work was completed in part with resources provided by the [Auburn Universit
 Keep the wording verbatim ("in part" unless Easley was the only compute
 used). A companion whose receipts came from other hosts carries no such
 sentence: the acknowledgment is a statement about where the evidence was
-produced. Other clusters have their own required wording.
+produced. Other clusters have their own required wording: describe yours
+in a [site profile](sites.md) and `lean-pkg page` renders and checks it the
+same way.
 
 ## Consolidate several checkpoint packages into one
 

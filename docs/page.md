@@ -117,7 +117,7 @@ compute:                              # optional; see the Easley acknowledgment
 | `rows[].claims` | ids in `claims.yaml` at `HEAD`; at least one for the first two classes, none for `outside`; a superseded claim is refused |
 | `rows[].inputs` | required for `inputs-supplied`, refused for `same-assumptions` |
 | `nothing_excluded` | `{reason: TEXT}`, only when no row is `outside`. One of the two is required: a page always says where the formalization stops |
-| `compute` | `[{cluster: easley, jobs: [slurm-<J>, ...]}]`; each job must be a Slurm receipt committed under `.lean-receipts/` |
+| `compute` | `[{cluster: NAME, jobs: [slurm-<J>, ...]}]`; `NAME` a [site profile](sites.md) (`easley` is built in); each job must be a receipt of the site's scheduler committed under `.lean-receipts/` |
 | `lean_pkg_version` | optional `{version, doi}`: the exact lean-pkg version to credit. When lean-pkg's own `CITATION.cff` is readable it must list that version with exactly that DOI |
 | `kind` | optional: `paper` (the default, everything above) or `library` ([below](#a-library-with-no-manuscript)). An older lean-pkg refuses the key (coverage/1 is strict) |
 
@@ -206,6 +206,10 @@ a package with no `coverage.yaml` and no block, the line is a WARN, except for
 an unbacked Easley sentence, which is a failure.
 
 ## The Easley acknowledgment
+
+Easley is the first built-in [site profile](sites.md); every profile,
+including one a package commits under `lean-pkg-sites/`, follows the rule
+below with its own sentence and README pattern.
 
 A receipt does not record where its job ran: a Slurm receipt says
 `slurm-<J>`, and the job number alone does not name the cluster. The sentence

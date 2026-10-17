@@ -41,6 +41,7 @@ import re
 import yaml
 
 from . import cli as core
+from . import sites
 
 REPORT_SCHEMA = "claims-rebase/1"
 STATUSES = ("unchanged", "changed", "missing", "moved-into-proof", "not-in-old", "unsupported", "unnumbered")
@@ -832,7 +833,7 @@ def _inputs(pkg: dict, repo: pathlib.Path, claims_file: str | None, coverage_fil
     if coverage_file is None and core.git_show_bytes(repo, cov_mod.DEFAULT_COVERAGE_FILE) is None:
         return cdoc, cwhere, None, None
     cov, vwhere = cov_mod.read_doc(pkg, repo, coverage_file)
-    errors = cov_mod.validate(cov, name)
+    errors = cov_mod.validate(cov, name, sites.for_repo(repo))
     if errors:
         raise core.Fail(f"{vwhere} is not a valid {cov_mod.COVERAGE_SCHEMA} file:\n  " + "\n  ".join(errors))
     if cov_mod.doc_kind(cov) == "library":     # names no manuscript: nothing in it moves with the paper
@@ -906,7 +907,8 @@ def do_rebase(reg: dict, args) -> tuple[list[str], dict, int]:
     from . import claims as claims_mod
     proposed_errors = [f"claims.yaml: {e}" for e in claims_mod.validate_claims(result["claims"], args.name)]
     if result["coverage"] is not None:
-        proposed_errors += [f"coverage.yaml: {e}" for e in cov_mod.validate(result["coverage"], args.name)]
+        proposed_errors += [f"coverage.yaml: {e}" for e in cov_mod.validate(result["coverage"], args.name,
+                                                                                   sites.for_repo(repo))]
     rep["proposed_errors"] = proposed_errors
     rep["inputs"]["claims_file"] = {"where": cwhere}
     if vwhere and args.coverage_file:
