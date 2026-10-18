@@ -21,6 +21,10 @@ library has about a hundred such names, a few of them with different proof
 terms in different modules. A reviewer who reads one copy may not be
 reading the one the environment holds.
 
+After a namespace or import transport, run it on a module that imports
+the whole package: see the
+[transport checklist](extract.md#checklist-after-a-namespace-or-import-transport-every-declaration-form-one-combined-import).
+
 ## The check
 
 ```bash

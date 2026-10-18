@@ -112,3 +112,9 @@ Controls kept out of the build by a suffix (`*.lean.disabled` and similar)
 are missed by every `*.lean` inventory; after a namespace or import transport,
 list them and re-run their checks before expensive gates
 ([Disabled negative fixtures](extract.md#disabled-negative-fixtures-after-a-namespace-or-import-transport)).
+
+Modules that each compile alone (controls meant to compile among them) can
+still collide when imported together: two anonymous instances of one class
+at the same arguments get the same generated name. Name each control's
+instances, and build one module that imports every module meant to compile
+([transport checklist](extract.md#checklist-after-a-namespace-or-import-transport-every-declaration-form-one-combined-import)).

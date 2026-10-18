@@ -1,0 +1,9 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.16.0. Same keys as 0.16.0.yaml; the human page is docs/upgrades/0.17.0.md.
+schema: lean-pkg-upgrade-record/1
+version: 0.17.0
+changes: []
+# Read for this record, nothing for a package author: docs only, a recipe for filling missing dependency
+# artifacts from a pinned donor cache (docs/receipts.md) and a transport checklist for every declaration
+# form (docs/extract.md) (#272).
+no_author_change: [272]
