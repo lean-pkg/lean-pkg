@@ -375,12 +375,18 @@ proposal process).
   Palomar rules, templates).
 - **CI**: the scaffold and tutorial matrix per release (small; measured in
   stage 0) plus a cluster job per release for the larger packages.
-  Measured in stage 0 (2026-10-17, 8 CPUs, cold Mathlib cache) for the
-  `new --kind paper` scaffold on lts-2026.10: `lake update` with the cache
-  download 52.9 s wall and 139.1 s CPU (peak memory 8.7 GB, 7.3 GB on
-  disk), `lake build` 13.3 s wall and 20.9 s CPU (1.8 GB). The receipt
-  steps and the other five entries are not yet measured
-  ([lts-2026.10](../stacks/lts-2026.10.md)).
+  Measured in stage 0 (2026-10-17, one host, 8 CPUs; [lts-2026.10](../stacks/lts-2026.10.md)):
+  per fresh checkout, `lake update` with the Mathlib cache download takes 35 to 42 s
+  wall and 74 to 83 s CPU (peak memory about 9 GB, 7.3 GB on disk; cold or
+  warm cache alike). For the scaffolds and the tutorial, `lake build` takes
+  7 to 9 s wall and 12 s CPU, and both receipts with the gate under a
+  minute: about two minutes of wall time per entry, which fits a hosted CI
+  runner with enough memory for the cache download. The index packages
+  take 48 to 55 s wall and 223 to 314 s CPU to build, and 2.5 to 3 minutes
+  for both receipts; they fit a cluster job. Moving a package can need
+  source changes, and those are the larger cost: 33 edits for one package
+  three Lean releases behind, and one package six releases behind blocked
+  by a third-party dependency.
 - **Scope pressure**: a fix that cannot work on the older stack has to
   wait or carry a stack-specific branch in lean-pkg. That is the cost the
   promise is for.

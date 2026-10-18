@@ -1,6 +1,6 @@
 # A lean-pkg LTS stack (schema lean-pkg-stack/1; proposal 0004, docs/proposals/0004-math-lts-stack.md).
 # The human page is lts-2026.10.md. Closed keys: tests/test_stacks.py refuses any key not listed there.
-# `published` stays null until the stage 0 matrix passes (proposal 0004, "Cadence and choice": a stack
+# `published` stays null until every stage 0 matrix entry reaches receipts (proposal 0004, "Cadence and choice": a stack
 # is declared after its matrix passes, with the date of the run).
 schema: lean-pkg-stack/1
 name: lts-2026.10
@@ -34,35 +34,35 @@ comparator_tools:                  # what the comparator receipt runs on this to
     con-ron: 60f4ca9fb9436c323789fa49aae33af6dcd1b9b54b43a66b461779ce79fd8eec
 supported_until: 2028-04-30        # about 18 months (proposal 0004, open question 3, decided)
 successor: null                    # lts-2027.04 once it exists
-tested:                            # the stage 0 matrix (proposal 0004, "How a stack is tested"); see the page
+tested:                            # the stage 0 matrix, 2026-10-17, one host (proposal 0004, "How a stack is tested"); see the page
   - package: new --kind paper (lean-pkg 0.12.0 scaffold)
     commit: null
-    moved: pins only               # lean-toolchain and the Mathlib require rev; no source change
+    moved: pins only               # lean-toolchain and the Mathlib require rev; coverage.yaml filled in as an author would
     build: ok
-    result: built                  # verify not run: the comparator receipt needs an authorized host
+    result: verified               # verify, page --write, receipt check PASS; publish --dry-run: only push and consent open
   - package: new --kind library (lean-pkg 0.12.0 scaffold)
     commit: null
-    moved: null
-    build: null
-    result: pending
+    moved: pins only
+    build: ok
+    result: verified
   - package: pi-lambda tutorial (docs/tutorial-pi-lambda.md)
     commit: null
-    moved: null
-    build: null
-    result: pending
+    moved: pins only
+    build: ok
+    result: verified
   - package: gromov-filling-lean (index)
     commit: ba787a3eb26eaa88752d06d91f17763478233eab
-    moved: null
-    build: null
-    result: pending
+    moved: source changes needed   # its JordanCurveTheorem dependency (third party, on v4.29.0) does not build on this Mathlib
+    build: failed
+    result: blocked                # no receipts; the stack is not declared until this entry reaches receipts
   - package: markovprocess-pilot (index)
     commit: 05d99d75df8235e79902220f0fe13e07e81867ca
-    moved: null
-    build: null
-    result: pending
+    moved: lakefile only           # a direct Mathlib require at v4.35.0 over its dependency's rc2 pin; no Lean change
+    build: ok
+    result: migration              # both receipts; receipt check fails one check that already fails at the pin (claims vs comparator names)
   - package: total-coloring-lean (index)
     commit: 533f9430cb4595faa9878bf2eecb8350ce57a068
-    moved: null
-    build: null
-    result: pending
+    moved: source changes          # 33 one-line edits in 14 files (deprecations under warningAsError, two API changes)
+    build: ok
+    result: migration              # both receipts; the same claims-vs-comparator-names check fails as for markovprocess-pilot
 advisories: []                     # entries of the toolchain advisory list (#237) that apply

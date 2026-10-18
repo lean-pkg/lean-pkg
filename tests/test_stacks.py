@@ -31,7 +31,7 @@ TOOLS_KEYS = {"mechanism", "sources", "release_asset", "binaries_sha256"}
 SOURCE_KEYS = {"lake_comparator", "leanexport", "leanchecker", "nanoda_lib", "con_ron"}
 ASSET_KEYS = {"name", "sha256"}
 TESTED_KEYS = {"package", "commit", "moved", "build", "result"}
-RESULTS = {"verified", "built", "migration", "pending", "failed"}
+RESULTS = {"verified", "built", "migration", "pending", "blocked", "failed"}
 
 
 def stack_files() -> list[pathlib.Path]:
@@ -116,9 +116,9 @@ def validate(doc: dict) -> list[str]:
                     p.append(f"tested[{i}].result: {e['result']!r}")
                 if e["commit"] is not None and not HEX40.match(str(e["commit"])):
                     p.append(f"tested[{i}].commit: not a 40-hex commit")
-        if doc["published"] is not None and any(e.get("result") in ("pending", "failed") for e in doc["tested"]
+        if doc["published"] is not None and any(e.get("result") in ("pending", "blocked", "failed") for e in doc["tested"]
                                                 if isinstance(e, dict)):
-            p.append("published: set while a matrix entry is pending or failed (declared after the matrix passes)")
+            p.append("published: set while a matrix entry is pending, blocked or failed (declared after the matrix passes)")
     if not isinstance(doc["advisories"], list):
         p.append("advisories: not a list")
     return p
