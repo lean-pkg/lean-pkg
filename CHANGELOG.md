@@ -23,6 +23,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   disk, the cost on a personal account (at least 4 cores and 16 GB) and what
   a Codespace cannot do. No Codespaces prebuilds are configured (#257).
 
+### Changed
+
+- docs/stacks/lts-2026.10: the stage 0 matrix, run on one host. The two
+  `new` scaffolds and the π-λ tutorial move with no source change and pass
+  `verify`, `page --write` and `receipt check`. markovprocess-pilot (a
+  lakefile change) and total-coloring-lean (33 one-line edits) reach both
+  receipts, and their comparator toolchain digests match the stack file.
+  gromov-filling-lean is blocked by a third-party dependency that does not
+  build on Mathlib `v4.35.0`, so the stack stays undeclared. The page
+  records timings, peak memory, receipt SHA-256s and migration notes, and
+  the proposal's Costs line the measured cost. The stack file's `tested`
+  results gain `blocked` (#258).
+
 ## [0.13.0] - 2026-10-17
 
 ### Added
