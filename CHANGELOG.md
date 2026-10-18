@@ -9,6 +9,26 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- docs/receipts.md, "Filling missing dependency artifacts from a pinned
+  donor" (field report): when `receipt slurm --preflight-deps` names
+  missing modules and another cache built from the same toolchain and
+  manifest revs holds them, the plan from `--json`, the donor checks (the
+  toolchain, every manifest rev via `--preflight-deps --deps-dir`, no
+  source edits, the `.olean` header), every artifact family the donor has
+  per module, additions only (never overwriting a base member), a new
+  archive verified member by member, provenance kept beside it (collector
+  hashes, never job seals) and the official preflight rerun (#272).
+- docs/extract.md, "Checklist after a namespace or import transport"
+  (field report): audit every declaration form (anonymous, `local` and
+  `scoped` instances, `abbrev`, `opaque`, `axiom`, `structure`,
+  `class`, `inductive`, modifiers and attributes), keep their intended
+  namespaces, cross-check against the constants each module owns, build
+  one combined import and run `dup_constants` on it before expensive
+  gates, and resolve import winners by Lean's package-root rule, with an
+  example of a sparse output tree shadowing accepted modules (#272).
+
 ## [0.16.0] - 2026-10-18
 
 ### Added

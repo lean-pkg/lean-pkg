@@ -267,6 +267,115 @@ fixture that still says `open OldName` fails with ``unknown namespace `OldName` 
 which `lean_diag` reports as `wrong-reason`, not `expected`. Fix those files
 before an expensive gate, not after it.
 
+## Checklist after a namespace or import transport: every declaration form, one combined import
+
+A transport that moves modules into a new namespace or rewrites their
+headers can leave a package in which every module compiles alone and the
+whole does not. A field report: after a namespace transport, every module
+built and a file-by-file check passed, yet importing the modules together
+failed. Two separate negative controls each declared an anonymous
+`IsProbabilityMeasure` instance, and Lean gave both the same generated
+name in the same namespace. The header-transport collector had qualified
+the theorem and `def` names, but it missed the anonymous instances, and
+also an `abbrev CellIndex` that occurred 55 times and had moved namespace.
+A sparse new output tree also hid unchanged accepted modules from the
+import path (item 5). Run the checklist below after any such transport,
+before native, comparator, full replay or cluster gates.
+
+1. **Audit every declaration form, not only theorems and `def`s.** A
+   collector keyed on `theorem` and `def` misses the rest. List every
+   command that declares a constant or binds a name to a namespace:
+   - `def`, `theorem`, `lemma`, `abbrev`, `opaque`, `axiom` (and
+     `constant` in sources ported from Lean 3; Lean 4 spells it `opaque`),
+     `example` (no constant, but it is elaborated in the current
+     namespace);
+   - `structure`, `class`, `class inductive`, `inductive`, with the
+     constructors, projections and recursors Lean derives from them;
+   - `instance` in every form: named, **anonymous** (Lean generates the
+     name from the class and its arguments, never from the module, and
+     puts it in the current namespace), with a priority, `local`,
+     `scoped`, and `attribute [instance]` on an existing constant;
+   - each with its modifiers and attributes: `private` (the name embeds
+     the module name, so it changes when the module is renamed),
+     `protected`, `noncomputable`, `partial`, `unsafe`, `@[simp]`,
+     `@[reducible]` and doc comments, which a line-based rewrite must
+     carry along;
+   - the commands that read the namespace: `scoped notation`, `scoped`
+     `macro`, `syntax` and `elab`, `open ... in`, `export`.
+2. **Keep each declaration's intended namespace.** Map every old name to
+   its new name, and check that nothing is left in the old namespace and
+   nothing landed in a namespace it was not meant for. Give the instances
+   of separate controls explicit names (`instance instIsProbControlA : ...`)
+   or a namespace of their own: two anonymous instances of one class at
+   the same arguments get the same name.
+3. **Cross-check against complete native ownership, not a source scan.**
+   Lean's own environment says which constants each module owns, the
+   generated ones included (instance names, `.eq_1`, `match_1`,
+   `_proof_1`). List them from the built modules before and after the
+   transport, and compare the two lists against the name map of item 2:
+
+   ```lean
+   import Lean
+   import MyPkg.Aggregate   -- item 4
+   open Lean in
+   #eval show CoreM Unit from do
+     let env ← getEnv
+     let mut rows : Array String := #[]
+     for (n, _) in env.constants.map₁.toList do
+       if let some i := env.getModuleIdxFor? n then
+         let m := env.header.moduleNames[i.toNat]!
+         if (`MyPkg).isPrefixOf m then rows := rows.push s!"{m} {n}"
+     for r in rows.qsort (· < ·) do IO.println r
+   ```
+
+   Run it with `lake env lean Ownership.lean > ownership.txt`, outside the
+   package's library globs. A constant missing from the map, one still under
+   the old namespace, or a module whose count changed for no stated reason
+   is a transport defect.
+4. **Build one combined import before the expensive gates.** Add an
+   aggregate module that imports every module of the package (the
+   controls that are meant to compile included), build it, then run
+   [`dup_constants`](duplicate-constants.md) on it:
+
+   ```bash
+   lake build MyPkg.Aggregate
+   python3 -m lean_pkg.dup_constants --project . MyPkg.Aggregate
+   ```
+
+   The two catch different cases. When two modules declare one name with
+   different values (two data instances, say), the combined import fails:
+   ``import MyPkg.Controls.B failed, environment already contains
+   'MyPkg.instHasKNat' from MyPkg.Controls.A``. When the two copies have the
+   same type (two proofs of the same `Prop` instance), Lean keeps one copy
+   without comparing proofs and the import passes, and only `dup_constants`
+   reports the duplicate. Each module compiling alone shows neither.
+5. **Resolve import winners the way Lean does.** Lean 4.35's
+   `SearchPath.findWithExt` picks the first search-path entry that holds a
+   directory (or an `.olean`) named after the module's **root** component,
+   and then looks for the module only there. It does not go on to the next
+   entry when the leaf file is missing there. A file-by-file winner check
+   (the first entry holding the leaf wins) answers differently. With a
+   sparse new output tree placed before the accepted build:
+
+   ```text
+   LEAN_PATH=new/lib/lean:accepted/.lake/build/lib/lean
+   new/lib/lean/MyPkg/Controls/A.olean                  # only the re-emitted module
+   accepted/.lake/build/lib/lean/MyPkg/Controls/B.olean # unchanged, accepted
+   ```
+
+   A file-existence check says `MyPkg.Controls.B` comes from `accepted/`.
+   Lean resolves it to `new/` and fails with ``object file
+   '.../new/lib/lean/MyPkg/Controls/B.olean' of module MyPkg.Controls.B
+   does not exist``. If `new/` held a stale `B.olean`, Lean would load it
+   silently. For each module, the winner is the first entry holding
+   `<Root>/` or `<Root>.olean`, and the module must exist in that entry.
+   Otherwise put a complete tree first, or none. The same rule is behind
+   the `LEAN_PATH` check of the Slurm template
+   ([Fresh builds and LEAN_PATH](receipts.md#fresh-builds-and-lean_path)).
+
+Then run the disabled-fixture item above, which covers the controls that
+no import reaches.
+
 ## Refusals
 
 The plan lists every refusal at once (exit 1), sorted:
@@ -326,5 +435,7 @@ every file against its recorded blob. `lean-pkg extract ...` as a subcommand of
 script. For excluded `*.lean.*` files (disabled controls the import check
 does not read) the plan warns; see
 [Disabled negative fixtures](#disabled-negative-fixtures-after-a-namespace-or-import-transport).
+After a namespace or import transport, run the
+[checklist for every declaration form](#checklist-after-a-namespace-or-import-transport-every-declaration-form-one-combined-import).
 For consolidating several registered packages into one, see
 [Consolidate several checkpoint packages into one](paper-companion.md#consolidate-several-checkpoint-packages-into-one).
