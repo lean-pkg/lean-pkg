@@ -23,5 +23,5 @@ changes:
     changelog: Fixed
 # Read for this record, nothing for a package author: docs only, a recipe for filling missing dependency
 # artifacts from a pinned donor cache (docs/receipts.md) and a transport checklist for every declaration
-# form (docs/extract.md) (#272).
-no_author_change: [272]
+# form (docs/extract.md) (#272), and the cheap-first gate order (docs/receipts.md) (#274).
+no_author_change: [272, 274]
