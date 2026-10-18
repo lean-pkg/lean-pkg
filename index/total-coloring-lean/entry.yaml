@@ -2,15 +2,15 @@ schema: index-entry/2
 name: total-coloring-lean
 repo: https://github.com/chenle02/total-coloring-lean
 pin:
-  commit: 3f364b51d2c74677384c95c9ad92403c06a43b15
-  tag: null
+  commit: c025d20a182644bbacdd96165c93e1b8b2a403c6
+  tag: v0.2.0
 lean_toolchain: leanprover/lean4:v4.32.0
 mathlib_rev: 81a5d257c8e410db227a6665ed08f64fea08e997
 license_spdx: Apache-2.0
 trust: comparator
 receipts:
-  lower: .lean-receipts/3f364b51d2c7-systemd-user-total-coloring-lean-verify.service-26f87e9fdae2438cb4ab302aa085cb30-h-2db2e0fa6029.json
-  comparator: .lean-receipts/3f364b51d2c7-comparator.json
+  lower: .lean-receipts/c025d20a1826-systemd-user-total-coloring-lean-verify.service-eff861bf68744993b3eaff1c5e6b37fc-h-2db2e0fa6029.json
+  comparator: .lean-receipts/c025d20a1826-comparator.json
 headline:
 - name: TotalColoring.exists_valid_assignment_of_highDegree
   file: TotalColoring/HighDegreeTotalColoring.lean
@@ -48,7 +48,7 @@ fields:
 consent:
   recorded: true
 added:
-  at: '2026-10-18T04:38:34+00:00'
+  at: '2026-10-18T05:24:21+00:00'
   by: chenle02
 notes: 'An unfinished project, listed as the example of one. Goal: kernel-checked foundations for total
   coloring (toward the Total Coloring Conjecture) via an all-orders auxiliary edge-coloring theorem and

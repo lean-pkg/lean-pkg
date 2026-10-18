@@ -46,6 +46,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   the same commit. Entries replaced with `index add --from-registry`
   (headlines with their Challenge names); `index check --clone` passes for
   both.
+- Index: `total-coloring-lean` re-pinned at `c025d20a1826`, its 0.2.0
+  release (tag `v0.2.0`), a commit that changes only the version metadata
+  (`lakefile.toml` and `CITATION.cff`). Re-gated with lean-pkg 0.14.0 at that
+  commit: lower tier `receipt systemd --run` of `verify.sh`, comparator receipt
+  (legacy mechanism, all 8 configurations pass). Entry replaced with `index add
+  --from-registry` (headlines, field tags, consent and notes unchanged; the pin
+  now names its tag) (#266).
 
 ## [0.14.0] - 2026-10-17
 

@@ -1,17 +1,16 @@
 {
   "build_provenance": {
-    "cache_reused": 8,
-    "compiled": false,
-    "modules_built": 0,
-    "prebuilt": true,
+    "compiled": true,
+    "modules_built": 8,
+    "prebuilt": false,
     "source": null
   },
-  "commit": "3f364b51d2c74677384c95c9ad92403c06a43b15",
+  "commit": "c025d20a182644bbacdd96165c93e1b8b2a403c6",
   "configs": [
     {
       "challenge_module": "Audit.AuxiliaryClass.Challenge",
       "definition_names": [],
-      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-auxiliary-class.log",
+      "log": ".lean-receipts/c025d20a1826-comparator-comparator_config-auxiliary-class.log",
       "log_sha256": "047e4c997b595e2f1baee700110138e8eecb70b5822b5c8a82df75a3b04c8d07",
       "path": "comparator/config-auxiliary-class.json",
       "permitted_axioms": [
@@ -29,7 +28,7 @@
     {
       "challenge_module": "Audit.Certificate.Challenge",
       "definition_names": [],
-      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-certificate.log",
+      "log": ".lean-receipts/c025d20a1826-comparator-comparator_config-certificate.log",
       "log_sha256": "378bc973b9e95fac183ff88de6de8abe9a51b1fd05888da2daafb8297d7c212f",
       "path": "comparator/config-certificate.json",
       "permitted_axioms": [
@@ -47,7 +46,7 @@
     {
       "challenge_module": "Audit.CriticalAllD.Challenge",
       "definition_names": [],
-      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-critical-alld.log",
+      "log": ".lean-receipts/c025d20a1826-comparator-comparator_config-critical-alld.log",
       "log_sha256": "b7d14a206466d44087bdb7dbe3cc075e93063f9fd5223df15e6852524e27fadc",
       "path": "comparator/config-critical-alld.json",
       "permitted_axioms": [
@@ -65,7 +64,7 @@
     {
       "challenge_module": "Audit.Decode.Challenge",
       "definition_names": [],
-      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-decode.log",
+      "log": ".lean-receipts/c025d20a1826-comparator-comparator_config-decode.log",
       "log_sha256": "66f838c1fbe2c1de6c8b023064d0444e8b0f35401dca71c55cde18d4d91b1600",
       "path": "comparator/config-decode.json",
       "permitted_axioms": [
@@ -83,7 +82,7 @@
     {
       "challenge_module": "Audit.HighDegree.Challenge",
       "definition_names": [],
-      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-high-degree.log",
+      "log": ".lean-receipts/c025d20a1826-comparator-comparator_config-high-degree.log",
       "log_sha256": "d8534486f08b264efa9e6453e29e7b2b4c1d98969e8912c347489d70316e363c",
       "path": "comparator/config-high-degree.json",
       "permitted_axioms": [
@@ -101,7 +100,7 @@
     {
       "challenge_module": "Audit.MatchingLowerBound.Challenge",
       "definition_names": [],
-      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-matching-lower-bound.log",
+      "log": ".lean-receipts/c025d20a1826-comparator-comparator_config-matching-lower-bound.log",
       "log_sha256": "497f244cd93aa917943478250f83d197a48281246e6c50b1bcbe4559d1533d97",
       "path": "comparator/config-matching-lower-bound.json",
       "permitted_axioms": [
@@ -119,7 +118,7 @@
     {
       "challenge_module": "Audit.PairSingleton.Challenge",
       "definition_names": [],
-      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-pair-singleton.log",
+      "log": ".lean-receipts/c025d20a1826-comparator-comparator_config-pair-singleton.log",
       "log_sha256": "f61446df8b83d625092585a95671e62bb601c49ffb873745066b852dc817abee",
       "path": "comparator/config-pair-singleton.json",
       "permitted_axioms": [
@@ -137,7 +136,7 @@
     {
       "challenge_module": "Audit.PartialEdgeSelector.Challenge",
       "definition_names": [],
-      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-partial-edge-selector.log",
+      "log": ".lean-receipts/c025d20a1826-comparator-comparator_config-partial-edge-selector.log",
       "log_sha256": "3bea3f6637471d7e9c6f4213dce11ca87f630fdd40994f047ff93395a31722cd",
       "path": "comparator/config-partial-edge-selector.json",
       "permitted_axioms": [
@@ -153,11 +152,11 @@
       ]
     }
   ],
-  "generated_at": "2026-10-18T04:04:48+00:00",
+  "generated_at": "2026-10-18T05:22:06+00:00",
   "host": "h-2db2e0fa6029",
   "host_label": "h-2db2e0fa6029",
   "host_policy": "host h-2db2e0fa6029 listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS",
-  "job_id": "local-h-2db2e0fa6029-2786424-20261018T040448Z",
+  "job_id": "local-h-2db2e0fa6029-91703-20261018T052206Z",
   "lean_threads": null,
   "lean_toolchain": "leanprover/lean4:v4.32.0",
   "mechanism": "legacy",
@@ -181,25 +180,25 @@
       "exit": 0,
       "stage": "checkout",
       "status": "ok",
-      "wall_s": 43.451
+      "wall_s": 35.091
     },
     {
       "exit": 0,
       "stage": "cache-get",
       "status": "ok",
-      "wall_s": 2.402
+      "wall_s": 2.802
     },
     {
       "exit": 0,
       "stage": "build",
       "status": "ok",
-      "wall_s": 2.971
+      "wall_s": 8.428
     },
     {
       "exit": 0,
       "stage": "comparator",
       "status": "ok",
-      "wall_s": 142.774
+      "wall_s": 111.301
     }
   ],
   "toolchain_resolution": {
