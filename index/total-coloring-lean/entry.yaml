@@ -38,7 +38,12 @@ claims:
   judged_as: TotalColoringAudit.AuxiliaryClass.exists_rainbow_edge_coloring_of_auxiliaryClass
   trust: comparator
 palomar: []
-doi: null
+doi:
+  concept: 10.5281/zenodo.23452513
+  versions:
+  - doi: 10.5281/zenodo.23452514
+    tag: v0.2.0
+    commit: a555fede550085171ccf5be7e76e5381c854f4ed
 reservoir: null
 formalization_yaml: null
 fields:
@@ -48,7 +53,7 @@ fields:
 consent:
   recorded: true
 added:
-  at: '2026-10-18T05:24:21+00:00'
+  at: '2026-10-18T13:02:53+00:00'
   by: chenle02
 notes: 'An unfinished project, listed as the example of one. Goal: kernel-checked foundations for total
   coloring (toward the Total Coloring Conjecture) via an all-orders auxiliary edge-coloring theorem and
