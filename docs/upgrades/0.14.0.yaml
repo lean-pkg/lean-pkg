@@ -19,6 +19,8 @@ changes:
       "https://github.com/PatrickMassot/checkdecls.git" @ "3d425859e73fcfbef85b9638c2a91708ef4a22d4" (or the
       lakefile.toml [[require]] form in docs/page.md), run lake update checkdecls, commit the lakefile and
       lake-manifest.json, then lean-pkg blueprint check NAME.
+    breaking: false
+    changelog: Added
   - pr: 262
     id: receipt-claim-axioms
     kind: format
@@ -34,8 +36,8 @@ changes:
     action: >-
       Before adopting it, make every decl in claims.yaml the fully qualified name of a compiled declaration
       (a bare or partial name refuses the receipt); python3 -m lean_pkg.claim_axioms --project . reports any
-      that are not. Optional otherwise. To record it, regenerate verify.sbatch with lean-pkg receipt slurm --template, or copy the
-      claim-axioms block of a fresh lean-pkg new verify.sh into yours. Every claim's decl must then be the
+      that are not. Optional otherwise. To record it, regenerate verify.sbatch with lean-pkg receipt
+      slurm --template, or copy the claim-axioms block of a fresh lean-pkg new verify.sh into yours. Every claim's decl must then be the
       fully qualified name of a declaration the build compiles (a bare name is reported missing and the
       receipt is refused); python3 -m lean_pkg.claim_axioms --project . checks it before a job.
     breaking: false
