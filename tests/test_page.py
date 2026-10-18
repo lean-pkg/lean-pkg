@@ -931,6 +931,70 @@ def test_statement_extraction_survives_comments_and_strings_in_binders():
     assert statement(unclosed, "u") is None
 
 
+# a top-level let / letI / have in the statement owns one `:=` (its value); the proof's `:=` is the next free one
+# (lab field report of 0.16.0: `let n : Nat := 1` cut the statement to "let n : Nat")
+LET_STATEMENTS = {
+    "typedlet": ("theorem typedlet :\n  let n : Nat := 1\n  n = 1 := by rfl\n",
+                 "theorem typedlet :\n  let n : Nat := 1\n  n = 1"),
+    "untyped": ("theorem untyped :\n  let n := 1\n  n = 1 := by rfl\n", "theorem untyped :\n  let n := 1\n  n = 1"),
+    "multiline": ("theorem multiline :\n  let f : Nat → Nat :=\n    fun k =>\n      k + 1\n  f 0 = 1 := by\n  rfl\n",
+                  "theorem multiline :\n  let f : Nat → Nat :=\n    fun k =>\n      k + 1\n  f 0 = 1"),
+    "inst": ("theorem inst :\n  letI inst : Inhabited Nat := ⟨0⟩\n  (default : Nat) = 0 := rfl\n",
+             "theorem inst :\n  letI inst : Inhabited Nat := ⟨0⟩\n  (default : Nat) = 0"),
+    "nested": ("theorem nested :\n  let a := let b := 1; b + 1\n  let c := a\n  c = 2 := rfl\n",
+               "theorem nested :\n  let a := let b := 1; b + 1\n  let c := a\n  c = 2"),
+    "hav": ("theorem hav (x : Nat) :\n  have hx : x = x := rfl\n  haveI := hx\n  x + 0 = x := by simp\n",
+            "theorem hav (x : Nat) :\n  have hx : x = x := rfl\n  haveI := hx\n  x + 0 = x"),
+    "inner": ("theorem inner :\n  let s : Foo := { x := 1, y := (f (a := 2) : Nat) }\n  s.x = 1 := rfl\n",
+              "theorem inner :\n  let s : Foo := { x := 1, y := (f (a := 2) : Nat) }\n  s.x = 1"),
+    "oneline": ("theorem oneline : let n := 1; n = 1 := by rfl\n", "theorem oneline : let n := 1; n = 1"),
+    "absval": ("theorem absval (x : Int) :\n    |x| ≤ |x| + 1 := by omega\n", "theorem absval (x : Int) :\n    |x| ≤ |x| + 1"),
+    "arms": ("theorem arms (n : Nat) :\n  match n with\n  | 0 => True\n  | _ => let k := n; k = k := by\n  cases n <;> simp\n",
+             "theorem arms (n : Nat) :\n  match n with\n  | 0 => True\n  | _ => let k := n; k = k"),
+}
+
+
+def test_statement_extraction_keeps_let_and_have_values_and_the_conclusion():
+    from lean_pkg import lean_scan as ls
+    for name, (text, want) in LET_STATEMENTS.items():
+        assert ls.statement(text, name) == want, name
+    files = {"Challenge.lean": "import Ref\n", "Ref.lean": "namespace N\n" + LET_STATEMENTS["typedlet"][0] + "end N\n"}
+    got = ls.DeclarationIndex(files.get, "Challenge").statement("N.typedlet")
+    assert got["text"] == LET_STATEMENTS["typedlet"][1] and got["reason"] is None
+
+
+def test_statement_extraction_refuses_rather_than_truncate():
+    from lean_pkg.lean_scan import statement
+    text = ("theorem plain (n : Nat) : n = n := rfl\n"
+            "theorem samel : True := by trivial\n"
+            "theorem wh : True := aux\nwhere aux : True := trivial\n"
+            "theorem eqn : Nat → Nat\n  | 0 => 0\n  | n + 1 => let k := n; k\n"
+            "theorem tac : (1 : Nat) = by exact 1 := rfl\n"
+            "theorem steps : calc 1 = 1 := rfl\n  _ = 1 := rfl := trivial\n"
+            "theorem «q := r» : True := trivial\n"
+            "def d : Nat := 1\n")
+    assert statement(text, "plain") == "theorem plain (n : Nat) : n = n"
+    assert statement(text, "samel") == "theorem samel : True"
+    assert statement(text, "wh") == "theorem wh : True"
+    assert statement(text, "eqn") is None                               # equation compiler: no statement `:=`
+    assert statement(text, "tac") is None                               # a tactic block in the type: unsure
+    assert statement(text, "steps") is None                             # calc steps hold their own `:=`
+    assert statement(text, "«q := r»") == "theorem «q := r» : True"     # a quoted name is one token
+    assert statement(text, "d") is None                                 # only theorems and lemmas
+    assert statement("theorem open_let :\n  let n : Nat\n", "open_let") is None   # no proof `:=` at all
+
+
+def test_the_page_shows_a_let_statement_whole(lp, env, capsys):
+    let_challenge = CHALLENGE.replace("theorem foo_le_bar (n : Nat) (h : 0 < n) :\n    n ≤ n * n := by",
+                                      "theorem foo_le_bar (n : Nat) (h : 0 < n) :\n    let m : Nat := n * n\n"
+                                      "    n ≤ m := by")
+    prepare(env, extra={"Challenge.lean": let_challenge})
+    rc, a = page_json(lp, env, capsys)
+    md = a["markdown"]
+    assert rc == 0 and "could not be read reliably" not in md
+    assert "```lean\ntheorem foo_le_bar (n : Nat) (h : 0 < n) :\n    let m : Nat := n * n\n    n ≤ m\n```" in md
+
+
 def test_a_paper_statement_is_validated_and_a_library_statement_is_shown_in_words(lp, env, capsys, tmp_path):
     prepare(env)
     row = json.loads(json.dumps(COVERAGE["rows"][0]))
