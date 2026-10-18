@@ -1,0 +1,8 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.14.0. Same keys as 0.14.0.yaml; the human page is docs/upgrades/0.15.0.md.
+schema: lean-pkg-upgrade-record/1
+version: 0.15.0
+changes: []
+# Read for this record, nothing for a package author: index data, total-coloring-lean and
+# markovprocess-pilot re-pinned at their new gated commits with judged_as on every reusable claim (#265).
+no_author_change: [265]
