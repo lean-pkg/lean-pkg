@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-17
+
 ### Added
 
 - `receipt systemd --run --require-tools A,B,...` (repeatable) checks a
@@ -148,6 +150,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   Refused rather than dereferenced, which would store the data once per
   path and outgrow the measured size; copy `RAW` without links first. A
   file whose other link is outside `RAW` still packs as a file.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.12.0] - 2026-10-17
 
