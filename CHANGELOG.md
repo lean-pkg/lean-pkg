@@ -80,6 +80,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   total-coloring-lean) are noted as known and not caused by the stack.
   RELEASING.md step 3a now applies to this stack (#259).
 
+### Fixed
+
+- The legacy comparator mechanism builds its tools under their own
+  toolchains again. Since #41 the runner exports `ELAN_TOOLCHAIN` (the
+  project's `lean-toolchain`) to every child, and `comparator-check.sh` then
+  built the pinned comparator (`lean-toolchain` `v4.34.0-rc1`) under the
+  project's Lean: on a project below v4.34 the build failed with
+  `Main.lean:221 ... Lean.Kernel.Environment.replay` does not exist. The
+  script now unsets `ELAN_TOOLCHAIN` for the comparator and lean4export
+  builds only and prints each tool's toolchain on an `== <tool> toolchain:`
+  line; the project's own steps and what the receipt records about the
+  project toolchain are unchanged. The `COMPARATOR_LAKE` workaround is no
+  longer needed (#263).
+
 ## [0.13.0] - 2026-10-17
 
 ### Added
