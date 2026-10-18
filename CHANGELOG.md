@@ -9,6 +9,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- Try lean-pkg in a Codespace: `.devcontainer/tutorial/` (a Dockerfile,
+  `devcontainer.json` and a creation script) opens the π-λ tutorial with
+  Lean v4.35.0, lean-pkg 0.12.0 from its tag, `bwrap`, systemd as PID 1 (for
+  the lower-tier receipt's user unit), `reuse`, the Lean 4 extension, and the
+  tutorial package scaffolded with Mathlib v4.35.0's prebuilt files
+  (`lake exe cache get`; nothing of Mathlib is compiled), plus the tutorial's
+  finished files. An "Open in GitHub Codespaces" badge heads the tutorial and
+  the README's getting-started paragraph; the tutorial's new *Try it in
+  your browser* section gives what you get, the measured time to ready and
+  disk, the cost on a personal account (at least 4 cores and 16 GB) and what
+  a Codespace cannot do. No Codespaces prebuilds are configured (#257).
+
 ## [0.13.0] - 2026-10-17
 
 ### Added

@@ -1,0 +1,9 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.13.0. Same keys as 0.13.0.yaml; the human page is docs/upgrades/0.14.0.md.
+schema: lean-pkg-upgrade-record/1
+version: 0.14.0
+changes: []
+# Read for this record, nothing for a package author: the Codespaces dev container for the π-λ tutorial
+# (.devcontainer/tutorial/, a badge and a docs section), which changes no command, package file or
+# receipt (#257).
+no_author_change: [257]
