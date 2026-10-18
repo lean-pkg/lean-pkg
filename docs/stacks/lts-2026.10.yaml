@@ -1,11 +1,11 @@
 # A lean-pkg LTS stack (schema lean-pkg-stack/1; proposal 0004, docs/proposals/0004-math-lts-stack.md).
 # The human page is lts-2026.10.md. Closed keys: tests/test_stacks.py refuses any key not listed there.
-# `published` stays null until every stage 0 matrix entry reaches receipts (proposal 0004, "Cadence and choice": a stack
-# is declared after its matrix passes, with the date of the run).
+# Declared 2026-10-18 (proposal 0004, "Cadence and choice": a stack is declared after its matrix passes). The
+# declaration covers the `tested` entries; `migration_cases` are packages outside the declared matrix.
 schema: lean-pkg-stack/1
 name: lts-2026.10
 defined: 2026-10-17                # stage 0 approved by the maintainer; the pins below are fixed
-published: null                    # the declaration date, once the matrix passes
+published: 2026-10-18              # declared by the maintainer over the five matrix entries that reach receipts
 lean_toolchain: leanprover/lean4:v4.35.0
 lean_commit: eb6cafb7290e8bd5f2937522d8d804f58f02bafc   # tag v4.35.0 of leanprover/lean4
 mathlib:
@@ -50,11 +50,6 @@ tested:                            # the stage 0 matrix, 2026-10-17, one host (p
     moved: pins only
     build: ok
     result: verified
-  - package: gromov-filling-lean (index)
-    commit: ba787a3eb26eaa88752d06d91f17763478233eab
-    moved: source changes needed   # its JordanCurveTheorem dependency (third party, on v4.29.0) does not build on this Mathlib
-    build: failed
-    result: blocked                # no receipts; the stack is not declared until this entry reaches receipts
   - package: markovprocess-pilot (index)
     commit: 05d99d75df8235e79902220f0fe13e07e81867ca
     moved: lakefile only           # a direct Mathlib require at v4.35.0 over its dependency's rc2 pin; no Lean change
@@ -65,4 +60,14 @@ tested:                            # the stage 0 matrix, 2026-10-17, one host (p
     moved: source changes          # 33 one-line edits in 14 files (deprecations under warningAsError, two API changes)
     build: ok
     result: migration              # both receipts; the same claims-vs-comparator-names check fails as for markovprocess-pilot
+migration_cases:                   # outside the declared matrix: packages that do not reach receipts on the stack yet
+  - package: gromov-filling-lean (index)
+    commit: ba787a3eb26eaa88752d06d91f17763478233eab
+    reason: >-
+      Its JordanCurveTheorem dependency (third party, newest commit on Lean v4.29.0) does not build on
+      Mathlib v4.35.0; the package itself is six Lean releases behind.
+    to_move: >-
+      The dependency moved upstream to v4.35.0 or a patched copy chosen by the package's authors; then the
+      package's own migration: require mathlib after the dependency, remove the compatibility lemmas Mathlib
+      now has, and repair about twenty proofs on the first build frontier (more may follow).
 advisories: []                     # entries of the toolchain advisory list (#237) that apply

@@ -16,7 +16,7 @@ page.
 
 | Stack | Lean | Mathlib | lean-pkg | Supported until | Status |
 |---|---|---|---|---|---|
-| [lts-2026.10](lts-2026.10.md) ([yaml](lts-2026.10.yaml)) | `v4.35.0` | `v4.35.0` (`56a005855ea1`) | `>=0.12.0,<1.0` | 2028-04-30 | defined, not declared: 5 of 6 matrix entries reach receipts; gromov-filling-lean blocked by a dependency |
+| [lts-2026.10](lts-2026.10.md) ([yaml](lts-2026.10.yaml)) | `v4.35.0` | `v4.35.0` (`56a005855ea1`) | `>=0.12.0,<1.0` | 2028-04-30 | declared 2026-10-18 (five matrix entries; gromov-filling-lean a migration case) |
 
 A package opts in with a `stack:` key in `coverage.yaml` once stage 1 of the
 proposal is released; until then, move its pins by hand as the stack's page

@@ -6,5 +6,5 @@ changes: []
 # Read for this record, nothing for a package author: the Codespaces dev container for the π-λ tutorial
 # (.devcontainer/tutorial/, a badge and a docs section), which changes no command, package file or
 # receipt (#257); the lts-2026.10 stage 0 matrix results, as docs under docs/stacks with no CLI
-# change (#258).
-no_author_change: [257, 258]
+# change (#258); lts-2026.10 declared, as docs (#259).
+no_author_change: [257, 258, 259]
