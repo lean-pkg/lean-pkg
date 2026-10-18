@@ -20,6 +20,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   blueprint is skipped. checkdecls (by Patrick Massot, Apache-2.0) is a Lake
   dependency the package adds, pinned in docs/page.md; lean-pkg never edits
   the lakefile and includes none of its code (#260).
+- Per-claim axioms read from the built environment (proposal 0005, accepted 2026-10-18): after the build, the
+  verify scripts (`receipt slurm --template`, the `verify.sh` of `lean-pkg new`) run a small core-Lean
+  program, `ClaimAxioms.lean`, that imports the package's modules and runs `collectAxioms` on every
+  claim in `claims.yaml`, printing `claim-axioms:` / `claim-missing:` lines and a final
+  `claim-axioms-done: N` into the sealed log. `receipt slurm|systemd` then write the additive receipt
+  key `claim_axioms` {checked, nonstandard, missing}, and refuse a claim missing from the environment,
+  one on `sorryAx`, a claim without a line, an incomplete probe, or a `#print axioms` result that
+  disagrees. `gate` refuses a missing claim or an axiom outside `gate.axioms_allowed`, `receipt check`
+  re-derives the key from the sealed log, and the page says the axioms of every claim were read. The
+  check covers every claim, not only the printed theorems; a receipt without the key is valid as
+  before. `python3 -m lean_pkg.claim_axioms --project .` runs it locally ([receipts](docs/receipts.md#per-claim-axioms-claim_axioms)).
+
 - Try lean-pkg in a Codespace: `.devcontainer/tutorial/` (a Dockerfile,
   `devcontainer.json` and a creation script) opens the π-λ tutorial with
   Lean v4.35.0, lean-pkg 0.12.0 from its tag, `bwrap`, systemd as PID 1 (for

@@ -32,6 +32,9 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   unit_properties_sha256 against their committed files; job_stdout_sha256 is not checkable: the job's stdout
   is not published); the `container` key when present (#236: shown with its engine, digest and image ref;
   a malformed one fails; the digest itself is not re-derivable, the image is not published).
+- per lower-tier receipt with the additive `claim_axioms` key (AX1): re-derived from the sealed log's
+  claim-axioms lines against claims.yaml at X (every claim checked, none missing, no sorryAx,
+  agreeing with the log's `#print axioms` output) and compared with the key.
 - claims: claims.yaml at X, with the claims/1 schema and declaration check gate runs (core.claims_schema_at).
 - per comparator receipt: gate's validator (core.validate_comparator: schema, binding, toolchain, the exact
   set of configurations tracked at X, each configuration's sha256 and fields, the sign-off of definition
@@ -57,6 +60,7 @@ import pathlib
 import re
 import tempfile
 
+from . import claim_axioms as ca
 from . import cli as core
 from . import container as ctr
 from . import toolchain_advisories
@@ -330,6 +334,49 @@ def container_check(c: Checks, view: dict, tier: str = "lower") -> None:
               f"re-derivable from git (the image is not published)")
 
 
+def _sealed_log_text(repo: pathlib.Path, rec: dict) -> str | None:
+    """The receipt's redacted verify log as tracked under .lean-receipts/ (its .gz decompressed), or None."""
+    import gzip
+    try:
+        name = core.report_log_name(rec)
+    except (core.Fail, KeyError):
+        return None
+    for fname, unpack in ((name, False), (name + core.REPORT_GZ_SUFFIX, True)):
+        path = repo / RECEIPTS_DIR / fname
+        if path.is_file() and not path.is_symlink():
+            try:
+                data = path.read_bytes()
+                return (gzip.decompress(data) if unpack else data).decode("utf-8", "replace")
+            except (OSError, EOFError, gzip.BadGzipFile):
+                return None
+    return None
+
+
+def claim_axioms_check(c: Checks, repo: pathlib.Path, view: dict, x: str) -> None:
+    """AX1: a receipt's `claim_axioms` key re-derived from its sealed log (whose sha256 the report-log check
+    binds) against claims.yaml at X: every claim checked, none missing, no sorryAx, agreeing with
+    the log's `#print axioms` output, and equal to the key. A receipt without the key is not checked here."""
+    rec, rel = view["data"], view["path"]
+    if "claim_axioms" not in rec:
+        return
+    cid = f"lower {rel}: claim axioms"
+    text = _sealed_log_text(repo, rec)
+    if text is None:
+        c.add(cid, FAIL, "the sealed verify log is not readable here, so claim_axioms cannot be re-derived")
+        return
+    required, problems = ca.required_claims(core.git_show_bytes(repo, "./claims.yaml", x))
+    summary, refusals, _lines = ca.judge(text, required)
+    if summary is None:
+        c.add(cid, FAIL, "the receipt has claim_axioms but its sealed log has no claim-axioms line")
+    elif problems or refusals:
+        c.add(cid, FAIL, "; ".join(problems + refusals))
+    elif summary != rec["claim_axioms"]:
+        c.add(cid, FAIL, f"claim_axioms {rec['claim_axioms']!r} is not what the sealed log gives: {summary!r}")
+    else:
+        c.add(cid, PASS, f"{summary['checked']} claim(s) read from the built environment, every claim of "
+                         f"claims.yaml at {x[:12]} included; re-derived from the sealed log")
+
+
 def olean_check(c: Checks, repo: pathlib.Path, view: dict, x: str) -> None:
     cid = f"comparator {view['path']}: olean manifest"
     om = view["data"].get("olean_manifest")
@@ -568,6 +615,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                     c.add(f"lower {rel}: report log", FAIL, str(e))
                 evidence_file_checks(c, repo, v, x)
                 container_check(c, v)
+                claim_axioms_check(c, repo, v, x)
         cs = core.claims_schema_at(pkg_name, pkg, repo, x)
         if not cs["checked"]:
             c.add("claims", SKIP, f"no {cs['file']} at {x[:12]}")
