@@ -1,0 +1,23 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.15.0. Same keys as 0.15.0.yaml; the human page is docs/upgrades/0.16.0.md.
+schema: lean-pkg-upgrade-record/1
+version: 0.16.0
+changes:
+  - pr: 271
+    id: formalization-render-repo
+    kind: command
+    area: formalization render
+    summary: >-
+      New flag formalization render NAME --repo DIR (field request): render formalization.yaml from another
+      checkout of the package for one call, read-only and never saved, with the checkout rules and stderr
+      note of page --repo. Claims, comparator configurations, the kept keys and the receipts are read at
+      DIR's committed HEAD, never its working tree; the registry's gate receipt feeds status.sorry_count,
+      axioms and evidence only when it validates at that HEAD, else they are omitted with a warning. Refused
+      with --write (exit 2) and on anchor. --json gains repo_override (path, registered_path, remote_match,
+      head, source, receipt_facts), null without the flag; nothing else changes without it.
+    action: >-
+      Nothing for a package author. To preview the metadata of a candidate checkout while the accepted one
+      stays registered, run formalization render NAME --repo DIR --out FILE; a script reading --json may
+      see the new key repo_override.
+    breaking: false
+    changelog: Added

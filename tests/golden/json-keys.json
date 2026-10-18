@@ -206,6 +206,7 @@
       "path",
       "placeholders",
       "registry_updated",
+      "repo_override",
       "unchanged",
       "validation",
       "warnings",

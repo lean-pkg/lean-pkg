@@ -34,4 +34,4 @@ formalization.yaml (mathlib-initiative v0.4, what Palomar reads): [`formalizatio
 
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
-- `formalization` (exit 0): `headline`, `main_results`, `name`, `ok`, `path`, `placeholders`, `registry_updated`, `unchanged`, `validation`, `warnings`, `written`, `yaml`
+- `formalization` (exit 0): `headline`, `main_results`, `name`, `ok`, `path`, `placeholders`, `registry_updated`, `repo_override`, `unchanged`, `validation`, `warnings`, `written`, `yaml`

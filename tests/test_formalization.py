@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import pathlib
 
 import pytest
 import yaml
@@ -389,6 +390,109 @@ def test_audit_reports_formalization_drift_and_missing(lp, env, fake_gh, capsys)
 def test_audit_ignores_packages_without_a_pointer(lp, env, fake_gh, capsys):
     assert lp.main(["--registry", str(env.registry), "audit"]) == 0
     assert "formalization" not in capsys.readouterr().out
+
+
+# --- render --repo DIR (field request: an isolated candidate checkout) ---------
+
+def _candidate(env, tmp_path, science: bool) -> pathlib.Path:
+    """Commit beta's receipts (evidence-only), clone the checkout as a candidate whose remote is the
+    package's repo; science=True then commits kept metadata, a second configuration and a new Lean file
+    there (any non-evidence commit unbinds the gate receipt)."""
+    _git(env.repo_b, "add", "-f", ".lean-receipts")
+    _git(env.repo_b, "commit", "-q", "-m", "evidence")
+    cand = tmp_path / "candidate"
+    _git(tmp_path, "clone", "-q", str(env.repo_b), str(cand))
+    _git(cand, "remote", "set-url", "origin", "https://github.com/example/beta")
+    if science:
+        (cand / "formalization.yaml").write_text("project:\n  description: committed candidate text\n")
+        _git(cand, "add", "formalization.yaml")
+        _git(cand, "commit", "-q", "-m", "kept metadata")
+        add_comparator_config(cand, "comparator/config-second.json", theorem_names=("second_a",))
+        (cand / "Demo" / "Extra.lean").write_text("theorem extra : True := trivial\n")
+        _git(cand, "add", "Demo/Extra.lean")
+        _git(cand, "commit", "-q", "-m", "science")
+    return cand
+
+
+def test_repo_renders_from_the_candidate_head_and_leaves_the_registry_alone(lp, env, tmp_path, capsys):
+    cand = _candidate(env, tmp_path, science=True)
+    (cand / "formalization.yaml").write_text("project:\n  description: UNCOMMITTED\n")   # never read
+    before_reg, before_ev = env.registry.read_bytes(), read_events(env)
+    assert run(lp, env, "beta", "--repo", str(cand), "--json") == 0
+    out, err = capsys.readouterr()
+    data = json.loads(out)
+    doc = yaml.safe_load(data["yaml"])
+    assert [r["declaration"] for r in doc["status"]["main_results"]] == ["BetaAudit.Demo.foo_le_bar", "second_a"]
+    assert doc["project"]["description"] == "committed candidate text"
+    head = _git(cand, "rev-parse", "HEAD").stdout.strip()
+    ov = data["repo_override"]
+    assert ov["path"] == str(cand.resolve()) and ov["head"] == head and ov["source"] == "committed-head"
+    assert ov["registered_path"] == str(env.repo_b) and ov["remote_match"] is True
+    # the registry's gate receipt binds the accepted commit, not the candidate: its facts are omitted
+    assert ov["receipt_facts"]["included"] is False and "does not validate at HEAD" in ov["receipt_facts"]["reason"]
+    assert not {"sorry_count", "axioms", "evidence"} & set(doc["status"])
+    assert "status.sorry_count, status.axioms and status.evidence omitted" in err
+    assert "uncommitted changes to tracked files are not read" in err
+    assert f"using --repo {cand.resolve()}" in err
+    assert env.registry.read_bytes() == before_reg and read_events(env) == before_ev
+    assert not env.registry.with_name(env.registry.name + ".lock").exists()
+    assert not (env.repo_b / "formalization.yaml").exists()
+
+
+def test_repo_keeps_receipt_facts_bound_to_its_head(lp, env, tmp_path, capsys):
+    cand = _candidate(env, tmp_path, science=False)    # an evidence-only commit after the bound one
+    assert run(lp, env, "beta", "--repo", str(cand), "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    doc = yaml.safe_load(data["yaml"])
+    assert data["repo_override"]["receipt_facts"] == {"receipt": ".lean-receipts/seed.json", "included": True,
+                                                      "reason": None}
+    assert doc["status"]["sorry_count"] == 0 and doc["status"]["evidence"]["gate_receipt"] == ".lean-receipts/seed.json"
+
+
+def test_repo_reads_a_linked_worktree_at_its_own_head(lp, env, tmp_path, capsys):
+    wt = tmp_path / "candidate-wt"
+    _git(env.repo_b, "worktree", "add", "-q", "-b", "candidate", str(wt))
+    add_comparator_config(wt, "comparator/config-second.json", theorem_names=("second_a",))
+    assert run(lp, env, "beta", "--repo", str(wt), "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["repo_override"]["head"] == _git(wt, "rev-parse", "HEAD").stdout.strip()
+    assert yaml.safe_load(data["yaml"])["status"]["main_results"][-1]["declaration"] == "second_a"
+    assert run(lp, env, "beta", "--json") == 0      # the registered checkout still renders its own HEAD
+    assert json.loads(capsys.readouterr().out)["main_results"] == 1
+
+
+def test_repo_out_writes_the_file_and_names_the_source(lp, env, tmp_path, capsys):
+    cand = _candidate(env, tmp_path, science=True)
+    target = tmp_path / "cand-formalization.yaml"
+    assert run(lp, env, "beta", "--repo", str(cand), "--out", str(target)) == 0
+    head = _git(cand, "rev-parse", "HEAD").stdout.strip()
+    out = capsys.readouterr().out
+    assert f"from --repo {cand.resolve()} at {head[:12]} (committed HEAD)" in out and "registry untouched" in out
+    assert yaml.safe_load(target.read_text())["status"]["main_results"][1]["declaration"] == "second_a"
+    assert not (cand / "formalization.yaml").read_text().startswith("#")   # the candidate is not written
+
+
+def test_repo_is_refused_with_write_and_on_anchor(lp, env, tmp_path, capsys):
+    cand = _candidate(env, tmp_path, science=False)
+    before = env.registry.read_bytes()
+    assert run(lp, env, "beta", "--write", "--repo", str(cand)) == 2
+    assert "--repo reads another checkout" in capsys.readouterr().err
+    assert run(lp, env, "anchor", "beta", "--arxiv", "2601.00001v1", "--repo", str(cand)) == 2
+    assert "--repo" in capsys.readouterr().err
+    assert env.registry.read_bytes() == before
+
+
+def test_repo_refuses_a_checkout_of_another_repo(lp, env, tmp_path, capsys):
+    other = tmp_path / "other"
+    _git(tmp_path, "clone", "-q", str(env.repo_b), str(other))
+    _git(other, "remote", "set-url", "origin", "https://github.com/example/unrelated")
+    assert run(lp, env, "beta", "--repo", str(other)) == 1
+    assert "no git remote of it is the package's repo" in capsys.readouterr().err
+
+
+def test_json_without_repo_has_a_null_repo_override(lp, env, capsys):
+    assert run(lp, env, "beta", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["repo_override"] is None
 
 
 # --- docs --------------------------------------------------------------------
