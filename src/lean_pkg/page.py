@@ -344,7 +344,8 @@ def _lean_statement(ctx: dict, cid: str) -> dict:
 
     for cfg in ctx["configs"]:
         for t in cfg.get("theorem_names") or []:
-            if isinstance(t, str) and cc.covers({t}, decl, decl in ctx["qualified"]):
+            if isinstance(t, str) and cc.claim_covered({t}, c, ctx["qualified"],
+                                                       cc.mapped_names(list(ctx["claims"].values()))):
                 rel = module_path(cfg.get("challenge_module"))
                 src = read(rel)
                 text = lean_scan.statement(src, t) if src else None

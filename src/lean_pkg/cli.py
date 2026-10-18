@@ -6048,8 +6048,9 @@ def status_scope(pkg: dict, repo: pathlib.Path | None) -> dict:
         if decl_claims and names and have and pkg.get("claims_synced_commit"):
             from . import claims as cl_mod, comparator_config as cc
             qualified = cc.qualified_decls(cl_mod._reader(repo, str(pkg["claims_synced_commit"])), decl_claims)
+            mapped = cc.mapped_names(claims)
             for c in decl_claims:
-                hit = cc.covers(set(names), str(c["decl"]), str(c["decl"]) in qualified)
+                hit = cc.claim_covered(set(names), c, qualified, mapped)
                 covered += hit
                 if c.get("status") == "reusable":
                     reusable += 1
@@ -6743,7 +6744,7 @@ palomar[{id, version}] doi|null reservoir|null formalization_yaml|null fields[] 
 CLAIMS FILE SCHEMA ("claims/1"; claims.yaml at the package repo root; unknown keys refused; no local paths)
 schema package claims[{id = package/slug [a-z0-9][a-z0-9-]*, decl, kind definition|lemma|theorem|construction|library,
 summary, aliases[]?, keywords[]?, file (.lean), status reusable|internal|experimental|superseded, superseded_by|null
-(required iff superseded; acyclic), citation|null, depends_on[]?, statement_basis? null|as-printed|corrected, manuscript_findings[]? [{id (slug, unique in the package), kind misprint|proof-gap, location{label, tex_line?, page?}, summary, lean_evidence[Lean name (in the claim's file) | {decl, file}] (each must occur at the checked commit, like decl), fixed_in null|arXiv:<id>v<N>}] (exact keys; a misprint needs statement_basis corrected, corrected needs a misprint; findings never change a status)}]; trust is derived, never typed
+(required iff superseded; acyclic), citation|null, depends_on[]?, statement_basis? null|as-printed|corrected, manuscript_findings[]? [{id (slug, unique in the package), kind misprint|proof-gap, location{label, tex_line?, page?}, summary, lean_evidence[Lean name (in the claim's file) | {decl, file}] (each must occur at the checked commit, like decl), fixed_in null|arXiv:<id>v<N>}] (exact keys; a misprint needs statement_basis corrected, corrected needs a misprint; findings never change a status), judged_as? null|<comparator theorem name> (theorem/lemma only; one claim per name; replaces the naming rule for that claim; must be a configured theorem_names entry)}]; trust is derived, never typed
 
 EXECUTOR EVIDENCE
 The gate is executor-neutral. The frozen report named by report_sha256 must bind the exact

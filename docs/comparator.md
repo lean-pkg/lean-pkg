@@ -186,6 +186,32 @@ name, not a replacement for its root: put the statements in
 no prefix map: which proof backs which claim is decided by the name alone,
 and the receipt binds exactly those names.
 
+**An explicit mapping (`judged_as`).** When a Challenge theorem cannot carry
+the claim's name (a Mathlib-only restatement in an `Audit` namespace, say
+`exit_mean` for `MarkovProcessPilot.integral_eval_exitTimeTrunc_Ioo`), the
+claim names it in `claims.yaml`:
+
+```yaml
+- id: markovprocess-pilot/exit-time-mean
+  decl: MarkovProcessPilot.integral_eval_exitTimeTrunc_Ioo
+  kind: theorem
+  judged_as: exit_mean          # the theorem_names entry that judges this claim
+```
+
+For that claim the mapping replaces the naming rule: it is covered by exactly
+that `theorem_names` entry (a scaffold `TODO` entry makes it `todo`) and by
+no other, and a name some claim maps is credited to no other claim by the
+naming rule. The mapping is checked, not trusted: the schema refuses it on a
+definition, a malformed name, or the same name on two claims; the claimed
+theorems check of `receipt check`, `--coverage` (JSON `judged_as_problems`)
+and the ledger fail a `judged_as` that names no configured theorem, or whose
+claim's `decl` is not the fully qualified name of a declaration in its file,
+whatever the claim's status. `claims.yaml` is bound to the receipt commit, so
+a mapping added later is a new commit to gate: neither the evidence-only nor
+the docs-only rule admits a `claims.yaml` change. A reader decides whether the
+Challenge statement says what the claim says by reading both; the comparator
+only checks that the Solution proves the Challenge.
+
 When names match nothing, `claims mark` prints the rule (JSON `rule`) and,
 for a name that differs from exactly one claim's `decl` only in its leading
 namespace component (dropped, or replaced by another single component), a

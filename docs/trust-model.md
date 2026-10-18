@@ -261,7 +261,9 @@ applies; the result prints `exemption applied: ...` when it was needed), the
 toolchain and Mathlib pins agree with
 `lean-toolchain` and `lake-manifest.json` at X, every configuration, log and
 redacted log hashes to what the receipts say and each log has its PASS line,
-the comparator configurations at X name every reusable theorem claim,
+the comparator configurations at X name every reusable theorem claim
+(by the naming rule, or by the claim's explicit `judged_as`, checked against
+the configurations),
 `coverage.yaml` accounts for every compared theorem (R11), and the page block
 states exactly what the receipts record. The table of checks is in
 [Checking a published package's receipts](receipts.md#checking-a-published-packages-receipts-receipt-check).

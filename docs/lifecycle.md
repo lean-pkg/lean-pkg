@@ -182,8 +182,11 @@ required theorem and lemma: one stale receipt opens them all.
 A comparator configuration names a claim only by its full declaration name:
 a `theorem_names` entry equal to the claim's `decl`, or `<Prefix>.<decl>`
 (the Challenge-namespace form `comparator config --from-claims` writes,
-`<Package>Audit.<decl>`). The claim's `decl` must be the fully qualified name
-of a declaration its `file` declares at the gate-bound commit (`namespace`,
+`<Package>Audit.<decl>`), or the name the claim's `judged_as` gives, which
+then replaces that rule for the claim
+([an explicit mapping](comparator.md#how-a-theorem-name-maps-to-a-claim)).
+The claim's `decl` must be the fully qualified name of a declaration its
+`file` declares at the gate-bound commit (`namespace`,
 `section` and `_root_.` resolved by a source scan); a bare or partial `decl`
 (`thm` for `Demo.thm`) is credited to no name, and its
 `no-comparator-config` detail says so. A name that only shares the last

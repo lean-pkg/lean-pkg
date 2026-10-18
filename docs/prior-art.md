@@ -47,6 +47,7 @@ claims:
 | `status` | `reusable`, `internal`, `experimental` or `superseded` |
 | `superseded_by` | the id that replaces a superseded claim (a claim is never deleted; supersession must not cycle) |
 | `citation`, `depends_on` | an optional paper locator, one line of at most 300 characters; other claim ids |
+| `judged_as` | optional, theorems and lemmas only: the full name of the comparator theorem (a `theorem_names` entry) that judges this claim, when the Challenge theorem is not named after `decl`; one name per claim and one claim per name ([How a theorem name maps to a claim](comparator.md#how-a-theorem-name-maps-to-a-claim)) |
 
 Unknown keys are refused, and so is anything that looks like a local path.
 Trust is never typed into a claim: it is derived from the package's receipts.

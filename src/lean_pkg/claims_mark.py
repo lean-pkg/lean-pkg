@@ -106,18 +106,18 @@ def do_claims_mark(reg: dict, name: str, config: str, status: str, write: bool,
         return p.read_text(encoding="utf-8", errors="replace") if p.is_file() and not p.is_symlink() else None
     qualified = cc.qualified_decls(read, claims)
     nameset = set(names)
+    mapped = cc.mapped_names(claims)            # judged_as (#CM): a mapped name marks its own claim only
     matched, changes = [], {}
     for i, c in enumerate(claims):
         decl = str(c.get("decl") or "")
-        if not cc.covers(nameset, decl, decl in qualified):
+        if not cc.claim_covered(nameset, c, qualified, mapped):
             continue
         matched.append({"id": c.get("id"), "decl": decl, "from": c.get("status"), "to": status,
                         "changed": c.get("status") != status})
         if c.get("status") != status:
             changes[i] = status
     unmatched = sorted(n for n in nameset
-                       if not any(cc.covers({n}, str(c.get("decl") or ""), str(c.get("decl") or "") in qualified)
-                                  for c in claims))
+                       if not any(cc.claim_covered({n}, c, qualified, mapped) for c in claims))
     lines = [f"{name}: {len(matched)} claim(s) covered by {len(nameset)} theorem name(s) of {cpath.name}; "
              f"{len(changes)} would change to status {status}" if not write else
              f"{name}: {len(matched)} claim(s) covered by {len(nameset)} theorem name(s) of {cpath.name}; "

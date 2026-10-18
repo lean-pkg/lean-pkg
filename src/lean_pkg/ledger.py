@@ -215,11 +215,16 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
             if bound and not comp_diags:
                 real = names - todo
                 q = decl in qualified
-                if not cc.covers(real, decl, q):
-                    code = "comparator-todo" if cc.covers(todo, decl, q) else "no-comparator-config"
+                mapped = cc.mapped_names(claims)
+                if not cc.claim_covered(real, c, qualified, mapped):
+                    code = ("comparator-todo" if cc.claim_covered(todo, c, qualified, mapped)
+                            else "no-comparator-config")
                     why = "" if q else (f" ({decl} is not the fully qualified name of a declaration in "
                                         f"{c.get('file')}: a bare or partial name is credited to no "
                                         f"comparator name)")
+                    judged = cc.judged_name(c)
+                    if judged and q and judged not in names:
+                        why += f" (judged_as {judged} is in no comparator configuration's theorem_names)"
                     near = cc.decl_hint(names, decl, q)     # #6: detail only; the digest covers codes
                     why += f"; hint: {near['hint']}" if near else ""
                     diags.append(_diag(code, f"{decl} at {bound[:12]}{why}"))

@@ -35,7 +35,12 @@ CLAIM_STATUSES = ("reusable", "internal", "experimental", "superseded")
 # a claims file without them normalizes (and caches) exactly as before. `manuscript_findings` records what the
 # formalization found in the manuscript (a misprint, a proof gap) without lowering any status;
 # `statement_basis: corrected` says the claim is verified for the corrected statement (required with a misprint).
-OPTIONAL_CLAIM_KEYS = ("statement_basis", "manuscript_findings")
+# `judged_as` (#CM): the comparator theorem name that judges this claim, when the Challenge theorem is not named
+# after the claim's decl (`Audit.exit_mean` for `Pkg.integral_eval_exitTimeTrunc_Ioo`). It replaces the naming
+# rule for that claim: the claim is covered by exactly that `theorem_names` entry and by nothing else, and the
+# name credits no other claim (comparator_config.claim_covered).
+OPTIONAL_CLAIM_KEYS = ("statement_basis", "manuscript_findings", "judged_as")
+JUDGED_KINDS = ("theorem", "lemma")          # comparator_config.CLAIM_KINDS: what a configuration can judge
 STATEMENT_BASES = ("as-printed", "corrected")
 FINDING_KEYS = ("id", "kind", "location", "summary", "lean_evidence", "fixed_in")
 FINDING_KINDS = ("misprint", "proof-gap")
@@ -96,6 +101,8 @@ def normalize_claim(c: dict) -> dict:
     out = {k: (c[k] if k in c else CLAIM_DEFAULTS.get(k)) for k in CLAIM_KEYS}
     if c.get("statement_basis") is not None:
         out["statement_basis"] = c["statement_basis"]
+    if c.get("judged_as") is not None:
+        out["judged_as"] = c["judged_as"]
     if c.get("manuscript_findings"):
         fs = c["manuscript_findings"]
         out["manuscript_findings"] = [normalize_finding(f) if isinstance(f, dict) else f for f in fs] \
@@ -191,6 +198,14 @@ def _optional_errors(c: dict, where: str) -> list[str]:
         return errors + [f"{where}.manuscript_findings must be a list of findings"]
     for j, f in enumerate(fs):
         errors += _finding_errors(f, f"{where}.manuscript_findings[{j}]", c.get("file"))
+    judged = c.get("judged_as")
+    if judged is not None:
+        if not (isinstance(judged, str) and lean_scan.is_name(judged)) or judged == TODO:
+            errors.append(f"{where}.judged_as must be null or the full Lean name of a comparator theorem (a "
+                          f"theorem_names entry), got {judged!r}")
+        elif c.get("kind") not in JUDGED_KINDS:
+            errors.append(f"{where} ({c.get('id')}): judged_as is set but kind is {c.get('kind')!r}; a comparator "
+                          f"configuration judges only {' and '.join(JUDGED_KINDS)} claims")
     misprints = [f.get("id") for f in fs if isinstance(f, dict) and f.get("kind") == "misprint"]
     if misprints and basis != "corrected":
         errors.append(f"{where} ({c.get('id')}): misprint finding(s) {misprints} need statement_basis: corrected "
@@ -321,6 +336,12 @@ def validate_claims(doc, package: str | None = None) -> list[str]:
     dups = sorted({i for i in ids if isinstance(i, str) and ids.count(i) > 1})
     if dups:
         errors.append(f"duplicate claim id(s) {dups}")
+    judged = [(c.get("judged_as"), c.get("id")) for c in claims if isinstance(c, dict)
+              and isinstance(c.get("judged_as"), str)]
+    for name in sorted({j for j, _ in judged if [k for k, _ in judged].count(j) > 1}):
+        ids = ", ".join(str(i) for k, i in judged if k == name)
+        errors.append(f"judged_as {name!r} is set on more than one claim ({ids}): a comparator theorem judges "
+                      f"exactly one claim")
     fids = [f.get("id") for c in claims for f in findings_of(c)]
     fdups = sorted({i for i in fids if isinstance(i, str) and fids.count(i) > 1})
     if fdups:

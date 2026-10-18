@@ -36,7 +36,7 @@ lean-pkg comparator coverage [common flags] NAME
 
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
-- `comparator-coverage` (exit 0): `bound_commit`, `candidate`, `changed_configs`, `claims_source`, `config_changed`, `configs`, `covered`, `head`, `hints`, `name`, `next_commands`, `not_applicable`, `not_covered`, `ok`, `statement`, `theorem_claims`, `todo`, `uncovered`
+- `comparator-coverage` (exit 0): `bound_commit`, `candidate`, `changed_configs`, `claims_source`, `config_changed`, `configs`, `covered`, `head`, `hints`, `judged_as_problems`, `name`, `next_commands`, `not_applicable`, `not_covered`, `ok`, `statement`, `theorem_claims`, `todo`, `uncovered`
 
 ## Examples
 

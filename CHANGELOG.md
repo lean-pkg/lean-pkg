@@ -31,6 +31,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   re-derives the key from the sealed log, and the page says the axioms of every claim were read. The
   check covers every claim, not only the printed theorems; a receipt without the key is valid as
   before. `python3 -m lean_pkg.claim_axioms --project .` runs it locally ([receipts](docs/receipts.md#per-claim-axioms-claim_axioms)).
+- `claims.yaml` (claims/1) accepts an optional `judged_as` on a theorem or
+  lemma claim: the full name of the comparator theorem that judges it when
+  the Challenge theorem is not named after the claim's `decl` (a Mathlib-only
+  restatement in an `Audit` namespace). For that claim it replaces the naming
+  rule in every check that credits a comparator name: `receipt check`'s
+  claimed theorems, the claims ledger (`promote`, `publish`), `comparator
+  config --coverage` and `--from-claims`, `claims mark --from-comparator`,
+  `coverage check` R11, `page` and `status`. A mapped name credits no other
+  claim. The schema refuses it on other kinds, a malformed name and the same
+  name on two claims; `receipt check` fails a `judged_as` that names no
+  configured theorem or whose `decl` is not declared in its file, whatever the
+  claim's status; `--coverage --json` gains `judged_as_problems`. This lets a
+  referee check, from the repository alone, a package whose mapping was only
+  in its index entry. Proposal 0006 (accepted 2026-10-18); no schema bump (#261).
 
 - Try lean-pkg in a Codespace: `.devcontainer/tutorial/` (a Dockerfile,
   `devcontainer.json` and a creation script) opens the π-λ tutorial with
