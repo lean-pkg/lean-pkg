@@ -19,6 +19,23 @@ changes:
       "https://github.com/PatrickMassot/checkdecls.git" @ "3d425859e73fcfbef85b9638c2a91708ef4a22d4" (or the
       lakefile.toml [[require]] form in docs/page.md), run lake update checkdecls, commit the lakefile and
       lake-manifest.json, then lean-pkg blueprint check NAME.
+  - pr: 262
+    id: receipt-claim-axioms
+    kind: format
+    area: receipts, gate, receipt check, page, new
+    summary: >-
+      Receipts gain the additive key claim_axioms {checked, nonstandard, missing}: the axioms of every claim
+      in claims.yaml, read after the build by a core-Lean program (ClaimAxioms.lean, collectAxioms on the
+      built environment) that receipt slurm --template and the verify.sh of lean-pkg new now run, its lines
+      in the sealed log. A claim missing from the environment, one on sorryAx, a claim without a line, an
+      incomplete probe or a #print axioms result that disagrees refuses the receipt; gate refuses an axiom
+      outside gate.axioms_allowed. Proposal 0005 (draft). No schema bump; a receipt without the key is
+      valid as before.
+    action: >-
+      Optional. To record it, regenerate verify.sbatch with lean-pkg receipt slurm --template, or copy the
+      claim-axioms block of a fresh lean-pkg new verify.sh into yours. Every claim's decl must then be the
+      fully qualified name of a declaration the build compiles (a bare name is reported missing and the
+      receipt is refused); python3 -m lean_pkg.claim_axioms --project . checks it before a job.
     breaking: false
     changelog: Added
 # Read for this record, nothing for a package author: the Codespaces dev container for the π-λ tutorial

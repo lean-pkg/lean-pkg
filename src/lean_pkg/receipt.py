@@ -65,6 +65,12 @@ Container (#236, container.py): when the log has the template's `container-engin
 additive `container` {engine, image_sha256 or oci_digest, ref (a home directory shown as ~)}; with --stdout the
 job stdout must carry the same digest line exactly once (an edited line on either side refuses). A log without
 container lines gives a receipt without the key, as before.
+Claim axioms (AX1, claim_axioms.py): when the log has the template's `claim-axioms:` / `claim-missing:` /
+`claim-axioms-done:` lines (ClaimAxioms.lean run after the build on every claim of claims.yaml), the receipt
+gains the additive `claim_axioms` {checked, nonstandard [{decl, axioms}], missing}. A missing claim, a claim on
+sorryAx, a claim of claims.yaml at the commit without a line, an incomplete probe, or a name whose `#print axioms`
+output in the same log disagrees refuses; a redaction that alters one of those lines refuses. A log without them
+gives a receipt without the key, as before.
 Everything after the executor's own terminal-state check (2. to 5. and the output) is `produce`, shared with
 `receipt systemd` (receipt_systemd.py), which hands it an `Evidence` with its job identity, check lines, README
 lines and extra evidence files.
@@ -85,6 +91,7 @@ import socket
 import subprocess
 import sys
 
+from . import claim_axioms as ca
 from . import cli as core
 from . import container as ctr
 from . import lake_hygiene as lh
@@ -135,7 +142,8 @@ SBATCH_TEMPLATE = r"""#!/bin/bash
 #                  (and container-image-sha256 or container-oci-digest when the tools run in a container)
 #   stderr (.err): empty, so every tool writes into the log, never to the job's stderr
 #   the log: one line each of checker:, sorry-count:, axioms: (and lean-toolchain:, commit:, job-id:,
-#            generated-at:, which must agree with the commit and the job), the build between the
+#            generated-at:, which must agree with the commit and the job), the claim-axioms lines of
+#            every claim in claims.yaml (read from the built environment after the build), the build between the
 #            lean-pkg-build: begin / end lines, and no root-package module Lake restored instead of
 #            compiling (`Reused`, `Replayed`, `Unpacked`): its sorry warning need not be in the log
 #   the job: sacct State COMPLETED, ExitCode 0:0 (any failed step fails the job: set -e)
@@ -222,7 +230,7 @@ export LAKE_CACHE_DIR="$WORK/lake-cache"
 export LAKE_ARTIFACT_CACHE=false
 rm -rf "$STAGE" "$DEPS_STAGE" "$LAKE_CACHE_DIR"
 mkdir -p "$STAGE" "$LAKE_CACHE_DIR"
-trap 'rm -rf "$STAGE" "$DEPS_STAGE" "$LAKE_CACHE_DIR"' EXIT
+trap 'rm -rf "$STAGE" "$DEPS_STAGE" "$LAKE_CACHE_DIR" "$WORK/claim-axioms"' EXIT
 # Stage the Lean runtime (the elan toolchain) and the Mathlib cache node-local before the build, e.g.
 # copy the toolchain under "$WORK/elan" and export ELAN_HOME="$WORK/elan" PATH="$WORK/elan/bin:$PATH";
 # a shared filesystem under many parallel readers is slow and can fail the build.
@@ -364,7 +372,7 @@ if [ "$SRC_MODE" = clone ]; then
     exit 1
   fi
 fi
-""" + lh.SHADOW_CHECK_SH + r"""# The dependency restore may change .lake/packages and nothing else: a listing and the content hashes of the
+""" + lh.SHADOW_CHECK_SH + ca.job_sh() + r"""# The dependency restore may change .lake/packages and nothing else: a listing and the content hashes of the
 # rest of the tree (.lake itself aside, which it may create) are compared before and after. (No directory
 # sizes or times: creating .lake changes those of the package directory on some filesystems.)
 deps_snapshot() {
@@ -439,6 +447,8 @@ if ! lake_shadow_check "$lean_path" >>"$LOG"; then
   exit 1
 fi
 $RUN bash -c "$AXIOMS_CMD" >>"$LOG" 2>&1
+# Every claim's axioms, read from the built environment (claim_axioms_run above; not only the printed ones).
+claim_axioms_run "$LOG" "$WORK/claim-axioms" "$lean_path"
 echo "fs-file-nr-after: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)" >>"$LOG"
 
 # The artifact seal (ARTIFACTS_DIR above). artifacts_list DIR: the manifest lines of the regular files under DIR,
@@ -1181,6 +1191,8 @@ def parse_raw_log(raw_text: str, redacted: str) -> tuple[dict, list[str]]:
     names = ("`declaration uses sorry` warnings", "`#print axioms` results", "`does not depend on any axioms` lines",
              "build-completion lines")
     changed += [n for n, a, b in zip(names, _evidence_counts(raw_text), _evidence_counts(redacted)) if a != b]
+    if ca.claim_lines(raw_text) != ca.claim_lines(redacted):
+        changed.append("claim-axioms lines")
     if changed:
         problems.append(f"redaction changed what the receipt is read from: {', '.join(changed)} differ between the "
                         f"raw and the redacted log; narrow the --redact pattern so it leaves those lines intact")
@@ -1589,6 +1601,32 @@ def container_evidence(fields: dict, paths: dict, refusals: list[str], checks: l
     return ctr.from_log(fields, values, refusals, checks)
 
 
+def claim_axioms_evidence(repo: pathlib.Path, commit: str | None, raw_text: str, refusals: list[str],
+                          checks: list[str]) -> dict | None:
+    """The receipt's additive `claim_axioms` key (claim_axioms.judge) from the RAW log's claim-axioms lines,
+    every claim of claims.yaml committed at the commit required (no commit: not required).
+    None, with a `·` line, when the log has no such line (an older verify script): the receipt is as before."""
+    required = None
+    blob = core.git_show_bytes(repo, "./claims.yaml", commit) if commit else None
+    summary, found, lines = ca.judge(raw_text, None)
+    if summary is None:
+        if blob is not None:
+            checks.append("· claim axioms: no claim-axioms lines in the verify log (a verify script without the "
+                          "probe); only the `#print axioms` output is read, for the theorems it prints")
+        return None
+    if commit is not None:
+        required, problems = ca.required_claims(blob)
+        refusals += problems
+    summary, found, lines = ca.judge(raw_text, required)
+    refusals += found
+    checks += lines
+    if summary["nonstandard"] and not found:
+        checks.append("· claim axioms beyond propext, Quot.sound, Classical.choice: "
+                      + "; ".join(f"{e['decl']} ({', '.join(e['axioms'])})" for e in summary["nonstandard"][:10])
+                      + " (gate refuses them unless gate.axioms_allowed lists them)")
+    return summary
+
+
 def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.Pattern]) -> int:
     """The shared second half of every `receipt` form: commit facts, the seal, the verify log's fields, redaction,
     the public-safety scan, and (when nothing refused) the receipt, the redacted log, the executor's evidence
@@ -1619,6 +1657,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
                                     refusals=refusals)
     log_commit_bound = commit_line_binding(fields, commit, "--stdout" in paths, refusals, checks)
     container = container_evidence(fields, paths, refusals, checks)
+    claim_axioms = claim_axioms_evidence(repo, commit, raw_text, refusals, checks)
     why = evidence_symlink_problem(repo, commit)
     if why:
         refusals.append(why)
@@ -1647,6 +1686,8 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     receipt["log_commit_bound"] = log_commit_bound
     if container is not None:      # additive (#236): only when the job ran in a container; gate ignores it
         receipt["container"] = container
+    if claim_axioms is not None:   # additive (AX1): per-claim axioms read from the built environment
+        receipt["claim_axioms"] = claim_axioms
     receipt.update(ev.receipt_extra)
     files = []                     # (path, bytes) of the executor's evidence files
     sealed_files = []              # {role, path, sha256, receipt_key} of each evidence file, for --json
@@ -1792,6 +1833,10 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
         print(f"lean-pkg: WARN axioms outside the default allowed set: "
               f"{sorted(set(receipt['axioms']) - allowed)}; gate refuses them unless the package's "
               f"gate.axioms_allowed lists them", file=sys.stderr)
+    if claim_axioms and claim_axioms["nonstandard"]:
+        print(f"lean-pkg: WARN claim(s) use axioms outside the default allowed set: "
+              f"{', '.join(e['decl'] for e in claim_axioms['nonstandard'][:10])}; gate refuses them unless the "
+              f"package's gate.axioms_allowed lists them", file=sys.stderr)
     return 0
 
 
@@ -1900,6 +1945,7 @@ def preflight(args) -> int:
         problems.append("verify log: no `commit:` line; with the in-log fallback seal (no --stdout) the receipt "
                         "is refused (print `commit: <sha>` in the log, or pass --stdout)")
     container_evidence(fields, paths, problems, checks)
+    claim_axioms_evidence(repo, commit, raw_text, problems, checks)
     fams = blocking_families(_scanner(repo), redacted)
     if fams:
         problems.append(f"public-safety: a private string remains in the redacted verify log ({', '.join(fams)}); "

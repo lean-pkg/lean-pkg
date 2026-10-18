@@ -347,5 +347,11 @@ def test_the_core_scaffold_builds_and_verify_sh_writes_the_receipt_lines(lp, cap
     text = log.read_text()
     assert "sorry-count: 0\n" in text and "axioms: Quot.sound,propext\n" in text and "mathlib-rev: none\n" in text
     assert "Built MyProof.Solution" in text and "Challenge" not in text
+    # AX1: every claim's axioms read from the built environment, agreeing with the #print axioms output
+    from lean_pkg import claim_axioms
+    assert f"claim-axioms: MyProof.{scaffold.THEOREM} Quot.sound,propext\nclaim-axioms-done: 1\n" in text
+    required, _ = claim_axioms.required_claims((root / "claims.yaml").read_bytes())
+    summary, refusals, _ = claim_axioms.judge(text, required)
+    assert refusals == [] and summary == {"checked": 1, "nonstandard": [], "missing": []}
     assert shutil.which("sha256sum") is None or seal["verify-log-sha256"] == subprocess.run(
         ["sha256sum", str(log)], capture_output=True, text=True).stdout.split()[0]

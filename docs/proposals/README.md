@@ -63,4 +63,5 @@ proposal when asked but never accepts one ([GOVERNANCE.md](../../GOVERNANCE.md))
 | [0002](0002-committed-docs-only-opt-in.md) | A committed docs-only opt-in, read at the bound commit | draft |
 | [0003](0003-conditional-claims-and-discharge.md) | Conditional claims and discharge (with a core-Lean prototype in [0003/prototype](0003/prototype/)) | draft |
 | [0004](0004-math-lts-stack.md) | A math LTS stack: a tested Lean + Mathlib + lean-pkg combination, supported for a stated window | `accepted` 2026-10-17 by Le Chen (open question 6 still open); stage 0: [lts-2026.10](../stacks/lts-2026.10.md) |
+| [0005](0005-per-claim-axioms.md) | Per-claim axioms read from the built environment (`claim_axioms` receipt key) | draft |
 | [1.0 command tree](../design/1.0-command-tree.md) | The 1.0 command tree and format freeze (written before this process; kept at its path) | `accepted` 2026-10-17 by Le Chen; implementation in stages (stage 1: aliases, noun moves, real subparsers, newcomer page) |

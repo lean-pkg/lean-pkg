@@ -502,6 +502,19 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     return _body_rest(ctx, target, md, counts, n_verified)
 
 
+def _claim_axioms_lines(value) -> list[str]:
+    """One bullet for the receipt's additive `claim_axioms` key (AX1), when present: the axioms of every claim
+    were read from the built environment, not only from the `#print axioms` output. Nothing without the key."""
+    if not isinstance(value, dict) or not isinstance(value.get("checked"), int):
+        return []
+    extra = sorted({a for e in value.get("nonstandard") or [] if isinstance(e, dict)
+                    for a in e.get("axioms") or [] if isinstance(a, str)})
+    return [f"- Axioms of every claim: read from the built environment (Lean's `collectAxioms`) for all "
+            f"{value['checked']} claim(s) in `claims.yaml`, not only the theorems the build prints; "
+            + (f"beyond the standard three, the allowed {', '.join(f'`{_code(a)}`' for a in extra)}."
+               if extra else "none uses an axiom beyond `propext`, `Quot.sound` and `Classical.choice`.")]
+
+
 def _container_clause(value) -> str:
     """`; run in a container (Apptainer), SIF SHA-256 `<hex>`` for a well-formed `container` receipt key (#236),
     else nothing. Only the engine and the digest are copied: never the image ref, which is a path."""
@@ -590,6 +603,7 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
                   f"{sc if isinstance(sc, int) else '(not recorded)'}; axioms used: "
                   f"{', '.join(f'`{a}`' for a in _names(lower.get('axioms'))) or 'none'}"
                   f"{_container_clause(lower.get('container'))}.")
+        md += _claim_axioms_lines(lower.get("claim_axioms"))
         md += _advisory_lines(lower.get("lean_toolchain"), warnings, ctx)
     if comp and configs:
         thms = sum(len(c.get("theorem_names") or []) for c in configs)

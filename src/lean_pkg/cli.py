@@ -2845,6 +2845,11 @@ def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
     extra = sorted(set(axioms) - allowed)
     if extra:
         raise Fail(f"axioms {extra} outside allowed set {sorted(allowed)}")
+    if "claim_axioms" in receipt:      # additive (AX1): per-claim axioms read from the built environment
+        from . import claim_axioms
+        problems = claim_axioms.summary_problems(receipt["claim_axioms"], allowed)
+        if problems:
+            raise Fail("; ".join(problems))
     sha = str(receipt["report_sha256"])
     if not re.fullmatch(r"[0-9a-fA-F]{64}", sha):
         raise Fail(f"report_sha256 must be 64 hex chars, got {sha!r}")
@@ -3318,7 +3323,19 @@ def receipt_check_lines(pkg: dict, repo: pathlib.Path, receipt: dict) -> list[st
         mathlib,
         "✓ sorry_count 0",
         f"✓ axioms {sorted(receipt['axioms'])} within {allowed}",
+        *claim_axioms_lines(receipt),
         f"✓ mathlib_rev, report_sha256, job_id {receipt['job_id']}, checker, generated_at well-formed"]
+
+
+def claim_axioms_lines(receipt: dict) -> list[str]:
+    """The receipt's additive `claim_axioms` key (AX1), when present and valid (validate_receipt refuses an
+    invalid one): every claim's axioms read from the built environment, not only the printed theorems."""
+    ca = receipt.get("claim_axioms")
+    if not isinstance(ca, dict):
+        return []
+    extra = sorted({a for e in ca.get("nonstandard") or [] for a in e.get("axioms") or []})
+    return [f"✓ claim_axioms: {ca.get('checked')} claim(s) read from the built environment (every claim in "
+            f"claims.yaml), none missing" + (f"; beyond the standard three, allowed: {extra}" if extra else "")]
 
 
 def build_provenance_line(bp: dict) -> str:

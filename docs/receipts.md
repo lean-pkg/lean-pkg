@@ -50,11 +50,67 @@ covered, and how a third party re-verifies a page, is the
 | `axioms` | list of strings, subset of `gate.axioms_allowed` (default `propext`, `Quot.sound`, `Classical.choice`) |
 | `report_sha256` | 64 hex characters: the frozen verification report; when the redacted verify log `<commit12>-<job slug>-verify.redacted.log` that `receipt slurm`/`systemd` writes is found (beside the receipt file, in the package's `.lean-receipts/`, or tracked there at HEAD), every copy must hash to it, else `gate` refuses; none found (or a copy that cannot be read) is refused too, as `report log missing: ...` naming where it looked and the path to restore it to (see [Restoring preserved evidence](#restoring-preserved-evidence)). The same rule holds wherever a recorded lower-tier receipt is judged: the claims ledger (and so `promote`), `next`, `comparator`, `palomar` and `index check`. A compressed copy `<...>-verify.redacted.log.gz` is checked the same way on its uncompressed bytes ([compressed sealed log](#a-compressed-sealed-log---compress-log)); report_sha256 is never the hash of the .gz, and `report_compressed.bytes` is the decoded length, not the .gz size ([checking it yourself](#checking-a-compressed-log-yourself)) |
 | `job_id`, `checker`, `generated_at` | nonempty: the executor's terminal job identity, the exact checker mode, and an ISO-8601 time that must parse. The stored copy is named `<commit12>-<job_id>.json`, with characters outside `[A-Za-z0-9._-]` replaced by `-` and leading dots and dashes dropped |
+| `claim_axioms` (optional, additive) | `{checked, nonstandard: [{decl, axioms}], missing: []}`: the axioms of **every** claim in `claims.yaml`, read from the built environment ([Per-claim axioms](#per-claim-axioms-claim_axioms)). When present, `missing` must be empty and every axiom under `nonstandard` must be in `gate.axioms_allowed` (`sorryAx` never is). A receipt without the key is valid, as before |
 
 The frozen report named by `report_sha256` is expected to bind the candidate
 commit or tree, the toolchain and dependency pins, complete checker
 coverage, the terminal state, and executor identity. A pilot run, a partial
 manifest, or a receipt for a previous candidate is not gate evidence.
+
+### Per-claim axioms (`claim_axioms`)
+
+The `axioms` field comes from `#print axioms` text in the verify log, so it covers only the
+declarations the package's Axioms file prints. A claim nobody printed was never checked. The
+`claim_axioms` key closes that gap: it covers **every claim in `claims.yaml`**, of every kind and
+status, whether or not anyone printed it.
+
+How it is made. After the build, the verify script (`receipt slurm --template`, and the `verify.sh`
+that `lean-pkg new` writes) runs a small core-Lean program, `ClaimAxioms.lean`, with
+`lean --run`, under the LEAN_PATH the script printed with `lake env printenv LEAN_PATH` (the template
+checks that path for shadowing first; the program never runs under `lake env`). The program is written into the job's work directory from the script itself;
+no package depends on a lean-pkg Lean library. It imports the modules the claims' `file`s name,
+exactly as `import` does but data only (no extension state, so no axiom list cached in an `.olean`
+is read: Lean walks every constant body), and runs core Lean's `collectAxioms` on each claim's
+`decl`. It prints one line per claim into the verify log, then a final count:
+
+```text
+claim-axioms: Demo.main_theorem Classical.choice,Quot.sound,propext
+claim-axioms: Demo.helper none
+claim-missing: Demo.typo
+claim-axioms-done: 3
+```
+
+The lines are written before the seal, so `verify-log-sha256` covers them: a line edited after the
+job breaks the seal and the receipt is refused. The claim names are read from `claims.yaml` by a
+small reader of block-style YAML (the form `lean-pkg new` and `claims migrate` write). The receipt
+does not trust that reader: it reads `claims.yaml` committed at the receipt's commit itself and
+refuses a claim without a line.
+
+What refuses the receipt (nothing is written), with the lines present:
+
+- a claim that is not in the built environment (`claim-missing`: a decl must be the fully qualified
+  name of a declaration the build compiles);
+- a claim that depends on `sorryAx`;
+- a claim of `claims.yaml` at the commit with no line, or an incomplete probe (no final
+  `claim-axioms-done: N`, a count that does not match, a name twice, a malformed line, a line after
+  the count);
+- a claim whose `#print axioms` output in the same log names other axioms than its line (the two
+  checks must agree);
+- a redaction that alters one of the lines.
+
+A claim using an axiom beyond `propext`, `Quot.sound` and `Classical.choice` is recorded under
+`nonstandard` (with a WARN), and `gate` refuses it unless the package's `gate.axioms_allowed` lists
+that axiom: the same rule as for `axioms`. `gate --check` prints
+`✓ claim_axioms: N claim(s) read from the built environment ...`; `receipt check` re-derives the key
+from the sealed log and `claims.yaml` at X and fails when they differ; the page adds one line saying
+the axioms of every claim were read from the built environment.
+
+A verify log without claim-axioms lines (a script older than 0.14, or a package without
+`claims.yaml`) gives a receipt without the key. Such a receipt stays valid: its axioms rest on the
+`#print axioms` output, for the theorems that output covers. The `#print axioms` parsing is
+unchanged, and is kept as the cross-check above. To run the same check yourself on a built
+checkout: `python3 -m lean_pkg.claim_axioms --project .` (sandboxed with `bwrap` when installed,
+like the duplicate-constants check).
 
 ## A lower-tier receipt from a Slurm job
 
@@ -135,6 +191,7 @@ package and is refused; the refusal names the path that was read and where the c
 | `job_id` | `slurm-<J>` |
 | `report_sha256` | SHA-256 of the redacted log as written (below) |
 | `generated_at` | the log's `generated-at:` line when present (must parse), else the time of writing; a re-run whose receipt already exists and matches it in every other field (same keys, order and values) keeps the stored `generated_at`, so it is an identical no-op rather than a refusal |
+| `claim_axioms` (additive) | the log's `claim-axioms:` / `claim-missing:` / `claim-axioms-done:` lines, judged against `claims.yaml` committed at the commit ([Per-claim axioms](#per-claim-axioms-claim_axioms)); no such line: no key |
 
 Log key lines are `key: value` with the key at the start of the line, each
 at most once. A log `lean-toolchain:` or `mathlib-rev:` line that disagrees
@@ -1702,6 +1759,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `... report log` | `report_sha256` is the SHA-256 of the committed redacted log (or of its `.gz`, decompressed); a missing log fails |
 | `... evidence files` | `manifest_sha256`, `artifacts_manifest_sha256`, `unit_properties_sha256` against the files they name, when present; `job_stdout_sha256` is not checkable (the job's stdout is not published) |
 | `... container` | only when the receipt has a `container` key: shown (engine, digest, image ref); a malformed one fails; the digest is not re-derivable (the image is not published) |
+| `... claim axioms` | only when the receipt has a `claim_axioms` key: re-derived from the committed sealed log against `claims.yaml` at X (every claim checked, none missing, no `sorryAx`, agreeing with the log's `#print axioms` output) and equal to the key |
 | `claims` | `claims.yaml` at X passes the claims/1 schema and the declaration check `gate` runs |
 | `comparator <receipt>` | `gate`'s validator: the exact set of configurations tracked at X, each one's SHA-256, theorem names and sign-off, each log's SHA-256 and PASS line, the lower tier's commit |
 | `... olean manifest` | the receipt's `olean_manifest` names the toolchain and `lake-manifest.json` of X (the manifest file itself is not published) |
