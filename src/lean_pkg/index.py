@@ -406,6 +406,57 @@ def built_on_manifest_notes(clone: pathlib.Path, entry: dict) -> list[str]:
     return out
 
 
+# Packages a lake-manifest.json may list that are implicit for `built_on` (docs/index-catalog.md, Credits):
+# Mathlib, the packages Mathlib itself pulls in, and Lean core. Matched on the manifest name and on the URL
+# (case-insensitive, without a trailing .git).
+MATHLIB_FAMILY_NAMES = frozenset(n.lower() for n in (
+    "mathlib", "batteries", "std", "aesop", "Qq", "proofwidgets", "importGraph", "LeanSearchClient",
+    "plausible", "Cli"))
+MATHLIB_FAMILY_URLS = frozenset(_git_url_key(f"https://github.com/{r}") for r in (
+    "leanprover-community/mathlib4", "leanprover-community/mathlib", "leanprover-community/batteries",
+    "leanprover/std4", "leanprover-community/aesop", "leanprover-community/quote4",
+    "leanprover-community/ProofWidgets4", "leanprover-community/import-graph",
+    "leanprover-community/LeanSearchClient", "leanprover-community/plausible", "leanprover/lean4-cli"))
+LEAN_CORE_NAMES = frozenset(("lean", "lean4", "init", "lake"))
+LEAN_CORE_URLS = frozenset((_git_url_key("https://github.com/leanprover/lean4"),))
+# An inherited package from one of these organizations is taken to come in through Mathlib, so a
+# dependency Mathlib adds later is implicit before it is added to the lists above.
+MATHLIB_ORG_PREFIXES = ("https://github.com/leanprover-community/", "https://github.com/leanprover/")
+
+
+def implicit_lake_package(p: dict) -> bool:
+    """True for a lake-manifest.json package that `built_on` never needs to credit."""
+    name = str(p.get("name") or "").lower()
+    url = _git_url_key(p.get("url") or "")
+    if name in MATHLIB_FAMILY_NAMES or url in MATHLIB_FAMILY_URLS:
+        return True
+    if name in LEAN_CORE_NAMES or url in LEAN_CORE_URLS:
+        return True
+    return p.get("inherited") is True and url.startswith(MATHLIB_ORG_PREFIXES)
+
+
+def uncredited_lake_dependencies(clone: pathlib.Path, entry: dict) -> list[dict]:
+    """Proposal 0007 (open question 2, decided 2026-10-18): the lake-manifest.json packages at the pin
+    that are not implicit and that no `built_on` credit names (by URL, with or without .git, or by name,
+    both case-insensitive). Advisory: `index check` warns, never fails. [] without a readable manifest."""
+    mf = clone / "lake-manifest.json"
+    try:
+        pkgs = (json.loads(mf.read_text()).get("packages") or []) if mf.is_file() else []
+    except ValueError:
+        return []
+    credits = [c for c in entry.get("built_on") or [] if isinstance(c, dict)]
+    urls = {_git_url_key(c.get("url") or "") for c in credits} - {""}
+    names = {str(c.get("name") or "").lower() for c in credits} - {""}
+    out = []
+    for p in pkgs if isinstance(pkgs, list) else []:
+        if not isinstance(p, dict) or implicit_lake_package(p):
+            continue
+        if _git_url_key(p.get("url") or "") in urls or str(p.get("name") or "").lower() in names:
+            continue
+        out.append({"name": str(p.get("name") or ""), "url": str(p.get("url") or "")})
+    return out
+
+
 def _index_claim_errors(entry: dict, prior: list[str]) -> list[str]:
     """claims[] of an index-entry/2 must be exactly what index_claims derives from the headline."""
     from .claims import CLAIM_ID_RE
@@ -1224,7 +1275,7 @@ def static_problems(root: pathlib.Path, name: str, entry: dict) -> list[str]:
 def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: bool,
                 seen: dict, reg: dict | None = None) -> dict:
     rep = {"name": name, "ok": False, "trust_stated": None, "trust_computed": None,
-           "mechanism": None, "failures": [], "notes": [],
+           "mechanism": None, "failures": [], "notes": [], "uncredited_dependencies": [],
            "network": {"palomar": "n/a", "reservoir": "n/a"}}
     try:
         entry = load_entry(root / name / ENTRY_FILE)
@@ -1267,6 +1318,9 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
                     rep["failures"].append(f"receipts.{k}: index copy differs from the bytes in the repository")
         rep["failures"] += at_pin_problems(clone, entry, res, record)
         rep["notes"] += built_on_manifest_notes(clone, entry)
+        rep["uncredited_dependencies"] = uncredited_lake_dependencies(clone, entry)
+        rep["notes"] += [f"warning: Lake dependency {d['name']} ({d['url'] or 'no url'}) in lake-manifest.json "
+                         f"at the pin has no built_on credit" for d in rep["uncredited_dependencies"]]
     comparator_covers = res["comparator_ok"]
     if res["comparator_ok"]:
         unjudged = unjudged_headlines(entry["headline"], res["comparator"])
@@ -1308,7 +1362,7 @@ def do_index_check(root: pathlib.Path, names: list[str], repo_dir: str | None,
     for n in targets:
         if n not in all_names:
             reports.append({"name": n, "ok": False, "failures": [f"no entry {n!r} under {root}"],
-                            "notes": [], "network": {}, "trust_stated": None,
+                            "notes": [], "uncredited_dependencies": [], "network": {}, "trust_stated": None,
                             "trust_computed": None, "mechanism": None})
             continue
         reports.append(check_entry(root, n, repo_dir, clone_it, seen, reg))

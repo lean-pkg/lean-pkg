@@ -1,7 +1,8 @@
 # 0007: Credits for the libraries an index entry builds on (`built_on`)
 
-Status: draft. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-18.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-18.
+Decided: accepted 2026-10-18 by Le Chen, after #267 had merged as its implementation (the proposal step was
+skipped by mistake; recorded here). Implemented in: (release).
 
 ## Summary
 
@@ -106,8 +107,13 @@ duplicate check against the entry it replaces.
 ## Open questions
 
 1. Should `relation` admit more values (for example `ports` for a translation from another prover)?
+   **Decided (2026-10-18): not now;** a value is added when a real case needs one.
 2. Should `index check --clone` note direct non-Mathlib Lake dependencies that have no credit?
+   **Decided (2026-10-18): yes, as a warning that never fails:** `index check` warns on each non-Mathlib
+   Lake dependency of an entry that has no `built_on` credit.
 3. Should `--replace` also carry the headlines, field tags and notes over when their flags are absent?
+   **Decided (2026-10-18): no.** `--replace` carries over only `built_on`; headlines, field tags and notes
+   come from the registry on a re-pin (unchanged behaviour).
 
 ## AI assistance
 

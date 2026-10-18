@@ -220,3 +220,83 @@ def test_repository_credits(idx):
     assert mp["pin"] == "666cda029098a1106914fc9fa7abd1727573284a"
     assert "[MarkovProcess](https://github.com/scottnarmstrong/MarkovProcess) by Scott Armstrong" in \
         (ROOT / "index" / "README.md").read_text()
+
+
+# Proposal 0007, open question 2 (decided 2026-10-18): index check warns, never fails, on a non-Mathlib
+# Lake dependency with no built_on credit.
+
+MATHLIB_FAMILY = [
+    {"name": "mathlib", "url": "https://github.com/leanprover-community/mathlib4", "rev": MATHLIB_REV,
+     "inherited": False},
+    {"name": "batteries", "url": "https://github.com/leanprover-community/batteries", "rev": "c" * 40,
+     "inherited": True},
+    {"name": "Qq", "url": "https://github.com/leanprover-community/quote4", "rev": "c" * 40, "inherited": True},
+    {"name": "Cli", "url": "https://github.com/leanprover/lean4-cli", "rev": "c" * 40, "inherited": True},
+    {"name": "someFutureMathlibDep", "url": "https://github.com/leanprover-community/future-dep",
+     "rev": "c" * 40, "inherited": True},
+]
+COOL = {"name": "CoolLib", "url": "https://github.com/example/cool-lib.git", "rev": "a" * 40, "inherited": False}
+TRANSITIVE = {"name": "Helper", "url": "https://github.com/example/helper", "rev": "d" * 40, "inherited": True}
+
+
+def check_with_manifest(lp, tmp_path, capsys, packages, credits=None):
+    pkg = make_index_package(tmp_path, extra_files={"lake-manifest.json": json.dumps({"packages": packages})})
+    root = tmp_path / "index"
+    extra = ("--built-on-file", credits_file(tmp_path, credits)) if credits else ()
+    assert index_add(lp, root, pkg, *extra) == 0
+    capsys.readouterr()
+    rc = lp.main(["index", "check", "--index", str(root), "demo", "--repo", str(pkg.repo)])
+    out = capsys.readouterr().out
+    assert lp.main(["index", "check", "--index", str(root), "demo", "--repo", str(pkg.repo), "--json"]) == rc
+    payload = json.loads(capsys.readouterr().out)
+    return rc, out, payload
+
+
+def test_uncredited_lake_dependency_warns_without_changing_the_verdict(lp, tmp_path, capsys):
+    rc, out, payload = check_with_manifest(lp, tmp_path, capsys, MATHLIB_FAMILY + [COOL, TRANSITIVE])
+    assert rc == 0 and payload["ok"] is True and payload["entries"][0]["ok"] is True
+    assert out.count("has no built_on credit") == 2
+    assert "warning: Lake dependency CoolLib (https://github.com/example/cool-lib.git)" in out
+    assert "warning: Lake dependency Helper" in out
+    assert payload["entries"][0]["uncredited_dependencies"] == [
+        {"name": "CoolLib", "url": "https://github.com/example/cool-lib.git"},
+        {"name": "Helper", "url": "https://github.com/example/helper"}]
+
+
+@pytest.mark.parametrize("credit", [
+    {**DEP},                                                         # url without .git, manifest with
+    {**DEP, "url": "https://github.com/example/cool-lib.git"},       # url with .git
+    {**DEP, "url": "https://github.com/example/moved"},              # name only
+])
+def test_credited_lake_dependency_does_not_warn(lp, tmp_path, capsys, credit):
+    rc, out, payload = check_with_manifest(lp, tmp_path, capsys, MATHLIB_FAMILY + [COOL], [credit])
+    assert rc == 0 and "has no built_on credit" not in out
+    assert payload["entries"][0]["uncredited_dependencies"] == []
+
+
+def test_mathlib_and_its_dependencies_do_not_warn(lp, tmp_path, capsys):
+    """Mathlib, the packages it pulls in (listed or inherited from its organizations) and Lean core."""
+    direct_batteries = {"name": "batteries", "url": "https://github.com/leanprover-community/batteries.git",
+                        "rev": "c" * 40, "inherited": False}
+    core = {"name": "lean4", "url": "https://github.com/leanprover/lean4", "rev": "e" * 40}
+    rc, out, payload = check_with_manifest(lp, tmp_path, capsys, MATHLIB_FAMILY + [direct_batteries, core])
+    assert rc == 0 and "has no built_on credit" not in out
+    assert payload["entries"][0]["uncredited_dependencies"] == []
+
+
+def test_direct_dependency_from_a_mathlib_org_still_warns(lp, tmp_path, capsys):
+    """Only an inherited package is taken to come through Mathlib; a direct require is the package's own."""
+    direct = {"name": "duper", "url": "https://github.com/leanprover-community/duper", "rev": "f" * 40,
+              "inherited": False}
+    rc, out, payload = check_with_manifest(lp, tmp_path, capsys, MATHLIB_FAMILY + [direct])
+    assert rc == 0 and [d["name"] for d in payload["entries"][0]["uncredited_dependencies"]] == ["duper"]
+
+
+def test_static_check_has_an_empty_uncredited_list(lp, idx, tmp_path, capsys):
+    pkg = make_index_package(tmp_path, extra_files={
+        "lake-manifest.json": json.dumps({"packages": MATHLIB_FAMILY + [COOL]})})
+    root = tmp_path / "index"
+    assert index_add(lp, root, pkg) == 0
+    capsys.readouterr()
+    assert lp.main(["index", "check", "--index", str(root), "demo", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["entries"][0]["uncredited_dependencies"] == []
