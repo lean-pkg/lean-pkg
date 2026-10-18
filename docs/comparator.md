@@ -1466,6 +1466,20 @@ override for the setup stages. `stages.json` and the receipt record
 `comparator host-check` gains a `lake-path` line that warns when `PATH`'s
 `lake` is not elan's or elan is missing.
 
+`ELAN_TOOLCHAIN` pins the project's toolchain only. The legacy mechanism's
+`comparator-check.sh` builds its own tools, comparator and lean4export,
+with `ELAN_TOOLCHAIN` unset, so each one builds under its own
+`lean-toolchain` (the pinned comparator's is `v4.34.0-rc1`; lean4export's
+is the project's release tag, or is rewritten to the project's toolchain
+under `LEAN4EXPORT_ALLOW_TOOLCHAIN_MISMATCH=1`). The log names each on an
+`== comparator toolchain:` and an `== lean4export toolchain:` line. The
+project's own steps (`lake env`, `lean --print-prefix`, the judge) keep the
+project's toolchain. Up to 0.13.0 the exported pin also reached the tool
+builds, so a project below Lean v4.34 could not build the pinned
+comparator (`Main.lean:221 ... Lean.Kernel.Environment.replay` does not
+exist); `COMPARATOR_LAKE=$HOME/.elan/bin/lake` was the workaround (the
+receipt then records `toolchain_resolution.source = env`).
+
 The runner removes the repository-selecting Git variables (`GIT_DIR`,
 `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`,
 `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_COMMON_DIR`, `GIT_NAMESPACE`) from

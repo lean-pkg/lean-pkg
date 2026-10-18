@@ -22,6 +22,10 @@
 #       hand on a lab host, openai/math family-072 replay, 2026-10-07; the
 #       script path itself is not yet exercised end to end). The deviation is printed on
 #       its own "== lean4export toolchain override:" line in every log.
+#   Tool toolchains (2026-10-17): the comparator and lean4export builds unset
+#   ELAN_TOOLCHAIN, so each builds under its own lean-toolchain (printed on an
+#   "== <tool> toolchain:" line) even when the caller pins the project's
+#   toolchain through ELAN_TOOLCHAIN; the project's own steps keep it.
 #   LEAN_PATH shadowing (2026-10-16): before the comparator runs under `lake env`,
 #   lake_shadow_check refuses a LEAN_PATH entry other than the project's own
 #   .lake/build/lib/lean that holds one of the project's root namespaces (Lake
@@ -246,9 +250,17 @@ checkout_at() {  # <url> <dir> <commit>
   fi
 }
 
+# Tool builds use the tool's own lean-toolchain, never the project's. A caller (lean-pkg's runner, #41)
+# may export ELAN_TOOLCHAIN=<the project's toolchain> so that the project's `lake`/`lean` resolve to it; an
+# exported ELAN_TOOLCHAIN overrides every directory's lean-toolchain for elan's proxies, so it is unset
+# for the comparator and lean4export builds only (lean4export's file is the project's toolchain anyway,
+# or rewritten to it under LEAN4EXPORT_ALLOW_TOOLCHAIN_MISMATCH). The project's steps below keep it.
+tool_toolchain() { tr -d '[:space:]' 2>/dev/null < "$1/lean-toolchain" || echo "?"; }
+
 echo "== comparator @ $COMPARATOR_COMMIT"
 checkout_at https://github.com/leanprover/comparator.git "$TOOLS_DIR/comparator" "$COMPARATOR_COMMIT"
-(cd "$TOOLS_DIR/comparator" && lake build comparator)
+echo "== comparator toolchain: $(tool_toolchain "$TOOLS_DIR/comparator") (its own lean-toolchain)"
+(cd "$TOOLS_DIR/comparator" && unset ELAN_TOOLCHAIN && lake build comparator)
 comparator_bin="$TOOLS_DIR/comparator/.lake/build/bin/comparator"
 
 lean4export_dir="$TOOLS_DIR/lean4export"
@@ -270,7 +282,8 @@ if [ "$export_toolchain" != "$toolchain" ]; then
 fi
 echo "== lean4export @ $LEAN4EXPORT_COMMIT ($lean4export_release)"
 [ -z "$override_note" ] || echo "== lean4export toolchain override: commit $LEAN4EXPORT_COMMIT $override_note"
-(cd "$lean4export_dir" && lake build lean4export)
+echo "== lean4export toolchain: $(tool_toolchain "$lean4export_dir") (its own lean-toolchain)"
+(cd "$lean4export_dir" && unset ELAN_TOOLCHAIN && lake build lean4export)
 lean4export_bin="$lean4export_dir/.lake/build/bin/lean4export"
 if [ -n "$override_note" ]; then
   want="${toolchain#*:v}"

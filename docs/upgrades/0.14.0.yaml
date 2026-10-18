@@ -62,6 +62,23 @@ changes:
       bound to the receipt commit, so neither the evidence-only nor the docs-only rule admits the change.
     breaking: false
     changelog: Added
+  - pr: 263
+    id: comparator-tool-builds-own-toolchain
+    kind: behavior
+    area: comparator (legacy mechanism)
+    summary: >-
+      comparator-check.sh builds comparator and lean4export with ELAN_TOOLCHAIN unset, so each tool builds
+      under its own lean-toolchain (the pinned comparator's is v4.34.0-rc1) and the log names it on an
+      "== <tool> toolchain:" line. Since #41 the runner exports ELAN_TOOLCHAIN (the project's toolchain) to
+      every child, and 0.13.0 built the comparator under the project's Lean: below v4.34 that failed with
+      Main.lean:221 Lean.Kernel.Environment.replay does not exist. The project's own steps keep the project
+      toolchain; the receipt's toolchain_resolution is unchanged.
+    action: >-
+      Nothing. A COMPARATOR_LAKE=$HOME/.elan/bin/lake set only to work around this can be dropped (the
+      receipt then records toolchain_resolution.source elan instead of env). A TOOLS_DIR whose comparator
+      build failed under the wrong toolchain rebuilds on the next run.
+    breaking: false
+    changelog: Fixed
 # Read for this record, nothing for a package author: the Codespaces dev container for the π-λ tutorial
 # (.devcontainer/tutorial/, a badge and a docs section), which changes no command, package file or
 # receipt (#257); the lts-2026.10 stage 0 matrix results, as docs under docs/stacks with no CLI
