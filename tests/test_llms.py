@@ -25,8 +25,9 @@ def test_llms_exits_zero_and_covers_contract(lp, capsys):
     assert "The gate is executor-neutral" in out
     assert "A pilot," in out
     assert "partial manifest" in out
-    assert len(out.splitlines()) <= 180    # raised from 170 when renew/leases landed (#10), 176 for next (#42), 177 for new (#195),
-    #                                        180 for the 1.0 tree's two standing rules and verify (stage 2)
+    assert len(out.splitlines()) <= 181    # raised from 170 when renew/leases landed (#10), 176 for next (#42), 177 for new (#195),
+    #                                        180 for the 1.0 tree's two standing rules and verify (stage 2),
+    #                                        181 for blueprint check (two-tracks gap #17)
 
 
 def test_llms_mentions_event_names_and_status_enum(lp, capsys):

@@ -2,7 +2,25 @@
 # requests merge after 0.13.0. Same keys as 0.13.0.yaml; the human page is docs/upgrades/0.14.0.md.
 schema: lean-pkg-upgrade-record/1
 version: 0.14.0
-changes: []
+changes:
+  - pr: 260
+    id: blueprint-check-checkdecls
+    kind: command
+    area: blueprint, claims
+    summary: >-
+      New read-only command blueprint check NAME [--decls PATH]: on a clean checkout it runs lake build, then
+      lake exe checkdecls blueprint/lean_decls (PatrickMassot/checkdecls, the declaration list leanblueprint
+      writes from the \lean{} tags), reports every name checkdecls prints as missing, and checks that each
+      claim in claims.yaml at HEAD whose decl the blueprint names is a declaration checkdecls accepts. A
+      package without a blueprint is skipped (exit 0); exit 1 on a missing name or a claim problem. checkdecls
+      must be a Lake dependency of the package (lean-pkg never edits the lakefile). No file format changes.
+    action: >-
+      Optional, for a package with a blueprint: add require checkdecls from git
+      "https://github.com/PatrickMassot/checkdecls.git" @ "3d425859e73fcfbef85b9638c2a91708ef4a22d4" (or the
+      lakefile.toml [[require]] form in docs/page.md), run lake update checkdecls, commit the lakefile and
+      lake-manifest.json, then lean-pkg blueprint check NAME.
+    breaking: false
+    changelog: Added
 # Read for this record, nothing for a package author: the Codespaces dev container for the π-λ tutorial
 # (.devcontainer/tutorial/, a badge and a docs section), which changes no command, package file or
 # receipt (#257); the lts-2026.10 stage 0 matrix results, as docs under docs/stacks with no CLI

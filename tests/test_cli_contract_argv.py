@@ -144,6 +144,7 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["page", "demo", "--check", "--site", "d", "--html", "h"], "page", False, False, False),
     (["page", "demo", "--check", "--repo", "r"], "page", False, False, False),
     (["reservoir", "check", "demo"], "reservoir check", False, False, False),
+    (["blueprint", "check", "demo"], "blueprint check", False, False, False),
     (["public-safety", "demo"], "public-safety", False, False, False),
     (["public-safety", "demo", "--gzip-limit", "64M"], "public-safety", False, False, False),
     (["public-safety", "demo", "--gzip-limit", "0"], "public-safety", False, False, False),
@@ -281,7 +282,7 @@ def test_argv_table_matches_predicates(row, ap, lp, monkeypatch):
 def test_argv_table_covers_every_command_path(ap):
     """A new command (nested ones included) needs a row."""
     paths = {" ".join(n.path) for n in command_tree(ap) if n.path}
-    paths -= {"index", "claims", "reservoir", "palomar", "receipt", "coverage",   # groups: a verb is required
+    paths -= {"index", "claims", "reservoir", "blueprint", "palomar", "receipt", "coverage",   # groups: a verb is required
               "lease", "registry", "repo", "comparator", "formalization"}
     covered = {row[1] for row in ARGV_TABLE}
     assert sorted(paths - covered) == [], "add ARGV_TABLE rows for these commands"

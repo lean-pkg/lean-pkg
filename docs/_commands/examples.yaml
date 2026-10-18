@@ -233,6 +233,17 @@ lean-pkg coverage check:
   - cmd: lean-pkg coverage check my-proof --file coverage.yaml
     say: Check the working copy before committing it.
 
+lean-pkg blueprint check:
+  - cmd: lean-pkg blueprint check my-proof
+    say: Run checkdecls on blueprint/lean_decls at HEAD (after `lake build`) and check that every claim the blueprint names is a declaration checkdecls accepts.
+    output: |
+      my-proof: blueprint check at 0123456789ab: FAILED; 2 declaration(s) in blueprint/lean_decls, 1 missing; checkdecls 3d425859e73f
+        missing: MyProof.absent_lemma
+        claims: 1 claim(s) in claims.yaml name a blueprint declaration
+        note: 1 blueprint declaration(s) no claim carries: MyProof.absent_lemma
+  - cmd: lean-pkg blueprint check my-proof --decls docs/blueprint/lean_decls --json
+    say: A blueprint kept elsewhere in the repository; the JSON lists missing[] and the claim cross-check.
+
 lean-pkg page:
   - cmd: lean-pkg page my-proof
     say: Print the README verification section rendered from coverage.yaml, the claims, the ledger and the receipts.

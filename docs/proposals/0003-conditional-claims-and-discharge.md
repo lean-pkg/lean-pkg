@@ -493,8 +493,9 @@ format for one, and its maintainers have not been asked.
   - recompute the state from evidence;
   - decide that an assumption was discharged by a kernel-checked composition.
 
-  A blueprint cross-check (`\lean{}` names against `claims.yaml`) is already
-  listed under *Not yet* in [page.md](../page.md), and it would carry over to
+  A blueprint cross-check (`\lean{}` names against `claims.yaml`) has since
+  shipped as `lean-pkg blueprint check`, which runs checkdecls
+  ([page.md](../page.md#blueprint-cross-check)); it would carry over to
   `hypotheses`.
 - **Palomar** (the registry of record for verified results): it takes
   comparator configurations and `formalization.yaml`, and lean-pkg prepares

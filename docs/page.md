@@ -392,6 +392,54 @@ verification-page:
 `repo export` exports the package tree as it is and adds no
 generated files, so it does not install the workflow; copy it in yourself.
 
+## Blueprint cross-check
+
+A package with a [leanblueprint](https://github.com/PatrickMassot/leanblueprint)
+can check that the blueprint and the Lean code agree:
+
+```sh
+lean-pkg blueprint check NAME            # exit 0 nothing missing, 1 otherwise
+```
+
+lean-pkg does not parse the blueprint. leanblueprint writes every name of
+the blueprint's `\lean{...}` tags to `blueprint/lean_decls`, and
+[checkdecls](https://github.com/PatrickMassot/checkdecls) checks that each
+one exists in the built package. The command runs that tool on a clean
+checkout: `lake build`, then `lake exe checkdecls blueprint/lean_decls`. It
+reports every name checkdecls prints as missing, and then reads `claims.yaml`
+at HEAD: a claim whose `decl` the blueprint names must be a declaration that
+checkdecls accepts. Claims outside the blueprint, and blueprint names that no
+claim carries, are listed as notes and never refused (a blueprint also names
+Mathlib declarations). A package with no `blueprint/` directory and no
+declaration list is skipped with a message, exit 0. `--decls PATH` names
+another list. Nothing is written.
+
+checkdecls is a Lake dependency that the package adds itself, pinned to a
+commit; lean-pkg never edits the lakefile. In `lakefile.lean`:
+
+```lean
+require checkdecls from git "https://github.com/PatrickMassot/checkdecls.git" @ "3d425859e73fcfbef85b9638c2a91708ef4a22d4"
+```
+
+In `lakefile.toml`:
+
+```toml
+[[require]]
+name = "checkdecls"
+git = "https://github.com/PatrickMassot/checkdecls.git"
+rev = "3d425859e73fcfbef85b9638c2a91708ef4a22d4"
+```
+
+Then run `lake update checkdecls` and commit the lakefile and
+`lake-manifest.json`. The pin is the tag `lean4.18.0`, the newest tag and the
+head of its default branch on 2026-10-17. Lake builds it with the package's
+own toolchain (it was run on Lean v4.29.0). Without the dependency, the
+command refuses and prints these lines. With another revision it runs and
+notes that the revision is not the documented pin.
+
+checkdecls is by Patrick Massot and is licensed under Apache-2.0. lean-pkg
+runs it as the package's own dependency and includes none of its code.
+
 ## From lean-scope-page
 
 The lab script `lean-scope-page` (`init` and `lint` of hand-written
@@ -430,7 +478,6 @@ markers. Then delete `docs/scope/` and run `lean-pkg page NAME --write`.
 
 ## Not yet
 
-- A blueprint cross-check (`\lean{}` names against `claims.yaml`).
 - Measured wall time and peak memory in the reproduce section, once receipts
   record them.
 - A registry-free CI check (today the job needs the record from a secret).
