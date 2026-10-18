@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-18
+
 ### Added
 
 - LTS stacks, stage 1 of proposal 0004 (accepted 2026-10-17). `lean-pkg new
@@ -106,6 +108,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   checker also compared the statement)". Same text in `--site` and
   `--html`. A page with such a row is stale under `page --check` until it is
   rendered again (#270).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.14.0] - 2026-10-17
 
