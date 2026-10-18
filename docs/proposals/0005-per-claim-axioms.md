@@ -1,7 +1,8 @@
 # 0005: Per-claim axioms read from the built environment
 
-Status: draft. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-17.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-17.
+Decided: accepted 2026-10-18 by Le Chen, with the answers recorded under Open questions. Implemented in:
+(release).
 
 ## Summary
 
@@ -96,8 +97,12 @@ receipt still valid).
 ## Open questions
 
 1. Should `gate` eventually require `claim_axioms` for a package with `claims.yaml` (a schema change)?
+   **Decided (2026-10-18): no, not yet.** The key stays optional until 1.0, when it is revisited.
 2. Should superseded claims be exempt? Today every claim is checked; `claims check` already requires a
-   superseded claim's decl to stay in its file.
+   superseded claim's decl to stay in its file. **Decided (2026-10-18): no.** Every claim is checked,
+   superseded ones included.
+   Also decided: a bare or partial claim name refuses the receipt (fail closed); the 0.14.0 upgrade record
+   tells authors to qualify the names in `claims.yaml` before adopting the new verify script.
 3. Should the comparator tier record the same per-claim list from its export?
 
 ## AI assistance

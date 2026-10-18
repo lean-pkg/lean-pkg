@@ -20,7 +20,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   blueprint is skipped. checkdecls (by Patrick Massot, Apache-2.0) is a Lake
   dependency the package adds, pinned in docs/page.md; lean-pkg never edits
   the lakefile and includes none of its code (#260).
-- Per-claim axioms read from the built environment (proposal 0005, draft): after the build, the
+- Per-claim axioms read from the built environment (proposal 0005, accepted 2026-10-18): after the build, the
   verify scripts (`receipt slurm --template`, the `verify.sh` of `lean-pkg new`) run a small core-Lean
   program, `ClaimAxioms.lean`, that imports the package's modules and runs `collectAxioms` on every
   claim in `claims.yaml`, printing `claim-axioms:` / `claim-missing:` lines and a final
