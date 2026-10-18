@@ -2,7 +2,25 @@
 # requests merge after 0.16.0. Same keys as 0.16.0.yaml; the human page is docs/upgrades/0.17.0.md.
 schema: lean-pkg-upgrade-record/1
 version: 0.17.0
-changes: []
+changes:
+  - pr: 273
+    id: statement-let-boundary
+    kind: behavior
+    area: page
+    summary: >-
+      The Lean statement the verification page shows beside a result (lean_scan.statement, also used for a
+      theorem declared in a module an umbrella Challenge imports) stopped at the first := outside brackets,
+      so a statement with a top-level let, letI, have or haveI (theorem t : let n : Nat := 1; n = 1) was cut
+      to its binder, without the bound value and the conclusion (lab field report). Each such opener now owns
+      one later := (its value) and the proof starts at the next free one. A statement the scanner cannot
+      read with certainty (a by, calc or do outside brackets before the proof, or a | pattern => line with
+      no match or fun before it) is now refused, and the page says the statement could not be read reliably
+      and links the file instead of showing a prefix.
+    action: >-
+      Nothing for most package authors. A package whose result statements open with let, letI, have or
+      haveI should rerun page NAME --write to replace the truncated statement on its page.
+    breaking: false
+    changelog: Fixed
 # Read for this record, nothing for a package author: docs only, a recipe for filling missing dependency
 # artifacts from a pinned donor cache (docs/receipts.md) and a transport checklist for every declaration
 # form (docs/extract.md) (#272).

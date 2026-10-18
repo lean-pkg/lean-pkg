@@ -29,6 +29,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   gates, and resolve import winners by Lean's package-root rule, with an
   example of a sparse output tree shadowing accepted modules (#272).
 
+### Fixed
+
+- The Lean statement the verification page shows beside a result
+  (`lean_scan.statement`, also through an umbrella Challenge's import
+  closure) stopped at the first `:=` outside brackets, so a statement with a
+  top-level `let`, `letI`, `have` or `haveI` (`theorem t : let n : Nat := 1;
+  n = 1`) lost its bound value and its conclusion (lab field report). Each
+  such opener now owns one later `:=` (its value) and the proof starts at
+  the next free one. Where the scanner cannot be sure (a `by`, `calc` or
+  `do` outside brackets before the proof, a `| pattern =>` line with no
+  `match` or `fun` before it) the statement is refused and the page links
+  the file instead of showing a prefix; rerun `page NAME --write` for a
+  package with such statements (#273).
+
 ## [0.16.0] - 2026-10-18
 
 ### Added

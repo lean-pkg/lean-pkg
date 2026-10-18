@@ -79,11 +79,15 @@ claim's `decl`, or `<Prefix>.<decl>`), the page shows the statement from that
 configuration's Challenge module: the statement the proof was checked against.
 Otherwise it shows the declaration in the claim's own `file`. Both are read at
 the gate-bound commit, from the declaration keyword to the `:=` that starts the
-proof, comments kept. The text is copied, not parsed: when the file is not
-committed there, the name is not declared exactly once, the statement has no
-top-level `:=` (an equation-compiler form) or is longer than 40 lines, the
-page shows the linked name and says the statement could not be read, rather
-than a guess. Like every other output, the copied text passes the
+proof, comments kept. That `:=` is the first one outside brackets that no
+`let`, `letI`, `have` or `haveI` of the statement is waiting for: each of them
+owns one `:=` (its value), so `theorem t : let n : Nat := 1; n = 1 := rfl` is
+shown whole. The text is copied, not parsed: when the file is not committed
+there, the name is not declared exactly once, the statement has no such `:=`
+(an equation-compiler form), holds a form the scanner does not follow (a `by`,
+`calc` or `do` outside brackets before the proof) or is longer than 40 lines,
+the page shows the linked name and says the statement could not be read,
+rather than a guess or a prefix. Like every other output, the copied text passes the
 public-safety scan.
 
 An *umbrella* Challenge module, one that holds only `import` lines, declares

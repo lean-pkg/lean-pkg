@@ -96,10 +96,12 @@ The Lean statement is the statement the reader must compare. When the
 comparator compared the claim, it is read from the configuration's Challenge
 module (what the proof was checked against); otherwise from the claim's own
 file. It is copied from the source at the gate-bound commit, from the keyword
-to the `:=` that starts the proof, by `lean_scan.statement`. That function is a
-scanner, not a parser, so it refuses whenever it is unsure (the name not
-declared exactly once, no top-level `:=`, more than 40 lines), and the page
-then links the file and says so. It never shows a guess.
+to the `:=` that starts the proof, by `lean_scan.statement`: the first `:=`
+outside brackets that no `let`, `letI`, `have` or `haveI` of the statement owns
+as its value. That function is a scanner, not a parser, so it refuses whenever
+it is unsure (the name not declared exactly once, no such `:=`, a `by`, `calc`
+or `do` outside brackets before the proof, more than 40 lines), and the page
+then links the file and says so. It never shows a guess or a prefix.
 
 The internal vocabulary is gone from every output: no "lower-tier", "evidence-only
 descendant", rule numbers ("R11"), stage names ("promote stage"), class

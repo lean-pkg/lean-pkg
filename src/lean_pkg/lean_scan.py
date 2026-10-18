@@ -287,16 +287,57 @@ _TOP_LINE = re.compile(r"\n(?:\||where\b|@\[|#[a-z]|(?:" + "|".join(KEYWORDS + M
                        r"|end|namespace|section|open|variable|universe)\b)")
 
 
+# Statement-level words the proof boundary depends on. Each `let` / `letI` / `have` / `haveI` (and `let_fun`)
+# opener at bracket depth zero owns exactly one later `:=`, its value; only a `:=` no opener is waiting for ends
+# the statement. `match` and `fun` (or `λ`) allow `| pattern =>` alternatives on their own lines. A word that can hide a
+# statement-level `:=` the scanner does not track (a tactic block, `calc` steps, `do` reassignments) makes the
+# statement unreadable: None, never a prefix.
+_VALUE_OPENERS = ("let", "letI", "have", "haveI", "let_fun")
+_ALT_OPENERS = ("match", "fun")
+_UNSURE_WORDS = ("by", "calc", "do")
+_KEYWORD_AT = re.compile(r"(?<![\w'.!?«@])(" + "|".join(_VALUE_OPENERS + _ALT_OPENERS + _UNSURE_WORDS) +
+                         r")(?![\w'!?])")
+_EQUATION_ARM = re.compile(r"[ \t]*\|")
+
+
+def _arm_line(masked: str, i: int) -> bool:
+    """Is the line starting after the newline at masked[i] a `| pattern => ...` alternative: it opens with
+    `|` and holds `=>` outside brackets (an absolute value line such as `|x| ≤ 1` has no `=>`)?"""
+    if not _EQUATION_ARM.match(masked, i + 1):
+        return False
+    eol = masked.find("\n", i + 1)
+    line = masked[i + 1:len(masked) if eol < 0 else eol]
+    depth = 0
+    for k, c in enumerate(line):
+        if c in "([{⦃⟨":
+            depth += 1
+        elif c in ")]}⦄⟩":
+            depth -= 1
+        elif depth == 0 and line.startswith("=>", k):
+            return True
+    return False
+
+
 def statement(text: str, qual: str, decls: list | None = None) -> str | None:
     """The source text of the theorem or lemma whose fully qualified name is `qual`, from its keyword up
-    to (not including) the `:=` that starts its proof, outside every bracket; None when the file has no
-    such declaration, has it more than once, its statement has no top-level `:=` (an equation-compiler
-    or `where` form), or the statement is longer than STATEMENT_MAX_LINES lines / STATEMENT_MAX_CHARS
-    characters. Comments inside the statement (`/- ... -/`, nested as in Lean, and `--` to the end of the
-    line) are kept as written: the brackets and the `:=` are found in the masked text, where comments and
-    string literals are blanks, so a `:=`, a bracket or a `-/` inside a comment or a string never ends or
-    unbalances the statement. A scanner, not a parser: when in doubt it returns None and the page links
-    the file instead of showing a guess. `decls` is `declarations(text)` when the caller has it."""
+    to (not including) the `:=` that starts its proof; None when the file has no such declaration, has it
+    more than once, its statement has no such `:=` (an equation-compiler or `where` form), or the statement
+    is longer than STATEMENT_MAX_LINES lines / STATEMENT_MAX_CHARS characters.
+
+    The proof's `:=` is the first one outside every bracket that no `let`, `letI`, `have`, `haveI` or
+    `let_fun` of the statement is waiting for: each such opener outside brackets owns exactly one later
+    bracket-free `:=` (its value), so `theorem t :\n  let n : Nat := 1\n  n = 1 := by rfl` keeps its let
+    value and its conclusion. Binder defaults (`{k : Nat := 3}`) and named arguments sit inside brackets.
+    Where the scanner cannot be sure the statement is whole it returns None, never a prefix: a `by`, `calc`
+    or `do` outside brackets before the proof's `:=`, a `| pattern =>` alternative line with no `match` or
+    `fun` before it (an equation-compiler form), or a new top-level line.
+
+    Comments inside the statement (`/- ... -/`, nested as in Lean, and `--` to the end of the line) are kept
+    as written: the brackets and the `:=` are found in the masked text, where comments and string literals
+    are blanks, so a `:=`, a bracket or a `-/` inside a comment or a string never ends or unbalances the
+    statement; a «quoted» name is skipped whole. A scanner, not a parser: when in doubt it returns None and
+    the page links the file instead of showing a guess. `decls` is `declarations(text)` when the caller has
+    it."""
     hits = [d for d in (declarations(text) if decls is None else decls)
             if d[1] in ("theorem", "lemma") and d[2] == qual]
     if len(hits) != 1:
@@ -312,19 +353,48 @@ def statement(text: str, qual: str, decls: list | None = None) -> str | None:
         return None
     pairs = {"[": "]", "(": ")", "{": "}", "⦃": "⦄", "⟨": "⟩"}
     stack: list[str] = []
-    i, end = m.start(), None
+    pending = 0                                          # openers still waiting for their `:=`
+    alternatives = False                                 # a `match` / `fun` seen: `| p =>` lines belong to it
+    i, end = m.end(), None
     limit = min(len(masked), m.start() + STATEMENT_MAX_CHARS)
     while i < limit:
         c = masked[i]
+        if c == "«":                                     # a quoted name is one token
+            j = masked.find("»", i + 1)
+            if j < 0:
+                return None
+            i = j + 1
+            continue
         if c in pairs:
             stack.append(pairs[c])
         elif stack and c == stack[-1]:
             stack.pop()
         elif not stack and masked.startswith(":=", i):
+            if pending:
+                pending -= 1
+                i += 2
+                continue
             end = i
             break
-        elif not stack and c == "\n" and _TOP_LINE.match(masked, i):
-            return None                                  # a new top-level line before any `:=`
+        elif not stack and c == "\n":
+            if _TOP_LINE.match(masked, i):
+                return None                              # a new top-level line before any `:=`
+            if not alternatives and _arm_line(masked, i):
+                return None                              # an equation-compiler alternative: no statement `:=`
+        elif not stack and c == "λ":
+            alternatives = True
+        elif not stack:
+            w = _KEYWORD_AT.match(masked, i)
+            if w and (i == 0 or not (masked[i - 1].isalnum() or masked[i - 1] in "_'.!?«@")):
+                word = w.group(1)
+                if word in _UNSURE_WORDS:
+                    return None
+                if word in _VALUE_OPENERS:
+                    pending += 1
+                else:
+                    alternatives = True
+                i = w.end()
+                continue
         i += 1
     if end is None:
         return None
