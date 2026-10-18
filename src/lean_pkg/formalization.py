@@ -35,13 +35,24 @@ So ``--write`` is idempotent, hand edits in kept keys survive, and
 ``audit`` can report ``formalization-drift`` when a derived key changed.
 Nothing here is a verification: the file reports what the registry and the
 receipts record.
+
+``render NAME --repo DIR`` (read-only, never with ``--write``) renders from another checkout of the
+package for one call, as ``page --repo`` does: the registry record (consent, licence, gate pointers)
+is read as is and never saved, while everything taken from the repository (claims, comparator
+configurations, the kept keys of formalization.yaml, the receipts) is read at DIR's committed HEAD,
+from a private shared clone of it, never DIR's working tree. The gate receipt the registry records
+feeds ``status.sorry_count`` / ``axioms`` / ``evidence`` only when the copy committed at that HEAD
+validates against it (bound to HEAD or an evidence-only descendant); otherwise those facts are
+omitted and a warning says why.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.resources
 import json
 import os
 import pathlib
+import tempfile
 
 import yaml
 
@@ -350,11 +361,30 @@ def main_results(repo: pathlib.Path, warnings: list[str], pkg: dict | None = Non
     return out
 
 
-def receipt_facts(pkg: dict, repo: pathlib.Path) -> dict | None:
-    """sorry_count, axioms and evidence pointers from the lower-tier gate receipt, if readable."""
+def receipt_facts(pkg: dict, repo: pathlib.Path, bind: dict | None = None) -> dict | None:
+    """sorry_count, axioms and evidence pointers from the lower-tier gate receipt, if readable.
+
+    bind (render --repo): a dict that receives {receipt, included, reason}; the facts are then used only
+    when the receipt validates against HEAD of `repo` (core.validate_receipt: bound to HEAD or an
+    evidence-only descendant), so a registry receipt for another commit is never presented as this
+    checkout's evidence."""
     gate = pkg.get("gate") or {}
     rel = gate.get("receipt")
     rec = core.recorded_json(repo, rel) if rel else None
+    if bind is not None:
+        bind.update(receipt=rel, included=False, reason=None)
+        if not rel:
+            bind["reason"] = "no gate receipt is recorded in the registry"
+            return None
+        if not isinstance(rec, dict):
+            bind["reason"] = f"the recorded gate receipt {rel} is not committed at HEAD (or not JSON)"
+            return None
+        try:
+            core.validate_receipt(pkg, repo, rec)
+        except core.Fail as e:
+            bind["reason"] = f"the recorded gate receipt {rel} does not validate at HEAD ({e})"
+            return None
+        bind["included"] = True
     if not isinstance(rec, dict):
         return None
     facts: dict = {}
@@ -392,9 +422,10 @@ def alignment_from_claims(pkg: dict, repo: pathlib.Path) -> dict | None:
 
 def render_doc(pkg: dict, repo: pathlib.Path, existing: dict | None,
                authors: list[str] | None = None, headline: str | None = None,
-               info: dict | None = None) -> tuple[dict, list[str]]:
+               info: dict | None = None, bind: dict | None = None) -> tuple[dict, list[str]]:
     """The document and its warnings (placeholders are reported by the caller). `headline`: the
-    --headline-config override; `info` (when given) receives the headline view (headline_results)."""
+    --headline-config override; `info` (when given) receives the headline view (headline_results);
+    `bind` (render --repo): receipt facts only when bound to HEAD (receipt_facts)."""
     warnings: list[str] = []
     name = pkg["name"]
     doc: dict = dict(existing or {})
@@ -442,7 +473,7 @@ def render_doc(pkg: dict, repo: pathlib.Path, existing: dict | None,
                            f"excluded, in the project's own words")
     for k in ("sorry_count", "axioms", "evidence"):
         status.pop(k, None)
-    facts = receipt_facts(pkg, repo)
+    facts = receipt_facts(pkg, repo, bind)
     if facts:
         status.update(facts)
     status["main_results"] = main_results(repo, warnings, pkg, headline, info)
@@ -624,40 +655,19 @@ def target_rel(pkg: dict) -> str:
 
 
 def render_for(pkg: dict, repo: pathlib.Path, authors: list[str] | None = None, headline: str | None = None,
-               info: dict | None = None) -> tuple[str, dict, list[str], str | None]:
+               info: dict | None = None, bind: dict | None = None) -> tuple[str, dict, list[str], str | None]:
     """(rendered text, doc, warnings, existing text) for the package's target path."""
     existing_text, existing = load_existing(repo / target_rel(pkg))
-    doc, warnings = render_doc(pkg, repo, existing, authors, headline, info)
+    doc, warnings = render_doc(pkg, repo, existing, authors, headline, info, bind)
     return dump_doc(doc), doc, warnings, existing_text
 
 
-def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: str | None,
-                     force: bool, authors: list[str] | None, agent: str | None,
-                     reason: str = "", no_registry: bool = False,
-                     headline: str | None = None) -> tuple[list[str], dict, list[str]]:
-    """(stdout lines, payload, stderr warnings). The YAML text is in payload['yaml'].
-
-    --write checks before it writes: the lease (a live lease held by another agent refuses unless
-    --force --reason) and a dry run of the registry update, so a refusal leaves formalization.yaml
-    untouched. --force alone overwrites a differing file; with --reason it also overrides the lease.
-    no_registry (--write --no-registry, #22.8): write the file only; the registry is read, never written
-    (no pointer update, no event), so the invocation is not a registry write. headline (--headline-config PATH):
-    the headline configuration for this render (headline.py); --write also records it in the registry
-    field headline_config."""
-    pkg = core.get_pkg(reg, name)
-    repo = core.repo_path(pkg)
-    if not repo.is_dir():
-        raise core.Fail(f"{name}: local_path does not exist: {repo}")
-    if core.git_head(repo) is None:
-        raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
-    if write and out:
-        raise core.UsageError("--write and --out are mutually exclusive")
-    if no_registry and not write:
-        raise core.UsageError("--no-registry needs --write (a render without --write never touches the registry)")
-
+def _render_payload(name: str, pkg: dict, repo: pathlib.Path, authors, headline,
+                    bind: dict | None = None) -> tuple[str, dict, list[str], str | None, str]:
+    """(text, payload, warnings, existing text, summary) of one validated render."""
     rel = target_rel(pkg)
     hinfo: dict = {}
-    text, doc, warnings, existing_text = render_for(pkg, repo, authors, headline, hinfo)
+    text, doc, warnings, existing_text = render_for(pkg, repo, authors, headline, hinfo, bind)
     mode, errors = validate_doc(doc)
     if errors:
         raise core.Fail(f"{name}: the rendered formalization.yaml fails the {SCHEMA_VERSION} "
@@ -669,18 +679,114 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
     payload = {"ok": True, "name": name, "path": rel, "validation": mode,
                "main_results": n_results, "headline": hinfo if hinfo.get("config") else None,
                "placeholders": placeholders, "warnings": warnings, "written": False, "unchanged": False,
-               "registry_updated": False, "yaml": text}
+               "registry_updated": False, "repo_override": None, "yaml": text}
     summary = (f"{n_results} main result(s)"
                + (f" from the headline configuration {hinfo['config']}" if hinfo.get("applied") else "")
                + f"; validation: {mode} OK; {len(placeholders)} placeholder(s)")
+    return text, payload, warnings, existing_text, summary
+
+
+def _write_out(name: str, out: str, text: str, summary: str, payload: dict,
+               warnings: list[str]) -> tuple[list[str], dict, list[str]]:
+    outp = pathlib.Path(out)
+    if outp.is_symlink():
+        raise core.Fail(f"{outp} is a symlink; refusing to write through it")
+    _atomic_write(outp, text)
+    payload.update(path=str(outp), written=True)
+    return [f"{name}: wrote {outp} ({summary}); registry untouched"], payload, warnings
+
+
+@contextlib.contextmanager
+def head_snapshot(d: pathlib.Path):
+    """(checkout path, HEAD sha) of a private clone of DIR's repository checked out at DIR's committed
+    HEAD, for one render: objects shared (git clone --shared), nothing written to DIR, removed on exit.
+    Every read of the render (tracked bytes and the files it reads directly, formalization.yaml and the
+    receipts) then sees DIR's HEAD, never its working tree. A package in a subdirectory keeps its prefix."""
+    head = core.git_head(d)
+    if head is None:
+        raise core.Fail(f"--repo {d}: no commit at HEAD")
+    top = core.git(d, "rev-parse", "--show-toplevel").stdout.strip()
+    prefix = core.git(d, "rev-parse", "--show-prefix").stdout.strip().strip("/")
+    with tempfile.TemporaryDirectory(prefix="lean-pkg-render-repo-") as tmp:
+        snap = pathlib.Path(tmp) / "head"
+        p = core.git(pathlib.Path(tmp), "-c", "core.hooksPath=/dev/null", "clone", "-q", "--shared",
+                     "--no-checkout", top, str(snap))
+        if p.returncode == 0:
+            p = core.git(snap, "-c", "core.hooksPath=/dev/null", "-c", "advice.detachedHead=false",
+                         "checkout", "-q", "--detach", head)
+        if p.returncode != 0:
+            raise core.Fail(f"--repo {d}: cannot read its HEAD {head[:12]} ({(p.stderr or '').strip()})")
+        yield (snap / prefix if prefix else snap), head
+
+
+def _render_from_repo(reg: dict, name: str, repo_dir: str, *, out: str | None, authors, headline
+                      ) -> tuple[list[str], dict, list[str]]:
+    """`formalization render NAME --repo DIR`: read-only (never --write, never the registry). The checkout
+    rules, the stderr note and JSON repo_override {path, registered_path, remote_match} are page --repo's
+    (core.repo_override); repo_override also carries head (DIR's HEAD), source "committed-head" and
+    receipt_facts {receipt, included, reason}."""
+    _reg, override = core.repo_override(reg, name, repo_dir)
+    if note := core.repo_override_note(override):
+        print(note, file=core.sys.stderr)
+    d = pathlib.Path(override["path"])
+    pkg = core.get_pkg(_reg, name)
+    extra: list[str] = []
+    dirty = core.git(d, "status", "--porcelain", "--untracked-files=no").stdout.strip()
+    if dirty:
+        extra.append(f"--repo {d}: uncommitted changes to tracked files are not read (the render uses the "
+                     f"committed HEAD only)")
+    bind: dict = {}
+    with head_snapshot(d) as (snap, head):
+        text, payload, warnings, _existing, summary = _render_payload(
+            name, {**pkg, "local_path": str(snap)}, snap, authors, headline, bind)
+    if not bind.get("included"):
+        extra.append(f"status.sorry_count, status.axioms and status.evidence omitted: {bind.get('reason')} "
+                     f"(--repo {d} at {head[:12]})")
+    warnings = extra + warnings
+    override = {**override, "head": head, "source": "committed-head", "receipt_facts": bind}
+    payload.update(warnings=warnings, repo_override=override)
+    origin = f"from --repo {d} at {head[:12]} (committed HEAD)"
+    if out:
+        lines, payload, warnings = _write_out(name, out, text, summary, payload, warnings)
+        return [lines[0].replace("; registry untouched", f"; {origin}; registry untouched")], payload, warnings
+    return [text.rstrip("\n")], payload, warnings
+
+
+def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: str | None,
+                     force: bool, authors: list[str] | None, agent: str | None,
+                     reason: str = "", no_registry: bool = False,
+                     headline: str | None = None, repo_dir: str | None = None) -> tuple[list[str], dict, list[str]]:
+    """(stdout lines, payload, stderr warnings). The YAML text is in payload['yaml'].
+
+    --write checks before it writes: the lease (a live lease held by another agent refuses unless
+    --force --reason) and a dry run of the registry update, so a refusal leaves formalization.yaml
+    untouched. --force alone overwrites a differing file; with --reason it also overrides the lease.
+    no_registry (--write --no-registry, #22.8): write the file only; the registry is read, never written
+    (no pointer update, no event), so the invocation is not a registry write. headline (--headline-config PATH):
+    the headline configuration for this render (headline.py); --write also records it in the registry
+    field headline_config. repo_dir (--repo DIR, read-only, refused with --write): render from DIR's
+    committed HEAD instead of the registered local_path (_render_from_repo)."""
+    if repo_dir is not None and write:
+        raise core.UsageError("--repo reads another checkout; --write edits the registered checkout's "
+                              "formalization.yaml (drop one)")
+    if write and out:
+        raise core.UsageError("--write and --out are mutually exclusive")
+    if no_registry and not write:
+        raise core.UsageError("--no-registry needs --write (a render without --write never touches the registry)")
+    if repo_dir is not None:
+        return _render_from_repo(reg, name, repo_dir, out=out, authors=authors, headline=headline)
+    pkg = core.get_pkg(reg, name)
+    repo = core.repo_path(pkg)
+    if not repo.is_dir():
+        raise core.Fail(f"{name}: local_path does not exist: {repo}")
+    if core.git_head(repo) is None:
+        raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
+
+    rel = target_rel(pkg)
+    text, payload, warnings, existing_text, summary = _render_payload(name, pkg, repo, authors, headline)
 
     if out:
-        outp = pathlib.Path(out)
-        if outp.is_symlink():
-            raise core.Fail(f"{outp} is a symlink; refusing to write through it")
-        _atomic_write(outp, text)
-        payload.update(path=str(outp), written=True)
-        return [f"{name}: wrote {outp} ({summary}); registry untouched"], payload, warnings
+        return _write_out(name, out, text, summary, payload, warnings)
 
     if not write:
         return [text.rstrip("\n")], payload, warnings
@@ -753,7 +859,7 @@ ANCHOR_CMD = "anchor"
 ANCHOR_ONLY = (("arxiv", "--arxiv"), ("from_file", "--from-file"), ("fetch", "--fetch"),
                ("compare_tex", "--compare-tex"), ("accept_diff", "--accept-diff"), ("main_tex", "--main-tex"))
 RENDER_ONLY = (("out", "--out"), ("force", "--force"), ("reason", "--reason"), ("author", "--author"),
-               ("no_registry", "--no-registry"), ("headline_config", "--headline-config"))
+               ("no_registry", "--no-registry"), ("headline_config", "--headline-config"), ("repo", "--repo"))
 
 
 def is_anchor(args) -> bool:
@@ -788,7 +894,7 @@ def cmd_formalization(args) -> int:
         reg_path, core.load_registry(reg_path), events_p, args.name, write=args.write,
         out=args.out, force=args.force, authors=args.author, agent=args.agent,
         reason=getattr(args, "reason", "") or "", no_registry=getattr(args, "no_registry", False),
-        headline=headline)
+        headline=headline, repo_dir=getattr(args, "repo", None))
     for w in warnings:
         print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
     if getattr(args, "json_out", False):
@@ -833,6 +939,11 @@ def add_parsers(sub, add_json) -> None:
                         "--write also records it (registry headline_config). Default: the registry field, else "
                         "comparator.headline.json when tracked. status.main_results then lists its theorems "
                         "only, each covered by the gate-bound comparator receipt (else refused)")
+    s.add_argument("--repo", default=None, metavar="DIR",
+                   help="read the checkout DIR instead of the registered local_path, for this call only (never "
+                        "saved): claims, comparator configurations, the kept keys and the receipts at DIR's "
+                        "committed HEAD; the gate receipt's facts only when bound to that HEAD. DIR must be a "
+                        "git work tree, and when it has remotes one must be the package's repo; not with --write")
     s.add_argument("--agent", default=None, help="lease holder, if one is live (for the registry update)")
     add_json(s)
     render = s

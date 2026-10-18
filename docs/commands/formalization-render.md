@@ -17,7 +17,7 @@ Also spelled: `lean-pkg formalization NAME` ([all aliases](aliases.md)).
 ```text
 lean-pkg formalization render [--write] [--no-registry] [--out PATH] [--force]
                               [--reason REASON] [--author NAME] [--headline-config PATH]
-                              [--agent AGENT] [common flags] NAME
+                              [--repo DIR] [--agent AGENT] [common flags] NAME
 ```
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
@@ -34,6 +34,7 @@ lean-pkg formalization render [--write] [--no-registry] [--out PATH] [--force]
 | `--reason REASON` | with --write --force: why another agent's lease is overridden (recorded in the updated event) |
 | `--author NAME` | project.authors entry (repeatable); otherwise kept from the file, else consent\[] owners/authors, else a placeholder |
 | `--headline-config PATH` | the headline comparator configuration (the paper's main results) for this render; --write also records it (registry headline_config). Default: the registry field, else comparator.headline.json when tracked. status.main_results then lists its theorems only, each covered by the gate-bound comparator receipt (else refused) |
+| `--repo DIR` | read the checkout DIR instead of the registered local_path, for this call only (never saved): claims, comparator configurations, the kept keys and the receipts at DIR's committed HEAD; the gate receipt's facts only when bound to that HEAD. DIR must be a git work tree, and when it has remotes one must be the package's repo; not with --write |
 | `--agent AGENT` | lease holder, if one is live (for the registry update) |
 
 ## Details

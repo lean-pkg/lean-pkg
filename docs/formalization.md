@@ -106,7 +106,27 @@ lean-pkg formalization my-lean --write               # <repo>/formalization.yaml
 lean-pkg formalization my-lean --write --force       # overwrite a file that differs
 lean-pkg formalization my-lean --write --no-registry # the file only; the registry is not written
 lean-pkg formalization my-lean --write --author "Ada Lovelace" --json
+lean-pkg formalization my-lean --repo ../candidate --out /tmp/f.yaml   # another checkout, read-only
 ```
+
+`--repo DIR` renders from another checkout of the package for this call
+only, as `page --repo` does: DIR must be a git work tree, and when it has
+remotes one of them must be the package's repo; the registry is read but
+never written, and a stderr note names both paths. The repository facts
+(claims, comparator configurations, the kept keys of `formalization.yaml`
+and the receipts) are read at DIR's **committed HEAD**, from a private
+shared clone, never from its working tree (uncommitted changes to tracked
+files draw a warning). The registry's gate receipt feeds
+`status.sorry_count`, `status.axioms` and `status.evidence` only when the
+copy committed at that HEAD validates against it (bound to HEAD or an
+evidence-only descendant); otherwise those keys are omitted and a warning
+says why, so a receipt for the accepted commit is never presented as the
+candidate's. `--json` carries `repo_override` (`path`, `registered_path`,
+`remote_match`, `head`, `source: committed-head`, `receipt_facts`
+{`receipt`, `included`, `reason`}); it is `null` without `--repo`. `--repo`
+is refused with `--write` (exit 2): to write the file, render in the
+registered checkout, or move the registration with
+`lean-pkg update NAME --path DIR`.
 
 `--write` targets `<repo>/<formalization_yaml>` when the registry already
 names a path (for example `lean/formalization.yaml`), else

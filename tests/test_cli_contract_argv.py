@@ -120,6 +120,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["formalization", "demo", "--write"], "formalization render", True, True, False),
     (["formalization", "demo", "--write", "--no-registry"], "formalization render", False, False, False),
     (["formalization", "demo", "--headline-config", "h.json"], "formalization render", False, False, False),
+    (["formalization", "demo", "--repo", "r"], "formalization render", False, False, False),
+    (["formalization", "demo", "--repo", "r", "--out", "o"], "formalization render", False, False, False),
     (["formalization", "demo", "--write", "--headline-config", "h.json"], "formalization render", True, True, False),
     (["formalization", "demo", "--write", "--no-registry", "--headline-config", "h.json"], "formalization render",
      False, False, False),

@@ -9,6 +9,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg formalization render NAME --repo DIR` (field request): render
+  `formalization.yaml` from another checkout of the package for one call,
+  read-only, with the checkout rules and stderr note of `page --repo` (a git
+  work tree whose remotes, if any, include the package's repo; never saved).
+  Claims, comparator configurations, the kept keys and the receipts are read
+  at DIR's committed HEAD (a private shared clone, never the working tree);
+  the registry's gate receipt feeds `status.sorry_count`, `status.axioms`
+  and `status.evidence` only when it validates at that HEAD, else they are
+  omitted with a warning. Refused with `--write` (exit 2) and on `anchor`.
+  `--json` gains `repo_override` (`path`, `registered_path`, `remote_match`,
+  `head`, `source`, `receipt_facts`), `null` without the flag (#271).
+
 ## [0.15.0] - 2026-10-18
 
 ### Added
