@@ -374,10 +374,26 @@ def _challenge_index(ctx: dict, module: str, read):
     return cache[module]
 
 
-def _status_line(word: str) -> str:
-    if word == "verified":
+def _compared(ctx: dict, st: dict) -> bool:
+    """True when a passing configuration of the recorded comparator receipt, at the gate-bound commit,
+    judged this statement. A claim the comparator is not required to check (one that is not reusable) can
+    be verified without it; the page then does not say that its statement was compared."""
+    comp, cfg = ctx["comp"], st.get("config")
+    return bool(st["source"] == "challenge" and cfg and cfg.get("result") == "pass" and comp
+                and comp.get("result") == "pass" and ctx["bound"] and comp.get("commit") == ctx["bound"])
+
+
+def _row_compared(ctx: dict, sts: list[dict]) -> bool:
+    return bool(sts) and all(_compared(ctx, st) for st in sts)
+
+
+def _status_line(word: str, compared: bool) -> str:
+    if word == "verified" and compared:
         return ("**Verified.** Lean accepts the proof, and lean-pkg's record shows every check of this result "
                 "passed (the build, and the statement comparison).")
+    if word == "verified":
+        return ("**Verified.** Lean accepts the proof, and lean-pkg's record shows every check that applies to "
+                "this result passed (the build; its statement was not compared by a second checker).")
     return (f"**Not yet verified.** lean-pkg's record of the checks says: {_md(word or 'nothing recorded')}. "
             f"Until it says verified, read the Lean statement below as work in progress.")
 
@@ -416,10 +432,11 @@ def _depends_lines(ctx: dict, sts: list[dict]) -> list[str]:
 
 
 def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, statement: str | None,
-                  hypotheses: str | None) -> tuple[list[str], str]:
+                  hypotheses: str | None) -> tuple[list[str], str, bool]:
     word = _ledger_word(r, _row_statuses(r, by_id))
     sts = [_lean_statement(ctx, cid) for cid in r.get("claims") or []]
-    md = [f"### {heading}", "", _status_line(word), ""]
+    compared = _row_compared(ctx, sts)
+    md = [f"### {heading}", "", _status_line(word, compared), ""]
     if not ctx["library"]:
         md += ["**In the paper.**" + ("" if statement else " The statement is not quoted here; read it in the "
                                                           "paper."), ""]
@@ -434,7 +451,7 @@ def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, statement: str 
     md += _depends_lines(ctx, sts)
     if r.get("note"):
         md += [f"**Note.** {_md(r['note'])}", ""]
-    return md, word
+    return md, word, compared
 
 
 def _hypotheses(r: dict) -> str:
@@ -462,26 +479,31 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
         md += ["> **Manuscript not yet posted.** The paper numbers below refer to an unposted draft; a reader "
                "cannot check them until a version is posted.", ""]
     md += [_md(doc["summary"], lead=True), ""]
-    blocks, words = [], []
+    blocks, words, n_compared = [], [], 0
     for r in doc["rows"]:
         if ctx["library"]:
-            b, w = _result_block(ctx, r, by_id, _md(r["title"], lead=True), r.get("statement"), None)
+            b, w, c = _result_block(ctx, r, by_id, _md(r["title"], lead=True), r.get("statement"), None)
         elif r["class"] == "outside":
             continue
         else:
             p = r["paper"]
-            b, w = _result_block(ctx, r, by_id, f"{_md(p['number'], lead=True)}: {_md(p['title'])}",
+            b, w, c = _result_block(ctx, r, by_id, f"{_md(p['number'], lead=True)}: {_md(p['title'])}",
                                  p.get("statement"), _hypotheses(r))
         blocks += b
         words.append(w)
+        n_compared += w == "verified" and c
     n_verified = sum(w == "verified" for w in words)
+    # "verified" is the ledger's word: a claim that is not reusable needs no comparator, so say how many of
+    # the verified results also had their statement compared whenever that is not all of them
+    also = (f" (for {n_compared} of them a second checker also compared the statement)"
+            if n_compared < n_verified else "")
     if target != "readme":
         blocks += [f"Every result with each of its claims, in one table: [Coverage]"
                    f"({'coverage.md' if target == 'site' else '#coverage'}).", ""]
     if ctx["library"]:
         counts = None
         n = len(doc["rows"])
-        md += [f"- Main results: {n}; verified: {n_verified} of {n}.", ""]
+        md += [f"- Main results: {n}; verified: {n_verified} of {n}{also}.", ""]
         md += ["## Main results", "", *blocks]
     else:
         counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
@@ -490,7 +512,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
                f"- Results listed: {len(doc['rows'])}. In Lean with the paper's own hypotheses: "
                f"{counts['same-assumptions']}; in Lean with extra hypotheses, named below: "
                f"{counts['inputs-supplied']}; not formalized: {counts['outside']}.",
-               f"- Verified: {n_verified} of the {formal} result(s) in Lean.", ""]
+               f"- Verified: {n_verified} of the {formal} result(s) in Lean{also}.", ""]
         md += ["## The paper's results in Lean", "", *blocks]
         md += ["## Not formalized", ""]
         outside = [r for r in doc["rows"] if r["class"] == "outside"]

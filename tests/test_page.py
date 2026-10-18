@@ -11,8 +11,8 @@ import shutil
 
 import yaml
 
-from .conftest import (put_receipt, MATHLIB_MANIFEST, MIT_TEXT, _git, make_comparator_receipt, make_receipt, read_reg,
-                       repo_head, set_lease, write_reg)
+from .conftest import (CLAIMS_YAML, put_receipt, MATHLIB_MANIFEST, MIT_TEXT, _git, make_comparator_receipt,
+                       make_receipt, read_reg, repo_head, set_lease, write_reg)
 
 # built at run time: the literal forms are latex-label hits for lean-pkg's own `make public-safety` (--strict)
 ARXIV = "arXiv" + ":2501.01234v2"
@@ -972,3 +972,61 @@ def test_a_private_string_in_a_lean_statement_refuses_the_page(lp, env, capsys):
                         "Challenge.lean": CHALLENGE.replace("n ≤ n * n", "n ≤ n * n ∧ zz_secret_bound")})
     rc, _out, err = run(lp, env, capsys, "page", "beta")
     assert rc == 1 and "private string(s)" in err and "nothing written" in err
+
+
+# --- a verified result the comparator did not check (claims that are not reusable need no comparator) ---
+
+COMPARED = "(the build, and the statement comparison)"
+NOT_COMPARED = "(the build; its statement was not compared by a second checker)"
+EXPERIMENTAL_CLAIM = """\
+- id: beta/baz-true
+  decl: Demo.baz_true
+  kind: theorem
+  summary: A second demonstration result, not offered for reuse.
+  file: Demo/Main.lean
+  status: experimental
+  superseded_by: null
+  depends_on: []
+"""
+TWO_CLAIMS = {"claims.yaml": CLAIMS_YAML + EXPERIMENTAL_CLAIM,
+              "Demo/Main.lean": "namespace Demo\n\ntheorem foo_le_bar : True := trivial\n\n"
+                                "theorem baz_true : True := trivial\n\nend Demo\n"}
+
+
+def _block(md: str, heading: str) -> str:
+    return md.split(f"### {heading}\n", 1)[1].split("\n### ", 1)[0].split("\n## ", 1)[0]
+
+
+def test_a_verified_result_the_comparator_did_not_check_does_not_claim_a_statement_comparison(lp, env, capsys,
+                                                                                            tmp_path):
+    doc = json.loads(json.dumps(LIBRARY))
+    doc["rows"].append({"title": "Side fact", "claims": ["beta/baz-true"]})
+    prepare(env, doc, extra=TWO_CLAIMS)
+    rc, a = page_json(lp, env, capsys, "--site", str(tmp_path / "site"), "--html", str(tmp_path / "v.html"))
+    assert rc == 0 and a["verified_rows"] == 2, a.get("problems")
+    md = a["markdown"]
+    compared, side = _block(md, "Main bound"), _block(md, "Side fact")
+    assert compared.startswith("\n**Verified.**") and COMPARED in compared and NOT_COMPARED not in compared
+    assert side.startswith("\n**Verified.**") and NOT_COMPARED in side
+    assert "statement comparison" not in side and "second checker confirmed" not in side    # regression
+    assert "- Main results: 2; verified: 2 of 2 (for 1 of them a second checker also compared the statement)." in md
+    for text in ((tmp_path / "site" / "verification.md").read_text(), (tmp_path / "v.html").read_text()):
+        assert text.count("statement comparison).") == 1 and "not compared by a second checker" in text
+
+
+def test_a_paper_page_names_the_compared_count_only_when_not_every_verified_result_was_compared(lp, env, capsys):
+    prepare(env)
+    rc, a = page_json(lp, env, capsys)
+    assert rc == 0 and "- Verified: 1 of the 1 result(s) in Lean.\n" in a["markdown"]       # all compared
+    doc = json.loads(json.dumps(COVERAGE))
+    doc["rows"].insert(1, {"paper": {"number": "Theorem 3", "title": "Side fact"}, "class": "same-assumptions",
+                           "claims": ["beta/baz-true"]})
+    prepare(env, doc, extra=TWO_CLAIMS)
+    rc, a = page_json(lp, env, capsys)
+    md = a["markdown"]
+    assert rc == 0 and a["verified_rows"] == 2, a.get("problems")
+    assert COMPARED in _block(md, "Theorem 1: Main bound")
+    side = _block(md, "Theorem 3: Side fact")
+    assert NOT_COMPARED in side and "statement comparison" not in side
+    assert ("- Verified: 2 of the 2 result(s) in Lean (for 1 of them a second checker also compared the "
+            "statement).") in md

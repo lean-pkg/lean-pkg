@@ -91,6 +91,22 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   doi-only`; entries replaced with `index add --from-registry` (only `doi` and
   `added.at` change), and `index render` links each DOI (#268).
 
+### Fixed
+
+- The page no longer says "the statement comparison" passed for a result
+  the comparator never checked. The comparator tier is required only for
+  `reusable` claims, so the claims ledger calls an experimental or internal
+  claim verified on the build alone, and every verified row said "every
+  check of this result passed (the build, and the statement comparison)".
+  A row now says that only when a passing configuration of the recorded
+  comparator receipt, at the gate-bound commit, judged every claim it names;
+  otherwise "every check that applies to this result passed (the build; its
+  statement was not compared by a second checker)". When not every verified
+  result was compared, the summary line adds "(for N of them a second
+  checker also compared the statement)". Same text in `--site` and
+  `--html`. A page with such a row is stale under `page --check` until it is
+  rendered again (#270).
+
 ## [0.14.0] - 2026-10-17
 
 ### Added
