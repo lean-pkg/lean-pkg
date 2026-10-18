@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-18
+
 ### Added
 
 - `lean-pkg formalization render NAME --repo DIR` (field request): render
@@ -22,6 +24,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   omitted with a warning. Refused with `--write` (exit 2) and on `anchor`.
   `--json` gains `repo_override` (`path`, `registered_path`, `remote_match`,
   `head`, `source`, `receipt_facts`), `null` without the flag (#271).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.15.0] - 2026-10-18
 
