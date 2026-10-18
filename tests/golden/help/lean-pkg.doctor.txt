@@ -1,5 +1,12 @@
 usage: lean-pkg doctor [-h] [--fetch] [--upgrade-from OLD] [--to NEW] [--source DIR] [--json]
                        [--commit] [--push] [--no-commit]
+                       [NAME]
+
+positional arguments:
+  NAME                also check this package's committed lean-toolchain, Mathlib commit (lake-
+                      manifest.json) and recorded comparator receipt's tool digests against the
+                      LTS stack its coverage.yaml declares (`stack: NAME`; docs/stacks/): a warn
+                      line on a mismatch or a stack past its window, never an exit 1
 
 options:
   -h, --help          show this help message and exit

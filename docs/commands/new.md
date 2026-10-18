@@ -13,8 +13,9 @@ scaffold a new Lean package (Challenge/Solution, comparator.json, claims, covera
 ## Usage
 
 ```text
-lean-pkg new [--kind {paper,library}] [--dir DIR] [--module MOD] [--no-mathlib]
-             [--author TEXT] [--license {Apache-2.0,MIT}] [common flags] NAME
+lean-pkg new [--kind {paper,library}] [--stack NAME|current|none] [--dir DIR]
+             [--module MOD] [--no-mathlib] [--author TEXT] [--license {Apache-2.0,MIT}]
+             [common flags] NAME
 ```
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
@@ -27,6 +28,7 @@ Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate 
 |---|---|
 | `NAME` | the package name: lower-case letters, digits, single hyphens (e.g. my-proof) |
 | `--kind {paper,library}` | paper (default): the paper is the product; coverage.yaml stays incomplete until you name the paper and `formalization anchor` binds its posted version. library: the Lean package is the product; coverage.yaml lists the example as its main result. Choices: `paper`, `library`. |
+| `--stack NAME\|current\|none` | pin lean-toolchain and the Mathlib require to a declared LTS stack and write `stack: NAME` into coverage.yaml (docs/stacks/); current: the newest declared stack whose window covers today; none: the newest pins, no key. Default: current for --kind paper (the newest pins when no stack is current), none for --kind library. An undeclared name exits 2 |
 | `--dir DIR` | where to write it (default ./NAME); refused when it exists and is not empty |
 | `--module MOD` | the library and namespace (default: NAME in CamelCase, my-proof -&gt; MyProof) |
 | `--no-mathlib` | core Lean only: no Mathlib dependency (fast to build; comparator-receipt then needs COMPARATOR_RECEIPT_NO_MATHLIB=1) |
@@ -37,11 +39,17 @@ Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate 
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `new NAME` | scaffold a minimal Lean 4 package in `./NAME` (or `--dir DIR`; refused when it exists and is not empty) and `git init` it, for the [quickstart](../quickstart.md): the [getting-started template](../getting-started.md#start-from-scratch) (`lean-toolchain`, `.gitignore`, `lakefile.toml`, `MOD/Challenge.lean`, `MOD/Solution.lean`, `comparator.json`) plus `MOD/Axioms.lean` (`#print axioms`), `claims.yaml` (one reusable claim), `coverage.yaml` (below), `CITATION.cff` (the author is `--author`, else `git config user.name`; a name with no space prints a warning, since it looks like a handle), `LICENSE` with the same text in `LICENSES/<SPDX>.txt`, a `REUSE.toml` that puts every file, receipts and logs included, under that license (so `reuse lint`, which [`publish --dry-run`](publish.md) runs, passes), a `README.md` carrying the lean-pkg credit, and `verify.sh`, the lower-tier check whose log [`receipt systemd --run`](receipt-systemd.md) reads. Nothing is committed, fetched or built, and no registry is read or written. `--kind paper` (the default) writes a `kind: paper` `coverage.yaml` that is incomplete on purpose: `manuscript.version: unposted` and `FILL-ME` markers, which [`coverage check`](coverage.md) and `page` refuse until you name the paper and its results; [`formalization anchor --write`](formalization.md) then binds the posted version (no manuscript is invented). `--kind library`: one main result naming the example claim, which `coverage check` accepts as written. `--no-mathlib`: core Lean only (`lean-pkg receipt comparator` then needs `COMPARATOR_RECEIPT_NO_MATHLIB=1`; `verify.sh` logs `mathlib-rev: none`, the receipt's explicit value for a package without Mathlib). The name: lower-case letters, digits and single hyphens, starting with a letter; a library named like Lean's or a Mathlib dependency's root namespace is refused (exit 2) | `[--kind paper\|library] [--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT] [--license Apache-2.0\|MIT] [--json]` |
+| `new NAME` | scaffold a minimal Lean 4 package in `./NAME` (or `--dir DIR`; refused when it exists and is not empty) and `git init` it, for the [quickstart](../quickstart.md): the [getting-started template](../getting-started.md#start-from-scratch) (`lean-toolchain`, `.gitignore`, `lakefile.toml`, `MOD/Challenge.lean`, `MOD/Solution.lean`, `comparator.json`) plus `MOD/Axioms.lean` (`#print axioms`), `claims.yaml` (one reusable claim), `coverage.yaml` (below), `CITATION.cff` (the author is `--author`, else `git config user.name`; a name with no space prints a warning, since it looks like a handle), `LICENSE` with the same text in `LICENSES/<SPDX>.txt`, a `REUSE.toml` that puts every file, receipts and logs included, under that license (so `reuse lint`, which [`publish --dry-run`](publish.md) runs, passes), a `README.md` carrying the lean-pkg credit, and `verify.sh`, the lower-tier check whose log [`receipt systemd --run`](receipt-systemd.md) reads. The `lakefile.toml` names its library in `defaultTargets`, so a bare `lake build` builds it. Nothing is committed, fetched or built, and no registry is read or written. `--stack NAME` pins a declared [LTS stack](../stacks/README.md): its `lean-toolchain` and Mathlib tag, and `stack: NAME` in `coverage.yaml`, which [`doctor NAME`](doctor.md), [`verify`](verify.md) and `page` check against the committed pins; `--stack current` is the newest declared stack whose window covers today and `--stack none` the newest pins with no key. Without `--stack`, `--kind paper` takes the current stack (the newest pins, with a warning, when none is current) and `--kind library` the newest pins (libraries aimed at Mathlib follow its newest release; proposal 0004, open question 7). An undeclared stack exits 2, listing the declared ones. The stack's comparator tools are the ones its toolchain bundles, so the toolchain pin is theirs. `--kind paper` (the default) writes a `kind: paper` `coverage.yaml` that is incomplete on purpose: `manuscript.version: unposted` and `FILL-ME` markers, which [`coverage check`](coverage.md) and `page` refuse until you name the paper and its results; [`formalization anchor --write`](formalization.md) then binds the posted version (no manuscript is invented). `--kind library`: one main result naming the example claim, which `coverage check` accepts as written. `--no-mathlib`: core Lean only (`lean-pkg receipt comparator` then needs `COMPARATOR_RECEIPT_NO_MATHLIB=1`; `verify.sh` logs `mathlib-rev: none`, the receipt's explicit value for a package without Mathlib). The name: lower-case letters, digits and single hyphens, starting with a letter; a library named like Lean's or a Mathlib dependency's root namespace is refused (exit 2) | `[--kind paper\|library] [--stack NAME\|current\|none] [--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT] [--license Apache-2.0\|MIT] [--json]` |
 
 ## Exit codes
 
 0 success (dry runs and no-ops included), 1 refused or failed, 2 usage error; see [Exit codes](../cli.md#exit-codes).
+
+## JSON output
+
+Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
+
+- `new-stack` (exit 0): `author`, `author_source`, `committed`, `coverage_complete`, `dir`, `files`, `git_init`, `kind`, `lean_toolchain`, `license_spdx`, `mathlib`, `mathlib_rev`, `module`, `name`, `next_commands`, `ok`, `registry_touched`, `stack`, `stack_source`, `warnings`
 
 ## Examples
 

@@ -2,7 +2,8 @@
 
 Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
 Decided: accepted 2026-10-17 by Le Chen, with the recommended answers to open questions 1 to 5 and 7;
-question 6 stays open (see Open questions). Implemented in: (release).
+question 6 stays open (see Open questions). Implemented in: stage 0 as documents (#258, #259); stage 1 in
+(release) (#264), except `doctor --stack-from/--stack-to` and the advisory hook, which follow.
 
 ## Summary
 

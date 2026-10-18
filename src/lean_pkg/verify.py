@@ -30,6 +30,14 @@ file, or an untracked file other than this commit's receipts under .lean-receipt
 comparator configuration, a status the gate cannot reach (scratch, archived, upstreamed), --registry-snapshot.
 A step that fails stops verify with that step's exit code; the steps before it stay done (their receipts are
 reused by the next verify at the same commit).
+
+A package whose committed coverage.yaml declares an LTS stack (`stack: NAME`, proposal 0004) is checked against
+it first: lean-toolchain and the Mathlib commit of lake-manifest.json at HEAD, then, once the comparator
+receipt exists, its toolchain digests. verify prints `on stack NAME (supported until DATE)` or one warning per
+difference (a stack past its window, or one this lean-pkg does not declare, is a warning too), and `--json`
+carries `stack` {name, declared, matches, supported_until, window, toolchain, mathlib, comparator_tools,
+lean_pkg, mismatches, warnings} (null without the key). It never refuses on a stack: the proposal says doctor
+and verify "never refuse", and "the stack key never makes a check pass or fail".
 """
 
 from __future__ import annotations
@@ -247,6 +255,40 @@ def plan(args) -> dict:
             "no_mathlib": knowingly_no_mathlib(repo, head, script)}
 
 
+def stack_check(steps: Steps, repo: pathlib.Path, head: str) -> dict | None:
+    """The LTS stack the committed coverage.yaml declares, against the pins at HEAD (proposal 0004): one line
+    `on stack S (supported until D)` or a warning per difference. Never a refusal: "they never refuse"
+    (proposal 0004, "How a package opts in"); the stack key never makes a check pass or fail ("Trust model")."""
+    from . import stacks
+    name = stacks.declared_key(repo, head)
+    if name is None:
+        return None
+    res = stacks.check(repo, name, head)
+    if res["declared"] and res["matches"]:
+        steps.say(f"verify: on stack {name} (supported until {res['supported_until']})")
+    for w in res["warnings"]:
+        print(f"lean-pkg: warning: {w}", file=sys.stderr)
+    return res
+
+
+def stack_digests(res: dict | None, repo: pathlib.Path, comparator: pathlib.Path) -> None:
+    """The comparator receipt's toolchain digests against the stack's (a warning when they differ)."""
+    from . import stacks
+    if not res or not res["declared"] or not comparator.is_file():
+        return
+    try:
+        comp = json.loads(comparator.read_text())
+    except (OSError, ValueError):
+        return
+    rel = comparator.relative_to(repo).as_posix()
+    res["comparator_tools"] = stacks.comparator_check(stacks.declared()[res["name"]], comp, rel)
+    if res["comparator_tools"]["differ"]:
+        w = (f"the comparator receipt {rel} records tool digests that differ from stack {res['name']}'s "
+             f"({', '.join(res['comparator_tools']['differ'])}); the stack's digests are those of Linux x86_64")
+        res["warnings"].append(w)
+        print(f"lean-pkg: warning: {w}", file=sys.stderr)
+
+
 def cmd_verify(args) -> int:
     p = plan(args)
     name, repo, head, c12 = args.name, p["repo"], p["head"], p["c12"]
@@ -255,6 +297,7 @@ def cmd_verify(args) -> int:
                "status_before": p["status"], "work_dir": str(p["work"]) if p["work"] else None, "steps": steps.done,
                "receipts": {},
                "next": []}
+    payload["stack"] = stack_check(steps, repo, head)
     if p["already"]:
         at = p["already"][:12]
         steps.say(f"{name}: already verified at {at}" + ("" if p["already"] == head else
@@ -297,6 +340,7 @@ def cmd_verify(args) -> int:
         if rc != 0 or not comparator.is_file():
             return _finish(args, payload, rc or 1, f"the comparator receipt failed (exit {rc}); nothing gated")
     payload["receipts"]["comparator"] = comparator.relative_to(repo).as_posix()
+    stack_digests(payload["stack"], repo, comparator)
 
     # 2. the lower-tier receipt, at the same commit (nothing committed in between)
     lower = lower_receipts(repo, c12, unit)
@@ -363,7 +407,10 @@ def add_parsers(sub, add_json) -> None:
                        description="Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bash "
                                    "verify.sh` and `gate` (an active package first moves to gate-pending; a gated "
                                    "one is re-gated), each as its own lean-pkg invocation with its own checks. "
-                                   "Writes only what those commands write; commits nothing in the checkout.")
+                                   "Writes only what those commands write; commits nothing in the checkout. A "
+                                   "package whose committed coverage.yaml declares an LTS stack (`stack: NAME`, "
+                                   "docs/stacks/) is checked against it (lean-toolchain, the Mathlib commit, the "
+                                   "comparator receipt's tool digests): a warning per difference, never a refusal.")
     s.add_argument("name")
     s.add_argument("--work-dir", default=None, metavar="DIR",
                    help=f"where the run's log and unit output go, outside the checkout (default "

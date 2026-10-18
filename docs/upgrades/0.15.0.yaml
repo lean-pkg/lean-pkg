@@ -2,7 +2,32 @@
 # requests merge after 0.14.0. Same keys as 0.14.0.yaml; the human page is docs/upgrades/0.15.0.md.
 schema: lean-pkg-upgrade-record/1
 version: 0.15.0
-changes: []
+changes:
+  - pr: 264
+    id: lts-stack-opt-in
+    kind: format
+    area: new, coverage check, doctor, verify, page, stacks
+    summary: >-
+      Stage 1 of proposal 0004 (the math LTS stack). New flag new --stack NAME|current|none pins lean-toolchain
+      and the Mathlib require to a declared stack and writes stack: NAME into coverage.yaml. New default: new
+      --kind paper takes the current stack (the newest declared stack whose window covers today; lts-2026.10,
+      Lean v4.35.0 and Mathlib v4.35.0, where 0.14.0 wrote v4.35.0-rc2), --kind library keeps the newest pins.
+      coverage.yaml (coverage/1, both kinds) accepts an optional stack key, its name's shape checked. doctor
+      takes an optional NAME and, like verify, checks the package's committed lean-toolchain, the Mathlib
+      commit of lake-manifest.json and the comparator receipt's tool digests against the declared stack,
+      warning on a difference, a stack past its window or one this lean-pkg does not declare, never refusing;
+      both gain the --json key stack. page adds "Built on lean-pkg stack NAME" under How this was checked
+      when the pins match. The lakefile.toml of new names its library in defaultTargets, so a bare lake build
+      builds it. The stacks ship in the wheel (lean_pkg/data/stacks/). No schema bump; lean-pkg 0.14.0 and
+      older refuse the stack key.
+    action: >-
+      Nothing for an existing package. A package that opts in adds stack: lts-2026.10 to coverage.yaml (or is
+      made with new --stack), requires this lean-pkg release or later (older ones refuse the key), and moves
+      its pins as docs/stacks/lts-2026.10.md says; doctor NAME then reports whether the committed pins match.
+      A new paper scaffold now starts on Lean v4.35.0 and Mathlib v4.35.0; pass --stack none for the previous
+      pins. An existing scaffold's lakefile.toml can gain defaultTargets = ["MOD"] after its name line.
+    breaking: false
+    changelog: Added
 # Read for this record, nothing for a package author: index data, total-coloring-lean and
 # markovprocess-pilot re-pinned at their new gated commits with judged_as on every reusable claim (#265).
 no_author_change: [265]

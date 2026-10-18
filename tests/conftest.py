@@ -613,6 +613,16 @@ def home_outside_tmp_path(monkeypatch, tmp_path):
     monkeypatch.setattr(load_module(), "HOME", tmp_path / "home")
 
 
+STACK_DAY = __import__("datetime").date(2026, 11, 2)   # inside lts-2026.10's window
+
+
+@pytest.fixture(autouse=True)
+def stack_day_is_fixed(monkeypatch):
+    """`new --kind paper` takes the current LTS stack, which depends on the date: every test sees the same day
+    (STACK_DAY, when lts-2026.10 is current); a test of another day patches lean_pkg.stacks.today itself."""
+    monkeypatch.setattr(importlib.import_module("lean_pkg.stacks"), "today", lambda: STACK_DAY)
+
+
 @pytest.fixture(autouse=True)
 def no_real_io_in_search_adapters(monkeypatch, tmp_path):
     """No test reaches the network or runs `gh` through lean_pkg.adapters, and no test
