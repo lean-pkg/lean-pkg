@@ -53,7 +53,7 @@ changes:
       (receipt check's claimed theorems, the claims ledger, comparator config --coverage, coverage check R11,
       page, claims mark, status). The schema refuses it on other kinds and the same name on two claims;
       receipt check fails one that names no configured theorem or whose decl is not declared, whatever the
-      status. comparator config --coverage --json gains judged_as_problems. Proposal 0006 (draft). No schema
+      status. comparator config --coverage --json gains judged_as_problems. Proposal 0006 (accepted). No schema
       bump; a claims file without the key is unchanged. lean-pkg 0.13.0 and older refuse the key.
     action: >-
       Nothing for a package whose Challenge theorems follow the naming rule. A package whose claims name

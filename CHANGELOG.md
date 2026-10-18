@@ -44,7 +44,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   configured theorem or whose `decl` is not declared in its file, whatever the
   claim's status; `--coverage --json` gains `judged_as_problems`. This lets a
   referee check, from the repository alone, a package whose mapping was only
-  in its index entry. Proposal 0006 (draft); no schema bump (#261).
+  in its index entry. Proposal 0006 (accepted 2026-10-18); no schema bump (#261).
 
 - Try lean-pkg in a Codespace: `.devcontainer/tutorial/` (a Dockerfile,
   `devcontainer.json` and a creation script) opens the π-λ tutorial with

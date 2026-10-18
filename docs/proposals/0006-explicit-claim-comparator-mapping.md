@@ -1,7 +1,7 @@
 # 0006: An explicit claim-to-comparator mapping (`judged_as` in claims.yaml)
 
-Status: draft. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-18.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-18.
+Decided: accepted 2026-10-18 by Le Chen; open questions 1 and 2 stay open. Implemented in: (release).
 
 ## Summary
 
