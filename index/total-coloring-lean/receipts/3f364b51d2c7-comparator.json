@@ -1,0 +1,216 @@
+{
+  "build_provenance": {
+    "cache_reused": 8,
+    "compiled": false,
+    "modules_built": 0,
+    "prebuilt": true,
+    "source": null
+  },
+  "commit": "3f364b51d2c74677384c95c9ad92403c06a43b15",
+  "configs": [
+    {
+      "challenge_module": "Audit.AuxiliaryClass.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-auxiliary-class.log",
+      "log_sha256": "047e4c997b595e2f1baee700110138e8eecb70b5822b5c8a82df75a3b04c8d07",
+      "path": "comparator/config-auxiliary-class.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "75f8380c00d1d69dffba3691d26e5621d304f03bdf4057dfb4da3ae47d55d49f",
+      "solution_module": "Audit.AuxiliaryClass.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.AuxiliaryClass.exists_rainbow_edge_coloring_of_auxiliaryClass"
+      ]
+    },
+    {
+      "challenge_module": "Audit.Certificate.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-certificate.log",
+      "log_sha256": "378bc973b9e95fac183ff88de6de8abe9a51b1fd05888da2daafb8297d7c212f",
+      "path": "comparator/config-certificate.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "d2bb3ef7acf7a57cf9cb81a628821aab6f0f831171728ad88b103013dec30466",
+      "solution_module": "Audit.Certificate.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.Certificate.checkExtension_sound"
+      ]
+    },
+    {
+      "challenge_module": "Audit.CriticalAllD.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-critical-alld.log",
+      "log_sha256": "b7d14a206466d44087bdb7dbe3cc075e93063f9fd5223df15e6852524e27fadc",
+      "path": "comparator/config-critical-alld.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "9f9964550821e07094d78134e0896a72854fa35efa2552d10ff01b6a431efd9d",
+      "solution_module": "Audit.CriticalAllD.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.CriticalAllD.false_of_critical_allD"
+      ]
+    },
+    {
+      "challenge_module": "Audit.Decode.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-decode.log",
+      "log_sha256": "66f838c1fbe2c1de6c8b023064d0444e8b0f35401dca71c55cde18d4d91b1600",
+      "path": "comparator/config-decode.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "caa6dd0dfe7d1f905e6463ce93bf5ed02d360aae2af0e923a77521353881c55a",
+      "solution_module": "Audit.Decode.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.Decode.decode_valid"
+      ]
+    },
+    {
+      "challenge_module": "Audit.HighDegree.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-high-degree.log",
+      "log_sha256": "d8534486f08b264efa9e6453e29e7b2b4c1d98969e8912c347489d70316e363c",
+      "path": "comparator/config-high-degree.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "ab02df978661cf26a3023ef101b5c780a2408470dd696ca0d70ac8d59cd0bdd9",
+      "solution_module": "Audit.HighDegree.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.HighDegree.exists_total_coloring_of_card_le_two_mul_maxDegree"
+      ]
+    },
+    {
+      "challenge_module": "Audit.MatchingLowerBound.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-matching-lower-bound.log",
+      "log_sha256": "497f244cd93aa917943478250f83d197a48281246e6c50b1bcbe4559d1533d97",
+      "path": "comparator/config-matching-lower-bound.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "79b8ef5e13d8f3d15b4ff23c2b717282c7a986578c5fc65678506ced8fd66384",
+      "solution_module": "Audit.MatchingLowerBound.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.MatchingLowerBound.exists_matchingGraph_edgeFinset_card_ge"
+      ]
+    },
+    {
+      "challenge_module": "Audit.PairSingleton.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-pair-singleton.log",
+      "log_sha256": "f61446df8b83d625092585a95671e62bb601c49ffb873745066b852dc817abee",
+      "path": "comparator/config-pair-singleton.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "1e5a63458909bf339c2f7c914c55b862a3a4ebc0bec651ce1242851e3a0e439a",
+      "solution_module": "Audit.PairSingleton.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.PairSingleton.isAuxiliaryClassMember_of_highDegree"
+      ]
+    },
+    {
+      "challenge_module": "Audit.PartialEdgeSelector.Challenge",
+      "definition_names": [],
+      "log": ".lean-receipts/3f364b51d2c7-comparator-comparator_config-partial-edge-selector.log",
+      "log_sha256": "3bea3f6637471d7e9c6f4213dce11ca87f630fdd40994f047ff93395a31722cd",
+      "path": "comparator/config-partial-edge-selector.json",
+      "permitted_axioms": [
+        "propext",
+        "Quot.sound",
+        "Classical.choice"
+      ],
+      "result": "pass",
+      "sha256": "7aeb26d257bfd11c4eeeb377939ce482483aa326166751241f0be1e65222aad8",
+      "solution_module": "Audit.PartialEdgeSelector.Solution",
+      "theorem_names": [
+        "TotalColoringAudit.PartialEdgeSelector.partialEdgeSelectorAssignment_valid"
+      ]
+    }
+  ],
+  "generated_at": "2026-10-18T04:04:48+00:00",
+  "host": "h-2db2e0fa6029",
+  "host_label": "h-2db2e0fa6029",
+  "host_policy": "host h-2db2e0fa6029 listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS",
+  "job_id": "local-h-2db2e0fa6029-2786424-20261018T040448Z",
+  "lean_threads": null,
+  "lean_toolchain": "leanprover/lean4:v4.32.0",
+  "mechanism": "legacy",
+  "olean_manifest": {
+    "captured": "build",
+    "files": 116,
+    "lake_manifest_sha256": "4169dc5ae9cda862154f9a513dd98ff1785298ff9a9e9e41ff0f9f904f0a2141",
+    "lean_toolchain": "leanprover/lean4:v4.32.0",
+    "schema": "olean-manifest/1",
+    "sha256": "f45b2335509340da9cf9234546a764ea38a39eb2b0f3a47df8e797148b4320aa"
+  },
+  "result": "pass",
+  "schema": "comparator-receipt/2",
+  "stack_limit": {
+    "hard_kb": "unlimited",
+    "soft_kb": 8192,
+    "source": "inherited"
+  },
+  "stages": [
+    {
+      "exit": 0,
+      "stage": "checkout",
+      "status": "ok",
+      "wall_s": 43.451
+    },
+    {
+      "exit": 0,
+      "stage": "cache-get",
+      "status": "ok",
+      "wall_s": 2.402
+    },
+    {
+      "exit": 0,
+      "stage": "build",
+      "status": "ok",
+      "wall_s": 2.971
+    },
+    {
+      "exit": 0,
+      "stage": "comparator",
+      "status": "ok",
+      "wall_s": 142.774
+    }
+  ],
+  "toolchain_resolution": {
+    "lake": "<elan>/bin/lake",
+    "source": "elan",
+    "version": "Lake version 5.0.0-src+8c9756b (Lean version 4.32.0)"
+  },
+  "tools": {
+    "comparator": "575674928e239f5bc452aab72d1dd7b0f1326494",
+    "landrun": "811cfff51ceaf3d9843708aa6d22e9b84ccac8b4",
+    "lean4export": "4e7915201d3f9f04470d9eae002fa695f7cdc589",
+    "nanoda": "68d5ca9db226849b41a6fff59d796ff19d0a8840"
+  }
+}

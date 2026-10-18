@@ -2,15 +2,15 @@ schema: index-entry/2
 name: total-coloring-lean
 repo: https://github.com/chenle02/total-coloring-lean
 pin:
-  commit: 533f9430cb4595faa9878bf2eecb8350ce57a068
+  commit: 3f364b51d2c74677384c95c9ad92403c06a43b15
   tag: null
 lean_toolchain: leanprover/lean4:v4.32.0
 mathlib_rev: 81a5d257c8e410db227a6665ed08f64fea08e997
 license_spdx: Apache-2.0
 trust: comparator
 receipts:
-  lower: .lean-receipts/533f9430cb45-home-workstation-2026-10-08-total-coloring.json
-  comparator: .lean-receipts/533f9430cb45-comparator.json
+  lower: .lean-receipts/3f364b51d2c7-systemd-user-total-coloring-lean-verify.service-26f87e9fdae2438cb4ab302aa085cb30-h-2db2e0fa6029.json
+  comparator: .lean-receipts/3f364b51d2c7-comparator.json
 headline:
 - name: TotalColoring.exists_valid_assignment_of_highDegree
   file: TotalColoring/HighDegreeTotalColoring.lean
@@ -48,13 +48,14 @@ fields:
 consent:
   recorded: true
 added:
-  at: '2026-10-08T20:52:39+00:00'
+  at: '2026-10-18T04:38:34+00:00'
   by: chenle02
 notes: 'An unfinished project, listed as the example of one. Goal: kernel-checked foundations for total
   coloring (toward the Total Coloring Conjecture) via an all-orders auxiliary edge-coloring theorem and
   an auxiliary-to-total transfer. Not proved at this pin: the Total Coloring Conjecture; any unconditional
   Delta plus two total coloring; Vizing''s theorem; existence of the required extensions or partitions
-  (five conditional endpoints take them as hypotheses and are listed as experimental claims). Both headline
-  theorems carry comparator evidence: Mathlib-only Challenge statements in Audit/, checked against the
-  library by the legacy comparator mechanism (Lean v4.32.0 is below Palomar''s toolchain floor, so this
-  says nothing about Palomar).'
+  (five conditional endpoints take them as hypotheses and are listed as experimental claims). Every reusable
+  claim (the two headline theorems and six supporting results) carries comparator evidence: a Mathlib-only
+  Challenge in Audit/, named by the claim''s judged_as in claims.yaml, checked against the library by
+  the legacy comparator mechanism (Lean v4.32.0 is below Palomar''s toolchain floor, so this says nothing
+  about Palomar); each of the six later Solutions also derives the library theorem back from its Challenge.'

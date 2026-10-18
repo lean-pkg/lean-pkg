@@ -9,6 +9,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Changed
+
+- Index: `total-coloring-lean` re-pinned at `3f364b51d2c7` and
+  `markovprocess-pilot` at `1548828e63c8`. Each package now gives every
+  reusable claim a `judged_as` in `claims.yaml` (proposal 0006) and a
+  comparator configuration that judges it (six new Mathlib-only Challenges in
+  total-coloring-lean, one in markovprocess-pilot), and was re-gated with
+  lean-pkg 0.14.0: lower tier `receipt systemd --run`, comparator receipt at
+  the same commit. Entries replaced with `index add --from-registry`
+  (headlines with their Challenge names); `index check --clone` passes for
+  both.
+
 ## [0.14.0] - 2026-10-17
 
 ### Added
