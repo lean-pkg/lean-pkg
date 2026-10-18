@@ -282,6 +282,8 @@ A sparse new output tree also hid unchanged accepted modules from the
 import path (item 5). Run the checklist below after any such transport,
 before native, comparator, full replay or cluster gates.
 
+This checklist is step 3 of the [cheap-first gate order](receipts.md#cheap-checks-first-gate-order): run it, and the project's own source policy, before any build.
+
 1. **Audit every declaration form, not only theorems and `def`s.** A
    collector keyed on `theorem` and `def` misses the rest. List every
    command that declares a constant or binds a name to a namespace:

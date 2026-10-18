@@ -11,6 +11,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- docs/receipts.md, "Cheap checks first: gate order" (field report): run
+  the project's source policy, the `sorry` and placeholder scans, the
+  structural inventory and the run-tools, host and dependency preflights
+  before the build, hashing, job or full replay, with a project-owned
+  `verify/pre-checks.sh` as the hook and a note on when a policy belongs
+  in the sealed log. A full replay that fails a project's own token
+  policy at the end wastes the hour; lean-pkg adds no universal token
+  ban. Linked from the transport checklist in docs/extract.md.
 - docs/receipts.md, "Filling missing dependency artifacts from a pinned
   donor" (field report): when `receipt slurm --preflight-deps` names
   missing modules and another cache built from the same toolchain and

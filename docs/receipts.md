@@ -286,6 +286,48 @@ the CPUs and the cgroup memory limit, and says which comparator routes
 [Planning routes before sbatch](comparator.md#planning-routes-before-sbatch).
 Check a dependency tarball with `receipt slurm --preflight-deps` (below).
 
+### Cheap checks first: gate order
+
+A field report: a frozen full replay rebuilt every module (about an hour),
+checked 1180 public declarations and passed 65 strict fixtures, and then
+the package's own raw-token source policy refused one word, `opaque`, in a
+doc comment. No receipt came out of that hour. The refusal was right; the
+order was wrong. The project's policy is a text scan that takes seconds,
+and it needs no build. (`opaque` is valid Lean: lean-pkg bans no token
+for every project. Each project's policy is its own.)
+
+Run the checks in order of cost, and stop at the first failure:
+
+1. **The project's source policy**: token and forbidden-word scans, the
+   scan of doc comments and strings, license and header rules.
+2. **`sorry`, `admit` and placeholder scans** over the sources
+   (`grep`, no Lean).
+3. **The structural inventory**: the declaration list against its
+   expected count or manifest, the disabled-fixture list, the
+   [every-declaration-form audit](extract.md#checklist-after-a-namespace-or-import-transport-every-declaration-form-one-combined-import)
+   after a transport.
+4. **The preflights**: the [run tools](#run-tools-preflight-the-projects-own-executables)
+   list, `comparator host-check --routes` ([Before sbatch](#before-sbatch)),
+   and `receipt slurm --preflight-deps` for the dependency artifacts.
+5. **Only then** the expensive steps: the build, the hashing, the unit or
+   job, the full replay, the comparator.
+
+Put steps 1 to 3 in one script the project owns, e.g.
+`verify/pre-checks.sh`, exiting non-zero on the first failure, and run it
+before the receipt command, on the machine you edit on, then again as the
+first line of the job script:
+
+```bash
+bash verify/pre-checks.sh && lean-pkg receipt systemd ... --run -- bash verify.sh LOG
+```
+
+Keep it outside `verify.sh` unless the project wants the policy sealed
+into the log: the lines `verify.sh` writes (see the template header) are
+what the receipt reads, and a pre-check that prints into them changes that
+contract. A policy that must be part of the evidence goes into the log
+between the existing lines, with the script and its hash named in the
+README entry. A policy that only saves time stays outside.
+
 ### A compressed sealed log (`--compress-log`)
 
 GitHub refuses a file over 100 MiB, and a full declaration audit can make the
