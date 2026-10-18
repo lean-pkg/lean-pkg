@@ -2,8 +2,8 @@ usage: lean-pkg index add [-h] [--from-registry] [--repo-dir REPO_DIR] [--url UR
                           [--lower REL] [--comparator REL] [--license SPDX]
                           [--headline 'NAME :: FILE :: SUMMARY'] [--field-tag TAG]
                           [--formalization-yaml REL] [--consent-recorded] --by BY
-                          [--allow-unpushed] [--notes NOTES] [--index INDEX] [--json] [--commit]
-                          [--push] [--no-commit]
+                          [--allow-unpushed] [--notes NOTES] [--built-on-file FILE] [--replace]
+                          [--index INDEX] [--json] [--commit] [--push] [--no-commit]
                           name
 
 positional arguments:
@@ -28,6 +28,10 @@ options:
   --allow-unpushed      do not verify that the pin and evidence are on the public repository
                         (provisional entry)
   --notes NOTES
+  --built-on-file FILE  YAML list of credits for third-party Lean code the package builds on
+                        (name, url, authors; optional license, pin, relation, note); [] for none
+  --replace             replace an existing entry of this name (a re-pin); its built_on is carried
+                        over unless --built-on-file is given
   --index INDEX         index root (default: $LEAN_PKG_INDEX, else index/ beside the registry when
                         present, else ./index)
   --json                machine-readable JSON on stdout

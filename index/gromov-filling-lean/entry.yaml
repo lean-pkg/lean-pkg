@@ -29,6 +29,45 @@ palomar: []
 doi: null
 reservoir: null
 formalization_yaml: null
+built_on:
+- name: JordanCurveTheorem
+  url: https://github.com/epfl-lara/jordan-curve-theorem
+  authors:
+  - LARA, EPFL
+  license: Apache-2.0
+  pin: e442525a662e9e3beb8205b9fa1fc99509076ded
+  relation: depends-on
+  note: Its HOLLight-Lean package, a Lean reformalization of Thomas C. Hales's HOL Light proof of the
+    Jordan curve theorem.
+- name: classification-of-surfaces
+  url: https://github.com/mccorvie/classification-of-surfaces
+  authors:
+  - ClassificationOfSurfaces contributors (SF LEAN meetup)
+  - Steven Sivek
+  - Kai Lam
+  license: Apache-2.0
+  pin: e3c7230fe78d7b056a415d9ecae6f77887046b32
+  relation: adapted-from
+  note: The source closure of ClassificationOfSurfaces.EvalStatement (132 files), vendored under ClassificationOfSurfaces/
+    and adapted to Lean 4.29.
+- name: lean-proofs (Jordan–Schönflies)
+  url: https://github.com/plby/lean-proofs
+  authors:
+  - Álvaro Begué
+  license: Apache-2.0
+  pin: 2b380d2f2476782f55181ff21174a744cdb783d1
+  relation: adapted-from
+  note: Álvaro Begué's Schoenflies development from Boris Alexeev's lean-proofs collection (src/latest),
+    vendored under Wikipedia/ and adapted to Lean 4.29.
+- name: jordan_pick
+  url: https://github.com/rkirov/jordan_pick
+  authors:
+  - Rado Kirov
+  license: Apache-2.0
+  pin: b141748187099368d1b564de5fc6601026255378
+  relation: adapted-from
+  note: Its Jordan curve theorem core (after Maehara's proof), vendored under Wikipedia/JordanCurveTheorem/
+    and adapted to Lean 4.29.
 fields:
 - riemannian-geometry
 - filling-area

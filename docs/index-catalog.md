@@ -54,7 +54,10 @@ and refused otherwise.
 
 ## Entry schema (`index-entry/2`; `index-entry/1` still validates)
 
-Keys appear in exactly this order; an unknown key is refused. `index add`
+Keys appear in exactly this order; an unknown key is refused. Every key is
+required except `built_on`, which `index-entry/2` accepts as an optional key
+(proposal [0007](proposals/0007-index-built-on-credits.md)); an entry without
+it stays valid. `index add`
 writes `index-entry/2`, which adds `claims` after `headline`; an
 `index-entry/1` entry has no `claims` key and stays valid;
 `lean-pkg index migrate` rewrites it as `index-entry/2` by deriving `claims`
@@ -77,12 +80,59 @@ from its headline (no other key changes), so its headlines become searchable.
 | `doi` | null, or `concept` and `versions` (each `doi`, `tag`, `commit`) |
 | `reservoir` | null, or the package's Reservoir page |
 | `formalization_yaml` | null, or a repository-relative path |
+| `built_on` | optional, `index-entry/2` only: credits for third-party Lean code the package builds on (see [Credits](#credits-built_on)); omitted when there is none |
 | `fields` | lowercase tags such as `probability` |
 | `consent` | `recorded` (true or false); the pointers to the consent records stay private |
 | `added` | `at` (ISO-8601) and `by` (a public handle) |
 | `notes` | free text |
 
 No value may look like a local path, and `local_path` is never written.
+
+### Credits (`built_on`)
+
+A package that is a thin layer over someone else's library should say so
+where readers look: `index render` shows each credit in the *Built on* column
+of `index/README.md` (the library's name linked to its repository, and its
+authors) and again in a *Built on* section with the relation, license, pin
+and note. `built_on` is a non-empty list; each credit is a mapping with these
+keys, in this order, and no others:
+
+| Key | Value |
+|---|---|
+| `name` | required: the library's name, one line |
+| `url` | required: its public https repository URL |
+| `authors` | required: a non-empty list of names, as the library itself states its authorship (a file header, its README or `CITATION.cff`) |
+| `license` | optional: its SPDX expression |
+| `pin` | optional: the 40-hex commit the package uses |
+| `relation` | optional: `depends-on` (a Lake dependency in `lake-manifest.json`) or `adapted-from` (source copied into the package and modified) |
+| `note` | optional: one line, at most 300 characters, such as what the package takes from it |
+
+An optional key is omitted, never null. Credits are not evidence: they change
+neither trust nor the checks at the pin, and `index check --clone` only
+*warns* when a `depends-on` (or unlabelled) credit's `pin` differs from the
+`rev` of the package with that URL in `lake-manifest.json` at the entry's
+pin, or when no package there has that URL. An `adapted-from` credit is
+vendored source, so its pin is not compared.
+
+What to list: every third-party Lean library the package's Lean code imports
+or copies, from its `lake-manifest.json` (direct `require`s) and from any
+vendored source it carries. Mathlib and the packages Mathlib itself pulls in
+(Batteries, Aesop, Qq, ProofWidgets, Plausible, ImportGraph,
+LeanSearchClient, Cli), and code copied from Mathlib, are implicit and not
+listed; Lean core is not listed. Tools that are not Lean code the package
+builds on (scripts, CI helpers) are out of scope.
+
+```yaml
+built_on:
+- name: MarkovProcess
+  url: https://github.com/scottnarmstrong/MarkovProcess
+  authors:
+  - Scott Armstrong
+  license: Apache-2.0
+  pin: 666cda029098a1106914fc9fa7abd1727573284a
+  relation: depends-on
+  note: Supplies the Brownian motion, exit times and Dynkin's formula.
+```
 
 ## Adding an entry
 
@@ -104,11 +154,22 @@ lean-pkg index add my-lean --repo https://github.com/you/my-lean --license Apach
 lean-pkg index render
 ```
 
+Credits are given with `--built-on-file FILE`, a YAML file holding the
+`built_on` list (or a mapping whose only key is `built_on`, so the block can
+be copied from an entry); `[]` means none.
+
 `index add` clones the package (from `--repo-dir` or the URL) into a
 temporary directory, finds the receipts as committed at the pin or in an
 evidence-only descendant of it (untracked files do not count), checks out the
 pin, and runs the same validators as `gate` and `comparator`. It refuses a
 second entry for the same repository and commit.
+
+An entry that already exists is refused unless `--replace` is given: that is
+how a package is re-pinned at a new gated commit. `--replace` writes the new
+entry over the old one, replaces its receipt copies, and carries the old
+entry's `built_on` over unchanged unless `--built-on-file` is given, so a
+re-pin never drops the credits. The headlines, field tags and notes come from
+the flags as usual. The pull request shows the diff.
 
 By default `index add` also fetches the public repository's branches and
 refuses a pin or an evidence commit that no public branch contains, so an
