@@ -17,8 +17,8 @@ lean-pkg index add [--from-registry] [--repo-dir REPO_DIR] [--url URL] [--tag TA
                    [--lower REL] [--comparator REL] [--license SPDX]
                    [--headline 'NAME :: FILE :: SUMMARY'] [--field-tag TAG]
                    [--formalization-yaml REL] [--consent-recorded] --by BY
-                   [--allow-unpushed] [--notes NOTES] [--index INDEX] [common flags]
-                   NAME
+                   [--allow-unpushed] [--notes NOTES] [--built-on-file FILE] [--replace]
+                   [--index INDEX] [common flags] NAME
 ```
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
@@ -42,10 +42,12 @@ lean-pkg index add [--from-registry] [--repo-dir REPO_DIR] [--url URL] [--tag TA
 | `--by BY` | public handle of the person adding the entry. Required. |
 | `--allow-unpushed` | do not verify that the pin and evidence are on the public repository (provisional entry) |
 | `--notes NOTES` |   |
+| `--built-on-file FILE` | YAML list of credits for third-party Lean code the package builds on (name, url, authors; optional license, pin, relation, note); \[] for none |
+| `--replace` | replace an existing entry of this name (a re-pin); its built_on is carried over unless --built-on-file is given |
 | `--index INDEX` | index root (default: $LEAN_PKG_INDEX, else index/ beside the registry when present, else ./index) |
 
 ## Details
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `index add NAME` | write `index/<name>/entry.yaml` from a clone at the pin: receipts validated with the `gate` and `comparator` validators and copied verbatim, trust computed, duplicates refused, event `index-added` | `--by HANDLE` `--headline 'NAME :: FILE :: SUMMARY'` `[--from-registry]` `[--repo URL]` `[--repo-dir PATH]` `[--lower REL]` `[--comparator REL]` `[--license SPDX]` `[--tag T]` `[--field-tag T]` `[--formalization-yaml REL]` `[--consent-recorded]` `[--notes]` `[--index PATH]` |
+| `index add NAME` | write `index/<name>/entry.yaml` from a clone at the pin: receipts validated with the `gate` and `comparator` validators and copied verbatim, trust computed, duplicates refused, event `index-added`; `--replace` re-pins an existing entry and carries its `built_on` credits over, `--built-on-file` sets them | `--by HANDLE` `--headline 'NAME :: FILE :: SUMMARY'` `[--from-registry]` `[--repo URL]` `[--repo-dir PATH]` `[--lower REL]` `[--comparator REL]` `[--license SPDX]` `[--tag T]` `[--field-tag T]` `[--formalization-yaml REL]` `[--consent-recorded]` `[--notes]` `[--built-on-file FILE]` `[--replace]` `[--index PATH]` |

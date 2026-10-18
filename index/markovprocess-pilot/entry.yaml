@@ -29,6 +29,16 @@ palomar: []
 doi: null
 reservoir: null
 formalization_yaml: null
+built_on:
+- name: MarkovProcess
+  url: https://github.com/scottnarmstrong/MarkovProcess
+  authors:
+  - Scott Armstrong
+  license: Apache-2.0
+  pin: 666cda029098a1106914fc9fa7abd1727573284a
+  relation: depends-on
+  note: Supplies the Brownian motion, exit times and Dynkin's formula; one helper lemma (mem_of_lt_exitTimeTrunc)
+    is adapted from it with its copyright notice.
 fields:
 - probability
 - brownian-motion

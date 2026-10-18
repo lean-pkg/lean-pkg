@@ -27,6 +27,24 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   when the pins match. The stack files ship in the wheel
   (`lean_pkg/data/stacks/`, a byte-identical copy of `docs/stacks/`); how to
   opt in: [docs/stacks/README.md](docs/stacks/README.md) (#264).
+- Index credits, proposal 0007 (draft): an `index-entry/2` accepts the
+  optional key `built_on`, a list of credits for the third-party Lean code
+  the package depends on or adapts: `name`, `url` (public https) and
+  `authors` (a non-empty list) required; `license`, `pin` (40 hex),
+  `relation` (`depends-on` or `adapted-from`) and `note` optional. Closed
+  keys, validated by `index check`; an entry without the key is unchanged,
+  and lean-pkg 0.14.0 and older refuse it. `index render` adds a *Built on*
+  column (name linked, authors) and a *Built on* section (relation, license,
+  pin, note) to `index/README.md`. `index add --built-on-file FILE` sets the
+  credits; the new `index add --replace` re-pins an existing entry and carries
+  its `built_on` over (an existing entry without `--replace` is still
+  refused); `--json` gains `replaced` and `built_on`. `index check --clone`
+  warns, never fails, when a `depends-on` credit's `pin` differs from
+  `lake-manifest.json` at the entry's pin. Mathlib and its dependencies stay
+  implicit. `markovprocess-pilot` now credits Scott Armstrong's MarkovProcess
+  and `gromov-filling-lean` the four libraries it depends on or vendors
+  (EPFL LARA's JordanCurveTheorem, classification-of-surfaces, the
+  Jordan-Schönflies development of lean-proofs, jordan_pick) (#267).
 
 ### Changed
 

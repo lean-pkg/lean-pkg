@@ -245,6 +245,7 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["register", "demo", "--url", "r", "--path", "p"], "register", True, True, False),
     (["index", "add", "demo", "--by", "m", "--url", "u"], "index add", True, False, False),
     (["index", "add", "demo", "--by", "m", "--repo", "u"], "index add", True, False, False),     # flag alias
+    (["index", "add", "demo", "--by", "m", "--replace", "--built-on-file", "c.yaml"], "index add", True, False, False),
     (["index", "check", "demo", "--repo", "d"], "index check", False, False, False),
     (["index", "check", "demo", "--repo-dir", "d"], "index check", False, False, False),         # flag alias
     (["search", "term", "--record", "--repo", "d"], "search", True, False, False),

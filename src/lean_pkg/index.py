@@ -37,6 +37,14 @@ ENTRY_KEYS_V1 = ("schema", "name", "repo", "pin", "lean_toolchain", "mathlib_rev
                  "reservoir", "formalization_yaml", "fields", "consent", "added", "notes")
 ENTRY_KEYS = ENTRY_KEYS_V1[:10] + ("claims",) + ENTRY_KEYS_V1[10:]
 ENTRY_KEYS_BY_SCHEMA = {"index-entry/1": ENTRY_KEYS_V1, "index-entry/2": ENTRY_KEYS}
+# Optional keys (proposal 0007): absent is valid; when present they sit at this place in the key order.
+ENTRY_OPTIONAL_KEYS = {"index-entry/2": ("built_on",)}
+ENTRY_KEY_ORDER = {"index-entry/1": ENTRY_KEYS_V1,
+                   "index-entry/2": ENTRY_KEYS[:ENTRY_KEYS.index("formalization_yaml") + 1] + ("built_on",)
+                   + ENTRY_KEYS[ENTRY_KEYS.index("formalization_yaml") + 1:]}
+BUILT_ON_KEYS = ("name", "url", "authors", "license", "pin", "relation", "note")
+BUILT_ON_REQUIRED = ("name", "url", "authors")
+BUILT_ON_RELATIONS = ("depends-on", "adapted-from")
 INDEX_CLAIM_KEYS = ("id", "decl", "kind", "summary", "judged_as", "trust")
 TRUST_LEVELS = ("lower-tier", "comparator", "palomar")
 TRUST_RANK = {t: i for i, t in enumerate(TRUST_LEVELS, 1)}
@@ -116,8 +124,14 @@ def index_claims(name: str, headline: list[dict], trust) -> list[dict]:
             for h in headline]
 
 
+def entry_optional_keys(entry: dict) -> tuple[str, ...]:
+    return ENTRY_OPTIONAL_KEYS.get(entry.get("schema"), ())
+
+
 def dump_entry(entry: dict) -> str:
-    ordered = {k: entry[k] for k in entry_keys(entry)}
+    optional = entry_optional_keys(entry)
+    order = ENTRY_KEY_ORDER.get(entry.get("schema"), ENTRY_KEY_ORDER[ENTRY_SCHEMA])
+    ordered = {k: entry[k] for k in order if k in entry or k not in optional}
     return yaml.safe_dump(ordered, sort_keys=False, default_flow_style=False,
                           allow_unicode=True, width=100)
 
@@ -161,9 +175,11 @@ def validate_entry(entry, dirname: str | None = None) -> list[str]:
     keys = entry_keys(entry)
     if entry.get("schema") not in SUPPORTED_ENTRY_SCHEMAS:
         errors.append(f"schema must be one of {SUPPORTED_ENTRY_SCHEMAS}, got {entry.get('schema')!r}")
-    extra = sorted(set(entry) - set(keys))
+    optional = entry_optional_keys(entry)
+    extra = sorted(set(entry) - set(keys) - set(optional))
     if extra:
-        errors.append(f"unknown key(s) {extra} (schema {entry.get('schema')} allows {list(keys)})")
+        errors.append(f"unknown key(s) {extra} (schema {entry.get('schema')} allows {list(keys)}"
+                      + (f", optionally {list(optional)}" if optional else "") + ")")
     missing = [k for k in keys if k not in entry]
     if missing:
         errors.append(f"missing key(s) {missing}")
@@ -246,6 +262,8 @@ def validate_entry(entry, dirname: str | None = None) -> list[str]:
         errors.append("reservoir must be null or https://reservoir.lean-lang.org/@<owner>/<name>")
     if entry["formalization_yaml"] is not None and not _is_rel(entry["formalization_yaml"]):
         errors.append("formalization_yaml must be null or a repo-relative path")
+    if "built_on" in entry and "built_on" in optional:
+        errors += built_on_errors(entry["built_on"])
     if not isinstance(entry["fields"], list) or not all(
             isinstance(f, str) and FIELD_TAG_RE.match(f) for f in entry["fields"]):
         errors.append("fields must be a list of lowercase tags ([a-z0-9-])")
@@ -259,11 +277,133 @@ def validate_entry(entry, dirname: str | None = None) -> list[str]:
     if not isinstance(entry["notes"], str):
         errors.append("notes must be a string")
     for where, s in _strings(entry):
-        if where in ("entry.repo", "entry.reservoir") or ".doi" in where:
+        if where in ("entry.repo", "entry.reservoir") or ".doi" in where or \
+                (where.startswith("entry.built_on[") and where.endswith("].url")):
             continue
         if PRIVATE_PATH_RE.search(s):
             errors.append(f"{where} looks like a private local path: {s!r}")
     return errors
+
+
+def _one_line(v, limit: int = 300) -> bool:
+    return isinstance(v, str) and bool(v.strip()) and "\n" not in v.strip() and len(v) <= limit
+
+
+def built_on_errors(credits) -> list[str]:
+    """The optional `built_on` list of an index-entry/2 (proposal 0007): third-party Lean code the package
+    depends on or adapts. Closed keys; name, url (public https) and authors (non-empty strings) required;
+    license, pin (40 hex), relation (depends-on | adapted-from) and note optional, omitted rather than null."""
+    if not isinstance(credits, list) or not credits:
+        return ["built_on must be a non-empty list of credits (omit the key when there is none)"]
+    out: list[str] = []
+    names: set[str] = set()
+    for i, c in enumerate(credits):
+        w = f"built_on[{i}]"
+        if not isinstance(c, dict):
+            out.append(f"{w} must be a mapping with keys {list(BUILT_ON_REQUIRED)} and optionally "
+                       f"{[k for k in BUILT_ON_KEYS if k not in BUILT_ON_REQUIRED]}")
+            continue
+        extra = sorted(set(c) - set(BUILT_ON_KEYS), key=str)
+        missing = [k for k in BUILT_ON_REQUIRED if k not in c]
+        if extra:
+            out.append(f"{w}: unknown key(s) {extra} (allowed: {list(BUILT_ON_KEYS)})")
+        if missing:
+            out.append(f"{w}: missing key(s) {missing}")
+        for k in BUILT_ON_KEYS:
+            if k in c and c[k] is None:
+                out.append(f"{w}.{k} must not be null (omit an optional key instead)")
+        if "name" in c and c["name"] is not None:
+            if not _one_line(c["name"], 100):
+                out.append(f"{w}.name must be a non-empty one-line string (at most 100 characters)")
+            elif c["name"].strip() in names:
+                out.append(f"{w}.name {c['name']!r} is listed twice")
+            else:
+                names.add(c["name"].strip())
+        if "url" in c and c["url"] is not None and not (isinstance(c["url"], str) and HTTPS_RE.match(c["url"])):
+            out.append(f"{w}.url must be a public https URL without credentials, got {c['url']!r}")
+        if "authors" in c and c["authors"] is not None and not (
+                isinstance(c["authors"], list) and c["authors"]
+                and all(_one_line(a, 200) for a in c["authors"])):
+            out.append(f"{w}.authors must be a non-empty list of non-empty one-line strings")
+        if c.get("license") is not None and not _one_line(c["license"], 100):
+            out.append(f"{w}.license must be a non-empty one-line string (an SPDX expression)")
+        if c.get("pin") is not None and not core._HEX40.fullmatch(str(c["pin"])):
+            out.append(f"{w}.pin must be a 40-hex commit, got {c['pin']!r}")
+        if c.get("relation") is not None and c["relation"] not in BUILT_ON_RELATIONS:
+            out.append(f"{w}.relation must be one of {list(BUILT_ON_RELATIONS)}, got {c['relation']!r}")
+        if c.get("note") is not None and not _one_line(c["note"]):
+            out.append(f"{w}.note must be one line (at most 300 characters)")
+    return out
+
+
+def normalize_built_on(credits) -> list[dict]:
+    """Credits with their keys in the documented order (unknown keys kept, so validation reports them)."""
+    if not isinstance(credits, list):
+        return credits
+    out = []
+    for c in credits:
+        if isinstance(c, dict):
+            c = {**{k: c[k] for k in BUILT_ON_KEYS if k in c}, **{k: v for k, v in c.items() if k not in BUILT_ON_KEYS}}
+        out.append(c)
+    return out
+
+
+def load_built_on_file(path: str) -> list[dict]:
+    """`--built-on-file`: YAML holding a list of credits, or a mapping whose only key is built_on (so a
+    block copied from an entry.yaml works). An empty list means no credits."""
+    p = pathlib.Path(path).expanduser()
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except OSError as e:
+        raise core.Fail(f"--built-on-file {path}: unreadable: {e.strerror or e}")
+    except (UnicodeDecodeError, yaml.YAMLError) as e:
+        raise core.Fail(f"--built-on-file {path}: not valid YAML: {e}")
+    if isinstance(data, dict) and set(data) == {"built_on"}:
+        data = data["built_on"]
+    if data is None:
+        data = []
+    if not isinstance(data, list):
+        raise core.Fail(f"--built-on-file {path}: must hold a list of credits (or a mapping with the single "
+                        f"key built_on)")
+    errors = built_on_errors(data) if data else []
+    if errors:
+        raise core.Fail(f"--built-on-file {path}: " + "; ".join(errors))
+    return normalize_built_on(data)
+
+
+def _git_url_key(url: str) -> str:
+    u = str(url).strip().rstrip("/")
+    if u.endswith(".git"):
+        u = u[:-4]
+    return u.lower()
+
+
+def built_on_manifest_notes(clone: pathlib.Path, entry: dict) -> list[str]:
+    """Advisory, never a failure: each credit with a pin, compared with lake-manifest.json at the pin.
+    A depends-on (or unlabelled) credit whose url is not a manifest package is reported; an adapted-from
+    credit is vendored source, so its absence from the manifest is expected."""
+    credits = entry.get("built_on") or []
+    if not any(isinstance(c, dict) and c.get("pin") for c in credits):
+        return []
+    mf = clone / "lake-manifest.json"
+    try:
+        pkgs = (json.loads(mf.read_text()).get("packages") or []) if mf.is_file() else []
+    except ValueError:
+        return ["warning: built_on pins not checked: lake-manifest.json at the pin is not valid JSON"]
+    revs = {_git_url_key(p.get("url", "")): str(p.get("rev")) for p in pkgs if isinstance(p, dict) and p.get("url")}
+    out = []
+    for i, c in enumerate(credits):
+        if not (isinstance(c, dict) and c.get("pin")):
+            continue
+        rev = revs.get(_git_url_key(c["url"]))
+        if rev is None:
+            if c.get("relation") != "adapted-from":
+                out.append(f"warning: built_on[{i}] {c['name']}: {c['url']} is not a package in "
+                           f"lake-manifest.json at the pin (pin not checked)")
+        elif rev != c["pin"]:
+            out.append(f"warning: built_on[{i}] {c['name']}: pin {c['pin'][:12]} differs from "
+                       f"lake-manifest.json at the pin ({rev[:12]})")
+    return out
 
 
 def _index_claim_errors(entry: dict, prior: list[str]) -> list[str]:
@@ -733,9 +873,21 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
     if not NAME_RE.fullmatch(name):
         raise core.Fail(f"bad entry name {name!r}")
     d = root / name
+    replaced = None
     if (d / ENTRY_FILE).exists():
-        raise core.Fail(f"index entry {name!r} already exists at {d / ENTRY_FILE}; "
-                        f"change it by pull request (there is no in-place update in {ENTRY_SCHEMA})")
+        if not opts.get("replace"):
+            raise core.Fail(f"index entry {name!r} already exists at {d / ENTRY_FILE}; to re-pin it, pass "
+                            f"--replace (its built_on credits are carried over) and change it by pull request")
+        replaced = load_entry(d / ENTRY_FILE)
+    elif opts.get("replace"):
+        raise core.Fail(f"--replace: there is no index entry {name!r} at {d / ENTRY_FILE} to replace")
+    built_on, built_on_from = None, None
+    if opts.get("built_on_file"):
+        built_on = load_built_on_file(opts["built_on_file"]) or None
+        built_on_from = f"from {opts['built_on_file']}" if built_on else None
+    elif replaced is not None and replaced.get("built_on"):
+        built_on = normalize_built_on(replaced["built_on"])
+        built_on_from = "carried over from the replaced entry"
     pkg = core.get_pkg(reg, name) if reg is not None else {}
     gate = pkg.get("gate") or {}
     repo = https_repo(opts.get("repo") or pkg.get("repo"))
@@ -773,6 +925,8 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
         palomar = [{"id": p["id"], "version": int(p["version"])} for p in palomar_rows
                    if p.get("commit") == pin]          # a registration at another commit does not grade this pin
         for other in entry_names(root):
+            if replaced is not None and other == name:
+                continue                                # the entry being replaced is not a duplicate
             try:
                 o = load_entry(root / other / ENTRY_FILE)
             except core.Fail:
@@ -819,6 +973,7 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
             "headline": headline, "claims": index_claims(name, headline, trust),
             "palomar": palomar, "doi": doi, "reservoir": reservoir,
             "formalization_yaml": opts.get("formalization_yaml") or pkg.get("formalization_yaml"),
+            **({"built_on": built_on} if built_on else {}),
             "fields": list(opts.get("fields") or []),
             "consent": {"recorded": consent_recorded},
             "added": {"at": core.now_iso(), "by": opts["by"]},
@@ -828,6 +983,10 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
         errors += at_pin_problems(clone, entry, res, record)
         if errors:
             raise core.Fail("index entry refused: " + "; ".join(errors))
+        if replaced is not None and (d / RECEIPTS_DIR).is_dir():
+            for old in (d / RECEIPTS_DIR).iterdir():   # the replaced entry's copies; the new ones follow
+                if old.is_file():
+                    old.unlink()
         (d / RECEIPTS_DIR).mkdir(parents=True, exist_ok=True)
         copied = []
         for rel in (lower_rel, comp_rel):
@@ -838,6 +997,13 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
     out = [f"{name}: index entry written at {d / ENTRY_FILE} (trust {trust}, pin {pin[:12]}"
            + (f", {res['mechanism']} comparator" if res["mechanism"] else "") + ")",
            f"receipts copied: {', '.join(copied)}"]
+    if replaced is not None:
+        out.append(f"replaced the previous entry (pin {str((replaced.get('pin') or {}).get('commit'))[:12]})")
+    if built_on:
+        out.append(f"built_on: {len(built_on)} credit(s) {built_on_from}: "
+                   + ", ".join(c["name"] for c in built_on))
+    elif replaced is not None and opts.get("built_on_file"):
+        out.append("built_on: none (the --built-on-file list is empty)")
     if coverage_note:
         out.append(coverage_note)
     if source and opts.get("allow_unpushed"):
@@ -852,7 +1018,8 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
         out.append("no event log (no registry here and no --events): index-added not recorded")
     return out, {"ok": True, "name": name, "event": "index-added", "trust": trust,
                  "commit": pin, "mechanism": res["mechanism"], "entry": str(d / ENTRY_FILE),
-                 "receipts": copied, "notes": notes}
+                 "receipts": copied, "notes": notes, "replaced": replaced is not None,
+                 "built_on": [c["name"] for c in built_on or []]}
 
 
 # --------------------------------------------------------------------------
@@ -897,6 +1064,7 @@ def run_add(args) -> int:
             "consent_recorded": args.consent_recorded, "by": args.by,
             "notes": args.notes, "repo_dir": args.repo_dir,
             "allow_unpushed": args.allow_unpushed,
+            "replace": args.replace, "built_on_file": args.built_on_file,
             "registry_lock": reg_path if reg_path.is_file() else None}
     out, payload = do_index_add(root, events_p, reg, args.name, opts,
                                 opt_in_reg=reg if reg is not None else opt_in_registry(args))
@@ -928,6 +1096,12 @@ def _parser_add(isub, common) -> None:
     a.add_argument("--allow-unpushed", action="store_true",
                    help="do not verify that the pin and evidence are on the public repository (provisional entry)")
     a.add_argument("--notes", default="")
+    a.add_argument("--built-on-file", default=None, metavar="FILE",
+                   help="YAML list of credits for third-party Lean code the package builds on "
+                        "(name, url, authors; optional license, pin, relation, note); [] for none")
+    a.add_argument("--replace", action="store_true",
+                   help="replace an existing entry of this name (a re-pin); its built_on is carried over "
+                        "unless --built-on-file is given")
     common(a, run_add)
 
 
@@ -1092,6 +1266,7 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
                 if copy != res["bytes"][rel]:
                     rep["failures"].append(f"receipts.{k}: index copy differs from the bytes in the repository")
         rep["failures"] += at_pin_problems(clone, entry, res, record)
+        rep["notes"] += built_on_manifest_notes(clone, entry)
     comparator_covers = res["comparator_ok"]
     if res["comparator_ok"]:
         unjudged = unjudged_headlines(entry["headline"], res["comparator"])
@@ -1178,8 +1353,13 @@ def _cell(s: str) -> str:
     return str(s).replace("|", "\\|").replace("\n", " ")
 
 
+def _authors(names: list[str]) -> str:
+    names = [_cell(a) for a in names]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
 def render_index(root: pathlib.Path) -> str:
-    rows, claim_rows = [], []
+    rows, claim_rows, credit_rows = [], [], []
     legacy = False
     for n in entry_names(root):
         e = load_entry(root / n / ENTRY_FILE)
@@ -1208,7 +1388,14 @@ def render_index(root: pathlib.Path) -> str:
             links.append(f"[DOI](https://doi.org/{e['doi']['versions'][-1]['doi']})")
         if e["reservoir"]:
             links.append(f"[Reservoir]({e['reservoir']})")
-        rows.append(f"| [{_cell(n)}]({e['repo']}) | {trust} | {_cell(tc)} | {head} | {pin} | "
+        credits = e.get("built_on") or []
+        built = "<br>".join(f"[{_cell(c['name'])}]({c['url']}) by {_authors(c['authors'])}" for c in credits)
+        for c in credits:
+            credit_rows.append(
+                f"| {_cell(n)} | [{_cell(c['name'])}]({c['url']}) | {_authors(c['authors'])} | "
+                f"{c.get('relation') or ''} | {_cell(c.get('license') or '')} | "
+                + (f"`{c['pin'][:12]}`" if c.get("pin") else "") + f" | {_cell(c.get('note') or '')} |")
+        rows.append(f"| [{_cell(n)}]({e['repo']}) | {trust} | {_cell(tc)} | {head} | {built} | {pin} | "
                     f"{' · '.join(links)} |")
         claim_rows += [f"| `{_cell(c['id'])}` | `{_cell(c['decl'])}` | {c['kind']} | {c['trust']} |"
                        for c in e.get("claims") or []]
@@ -1219,11 +1406,18 @@ def render_index(root: pathlib.Path) -> str:
     if not rows:
         out.append("No entries yet.")
     else:
-        out += ["| Package | Trust | Toolchain | Headline theorem | Pin | Links |",
-                "|---|---|---|---|---|---|", *rows]
+        out += ["| Package | Trust | Toolchain | Headline theorem | Built on | Pin | Links |",
+                "|---|---|---|---|---|---|---|", *rows]
         if legacy:
             out += ["", "`comparator (legacy)`: checked with the pinned comparator stack; it is not "
                         "predictive of Palomar acceptance, which runs the toolchain mechanism."]
+        if credit_rows:
+            out += ["", "## Built on", "",
+                    "Third-party Lean code each package depends on (`depends-on`, a Lake dependency) or "
+                    "adapts (`adapted-from`, source copied into the package), from the entry's `built_on`. "
+                    "Mathlib and its own dependencies are implicit and not listed.", "",
+                    "| Package | Library | Authors | Relation | License | Pin | Note |",
+                    "|---|---|---|---|---|---|---|", *credit_rows]
         if claim_rows:
             out += ["", "## Claims", "",
                     "Derived from each `index-entry/2` headline; `lean-pkg search TERM` finds them.", "",
