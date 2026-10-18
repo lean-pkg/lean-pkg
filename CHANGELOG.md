@@ -11,6 +11,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `lean-pkg blueprint check NAME [--decls PATH]`, the blueprint cross-check
+  (two-tracks gap #17), read-only. On a clean checkout it runs `lake build`,
+  then `lake exe checkdecls blueprint/lean_decls`, and reports every
+  declaration of the blueprint's `\lean{...}` tags that checkdecls finds
+  missing. It then checks that each claim in `claims.yaml` whose `decl` the
+  blueprint names is a declaration checkdecls accepts. A package without a
+  blueprint is skipped. checkdecls (by Patrick Massot, Apache-2.0) is a Lake
+  dependency the package adds, pinned in docs/page.md; lean-pkg never edits
+  the lakefile and includes none of its code (#260).
 - Try lean-pkg in a Codespace: `.devcontainer/tutorial/` (a Dockerfile,
   `devcontainer.json` and a creation script) opens the π-λ tutorial with
   Lean v4.35.0, lean-pkg 0.12.0 from its tag, `bwrap`, systemd as PID 1 (for

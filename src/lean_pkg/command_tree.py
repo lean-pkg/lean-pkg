@@ -166,7 +166,7 @@ TIERS: dict[str, str] = {
     "register": "author", "update": "author", "record": "author", "gate": "author", "next": "author",
     "list": "author", "search": "author", "receipt": "author", "comparator": "author", "claims": "author",
     "coverage": "author", "formalization": "author", "palomar": "author", "reservoir": "author",
-    "public-safety": "author", "report": "author",
+    "blueprint": "author", "public-safety": "author", "report": "author",
     "lease": "coordination", "registry": "coordination", "repo": "coordination", "index": "coordination",
     "llms": "coordination",
 }
@@ -174,7 +174,8 @@ TIERS: dict[str, str] = {
 # argparse dests of the nouns' verb (and of the older nested commands), for canonical_command.
 NOUN_DESTS = {"lease": "lease_cmd", "registry": "registry_cmd", "repo": "repo_cmd",
               "comparator": "comparator_cmd", "formalization": "formalization_cmd"}
-NESTED_DESTS = ("index_cmd", "claims_cmd", "reservoir_cmd", "palomar_cmd", "receipt_cmd", "coverage_cmd")
+NESTED_DESTS = ("index_cmd", "claims_cmd", "reservoir_cmd", "blueprint_cmd", "palomar_cmd", "receipt_cmd",
+                "coverage_cmd")
 
 # Root options that take a value (skipped when looking for the command word).
 GLOBAL_VALUE_FLAGS = ("--registry", "--events", "--registry-snapshot")

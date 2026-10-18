@@ -46,6 +46,7 @@ PACKAGE AUTHOR: evidence, publication, the catalog
   palomar        Palomar: prepare (build a submission bundle), check (read-only readiness), port-
                  modules (plan or write the module-system port); no network
   reservoir      Reservoir: check (read-only listing criteria)
+  blueprint      blueprint: check (\lean{} names with checkdecls)
   public-safety  read-only: scan the package's tree and git history for private patterns (exit 1
                  on hits; publish --yes runs it)
   report         read-only: a redacted bug report in the repository's issue format; dry run unless

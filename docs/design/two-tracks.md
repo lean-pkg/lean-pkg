@@ -282,9 +282,11 @@ page shows only the current anchor. A short history (verified against v1 at
 commit A, against v2 at commit B) would show what the formalization covered
 at each version a referee saw.
 
-**Smaller items already noted elsewhere.** A blueprint cross-check of
-`\lean{}` names against `claims.yaml` ([page: Not yet](../page.md#not-yet));
-`lean-pkg-extract` write mode (plan only today, [extract](../extract.md)).
+**Smaller items already noted elsewhere.** `lean-pkg-extract` write mode
+(plan only today, [extract](../extract.md)). The blueprint cross-check of
+`\lean{}` names against `claims.yaml` has shipped as `lean-pkg blueprint
+check`, which runs checkdecls instead of a parser of our own
+([page: blueprint cross-check](../page.md#blueprint-cross-check)).
 
 ## Prioritized gap list
 
@@ -308,7 +310,7 @@ Sizes: S is a day or less, M a few days, L a week or more.
 | 14 | L | doc-gen4 `docbuild` scaffold and the docs link on the page | S | standard for public libraries |
 | 15 | L | Compatibility table: receipts per Mathlib pin | L | needs runner receipts (wave 3) |
 | 16 | L | AI-disclosure paragraph (and the `LLM-generated` label when it applies) for a Mathlib PR, rendered from `ai_assistance` and `automation`; prepared, never sent | S | Mathlib requires it |
-| 17 | P | Blueprint cross-check; `lean-pkg-extract` write mode | M | already on other lists |
+| 17 | P | Done: `blueprint check NAME` runs checkdecls on `blueprint/lean_decls` and checks `claims.yaml` against it. Left: `lean-pkg-extract` write mode | M | already on other lists |
 
 Items 1 to 4 and 6 fit wave 1 or 2; 5, 7 to 9 change formats and belong
 before the 1.0 freeze or behind a design proposal; 10 and 15 depend on

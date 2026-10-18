@@ -79,6 +79,8 @@ registry adds [`lease claim`](lease-claim.md) before work. At any point
 | [`lean-pkg palomar port-modules`](palomar-port-modules.md) | plan (dry run, default) or --write the mechanical port of the package's tracked .lean files to Lean's module system; never commits |
 | [`lean-pkg reservoir`](reservoir.md) | Reservoir: check (read-only listing criteria) |
 | [`lean-pkg reservoir check`](reservoir-check.md) | would Reservoir list this package? read-only; exit 0 eligible / 1 not |
+| [`lean-pkg blueprint`](blueprint.md) | blueprint: check (\\lean{} names with checkdecls) |
+| [`lean-pkg blueprint check`](blueprint-check.md) | run checkdecls on the blueprint's declaration list at HEAD and check claims.yaml against it; exit 0 nothing missing / 1; writes nothing |
 | [`lean-pkg public-safety`](public-safety.md) | read-only: scan the package's tree and git history for private patterns (exit 1 on hits; publish --yes runs it) |
 | [`lean-pkg report`](report.md) | read-only: a redacted bug report in the repository's issue format; dry run unless --yes (files it with gh issue create) |
 

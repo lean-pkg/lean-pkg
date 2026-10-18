@@ -297,6 +297,19 @@ The mathlib-initiative v0.4 report Palomar reads, derived from the registry,
 the comparator configurations and the receipts; `audit` reports drift. Derived
 versus kept keys: [formalization.yaml](formalization.md).
 
+## Check a blueprint against the Lean code
+
+```bash
+lean-pkg blueprint check my-proof          # exit 0 nothing missing, 1 otherwise
+```
+
+Runs [checkdecls](https://github.com/PatrickMassot/checkdecls) on the
+`blueprint/lean_decls` that leanblueprint writes, after `lake build` at a
+clean HEAD, and checks that every claim the blueprint names is a declaration
+checkdecls accepts. The package adds checkdecls as a pinned Lake dependency
+itself; a package without a blueprint is skipped:
+[Blueprint cross-check](page.md#blueprint-cross-check).
+
 ## Anchor a companion to an arXiv version
 
 ```bash
