@@ -45,6 +45,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   and `gromov-filling-lean` the four libraries it depends on or vendors
   (EPFL LARA's JordanCurveTheorem, classification-of-surfaces, the
   Jordan-Schönflies development of lean-proofs, jordan_pick) (#267).
+- Proposal 0007 accepted (2026-10-18, after its implementation #267 had
+  merged). As its open question 2 was decided, `index check --clone` (or
+  `--repo-dir`) now warns on each `lake-manifest.json` package at the entry's
+  pin that is not Mathlib, one of Mathlib's own dependencies or Lean core and
+  that no `built_on` credit names (by URL, with or without `.git`, or by
+  name): one `warning: Lake dependency NAME (URL) ... has no built_on credit`
+  note each. The exit status and `ok` are unchanged; `--json` gains the
+  per-entry key `uncredited_dependencies` (`name`, `url`). Implicit means a
+  listed name or URL (mathlib, batteries, std, aesop, Qq, proofwidgets,
+  importGraph, LeanSearchClient, plausible, Cli, Lean core) or an
+  `inherited` package from the leanprover-community or leanprover GitHub
+  organizations; the rule is in docs/index-catalog.md. The three index
+  entries raise no warning (#269).
 
 ### Changed
 

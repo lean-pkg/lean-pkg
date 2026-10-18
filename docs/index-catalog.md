@@ -115,12 +115,40 @@ pin, or when no package there has that URL. An `adapted-from` credit is
 vendored source, so its pin is not compared.
 
 What to list: every third-party Lean library the package's Lean code imports
-or copies, from its `lake-manifest.json` (direct `require`s) and from any
-vendored source it carries. Mathlib and the packages Mathlib itself pulls in
+or copies, from its `lake-manifest.json` (its direct `require`s and the
+libraries they pull in) and from any vendored source it carries. Mathlib and the packages Mathlib itself pulls in
 (Batteries, Aesop, Qq, ProofWidgets, Plausible, ImportGraph,
 LeanSearchClient, Cli), and code copied from Mathlib, are implicit and not
 listed; Lean core is not listed. Tools that are not Lean code the package
 builds on (scripts, CI helpers) are out of scope.
+
+A missing credit for a Lake dependency is caught: `index check --clone` (or
+`--repo-dir`) reads `lake-manifest.json` at the entry's pin and prints one
+note, "warning: Lake dependency NAME (URL) in lake-manifest.json at the pin
+has no built_on credit", for each package in `packages[]` that is not
+implicit and that no credit names; `--json` lists them in the entry's
+`uncredited_dependencies` (`name` and `url`; `[]` in a static check). A
+credit names a package when its `url` equals the package's URL (ignoring
+case and a trailing `.git`) or its `name` equals the package's name
+(ignoring case), whatever its `relation`. The warning never fails the check:
+the exit status and `ok` are unchanged. A package is implicit when
+
+- its name or URL is Mathlib or one of Mathlib's own dependencies:
+  `mathlib` (`leanprover-community/mathlib4`), `batteries`, `std`
+  (`leanprover/std4`), `aesop`, `Qq` (`quote4`), `proofwidgets`
+  (`ProofWidgets4`), `importGraph` (`import-graph`), `LeanSearchClient`,
+  `plausible` and `Cli` (`leanprover/lean4-cli`);
+- it is Lean core (`lean4`, `Lean`, `Init`, `Lake`, or
+  `leanprover/lean4`); or
+- the manifest marks it `"inherited": true` and its repository is under
+  `github.com/leanprover-community/` or `github.com/leanprover/`, the
+  organizations that host Mathlib and its dependencies, so a dependency
+  Mathlib adds later is implicit before the list above names it.
+
+`inherited` alone does not make a package implicit: a library pulled in by a
+credited library is not Mathlib's and warns until it is credited. A direct
+`require` from those two organizations that is not in the list (a tactic
+library, say) warns as well.
 
 ```yaml
 built_on:

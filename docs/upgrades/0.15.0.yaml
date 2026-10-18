@@ -48,6 +48,23 @@ changes:
       docs/index-catalog.md). A fork that checks this index with lean-pkg 0.14.0 or older must upgrade.
     breaking: false
     changelog: Added
+  - pr: 269
+    id: index-check-uncredited-dependencies
+    kind: behavior
+    area: index check
+    summary: >-
+      Proposal 0007 accepted (2026-10-18, after #267 had merged as its implementation). index check --clone
+      (or --repo-dir) warns on each lake-manifest.json package at the entry's pin that is not Mathlib, one
+      of Mathlib's own dependencies (a documented list of names and URLs, or an inherited package from the
+      leanprover-community or leanprover GitHub organizations) or Lean core, and that no built_on credit
+      names by URL (with or without .git) or by name. The exit status and ok are unchanged; --json gains
+      the additive per-entry key uncredited_dependencies (name, url).
+    action: >-
+      Nothing for a package author. An index entry whose package requires a non-Mathlib Lake library adds
+      a built_on credit for it (index add --replace --built-on-file); a script reading index check output
+      may see the new warning notes.
+    breaking: false
+    changelog: Added
 # Read for this record, nothing for a package author: index data, total-coloring-lean and
 # markovprocess-pilot re-pinned at their new gated commits with judged_as on every reusable claim (#265);
 # index data, total-coloring-lean re-pinned at its 0.2.0 release (#266); index data, Zenodo DOIs for
