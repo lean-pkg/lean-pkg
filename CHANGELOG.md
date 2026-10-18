@@ -27,6 +27,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
+Zenodo version DOI: [10.5281/zenodo.23456132](https://doi.org/10.5281/zenodo.23456132)
+
 ## [0.15.0] - 2026-10-18
 
 ### Added
