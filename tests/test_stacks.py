@@ -24,13 +24,15 @@ VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$")
 NAME = re.compile(r"^lts-(\d{4})\.(04|10)$")                              # decided: April and October
 
 TOP_KEYS = {"schema", "name", "defined", "published", "lean_toolchain", "lean_commit", "mathlib", "lean_pkg",
-            "palomar_floor", "comparator_tools", "supported_until", "successor", "tested", "advisories"}
+            "palomar_floor", "comparator_tools", "supported_until", "successor", "tested", "migration_cases",
+            "advisories"}
 MATHLIB_KEYS = {"rev", "commit"}
 FLOOR_KEYS = {"minimum", "satisfied"}
 TOOLS_KEYS = {"mechanism", "sources", "release_asset", "binaries_sha256"}
 SOURCE_KEYS = {"lake_comparator", "leanexport", "leanchecker", "nanoda_lib", "con_ron"}
 ASSET_KEYS = {"name", "sha256"}
 TESTED_KEYS = {"package", "commit", "moved", "build", "result"}
+MIGRATION_KEYS = {"package", "commit", "reason", "to_move"}
 RESULTS = {"verified", "built", "migration", "pending", "blocked", "failed"}
 
 
@@ -119,6 +121,16 @@ def validate(doc: dict) -> list[str]:
         if doc["published"] is not None and any(e.get("result") in ("pending", "blocked", "failed") for e in doc["tested"]
                                                 if isinstance(e, dict)):
             p.append("published: set while a matrix entry is pending, blocked or failed (declared after the matrix passes)")
+    if not isinstance(doc["migration_cases"], list):
+        p.append("migration_cases: not a list")
+    else:
+        for i, e in enumerate(doc["migration_cases"]):
+            if closed(f"migration_cases[{i}]", e, MIGRATION_KEYS):
+                if not HEX40.match(str(e["commit"])):
+                    p.append(f"migration_cases[{i}].commit: not a 40-hex commit")
+                for k in ("reason", "to_move"):
+                    if not str(e[k] or "").strip():
+                        p.append(f"migration_cases[{i}].{k}: empty")
     if not isinstance(doc["advisories"], list):
         p.append("advisories: not a list")
     return p
@@ -152,6 +164,10 @@ def test_first_stack_meets_the_code_floors():
     assert doc["palomar_floor"]["minimum"] == palomar_check.DEFAULT_POLICY["toolchain"]["minimum"]
     assert version_key(comparator_receipt.TOOLCHAIN_FLOOR) <= version_key(tc)
     assert doc["mathlib"]["rev"] == tc
+    # declared 2026-10-18 over the entries that reach receipts; gromov-filling-lean is a migration case
+    assert doc["published"] == dt.date(2026, 10, 18)
+    assert all(e["result"] in ("verified", "migration") for e in doc["tested"])
+    assert [m["package"] for m in doc["migration_cases"]] == ["gromov-filling-lean (index)"]
 
 
 def test_validator_refuses_bad_stacks():
@@ -165,7 +181,8 @@ def test_validator_refuses_bad_stacks():
         (lambda d: d["palomar_floor"].update(minimum="v4.36.0"), "palomar_floor.satisfied"),
         (lambda d: d.update(name="lts-2026.07"), "lts-YYYY.04"),
         (lambda d: d["tested"][0].update(result="ok"), "result"),
-        (lambda d: d.update(published=dt.date(2026, 11, 2)), "declared after the matrix passes"),
+        (lambda d: d["tested"][0].update(result="blocked"), "declared after the matrix passes"),
+        (lambda d: d["migration_cases"][0].update(reason=""), "migration_cases[0].reason"),
     ]:
         d = yaml.safe_load((STACKS / "lts-2026.10.yaml").read_text())
         mutate(d)

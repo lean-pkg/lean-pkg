@@ -35,6 +35,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   records timings, peak memory, receipt SHA-256s and migration notes, and
   the proposal's Costs line the measured cost. The stack file's `tested`
   results gain `blocked` (#258).
+- Stack lts-2026.10 is declared (`published: 2026-10-18`, proposal 0004)
+  over the five stage 0 matrix entries that reach receipts.
+  gromov-filling-lean is recorded as a migration case outside the declared
+  matrix, under the stack file's new `migration_cases` key, with the reason
+  (its JordanCurveTheorem dependency is still on Lean v4.29.0 and fails on
+  v4.35.0) and what moving it would take. The two pre-existing
+  claims-to-comparator mapping failures (markovprocess-pilot,
+  total-coloring-lean) are noted as known and not caused by the stack.
+  RELEASING.md step 3a now applies to this stack (#259).
 
 ## [0.13.0] - 2026-10-17
 
