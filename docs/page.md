@@ -124,6 +124,15 @@ as the gate) closes every claim the row names. Otherwise the row shows the
 ledger's own status (`open`, `blocked`, `unknown`, `out-of-scope`). Nothing in
 the block calls the paper verified.
 
+The comparator tier is required only for `reusable` claims, so a row can be
+*verified* without a statement comparison. A verified row says "(the build,
+and the statement comparison)" only when every claim it names was judged by a
+passing configuration of the recorded comparator receipt at the gate-bound
+commit; otherwise it says "every check that applies to this result passed (the
+build; its statement was not compared by a second checker)". When some verified
+results were not compared, the summary line adds how many were ("for 8 of them
+a second checker also compared the statement").
+
 Commit the README and `coverage.yaml` after the gate, and the gate-bound
 commit is no longer `HEAD`. Opt the package into the docs-only rule
 (`lean-pkg update NAME --accept-docs-descendants --reason TEXT`, see

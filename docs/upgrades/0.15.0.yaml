@@ -65,6 +65,28 @@ changes:
       may see the new warning notes.
     breaking: false
     changelog: Added
+  - pr: 270
+    id: page-uncompared-verified-rows
+    kind: behavior
+    area: page
+    summary: >-
+      A verified row of the page said "every check of this result passed (the build, and the statement
+      comparison)" even when its claims were never compared: the comparator tier is required only for reusable
+      claims, so the claims ledger calls an experimental or internal claim verified on the build alone. A row
+      now says "(the build, and the statement comparison)" only when a passing configuration of the recorded
+      comparator receipt at the gate-bound commit judged every claim it names; otherwise "every check that
+      applies to this result passed (the build; its statement was not compared by a second checker)". When not
+      every verified result was compared, the summary line ("Main results: N; verified: ..." or "Verified: ...
+      result(s) in Lean") adds "(for K of them a second checker also compared the statement)". Same text in
+      --site and --html; the word verified and the JSON keys are unchanged.
+    action: >-
+      A package whose page has a verified result naming a claim that no passing comparator configuration
+      checked: rerun page --write once (page --check reports the block stale until then). Of the published
+      packages, only rmt-foundations has a committed page block, and every one of its rows is compared, so
+      its page does not change; total-coloring-lean's first page shows the new wording for its five
+      experimental results. Nothing for any other package.
+    breaking: false
+    changelog: Fixed
 # Read for this record, nothing for a package author: index data, total-coloring-lean and
 # markovprocess-pilot re-pinned at their new gated commits with judged_as on every reusable claim (#265);
 # index data, total-coloring-lean re-pinned at its 0.2.0 release (#266); index data, Zenodo DOIs for
