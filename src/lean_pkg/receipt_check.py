@@ -42,7 +42,11 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   record when present (its lean_toolchain and lake_manifest_sha256 against X; the manifest file itself
   describes the author's build directory and is not published).
 - claimed theorems: every theorem or lemma claim with status reusable in claims.yaml at X is named by a
-  comparator configuration tracked at X (the rule `comparator config --coverage` applies).
+  comparator configuration tracked at X (the rule `comparator config --coverage` applies): by its explicit
+  `judged_as` when set (that exact theorem name, and nothing else), else by the naming rule (the decl, or
+  <Prefix>.<decl>). Any `judged_as` that names no configured theorem, or whose claim's decl is not declared in
+  its file, fails, whatever the claim's status. claims.yaml is bound to X like the sources (a change after X is
+  neither evidence-only nor docs-only), so the mapping is read where the claims are.
 - coverage: coverage.yaml at REF, when tracked, passes `coverage check` (schema, claim ids, backed compute
   jobs, R8 to R12: every theorem the comparator receipt compares is the declaration of a claim a row names).
 - page: the README.md verification block at REF, when present, states what the receipts say: the bound
@@ -414,13 +418,21 @@ def claimed_theorems_check(c: Checks, repo: pathlib.Path, pkg: dict, x: str, hav
     cls = cc._classify(claims, cc._configs_at(repo, x), cc.qualified_decls(_reader(repo, x), claims),
                        cc._sidecar_at(repo, x))
     required = [cl for cl in cls["not_covered"] + cls["todo"] if cl.get("status") == "reusable"]
+    problems = []
+    if cls["judged_as_problems"]:
+        problems.append(f"judged_as mapping(s) not backed by the comparator configurations at {x[:12]}: "
+                        + "; ".join(cls["judged_as_problems"][:10]))
     if required:
-        c.add(cid, FAIL, f"reusable theorem/lemma claim(s) named by no comparator configuration at {x[:12]}: "
-              + ", ".join(f"{cl.get('id')} ({cl.get('decl')})" for cl in required[:10]))
+        problems.append(f"reusable theorem/lemma claim(s) named by no comparator configuration at {x[:12]}: "
+                        + ", ".join(f"{cl.get('id')} ({cl.get('decl')})" for cl in required[:10]))
+    if problems:
+        c.add(cid, FAIL, "; ".join(problems))
         return
     rest = len(cls["not_covered"]) + len(cls["todo"])
+    mapped = sum(1 for cl in cls["covered"] if cc.judged_name(cl))
     c.add(cid, PASS, f"every reusable theorem/lemma claim of {source} is named by a comparator configuration "
-          f"({len(cls['covered'])} covered" + (f"; {rest} not covered, none of them reusable" if rest else "") + ")")
+          f"({len(cls['covered'])} covered" + (f", {mapped} by an explicit judged_as" if mapped else "")
+          + (f"; {rest} not covered, none of them reusable" if rest else "") + ")")
 
 
 def coverage_check(c: Checks, repo: pathlib.Path, pkg: dict) -> None:

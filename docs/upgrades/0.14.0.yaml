@@ -42,6 +42,26 @@ changes:
       receipt is refused); python3 -m lean_pkg.claim_axioms --project . checks it before a job.
     breaking: false
     changelog: Added
+  - pr: 261
+    id: claims-judged-as
+    kind: format
+    area: claims, receipt check, comparator, claims ledger, coverage check, page
+    summary: >-
+      claims.yaml (claims/1) accepts an optional judged_as on a theorem or lemma claim: the full name of the
+      comparator theorem that judges it when the Challenge theorem is not named after the decl (an Audit
+      namespace). It replaces the naming rule for that claim in every check that credits a comparator name
+      (receipt check's claimed theorems, the claims ledger, comparator config --coverage, coverage check R11,
+      page, claims mark, status). The schema refuses it on other kinds and the same name on two claims;
+      receipt check fails one that names no configured theorem or whose decl is not declared, whatever the
+      status. comparator config --coverage --json gains judged_as_problems. Proposal 0006 (draft). No schema
+      bump; a claims file without the key is unchanged. lean-pkg 0.13.0 and older refuse the key.
+    action: >-
+      Nothing for a package whose Challenge theorems follow the naming rule. A package whose claims name
+      library theorems while its comparator judges Audit names adds judged_as to each judged claim, requires
+      this lean-pkg release or later (older ones refuse the key), and gates the new commit: claims.yaml is
+      bound to the receipt commit, so neither the evidence-only nor the docs-only rule admits the change.
+    breaking: false
+    changelog: Added
 # Read for this record, nothing for a package author: the Codespaces dev container for the π-λ tutorial
 # (.devcontainer/tutorial/, a badge and a docs section), which changes no command, package file or
 # receipt (#257); the lts-2026.10 stage 0 matrix results, as docs under docs/stacks with no CLI

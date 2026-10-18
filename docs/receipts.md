@@ -1763,7 +1763,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `claims` | `claims.yaml` at X passes the claims/1 schema and the declaration check `gate` runs |
 | `comparator <receipt>` | `gate`'s validator: the exact set of configurations tracked at X, each one's SHA-256, theorem names and sign-off, each log's SHA-256 and PASS line, the lower tier's commit |
 | `... olean manifest` | the receipt's `olean_manifest` names the toolchain and `lake-manifest.json` of X (the manifest file itself is not published) |
-| `claimed theorems` | every `reusable` theorem or lemma claim at X is named by a comparator configuration at X |
+| `claimed theorems` | every `reusable` theorem or lemma claim at X is named by a comparator configuration at X: by its `judged_as` when set (that exact name), else by the naming rule; any `judged_as` that names no configured theorem, or whose `decl` is not declared in its file, fails whatever the claim's status ([explicit mapping](comparator.md#how-a-theorem-name-maps-to-a-claim)) |
 | `coverage` | `coverage.yaml` at REF passes `coverage check`, R11 included: each compared theorem is the declaration of a claim a row names |
 | `page: ...` | the README page block at REF states X, the pins of X, each receipt row's path, commit and SHA-256 as committed (the *Receipts* table; *Evidence* on a page written before 0.11), and the receipts' sorry count, axioms and comparator counts |
 

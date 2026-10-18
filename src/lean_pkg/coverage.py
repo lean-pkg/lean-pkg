@@ -633,10 +633,11 @@ def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.
     row_claims = [claims[cid] for _i, cid in named]
     qualified = cc.qualified_decls(claims_mod._reader(repo, "HEAD"), row_claims)
     decls = [(str(c.get("decl") or ""), str(c.get("decl") or "") in qualified) for c in row_claims]
+    mapped = cc.mapped_names(list(claims.values()))      # a judged_as name judges its own claim only (#CM)
     for c in configs:
         where = c.get("path") or "?"
         for t in c.get("theorem_names") or []:
-            if isinstance(t, str) and not any(cc.covers({t}, d, q) for d, q in decls):
+            if isinstance(t, str) and not any(cc.claim_covered({t}, rc, qualified, mapped) for rc in row_claims):
                 near = cc.name_hints([t], decls)            # #6: a root-namespace near miss, named, never credited
                 errors.append(f"comparator theorem {t!r} ({where}, recorded comparator receipt) is the declaration "
                               f"of no claim a row names: map it to its paper result (a row's claims), or drop it "

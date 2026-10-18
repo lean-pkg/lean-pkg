@@ -113,6 +113,47 @@ def covers(names: set[str], decl: str, qualified: bool) -> bool:
     return False
 
 
+def judged_name(claim) -> str | None:
+    """A claim's explicit `judged_as` (claims/1, #CM): the comparator theorem name that judges it; None when unset
+    or malformed (the claims schema check reports a malformed one)."""
+    j = claim.get("judged_as") if isinstance(claim, dict) else None
+    return j.strip() if isinstance(j, str) and j.strip() else None
+
+
+def mapped_names(claims: list[dict]) -> set[str]:
+    """Every name some claim's `judged_as` gives: such a name judges that claim only, so the naming rule never
+    credits it to another claim."""
+    return {j for c in claims for j in [judged_name(c)] if j}
+
+
+def claim_covered(names, claim: dict, qualified: set[str], mapped: set[str] | None = None) -> bool:
+    """Is `claim` judged by one of the configured `names`? With `judged_as` set: exactly when that name is
+    configured, and only for a decl whose fully qualified name the claim states (`qualified`). Without it: the
+    naming rule (`covers`) over the names no claim's `judged_as` takes (`mapped`, default from nothing)."""
+    decl = str(claim.get("decl") or "")
+    j = judged_name(claim)
+    if j is not None:
+        return decl in qualified and j in set(names)
+    return covers(set(names) - set(mapped or ()), decl, decl in qualified)
+
+
+def judged_as_problems(claims: list[dict], configured: set[str], qualified: set[str]) -> list[str]:
+    """What is wrong with the explicit mappings against the configurations at a commit: a `judged_as` that names
+    no configured theorem, or that is set on a claim whose decl is not the fully qualified name of a declaration
+    its file declares. Each is a false statement about the comparator evidence, whatever the claim's status."""
+    out = []
+    for c in claims:
+        j = judged_name(c)
+        if j is None:
+            continue
+        if j not in configured:
+            out.append(f"{c.get('id')}: judged_as {j!r} is in no comparator configuration's theorem_names")
+        elif str(c.get("decl") or "") not in qualified:
+            out.append(f"{c.get('id')}: judged_as {j!r} is set, but decl {c.get('decl')!r} is not the fully qualified "
+                       f"name of a declaration in {c.get('file')}")
+    return out
+
+
 COVER_RULE = ("a comparator theorem name covers a claim only when it ends in the claim's whole fully qualified "
               "decl: the decl itself, or <Prefix>.<decl> (FooAudit.Foo.Sec.thm covers the decl Foo.Sec.thm; "
               "FooAudit.Sec.thm, the root Foo dropped, covers nothing)")
@@ -358,7 +399,8 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
         if c.get("kind") not in CLAIM_KINDS or c.get("status") == "superseded" or not decl:
             skipped += 1
             continue
-        if covers(configured, decl, decl in qualified) or f"{ns}.{decl}" in configured or cid in todo_claims:
+        if claim_covered(configured, c, qualified, mapped_names(claims)) or f"{ns}.{decl}" in configured \
+                or cid in todo_claims:
             existing += 1
             continue
         tname = f"{ns}.{decl}"
@@ -519,14 +561,16 @@ def _classify(claims: list[dict], configs: dict[str, bytes], qualified: set[str]
               sidecar: dict | None = None) -> dict:
     names, todo = _names(configs, sidecar)
     real = names - todo
-    out = {"covered": [], "todo": [], "not_covered": [], "not_applicable": 0}
+    mapped = mapped_names(claims)
+    out = {"covered": [], "todo": [], "not_covered": [], "not_applicable": 0,
+           "judged_as_problems": judged_as_problems(claims, names, qualified)}
     for c in claims:
         decl = str(c.get("decl") or "")
         if c.get("kind") not in CLAIM_KINDS or c.get("status") == "superseded" or not decl:
             out["not_applicable"] += 1
-        elif covers(real, decl, decl in qualified):
+        elif claim_covered(real, c, qualified, mapped):
             out["covered"].append(c)
-        elif covers(todo, decl, decl in qualified):
+        elif claim_covered(todo, c, qualified, mapped):
             out["todo"].append(c)
         else:
             out["not_covered"].append(c)
@@ -621,6 +665,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
     if cls["not_covered"]:
         lines.append("  not covered: " + ", ".join(f"{c.get('id')} ({c.get('decl')})" for c in cls["not_covered"][:10])
                      + (" ..." if len(cls["not_covered"]) > 10 else ""))
+    lines += [f"  judged_as: {m}" for m in cls["judged_as_problems"]]
     configured = _names(at_bound, _sidecar_at(repo, bound))[0]
     hints = [h for c in cls["not_covered"]
              for h in [decl_hint(configured, str(c.get("decl") or ""), str(c.get("decl") or "") in qualified)] if h]
@@ -641,7 +686,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
                "not_covered": len(cls["not_covered"]), "todo": len(cls["todo"]),
                "not_applicable": cls["not_applicable"],
                "uncovered": [{"id": c.get("id"), "decl": c.get("decl")} for c in cls["not_covered"]],
-               "hints": hints,
+               "hints": hints, "judged_as_problems": cls["judged_as_problems"],
                "config_changed": bool(changed), "changed_configs": changed, "candidate": candidate,
                "statement": statement, "next_commands": nxt}
     return lines, payload
