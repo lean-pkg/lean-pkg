@@ -71,6 +71,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (legacy mechanism, all 8 configurations pass). Entry replaced with `index add
   --from-registry` (headlines, field tags, consent and notes unchanged; the pin
   now names its tag) (#266).
+- Index: Zenodo DOIs for `markovprocess-pilot` (v0.1.1,
+  `10.5281/zenodo.23452512`, concept `10.5281/zenodo.23452511`) and
+  `total-coloring-lean` (v0.2.0, `10.5281/zenodo.23452514`, concept
+  `10.5281/zenodo.23452513`), recorded with `record doi-minted --doi-track
+  doi-only`; entries replaced with `index add --from-registry` (only `doi` and
+  `added.at` change), and `index render` links each DOI (#268).
 
 ## [0.14.0] - 2026-10-17
 

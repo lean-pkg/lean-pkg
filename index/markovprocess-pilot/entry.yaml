@@ -26,7 +26,12 @@ claims:
   judged_as: exit_mean
   trust: comparator
 palomar: []
-doi: null
+doi:
+  concept: 10.5281/zenodo.23452511
+  versions:
+  - doi: 10.5281/zenodo.23452512
+    tag: v0.1.1
+    commit: 1adfea7e35530ec8d3ba3f4ac4e7a0dd85020bf0
 reservoir: null
 formalization_yaml: null
 built_on:
@@ -45,7 +50,7 @@ fields:
 consent:
   recorded: true
 added:
-  at: '2026-10-18T04:38:37+00:00'
+  at: '2026-10-18T13:02:46+00:00'
   by: chenle02
 notes: 'Consumer pilot of Scott Armstrong''s MarkovProcess (scottnarmstrong/MarkovProcess), which supplies
   the Brownian motion, exit times and Dynkin''s formula; one helper lemma is adapted from it with his
