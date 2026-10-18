@@ -174,6 +174,7 @@ compute:                              # optional; see the Easley acknowledgment
 | `compute` | `[{cluster: NAME, jobs: [slurm-<J>, ...]}]`; `NAME` a [site profile](sites.md) (`easley` is built in); each job must be a receipt of the site's scheduler committed under `.lean-receipts/` |
 | `lean_pkg_version` | optional `{version, doi}`: the exact lean-pkg version to credit. When lean-pkg's own `CITATION.cff` is readable it must list that version with exactly that DOI |
 | `kind` | optional: `paper` (the default, everything above) or `library` ([below](#a-library-with-no-manuscript)). An older lean-pkg refuses the key (coverage/1 is strict) |
+| `stack` | optional: the [LTS stack](stacks/README.md) the package opts into, `lts-YYYY.04` or `lts-YYYY.10` (`lean-pkg new --stack` writes it). `coverage check` checks only the name's shape; `doctor NAME`, `verify` and `page` check the committed `lean-toolchain` and Mathlib commit against the stack and warn on a difference, never failing a check. When they match, *How this was checked* carries the line "Built on lean-pkg stack NAME", linking the stack's page. lean-pkg 0.14.0 and older refuse the key (coverage/1 is strict) |
 
 The file is strict: unknown and missing keys, values outside the enums and
 repeated mapping keys are refused. `lean-pkg coverage check NAME` validates the
@@ -217,7 +218,7 @@ compute:                                       # optional; the Easley rule is th
 | `rows[].statement` | optional TeX, as `paper.statement` for a paper; shown as **In words** |
 | `rows[].title`, `rows[].claims`, `rows[].note` | one line each; at least one claim id, each in `claims.yaml` at `HEAD`, none superseded, each claim's `file` committed |
 | comparator | as for a paper: every theorem the recorded comparator receipt compares is the declaration of a claim some row names, so the rows account for everything the page says was compared |
-| `compute`, `lean_pkg_version`, `summary` | as above |
+| `compute`, `lean_pkg_version`, `stack`, `summary` | as above |
 
 The page then carries *Main results* (one block per result, with its Lean
 statement) in place of the paper's results and *Not formalized*; the first line says

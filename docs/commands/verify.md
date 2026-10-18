@@ -19,7 +19,7 @@ lean-pkg verify [--work-dir DIR] [--unit UNIT] [--script FILE] [--judges N]
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
-Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bash verify.sh` and `gate` (an active package first moves to gate-pending; a gated one is re-gated), each as its own lean-pkg invocation with its own checks. Writes only what those commands write; commits nothing in the checkout.
+Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bash verify.sh` and `gate` (an active package first moves to gate-pending; a gated one is re-gated), each as its own lean-pkg invocation with its own checks. Writes only what those commands write; commits nothing in the checkout. A package whose committed coverage.yaml declares an LTS stack (`stack: NAME`, docs/stacks/) is checked against it (lean-toolchain, the Mathlib commit, the comparator receipt's tool digests): a warning per difference, never a refusal.
 
 ## Arguments and flags
 

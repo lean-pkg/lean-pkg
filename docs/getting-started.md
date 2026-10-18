@@ -151,7 +151,8 @@ them as they are; `my-proof`, `MyProof` and `two_mul_le` are names you may
 change later, consistently.
 `lean-pkg new my-proof --kind library` writes the same files, plus the claims,
 coverage, citation, license, REUSE and verify script the [Quickstart](quickstart.md)
-uses (without `--kind`, a paper companion whose `coverage.yaml` waits for the paper).
+uses (without `--kind`, a paper companion whose `coverage.yaml` waits for the paper,
+pinned to the current [LTS stack](stacks/README.md) when one is current).
 
 ```bash
 mkdir -p ~/src/my-proof && cd ~/src/my-proof
@@ -161,6 +162,7 @@ printf '/.lake\n' > .gitignore
 
 cat > lakefile.toml <<'EOF'
 name = "my-proof"
+defaultTargets = ["MyProof"]
 
 [[require]]
 name = "mathlib"
@@ -215,6 +217,10 @@ lake exe cache get
 lake build MyProof.Challenge MyProof.Solution
 git add -A && git commit -m "minimal Challenge/Solution project"
 ```
+
+`defaultTargets` makes a bare `lake build` build the library (on Lean
+v4.35.0, Lake otherwise builds nothing and says "no targets specified and
+no default targets configured").
 
 `lake update` writes `lake-manifest.json` and downloads Mathlib (several
 GB with its cache); the build ends with `Build completed successfully` and

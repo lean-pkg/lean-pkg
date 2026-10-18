@@ -28,6 +28,8 @@ formalized" list and the status capsule from it; this module only parses and val
         jobs: [slurm-12345]                      # each a Slurm receipt tracked under .lean-receipts/
     lean_pkg_version: {version: 0.7.52, doi: 10.5281/zenodo.N}   # optional: the exact version credited
     kind: paper                                  # optional; paper is the default
+    stack: lts-2026.10                           # optional: the LTS stack the package is on (proposal 0004);
+                                                 # doctor NAME, verify and page check the pins against it
 
 A reusable library with no manuscript of its own is `kind: library`: no `manuscript` and no
 `nothing_excluded` (refused, so a library page never claims a paper), and each row is one of the library's
@@ -44,6 +46,7 @@ main results, named by its Lean declarations:
         statement: TEX                           # optional: the result in mathematical words
     compute: ...                                 # as above (the Easley rule is the same)
     lean_pkg_version: ...                        # as above
+    stack: ...                                   # as above
 
 Strict: unknown or missing keys, values outside the closed enums and duplicate mapping keys are
 refused. Classes: `same-assumptions` (the Lean statement carries the paper's hypotheses),
@@ -64,10 +67,11 @@ from . import sites
 COVERAGE_SCHEMA = "coverage/1"
 DEFAULT_COVERAGE_FILE = "coverage.yaml"
 TOP_REQUIRED = ("schema", "package", "manuscript", "summary", "rows")
-TOP_OPTIONAL = ("nothing_excluded", "compute", "lean_pkg_version", "kind")
+TOP_OPTIONAL = ("nothing_excluded", "compute", "lean_pkg_version", "kind", "stack")
 KINDS = ("paper", "library")
 LIBRARY_TOP_REQUIRED = ("schema", "package", "kind", "summary", "rows")
-LIBRARY_TOP_OPTIONAL = ("compute", "lean_pkg_version")
+LIBRARY_TOP_OPTIONAL = ("compute", "lean_pkg_version", "stack")
+STACK_NAME_RE = re.compile(r"^lts-\d{4}\.(?:04|10)$")   # proposal 0004: lts-YYYY.MM, cut in April and October
 LIBRARY_ROW_REQUIRED = ("title", "claims")
 LIBRARY_ROW_OPTIONAL = ("note", "statement")
 # keys of a paper coverage that a library refuses by name: each would state a manuscript, or a relation to one
@@ -265,7 +269,7 @@ def _identity_errors(doc: dict, package: str | None, errors: list[str]) -> None:
 
 
 def _tail_errors(doc: dict, errors: list[str], profiles: dict) -> None:
-    """compute, placeholders and lean_pkg_version: the same for both kinds."""
+    """compute, placeholders, lean_pkg_version and stack: the same for both kinds."""
     comp = doc.get("compute")
     if "compute" in doc:
         if not isinstance(comp, list) or not comp:
@@ -299,6 +303,11 @@ def _tail_errors(doc: dict, errors: list[str], profiles: dict) -> None:
             errors.append("lean_pkg_version.version: must be a release version such as 0.7.52")
         if not (isinstance(lv["doi"], str) and ZENODO_DOI_RE.match(lv["doi"])):
             errors.append("lean_pkg_version.doi: must be a Zenodo version DOI (10.5281/zenodo.N)")
+    # the name's shape only: a stack declared by a newer lean-pkg is not an error here (doctor and verify say
+    # whether this lean-pkg declares it, and check the pins against it; it never fails a check)
+    if "stack" in doc and not (isinstance(doc["stack"], str) and STACK_NAME_RE.match(doc["stack"])):
+        errors.append(f"stack: must be an LTS stack name lts-YYYY.04 or lts-YYYY.10 (docs/stacks/), got "
+                      f"{doc['stack']!r}")
 
 
 def _paper_rows_errors(doc: dict, errors: list[str]) -> None:

@@ -1,15 +1,16 @@
 # lean-pkg new -- scaffold a minimal Lean package that the check, verify and page path accepts unchanged
-"""`lean-pkg new NAME [--kind paper|library] [--dir DIR] [--module MOD] [--no-mathlib] [--author TEXT]
-[--license Apache-2.0|MIT] [--json]`.
+"""`lean-pkg new NAME [--kind paper|library] [--stack NAME|current|none] [--dir DIR] [--module MOD] [--no-mathlib]
+[--author TEXT] [--license Apache-2.0|MIT] [--json]`.
 
 Writes a new directory (refused when it exists and is not empty) holding the project of
 docs/getting-started.md, "Start from scratch" (the same files, byte for byte, for NAME my-proof), plus the
 files the rest of the newcomer path reads, then runs `git init` there. Nothing is committed (lake update
 writes lake-manifest.json first), nothing is fetched or built, and no registry is read or written.
 
-    lean-toolchain          the toolchain Palomar accepts (TOOLCHAIN)
+    lean-toolchain          the stack's toolchain, else the newest one Palomar accepts (TOOLCHAIN)
     .gitignore              /.lake
-    lakefile.toml           one library MOD (globs MOD.+); requires Mathlib unless --no-mathlib
+    lakefile.toml           one library MOD (globs MOD.+), its defaultTargets (a bare `lake build` builds it);
+                            requires Mathlib (the stack's tag, else MATHLIB_REV) unless --no-mathlib
     MOD/Challenge.lean      the trusted statement, proof `sorry` (module-headed, as Palomar requires)
     MOD/Solution.lean       the same theorem, proved
     MOD/Axioms.lean         `#print axioms` of the theorem: what the lower-tier receipt reads
@@ -31,6 +32,13 @@ incomplete on purpose: the manuscript block carries `version: unposted` and FILL
 anchor NAME --arxiv <id>v<N> ... --write` then sets the posted version. No manuscript is invented.
 --kind library: the Lean package is the product; coverage.yaml is kind library with one main result
 naming the example claim, and passes `coverage check` as written.
+
+--stack (proposal 0004, docs/stacks/): NAME pins a declared LTS stack, `current` the newest declared stack
+whose window covers today, `none` the newest pins with no key; with a stack, coverage.yaml carries `stack: NAME`,
+which doctor NAME, verify and page check against the committed pins. Default: `current` for --kind paper (the
+newest pins, with a warning, when no stack is current), `none` for --kind library (libraries aimed at Mathlib
+follow its newest release). The comparator tools of a stack are the ones its toolchain bundles (mechanism
+toolchain), so the lean-toolchain pin is their pin; the scaffold records no other tool version.
 
 --no-mathlib is the same project in core Lean (`Nat` for `ℕ`, no `public import Mathlib`): no Mathlib
 download, but `comparator-receipt` then needs COMPARATOR_RECEIPT_NO_MATHLIB=1, and Palomar expects
@@ -85,16 +93,17 @@ SOFTWARE.
 
 LAKEFILE = """\
 name = "{name}"
+defaultTargets = ["{module}"]
 {require}
 [[lean_lib]]
 name = "{module}"
 globs = ["{module}.+"]
 """
-REQUIRE_MATHLIB = f"""
+REQUIRE_MATHLIB = """
 [[require]]
 name = "mathlib"
 scope = "leanprover-community"
-rev = "{MATHLIB_REV}"
+rev = "{rev}"
 """
 LEAN_FILE = """\
 module
@@ -140,7 +149,7 @@ COVERAGE = """\
 schema: coverage/1
 package: {name}
 kind: library
-summary: "The example theorem n <= 2 * n is formalized and compared against its trusted statement."
+{stack}summary: "The example theorem n <= 2 * n is formalized and compared against its trusted statement."
 rows:
   - title: "n <= 2 * n for every natural number n"
     claims: [{name}/{slug}]
@@ -151,7 +160,7 @@ COVERAGE_PAPER = """\
 schema: coverage/1
 package: {name}
 kind: paper
-# Incomplete until you name the paper (written by `lean-pkg new`; `lean-pkg coverage check {name}` lists
+{stack}# Incomplete until you name the paper (written by `lean-pkg new`; `lean-pkg coverage check {name}` lists
 # what is missing). Replace each FILL-ME. Once the paper is posted, bind this file to that version:
 #   lean-pkg formalization anchor {name} --arxiv <id>v<N> --from-file E-PRINT --compare-tex PAPER.tex --write
 # sets manuscript.version (and eprint_sha256). Until then version stays unposted: a private draft, which
@@ -276,26 +285,38 @@ def license_text(spdx: str, author: str, year: int) -> str:
     return (pathlib.Path(__file__).parent / "templates" / "Apache-2.0.txt").read_text(encoding="utf-8")
 
 
+def pins(stack: dict | None) -> tuple[str, str]:
+    """(lean-toolchain, Mathlib rev) the scaffold writes: the stack's, else the newest lean-pkg tracks."""
+    if stack is None:
+        return TOOLCHAIN, MATHLIB_REV
+    return stack["lean_toolchain"], stack["mathlib"]["rev"]
+
+
 def files(name: str, module: str, author: str, mathlib: bool = True, license_spdx: str = "Apache-2.0",
-          year: int = 2026, kind: str = "paper") -> dict[str, str]:
-    """The scaffold, relative path -> text. With mathlib, the files docs/getting-started.md writes by hand
-    (lean-toolchain, .gitignore, lakefile.toml, Challenge, Solution, comparator.json) are byte-identical to
-    that template for NAME my-proof (tests/test_new.py holds them together)."""
+          year: int = 2026, kind: str = "paper", stack: dict | None = None) -> dict[str, str]:
+    """The scaffold, relative path -> text. With mathlib and no stack, the files docs/getting-started.md
+    writes by hand (lean-toolchain, .gitignore, lakefile.toml, Challenge, Solution, comparator.json) are
+    byte-identical to that template for NAME my-proof (tests/test_new.py holds them together). With a stack
+    (proposal 0004): its lean-toolchain and Mathlib rev, and `stack: NAME` in coverage.yaml."""
+    toolchain, rev = pins(stack)
+    stack_line = f"stack: {stack['name']}\n" if stack is not None else ""
     imports = "\npublic import Mathlib\n" if mathlib else ""
     nat = "ℕ" if mathlib else "Nat"
     lean = {kind: LEAN_FILE.format(imports=imports, module=module, theorem=THEOREM, nat=nat, proof=proof)
             for kind, proof in (("Challenge", "sorry"), ("Solution", "omega"))}
     slug = THEOREM.replace("_", "-")
     return {
-        "lean-toolchain": TOOLCHAIN + "\n",
+        "lean-toolchain": toolchain + "\n",
         ".gitignore": "/.lake\n",
-        "lakefile.toml": LAKEFILE.format(name=name, module=module, require=REQUIRE_MATHLIB if mathlib else ""),
+        "lakefile.toml": LAKEFILE.format(name=name, module=module,
+                                         require=REQUIRE_MATHLIB.format(rev=rev) if mathlib else ""),
         f"{module}/Challenge.lean": lean["Challenge"],
         f"{module}/Solution.lean": lean["Solution"],
         f"{module}/Axioms.lean": AXIOMS_FILE.format(module=module, theorem=THEOREM),
         "comparator.json": COMPARATOR.format(module=module, theorem=THEOREM),
         "claims.yaml": CLAIMS.format(name=name, module=module, theorem=THEOREM, slug=slug),
-        "coverage.yaml": (COVERAGE_PAPER if kind == "paper" else COVERAGE).format(name=name, slug=slug),
+        "coverage.yaml": (COVERAGE_PAPER if kind == "paper" else COVERAGE).format(name=name, slug=slug,
+                                                                                  stack=stack_line),
         "CITATION.cff": CITATION.format(title=_yaml_str(name), author=_yaml_str(author)),
         "LICENSE": license_text(license_spdx, author, year),
         f"LICENSES/{license_spdx}.txt": license_text(license_spdx, author, year),
@@ -332,8 +353,29 @@ def next_commands(dir_arg: str, module: str, mathlib: bool) -> list[str]:
             'git add -A && git commit -m "new package"']
 
 
+def choose_stack(kind: str, stack_arg: str | None) -> tuple[dict | None, str, list[str]]:
+    """(stack or None, source, notes) for `new`: --stack NAME|current|none, else the default of the kind
+    (proposal 0004, open question 7, decided: a paper takes the current stack, a library the newest pins)."""
+    from . import stacks
+    notes: list[str] = []
+    if stack_arg is not None:
+        stack = stacks.resolve(stack_arg)
+        if stack is not None and stacks.window(stack) != "in":
+            notes.append(f"stack {stack['name']} is outside its window on {stacks.today()} (supported "
+                         f"{stack['published']} to {stack['supported_until']}); pinned as asked")
+        return stack, "flag", notes
+    if kind != "paper":
+        return None, "default", notes
+    stack = stacks.current()
+    if stack is None:
+        notes.append(f"no declared stack covers {stacks.today()} (declared: {stacks.declared_list()}): "
+                     f"the paper scaffold takes the newest pins instead; --stack NAME pins one")
+    return stack, "default", notes
+
+
 def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, author: str | None,
-           license_spdx: str = "Apache-2.0", kind: str = "paper") -> tuple[list[str], dict]:
+           license_spdx: str = "Apache-2.0", kind: str = "paper", stack_arg: str | None = None
+           ) -> tuple[list[str], dict]:
     if not NAME_RE.match(name) or len(name) > NAME_MAX:
         raise core.UsageError(f"package name {name!r}: lower-case letters, digits and single hyphens, starting "
                               f"with a letter, at most {NAME_MAX} characters (e.g. my-proof)")
@@ -346,12 +388,13 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
                               f"another NAME or pass --module")
     if kind not in KINDS:
         raise core.UsageError(f"--kind {kind!r}: one of {', '.join(KINDS)}")
+    stack, stack_source, stack_notes = choose_stack(kind, stack_arg)
     source = "--author" if author is not None else "git config user.name"
     author = (author if author is not None else _git_author() or "").strip()
     if not author or "\n" in author:
         raise core.UsageError("CITATION.cff needs an author: pass --author 'Given Family' (or set git config "
                               "user.name)")
-    warnings = author_warnings(author)
+    warnings = author_warnings(author) + stack_notes
     if shutil.which("git") is None:
         raise core.Fail("git is not on PATH; lean-pkg binds every receipt to a git commit")
     dir_arg = dir_arg or name
@@ -360,7 +403,8 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
         raise core.Fail(f"{dir_arg} exists and is not a directory; nothing written")
     if target.is_dir() and any(target.iterdir()):
         raise core.Fail(f"{dir_arg} exists and is not empty; nothing written (choose a new directory with --dir)")
-    scaffold = files(name, module, author, mathlib, license_spdx, dt.date.today().year, kind)
+    scaffold = files(name, module, author, mathlib, license_spdx, dt.date.today().year, kind, stack)
+    toolchain, rev = pins(stack)
     target.mkdir(parents=True, exist_ok=True)
     for rel, text in scaffold.items():
         f = target / rel
@@ -372,9 +416,10 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
     if p.returncode != 0:
         raise core.Fail(f"git init {dir_arg} failed: {(p.stderr or p.stdout).strip()} (the files are written)")
     nxt = next_commands(dir_arg, module, mathlib)
-    dep = f"Mathlib {MATHLIB_REV}" if mathlib else "no Mathlib"
-    out = [f"created {dir_arg}/: package {name} (kind {kind}), library {module}, {TOOLCHAIN.split(':')[1]}, "
-           f"{dep}; {len(scaffold)} files, git initialized, nothing committed, no registry read or written",
+    dep = f"Mathlib {rev}" if mathlib else "no Mathlib"
+    on = f" (stack {stack['name']}, supported until {stack['supported_until']})" if stack else ""
+    out = [f"created {dir_arg}/: package {name} (kind {kind}), library {module}, {toolchain.split(':')[1]}, "
+           f"{dep}{on}; {len(scaffold)} files, git initialized, nothing committed, no registry read or written",
            f"author: {author} (from {source}; CITATION.cff, REUSE.toml)",
            "next:"] + [f"  {c}" for c in nxt]
     if mathlib:
@@ -391,7 +436,9 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
     out.append("then verify and render the page: docs/quickstart.md "
                "(https://lean-pkg.github.io/lean-pkg/quickstart.html)")
     payload = {"ok": True, "name": name, "dir": str(target), "kind": kind, "module": module, "mathlib": mathlib,
-               "lean_toolchain": TOOLCHAIN, "license_spdx": license_spdx, "author": author, "author_source": source,
+               "lean_toolchain": toolchain, "mathlib_rev": rev if mathlib else None,
+               "stack": stack["name"] if stack else None, "stack_source": stack_source,
+               "license_spdx": license_spdx, "author": author, "author_source": source,
                "files": sorted(scaffold), "git_init": True, "committed": False, "registry_touched": False,
                "coverage_complete": kind == "library", "next_commands": nxt, "warnings": warnings}
     return out, payload
@@ -399,7 +446,7 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
 
 def cmd_new(args) -> int:
     out, payload = do_new(args.name, args.dir, args.module, not args.no_mathlib, args.author, args.license,
-                          args.kind)
+                          args.kind, args.stack)
     for w in payload["warnings"]:
         print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
     if args.json_out:
@@ -424,6 +471,11 @@ def add_parsers(sub, add_json) -> None:
                    help="paper (default): the paper is the product; coverage.yaml stays incomplete until you name "
                         "the paper and `formalization anchor` binds its posted version. library: the Lean package "
                         "is the product; coverage.yaml lists the example as its main result")
+    s.add_argument("--stack", default=None, metavar="NAME|current|none",
+                   help="pin lean-toolchain and the Mathlib require to a declared LTS stack and write `stack: NAME` "
+                        "into coverage.yaml (docs/stacks/); current: the newest declared stack whose window covers "
+                        "today; none: the newest pins, no key. Default: current for --kind paper (the newest pins "
+                        "when no stack is current), none for --kind library. An undeclared name exits 2")
     s.add_argument("--dir", default=None, metavar="DIR",
                    help="where to write it (default ./NAME); refused when it exists and is not empty")
     s.add_argument("--module", default=None, metavar="MOD",

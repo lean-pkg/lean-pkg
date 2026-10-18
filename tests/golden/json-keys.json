@@ -188,6 +188,15 @@
     "rc": 0,
     "type": "object"
   },
+  "doctor-name": {
+    "keys": [
+      "checks",
+      "ok",
+      "stack"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
   "formalization": {
     "keys": [
       "headline",
@@ -313,6 +322,32 @@
       "from_version",
       "ok",
       "to_version"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
+  "new-stack": {
+    "keys": [
+      "author",
+      "author_source",
+      "committed",
+      "coverage_complete",
+      "dir",
+      "files",
+      "git_init",
+      "kind",
+      "lean_toolchain",
+      "license_spdx",
+      "mathlib",
+      "mathlib_rev",
+      "module",
+      "name",
+      "next_commands",
+      "ok",
+      "registry_touched",
+      "stack",
+      "stack_source",
+      "warnings"
     ],
     "rc": 0,
     "type": "object"

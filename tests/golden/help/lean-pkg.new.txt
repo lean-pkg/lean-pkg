@@ -1,5 +1,6 @@
-usage: lean-pkg new [-h] [--kind {paper,library}] [--dir DIR] [--module MOD] [--no-mathlib]
-                    [--author TEXT] [--license {Apache-2.0,MIT}] [--json]
+usage: lean-pkg new [-h] [--kind {paper,library}] [--stack NAME|current|none] [--dir DIR]
+                    [--module MOD] [--no-mathlib] [--author TEXT] [--license {Apache-2.0,MIT}]
+                    [--json]
                     name
 
 Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate and reuse lint
@@ -18,6 +19,12 @@ options:
                         until you name the paper and `formalization anchor` binds its posted
                         version. library: the Lean package is the product; coverage.yaml lists the
                         example as its main result
+  --stack NAME|current|none
+                        pin lean-toolchain and the Mathlib require to a declared LTS stack and
+                        write `stack: NAME` into coverage.yaml (docs/stacks/); current: the newest
+                        declared stack whose window covers today; none: the newest pins, no key.
+                        Default: current for --kind paper (the newest pins when no stack is
+                        current), none for --kind library. An undeclared name exits 2
   --dir DIR             where to write it (default ./NAME); refused when it exists and is not
                         empty
   --module MOD          the library and namespace (default: NAME in CamelCase, my-proof ->

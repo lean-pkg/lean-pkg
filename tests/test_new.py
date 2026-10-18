@@ -236,6 +236,10 @@ def test_formalization_anchor_can_edit_the_paper_scaffold():
     assert doc["manuscript"] == {"title": "On doubling", "version": "arXiv:2401.01234v2", "eprint_sha256": "e" * 64}
     assert cov.validate(doc, "my-proof") == []
     assert out.count("\n#") == text.count("\n#")                        # the comments are kept
+    from lean_pkg import stacks                                          # the stack key survives the edit
+    text = scaffold.files("my-proof", "MyProof", "A B", stack=stacks.load()["lts-2026.10"])["coverage.yaml"]
+    doc = cov.load_text(anchor.coverage_edit(_fill(text), "arXiv:2401.01234v2", "e" * 64), "coverage.yaml")
+    assert doc["stack"] == "lts-2026.10" and cov.validate(doc, "my-proof") == []
 
 
 def test_kind_library_is_today_s_scaffold():

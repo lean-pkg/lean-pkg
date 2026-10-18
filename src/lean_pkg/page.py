@@ -552,6 +552,22 @@ def _advisory_lines(toolchain, warnings: list[str], ctx: dict | None = None) -> 
     return out
 
 
+def _stack_lines(doc: dict, repo, warnings: list[str]) -> list[str]:
+    """The LTS stack line (proposal 0004): only when coverage.yaml declares a stack this lean-pkg declares and
+    the committed lean-toolchain and Mathlib commit match it; otherwise a warning and no line."""
+    name = doc.get("stack")
+    if not isinstance(name, str):
+        return []
+    from . import stacks
+    res = stacks.check(repo, name)
+    warnings += res["warnings"]
+    if not (res["declared"] and res["matches"]):
+        return []
+    return [f"- Built on lean-pkg stack [{name}]({stacks.page_url(name)}) (Lean "
+            f"`{stacks.toolchain_version(stacks.declared()[name])}`, Mathlib "
+            f"`{stacks.declared()[name]['mathlib']['rev']}`), supported until {res['supported_until']}."]
+
+
 def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_verified: int
                ) -> tuple[list[str], dict]:
     """What the checks establish, How this was checked, and the citation, license and acknowledgments."""
@@ -614,6 +630,7 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
                   f"against its Solution proof); permitted axioms: "
                   f"{', '.join(f'`{a}`' for a in permitted) or 'none'}; definitions compared by name only: "
                   f"{_holes_line(configs)}.")
+    md += _stack_lines(doc, repo, warnings)
     md.append("")
     ev_rows = ctx["evidence"]
     md += ["### Receipts", ""]

@@ -9,8 +9,34 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- LTS stacks, stage 1 of proposal 0004 (accepted 2026-10-17). `lean-pkg new
+  --stack NAME|current|none` pins `lean-toolchain` and the Mathlib require to
+  a declared stack and writes `stack: NAME` into `coverage.yaml`; `current` is
+  the newest declared stack whose window covers today, and an undeclared name
+  exits 2 listing the declared ones. `coverage.yaml` (coverage/1, both kinds)
+  accepts the optional key `stack`; lean-pkg 0.14.0 and older refuse it.
+  `doctor` takes an optional `NAME` and, like `verify`, checks the package's
+  committed `lean-toolchain`, the Mathlib commit of `lake-manifest.json` and
+  the comparator receipt's tool digests against the stack: `on stack NAME
+  (supported until DATE)`, or a warning for each difference, for a stack past
+  its window and for one this lean-pkg does not declare. Neither refuses
+  (the proposal: they "never refuse"). Both gain the `--json` key `stack`.
+  The page says "Built on lean-pkg stack NAME" under *How this was checked*
+  when the pins match. The stack files ship in the wheel
+  (`lean_pkg/data/stacks/`, a byte-identical copy of `docs/stacks/`); how to
+  opt in: [docs/stacks/README.md](docs/stacks/README.md) (#264).
+
 ### Changed
 
+- `lean-pkg new --kind paper` now defaults to the current LTS stack
+  (`lts-2026.10`: Lean `v4.35.0`, Mathlib `v4.35.0`) instead of
+  `v4.35.0-rc2`; `--kind library` keeps the newest pins, and `--stack none`
+  gives the previous ones (proposal 0004, open question 7). The scaffold's
+  `lakefile.toml` names its library in `defaultTargets`, so a bare `lake
+  build` builds it (on Lean v4.35.0 it built nothing, the stage 0 finding);
+  the getting-started template gains the same line (#264).
 - Index: `total-coloring-lean` re-pinned at `3f364b51d2c7` and
   `markovprocess-pilot` at `1548828e63c8`. Each package now gives every
   reusable claim a `judged_as` in `claims.yaml` (proposal 0006) and a

@@ -36,6 +36,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["new", "demo"], "new", False, False, False),                       # files in a new directory, never the registry
     (["new", "demo", "--no-mathlib", "--dir", "d"], "new", False, False, False),
     (["new", "demo", "--kind", "library"], "new", False, False, False),
+    (["new", "demo", "--stack", "lts-2026.10"], "new", False, False, False),
+    (["new", "demo", "--stack", "none", "--kind", "paper"], "new", False, False, False),
     (["init"], "registry init", True, True, False),
     (["init", "--force"], "registry init", True, True, False),
     (["migrate"], "registry migrate", True, True, False),
@@ -90,6 +92,7 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["audit", "--fix"], "registry audit", True, True, False),
     (["validate"], "registry validate", False, False, False),
     (["doctor"], "doctor", False, False, False),
+    (["doctor", "demo"], "doctor", False, False, False),                   # the stack check reads the registry
     (["doctor", "--upgrade-from", "0.10.0"], "doctor", False, False, False),      # read-only, no registry
     (["doctor", "--upgrade-from", "v1", "--to", "v2", "--source", "d"], "doctor", False, False, False),
     (["llms"], "llms", False, False, False),

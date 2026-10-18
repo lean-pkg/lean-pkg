@@ -94,6 +94,9 @@ CASES = {
     # last: these commit page inputs and receipts to beta's checkout (tests/test_page.py prepare)
     "page": lambda e, t: (_page_ready(e), ["page", "beta"])[1],
     "coverage-check": ["coverage", "check", "beta"],
+    "doctor-name": ["doctor", "beta"],
+    "new-stack": lambda e, t: ["new", "golden-pkg", "--dir", str(t / "golden-pkg"), "--author", "Ada Lovelace",
+                               "--stack", "lts-2026.10"],
 }
 
 
