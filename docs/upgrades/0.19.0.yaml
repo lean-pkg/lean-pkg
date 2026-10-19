@@ -25,4 +25,26 @@ changes:
       a receipt comparator run or --prepare.
     breaking: false
     changelog: Fixed
+  - pr: 282
+    id: public-safety-long-line-stream
+    kind: behavior
+    area: public-safety
+    summary: >-
+      A field report had public-safety (history, strict, whole repository, --gzip-limit 512M) killed for
+      memory at a 2 GiB limit about 30 s in, on a gzip file holding one 333,681,168-byte JSON line with
+      four-byte UTF-8 characters, inside the decode limit and the ratio guard. The gzip path kept the
+      whole unfinished line, decoded it in one piece (a Python string of such text takes four bytes a
+      character) and split it into lines again; UTF-16/32 gzip content was held and decoded whole. Decoded
+      text now goes through an incremental decoder (same errors="replace" handling; a multi-byte sequence
+      split between two reads is never cut) and a line scanner that scans a long line in the same
+      overlapping chunks (20000 characters, overlapping by 1000) as it arrives, with the same line numbers
+      and the same one hit per pattern per line; a binary decode's printable runs are streamed the same
+      way, and scan_text no longer copies a long line or lists every line. On a 64 MiB line the scan's
+      peak traced memory went from about 540 MiB to about 8 MiB. Limits, guards, strictness, which files
+      are scanned and the hits reported are unchanged.
+    action: >-
+      Nothing for a package author. A scan that ran out of memory on a long line in a gzip file can be run
+      again.
+    breaking: false
+    changelog: Fixed
 no_author_change: []

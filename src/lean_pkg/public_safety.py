@@ -7,9 +7,9 @@ annotated tag and branch or tag name reachable from any ref, the approach of lea
 scan covers the whole repository (`--package-only`: the package directory alone), because promotion
 makes the whole GitHub repository public. A symbolic link is scanned as its target string; UTF-8/16/32
 text with a byte-order mark (and BOM-less UTF-16) is decoded; long lines are scanned whole, in
-overlapping chunks; a binary file is scanned through its printable runs and listed in `skipped[]`;
-bytes past MAX_SCAN_BYTES are listed there too and are a blocking `unscanned` hit unless an
-`allow: GLOB: ^unscanned$` line covers the file. A gzip file or blob (#8: content starting with the
+overlapping chunks, in bounded memory (LineScan); a binary file is scanned through its printable runs
+and listed in `skipped[]`; bytes past MAX_SCAN_BYTES are listed there too and are a blocking
+`unscanned` hit unless an `allow: GLOB: ^unscanned$` line covers the file. A gzip file or blob (#8: content starting with the
 magic bytes 1f 8b, whatever its name) is stream-decoded up to `--gzip-limit` decoded bytes and its
 decoded content is scanned in place of its compressed bytes (whose printable runs only produced false
 positives); a decode that fails (corrupt, truncated, over the limit, over the compression-ratio guard)
@@ -67,6 +67,7 @@ scans the exported tree before it writes the new repository.
 from __future__ import annotations
 
 import argparse
+import codecs
 import io
 import os
 import pathlib
@@ -90,6 +91,7 @@ CONTEXT = 20            # characters of context on each side of a redacted match
 MAX_SCAN_BYTES = 64_000_000   # bytes of one file or blob scanned; the rest is listed as skipped (a block hit)
 LINE_CHUNK = 20_000           # a longer line is scanned in overlapping chunks of this many characters
 LINE_OVERLAP = 1_000          # overlap of two chunks: a match up to this long is never cut in two
+SCAN_SLICE = 1 << 16          # characters of text handed to the line scanner at a time (bounds memory)
 UNSCANNED = "unscanned"       # what an `allow:` line must match in full to exempt an unscanned portion
 # #8: gzip content (magic 1f 8b) is decoded, as a stream, and the decoded content scanned.
 GZIP_MAGIC = b"\x1f\x8b"
@@ -486,19 +488,66 @@ class Scanner:
         """(line number, pattern, redacted excerpt): one hit per pattern per line. `path`: the
         package-relative file the text is from, for path-scoped lines (#38). A line longer than
         LINE_CHUNK characters is scanned whole, in chunks overlapping by LINE_OVERLAP. first_line: the
-        number of the text's first line (a decoded stream is scanned a batch of lines at a time)."""
-        hits = []
-        for n, line in enumerate(text.splitlines(), first_line):
-            seen: set = set()
-            if len(line) <= LINE_CHUNK:
-                hits += self._line_hits(n, line, self.spans(line, path), seen)
-                continue
-            for i in range(0, len(line), LINE_CHUNK - LINE_OVERLAP):
-                chunk = line[i:i + LINE_CHUNK]
-                hits += self._line_hits(n, chunk, self.spans(chunk, path), seen)
-                if i + LINE_CHUNK >= len(line):
-                    break
+        number of the text's first line. The text is read a slice at a time (LineScan), so no copy of
+        a long line, or list of all lines, is made."""
+        ls = LineScan(self, path, first_line)
+        ls.feed(text, final=True)
+        return ls.hits
+
+
+class LineScan:
+    """scan_text over text that arrives in pieces (a decoded stream): the same lines (str.splitlines
+    boundaries, a \\r\\n split between two pieces included), the same chunks of a line longer than
+    LINE_CHUNK (offsets 0, LINE_CHUNK - LINE_OVERLAP, ...; the last chunk ends with the line, a line of
+    LINE_CHUNK characters or fewer is one chunk), the same one hit per pattern per line, the same line
+    numbers. Memory is bounded by LINE_CHUNK plus SCAN_SLICE characters, whatever the line length.
+    Hits accumulate in `hits` (take() drains them); feed(..., final=True) ends the text."""
+
+    def __init__(self, sc: "Scanner", path: str | None = None, first_line: int = 1):
+        self.sc, self.path, self.n = sc, path, first_line
+        self.hits: list[tuple[int, Pattern, str]] = []
+        self.buf, self.pos, self.started, self.seen, self.cr = "", 0, False, set(), False
+
+    def take(self) -> list[tuple[int, Pattern, str]]:
+        hits, self.hits = self.hits, []
         return hits
+
+    def feed(self, text: str, final: bool = False) -> None:
+        if not text:
+            self._piece("", final)
+        for i in range(0, len(text), SCAN_SLICE):
+            self._piece(text[i:i + SCAN_SLICE], final and i + SCAN_SLICE >= len(text))
+
+    def _piece(self, text: str, final: bool) -> None:
+        if self.cr:                       # a \r held back: a \n first in this piece makes one \r\n break
+            text, self.cr = "\r" + text, False
+        if not final and text.endswith("\r"):
+            text, self.cr = text[:-1], True
+        for part in text.splitlines(True):
+            line = part.splitlines()[0]
+            self._add(line)
+            if len(line) < len(part):     # the part ends with a line break
+                self._end()
+        if final and self.started:        # a last line with no line break
+            self._end()
+
+    def _add(self, s: str) -> None:
+        if not s:
+            return
+        self.started = True
+        self.buf, self.pos = self.buf[self.pos:] + s, 0
+        while len(self.buf) - self.pos > LINE_CHUNK:     # not the line's last chunk
+            self._chunk(self.buf[self.pos:self.pos + LINE_CHUNK])
+            self.pos += LINE_CHUNK - LINE_OVERLAP
+
+    def _chunk(self, chunk: str) -> None:
+        self.hits += self.sc._line_hits(self.n, chunk, self.sc.spans(chunk, self.path), self.seen)
+
+    def _end(self) -> None:
+        if self.started:
+            self._chunk(self.buf[self.pos:])
+        self.buf, self.pos, self.started, self.seen = "", 0, False, set()
+        self.n += 1
 
 
 def _redact(line: str, spans) -> tuple[str, list[int]]:
@@ -775,10 +824,15 @@ def gunzip_stream(read, compressed_size: int, limit: int):
 def _scan_gzip(sc: Scanner, opener, size: int, where: str, rel: str, hits: list[dict], skipped: list[dict],
                commit_of=None) -> str | None:
     """#8: scan the decoded content of one gzip file or blob (opener(): a fresh binary reader of its
-    bytes), a batch of whole lines at a time (line numbers are those of the decoded text) or, when the
-    decoded content is binary (a .tar.gz), through its printable runs. Hits carry `encoding`. Returns
-    None when the decode reached the end, else the failure reason (hits of the decoded part are kept)."""
-    state = {"commit": None, "line": 1, "mode": None, "carry": b"", "wide": [], "decoded": 0}
+    bytes) as a stream: text through an incremental decoder (a multi-byte sequence split between two
+    reads is never cut) and a LineScan (line numbers are those of the decoded text; a long line is
+    scanned in its overlapping chunks without being held whole) or, when the decoded content is binary
+    (a .tar.gz), through its printable runs, each one line of a LineScan. Memory stays bounded by the
+    chunk sizes, not by the length of a line or of the content. Hits carry `encoding`. Returns None when
+    the decode reached the end, else the failure reason (hits of the decoded part are kept)."""
+    state = {"commit": None, "mode": None, "carry": b"", "decoded": 0, "dec": None, "strip": False,
+             "run": False}
+    lines = LineScan(sc, rel)
 
     def commit():
         if state["commit"] is None and commit_of is not None:
@@ -791,21 +845,38 @@ def _scan_gzip(sc: Scanner, opener, size: int, where: str, rel: str, hits: list[
                              pat.severity, encoding))
 
     def text_batch(data: bytes, final: bool) -> None:
-        data = state["carry"] + data
-        cut = len(data) if final else data.rfind(b"\n") + 1
-        state["carry"], body = data[cut:], data[:cut]
-        if body:
-            text = body.decode("utf-8", errors="replace")
-            add(sc.scan_text(text, rel, state["line"]), DECODED)
-            state["line"] += len(text.splitlines())
+        text = state["dec"].decode(data, final)
+        if state["strip"] and text:      # decode_blob: a BOM-decoded text is lstripped of U+FEFF
+            text = text.lstrip("\ufeff")
+            state["strip"] = not text
+        lines.feed(text, final)
+        add(lines.take(), DECODED)
 
     def binary_batch(data: bytes, final: bool) -> None:
-        data = state["carry"] + data
-        cut = len(data) if final else re.search(rb"[\x20-\x7e\t]*\Z", data).start()
-        state["carry"], body = data[cut:], data[:cut]
-        runs = "\n".join(m.group(0).decode("ascii") for m in _PRINTABLE_RUN.finditer(body))
-        if runs:
-            add(sc.scan_text(runs, rel), DECODED, numbered=False)
+        # the printable runs of 4+ characters, one line each (decode_blob); a run reaching the end of
+        # the data continues in the next read: fed as it comes once it is 4 long, else carried
+        data, state["carry"] = state["carry"] + data, b""
+        i = 0
+        if state["run"]:                 # the run open at the end of the last read
+            i = re.match(rb"[\x20-\x7e\t]*", data).end()
+            lines.feed(data[:i].decode("ascii"))
+            if i == len(data) and not final:
+                return
+            lines.feed("\n")
+            state["run"] = False
+        for m in re.finditer(rb"[\x20-\x7e\t]+", data[i:]):
+            run = m.group(0)
+            if i + m.end() == len(data) and not final:
+                if len(run) >= 4:
+                    lines.feed(run.decode("ascii"))
+                    state["run"] = True
+                else:
+                    state["carry"] = run
+            elif len(run) >= 4:
+                lines.feed(run.decode("ascii") + "\n")
+        if final:
+            lines.feed("", True)
+        add(lines.take(), DECODED, numbered=False)
 
     def feed(data: bytes, final: bool) -> None:
         if state["mode"] is None:
@@ -813,20 +884,21 @@ def _scan_gzip(sc: Scanner, opener, size: int, where: str, rel: str, hits: list[
             if len(state["carry"]) < 8000 and not final:
                 return
             head, data, state["carry"] = state["carry"], state["carry"], b""
+            enc = "utf-8"
             if head.startswith(b"\xef\xbb\xbf"):
                 state["mode"], data = "text", data[3:]
-            elif any(head.startswith(bom) for bom, _enc in _BOMS) or (b"\0" in head[:8000] and _utf16_guess(head)):
-                state["mode"] = "wide"           # UTF-16/32: decoded whole (bounded by the limit)
+            elif any(head.startswith(bom) for bom, _enc in _BOMS):
+                # UTF-16/32 with a byte-order mark: decoded as decode_blob does (BOM kept, then lstripped)
+                state["mode"], state["strip"] = "text", True
+                enc = next(e for bom, e in _BOMS if head.startswith(bom))
+            elif b"\0" in head[:8000] and _utf16_guess(head):
+                state["mode"], enc = "text", _utf16_guess(head)
             elif b"\0" in head[:8000]:
                 state["mode"] = "binary"
             else:
                 state["mode"] = "text"
-        if state["mode"] == "wide":
-            state["wide"].append(data)
-            if final:
-                text, _b = decode_blob(b"".join(state["wide"]))
-                add(sc.scan_text(text, rel), DECODED)
-        elif state["mode"] == "binary":
+            state["dec"] = codecs.getincrementaldecoder(enc)(errors="replace")
+        if state["mode"] == "binary":
             binary_batch(data, final)
         else:
             text_batch(data, final)

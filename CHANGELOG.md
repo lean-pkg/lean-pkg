@@ -23,6 +23,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `--attempts` and `--seal-sacct`, and refuses a run or `--prepare` (exit 2,
   one JSON error). `receipt slurm --template --json` printed the raw
   script; it now prints `{ok, template}` (#281).
+- `public-safety`: a long line in gzip content no longer exhausts memory
+  (#282). A field report had a scan killed at a 2 GiB limit on a gzip file
+  holding one 333,681,168-byte JSON line with four-byte UTF-8 characters:
+  the gzip path held the whole unfinished line, decoded it in one piece and
+  split it again (UTF-16/32 gzip content was held and decoded whole).
+  Decoded text now streams through an incremental decoder and a line
+  scanner that scans a long line in the same overlapping chunks as it
+  arrives, with the same line numbers and hits; peak memory is bounded by
+  the chunk sizes (about 8 MiB on a 64 MiB line, from about 540 MiB).
+  Limits, guards and what is scanned are unchanged
+  ([public-safety](docs/commands/public-safety.md)).
 
 ### Documentation
 
