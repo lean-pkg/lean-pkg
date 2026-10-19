@@ -664,6 +664,17 @@ def template_text(lp, capsys) -> str:
     return capsys.readouterr().out
 
 
+@pytest.mark.parametrize("argv", [["receipt", "slurm", "--template", "--json"],
+                                  ["--json", "receipt", "slurm", "--template"]])
+def test_template_under_json_is_one_json_document(lp, tmp_path, capsys, monkeypatch, argv):
+    """--json: stdout is one JSON document (the script in `template`), never the raw script."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    text = template_text(lp, capsys)
+    assert lp.main(argv) == 0
+    out = capsys.readouterr().out
+    assert json.loads(out) == {"ok": True, "template": text}
+
+
 def test_template_is_bash_and_emits_every_line_the_receipt_reads(lp, tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))                 # no registry anywhere: --template needs none
     text = template_text(lp, capsys)

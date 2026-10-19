@@ -1983,7 +1983,10 @@ def cmd_receipt_slurm(args) -> int:
         if given:
             raise core.UsageError(f"{', '.join(given)}: only with --fill-plan DONOR")
     if args.template:
-        sys.stdout.write(SBATCH_TEMPLATE)
+        if getattr(args, "json_out", False):   # --json: the script inside the one JSON document on stdout
+            core.print_json({"ok": True, "template": SBATCH_TEMPLATE})
+        else:
+            sys.stdout.write(SBATCH_TEMPLATE)
         return 0
     if args.check:
         return preflight(args)
@@ -2159,4 +2162,13 @@ def cmd_receipt_comparator(args) -> int:
     argv = list(getattr(args, "command_argv", None) or [])
     at = next((i for i in range(len(argv) - 1) if argv[i:i + 2] == ["receipt", "comparator"]), None)
     tail = argv[at + 2:] if at is not None else []
+    if getattr(args, "json_out", False) and not args.json:
+        # the global `lean-pkg --json receipt comparator ...` means the runner's own --json: JSON for the modes
+        # that print it, the runner's refusal for the others; never the text output on stdout
+        if not (args.estimate or args.verify_oleans is not None or args.attempts is not None
+                or args.seal_sacct is not None):
+            raise core.UsageError("receipt comparator: --json goes with --estimate, --verify-oleans, --attempts "
+                                  "or --seal-sacct; a run or --prepare prints text (its JSON record is "
+                                  "comparator-stages/stages.json and the receipt)")
+        args.json = True
     return comparator_receipt.run_main(args, tail, prog="lean-pkg receipt comparator")

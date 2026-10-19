@@ -87,7 +87,8 @@ options:
                         its header line); the account is then checked only with --user
   --user NAME           --seal-sacct: the account the job must have run under (default with live
                         sacct: this one); compared, never written
-  --json                --estimate, --verify-oleans, --attempts or --seal-sacct: print JSON
+  --json                --estimate, --verify-oleans, --attempts or --seal-sacct: print JSON;
+                        stdout is the JSON document alone, the progress goes to stderr
   --host-label LABEL    name the host LABEL in the receipt (host, host_label, job_id, host_policy)
                         and the output (env COMPARATOR_RECEIPT_HOST_LABEL); default: h- and 12 hex
                         digits of the SHA-256 of the lower-cased host name, the label `receipt

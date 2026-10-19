@@ -74,6 +74,7 @@ from . import container as ctr  # noqa: E402
 from . import lake_hygiene as lh  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
 from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
+from .json_stdout import chatter_to_stderr  # noqa: E402
 from .holes import SIDECAR, check_definition_holes, parse_sidecar  # noqa: E402
 from .comparator_stage import redact, redact_bytes, redact_json, set_redactions  # noqa: E402
 from .receipt_systemd import host_label as hashed_host_label  # noqa: E402
@@ -2504,7 +2505,8 @@ def add_arguments(ap: argparse.ArgumentParser) -> None:
                     help="--seal-sacct: the account the job must have run under (default with live sacct: this "
                          "one); compared, never written")
     ap.add_argument("--json", action="store_true",
-                    help="--estimate, --verify-oleans, --attempts or --seal-sacct: print JSON")
+                    help="--estimate, --verify-oleans, --attempts or --seal-sacct: print JSON; stdout is the JSON "
+                         "document alone, the progress goes to stderr")
     ap.add_argument("--host-label", default=None, metavar="LABEL",
                     help=f"name the host LABEL in the receipt (host, host_label, job_id, host_policy) and the "
                          f"output (env {HOST_LABEL_ENV}); default: h- and 12 hex digits of the SHA-256 of "
@@ -2609,7 +2611,10 @@ def run_main(args, argv: list[str], prog: str = "comparator-receipt") -> int:
         project = pathlib.Path(args.project).resolve()
         evidence = pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else None
         prepared = pathlib.Path(args.from_prepared).expanduser().resolve() if args.from_prepared else None
-        with importlib.resources.as_file(default_check_script()) as check_default, \
+        # --estimate --json: stdout carries only the JSON document; the run's stage lines, judge output
+        # and warnings go to stderr (field report: progress lines before the JSON broke json.loads)
+        with chatter_to_stderr(bool(args.json)), \
+                importlib.resources.as_file(default_check_script()) as check_default, \
                 importlib.resources.as_file(default_verify_script()) as verify_default:
             check = pathlib.Path(args.check).resolve() if args.check else pathlib.Path(check_default).resolve()
             verify = pathlib.Path(args.verify).resolve() if args.verify else pathlib.Path(verify_default).resolve()
