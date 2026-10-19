@@ -428,6 +428,8 @@ def load_records(tree: Tree) -> tuple[list[dict], list[str]]:
         problems += [f"{f}: {p}" for p in validate_record(doc)]
         if not isinstance(doc, dict):
             continue
+        if isinstance(doc.get("version"), str) and f != f"{RECORD_DIR}/{doc['version']}.yaml":
+            problems.append(f"{f}: the file name must be the record's version ({doc['version']}.yaml)")
         for e in doc.get("changes") or []:
             if isinstance(e, dict):
                 entries.append({**e, "record": f, "release": doc.get("version")})
@@ -480,9 +482,64 @@ def validate_record(doc) -> list[str]:
     return out
 
 
-def merged_prs(repo: pathlib.Path, old: str, new: str) -> dict[int, dict]:
-    """{PR number: {commit, subject}} for the commits in old..new whose subject ends `(#N)`."""
-    p = core.git(repo, "log", "--format=%H%x09%s", f"{old}..{new}")
+def _released(repo: pathlib.Path, version: str) -> str | None:
+    """The commit of release X.Y.Z (tag or `release:` commit), None when it was never cut."""
+    try:
+        return resolve(repo, version)
+    except core.Fail:
+        return None
+
+
+def provisional_problems(repo: pathlib.Path, tree: Tree) -> list[str]:
+    """Only the newest record may be unreleased: its name is provisional until the release is cut, when
+    scripts/cut-release.py renames it to the version actually cut (RELEASING.md "When to tag",
+    docs/design/upgrade-preflight.md). Reported: an older record that was never released, and an
+    unreleased record that lists a pull request already shipped in the tree's current version (the
+    record of that release kept its provisional name). A clone without any release commit or tag
+    compares nothing."""
+    recs: dict[str, str] = {}
+    for f in tree.files():
+        if f.startswith(RECORD_DIR + "/") and f.endswith(".yaml"):
+            try:
+                doc = yaml.safe_load(tree.read(f) or "")
+            except yaml.YAMLError:
+                continue
+            v = doc.get("version") if isinstance(doc, dict) else None
+            if isinstance(v, str) and re.fullmatch(r"\d+\.\d+\.\d+", v):
+                recs[v] = f
+    if not recs:
+        return []
+    key = lambda v: tuple(int(x) for x in v.split("."))  # noqa: E731
+    order = sorted(recs, key=key)
+    released = {v: _released(repo, v) for v in order}
+    try:
+        current = tomllib.loads(tree.read("pyproject.toml") or "")["project"]["version"]
+    except (tomllib.TOMLDecodeError, KeyError, TypeError):
+        current = None
+    cut = _released(repo, current) if isinstance(current, str) else None
+    if not any(released.values()) and cut is None:
+        return []
+    out = [f"{recs[v]}: {v} was never released (no tag v{v} or `release: {v}` commit); only the newest record "
+           f"may carry a provisional name" for v in order[:-1] if released[v] is None]
+    newest = order[-1]
+    if released[newest] is None:
+        if cut and current != newest:
+            doc = yaml.safe_load(tree.read(recs[newest]) or "") or {}
+            listed = {e.get("pr") for e in doc.get("changes") or [] if isinstance(e, dict)}
+            listed |= {n for n in doc.get("no_author_change") or [] if isinstance(n, int)}
+            shipped = sorted(n for n in merged_prs(repo, None, cut) if n in listed)
+            if shipped:
+                fix = (f"move them to {recs[current]}" if current in recs else
+                       f"the record is {current}'s: rename it (scripts/release-version.py --rename {current})")
+                out.append(f"{recs[newest]}: unreleased (provisional name {newest}), but "
+                           + ", ".join(f"#{n}" for n in shipped) + f" shipped in {current}; {fix}")
+    return out
+
+
+def merged_prs(repo: pathlib.Path, old: str | None, new: str) -> dict[int, dict]:
+    """{PR number: {commit, subject}} for the commits in old..new (old None: all of new's history) whose
+    subject ends `(#N)`."""
+    p = core.git(repo, "log", "--format=%H%x09%s", f"{old}..{new}" if old else new)
     out = {}
     for line in p.stdout.splitlines():
         h, _, subj = line.partition("\t")
@@ -514,6 +571,7 @@ def preflight(repo: pathlib.Path, old_rev: str, new_rev: str) -> dict:
     head = Tree(repo, "HEAD")
     rec_tree = head if core.git(repo, "merge-base", "--is-ancestor", new.commit, head.commit).returncode == 0 else new
     entries, problems = load_records(rec_tree)
+    problems += provisional_problems(repo, rec_tree)
     prs = merged_prs(repo, old.commit, new.commit)
     applies = [{**e, "commit": prs[e["pr"]]["commit"]} for e in entries if isinstance(e.get("pr"), int)
                and e["pr"] in prs and not e.get("no_author_change")]

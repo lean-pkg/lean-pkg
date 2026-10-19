@@ -71,6 +71,24 @@ The first pull request after a release opens the next record. If it changes
 nothing a package author must know, it opens it with `changes: []` and
 itself in `no_author_change`; `changes` may be empty only then.
 
+**The provisional name.** That first pull request cannot know what the
+release will hold, so it names the record for the next minor
+(`0.(N+1).0`): the name is provisional. The record's `kind` and `changelog`
+fields decide the release's version (RELEASING.md, "How the version is
+checked": a `command`, `format` or `requirement` entry, or one under
+`Added`, `Deprecated` or `Removed`, makes a minor; anything else a patch),
+and `make cut-release VERSION=X.Y.Z` renames both files to X.Y.Z, with the
+`version:` key and the page's title, heading and links rewritten, in a
+commit of its own before the release commit. So each released record is
+named for the release it describes, and the file name always equals the
+`version:` key. Only the newest record may be unreleased. The preflight
+adds to `record_problems[]`: a record whose file name is not its version;
+an older record whose version was never released (no tag, no `release:`
+commit); and an unreleased newest record that lists a pull request already
+in the history of the tree's current release (the rename was missed: the
+record is that release's). A clone with no release tag or commit at all
+(shallow) compares nothing. No key of the schema changed.
+
 A human page `docs/upgrades/<version>.md` goes with it; a test checks that
 every `id` and PR number of the record appears on the page.
 

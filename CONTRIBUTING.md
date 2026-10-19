@@ -40,7 +40,7 @@ The `make` targets:
 | `make boundary` | `scripts/private-boundary-check.sh`: no private host, user or path in what git would ship |
 | `make tabs` | no tab characters in source or documentation (use spaces) |
 | `make versions` | `pyproject.toml`, `CITATION.cff`, `CHANGELOG.md` and the package agree on the version |
-| `make changelog` | each released `## [X.Y.Z]` section of `CHANGELOG.md` reads as it did at tag `vX.Y.Z` (only record-doi's DOI line may be added); new entries go under `## [Unreleased]` |
+| `make changelog` | each released `## [X.Y.Z]` section of `CHANGELOG.md` reads as it did at tag `vX.Y.Z` (only record-doi's DOI line may be added); new entries go under `## [Unreleased]`, under the heading RELEASING.md "CHANGELOG headings" assigns, agreeing with the upgrade record |
 | `make reuse` | REUSE compliance (skipped, not passed, without `pipx install reuse`) |
 | `make goldens` | re-record the golden CLI contract after an intended help or JSON change |
 | `make docs` | rewrite the generated files (`llms.txt`, `docs/llms.txt`, `index/README.md`) |
@@ -82,7 +82,10 @@ maintainer's release steps ([RELEASING.md](RELEASING.md)).
 Every user-visible change adds an entry under `## [Unreleased]` in
 [CHANGELOG.md](CHANGELOG.md), in the section that matches it: `### Added` (a
 new command, flag, field or feature), `### Changed` (behaviour or a format;
-a format change names its migration) or `### Fixed`. Write what a user can now
+a format change names its migration; release tooling, tests or CI),
+`### Fixed`, or `### Documentation` (documentation only). A pull request the
+upgrade record lists under `no_author_change` never goes under `### Added`:
+`make changelog` refuses it (RELEASING.md, "CHANGELOG headings"). Write what a user can now
 do or what was wrong, the command names, and the doc that explains it. Never
 edit a released section; the maintainer moves Unreleased into a version at
 release time, and the sections decide the version number (RELEASING.md,

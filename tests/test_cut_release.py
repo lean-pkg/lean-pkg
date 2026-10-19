@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OLD, V = "1.2.2", "1.2.3"
+OLD, V = "1.2.2", "1.3.0"   # the fixture holds a new command (#9): a minor (RELEASING.md "When to tag")
 REAL_GIT = shutil.which("git")
 CONCEPT = "10.5281/zenodo.100"
 DOI = "10.5281/zenodo.123"
@@ -93,6 +93,36 @@ BIBTEX = f"""# Citing
 """
 
 
+# The in-progress upgrade record, named for the next minor (its provisional name, RELEASING.md).
+RECORD = f"""# Curated upgrade record for the next release; the page is docs/upgrades/{V}.md.
+schema: lean-pkg-upgrade-record/1
+version: {V}
+changes:
+  - pr: 9
+    id: frob
+    kind: command
+    summary: lean-pkg frob.
+    action: Nothing.
+    breaking: false
+    changelog: Added
+  - pr: 8
+    id: broken-thing
+    kind: behavior
+    summary: A fix.
+    action: Nothing.
+    breaking: false
+    changelog: Fixed
+"""
+RECORD_PAGE = f"""---
+title: Upgrading to {V}
+---
+
+# Upgrading to {V} (from {OLD})
+
+The record is [{V}.yaml]({V}.yaml), filled in until {V} is cut. #9 `frob`, #8 `broken-thing`.
+"""
+
+
 def _exe(path: Path, text: str) -> None:
     path.write_text(text)
     path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -126,9 +156,11 @@ def _setup(tmp: Path) -> Path:
     work = tmp / "work"
     subprocess.run([REAL_GIT, "init", "-q", "--bare", "-b", "main", str(tmp / "origin.git")], check=True, env=env)
     subprocess.run([REAL_GIT, "init", "-q", "-b", "main", str(work)], check=True, env=env)
-    for d in ("scripts", "docs", "src/lean_pkg"):
+    for d in ("scripts", "docs/upgrades", "src/lean_pkg"):
         (work / d).mkdir(parents=True)
-    for s in ("cut-release.py", "record-doi.py", "check-versions.py"):
+    (work / "docs" / "upgrades" / f"{V}.yaml").write_text(RECORD)
+    (work / "docs" / "upgrades" / f"{V}.md").write_text(RECORD_PAGE)
+    for s in ("cut-release.py", "record-doi.py", "check-versions.py", "release-version.py"):
         shutil.copy(ROOT / "scripts" / s, work / "scripts" / s)
     _exe(work / "scripts" / "release.sh", RELEASE_STUB)
     (work / "pyproject.toml").write_text(f'[project]\nname = "lean-pkg"\nversion = "{OLD}"\n')
@@ -569,37 +601,69 @@ def test_cut_release_refuses_a_malformed_release_date(tmp_path):
     assert not (work / "CHANGELOG.md").read_text().count(f"## [{V}]")
 
 
-def test_a_patch_bump_with_added_entries_warns_and_still_releases(tmp_path):
-    """RELEASING.md "When to tag": an `### Added` entry makes a minor; a patch request warns, never refuses."""
-    _setup(tmp_path)
+def test_a_patch_request_for_a_minor_release_is_refused_before_anything_is_written(tmp_path):
+    """RELEASING.md "When to tag": a command entry makes a minor; cut-release refuses 1.2.3 and names 1.3.0."""
+    work = _setup(tmp_path)
+    r = _cut(tmp_path, "1.2.3", "--no-doi")
+    assert r.returncode == 1
+    assert ('refusing 1.2.3: RELEASING.md "When to tag" requires 1.3.0 (minor over 1.2.2), and 1.2.3 is a patch '
+            "bump" in r.stderr)
+    assert "#9 frob: kind command" in r.stderr and "make cut-release VERSION=1.3.0" in r.stderr
+    assert "Nothing was written" in r.stderr
+    assert _subjects(tmp_path) == [f"release: {OLD}"] and _g(tmp_path, "status", "--porcelain") == ""
+    assert f"  version = {{{OLD}}}," in (work / "README.md").read_text()
+    assert _releases(tmp_path) == []
+
+
+def _patch_only(tmp: Path, work: Path, added: str = "") -> None:
+    """[Unreleased]: a fix (#8) and a docs entry (#9, under no_author_change); the record keeps its
+    provisional name 1.3.0."""
+    chg = CHANGELOG.replace("### Added\n\n- `lean-pkg frob` frobs a package. (#9)\n\n",
+                            added + "### Documentation\n\n- A recipe page. (#9)\n\n")
+    (work / "CHANGELOG.md").write_text(chg)
+    rec = RECORD.split("  - pr: 9")[0] + "  - pr: 8" + RECORD.split("  - pr: 8")[1] + "no_author_change: [9]\n"
+    (work / "docs" / "upgrades" / f"{V}.yaml").write_text(rec)
+    _g(tmp, "commit", "-qam", "fixes and docs only")
+    _g(tmp, "push", "-q")
+
+
+def test_a_patch_release_renames_the_provisional_record(tmp_path):
+    work = _setup(tmp_path)
+    _patch_only(tmp_path, work)
     r = _cut(tmp_path, V, "--no-doi")
+    assert r.returncode == 1 and "refusing 1.3.0" in r.stderr and "requires 1.2.3 (patch over 1.2.2)" in r.stderr
+    assert "no_author_change: #9" in r.stderr
+    r = _cut(tmp_path, "1.2.3", "--no-doi")
     assert r.returncode == 0, r.stderr
-    assert (f"WARN: step 0: {V} is a patch bump over {OLD}, but `## [Unreleased]` has `### Added`;" in r.stdout)
-    assert "suggested version 1.3.0 (`make cut-release VERSION=1.3.0`)" in r.stdout
-    assert _subjects(tmp_path)[0] == f"release: {V}" and _releases(tmp_path) == [V]
+    assert _subjects(tmp_path)[:3] == ["release: 1.2.3", "upgrades: the record is 1.2.3's",
+                                       "citation: bibtex examples cite 1.2.3"]
+    up = work / "docs" / "upgrades"
+    assert not (up / f"{V}.yaml").exists() and not (up / f"{V}.md").exists()
+    rec, page = (up / "1.2.3.yaml").read_text(), (up / "1.2.3.md").read_text()
+    assert "version: 1.2.3\n" in rec and "docs/upgrades/1.2.3.md" in rec and V not in rec
+    assert "title: Upgrading to 1.2.3\n" in page and "# Upgrading to 1.2.3 (from 1.2.2)" in page
+    assert "[1.2.3.yaml](1.2.3.yaml)" in page and V not in page
+    assert sorted(_g(tmp_path, "show", "--format=", "--name-only", "--no-renames", "HEAD~1").split()) == [
+        "docs/upgrades/1.2.3.md", "docs/upgrades/1.2.3.yaml", f"docs/upgrades/{V}.md", f"docs/upgrades/{V}.yaml"]
+    assert _origin_head(tmp_path) == _g(tmp_path, "rev-parse", "HEAD") and _releases(tmp_path) == ["1.2.3"]
 
 
-def test_a_minor_bump_does_not_warn(tmp_path):
-    _setup(tmp_path)
-    r = _cut(tmp_path, "1.3.0", "--no-doi")
+def test_a_docs_entry_under_added_is_refused_with_the_entry_to_move(tmp_path):
+    work = _setup(tmp_path)
+    _patch_only(tmp_path, work, added="### Added\n\n- docs/recipes.md, a new recipe. (#9)\n\n")
+    for v in ("1.2.3", "1.3.0"):
+        r = _cut(tmp_path, v, "--no-doi")
+        assert r.returncode == 1 and "disagree" in r.stderr and "Nothing was written" in r.stderr
+        assert ('`### Added` entry "docs/recipes.md, a new recipe. (#9)" is from #9, listed under no_author_change '
+                f"in docs/upgrades/{V}.yaml: a docs-only entry goes under `### Documentation`") in r.stderr
+    assert _subjects(tmp_path)[0] == "fixes and docs only" and _releases(tmp_path) == []
+
+
+def test_a_milestone_makes_a_patch_release_a_minor(tmp_path):
+    work = _setup(tmp_path)
+    _patch_only(tmp_path, work)
+    r = _cut(tmp_path, V, "--no-doi", "--milestone", "M1")
     assert r.returncode == 0, r.stderr
-    assert "patch bump" not in r.stdout and _releases(tmp_path) == ["1.3.0"]
-
-
-def test_version_kind_warning_reads_only_nonempty_added_or_changed(capsys):
-    mod = _cut_release_module()
-
-    def warned(body: str, v: str = "0.7.55", current: str = "0.7.54") -> str:
-        capsys.readouterr()
-        mod.step0_version_kind(f"# Changelog\n\n## [Unreleased]\n\n{body}\n## [{current}] - 2026-01-01\n\n"
-                               "### Added\n\n- old.\n", v, current)
-        return capsys.readouterr().out
-
-    assert warned("### Fixed\n\n- a fix.\n") == ""                       # fixes only: a patch is right
-    assert warned("### Added\n\n### Fixed\n\n- a fix.\n") == ""           # an empty heading is no entry
-    out = warned("### Changed\n\n- a format.\n\n### Fixed\n\n- a fix.\n")
-    assert "has `### Changed`;" in out and "suggested version 0.8.0" in out
-    out = warned("### Added\n\n- a flag.\n\n### Changed\n\n- x.\n")
-    assert "has `### Added` and `### Changed`;" in out
-    assert warned("### Added\n\n- a flag.\n", v="0.8.0") == ""            # the minor it asks for
-    assert warned("### Added\n\n- a flag.\n", v="1.0.0") == ""            # a major is not a patch
+    assert f"step 0: {V} is the version RELEASING.md requires (minor over {OLD})" in r.stdout
+    assert _releases(tmp_path) == [V]
+    assert (work / "docs" / "upgrades" / f"{V}.yaml").exists()
