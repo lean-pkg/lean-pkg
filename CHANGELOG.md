@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-18
+
 ### Added
 
 - docs/receipts.md, "Cheap checks first: gate order" (field report): run
@@ -50,6 +52,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `match` or `fun` before it) the statement is refused and the page links
   the file instead of showing a prefix; rerun `page NAME --write` for a
   package with such statements (#273).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.16.0] - 2026-10-18
 
