@@ -724,6 +724,222 @@ Each line names a constant and its module. A Challenge declaration
 constant from the project's own library (`Toy.x`) widens what the reader has
 to trust, and is rewritten with one of the recipes above.
 
+### Private helpers and copied references
+
+A Challenge cannot import the project, so a statement about a project
+definition is often built from a copy: the library's source copied under a
+module of the Challenge's own, such as `Challenge.Reference.RoughHeatKernel.Lq`,
+while the Solution imports the production `RoughHeatKernel.Lq`. When a copied
+public definition calls a `private` helper, the comparator refuses the
+configuration although the two files hold the same text:
+
+```text
+error: Const does not match between challenge and target 'RoughHeatKernel.heatLqConst'
+```
+
+**Why a copy under another module name can never match.** Lean names a
+private declaration after the module that declares it.
+`private def lqConstReal` in module `RoughHeatKernel.Lq` is the constant
+`_private.RoughHeatKernel.Lq.0.RoughHeatKernel.lqConstReal`; the same line
+in `Challenge.Reference.RoughHeatKernel.Lq` is
+`_private.Challenge.Reference.RoughHeatKernel.Lq.0.RoughHeatKernel.lqConstReal`.
+The public `heatLqConst` has the same name in both, but its body refers to
+two different constants. Lake's compare step (`src/lake/Lake/Check/Compare.lean`
+in Lean v4.35.0) walks every constant that the listed theorems' types reach,
+and for each one that is not a listed theorem or definition hole it requires
+the Challenge's declaration to equal the Solution's exactly, as a whole
+`ConstantInfo` with the names inside its body. So the first definition whose
+body mentions a private helper fails, whatever the helper's body says. The
+module name is part of the private name, so no option, rebuild or rename of
+the public declarations changes this.
+
+The private helper is not the only module-owned name. Lean also creates
+auxiliary declarations for the proofs inside a declaration (`_proof_N`, and
+for simp and equation lemmas their own helpers). Those of a private helper
+are private too (`_private.<Module>.0.<helper>._proof_N`), and in the module
+system the proof auxiliaries of a public, unexposed declaration's body can
+be private as well. Lean reuses an existing auxiliary when a later
+declaration needs the same proof, so **inlining the helper's formula does not
+help**: the inlined public definition still refers to the helper's
+generated `_proof_N`, and the comparator refuses it with the same message.
+Endpoint `rfl` checks and local builds pass in every one of these cases;
+only the comparator compares the names.
+
+The supported patterns, in order of preference:
+
+1. **One definitions module that both sides import.** Move the definitions,
+   their helpers included (private or not), into a definitions-only module,
+   for example `Audit/<Claim>/Defs.lean`, which imports Mathlib modules only
+   and holds no `sorry`. The Challenge and the Solution both import it under
+   the same module name, so every private name agrees. The Solution bridges
+   those definitions to the project's (by `rfl` or a lemma, in a namespace of
+   its own) and applies the project theorem. `Defs.lean` becomes part of the
+   trusted statement: a reviewer reads it with the Challenge, and the
+   Mathlib-only rule for the Challenge applies to it. When the production
+   module is itself definitions-only and imports only Mathlib, the Challenge
+   may import it directly instead (the same module name on both sides); the
+   Challenge then trusts all of that module. This is the layout
+   `lean-exercise --defs` builds (see [lean-exercise](exercise.md)).
+2. **Make the helper public**, in the library and in the copy. A public
+   name does not depend on its module, so a copy matches, provided every
+   declaration the closure reaches, the generated auxiliaries included, has
+   a module-independent name and elaborates to the same term on both sides.
+   A field report made 33 slots match by removing `private` from the
+   original helpers (same formulas and proofs, no definition holes). But
+   whether the generated auxiliaries are public depends on the proofs: in the
+   fixtures below, a helper whose `by omega` proofs Lean lifts into
+   auxiliaries still failed after it was made public, `@[expose]` included.
+   A copy is also exposed to elaboration drift: the Solution's environment
+   holds the project, whose instances or attributes can change how a copied
+   declaration elaborates. Check every configuration with the closure check
+   below, and prefer pattern 1, the only one that keeps every name equal
+   whatever the proofs do.
+
+Never use a copy with private helpers under another module name (it cannot
+match), do not rely on inlining a private helper (its generated proofs stay),
+never make the Challenge import the Solution or the project
+wholesale, and never weaken the statement or patch the comparator to get
+past the message.
+
+**When a definition hole is the honest alternative.** If a definition cannot
+be shared by either pattern (for example, it lives in a module with
+project-only imports that cannot be split), list it in `definition_names`.
+The comparator then checks its name, universes, type and safety, never its
+body, and does not walk into the body, so its private helpers are not
+compared. The body is then a human judgement: a reviewer compares the two
+bodies and records it in `lean-pkg-signoff.json` (see
+[Definition holes need a human sign-off](#definition-holes-need-a-human-sign-off)).
+That is a weaker claim than a kernel-checked match, so use a hole for the
+one definition that cannot be shared, never as a blanket list.
+
+Checked with `lake comparator` on Lean v4.35.0, on core-only fixtures:
+
+| Fixture (copy under `Challenge.Reference...` unless noted) | Result |
+|---|---|
+| `heatLqConst p := lqConstReal p + 0`, private `lqConstReal p := p * p` | refused at `RoughHeatKernel.heatLqConst` |
+| the same, Challenge imports the production module (no copy) | accepted |
+| the same, helper made public | accepted |
+| private helper with `by omega` proofs, its formula inlined into `heatLqConst` | refused at `RoughHeatKernel.heatLqConst`: it reaches `_private...lqConstReal._proof_4` |
+| the same, helper made public | refused at `RoughHeatKernel.heatLqConst` |
+| the same, helper public and both `@[expose]` | refused at `RoughHeatKernel.lqConstReal._proof_4`, which reaches private proof auxiliaries |
+| the same, Challenge imports the production module (no copy) | accepted |
+
+For a configuration that is already failing, the existing per-slot route
+keeps one bad slot from hiding the others: `--unit-size 1` judges every
+name as its own unit and caches each accepted one (see the whole-unit
+warning above). Every unit still pays both exports, so check first.
+
+**A cheap check across every configuration first.** Lake v4.35.0 has no
+compare-only mode. `lake comparator` exports the Challenge and the Solution,
+compares the exports, and only when they match runs the kernels;
+`--challenge-from-export` and `--solution-from-export` reuse an export but
+do not skip the kernels. So a mismatch costs both exports, which for a
+Mathlib closure take hours (see [Runtime](#runtime)). The program below
+walks the same closure as the compare step in one module's environment,
+without exporting anything, and prints a digest per constant: the type
+alone for a listed name, the whole declaration for any other constant. Run
+it on the Challenge and on the Solution and compare the outputs. Save it
+outside every `lean_lib` root, for example as `scripts/ClosureDigest.lean`,
+so the package build never compiles it:
+
+```lean
+import Lean
+open Lean
+
+/-- A digest of what Lake's compare step looks at: the type alone for a target, the whole
+declaration for any other constant. Equal declarations always get equal digests. -/
+def digest (ci : ConstantInfo) (target : Bool) : UInt64 :=
+  let kind := match ci with
+    | .axiomInfo _ => "axiom" | .defnInfo _ => "def" | .thmInfo _ => "theorem"
+    | .opaqueInfo _ => "opaque" | .quotInfo _ => "quot" | .inductInfo _ => "inductive"
+    | .ctorInfo _ => "ctor" | .recInfo _ => "rec"
+  let h := mixHash (hash kind) (mixHash (hash ci.levelParams) (hash ci.type))
+  let h := match ci with
+    | .inductInfo v => mixHash h (mixHash (hash v.ctors) (hash (v.numParams, v.numIndices)))
+    | _ => h
+  if target then h else
+    match ci.value? (allowOpaque := true) with
+    | some v => mixHash h (hash v)
+    | none => h
+
+/-- `lake env lean --run ClosureDigest.lean MODULE NAME...`: walk the closure Lake's compare step
+walks from the NAMEs (theorem names, definition holes and permitted axioms of a configuration) in
+MODULE's environment and print `name<TAB>digest`, one constant per line. -/
+def main (args : List String) : IO UInt32 := do
+  let mod :: names := args | IO.eprintln "usage: MODULE NAME..."; return 2
+  initSearchPath (← findSysroot)
+  let env ← importModules #[{ module := mod.toName }] {}
+  let targets : NameSet := names.foldl (fun s n => s.insert n.toName) {}
+  let mut work := names.map String.toName |>.toArray
+  let mut seen : NameSet := {}
+  let mut out := #[]
+  while h : work.size > 0 do
+    let n := work.back
+    work := work.pop
+    if seen.contains n then continue
+    seen := seen.insert n
+    let some ci := env.find? n
+      | out := out.push s!"{n}\tMISSING"; continue
+    let isTarget := targets.contains n
+    out := out.push s!"{n}\t{digest ci isTarget}"
+    let used := if isTarget then ci.type.getUsedConstants else ci.getUsedConstantsAsSet.toArray
+    work := work ++ used.filter (!seen.contains ·)
+  for line in out.qsort (· < ·) do IO.println line
+  return 0
+```
+
+Then, from the package directory, after the setup has built both modules
+(`lean-pkg receipt comparator --prepare`), one loop covers every
+configuration (bash):
+
+```bash
+out=$(mktemp -d)
+for c in comparator*.json comparator/config*.json; do
+  [ -f "$c" ] || continue
+  set -- $(python3 -c 'import json, sys
+c = json.load(open(sys.argv[1]))
+print(c["challenge_module"], c["solution_module"], *c["theorem_names"],
+      *(c.get("definition_names") or []), *c["permitted_axioms"])' "$c")
+  ch=$1 so=$2; shift 2
+  if ! lake env lean --run scripts/ClosureDigest.lean "$ch" "$@" > "$out/challenge.raw" ||
+     ! lake env lean --run scripts/ClosureDigest.lean "$so" "$@" > "$out/solution.raw"; then
+    echo "ERROR: $c (a module did not load; build it first)"; continue
+  fi
+  LC_ALL=C sort "$out/challenge.raw" > "$out/challenge.tsv"
+  LC_ALL=C sort "$out/solution.raw" > "$out/solution.tsv"
+  if cmp -s "$out/challenge.tsv" "$out/solution.tsv"; then echo "same closure: $c"
+  else echo "DIFFERS: $c"; diff "$out/challenge.tsv" "$out/solution.tsv" | head -20; fi
+done
+```
+
+On the first fixture of the table above it prints (the columns are separated
+by a tab, shown here as spaces)
+
+```text
+DIFFERS: comparator.json
+45,46c45,46
+< RoughHeatKernel.heatLqConst  13970870484062029635
+< _private.Challenge.Reference.RoughHeatKernel.Lq.0.RoughHeatKernel.lqConstReal  445295622416401798
+---
+> RoughHeatKernel.heatLqConst  11004922224675330597
+> _private.RoughHeatKernel.Lq.0.RoughHeatKernel.lqConstReal  445295622416401798
+```
+
+which names the definition Lake refuses and the two private names behind
+it. On the seven fixtures of the table its verdict matched `lake comparator`'s:
+`DIFFERS` for the four refused (for the inlined helper it lists the
+`_private...lqConstReal._proof_N` names on each side), `same closure` for the
+three accepted. Each side
+loads its environment once (about 4 s on the fixture; a Mathlib environment
+takes longer, but no export file is written and no kernel runs). It reads
+the environment only and writes nothing in the package. A reported
+difference says where to look, not that Lake will refuse; a clean result is
+not a pass either: the digest is a 64-bit hash that does not cover every
+field Lake compares. Only `lake comparator` judges, and neither result is
+ever acceptance. A
+`comparator check --compare-only` flag that runs this check from lean-pkg is
+a possible follow-up; it is not part of this release.
+
 ### Coverage at the gate-bound commit
 
 `lean-pkg comparator coverage NAME` is read-only. It writes nothing
@@ -1269,6 +1485,36 @@ exceeds the host's memory still fails. Put the run under a memory cap, for examp
 so an overrun is a clean kill of that scope (the stage log and
 `stages.json` say which stage died) rather than the kernel's OOM killer
 choosing a process elsewhere on the host.
+
+**Threads inside Lake's sandbox.** `COMPARATOR_RECEIPT_LEAN_THREADS` reaches
+the runner's direct children only: the setup stages' `lake` and `lean` (among
+them the `build` stage, which compiles every configuration's Challenge and
+Solution modules) and the `lake comparator` process itself. It cannot
+promise the same setting inside the steps that `lake comparator` runs in its
+own sandbox. In Lean v4.35.0 (`src/lake/Lake/CLI/Check.lean`), each
+sandboxed step (the workspace resolution `lake env`, the `lake build` of the
+Challenge and of the Solution, the exporter and the kernels) starts from
+`bwrap --clearenv` and gets back only the variables in that step's
+`envPass` list: `PATH` and `LEAN_ABORT_ON_PANIC`, plus `HOME` or `LEAN_PATH`
+for some steps. `LEAN_NUM_THREADS` is in none of them, so it is absent there
+and Lean falls back to its default, one thread per core. A Challenge holding
+`#eval do return (← IO.getEnv "LEAN_NUM_THREADS")`, judged by
+`lake comparator` with `LEAN_NUM_THREADS=1` set outside, prints `none` in the
+sandboxed build; under `--inadvisably-no-sandbox` (which inherits the
+caller's environment, and is never used for a receipt) it prints `some "1"`.
+What still bounds the nested steps:
+
+- a `systemd-run` scope (`MemoryMax`, `CPUQuota`): its cgroup holds every
+  descendant, the sandboxed ones included;
+- `--judges 1`, which runs one `lake comparator` at a time;
+- the exporter, which is single-threaded anyway, and NanoDa, whose thread
+  count Lake fixes at 4;
+- the setup: when the `build` stage (or `--prepare`) has built the Challenge
+  and the Solution under the thread setting, the nested builds compile
+  nothing.
+
+Forwarding `LEAN_NUM_THREADS` through `envPass` would need a change in Lake
+itself; lean-pkg documents the gap and does not work around it.
 
 **Stack limit.** Lean recurses deeply on a large module. Under the common
 8 MiB default soft `RLIMIT_STACK`, a `lean` child can die with SIGSEGV

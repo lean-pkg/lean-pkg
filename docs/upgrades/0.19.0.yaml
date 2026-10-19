@@ -7,5 +7,6 @@ version: 0.19.0
 changes: []
 # Read for this record, nothing for a package author: docs, recovering an interrupted campaign and the
 # upgrade impact on old receipts (#277); release tooling, the version a release must carry checked at cut
-# time, the CHANGELOG category check and the provisional record name (#278).
-no_author_change: [277, 278]
+# time, the CHANGELOG category check and the provisional record name (#278); docs, threads inside
+# Lake's sandbox, the docs-descendant input inventory and private helpers in comparator references (#279).
+no_author_change: [277, 278, 279]

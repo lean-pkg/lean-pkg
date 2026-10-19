@@ -46,6 +46,38 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   the check ids and refusal texts in the code. Nothing resubmits,
   deletes, or writes the registry or a checkout. A packaged
   `receipt audit` helper is left as a follow-up.
+- docs/comparator.md, "Threads inside Lake's sandbox" (lab field
+  report): `COMPARATOR_RECEIPT_LEAN_THREADS` sets `LEAN_NUM_THREADS` for
+  the runner's direct children only. In Lean v4.35.0 the steps that
+  `lake comparator` runs in its sandbox (`lake env`, the Challenge and
+  Solution builds, the exporter, the kernels) start from
+  `bwrap --clearenv` and get back only their `envPass` lists, which omit
+  `LEAN_NUM_THREADS`; checked with a Challenge that prints the variable
+  (`none` sandboxed, `some "1"` with `--inadvisably-no-sandbox`). The
+  section lists what still bounds those steps.
+- docs/receipts.md, "Before opting in: inventory every file the checker
+  reads" (lab field report): before `--accept-docs-descendants`, list
+  every file `verify.sh` and its hooks execute or read at run time
+  (runtime-compiled Lean outside the Lake targets, controls, owner lists,
+  `coverage.yaml` used as claim configuration), record globs for them,
+  and run the documented read-only preflight, which feeds the tracked
+  files through the docs rule's own classifier (`docs_build_input`) and
+  prints each one's reason or `NOT A BUILD INPUT`. A test runs the
+  page's command on fixtures.
+- docs/comparator.md, "Private helpers and copied references" (lab field
+  report): why a copied reference library whose public definition calls
+  a `private` helper can never match under another module name (the
+  private name embeds the module; Lake compares non-target declarations
+  exactly), why inlining the helper does not help (Lean reuses the
+  helper's generated `_proof_N` auxiliaries, which are module-owned too),
+  the supported patterns (one definitions module both sides import, the
+  only one that holds whatever the proofs do; or a public helper, which
+  works only when no generated auxiliary stays private), when a definition hole with a human
+  sign-off is the honest alternative, and a read-only closure-digest
+  check across every configuration that finds such a mismatch without
+  exports or kernels (Lake v4.35.0 has no compare-only mode). Each claim
+  was checked with `lake comparator` on Lean v4.35.0 fixtures. A
+  `comparator check --compare-only` flag is left as a follow-up.
 
 ## [0.18.0] - 2026-10-18
 
