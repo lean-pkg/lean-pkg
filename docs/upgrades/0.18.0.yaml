@@ -24,3 +24,21 @@ changes:
       by hand (docs/receipts.md, steps 5-7) and rerun --preflight-deps on it before submitting.
     breaking: false
     changelog: Added
+  - pr: 276
+    id: json-escapes-control-characters
+    kind: behavior
+    area: --json
+    summary: >-
+      A lab field report said status NAME --json printed a raw control character that strict json.loads
+      refused ("Invalid control character"). The payload lean-pkg prints was valid: the report's copy had
+      been printed through zsh's echo, which turns the \n and — escapes of a notes string back into a
+      raw newline and a dash. That every --json payload escapes control characters (U+0000 to U+001F), also
+      when they come from registry notes and history, is now a documented guarantee (help formatting,
+      ESCAPING) and a test runs every command of the --json contract table on a registry whose notes and
+      history hold every C0 control, DEL, U+2028 and U+2029, parsing with strict json.loads and checking
+      the strings round-trip. The output itself is unchanged.
+    action: >-
+      Nothing for a package author. A script that captures --json in a variable should print it with
+      printf '%s\n' "$out", or pipe or redirect the command, never echo it.
+    breaking: false
+    changelog: Fixed
