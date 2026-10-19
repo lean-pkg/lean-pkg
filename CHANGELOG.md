@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-10-19
+
 ### Changed
 
 - Releases: the version follows RELEASING.md "When to tag", checked at
@@ -78,6 +80,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   exports or kernels (Lake v4.35.0 has no compare-only mode). Each claim
   was checked with `lake comparator` on Lean v4.35.0 fixtures. A
   `comparator check --compare-only` flag is left as a follow-up.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.18.0] - 2026-10-18
 
