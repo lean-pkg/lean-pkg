@@ -112,6 +112,11 @@ lean-pkg claims check --file claims.yaml
 
 `reusable` claims are the ones a later gate requires; `internal` helpers are
 still part of the package and its evidence, but are not offered for reuse.
+The claims ledger reports an internal helper as `out-of-scope`, unless a
+comparator configuration names it and the comparator receipt passes at the
+gate-bound commit: then it is checked like a reusable claim and can be
+`verified`, though it is never required ([Claims
+ledger](lifecycle.md#claims-ledger)).
 
 ## 4. Freeze a checkpoint and record evidence
 

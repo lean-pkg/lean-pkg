@@ -9,6 +9,23 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg claims ledger`: an internal claim the comparator judged now
+  counts as verified (#292). An `internal` theorem or lemma is judged
+  (new JSON field `judged_internal`) when the comparator tier is clean for
+  the package (a valid, passing comparator receipt bound to the gate-bound
+  commit) and a configuration at that commit names its declaration by the
+  rule that credits a reusable claim; it then gets the reusable claim's
+  diagnostics and is `verified` on the same evidence, but is never
+  required, so no package status changes. Every other internal claim stays
+  `out-of-scope`, as before. The text output tags a judged claim
+  `[internal, judged by the comparator]`; `counts` and `ledger_digest`
+  change for a package with one. `lean-pkg page` adds an **Internal.**
+  line to a result block naming an internal claim and `(internal)` to its
+  status in `coverage.md`, so such a package's page must be re-rendered
+  (`page NAME --write`). See docs/lifecycle.md ("Claims ledger").
+
 ### Changed
 
 - Release tooling (#287): `scripts/release-version.py --curated [--pr N]`

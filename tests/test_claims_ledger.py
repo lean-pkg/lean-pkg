@@ -135,7 +135,8 @@ def test_no_claims_file_and_no_cache_is_unknown(lp, env, capsys):
 
 
 def test_no_reusable_claim_is_unknown(lp, env, capsys):
-    gated(env, claims=[claim("foo-le-bar", "Demo.foo_le_bar", status="internal")])
+    gated(env, claims=[claim("foo-le-bar", "Demo.foo_le_bar", status="internal")],
+          names=("BetaAudit.Demo.zap",))           # not judged by the comparator (test_internal_claims.py)
     rc, data = ledger(lp, env, capsys)
     assert rc == 1 and data["package_status"] == "unknown"
     assert by_id(data)["foo-le-bar"]["status"] == "out-of-scope"

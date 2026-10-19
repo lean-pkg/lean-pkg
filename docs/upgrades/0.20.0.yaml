@@ -20,6 +20,31 @@ changes:
       event log inside DIR, beside the registry file, not in DIR's parent.
     breaking: false
     changelog: Fixed
+  - pr: 292
+    id: ledger-judged-internal-claims
+    kind: behavior
+    area: claims ledger
+    summary: >-
+      An internal claim the comparator judged now counts as verified. claims ledger (promote stage) gave
+      every claim with claims.yaml status internal the status out-of-scope, even when a passing comparator
+      receipt had compared its statement. Now an internal theorem or lemma is judged (new JSON field
+      judged_internal, true) when the comparator tier is clean for the package (a valid, passing comparator
+      receipt bound to the gate-bound commit) and a configuration at that commit names its declaration by
+      the rule that credits a reusable claim (a scaffold TODO name does not count). A judged internal claim
+      gets the reusable claim's diagnostics and is verified, open, blocked or unknown on the same evidence;
+      it is never required, so the package status and the required count are unchanged. Every other
+      internal claim (not named, a definition, the gate stage, no clean comparator receipt) stays
+      out-of-scope. The text output tags a judged claim [internal, judged by the comparator]. counts and
+      ledger_digest change for a package with a judged internal claim. The page adds an Internal. line to a
+      result block that names an internal claim, and coverage.md adds (internal) to that claim's ledger
+      status.
+    action: >-
+      Nothing for most package authors. A package whose coverage.yaml names an internal claim, or that has
+      an internal claim a comparator configuration names, gets a different page: page NAME --check reports
+      the README block (and --site files) stale until you run lean-pkg page NAME --write (and --site DIR)
+      and commit. A script that read out-of-scope as "every internal claim" reads judged_internal.
+    breaking: true
+    changelog: Added
 # Read for this record, nothing for a package author: release tooling, the record must name every
 # pull request merged since the last release, checked by make changelog and CI (#287).
 # Read for this record, nothing for a package author: docs, a metadata-only lakefile edit (license)

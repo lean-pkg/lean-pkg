@@ -127,9 +127,26 @@ nothing.
 
 Each claim gets a list of named diagnostics, and it is `verified` only when
 that list is empty. Its status is the first that applies: `out-of-scope`
-(claims.yaml status `internal` or `superseded`), `blocked` (a `depends_on`
-claim in the same package is not verified, transitively), `unknown`
-(evidence that cannot be read), `verified`, else `open`.
+(claims.yaml status `superseded`, or `internal` and not judged, below),
+`blocked` (a `depends_on` claim in the same package is not verified,
+transitively), `unknown` (evidence that cannot be read), `verified`, else
+`open`.
+
+An `internal` theorem or lemma is *judged* (`judged_internal: true` in
+`--json`; promote stage only) when the comparator tier is clean for the
+package, with no comparator diagnostic (a valid comparator receipt, bound to
+the gate-bound commit, every configuration passing), and a configuration at
+that commit names its declaration by the rule that credits a reusable claim
+(below; a scaffold `TODO` name does not count). A judged internal claim gets
+every diagnostic a reusable one gets, and is `verified` on exactly the same
+evidence: the same commit binding, the same axioms check, the same statement
+match between Challenge and Solution. It is never required, so it changes no
+package status; the text output tags it
+`[internal, judged by the comparator]` and the page marks it internal. An internal claim the comparator
+did not judge (not named, a definition, the gate stage, or no clean
+comparator receipt) stays `out-of-scope`: it is never credited. The status
+says whether a result is offered for reuse, not whether it is true, and what
+a passing comparator establishes for a theorem does not depend on it.
 
 Required claims are those with status `reusable`. At `--stage gate` they need
 the lower tier. At `--stage promote` (the default) a reusable `theorem` or

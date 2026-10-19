@@ -7,9 +7,17 @@ claim is `verified` only when its diagnostic list is empty. Nothing is written: 
 re-derived from the registry record, the checkout and the receipts on every call, with the same
 validators `gate` and `promote` use, so it can never accept less than they do.
 
-Claim status, first match wins: `out-of-scope` (claims.yaml status internal or superseded),
-`blocked` (a depends_on claim in this package is not verified), `unknown` (evidence that cannot be
-read), `verified` (no diagnostics), else `open`.
+Claim status, first match wins: `out-of-scope` (claims.yaml status superseded, or internal and not
+judged), `blocked` (a depends_on claim in this package is not verified), `unknown` (evidence that cannot
+be read), `verified` (no diagnostics), else `open`.
+
+An internal theorem or lemma is judged (`judged_internal`, promote stage) when the comparator tier is
+clean for the package (a valid comparator receipt, bound to the gate-bound commit, every configuration
+passing) and a configuration at that commit names its declaration by the rule that credits a reusable
+claim. A judged internal claim gets every diagnostic a reusable one gets and is verified on the same
+evidence; it is never required, so the package status does not change. What the comparator establishes
+for a theorem does not depend on the claim's status: the status says whether a result is offered for
+reuse, not whether it is true.
 
 Required claims are those with claims.yaml status `reusable`. At stage `gate` they need the lower
 tier; at stage `promote` a reusable theorem or lemma also needs the comparator tier, so a lower-tier
@@ -37,6 +45,7 @@ LEDGER_SCHEMA = "claims-ledger/1"
 STAGES = ("gate", "promote")
 REQUIRED_STATUSES = ("reusable",)
 OUT_OF_SCOPE_STATUSES = ("internal", "superseded")
+JUDGED_STATUSES = ("internal",)                 # out of scope unless a passing comparator judges the declaration
 
 # code -> (class, meaning). The class decides the claim status: "open" (evidence missing or stale),
 # "unknown" (evidence that cannot be read), "failed" (recorded evidence contradicts the claim),
@@ -198,6 +207,7 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
                            if stage == "promote" else (set(), set()))
             read = claims_mod._reader(repo, bound)
             qualified = cc.qualified_decls(read, claims) if stage == "promote" else set()
+            real, mapped = names - todo, cc.mapped_names(claims)
 
     ids = {str(c.get("id")) for c in claims}
     rows: list[dict] = []
@@ -210,12 +220,14 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
         if bound:
             diags += [_diag("finding-evidence-missing", p) for p in claims_mod.evidence_problems(read, [c])]
         needs_comparator = stage == "promote" and required and c.get("kind") in cc.CLAIM_KINDS
+        # an internal theorem/lemma a passing, commit-bound comparator judged: the reusable checks, never required
+        judged_internal = bool(stage == "promote" and bound and not comp_diags
+                               and c.get("status") in JUDGED_STATUSES and c.get("kind") in cc.CLAIM_KINDS
+                               and cc.claim_covered(real, c, qualified, mapped))
         if needs_comparator:
             diags += comp_diags
             if bound and not comp_diags:
-                real = names - todo
                 q = decl in qualified
-                mapped = cc.mapped_names(claims)
                 if not cc.claim_covered(real, c, qualified, mapped):
                     code = ("comparator-todo" if cc.claim_covered(todo, c, qualified, mapped)
                             else "no-comparator-config")
@@ -232,7 +244,8 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
             if d not in ids:
                 diags.append(_diag("depends-on-unknown", f"{d} is not a claim of {name}'s claims file"))
         rows.append({"id": cid, "decl": decl, "kind": c.get("kind"), "claim_status": c.get("status"),
-                     "required": required, "depends_on": list(c.get("depends_on") or []),
+                     "required": required, "judged_internal": judged_internal,
+                     "depends_on": list(c.get("depends_on") or []),
                      "statement_basis": c.get("statement_basis"), "manuscript_findings": claim_findings(c),
                      "diagnostics": diags})
 
@@ -252,7 +265,7 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
                     r["diagnostics"].append(_diag("depends-on-open", f"{d} is not verified"))
                     changed = True
     for r in rows:
-        if r["claim_status"] in OUT_OF_SCOPE_STATUSES:
+        if r["claim_status"] in OUT_OF_SCOPE_STATUSES and not r["judged_internal"]:
             r["status"] = "out-of-scope"
         elif any(d["code"] == "depends-on-open" for d in r["diagnostics"]):
             r["status"] = "blocked"
@@ -382,8 +395,9 @@ def ledger_lines(led: dict) -> list[str]:
         out.append(f"  {fl}")
     for r in led["claims"]:
         basis = " [corrected statement]" if r.get("statement_basis") == "corrected" else ""
-        out.append(f"  {r['status']:<12} {r['id']} ({r['decl']})" + ("" if r["required"] else
-                                                                     f" [{r['claim_status']}]") + basis)
+        tag = "" if r["required"] else (" [internal, judged by the comparator]" if r.get("judged_internal")
+                                        else f" [{r['claim_status']}]")
+        out.append(f"  {r['status']:<12} {r['id']} ({r['decl']})" + tag + basis)
         out += [f"      {d['code']}: {d['detail']}" for d in r["diagnostics"]]
         for f in r.get("manuscript_findings") or []:
             loc = f.get("location") or {}
