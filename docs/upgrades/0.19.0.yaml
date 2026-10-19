@@ -47,4 +47,24 @@ changes:
       again.
     breaking: false
     changelog: Fixed
+  - pr: 283
+    id: comparator-contracts-only
+    kind: command
+    area: comparator check
+    summary: >-
+      New flag comparator check NAME --contracts-only [--config PATH]... [--export MODULE=FILE]...
+      [--no-sandbox] (#280): a read-only diagnostic of the compare step of every comparator configuration
+      of the checkout at once. Each module is exported once with the toolchain's leanexport (bwrap unless
+      --no-sandbox), then Lake's own Lake.Check.compareAt and Lake.Check.checkAxioms judge each
+      configuration exactly as lake comparator's compare step does. A differing configuration gets Lake's
+      message, the breadcrumb from the target to the refused constant, the first differing ConstantInfo
+      field (Expr BEq, as Lake compares) and the first differing subterm. No kernel runs; no receipt,
+      event or file in the checkout is written; JSON acceptance false, never acceptance. Lean v4.35.0 or
+      later.
+    action: >-
+      Nothing for a package author. Before spending a gate on many configurations, run lean-pkg comparator
+      check NAME --contracts-only after lake build and fix every configuration it reports; the gate stays
+      mandatory.
+    breaking: false
+    changelog: Added
 no_author_change: []

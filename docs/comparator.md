@@ -829,7 +829,11 @@ keeps one bad slot from hiding the others: `--unit-size 1` judges every
 name as its own unit and caches each accepted one (see the whole-unit
 warning above). Every unit still pays both exports, so check first.
 
-**A cheap check across every configuration first.** Lake v4.35.0 has no
+**A cheap check across every configuration first.** On Lean v4.35.0 and
+later, run [`comparator check NAME --contracts-only`](#a-contracts-only-diagnostic)
+(below): it runs Lake's own comparison and names the differing field. The
+program in this paragraph needs no lean-pkg command and no exporter, so it
+also works on a toolchain without Lake's compare step. Lake v4.35.0 has no
 compare-only mode. `lake comparator` exports the Challenge and the Solution,
 compares the exports, and only when they match runs the kernels;
 `--challenge-from-export` and `--solution-from-export` reuse an export but
@@ -936,9 +940,127 @@ the environment only and writes nothing in the package. A reported
 difference says where to look, not that Lake will refuse; a clean result is
 not a pass either: the digest is a 64-bit hash that does not cover every
 field Lake compares. Only `lake comparator` judges, and neither result is
-ever acceptance. A
-`comparator check --compare-only` flag that runs this check from lean-pkg is
-a possible follow-up; it is not part of this release.
+ever acceptance. The command below runs Lake's own comparison instead of a
+digest.
+
+### A contracts-only diagnostic
+
+`lean-pkg comparator check NAME --contracts-only` runs the compare step of
+every comparator configuration of the checkout at once. It runs no kernel
+and writes no receipt (#280). Lake v4.35.0 has no compare-only mode, so the
+command uses Lake's public compare API instead of reimplementing it:
+
+1. It reads every `comparator*.json` and `comparator/config*.json` (or only
+   each `--config PATH`), as Lake reads them.
+2. It exports each distinct module **once**, over the union of the names
+   `lake comparator` would export for the configurations that use it (the
+   theorem names, the permitted axioms, the definition holes, the kernel's
+   primitive constants, and `Quot`, `Quot.mk`, `Quot.lift`, `Quot.ind` when
+   `Quot.sound` is permitted). The exporter is the toolchain's own
+   `leanexport`, the one `lake comparator` runs, in the bwrap sandbox
+   `lean-exercise` uses (`--no-sandbox` runs it without bwrap). Ten
+   configurations that share a Solution module pay one Solution export, not
+   ten. `--export MODULE=FILE` reads an export you already have instead.
+3. A small Lean program (`lean_pkg/scripts/ContractsOnly.lean`, run by the
+   toolchain's `lean --run` with Lake's compiled library loaded) parses each
+   export once and calls `Lake.Check.compareAt` and `Lake.Check.checkAxioms`
+   on each configuration's pair, with the same arguments as
+   `lake comparator`'s compare step (`verifyMatch.verifyCompare` in
+   `Lake/CLI/Check.lean`). Their result is the verdict. A configuration whose
+   export targets are not all in both exports is reported as `error`, because
+   Lake's own export of it would fail. It is never compared.
+
+For a configuration that fails, a second walk records which constant led to
+which. It mirrors Lake's `Compare.loop`: the same worklist order and the same
+edges. It reports:
+
+- **Lake's message**, verbatim
+  (`Const does not match between challenge and target 'NAME'`, `Challenge and solution theorem statement do not match`,
+  `Illegal axiom detected`, ...);
+- the **breadcrumb**: the chain of declarations from the listed target to
+  the refused constant;
+- the **first differing field** of the two `ConstantInfo`s, in the order
+  kind, name, universe parameters, type, value, safety, reducibility hints,
+  `all`, then the inductive, constructor and recursor fields. It is compared
+  with `==`, Expr's `BEq`, which is what Lake compares, so binder names and
+  binder annotations never count as a difference;
+- for a type or value, the **first differing subterm**: a path of child
+  labels and a short descriptor of the two nodes there, such as a constant's
+  name or `app of Fin.mk (2 args)`. It never prints a whole term, because a
+  shared proof DAG printed as a tree can run to gigabytes;
+- a **hint** when a private or generated name is involved (`_private.<Module>.0.`,
+  `_proof_N`), pointing to [the patterns above](#private-helpers-and-copied-references).
+
+A `consistent: false` entry says the walk did not end at the constant Lake's
+message names, so its breadcrumb is a guess (this has not been seen). The
+hint and the descriptors are display only and never change a verdict.
+
+```text
+$ lean-pkg comparator check my-proof --contracts-only
+my-proof: contracts-only diagnostic, 6 configuration(s): 3 differ, 1 error(s), 2 match (never acceptance; no kernel, no receipt)
+  ERROR: comparator/config-missing.json: not in the export (lake comparator's exporter would fail): solution: audit_missing
+  DIFFERS: comparator/config-omega.json: Const does not match between challenge and target 'Heat.bumpVal'
+    breadcrumb: audit_omega -> Heat.bumpVal
+    first differing field: value at body.arg.arg.fn: challenge const _private.Challenge.Ref.Omega.0.Heat.bump._proof_2; solution const _private.Heat.Omega.0.Heat.bump._proof_2
+    hint: the same private name Heat.bump._proof_2 is owned by module Challenge.Ref.Omega on the Challenge side and Heat.Omega on the Solution side: ...
+  DIFFERS: comparator/config-private.json: Const does not match between challenge and target 'Heat.heatLqConst'
+    breadcrumb: audit_private -> Heat.heatLqConst
+    first differing field: value at body.fn.arg.fn: challenge const _private.Challenge.Ref.Lq.0.Heat.lqConstReal; solution const _private.Heat.Lq.0.Heat.lqConstReal
+    hint: ...
+  match: comparator/config-public.json
+  match: comparator/config-shared.json
+  DIFFERS: comparator/config-statement.json: Challenge and solution theorem statement do not match: 'audit_statement'
+    breadcrumb: audit_statement
+    first differing field: type at body.arg.fn.fn.fn.fn.fn.fn: challenge const HAdd.hAdd.{0, 0, 0}; solution const HMul.hMul.{0, 0, 0}
+  never acceptance: no kernel ran and nothing was written (no receipt, no registry entry, no file in the checkout); only `lake comparator` in a gate judges
+my-proof: contracts-only diagnostic, 6 configuration(s): 3 differ, 1 error(s), 2 match (never acceptance; no kernel, no receipt)
+```
+
+**It is never acceptance.** No kernel runs. It writes no receipt, registry
+entry or event, and no file in the checkout. The exports go to a temporary
+directory (under `$TMPDIR`) that is removed afterwards. So nothing a receipt
+or a gate reads changes. A `match` is not a pass: the kernels, the axiom
+checks of the receipt and every publication gate stay mandatory, and only
+`lake comparator` inside a gate judges. A `differs` is a reason to fix the
+configuration before spending a gate on it. The JSON (`--json`, schema
+`lean-pkg-comparator-contracts/1`) carries `acceptance: false` and
+`evidence: false` on every run, with `ok`, `verdict`, `counts`, `configs[]`
+(`config`, `verdict`, `detail`, and for a difference `stage`, `constant`,
+`reason`, `breadcrumb[]`, `first_field`, `consistent`, `hint`) and
+`exports[]`. Exit 0 when every configuration matches, 1 otherwise.
+
+Requirements and limits:
+
+- Lean v4.35.0 or later (the toolchain must ship `leanexport` and Lake's
+  `Lake.Check.compareAt`). An older toolchain is refused; use the digest
+  program above.
+- The modules must be built (`lake build`, or
+  `lean-pkg receipt comparator --prepare`). An unbuilt module is an `error` naming the `lake build` to run.
+  The command reads the `.olean` files as they are, so a stale build gives a
+  stale answer. The project's `LEAN_PATH` is read from `lake-manifest.json`,
+  as `dup_constants` does; no lakefile runs.
+- An export of a Mathlib closure still costs what it costs (see
+  [Runtime](#runtime)): the saving is one export per module instead of one
+  per configuration, and no kernel replay. An export you pass with `--export`
+  is read as it is. You answer for its freshness, and a target it lacks makes
+  that configuration an `error`.
+- The diagnosis walk mirrors Lake's code for v4.35.0. If a later Lake changes
+  its walk, the verdict (Lake's own functions) stays right, and the
+  `consistent` flag reports a breadcrumb that no longer matches.
+
+Checked on Lean v4.35.0 against `lake comparator --config` on core-only
+fixtures, one configuration each, all sharing one Solution module
+(`tests/test_comparator_contracts.py` runs both when the toolchain is
+installed): a copy with a private helper (refused; the same message, and the
+two private names), the same text with a private helper whose `by omega`
+proofs the public definition reuses (refused; the two `_proof_2` names), a
+public helper (accepted), a shared definitions module with a private helper
+(accepted), a changed theorem statement (refused; field `type`), a Solution proof
+through an axiom outside `permitted_axioms` (refused by `checkAxioms`;
+breadcrumb to the axiom), and a theorem the Solution lacks (`lake comparator`
+fails in its export; here `error`). In
+every case the verdict agreed, and each refusal carried Lake's message
+verbatim.
 
 ### Coverage at the gate-bound commit
 

@@ -9,6 +9,26 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg comparator check NAME --contracts-only` (#280, #283): a
+  read-only diagnostic of the compare step of every comparator
+  configuration of the checkout at once (`comparator*.json`,
+  `comparator/config*.json`, or each `--config PATH`), with no kernel and
+  no receipt. Each module is exported once with the toolchain's
+  `leanexport` (in bwrap unless `--no-sandbox`; `--export MODULE=FILE`
+  reads an existing export), then Lake's own `Lake.Check.compareAt` and
+  `Lake.Check.checkAxioms` judge each configuration as `lake comparator`'s
+  compare step does. A differing configuration gets Lake's message, the
+  breadcrumb from the target to the refused constant, the first differing
+  ConstantInfo field (compared with Expr `BEq`, as Lake does) and the first
+  differing subterm, plus a display-only hint for private and generated
+  names. It writes no receipt, event or file in the checkout; the JSON
+  (schema `lean-pkg-comparator-contracts/1`) always carries
+  `acceptance: false`. Lean v4.35.0 or later. Verdicts checked against
+  `lake comparator` on the private-helper fixtures of docs/comparator.md
+  ("A contracts-only diagnostic").
+
 ### Fixed
 
 - `--json`: stdout is the JSON document alone (a field report from a

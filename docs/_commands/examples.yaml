@@ -194,6 +194,17 @@ lean-pkg receipt comparator:
 lean-pkg comparator check:
   - cmd: lean-pkg comparator check my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
     say: Validate a comparator receipt against the package without recording it; works at any status.
+  - cmd: lean-pkg comparator check my-proof --contracts-only
+    say: Before a gate, run the compare step of every comparator configuration at once, with no kernel and no receipt; never acceptance.
+    output: |
+      my-proof: contracts-only diagnostic, 2 configuration(s): 1 differ, 0 error(s), 1 match (never acceptance; no kernel, no receipt)
+        DIFFERS: comparator/config-lq.json: Const does not match between challenge and target 'Heat.heatLqConst'
+          breadcrumb: audit_lq -> Heat.heatLqConst
+          first differing field: value at body.fn.arg.fn: challenge const _private.Challenge.Ref.Lq.0.Heat.lqConstReal; solution const _private.Heat.Lq.0.Heat.lqConstReal
+          hint: the same private name Heat.lqConstReal is owned by module Challenge.Ref.Lq on the Challenge side and Heat.Lq on the Solution side: a private name embeds its module, so a copy under another module never matches (see docs/comparator.md#private-helpers-and-copied-references)
+        match: comparator/config-pub.json
+        never acceptance: no kernel ran and nothing was written (no receipt, no registry entry, no file in the checkout); only `lake comparator` in a gate judges
+      my-proof: contracts-only diagnostic, 2 configuration(s): 1 differ, 0 error(s), 1 match (never acceptance; no kernel, no receipt)
 
 lean-pkg comparator attach:
   - cmd: lean-pkg comparator attach my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json

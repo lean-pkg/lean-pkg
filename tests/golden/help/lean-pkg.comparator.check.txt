@@ -1,22 +1,34 @@
 usage: lean-pkg comparator check [-h] [--receipt RECEIPT] [--refuse-private] [--refuse-dirty]
-                                 [--repo DIR] [--json] [--commit] [--push] [--no-commit]
+                                 [--repo DIR] [--contracts-only] [--config PATH]
+                                 [--export MODULE=FILE] [--no-sandbox] [--json] [--commit]
+                                 [--push] [--no-commit]
                                  name
 
 positional arguments:
   name
 
 options:
-  -h, --help         show this help message and exit
-  --receipt RECEIPT  path to comparator receipt JSON (required)
-  --refuse-private   refuse (exit 1) when the receipt holds private strings; default is a WARN
-                     line
-  --refuse-dirty     refuse when tracked files are modified in the checkout; default is a WARN
-                     line
-  --repo DIR         validate against the checkout DIR instead of the registered local_path, for
-                     this call (never saved; JSON repo_override). DIR must be a git work tree, and
-                     when it has remotes one must be the package's repo
-  --json             machine-readable JSON on stdout
-  --commit           write commands: pull --ff-only, then commit the registry files (default:
-                     $LEAN_PKG_COMMIT=1)
-  --push             --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit        never commit or push (overrides the env)
+  -h, --help            show this help message and exit
+  --receipt RECEIPT     path to comparator receipt JSON (required)
+  --refuse-private      refuse (exit 1) when the receipt holds private strings; default is a WARN
+                        line
+  --refuse-dirty        refuse when tracked files are modified in the checkout; default is a WARN
+                        line
+  --repo DIR            validate against the checkout DIR instead of the registered local_path,
+                        for this call (never saved; JSON repo_override). DIR must be a git work
+                        tree, and when it has remotes one must be the package's repo
+  --contracts-only      no receipt: a read-only diagnostic of the compare step of every comparator
+                        configuration in the checkout (Lake's own compareAt and checkAxioms on one
+                        shared export per module); per failing configuration the first differing
+                        ConstantInfo field and the breadcrumb from the target; no kernel runs,
+                        nothing is written, never acceptance
+  --config PATH         with --contracts-only: only this configuration (relative to the checkout;
+                        repeatable; default: comparator*.json and comparator/config*.json)
+  --export MODULE=FILE  with --contracts-only: read this existing leanexport file for MODULE
+                        instead of exporting it (repeatable; you answer for its freshness)
+  --no-sandbox          with --contracts-only: run leanexport and the compare helper without bwrap
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

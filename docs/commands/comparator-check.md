@@ -16,7 +16,8 @@ Also spelled: `lean-pkg comparator NAME --receipt R --check`, `lean-pkg comparat
 
 ```text
 lean-pkg comparator check [--receipt RECEIPT] [--refuse-private] [--refuse-dirty]
-                          [--repo DIR] [common flags] NAME
+                          [--repo DIR] [--contracts-only] [--config PATH]
+                          [--export MODULE=FILE] [--no-sandbox] [common flags] NAME
 ```
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
@@ -30,12 +31,17 @@ lean-pkg comparator check [--receipt RECEIPT] [--refuse-private] [--refuse-dirty
 | `--refuse-private` | refuse (exit 1) when the receipt holds private strings; default is a WARN line |
 | `--refuse-dirty` | refuse when tracked files are modified in the checkout; default is a WARN line |
 | `--repo DIR` | validate against the checkout DIR instead of the registered local_path, for this call (never saved; JSON repo_override). DIR must be a git work tree, and when it has remotes one must be the package's repo |
+| `--contracts-only` | no receipt: a read-only diagnostic of the compare step of every comparator configuration in the checkout (Lake's own compareAt and checkAxioms on one shared export per module); per failing configuration the first differing ConstantInfo field and the breadcrumb from the target; no kernel runs, nothing is written, never acceptance |
+| `--config PATH` | with --contracts-only: only this configuration (relative to the checkout; repeatable; default: comparator\*.json and comparator/config\*.json) |
+| `--export MODULE=FILE` | with --contracts-only: read this existing leanexport file for MODULE instead of exporting it (repeatable; you answer for its freshness) |
+| `--no-sandbox` | with --contracts-only: run leanexport and the compare helper without bwrap |
 
 ## Details
 
 | Form | What it does | Key flags |
 |---|---|---|
 | `comparator check NAME --receipt PATH` | validate a comparator receipt against the package and record nothing; works at any status; the checks, private-string scan and `--repo DIR` rules of `comparator attach` (above it in the tree: [`comparator attach`](comparator-attach.md)); the pre-1.0 spelling `comparator NAME --receipt PATH --check` keeps working | `--receipt PATH` `[--repo DIR]` `[--refuse-private]` `[--refuse-dirty]` `[--json]` |
+| `comparator check NAME --contracts-only` | no receipt: a read-only diagnostic of the compare step of every comparator configuration in the checkout at once (`comparator*.json`, `comparator/config*.json`, or each `--config PATH`). Each module is exported once with the toolchain's `leanexport`, then Lake's own `compareAt` and `checkAxioms` judge each configuration as `lake comparator`'s compare step does. A differing configuration gets Lake's message, the breadcrumb from the target to the refused constant, and the first differing ConstantInfo field. No kernel runs; no receipt, event or file in the checkout is written; never acceptance. Exit 0 every configuration matches, 1 otherwise. See [a contracts-only diagnostic](../comparator.md#a-contracts-only-diagnostic) | `--contracts-only` `[--config PATH]...` `[--export MODULE=FILE]...` `[--no-sandbox]` `[--repo DIR]` `[--json]` |
 
 ## Examples
 
@@ -43,4 +49,23 @@ Validate a comparator receipt against the package without recording it; works at
 
 ```bash
 lean-pkg comparator check my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
+```
+
+Before a gate, run the compare step of every comparator configuration at once, with no kernel and no receipt; never acceptance.
+
+```bash
+lean-pkg comparator check my-proof --contracts-only
+```
+
+Sample output:
+
+```text
+my-proof: contracts-only diagnostic, 2 configuration(s): 1 differ, 0 error(s), 1 match (never acceptance; no kernel, no receipt)
+  DIFFERS: comparator/config-lq.json: Const does not match between challenge and target 'Heat.heatLqConst'
+    breadcrumb: audit_lq -> Heat.heatLqConst
+    first differing field: value at body.fn.arg.fn: challenge const _private.Challenge.Ref.Lq.0.Heat.lqConstReal; solution const _private.Heat.Lq.0.Heat.lqConstReal
+    hint: the same private name Heat.lqConstReal is owned by module Challenge.Ref.Lq on the Challenge side and Heat.Lq on the Solution side: a private name embeds its module, so a copy under another module never matches (see docs/comparator.md#private-helpers-and-copied-references)
+  match: comparator/config-pub.json
+  never acceptance: no kernel ran and nothing was written (no receipt, no registry entry, no file in the checkout); only `lake comparator` in a gate judges
+my-proof: contracts-only diagnostic, 2 configuration(s): 1 differ, 0 error(s), 1 match (never acceptance; no kernel, no receipt)
 ```
