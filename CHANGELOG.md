@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-18
+
 ### Added
 
 - `receipt slurm --preflight-deps --fill-plan DONOR [--plan-out FILE]
@@ -41,6 +43,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   command of the `--json` contract table on a registry whose notes and
   history hold every C0 control, DEL, U+2028 and U+2029, with strict
   `json.loads` and a round-trip check of the strings.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.17.0] - 2026-10-18
 
