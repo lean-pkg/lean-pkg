@@ -1974,9 +1974,14 @@ def cmd_receipt_slurm(args) -> int:
         raise core.UsageError(f"{' and '.join(modes)} do not combine")
     if not args.preflight_deps:
         given = [f for f, v in (("--deps-tar", args.deps_tar), ("--deps-dir", args.deps_dir),
-                                ("--entries", args.entries)) if v]
+                                ("--entries", args.entries), ("--fill-plan", args.fill_plan),
+                                ("--plan-out", args.plan_out), ("--base-list", args.base_list)) if v]
         if given:
             raise core.UsageError(f"{', '.join(given)}: only with --preflight-deps")
+    if not args.fill_plan:
+        given = [f for f, v in (("--plan-out", args.plan_out), ("--base-list", args.base_list)) if v]
+        if given:
+            raise core.UsageError(f"{', '.join(given)}: only with --fill-plan DONOR")
     if args.template:
         sys.stdout.write(SBATCH_TEMPLATE)
         return 0
@@ -2098,6 +2103,25 @@ def add_parsers(sub, add_json) -> None:
                         "of the .lean files the verifier elaborates, repeatable; replaces the default "
                         "Verify/**/*.lean, Audit/**/*.lean, OwnedAudit/**/*.lean, **/AxiomCheck*.lean, "
                         "**/TypeCheck*.lean, **/Examples*.lean, **/OwnedAudit*.lean")
+    s.add_argument("--fill-plan", default=None, metavar="DONOR",
+                   help="with --preflight-deps: plan filling the missing modules from DONOR, another directory "
+                        "holding .lake/packages built from the same pins (docs/receipts.md, \"Filling missing "
+                        "dependency artifacts from a pinned donor\", steps 1-4), read-only: every missing module "
+                        "(no 500 cap); refuses (exit 1, each refusal with its own code) unless DONOR/lean-toolchain "
+                        "is the commit's byte for byte, every manifest package is at its rev, the checkouts have no "
+                        "source edits (git status), each candidate .olean's first 80 bytes equal the base's, the "
+                        "donor holds every missing module's .olean and .ilean, and no addition is a base member, "
+                        "under one, under the package's own .lake/build or in its root namespaces; lists every file "
+                        "the donor has under each module's path (all artifact families) with size and sha256. It "
+                        "writes no archive: write it yourself, then rerun --preflight-deps on it")
+    s.add_argument("--plan-out", default=None, metavar="FILE",
+                   help="with --fill-plan, only when the plan is ok: write FILE (the additions, one path relative "
+                        "to the directory holding .lake per line, for tar -T) and FILE.provenance.json (commit, "
+                        "toolchain, manifest revs, donor identity, file hashes, created_utc: collector "
+                        "provenance, never a job seal); an existing file is never overwritten")
+    s.add_argument("--base-list", default=None, metavar="FILE",
+                   help="with --fill-plan: a member listing of the base archive (tar -tf output), added to the "
+                        "names no addition may replace")
     s.add_argument("--stdout", default=None, metavar="PATH",
                    help=f"the job's stdout (.out): {SHA_KEY} = sha256(raw log), {PRE_KEY} = {POST_KEY} = "
                         "sha256(lake-manifest.json at the commit); without it the log must carry its own seal")

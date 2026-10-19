@@ -173,6 +173,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["receipt", "slurm", "--preflight-deps", "--deps-tar", "t", "--entries", "Audit/**/*.lean"], "receipt slurm",
      False, False, False),                                                  # reads only
     (["receipt", "slurm", "--preflight-deps", "--deps-dir", "d"], "receipt slurm", False, False, False),
+    (["receipt", "slurm", "--preflight-deps", "--deps-tar", "t", "--fill-plan", "d", "--plan-out", "p",
+      "--base-list", "l"], "receipt slurm", False, False, False),            # reads; writes only --plan-out
     (["receipt", "systemd", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),
     (["receipt", "local", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),   # alias
     (["receipt", "check", "--repo", "d", "--commit", "c"], "receipt check", False, False, False),   # no registry

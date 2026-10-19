@@ -15,11 +15,13 @@ a lower-tier receipt from a finished Slurm job, its verify log and its stdout se
 ```text
 lean-pkg receipt slurm [--job J] [--log PATH] [--receipt-commit SHA] [--template]
                        [--check] [--preflight-deps] [--deps-tar PATH] [--deps-dir DIR]
-                       [--entries GLOB] [--stdout PATH] [--stderr PATH] [--redact REGEX]
-                       [--sacct-file F] [--artifacts DIR] [--artifacts-manifest NAME]
-                       [--checker TEXT] [--repo DIR] [--out PATH] [--compress-log]
-                       [--append-readme] [--readme-heading TEXT] [--readme-line TEXT]
-                       [--tar-sha256 HEX] [common flags]
+                       [--entries GLOB] [--fill-plan DONOR] [--plan-out FILE]
+                       [--base-list FILE] [--stdout PATH] [--stderr PATH]
+                       [--redact REGEX] [--sacct-file F] [--artifacts DIR]
+                       [--artifacts-manifest NAME] [--checker TEXT] [--repo DIR]
+                       [--out PATH] [--compress-log] [--append-readme]
+                       [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
+                       [common flags]
 ```
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
@@ -37,6 +39,9 @@ lean-pkg receipt slurm [--job J] [--log PATH] [--receipt-commit SHA] [--template
 | `--deps-tar PATH` | with --preflight-deps: the DEPS_TAR tarball the job will restore (gzip, bzip2, xz or plain; read in one pass, never extracted) |
 | `--deps-dir DIR` | with --preflight-deps: a directory holding .lake/packages, instead of --deps-tar |
 | `--entries GLOB` | with --preflight-deps: a glob (relative to the package directory; \*\* = any directories) of the .lean files the verifier elaborates, repeatable; replaces the default Verify/\*\*/\*.lean, Audit/\*\*/\*.lean, OwnedAudit/\*\*/\*.lean, \*\*/AxiomCheck\*.lean, \*\*/TypeCheck\*.lean, \*\*/Examples\*.lean, \*\*/OwnedAudit\*.lean |
+| `--fill-plan DONOR` | with --preflight-deps: plan filling the missing modules from DONOR, another directory holding .lake/packages built from the same pins (docs/receipts.md, "Filling missing dependency artifacts from a pinned donor", steps 1-4), read-only: every missing module (no 500 cap); refuses (exit 1, each refusal with its own code) unless DONOR/lean-toolchain is the commit's byte for byte, every manifest package is at its rev, the checkouts have no source edits (git status), each candidate .olean's first 80 bytes equal the base's, the donor holds every missing module's .olean and .ilean, and no addition is a base member, under one, under the package's own .lake/build or in its root namespaces; lists every file the donor has under each module's path (all artifact families) with size and sha256. It writes no archive: write it yourself, then rerun --preflight-deps on it |
+| `--plan-out FILE` | with --fill-plan, only when the plan is ok: write FILE (the additions, one path relative to the directory holding .lake per line, for tar -T) and FILE.provenance.json (commit, toolchain, manifest revs, donor identity, file hashes, created_utc: collector provenance, never a job seal); an existing file is never overwritten |
+| `--base-list FILE` | with --fill-plan: a member listing of the base archive (tar -tf output), added to the names no addition may replace |
 | `--stdout PATH` | the job's stdout (.out): verify-log-sha256 = sha256(raw log), pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at the commit); without it the log must carry its own seal |
 | `--stderr PATH` | the job's stderr (.err); must be empty |
 | `--redact REGEX` | also replace matches with &lt;redacted&gt; (repeatable); the built-in prefixes are always redacted to &lt;USER&gt; instead (/tmp/&lt;USER&gt;-job, /scratch/&lt;USER&gt;/) |

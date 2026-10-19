@@ -41,7 +41,8 @@ BUILD_LIBS = (".lake/build/lib/lean/", ".lake/build/lib/", "build/lib/")
 MAX_SOURCE = 8 * 1024 * 1024          # bytes read of one dependency .lean file (Mathlib.lean is < 1 MiB)
 MAX_GIT_FILE = 64 * 1024 * 1024       # bytes read of .git/HEAD, a ref or packed-refs
 SHOW_MISSING = 20
-JSON_MISSING = 500
+JSON_MISSING = 500                    # display cap of missing[]; check() keeps every module in missing_all
+OLEAN_HEADER = 80                     # .olean marker, format version, Lean version string, Lean commit
 HEX40 = re.compile(r"[0-9a-f]{40}")
 
 
@@ -139,12 +140,18 @@ class Cache:
     """What the job's `.lake/packages` would hold: regular-file paths (relative to the directory holding
     `.lake/`), the imports of each dependency .lean source, and the small .git files the pins need."""
 
-    def __init__(self, label: str):
+    def __init__(self, label: str, headers: bool = False):
         self.label = label
         self.files: set[str] = set()
         self.imports: dict[str, list[str]] = {}
         self.git: dict[str, bytes] = {}
         self.unreadable: list[str] = []
+        # --fill-plan only: the first OLEAN_HEADER bytes of each built .olean, and (tarball) every member name
+        # of any type ("f" regular, "l" hard link, "d" directory, "s" symlink, "o" other), inside .lake/packages
+        # or not, for the additions-only check.
+        self.want_headers = headers
+        self.headers: dict[str, bytes] = {}
+        self.members: dict[str, str] = {}
 
     def take(self, rel: str, read) -> None:
         """Record one regular file at `rel`; `read(limit)` returns its first bytes."""
@@ -154,6 +161,9 @@ class Cache:
         rest = rel[len(PACKAGES):]
         pkg, _, inner = rest.partition("/")
         if not inner:
+            return
+        if self.want_headers and inner.endswith(".olean") and any(inner.startswith(b) for b in BUILD_LIBS):
+            self.headers[rel] = read(OLEAN_HEADER)
             return
         if inner.startswith(".git/"):
             name = inner[len(".git/"):]
@@ -174,12 +184,15 @@ def _norm(name: str) -> str | None:
     return "/".join(parts)
 
 
-def read_tar(path: pathlib.Path) -> Cache:
-    cache = Cache(f"tarball {path.name}")
+def read_tar(path: pathlib.Path, headers: bool = False) -> Cache:
+    cache = Cache(f"tarball {path.name}", headers)
     links: list[tuple[str, str | None]] = []      # a hard link reads as its target, an earlier member
     with tarfile.open(path, "r|*") as tf:
         for member in tf:
             rel = _norm(member.name)
+            if rel is not None and headers:
+                cache.members[rel] = ("f" if member.isreg() else "l" if member.islnk() else
+                                      "d" if member.isdir() else "s" if member.issym() else "o")
             if rel is None or not (member.isreg() or member.islnk()):
                 continue
             if member.islnk():
@@ -196,7 +209,9 @@ def read_tar(path: pathlib.Path) -> Cache:
                                     f".lake/packages/ ({target})")
             continue
         data = cache.git.get(target)
-        if target in cache.imports:
+        if target in cache.headers:
+            cache.take(rel, lambda limit, h=cache.headers[target]: h[:limit])
+        elif target in cache.imports:
             cache.take(rel, lambda limit: b"")
             cache.imports[rel] = list(cache.imports[target])
         elif data is not None:
@@ -206,8 +221,8 @@ def read_tar(path: pathlib.Path) -> Cache:
     return cache
 
 
-def read_dir(root: pathlib.Path) -> Cache:
-    cache = Cache(f"directory {root.name}")
+def read_dir(root: pathlib.Path, headers: bool = False) -> Cache:
+    cache = Cache(f"directory {root.name}", headers)
     base = root / ".lake" / "packages"
     if base.is_symlink() or (root / ".lake").is_symlink():
         return cache
@@ -296,6 +311,55 @@ def local_modules(files: list[str]) -> dict[str, str]:
     return {f[:-len(".lean")]: f for f in files if f.endswith(".lean") and not f.startswith(".lake/")}
 
 
+def manifest_pins(repo: pathlib.Path, commit: str, problems: list[str]) -> tuple[list[str], dict[str, str]]:
+    """The git packages of lake-manifest.json committed at `commit` and their revs; problems appended."""
+    manifest_raw = core.git_show_bytes(repo, "./lake-manifest.json", commit)
+    names: list[str] = []
+    pins: dict[str, str] = {}
+    if manifest_raw is None:
+        problems.append(f"no lake-manifest.json committed at {commit[:12]}: the dependency pins are unknown")
+        return names, pins
+    try:
+        pkgs = json.loads(manifest_raw.decode("utf-8")).get("packages") or []
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        pkgs = None
+    if not isinstance(pkgs, list):
+        problems.append("lake-manifest.json: not a manifest with a `packages` list")
+        pkgs = []
+    for p in pkgs:
+        if not isinstance(p, dict) or not p.get("name"):
+            problems.append("lake-manifest.json: a package entry without a name")
+            continue
+        name = str(p["name"])
+        if p.get("type", "git") != "git":
+            problems.append(f"manifest package {name}: type {p.get('type')!r} is not restored from a "
+                            f"DEPS_TAR (only .lake/packages is), so its modules cannot be checked")
+            continue
+        names.append(name)
+        pins[name] = str(p.get("rev") or "")
+    return names, pins
+
+
+def pin_check(cache: Cache, names: list[str], pins: dict[str, str], problems: list[str],
+              checks: list[str]) -> dict[str, str]:
+    """Every manifest git package present in `cache` at its rev; returns {package: sha} of those that are."""
+    at: dict[str, str] = {}
+    for name in names:
+        if not any(f.startswith(f"{PACKAGES}{name}/") for f in cache.files):
+            problems.append(f"manifest package {name}: not in the staged cache ({PACKAGES}{name}/ is absent)")
+            continue
+        sha, why = head_sha(cache, name)
+        if why:
+            problems.append(f"manifest package {name}: {why}")
+        elif sha != pins[name]:
+            problems.append(f"manifest package {name}: the cache is at {sha[:12]}, the manifest pins "
+                            f"{pins[name][:12] or '(no rev)'}")
+        else:
+            at[name] = sha
+            checks.append(f"✓ {name} at {sha[:12]} = the manifest's rev")
+    return at
+
+
 def check(repo: pathlib.Path, commit: str, cache: Cache, entries: list[str]) -> dict:
     """Every problem and check line, the entry files and the missing modules; nothing is written."""
     problems: list[str] = []
@@ -312,44 +376,10 @@ def check(repo: pathlib.Path, commit: str, cache: Cache, entries: list[str]) -> 
         checks.append(f"✓ {len(entry_files)} entry file(s) at {commit[:12]}: " + ", ".join(entry_files[:5])
                       + (f" (and {len(entry_files) - 5} more)" if len(entry_files) > 5 else ""))
 
-    manifest_raw = core.git_show_bytes(repo, "./lake-manifest.json", commit)
-    names: list[str] = []
-    pins: dict[str, str] = {}
-    if manifest_raw is None:
-        problems.append(f"no lake-manifest.json committed at {commit[:12]}: the dependency pins are unknown")
-    else:
-        try:
-            pkgs = json.loads(manifest_raw.decode("utf-8")).get("packages") or []
-        except (ValueError, UnicodeDecodeError, AttributeError):
-            pkgs = None
-        if not isinstance(pkgs, list):
-            problems.append("lake-manifest.json: not a manifest with a `packages` list")
-            pkgs = []
-        for p in pkgs:
-            if not isinstance(p, dict) or not p.get("name"):
-                problems.append("lake-manifest.json: a package entry without a name")
-                continue
-            name = str(p["name"])
-            if p.get("type", "git") != "git":
-                problems.append(f"manifest package {name}: type {p.get('type')!r} is not restored from a "
-                                f"DEPS_TAR (only .lake/packages is), so its modules cannot be checked")
-                continue
-            names.append(name)
-            pins[name] = str(p.get("rev") or "")
+    names, pins = manifest_pins(repo, commit, problems)
     for u in cache.unreadable:
         problems.append(f"{cache.label}: {u}")
-    for name in names:
-        if not any(f.startswith(f"{PACKAGES}{name}/") for f in cache.files):
-            problems.append(f"manifest package {name}: not in the staged cache ({PACKAGES}{name}/ is absent)")
-            continue
-        sha, why = head_sha(cache, name)
-        if why:
-            problems.append(f"manifest package {name}: {why}")
-        elif sha != pins[name]:
-            problems.append(f"manifest package {name}: the cache is at {sha[:12]}, the manifest pins "
-                            f"{pins[name][:12] or '(no rev)'}")
-        else:
-            checks.append(f"✓ {name} at {sha[:12]} = the manifest's rev")
+    pin_check(cache, names, pins, problems, checks)
     present = [n for n in names if any(f.startswith(f"{PACKAGES}{n}/") for f in cache.files)]
     deps = Packages(cache, present)
 
@@ -400,6 +430,7 @@ def check(repo: pathlib.Path, commit: str, cache: Cache, entries: list[str]) -> 
     for module, by in sorted(unresolved.items()):
         problems.append(f"module {module} (imported by {by}): provided by no manifest package in the cache and "
                         f"not a committed module of the package")
+    other_problems = list(problems)
     # Modules an entry or a package module imports directly first, then the rest, each by name.
     order = sorted(missing.values(), key=lambda d: (not d["required_by"].endswith(".lean"), d["module"]))
     if order:
@@ -412,13 +443,18 @@ def check(repo: pathlib.Path, commit: str, cache: Cache, entries: list[str]) -> 
         checks.append(f"✓ {len(required)} external module(s) in the entries' import closure, each with its "
                       f".olean and .ilean in the {cache.label}")
     return {"entries": entry_files, "required_external_modules": len(required), "missing_count": len(order),
-            "missing": order[:JSON_MISSING], "checks": checks, "problems": problems}
+            "missing": order[:JSON_MISSING], "checks": checks, "problems": problems,
+            # internal (never printed): every missing module, and the problems that are not missing files
+            "missing_all": order, "other_problems": other_problems, "local_modules": sorted(local)}
 
 
 def cmd(args) -> int:
-    """`receipt slurm --preflight-deps`."""
+    """`receipt slurm --preflight-deps` (with --fill-plan DONOR: deps_fill.cmd)."""
     if bool(args.deps_tar) == bool(args.deps_dir):
         raise core.UsageError("--preflight-deps needs exactly one of --deps-tar PATH or --deps-dir DIR")
+    if getattr(args, "fill_plan", None):
+        from . import deps_fill
+        return deps_fill.cmd(args)
     repo = pathlib.Path(args.repo).resolve() if args.repo else pathlib.Path.cwd()
     rev = args.commit_sha or "HEAD"
     p = core.git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}")
@@ -450,6 +486,8 @@ def cmd(args) -> int:
         else:
             entries = list(args.entries) or list(DEFAULT_ENTRIES)
             result = check(repo, commit, cache, entries)
+            for k in ("missing_all", "other_problems", "local_modules"):
+                del result[k]
             result["problems"] = problems + result["problems"]
     ok = not result["problems"]
     if getattr(args, "json_out", False):

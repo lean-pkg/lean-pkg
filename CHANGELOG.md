@@ -9,6 +9,26 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `receipt slurm --preflight-deps --fill-plan DONOR [--plan-out FILE]
+  [--base-list FILE]` (field report #5): steps 1-4 of the donor-fill
+  recipe in docs/receipts.md, read-only. It runs the dependency preflight
+  on the base cache and keeps every missing module (the 500 cap of
+  `missing[]` is for display only); checks the donor (`lean-toolchain`
+  byte for byte, every manifest rev through the preflight's pin check, no
+  source edits by `git status` without optional locks, the first 80 bytes
+  of each candidate `.olean` equal to the base's); lists every file the
+  donor holds under each missing module's path (all artifact families)
+  with size and SHA-256; and refuses any addition that is a base member,
+  under one, under the package's own `.lake/build` or in its root
+  namespaces. Each refusal has its own code (`refusals[].code`), exit 1.
+  With `--plan-out FILE`, only when the plan is sound, it writes the
+  additions list and `FILE.provenance.json`, collector provenance, never
+  a job seal. It writes no archive and never touches the base, the donor
+  or `.lake/build`: the user still writes the archive, and the official
+  preflight rerun on it confirms the fill.
+
 ## [0.17.0] - 2026-10-18
 
 ### Added

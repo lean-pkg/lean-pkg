@@ -627,96 +627,110 @@ preflight then passed (3,271 external modules, 0 missing). No new receipt
 format is involved. The job still restores one tarball (`DEPS_TAR`) and
 logs its SHA-256.
 
-The steps run in this order. Only step 5 writes anything, and it writes
-new files.
+The steps run in this order. Steps 1 to 4 are one read-only command,
+`receipt slurm --preflight-deps --fill-plan DONOR`. Only step 5 writes
+an archive, and it writes a new one: lean-pkg never writes the archive,
+and never touches the base cache, the donor or the package's
+`.lake/build`.
 
-1. **The plan: which modules.** Run the preflight on the base cache and
-   keep its JSON:
+```bash
+lean-pkg receipt slurm --preflight-deps --deps-tar base.tar.gz --commit SHA \
+  --fill-plan "$DONOR" --plan-out add.list --json > plan.json
+```
 
-   ```bash
-   lean-pkg receipt slurm --preflight-deps --deps-tar base.tar.gz --commit SHA --json > preflight.json
-   python3 - preflight.json > plan.txt <<'EOF'
-   import json, sys
-   r = json.load(open(sys.argv[1]))
-   print(f"missing_count {r['missing_count']}, listed {len(r['missing'])}", file=sys.stderr)
-   for m in r["missing"]:
-       print(m["package"], m["module"])
-   EOF
-   ```
+`DONOR` is another directory holding `.lake/packages` (a checkout's, or
+an extracted cache) and its project's `lean-toolchain`. The command exits
+0 when the plan is sound and 1 when it refuses; every refusal has a code
+in `refusals[]` (the text output prints it in brackets). With
+`--plan-out FILE`, and only when the plan is sound, it writes `FILE`, the
+additions, one path per line relative to the directory holding `.lake`,
+and `FILE.provenance.json` beside it. An existing file is never
+overwritten, and neither file may be inside the donor, the base directory
+or the package's `.lake`. `--deps-dir DIR` takes a base directory instead
+of a tarball; `--base-list FILE` adds a saved `tar -tf` listing to the
+names no addition may replace. `--entries` and `--commit` mean what they
+mean for `--preflight-deps`.
 
-   `missing[]` names each module's package and which of `.olean` and
-   `.ilean` is absent. It lists at most 500 modules, while `missing_count`
-   is the full count. When the two differ, fill what is listed and rerun:
-   the plan is finished only when a rerun on the filled archive reports 0.
-   The other problems the preflight reports (a package at another rev, a
-   stripped checkout, a module no package provides, a module whose source
-   is not staged) are not gaps a donor can fill. Fix the cache for those.
+1. **The plan: which modules.** The command runs the same preflight as
+   `--preflight-deps` on the base and keeps every missing module.
+   `missing[]` in the JSON is still capped at 500 for display, but
+   `plan[]` lists every module, with its package, which of `.olean` and
+   `.ilean` the base lacks, and the file that needs it. The other
+   problems the preflight reports (a package at another rev, a stripped
+   checkout, a module no package provides, a module whose source is not
+   staged) are not gaps a donor can fill. They are listed in
+   `not_fillable[]` and refuse the plan (`base-problem`). Fix the cache
+   for those.
 
-2. **The donor: exact pins, checked.** The donor is another directory
-   holding `.lake/packages` (a checkout's, or an extracted cache). It
+2. **The donor: exact pins, checked** (`donor_checks[]`). The donor
    qualifies only when every one of these holds:
-   - its project's `lean-toolchain` is byte for byte
-     `git show SHA:lean-toolchain`;
+   - its `lean-toolchain` is byte for byte `git show SHA:lean-toolchain`
+     (`donor-toolchain`);
    - every git package of `lake-manifest.json` at `SHA` is checked out in
-     the donor at the manifest's `rev`, not only the packages in the plan:
-     a Mathlib `.olean` was built against the Batteries, Aesop and other
-     objects of its own build. The preflight checks exactly this, so run
-     it on the donor too:
-     `lean-pkg receipt slurm --preflight-deps --deps-dir DONOR --commit SHA`.
-     The donor may lack other modules, but no rev, stripped-checkout or
-     missing-package problem may appear;
-   - the donor's checkouts carry no source edits:
-     `git -C DONOR/.lake/packages/PKG status --porcelain --untracked-files=no`
-     prints nothing for each package in the plan;
-   - the objects come from the same Lean build. In a Lean 4.35 `.olean`,
-     the first 80 bytes hold the `olean` marker, the format version, the
-     Lean version string and the Lean commit hash, so for two modules built
-     by one toolchain they are equal:
-     `cmp -n 80 BASE_MODULE.olean DONOR_MODULE.olean` prints nothing. Lean
-     refuses an object from another build when it imports it, but that
-     happens inside the job, after the walltime has been spent.
+     the donor at the manifest's `rev`, not only the packages in the plan,
+     because a Mathlib `.olean` was built against the Batteries, Aesop
+     and other objects of its own build. This is the preflight's own pin
+     check, run on the donor; the donor may lack other modules
+     (`donor-manifest`);
+   - the donor's checkouts carry no source edits: for each manifest
+     package, `git status --porcelain --untracked-files=no` prints nothing
+     (`donor-source-edits`). It runs with `GIT_OPTIONAL_LOCKS=0`, so git
+     does not refresh the donor's index. A package with no `.git`
+     directory, or one git cannot read (a stripped checkout holding only
+     `.git/HEAD`), refuses: an edit cannot be ruled out;
+   - the objects come from the same Lean build (`olean-header`). In a
+     Lean 4.35 `.olean`, the first 80 bytes hold the `olean` marker, the
+     format version, the Lean version string and the Lean commit hash.
+     The base's `.olean` files must share one such header, and every
+     candidate `.olean` must have it (for the older format version 1,
+     the first 46 bytes: the marker, the version and the commit). Lean refuses an object from another
+     build when it imports it, but that happens inside the job, after the
+     walltime has been spent.
 
 3. **The artifact families: every file the donor has for the module.**
    Lake writes more than the two files the preflight checks, and the set
-   changes between Lean versions, so take what the donor's build holds
-   under the module's path rather than a fixed list. For the Lean 4.35
-   Mathlib module `Mathlib.Logic.Basic` that is 13 files in the package's
-   `.lake/build`: under `lib/lean/Mathlib/Logic/`, `Basic.olean`,
-   `Basic.olean.private`, `Basic.olean.server`, `Basic.ilean` and
-   `Basic.ir`, each with a `.hash` file, and `Basic.trace`; under
-   `ir/Mathlib/Logic/`, `Basic.c` and `Basic.c.hash` (the field report's
-   585 files are 45 modules times 13). The private and server objects are
-   read by the module system. Without its trace and hash files a module
-   looks stale to Lake, which rebuilds it inside the job (the source is
-   staged, so it can) and spends walltime the job was not sized for. To
-   see the target set, list the files the base already has for a module it
-   holds in the same package.
+   changes between Lean versions, so the plan takes every regular file
+   the donor's build holds under the module's path, rather than a fixed
+   list: `<path>.<extension>` for any extension, in `lib/lean/`, `lib/`
+   or `ir/` of the package's `.lake/build` (or `build/`). For the Lean
+   4.35 Mathlib module `Mathlib.Logic.Basic` that is 13 files: under
+   `lib/lean/Mathlib/Logic/`, `Basic.olean`, `Basic.olean.private`,
+   `Basic.olean.server`, `Basic.ilean` and `Basic.ir`, each with a
+   `.hash` file, and `Basic.trace`; under `ir/Mathlib/Logic/`, `Basic.c`
+   and `Basic.c.hash` (the field report's 585 files are 45 modules times
+   13). The private and server objects are read by the module system.
+   Without its trace and hash files a module looks stale to Lake, which
+   rebuilds it inside the job (the source is staged, so it can) and
+   spends walltime the job was not sized for. Each file is listed with
+   its size and SHA-256. A module whose `.olean` or `.ilean` the donor
+   lacks too is not filled by anything else (`donor-lacks-module`): build
+   it.
 
-   ```bash
-   # DONOR: the directory holding the donor's .lake/packages; plan.txt from step 1
-   ( cd "$DONOR" && while read -r pkg mod; do
-       p=${mod//.//}
-       for f in ".lake/packages/$pkg/.lake/build/lib/lean/$p".* ".lake/packages/$pkg/.lake/build/ir/$p".*; do
-         if [ -f "$f" ] && [ ! -L "$f" ]; then printf '%s\n' "$f"; fi
-       done
-     done ) < plan.txt | LC_ALL=C sort > add.list
-   ```
+4. **Additions only.** No addition may be a member of the base, or sit
+   under a base member that is not a directory (`base-overlap`). For a
+   module the base holds in part, the plan therefore refuses rather than
+   mix the base's files with the donor's. No addition may be under the
+   package's own `.lake/build` or hold one of its root namespaces
+   (`package-build`): the job refuses a dependency build holding one, as
+   `deps-restore-shadow`.
 
-   Check that every module of the plan has at least its `.olean` and
-   `.ilean` in `add.list`. A module the donor lacks is not filled by
-   anything else: build it.
+The provenance stub (`lean-pkg-fill-provenance/1`) records the commit,
+the toolchain, the manifest revs, the base's name and SHA-256 (of a
+tarball), the donor's name, package heads and `.olean` header, the donor
+checks, the plan, every addition's path, size and SHA-256, and
+`created_utc`. Its `filled_archive` is empty until step 6. It is labelled
+collector provenance: it is never a job seal.
 
-4. **Additions only.** No addition may replace a member of the base, and
-   additions stay inside the planned packages' `.lake/build`. Never copy
-   the package's own `.lake/build` or anything holding one of its root
-   namespaces (the job refuses a dependency build holding one, as
-   `deps-restore-shadow`). Hash the additions where they are:
+For `verify-fill.py` below, write the additions' hashes in `sha256sum`
+form from the stub:
 
-   ```bash
-   tar -tf base.tar.gz | sed 's#^\./##' | LC_ALL=C sort > base.list
-   LC_ALL=C comm -12 base.list add.list                  # must print nothing
-   ( cd "$DONOR" && xargs -d '\n' sha256sum -- ) < add.list > additions.sha256
-   ```
+```bash
+python3 - add.list.provenance.json > additions.sha256 <<'PY'
+import json, sys
+for a in json.load(open(sys.argv[1]))["additions"]:
+    print(f"{a['sha256']}  {a['path']}")
+PY
+```
 
 5. **A new archive.** Never modify, re-extract or re-pack the base. Copy
    its members as they are and append the additions:
@@ -789,13 +803,16 @@ new files.
 
    For a `--deps-dir` cache, the same rule applies to a directory: make a
    new copy of the base directory, then copy the additions in with
-   `cp --no-clobber`, after the `comm` check above.
+   `cp --no-clobber`; the plan's additions-only check (step 4) ran on
+   that base directory.
 
 6. **Provenance.** Keep a provenance file beside the filled archive, not
    inside it (the job moves only `.lake/packages` into the tree). It
    records the commit, the toolchain, the manifest revs, the SHA-256 of
    the base and of the filled archive, the plan, the donor checks of
-   step 2 and their results, and `additions.sha256`. Commit it with the
+   step 2 and their results, and the additions' hashes. The stub
+   `add.list.provenance.json` holds all of it except the filled
+   archive's SHA-256: put that in its `filled_archive`. Commit it with the
    receipt, or keep it with the cache. These hashes are the collector's:
    they say which bytes were added and where they came from. They are
    provenance, not job seals, and never go into a receipt, an

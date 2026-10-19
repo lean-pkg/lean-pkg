@@ -319,6 +319,7 @@ Some read-only commands use 1 for a negative answer rather than a refusal:
   search TERM --require-complete 1: a source was skipped or answered in part
   receipt slurm --check          1: a problem with the job's files
   receipt slurm --preflight-deps 1: the staged dependency cache misses a module the entries import
+                 --fill-plan    1: the donor fill plan is refused (refusals[].code names the check)
   report --yes                   1: a blocking public-safety hit left, or gh missing or logged out
 
 The other programs:
