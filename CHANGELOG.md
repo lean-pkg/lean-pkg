@@ -9,6 +9,34 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Fixed
+
+- `--json`: stdout is the JSON document alone (a field report from a
+  two-library release campaign). `comparator-receipt --estimate --json`
+  (also `lean-pkg receipt comparator --estimate --json`) printed the stage
+  lines, the per-slot progress and the streamed judge output on stdout
+  before the JSON, so `json.loads(stdout)` failed although every slot
+  passed; while the run works, both Python's stdout and file descriptor 1
+  now point at stderr, so child processes that inherit it follow. The
+  global `lean-pkg --json receipt comparator` was ignored (text on stdout):
+  it now selects the runner's `--json` for `--estimate`, `--verify-oleans`,
+  `--attempts` and `--seal-sacct`, and refuses a run or `--prepare` (exit 2,
+  one JSON error). `receipt slurm --template --json` printed the raw
+  script; it now prints `{ok, template}` (#281).
+
+### Documentation
+
+- docs/comparator.md: "Seeding the Mathlib archive cache", a supported
+  pattern for a `--prepare` whose `cache-get` downloads keep failing: copy
+  Mathlib's public `*.ltar` archives from a verified real copy into
+  `MATHLIB_CACHE_DIR`, check every hash and size against a recorded
+  manifest, distinct inodes (no hard links or symlinks), and before and
+  after that `cache get` downloaded nothing and the build compiled nothing
+  it should not; never proof objects or build outputs; recovering from
+  curl error 18. "Estimate first" names
+  `comparator-stages/04-comparator.estimate.json` as the machine-readable
+  source and says stdout under `--json` is JSON only (#281).
+
 ## [0.18.1] - 2026-10-19
 
 ### Changed

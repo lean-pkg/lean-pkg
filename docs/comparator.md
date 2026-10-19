@@ -1240,8 +1240,8 @@ dirty-tree check.
 
 The judge in the `comparator` stage streams too. It runs with stdin from
 `/dev/null`, its stdout and stderr merged into one pipe that a reader thread
-drains line by line into `04-comparator.log` (and the runner's stdout) as the
-lines arrive, under `stdbuf -oL -eL` when `stdbuf` exists (Lean's
+drains line by line into `04-comparator.log` (and the runner's stdout, or its
+stderr under `--estimate --json`) as the lines arrive, under `stdbuf -oL -eL` when `stdbuf` exists (Lean's
 `IO.println` is fully buffered on a pipe, so without it `lake comparator`'s
 own phase lines would appear only at exit) and with `PYTHONUNBUFFERED=1`.
 While the judge prints nothing, a `heartbeat:` line every 60 seconds
@@ -1390,6 +1390,19 @@ the timings, `per_slot_seconds`, `slots`, `estimated_seconds`,
 `comparator-stages/04-comparator.estimate.json`, schema
 `comparator-estimate/2`). It writes no receipt; the slots it judged are
 cached, so the real run skips them.
+
+Reading the estimate from a script. The machine-readable source is the
+artifact `<evidence-dir>/comparator-stages/04-comparator.estimate.json`
+(default evidence directory `<project>/.lake/comparator-receipt/`; the text
+output's last line, `estimate: PATH`, names it). It is written once the
+sample is judged, is the same document `--json` prints, and stays on disk
+after the run, so a wrapper that keeps only the exit status can still read
+it. With `--json`, stdout is that JSON document and nothing else:
+`json.loads(stdout)` parses it whole. Every progress line (the stage lines,
+the per-slot `started`/`done` lines, the streamed judge output, warnings)
+goes to stderr. Without `--json`, stdout carries the progress and the
+human summary. A refused or failed run prints nothing on stdout under
+`--json`; read the exit code and stderr.
 
 The schema. `comparator-estimate/1` carried the timings and the mean model.
 `/2` added the sample floor (`sample_floor`, `sample_forced`), the
@@ -1679,7 +1692,9 @@ one-run budget is spent on the comparison: retry `--prepare` until it passes,
 then run once. A comparison that fails after setup can also be retried
 without repeating setup. The receipt gains an additive `stages` list
 (`stage`, `status`, `exit`, `wall_s`; no paths) for the stages before
-`receipt`. Validators ignore it.
+`receipt`. Validators ignore it. A `cache-get` stage that keeps failing on
+downloads can be fed from a verified local copy of the Mathlib archives: see
+[Seeding the Mathlib archive cache](#seeding-the-mathlib-archive-cache).
 
 **No host paths in evidence.** Every line the runner writes to a stage
 log, every unit and receipt log, and every receipt field has absolute paths
@@ -1739,6 +1754,121 @@ applies the same scrub to its own `git` calls in a package checkout, but not
 to those in the registry repository. `comparator host-check` warns
 (`git-env`, and `env_warnings[]` in `--json`) and the `doctor` `host` line
 warns when any of them is set in the calling environment.
+
+### Seeding the Mathlib archive cache
+
+The `cache-get` stage runs `lake exe cache get`, Mathlib's cache tool, which
+downloads one compressed archive (`<hash>.ltar`) per Mathlib module into its
+archive cache and unpacks them into `.lake/packages/mathlib/.lake/build`.
+lean-pkg adds nothing to that step. The tool decides what to download only by
+whether `<hash>.ltar` is present in the archive cache, not by whether the
+unpacked build is there, so a checkout whose oleans were built completely
+still downloads every archive when the archive cache is empty. A field report
+from a two-library release campaign saw about nine thousand downloads in an
+empty cache, and two of them stopped setup with curl error 18 (transfer closed
+with outstanding data). If those downloads keep failing, seed the archive
+cache from a verified real copy of the same archives. The actual
+`cache get` then has nothing to download.
+
+Where the archive cache is. Mathlib's cache tool uses `MATHLIB_CACHE_DIR`
+when it is set, else `$XDG_CACHE_HOME/mathlib`, else `~/.cache/mathlib`.
+lean-pkg passes the environment through (it removes only the Git variables
+listed above), so the `cache-get` stage and the `lake exe cache get` that
+`verify-comparator.sh` runs in each judge invocation read the same directory.
+Export `MATHLIB_CACHE_DIR` once for the whole run. This is not Lake's
+artifact cache (`LAKE_CACHE_DIR`), which holds build outputs and which the
+Slurm template empties on purpose.
+
+What may be copied. Only `*.ltar` archives of Mathlib's public cache: the
+files a `lake exe cache get` filled from the public Mathlib cache, at the same
+`mathlib` revision in `lake-manifest.json` and the same `lean-toolchain`. The
+archive name is Mathlib's hash of the module's inputs, so an archive from
+another revision has another name and is never used. Never copy proof
+objects or build outputs: not the project's `.lake/build`, not another
+checkout's `.lake/packages/*/.lake/build`, not a Lake artifact cache. Those
+are the project under test or its compiled state. The comparator receipt
+binds the project's build through the `build` stage, its build provenance
+and the olean manifest, and the seeded archives do not change what that
+stage does. Leave out in-flight `*.part` files and `curl-*.cfg` files.
+
+The pattern, with `$SRC` the source archive cache and `$WORK` a scratch
+directory outside both caches:
+
+```bash
+export MATHLIB_CACHE_DIR=/local/disk/mathlib-cache     # the run's archive cache
+mkdir -p "$MATHLIB_CACHE_DIR"
+
+# 1. the manifest: name, size and sha256 of every source archive
+( cd "$SRC" && find . -maxdepth 1 -type f -name '*.ltar' -printf '%f %s\n' | sort ) > "$WORK/ltar.sizes"
+( cd "$SRC" && find . -maxdepth 1 -type f -name '*.ltar' -printf '%f\0' | sort -z \
+    | xargs -0 sha256sum -- ) > "$WORK/ltar.sha256"
+
+# 2. real copies: never cp -l, cp -s, ln or rsync --link-dest
+find "$SRC" -maxdepth 1 -type f -name '*.ltar' -exec cp -t "$MATHLIB_CACHE_DIR" -- {} +
+
+# 3. verify the copy before anything runs
+( cd "$MATHLIB_CACHE_DIR" && sha256sum --quiet -c "$WORK/ltar.sha256" )      # every hash
+( cd "$MATHLIB_CACHE_DIR" && find . -maxdepth 1 -type f -name '*.ltar' -printf '%f %s\n' | sort ) \
+  | diff - "$WORK/ltar.sizes"                                                  # every size, no extra
+find "$MATHLIB_CACHE_DIR" -maxdepth 1 -name '*.ltar' \( ! -type f -o -links +1 \)   # must print nothing
+ls "$MATHLIB_CACHE_DIR" | grep -c '\.part$'                                   # 0: nothing in flight
+
+# 4. the run
+lean-pkg receipt comparator --prepare
+
+# 5. after: nothing downloaded, nothing changed, nothing rebuilt that should not be
+grep -E 'No files to download|Attempting to download' \
+  .lake/comparator-receipt/comparator-stages/02-cache-get.log
+( cd "$MATHLIB_CACHE_DIR" && sha256sum --quiet -c "$WORK/ltar.sha256" )
+( cd "$MATHLIB_CACHE_DIR" && find . -maxdepth 1 -type f -name '*.ltar' -printf '%f %s\n' | sort ) \
+  | diff - "$WORK/ltar.sizes"
+```
+
+What each check means:
+
+- `sha256sum -c` against the manifest and the size listing: every archive
+  arrived whole and unchanged, and the target holds no other archive.
+  Mathlib publishes no checksum list for its archives, so the manifest is the
+  one you record from the source cache. Record it when that cache is filled,
+  or at least before copying.
+- `! -type f -o -links +1` printing nothing: every archive is a regular file
+  with one link. That is a distinct inode, a real copy, not a symlink or a
+  hard link into another tree, so nothing done to the source later can
+  change the run's archives. A reflink copy (`cp --reflink`) is a distinct
+  inode too.
+- The `cache-get` stage log: Mathlib's cache tool prints
+  `No files to download` when every archive it needs is present, and
+  `Attempting to download N file(s)` when it fetches. A seeded run must show
+  the first and not the second. Running `lake exe cache get` by hand first
+  shows the same thing without a stage.
+- The second hash and size check: the run neither replaced nor added an
+  archive. The cache tool's unpacker deletes an archive it finds corrupt,
+  and the size listing catches that too.
+- The `build:` line the runner prints after the `build` stage (also
+  `build_provenance` in `stages.json` and the receipt; see "Build
+  provenance" above) and `03-build.log` say what the build compiled. Seeding
+  only the archives does not change it. If Mathlib modules show up as
+  compiled, the archives did not match this revision: stop and check the
+  manifest and the `mathlib` revision.
+
+Recent Mathlib's cache tool also has
+`lake exe cache unstage --staging-dir=DIR`, which copies the `*.ltar` files of DIR into the archive
+cache and skips names that are already there. Check `lake exe cache --help`
+in your Mathlib checkout, since the command set changes between releases. If
+you use it, run steps 1, 3 and 5 around it all the same.
+
+Recovering from curl error 18. A truncated transfer does not leave a bad
+archive. Current Mathlib's cache tool downloads to `<hash>.ltar.<pid>.part`
+and renames the file only when the transfer completes. It passes curl
+`--retry 5`, plus `--retry-all-errors` on a curl recent enough to accept it.
+When the retries run out, the stage fails. Rerun it:
+`lean-pkg receipt comparator --prepare` is idempotent, reruns the failed
+`cache-get` stage, and `lake exe cache get` fetches only the archives that
+are still missing. Delete leftover `*.part` files of runs that are no longer
+alive. They are never read as archives, but step 3 expects none. If the
+truncations persist, use the seeding above. Older Mathlib releases behave
+differently, so read `Cache/IO.lean` and `Cache/Requests.lean` in
+`.lake/packages/mathlib` for the revision you run.
 
 ## Mechanisms
 

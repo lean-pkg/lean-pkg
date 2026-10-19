@@ -650,7 +650,7 @@ def test_estimate_times_a_stratified_sample_and_writes_no_receipt(tmp_path: Path
     r = run(project, "--estimate", "--json",       # default sample: the floor, max(5, ceil(2.5)) = 5
             extra={"STUB_CALLS": str(log), "STUB_BEHAVIOUR": "slow", "STUB_SLEEP": "0.1"})
     assert r.returncode == 0, r.stderr
-    e = json.loads(r.stdout[r.stdout.index("{"):])
+    e = json.loads(r.stdout)
     assert e["schema"] == "comparator-estimate/2" and e["slots"] == 10
     assert e["sample_floor"] == 5 and e["sample_forced"] is False
     assert [row["name"] for row in e["sample"]] == ["A.t0", "A.t1", "B.t0", "B.t1", "C.only"]
@@ -686,7 +686,7 @@ def test_estimate_includes_the_heaviest_olean(tmp_path: Path):
     (lib / "N9.olean").write_bytes(b"x" * 5000)                      # the heaviest module
     r = run(project, "--estimate", "--json")
     assert r.returncode == 0, r.stderr
-    e = json.loads(r.stdout[r.stdout.index("{"):])
+    e = json.loads(r.stdout)
     rows = {row["name"]: row for row in e["sample"]}
     assert len(rows) == 5 and "N9.t" in rows                         # strata alone pick N0..N4
     assert rows["N9.t"]["heavy"] is True and rows["N9.t"]["weight_bytes"] == 5000
@@ -709,13 +709,13 @@ def test_estimate_sample_floor_and_force_sample(tmp_path: Path):
     r = run(project, "--estimate", "--sample", "3", "--force-sample", "--json")
     assert r.returncode == 0, r.stderr
     assert "warning: --force-sample" in r.stderr
-    e = json.loads(r.stdout[r.stdout.index("{"):])
+    e = json.loads(r.stdout)
     assert e["sample_forced"] is True and len(e["sample"]) == 3 and e["sample_floor"] == 5
     r = run(project, "--estimate", "--sample", "3", "--force-sample")
     assert r.returncode == 0 and "WARNING: --force-sample" in r.stdout
     r = run(project, "--estimate", "--sample", "7", "--json", "--no-resume")   # above the floor: as asked
     assert r.returncode == 0, r.stderr
-    e = json.loads(r.stdout[r.stdout.index("{"):])
+    e = json.loads(r.stdout)
     assert len(e["sample"]) == 7 and e["sample_forced"] is False
 
 
@@ -729,6 +729,42 @@ def test_estimate_text_output_and_refusals(project: Path):
     assert run(project, "--estimate", "--sample", "0").returncode == 2
     r = run(project, "--estimate", mechanism="legacy", extra={"COMPARATOR_FAKE_LAKE_OK": "0"})
     assert r.returncode == 1 and "legacy" in r.stderr
+
+
+@pytest.mark.parametrize("entry", ["comparator-receipt", "lean-pkg receipt comparator",
+                                   "lean-pkg --json receipt comparator"])
+def test_estimate_json_stdout_is_the_json_document_alone(tmp_path: Path, entry: str):
+    """Field report (two-library release campaign): `--estimate --json` printed the stage and judge
+    progress lines on stdout before the JSON, so json.loads(stdout) failed although every slot passed.
+    Under --json stdout is the document alone; the progress, including the streamed judge output,
+    is on stderr."""
+    names = [f"A.t{i}" for i in range(6)]
+    project = make_project(tmp_path, {"comparator.json": names})
+    cli = [*RECEIPT_CLI[:2], "lean_pkg.cli"]
+    cmd = {"comparator-receipt": [*RECEIPT_CLI, "--json"],
+           "lean-pkg receipt comparator": [*cli, "receipt", "comparator", "--json"],
+           "lean-pkg --json receipt comparator": [*cli, "--json", "receipt", "comparator"]}[entry]
+    r = subprocess.run([*cmd, "--mechanism", "toolchain", "--estimate"], cwd=project,
+                       env=runner_env(), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    e = json.loads(r.stdout)                                         # the whole of stdout, nothing stripped
+    assert e["schema"] == "comparator-estimate/2" and len(e["sample"]) == 5
+    assert r.stdout.lstrip().startswith("{") and r.stdout.rstrip().endswith("}")
+    assert "--estimate: 5 sampled slot(s)" in r.stderr               # the run's own progress lines
+    assert "started (unit" in r.stderr and "done in" in r.stderr     # per-slot judge progress
+    assert "$ bash" in r.stderr                                      # the streamed judge command line
+    assert json.loads((stage_dir(project) / "04-comparator.estimate.json").read_text()) == e
+
+
+def test_global_json_on_a_comparator_run_is_refused_as_json(project: Path):
+    """`lean-pkg --json receipt comparator` (a run, not --estimate) printed the run's text on stdout; it is now
+    the runner's own refusal (--json goes with the modes that print JSON), as one JSON document."""
+    r = subprocess.run([*RECEIPT_CLI[:2], "lean_pkg.cli", "--json", "receipt", "comparator", "--mechanism",
+                        "toolchain"], cwd=project, env=runner_env(), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2, r.stderr
+    out = json.loads(r.stdout)
+    assert out["ok"] is False and "--estimate" in out["error"]
+    assert not (project / ".lean-receipts").exists()
 
 
 # --- #41: lake and lean resolved through elan per lean-toolchain, never a bare PATH lookup -------
@@ -1000,7 +1036,7 @@ def test_estimate_weighs_slots_in_lakes_layout_and_root_namespace(tmp_path: Path
     project = _prebuilt_project(tmp_path, names, oleans, srcs)
     r = run(project, "--estimate", "--json")
     assert r.returncode == 0, r.stderr
-    e = json.loads(r.stdout[r.stdout.index("{"):])
+    e = json.loads(r.stdout)
     assert e["schema"] == "comparator-estimate/2"
     assert e["weights_found"] is True and e["olean_modules"] == 17 and e["weighted_slots"] == 16
     rows = {row["name"]: row for row in e["sample"]}
@@ -1020,7 +1056,7 @@ def test_estimate_says_when_no_weight_was_found(tmp_path: Path):
     project = _prebuilt_project(tmp_path, names, {"Pkg.A": 300, "Pkg.B": 400}, {})
     r = run(project, "--estimate", "--json")
     assert r.returncode == 0, r.stderr
-    e = json.loads(r.stdout[r.stdout.index("{"):])
+    e = json.loads(r.stdout)
     assert e["weights_found"] is False and e["olean_modules"] == 2 and e["weighted_slots"] == 0
     assert "WARN" in r.stderr and "heaviest-first part of the sample was skipped" in r.stderr
     assert "2 olean module(s)" in r.stderr

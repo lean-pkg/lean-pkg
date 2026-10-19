@@ -1,0 +1,28 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.18.1. Same keys as 0.18.1.yaml; the human page is docs/upgrades/0.19.0.md.
+# The name 0.19.0 is provisional (RELEASING.md, "The record's provisional name"): make cut-release
+# renames both files to the version it cuts, which make release-version prints.
+schema: lean-pkg-upgrade-record/1
+version: 0.19.0
+changes:
+  - pr: 281
+    id: json-stdout-only
+    kind: behavior
+    area: --json
+    summary: >-
+      Under --json, stdout is the JSON document alone (a field report from a two-library release campaign).
+      comparator-receipt --estimate --json (also lean-pkg receipt comparator --estimate --json) printed the
+      stage lines, the per-slot progress and the streamed judge output on stdout before the JSON, so
+      json.loads(stdout) failed although every slot passed; that output now goes to stderr. The global
+      lean-pkg --json before receipt comparator was ignored (the text output reached stdout): it now means
+      the runner's own --json for --estimate, --verify-oleans, --attempts and --seal-sacct, and a run or
+      --prepare under it is refused (exit 2, one JSON error) like the runner's --json without --estimate.
+      receipt slurm --template --json printed the raw script; it now prints {ok, template}.
+    action: >-
+      Nothing for most package authors. A script that cut the estimate JSON out of mixed stdout (from the
+      first brace) can parse stdout whole now; the artifact comparator-stages/04-comparator.estimate.json
+      is unchanged and remains the recommended machine-readable source. Drop a global --json in front of
+      a receipt comparator run or --prepare.
+    breaking: false
+    changelog: Fixed
+no_author_change: []

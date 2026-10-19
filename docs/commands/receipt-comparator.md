@@ -50,7 +50,7 @@ Run comparator-check.sh and write a comparator receipt. The same code and flags 
 | `--seal-sacct RECEIPT` | after the Slurm job finished, no host policy: corroborate RECEIPT's Slurm claim (job_id from SLURM_JOB_ID, which any shell can set) with the job's sacct record: COMPLETED, exit 0:0, Start..End containing the run, this account (live sacct, or --user) and the receipt's node (its h- host label against the node's); writes &lt;c12&gt;-comparator-sacct.txt beside RECEIPT (the record, normalized; no user or node names) and its sha256 into RECEIPT as slurm_sacct. Only a sealed receipt backs a coverage.yaml compute job. Exit 0 sealed (or already), 1 refused, nothing written |
 | `--sacct-file F` | --seal-sacct on a host without Slurm: the saved output of `SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j J --format=JobID,State,ExitCode,Start,End,Elapsed,User,NodeList -P` (with its header line); the account is then checked only with --user |
 | `--user NAME` | --seal-sacct: the account the job must have run under (default with live sacct: this one); compared, never written |
-| `--json` | --estimate, --verify-oleans, --attempts or --seal-sacct: print JSON |
+| `--json` | --estimate, --verify-oleans, --attempts or --seal-sacct: print JSON; stdout is the JSON document alone, the progress goes to stderr |
 | `--host-label LABEL` | name the host LABEL in the receipt (host, host_label, job_id, host_policy) and the output (env COMPARATOR_RECEIPT_HOST_LABEL); default: h- and 12 hex digits of the SHA-256 of the lower-cased host name, the label `receipt systemd` uses; the host name itself is never written |
 
 ## Details
