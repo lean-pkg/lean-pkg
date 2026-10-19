@@ -2191,6 +2191,283 @@ the judge. A log that was preserved with different bytes (re-encoded,
 whitespace-stripped, truncated) cannot be restored; only a new comparator
 run can replace it.
 
+## Recovering an interrupted campaign (read-only)
+
+A verification campaign that stopped part-way leaves several frozen source
+commits (candidates), an evidence-only descendant for some of them, failed
+local attempts, and perhaps a job still queued. For one checkout,
+`lean-pkg next NAME --repo DIR` names the next command and
+`lean-pkg gate NAME --check --repo DIR` re-validates the recorded receipts;
+both read the registry record. Across several checkouts and collected job
+directories, the existing read-only commands compose into a recovery report.
+Nothing below resubmits a job, deletes a file, writes the registry or a
+checkout, or says anything about whether the mathematics is right: the only
+files written are the report's own, in `$OUT`. Whether a statement says what
+the paper says is the comparator tier and its sign-off
+([What each artifact certifies](trust-model.md#what-each-artifact-certifies),
+[the explicit mapping](comparator.md#how-a-theorem-name-maps-to-a-claim)),
+not something this report infers.
+
+Name the inputs explicitly; nothing outside the lists is read:
+
+```bash
+CANDIDATES=("../pkg-a src/try-1" "../pkg-a src/try-2" "../pkg-b HEAD")   # "PACKAGE-DIR REV" per frozen candidate
+CHECKOUTS=(../pkg-a ../pkg-b ../pkg-evidence)    # package directories that may hold evidence commits
+JOBDIRS=(../collect/attempt-1 ../collect/attempt-2)  # collected job files: verify-<J>.log, .out, .err
+OUT=$(mktemp -d)                                 # the report; the only directory written
+```
+
+**1. Candidate to evidence links.** An evidence commit for candidate C is
+a descendant of C that adds a receipt named for C (`<C12>-<job>.json`,
+the [stored name](#lower-tier-receipt-schema)). `git log` finds them;
+`git merge-base --is-ancestor` confirms each link:
+
+```bash
+for cand in "${CANDIDATES[@]}"; do
+  read -r cdir rev <<<"$cand"
+  c=$(git -C "$cdir" rev-parse --verify "$rev^{commit}") || continue
+  found=0
+  for d in "${CHECKOUTS[@]}"; do
+    git -C "$d" cat-file -e "$c^{commit}" 2>/dev/null || continue
+    for e in $(git -C "$d" log --branches --tags --remotes --format=%H --diff-filter=A -- ".lean-receipts/${c:0:12}-*.json"); do
+      git -C "$d" merge-base --is-ancestor "$c" "$e" && { echo "$c $e $d" >> "$OUT/links.txt"; found=1; }
+    done
+  done
+  [ "$found" = 1 ] || echo "$c $cdir" >> "$OUT/no-evidence.txt"
+done
+```
+
+`git -C DIR branch -a --contains C` lists the branches that carry a
+candidate. A candidate in `no-evidence.txt` has no committed receipt in any
+listed checkout: its job is pending, failed or never collected (step 3).
+
+**2. Validate each link.** `receipt check` runs the gate's own validators
+from git alone (no registry, no network, no Lean), at the evidence commit:
+
+```bash
+while read -r c e d; do
+  lean-pkg receipt check --repo "$d" --commit "$c" --at "$e" --json > "$OUT/check-${c:0:12}-at-${e:0:12}.json"
+done < "$OUT/links.txt"
+```
+
+Add `--docs-descendants` only for a package that opted in to the docs-only
+rule ([Docs-only descendants](#docs-only-descendants-opt-in)), and
+`--at TIP` (a branch tip after the evidence commit) to ask whether a later
+tip still carries the receipts. The job ids the validated receipts record
+are in their file names (`slurm-<J>`,
+`systemd-user-<unit>-<InvocationID>-<host label>`):
+
+```bash
+while read -r c e d; do git -C "$d" ls-tree --name-only "$e" -- .lean-receipts/ | grep "/${c:0:12}-.*\.json$"; done < "$OUT/links.txt"
+```
+
+**3. Job files and live references.** For each collected Slurm job, ask
+Slurm for its state and preflight its files; both are read-only, and
+`receipt slurm --check` writes nothing:
+
+```bash
+for j in "${JOBDIRS[@]}"; do
+  for log in "$j"/verify-*.log; do
+    [ -e "$log" ] || continue
+    J=${log##*/verify-}; J=${J%.log}
+    c=$(sed -n 's/^commit: *//p' "$log" | head -n 1)      # the commit the job says it verified
+    d=$(for x in "${CHECKOUTS[@]}"; do git -C "$x" cat-file -e "$c^{commit}" 2>/dev/null && { echo "$x"; break; }; done)
+    squeue -h -j "$J" -o '%i %T %M %R' > "$OUT/squeue-$J.txt" 2>/dev/null       # empty once the job left the queue
+    sacct -j "$J" --format=JobID,State,ExitCode,Elapsed,TotalCPU -P -n > "$OUT/sacct-$J.txt" 2>/dev/null
+    S=(); [ -s "$OUT/sacct-$J.txt" ] && S=(--sacct-file "$OUT/sacct-$J.txt")   # no Slurm here: state not checked
+    lean-pkg receipt slurm --check --repo "${d:-.}" --commit "$c" --job "$J" "${S[@]}" \
+      --log "$log" --stdout "$j/verify-$J.out" --stderr "$j/verify-$J.err" --json > "$OUT/job-$J.json"
+  done
+done
+```
+
+Add `--artifacts DIR` for a job run with the artifact seal. A job still in
+`squeue` has nothing to collect yet; collect only after `sacct` reports it
+`COMPLETED` with `0:0` ([the collection barrier](#recollecting-a-finished-job)).
+On a host without Slurm, save the `sacct` line on the cluster and pass the
+file. For a systemd unit (`systemd-user:<unit>:<InvocationID>@<label>`),
+the live reference is read with
+
+```bash
+systemctl --user show "$UNIT" -p Id,LoadState,ActiveState,SubState,Result,InvocationID,NRestarts
+```
+
+`LoadState=not-found` means the unit was collected; a receipt can then
+only be written from a properties file captured while it was loaded
+([A unit that has already run](#a-lower-tier-receipt-from-a-systemd-unit)).
+`receipt systemd` has no `--check` mode: its receipt is judged after it is
+written, by `receipt check` and `gate --check`, like any other.
+
+**4. Classify.** This script reads the JSON files of steps 2 and 3 and
+prints one line per receipt check and per job. It reads only `$OUT`,
+imports nothing from lean-pkg, and never upgrades a verdict: *passes now*
+is printed only when `receipt check` itself said `ok`; every other line
+explains the failing checks, the worst class first:
+
+```bash
+python3 - "$OUT" <<'EOF'
+"""Classify `receipt check --json` and `receipt slurm --check --json` payloads saved under OUT (read-only)."""
+import json, pathlib, re, sys
+# (check id, detail marker or None, class, what): the first matching rule decides; any other failing check is
+# a new run. The table "Why a receipt check fails, and what it takes" in docs/receipts.md says the same.
+RULES = [
+    (r"lower \S+: report log", "report log missing: ", "restore", "the sealed log, byte-exact (SHA-256 = report_sha256)"),
+    (r"lower \S+: report log", "mismatch", "restore", "the sealed log: the committed copy is not the receipt's bytes"),
+    (r"lower \S+: claim axioms", "sealed verify log is not readable", "restore", "the sealed log"),
+    (r"lower \S+: evidence files", "lake-manifest.json", "new-run", "manifest_sha256 is not the commit's lake-manifest.json"),
+    (r"lower \S+: evidence files", None, "restore", "the artifacts.sha256 or unit.properties file the job wrote"),
+    (r"lower \S+(: .*)?", None, "new-run", "the receipt itself: a field, a pin, sorry_count, axioms, container"),
+    (r"receipts", None, "restore", "the lower-tier receipt for the commit and its sealed log, byte-exact"),
+    (r"receipt \S+", None, "restore", "a file named for the commit that is not its receipt: rename it or restore the receipt"),
+    (r"binding", None, "new-run", "the published ref is not the commit or an accepted descendant: check at the evidence commit"),
+    (r"claims", None, "new-run", "claims.yaml is bound to the commit"),
+    (r"comparator \S+", "comparator log missing: ", "restore", "the comparator log, byte-exact (Restoring preserved evidence)"),
+    (r"comparator \S+", "log_sha256 mismatch", "restore", "the comparator log: the committed copy is not the receipt's bytes"),
+    (r"comparator \S+(: .*)?", None, "new-run", "the comparator tier: configurations, sign-off, olean manifest"),
+    (r"claimed theorems", None, "new-run", "comparator configurations are bound to the commit"),
+    (r"coverage", None, "restore", "coverage.yaml at the published ref (metadata, a docs-only descendant)"),
+    (r"page: .*", None, "restore", "the README page block: lean-pkg page NAME --write (a docs-only descendant)"),
+]
+RANK = {"new-run": 2, "restore": 1}
+WAITING = ("PENDING", "RUNNING", "CONFIGURING", "COMPLETING", "REQUEUED", "RESIZING", "SUSPENDED")
+
+
+def receipt_line(name, p):
+    where = f"{p['commit'][:12]} at {p['at'][:12]}"
+    if p.get("ok") is True:
+        return "passes-now", where, [f"tier {p.get('tier')}"]
+    why, worst = [], None
+    for c in p.get("checks", []):
+        if c.get("verdict") != "fail":
+            continue
+        cls, what = "new-run", "unclassified: read the detail"
+        for pat, marker, rcls, rwhat in RULES:
+            if re.fullmatch(pat, c["id"]) and (marker is None or marker in c["detail"]):
+                cls, what = rcls, rwhat
+                break
+        worst = cls if worst is None or RANK[cls] > RANK[worst] else worst
+        why.append(f"{cls}: {c['id']}: {what}")
+    return worst or "new-run", where, sorted(why, key=lambda w: -RANK[w.split(":")[0]])
+
+
+def job_line(name, p):
+    probs = p.get("problems", [])
+    if p.get("ok") is True:
+        state = any(x.startswith("✓ sacct") for x in p.get("checks", []))
+        return "collect", name, ["files acceptable: write the receipt with receipt slurm --job J (same files)"] + (
+            [] if state else ["job state not checked here: confirm sacct says COMPLETED 0:0 first"])
+    if any(re.search(r"State=(%s)\b" % "|".join(WAITING), x) for x in probs):
+        return "pending", name, ["not terminal: wait (squeue -j J); collect after COMPLETED 0:0"]
+    return "new-run", name, probs[:3] + ["a partial copy fails the same way: recollect once into a fresh attempt first"]
+
+
+for f in sorted(pathlib.Path(sys.argv[1]).glob("*.json")):
+    try:
+        p = json.loads(f.read_text())
+    except ValueError:
+        print(f"unreadable\t{f.name}")
+        continue
+    cls, where, why = (job_line if p.get("check") is True else receipt_line)(f.stem, p)
+    print(f"{cls}\t{where}\t{f.name}")
+    for w in why:
+        print(f"\t{w}")
+EOF
+```
+
+A line marked *restore* holds only when a byte-exact copy exists (its
+SHA-256 is the one the receipt records) or the file is one lean-pkg
+regenerates (`page --write`) or the author edits (`coverage.yaml`); a lost
+sealed log or comparator log makes it a new run. Restoring is copying, never
+resealing or editing a receipt ([Restoring preserved evidence](#restoring-preserved-evidence)).
+After a restoration, rerun step 2: the validators decide, not the script.
+
+**5. The next commands** (the report runs none of them):
+
+| Line | Next command |
+|---|---|
+| `passes-now` | `lean-pkg gate NAME --check --repo DIR --receipt R` (author side, writes nothing), then `gate NAME --receipt R` when you decide to record it; `lean-pkg next NAME --repo DIR` |
+| `restore` | copy the named file back (the script in [Restoring preserved evidence](#restoring-preserved-evidence) for comparator logs), or `lean-pkg page NAME --write`; commit in a descendant; rerun step 2 |
+| `collect` | `lean-pkg receipt slurm --job J --commit C --repo DIR --log ... --stdout ... --stderr ...` (writes the receipt into the checkout), then `gate NAME --check --receipt R` |
+| `pending` | nothing yet: `squeue -j J`; collect after `sacct` says `COMPLETED` `0:0` |
+| `new-run` | read the detail; a new run is your decision (`lean-pkg receipt slurm --template`, or `lean-pkg verify NAME --dry-run` on a workstation) |
+
+### Why a receipt check fails, and what it takes
+
+Each failing check of `receipt check --json` (`checks[].id`, with
+`verdict` `fail` and the reason in `detail`) falls in one of three classes.
+The classes only explain: a receipt passes when `receipt check` (or
+`gate --check`) says so, never because of this table.
+
+| Check id | Reason in `detail` | Class | What it takes |
+|---|---|---|---|
+| any | (none failed: `ok` is true) | passes now | nothing |
+| `lower R: report log` | `report log missing: ...` | restoration only | the sealed log `.lean-receipts/<c12>-<job>-verify.redacted.log` (or `.gz`), byte-exact, SHA-256 = `report_sha256`; lost: new run |
+| `lower R: report log` | `report_sha256 mismatch`, `report_compressed... mismatch` | restoration only | the byte-exact log in place of the committed copy; none: new run |
+| `lower R: claim axioms` | `the sealed verify log is not readable here ...` | restoration only | the sealed log, as above |
+| `lower R: claim axioms` | any other | new run | the log does not support the receipt's `claim_axioms` |
+| `lower R: evidence files` | `artifacts_manifest_sha256` or `unit_properties_sha256` `!= sha256 of ...` | restoration only | the `<c12>-<job>-artifacts.sha256` or `-unit.properties` file the job wrote, byte-exact |
+| `lower R: evidence files` | `manifest_sha256 ... != sha256 of lake-manifest.json at X` | new run | the receipt names another manifest than the commit pins |
+| `lower R` | `receipt missing required field`, `toolchain mismatch`, `mathlib mismatch`, path dependency, `sorry_count`, `axioms ... outside`, `generated_at`, `job_id` | new run | the receipt's own content; receipts are never edited |
+| `lower R` | `receipt commit ... != repo HEAD` | new run (for that ref) | as `binding` |
+| `lower R: container` | malformed `container` | new run | the receipt's own content |
+| `receipts` | `no lower-tier receipt ... binds X` | restoration only | the receipt JSON and its sealed log, byte-exact, committed after X; never produced: new run |
+| `receipt FILE` | `named for X but binds Y`, `not a readable receipt` | restoration only | the file under X's name is not X's receipt: rename it (`<commit12>-<job>.json` of its own commit) or keep it outside `.lean-receipts/`, or restore X's receipt |
+| `binding` | `... is not ... an evidence-only descendant` | new run (for that ref) | the receipts certify X, not the ref: check X at its evidence commit (`--at`); a ref with source changes needs its own run. A detail ending in the docs-only hint is the package's opt-in to decide |
+| `claims` | claims/1 schema or declaration check | new run | `claims.yaml` is bound to X; fix it at a new commit |
+| `comparator R` | `comparator log missing: ...` | restoration only | the comparator log, byte-exact ([Restoring preserved evidence](#restoring-preserved-evidence)) |
+| `comparator R` | `log_sha256 mismatch` | restoration only | the byte-exact comparator log in place of the committed copy |
+| `comparator R` | any other (configurations, SHA-256, sign-off, PASS line, commit) | new run | a new comparator run (the lower tier may stand) |
+| `comparator R: olean manifest` | toolchain or manifest digest | new run | a new comparator run |
+| `comparator R: container` | malformed `container` | new run | a new comparator run |
+| `claimed theorems` | reusable claim named by no configuration, `judged_as` not backed | new run | configurations and claims are bound to X |
+| `coverage` | `coverage check` refusal | restoration only | edit `coverage.yaml` (not a build input; commit it as a docs-only descendant) |
+| `page: commit`, `page: pins`, `page: evidence`, `page: trust boundary` | the block disagrees with the receipts | restoration only | `lean-pkg page NAME --write` and commit (a docs-only descendant) |
+
+A `skip` never fails a check and needs nothing. `lower R: evidence files`
+skips `artifacts_manifest_sha256` and `unit_properties_sha256` whose file
+is not committed: committing the job's file, byte-exact, adds the check.
+
+### Will my old receipts still pass? (upgrade impact)
+
+After upgrading lean-pkg, run the new version's `receipt check` on every
+receipt already committed: it is the same validator `gate` runs, so its
+verdict is the answer, and nothing is rebuilt to get it. The classes above
+then separate the receipts that need only a restored file or a regenerated
+page from those that genuinely need a new run.
+
+```bash
+mkdir -p "$OUT/inventory"
+for d in "${CHECKOUTS[@]}"; do
+  inv="$OUT/inventory/$(basename "$d").json"
+  lean-pkg receipt check --repo "$d" --commit HEAD --json > "$inv"     # its receipts{} lists every receipt at HEAD
+  for c in $(python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); print(*sorted({r["commit"] for k in p["receipts"] for r in p["receipts"][k]}))' "$inv"); do
+    e=$(git -C "$d" log -1 --format=%H --diff-filter=A -- ".lean-receipts/${c:0:12}-*.json")
+    [ -n "$e" ] && lean-pkg receipt check --repo "$d" --commit "$c" --at "$e" --json > "$OUT/check-${c:0:12}-at-${e:0:12}.json"
+  done
+done
+```
+
+Then run the step 4 script on `$OUT` (it reads `$OUT/*.json` only, not
+`$OUT/inventory/`). To see why a receipt that passed before fails now, read
+the curated behaviour changes since the version that wrote it (records
+start at 0.11.0; a wheel install adds `--source DIR`, a clone of the
+lean-pkg repository):
+
+```bash
+lean-pkg doctor --upgrade-from 0.10.0 --json | python3 -c 'import json,sys
+for b in json.load(sys.stdin)["behavior"]:
+    if any(a in b["area"] for a in ("receipt", "gate", "page", "comparator")): print(b["id"], "-", b["action"])'
+```
+
+For example, 0.11.0 made a missing sealed log a refusal
+(`receipt-sealed-log-required`): such a receipt is *restoration only*
+when the log was kept, and the page rewrite of that release (`page --write`)
+is a regenerated file, not a run. Nothing here weakens a check: no receipt
+is edited, every restored file must hash to what the receipt recorded, and
+`receipt check` still decides. For a registered package,
+`lean-pkg gate NAME --check --repo DIR` gives the author's view of the same
+receipts, with the registry's recorded paths and opt-ins.
+
 ## Publishing a package incubated beside private work
 
 `promote` makes the whole repository public, history included. A package
