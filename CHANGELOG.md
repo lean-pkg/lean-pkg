@@ -29,6 +29,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   or `.lake/build`: the user still writes the archive, and the official
   preflight rerun on it confirms the fill.
 
+### Fixed
+
+- `--json` and control characters (field report: `status NAME --json`
+  refused by strict `json.loads` with "Invalid control character"). The
+  payload lean-pkg prints was valid; the report's copy had gone through
+  zsh's `echo`, which decodes the `\n` and `\u2014` escapes of a notes
+  string into raw characters. Escaping every control character (U+0000 to
+  U+001F) is now a documented guarantee (`help formatting`, ESCAPING, with
+  `printf '%s\n' "$out"` instead of `echo`), and a test runs every
+  command of the `--json` contract table on a registry whose notes and
+  history hold every C0 control, DEL, U+2028 and U+2029, with strict
+  `json.loads` and a round-trip check of the strings.
+
 ## [0.17.0] - 2026-10-18
 
 ### Added

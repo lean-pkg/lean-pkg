@@ -362,6 +362,16 @@ STDOUT AND STDERR
   committed-mode reports (`committed <sha> on <branch>`, `pushed ...`), `NOT COMMITTED: ...` and progress.
   Read stderr for why; read stdout for what.
 
+ESCAPING
+
+- Every string is escaped: a control character (U+0000 to U+001F) is always written as \\n, \\t, \\r or
+  \\u00XX, also when it came from registry text (notes, history), so a strict parser such as Python's
+  json.loads or jq reads every payload.
+- Read the payload from a pipe or a file (`lean-pkg status x --json | jq .`, `> out.json`). To print a
+  captured copy, use printf '%s\\n' "$out", never echo: zsh's echo (and bash's echo -e) turns \\n back into
+  a raw newline and \\u2014 into a dash, and the result is no longer valid JSON ("Invalid control
+  character").
+
 THE JSON PAYLOAD
 
 - Most payloads carry "ok" (true or false). A payload's own fields are described with its command
