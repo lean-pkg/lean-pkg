@@ -1910,6 +1910,71 @@ package must list them in `build_inputs`, or stay with the evidence-only rule.
 lean-pkg cannot check that the list is complete, so the maintainer decides per
 package.
 
+#### Before opting in: inventory every file the checker reads
+
+The rule knows what Lake builds and the words of the receipt's `checker`
+line. It does not know what the checker script runs or reads at run time:
+the checker line names `verify.sh`, not the files `verify.sh` opens. A
+field report found two kinds of file left unprotected by the first proposed
+`build_inputs` globs, and caught them only because its own adoption policy
+asked for a check before opting in: Lean tests compiled at run time from
+outside every `lean_lib` root (`tests/Escape*.lean`), and an owner list
+that a native gate reads (`EXPECTED-PRODUCTION-OWNERS.txt`). An edit to
+either would have passed as docs.
+
+So, before `update NAME --accept-docs-descendants`:
+
+1. Read `verify.sh` and every script, hook or native gate it calls, and list
+   every file they execute, compile or read dynamically. Typical entries:
+   escape or negative-test fixtures compiled with `lean` or `lake env lean`
+   outside the Lake targets, disabled or expected-failure controls, owner
+   and allow lists, data files, sourced shell files, and `coverage.yaml`
+   (or any other file) when the gate treats it as claim configuration.
+2. Write globs for them, to be recorded with
+   `lean-pkg update NAME --build-inputs GLOB,GLOB --reason TEXT`.
+3. Run the docs rule's own classifier over the tracked files, with the
+   globs you plan to record, and check that every file of the inventory
+   prints a reason (from the package directory; `python3` here is the
+   interpreter lean-pkg is installed in: for a pip or pipx install, the one
+   on the first line of `$(command -v lean-pkg)`; for a clone,
+   `PYTHONPATH=CLONE/src python3`):
+
+```bash
+git ls-files | python3 -c '
+import pathlib, sys
+from lean_pkg.build_scope import lake_scope
+from lean_pkg.cli import docs_build_input, git_show_bytes
+scope, why = lake_scope(lambda rel: git_show_bytes(pathlib.Path("."), rel))
+if scope is None:
+    print(f"lakefile.toml not read ({why}): every .lean file counts", file=sys.stderr)
+for path in sys.stdin.read().splitlines():
+    reason = docs_build_input(path, sys.argv[1:], set(), None if scope is None else [scope])
+    print(reason or "NOT A BUILD INPUT", path, sep="\t")
+' 'tests/Escape*.lean' 'EXPECTED-PRODUCTION-OWNERS.txt'
+```
+
+It prints one line per tracked file: the reason it is a build input
+(`lean_lib Foo`, `lakefile.*`, `build_inputs tests/Escape*.lean`, ...) or
+`NOT A BUILD INPUT`, which is a file the docs-only rule would let change
+under the receipt. It reads the committed `lakefile.toml` at HEAD and
+writes nothing. It is stricter than the rule in one way: it does not count
+the files named on the receipt's `checker` line, so list those too. For
+example, in a package whose `lakefile.toml` declares only `lean_lib Foo`,
+the command above prints (in part; reason and path are separated by a tab,
+shown here as spaces)
+
+```text
+build_inputs EXPECTED-PRODUCTION-OWNERS.txt  EXPECTED-PRODUCTION-OWNERS.txt
+lean_lib Foo  Foo/Bar.lean
+NOT A BUILD INPUT  README.md
+build_inputs tests/Escape*.lean  tests/EscapeA.lean
+```
+
+and, without the two globs, `NOT A BUILD INPUT` for both
+`EXPECTED-PRODUCTION-OWNERS.txt` and `tests/EscapeA.lean`.
+
+Rerun the inventory when `verify.sh` or a gate starts reading a new file.
+
 ### Path dependencies
 
 A receipt binds the package directory at one commit. A Lake
