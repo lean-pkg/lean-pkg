@@ -9,6 +9,25 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Changed
+
+- Releases: the version follows RELEASING.md "When to tag", checked at
+  cut time. `make release-version` prints the version the next release
+  must carry, derived from the in-progress upgrade record (an entry of
+  kind `command`, `format` or `requirement`, or one under `Added`,
+  `Deprecated` or `Removed`, makes a minor; anything else a patch)
+  cross-checked with the `## [Unreleased]` headings; `make cut-release
+  VERSION=X.Y.Z` refuses any other X.Y.Z before it writes a file, naming
+  the required version and the entries that decide it (it used to warn
+  only for a patch). `### Documentation` is now the defined heading for
+  docs-only entries (RELEASING.md, "CHANGELOG headings"), and `make changelog` (and CI) refuses an entry of a
+  `no_author_change` pull request under `### Added`. The record's name is
+  provisional until the cut: cut-release renames
+  `docs/upgrades/<next>.yaml` and `.md` to the version it cuts (step 2b),
+  and `doctor --upgrade-from` lists a misnamed or stale unreleased record
+  under `record_problems[]`. RELEASING.md gains a version history: 0.17.0
+  should have been 0.16.1 (#278).
+
 ### Documentation
 
 - docs/receipts.md: "Recovering an interrupted campaign (read-only)" and

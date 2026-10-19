@@ -39,6 +39,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # the history scan needs every commit, the PR's own included
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Forbidden-string scan
         run: bash scripts/private-boundary-check.sh
       # Commit messages and old blobs escape the tree scan: #94's squash message named a private
@@ -48,6 +51,12 @@ jobs:
       # fetch-depth: 0 above also fetches every tag; --require-tags fails if they are missing.
       - name: Released CHANGELOG sections match their tags
         run: python3 scripts/check-changelog-releases.py --require-tags
+      # `## [Unreleased]` agrees with the in-progress upgrade record: no no_author_change PR's entry under
+      # ### Added, every record heading present (RELEASING.md "When to tag"). Needs the history and tags above.
+      - name: Unreleased CHANGELOG headings agree with the upgrade record
+        run: |
+          python -m pip install -q pyyaml
+          python scripts/release-version.py --check
       - name: No tab characters
         run: |
           if grep -rnP '\t' --include='*.py' --include='*.sh' --include='*.md' \

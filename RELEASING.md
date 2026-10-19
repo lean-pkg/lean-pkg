@@ -13,16 +13,106 @@ The version says what kind of change a release carries. While lean-pkg is
 | Any `### Added` entry: a new command, or a new user-visible flag, field or feature | minor: `0.(N+1).0` | |
 | A format change of an on-disk schema (registry, claims, coverage, receipt, estimate) | minor: `0.(N+1).0` | always with a migration, and a `### Changed` entry that names the format and the migration |
 | A roadmap milestone landing (M0, M1, ...) | minor: `0.(N+1).0` | at the milestone's exit criteria, on `main` |
+| A raised requirement (an upgrade-record entry of kind `requirement`: the Python floor, a dependency) | minor: `0.(N+1).0` | an install that worked can stop working, which is no fix |
 | Only `### Fixed` entries and documentation | patch: `0.N.(k+1)` | when someone needs to cite the fix |
 | Nothing user-visible | no tag | docs polish and refactors ride with the next release |
 
 Any one minor trigger makes the release a minor. From 0.7.1 to 0.7.54 new
 features shipped as patches; that stops here, and the next release after
-this policy is `0.8.0`. `make cut-release` warns (and does not refuse) when
-a patch version is requested while `## [Unreleased]` has an `### Added` or
-`### Changed` section, and prints the minor version it suggests; a
-`### Changed` entry that changes no format may still go out in a patch, which
-is why it is a warning.
+this policy is `0.8.0`.
+
+### How the version is checked
+
+The version is derived, not chosen: `make release-version` prints it, and
+`make cut-release VERSION=X.Y.Z` refuses any other X.Y.Z before it touches a
+file, naming the required version and the entries that decide it
+(`scripts/release-version.py`). It reads two sources, which must agree:
+
+- **The in-progress upgrade record** (`docs/upgrades/<next>.yaml`, below).
+  A minor is required by any entry of kind `command`, `format` or
+  `requirement`, and by any entry whose `changelog` heading is `Added`,
+  `Deprecated` or `Removed` (a new user-visible flag, field or feature,
+  whatever its kind). Entries of kind `behavior` under `Fixed`, `Changed`
+  or `Security`, and the pull requests listed under `no_author_change`,
+  are a patch.
+- **The `## [Unreleased]` headings of CHANGELOG.md.** An entry under
+  `### Added`, `### Deprecated` or `### Removed` requires a minor and must
+  be backed by a record entry with that `changelog` heading. Entries under
+  `### Fixed`, `### Changed`, `### Security` and `### Documentation` are a
+  patch: a `### Changed` entry that changes a format has a record entry of
+  kind `format`, which is what makes the release a minor.
+
+A roadmap milestone is not in the files: pass it as
+`make release-version MILESTONE=M1` and `make cut-release VERSION=X.Y.Z
+MILESTONE=M1`. A major (`1.0.0`, below) is a maintainer decision and is
+accepted as requested.
+
+Where the two sources disagree the release is refused, never guessed: a
+record entry whose `changelog` heading has no entry in `## [Unreleased]`, an
+`### Added` entry that no record entry backs, or the entry of a pull request
+listed under `no_author_change` under `### Added`, `### Deprecated` or
+`### Removed`. An entry belongs to a pull request when its text cites
+`(#N)` or when the squash commit `... (#N)` since the last release added its
+first line. `make changelog` (part of `make check`, and CI) runs the same
+consistency check on every pull request.
+
+### CHANGELOG headings
+
+Keep a Changelog's six types plus one for documentation:
+
+| Heading | For | Bump |
+|---|---|---|
+| `### Added` | a new command, or a new user-visible flag, field or feature | minor |
+| `### Changed` | changed behaviour, a format change (it names its migration), release tooling, tests or CI | patch, unless the record has a `format` entry |
+| `### Deprecated`, `### Removed` | "Aliases and deprecations" below | minor |
+| `### Fixed` | a bug fix | patch |
+| `### Security` | a security fix | patch |
+| `### Documentation` | documentation only (a new page, a recipe, a section) | patch |
+
+A pull request listed under `no_author_change` in the record changes nothing
+for a package author, so its entry is never under `### Added`: docs go under
+`### Documentation`, release tooling, tests or CI under `### Changed` or
+`### Fixed`. Until 0.18.0, docs entries were filed under `### Added`; the
+released sections stay as they are (they must equal their tags).
+
+### The record's provisional name
+
+The first pull request after a release opens the next record as the next
+minor, `docs/upgrades/0.(N+1).0.yaml` and `.md`, before anyone knows what the
+release will hold: its name is provisional. Only the newest record may carry
+an unreleased version. `make cut-release` names it for the version actually
+cut, in its own commit (step 2b: `docs/upgrades/0.(N+1).0.*` become
+`0.N.(k+1).*` for a patch, with the `version:` key, the page's title,
+heading and links rewritten), so every released record is named for its
+release. `scripts/release-version.py --rename X.Y.Z` does the same by hand.
+`lean-pkg doctor --upgrade-from` reports, under `record_problems[]`, a record
+whose file name is not its version, an older record that was never released,
+and an unreleased record listing a pull request that already shipped (the
+rename was missed).
+
+### Version history
+
+`scripts/release-version.py --history --since 0.1.0` applies the rule to
+every tag: each release's CHANGELOG section at its tag, its record when one
+exists (from 0.11.0), and the pull requests of its range. These releases do
+not follow it. They stay as published: a tag is never moved, renumbered or
+deleted, and released CHANGELOG sections are not edited.
+
+| Release | Cut as | The rule gives | Why |
+|---|---|---|---|
+| 0.3.2 | patch over 0.3.1 | minor, 0.4.0 | one `### Added` entry, before this policy |
+| 0.4.1 | patch over 0.4.0 | minor, 0.5.0 | three `### Added` entries, before this policy |
+| 0.7.1 to 0.7.6, 0.7.8 to 0.7.11, 0.7.13, 0.7.14, 0.7.16 to 0.7.24, 0.7.28, 0.7.30 to 0.7.33, 0.7.36, 0.7.38, 0.7.40, 0.7.42, 0.7.43, 0.7.45, 0.7.47 to 0.7.52, 0.7.54 | patch | minor | `### Added` entries shipped as patches, before this policy (it starts at 0.8.0) |
+| 0.17.0 | minor over 0.16.0 | patch, 0.16.1 | the record holds one `behavior` fix (#273) and two docs pull requests under `no_author_change` (#272, #274), whose CHANGELOG entries were filed under `### Added`; the record had been opened as `0.17.0.yaml` before its contents were known |
+
+From 0.11.0 to 0.16.0 and in 0.18.0 every release has a `command` or
+`format` record entry or a backed `### Added` entry, so each minor is right;
+the `### Added` sections of 0.11.0 to 0.14.0 also hold entries of
+`no_author_change` pull requests, which the rule does not count. Releases
+before 0.11.0 have no record, so a patch with `### Changed` entries (0.3.1,
+0.7.12, 0.7.15, 0.7.26, 0.7.27, 0.7.29, 0.7.34, 0.7.35, 0.7.39, 0.7.41,
+0.7.44) is right unless one of them changed a format, which the files do
+not say.
 
 ### 1.0.0
 
@@ -77,10 +167,12 @@ changes evidence.
 ## Checklist
 
 `make cut-release VERSION=X.Y.Z` runs the whole checklist below from a clean
-`main` (`scripts/cut-release.py`). It lists the `### Added` entries for step 0,
-which stays a judgment, so read them, and warns when X.Y.Z is a patch bump
-while `## [Unreleased]` has an `### Added` or `### Changed` section ("When to
-tag"), then: commits the citation bump (2a),
+`main` (`scripts/cut-release.py`). It first refuses, before any file is
+touched, unless X.Y.Z is the version `make release-version` prints ("How the
+version is checked"); then lists the `### Added` entries for step 0, which
+stays a judgment, so read them; then: commits the citation bump (2a), names
+the upgrade record for X.Y.Z in its own commit (2b, "The record's provisional
+name"),
 refuses unless the public-safety scan (3) is clean, writes the version files
 and the summary line (1, 2), runs `make check` on that tree, commits and
 pushes them (4), runs `scripts/release.sh` (5), and waits up to `DOI_WAIT`
@@ -116,10 +208,12 @@ is refused before anything is written. The steps by hand:
    whole pass. Numbered 0 so that references to steps 1 to 7 elsewhere stay
    valid. The same pass completes the upgrade record
    `docs/upgrades/X.Y.Z.yaml` and its page `docs/upgrades/X.Y.Z.md`
-   (docs/design/upgrade-preflight.md): `lean-pkg doctor --upgrade-from
+   (docs/design/upgrade-preflight.md; until the cut they carry the
+   provisional name, "When to tag"): `lean-pkg doctor --upgrade-from
    PREVIOUS --json` must report an empty `uncurated[]` and
    `record_problems[]`, every merged pull request being either an entry
-   or listed under `no_author_change`.
+   or listed under `no_author_change`, and `make release-version` must
+   print X.Y.Z.
 1. Move the entries under `## [Unreleased]` in `CHANGELOG.md` to a new
    `## [X.Y.Z] - YYYY-MM-DD` section.
 2. Set `version` in `pyproject.toml` and `version` plus `date-released` in
@@ -132,6 +226,12 @@ is refused before anything is written. The steps by hand:
    commit already cites its own version and the release commit stays the
    four version files. Labelled 2a so that references to steps 3 to 7
    elsewhere stay valid.
+
+   **2b.** Name the in-progress upgrade record for X.Y.Z when its
+   provisional name differs (`scripts/release-version.py --rename X.Y.Z`:
+   both files renamed, the version inside them rewritten), committed on its
+   own (`upgrades: the record is X.Y.Z's`) and pushed with 2a, so the
+   tagged commit carries the record under its release's name.
 3. Public-safety self-scan: `make public-safety` must report 0 blocking
    and 0 warnings under `--strict`. It clones this repository with every
    ref into a temporary directory, registers the clone as `lean-pkg-self`
@@ -207,7 +307,8 @@ the version-agreement check, and the released-sections check
 (`scripts/check-changelog-releases.py`: each `## [X.Y.Z]` section of
 `CHANGELOG.md` reads as it did at tag `vX.Y.Z`, record-doi's `Zenodo version
 DOI:` line aside; the newest section is skipped until its tag exists, so
-step 4 passes). The gate is safe to run concurrently: `make test` gives
+step 4 passes), and the CHANGELOG category check (`scripts/release-version.py
+--check`, "How the version is checked"). The gate is safe to run concurrently: `make test` gives
 each run a private bytecode cache (`PYTHONPYCACHEPREFIX` in a fresh temporary directory,
 removed afterwards), so two sessions never share pytest's rewritten `.pyc` files. Hosted CI runs the same targets once the
 repository is public; until then the maintainer runs them locally and the

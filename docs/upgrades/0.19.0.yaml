@@ -1,6 +1,11 @@
 # Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
 # requests merge after 0.18.0. Same keys as 0.18.0.yaml; the human page is docs/upgrades/0.19.0.md.
+# The name 0.19.0 is provisional (RELEASING.md, "The record's provisional name"): make cut-release
+# renames both files to the version it cuts, which make release-version prints.
 schema: lean-pkg-upgrade-record/1
 version: 0.19.0
 changes: []
-no_author_change: [277]
+# Read for this record, nothing for a package author: docs, recovering an interrupted campaign and the
+# upgrade impact on old receipts (#277); release tooling, the version a release must carry checked at cut
+# time, the CHANGELOG category check and the provisional record name (#278).
+no_author_change: [277, 278]

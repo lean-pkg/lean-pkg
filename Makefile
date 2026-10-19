@@ -1,7 +1,7 @@
 # lean-pkg: local gates. No tab characters: recipes use '>' as the prefix.
 # `make check` is the release gate; hosted CI runs the same targets once the repository is public.
 .RECIPEPREFIX := >
-.PHONY: check test boundary tabs versions changelog reuse history public-safety release cut-release record-doi docs goldens
+.PHONY: check test boundary tabs versions changelog reuse history public-safety release release-version cut-release record-doi docs goldens
 
 check: test boundary tabs versions changelog reuse
 > @echo "check: all gates green"
@@ -26,8 +26,11 @@ versions:
 > python3 scripts/check-versions.py
 
 # Each released `## [X.Y.Z]` section reads as it did at tag vX.Y.Z (record-doi's DOI line aside); no network.
+# Then the category check: `## [Unreleased]` agrees with the in-progress upgrade record (a no_author_change
+# PR's entry is never under ### Added; RELEASING.md "When to tag").
 changelog:
 > python3 scripts/check-changelog-releases.py
+> python3 scripts/release-version.py --check
 
 # REUSE 3.3 compliance (gate G3 of the public-flip checklist); skipped, not passed, when the tool is absent.
 reuse:
@@ -69,10 +72,16 @@ docs:
 release:
 > bash scripts/release.sh "$(VERSION)"
 
-# make cut-release VERSION=0.1.0  (the whole RELEASING.md checklist, steps 0 to 7, resumable;
-# DOI_WAIT=seconds to poll Zenodo, default 300; see scripts/cut-release.py)
+# make release-version [MILESTONE=Mk]  (the version RELEASING.md "When to tag" requires for the next release,
+# derived from the in-progress upgrade record and `## [Unreleased]`; read-only; scripts/release-version.py)
+release-version:
+> python3 scripts/release-version.py $(if $(MILESTONE),--milestone "$(MILESTONE)")
+
+# make cut-release VERSION=0.1.0 [MILESTONE=Mk]  (the whole RELEASING.md checklist, steps 0 to 7, resumable;
+# refuses a VERSION other than `make release-version`'s; DOI_WAIT=seconds to poll Zenodo, default 300;
+# see scripts/cut-release.py)
 cut-release:
-> python3 scripts/cut-release.py "$(VERSION)" --doi-wait "$(or $(DOI_WAIT),300)"
+> python3 scripts/cut-release.py "$(VERSION)" --doi-wait "$(or $(DOI_WAIT),300)" $(if $(MILESTONE),--milestone "$(MILESTONE)")
 
 # make record-doi VERSION=0.1.0  (step 7 alone: the Zenodo version DOI into CITATION.cff and CHANGELOG.md)
 record-doi:

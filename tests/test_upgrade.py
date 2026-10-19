@@ -257,6 +257,35 @@ def test_a_bad_record_is_reported_not_trusted(lp, capsys, src):
     assert out["behavior"] == []          # the string "5" is not PR 5
 
 
+def test_the_newest_unreleased_record_may_carry_a_provisional_name(lp, capsys, src):
+    # 1.1.0 is unreleased and the newest record: its name is provisional, no problem
+    rc, out = preflight(lp, capsys, src, "1.0.0")
+    assert rc == 0 and out["record_problems"] == []
+    # the release was cut as 1.0.1 without renaming the record: #5 and #7 shipped in 1.0.1 under a 1.1.0 record
+    put(src, {"pyproject.toml": pyproject("1.0.1", ">=3.12", ["pyyaml>=6", "jsonschema"], ["lean-pkg"])})
+    git(src, "commit", "-qam", "release: 1.0.1")
+    rc, out = preflight(lp, capsys, src, "1.0.0")
+    assert rc == 0 and out["record_problems"] == [
+        "docs/upgrades/1.1.0.yaml: unreleased (provisional name 1.1.0), but #5, #7 shipped in 1.0.1; the record is "
+        "1.0.1's: rename it (scripts/release-version.py --rename 1.0.1)"]
+    # renamed, with the version key: consistent again
+    git(src, "mv", "docs/upgrades/1.1.0.yaml", "docs/upgrades/1.0.1.yaml")
+    put(src, {"docs/upgrades/1.0.1.yaml": yaml.safe_dump({**RECORD, "version": "1.0.1"})})
+    git(src, "commit", "-qam", "upgrades: the record is 1.0.1's")
+    rc, out = preflight(lp, capsys, src, "1.0.0")
+    assert out["record_problems"] == [] and {e["release"] for e in out["behavior"]} == {"1.0.1"}
+    # a file name that is not its version, and an older record that was never released
+    put(src, {"docs/upgrades/1.0.1.yaml": yaml.safe_dump({**RECORD, "version": "1.0.2"}),
+              "docs/upgrades/0.9.0.yaml": yaml.safe_dump({**RECORD, "version": "0.9.0", "changes": [],
+                                                           "no_author_change": [7]})})
+    git(src, "add", "-A")
+    git(src, "commit", "-qm", "two bad names")
+    rc, out = preflight(lp, capsys, src, "1.0.0")
+    problems = out["record_problems"]
+    assert "docs/upgrades/1.0.1.yaml: the file name must be the record's version (1.0.2.yaml)" in problems
+    assert any(p.startswith("docs/upgrades/0.9.0.yaml: 0.9.0 was never released") for p in problems)
+
+
 def test_a_record_with_only_no_author_change_is_valid():
     # A release record opened by a docs-only PR: no change yet, the PR is listed as read.
     doc = {"schema": up.RECORD_SCHEMA, "version": "1.2.0", "changes": [], "no_author_change": [9]}

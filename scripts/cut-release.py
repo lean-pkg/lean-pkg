@@ -3,12 +3,17 @@
 
 Runs the RELEASING.md checklist from `## [Unreleased]` to the recorded Zenodo DOI:
 
-  0   lists the `### Added` entries being released (the documentation gap pass is a
-      judgment; `make check` enforces its floor, the subcommand-coverage test)
-      and warns (never refuses) when X.Y.Z is a patch bump while `## [Unreleased]` has an
-      `### Added` or `### Changed` section, printing the suggested minor version
+  0   refuses, before any file is touched, unless X.Y.Z is the version RELEASING.md "When to
+      tag" requires (scripts/release-version.py: the in-progress upgrade record's change kinds
+      cross-checked with the `## [Unreleased]` headings; `make release-version` prints it),
+      naming the required version and the entries that decide it; then lists the `### Added`
+      entries being released (the documentation gap pass is a judgment; `make check`
+      enforces its floor, the subcommand-coverage test)
   2a  points the BibTeX examples in README.md and docs/index.md at X.Y.Z and commits
       them on their own (`citation: bibtex examples cite X.Y.Z`)
+  2b  names the in-progress upgrade record for X.Y.Z: docs/upgrades/<provisional>.yaml and
+      .md become X.Y.Z.yaml and .md, the version inside both rewritten, committed on their
+      own (`upgrades: the record is X.Y.Z's`); nothing when it already carries X.Y.Z
   3   runs `make public-safety` and refuses unless it reports 0 blocking, 0 warnings
   1,2 moves `## [Unreleased]` to `## [X.Y.Z] - today`, appends the public-safety
       summary line, and sets the version in pyproject.toml, CITATION.cff
@@ -32,6 +37,9 @@ exists; `make record-doi VERSION=X.Y.Z` finishes it later.
 LEAN_PKG_COMMIT_TRAILER adds `Key: value` trailers (one per line, e.g.
 `Co-Authored-By: Name <email>`) to every commit it makes, step 7's included.
 
+MILESTONE=Mk (`--milestone Mk`): a roadmap milestone lands with this release, which makes it a
+minor (RELEASING.md); the rule cannot see a milestone in the files.
+
 LEAN_PKG_RELEASE_DATE (YYYY-MM-DD) is the date steps 1-2 stamp in place of today's local
 date. It exists for the tests, which would otherwise compute "today" separately from this
 script and disagree when a run crosses midnight; a real release leaves it unset.
@@ -40,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import importlib.util
 import os
 import re
 import subprocess
@@ -161,23 +170,39 @@ def unreleased(chg: str) -> tuple[int, int]:
     return m.end(), m.end() + (nxt.start() if nxt else len(chg) - m.end())
 
 
-def step0_version_kind(chg: str, v: str, current: str) -> None:
-    """Warn, never refuse, when X.Y.Z is a patch bump over the current version while `## [Unreleased]`
-    has an `### Added` or `### Changed` section: under RELEASING.md "When to tag" a new command or flag, a
-    format change or a milestone is a minor. A `### Changed` entry that changes no format may still be a
-    patch, so this stays a warning and the release goes on."""
-    new, cur = vtuple(v), vtuple(current)
-    if new[:2] != cur[:2]:
+def release_version_module():
+    """scripts/release-version.py, the rule `make release-version` prints (loaded from this checkout)."""
+    spec = importlib.util.spec_from_file_location("release_version", ROOT / "scripts" / "release-version.py")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod      # dataclasses resolve their module through sys.modules
+    keep, sys.dont_write_bytecode = sys.dont_write_bytecode, True   # no scripts/__pycache__: step 4 wants a clean tree
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.dont_write_bytecode = keep
+    return mod
+
+
+def step0_version_rule(v: str, milestone: str | None):
+    """Refuse, before any file is touched, unless X.Y.Z is the version RELEASING.md "When to tag" requires.
+    Returns the in-progress upgrade record (None when there is none) for step 2b."""
+    rv = release_version_module()
+    n = rv.next_release(ROOT, milestone)
+    ok, msg = rv.check_version(n, v)
+    if not ok:
+        die(f"step 0: {msg}\nNothing was written.")
+    say(f"step 0: {msg.removeprefix('release-version: ')}")
+    return rv, n.record
+
+
+def step2b_record(rv, record, v: str) -> None:
+    if record is None or record.version == v:
+        say(f"step 2b: the upgrade record is already named for {v}" if record else "step 2b: no upgrade record")
         return
-    s, e = unreleased(chg)
-    found = [h for h in ("Added", "Changed")
-             if any(m.group(1).strip() for m in re.finditer(rf"^### {h}\n(.*?)(?=^### |\Z)", chg[s:e], re.M | re.S))]
-    if found:
-        suggested = f"{cur[0]}.{cur[1] + 1}.0"
-        say(f"WARN: step 0: {v} is a patch bump over {current}, but `## [Unreleased]` has "
-            + " and ".join(f"`### {h}`" for h in found)
-            + f"; RELEASING.md \"When to tag\" makes a new command, flag or format change a minor: "
-            f"suggested version {suggested} (`make cut-release VERSION={suggested}`). Continuing with {v}.")
+    paths = rv.rename_record(ROOT, record, v)
+    git("add", "-A", "--", rv.RECORD_DIR)
+    git("commit", "-q", "-m", f"upgrades: the record is {v}'s", *trailer_args())
+    say(f"step 2b: committed {git('rev-parse', '--short', 'HEAD')} {record.path} -> {', '.join(paths)}")
 
 
 def step0_added(chg: str) -> None:
@@ -289,6 +314,8 @@ def main() -> int:
     ap.add_argument("--doi-wait", type=int, default=300, metavar="SECONDS",
                     help="how long step 7 polls Zenodo for the version DOI (default 300)")
     ap.add_argument("--no-doi", action="store_true", help="stop after step 5; record the DOI later")
+    ap.add_argument("--milestone", default=None, metavar="NAME",
+                    help="a roadmap milestone lands with this release: the rule then requires a minor")
     a = ap.parse_args()
     v = a.version
     if not re.fullmatch(r"\d+\.\d+\.\d+", v):
@@ -303,7 +330,7 @@ def main() -> int:
     git("fetch", "-q", "--no-tags", "origin")
     # Resumable: HEAD may be ahead of origin/main only by this release's own commits.
     doi_commit = f"citation: Zenodo version DOI for {v}"
-    ours = {f"citation: bibtex examples cite {v}", f"release: {v}", doi_commit}
+    ours = {f"citation: bibtex examples cite {v}", f"upgrades: the record is {v}'s", f"release: {v}", doi_commit}
     ahead = git("log", "--format=%s", "origin/main..HEAD").splitlines()
     if git("rev-list", "--count", "HEAD..origin/main") != "0" or any(s not in ours for s in ahead):
         die("main differs from origin/main by more than this release's own commits (pull or push first)")
@@ -332,9 +359,10 @@ def main() -> int:
         s, e = unreleased(chg)
         if not chg[s:e].strip():
             die("`## [Unreleased]` is empty; nothing to release")
+        rv, record = step0_version_rule(v, a.milestone)
         step0_added(chg)
-        step0_version_kind(chg, v, current)
         step2a_citation(v)
+        step2b_record(rv, record, v)
         safety = step3_public_safety()
         say(f"step 3: {safety}")
         steps12_versions(v, release_date(), safety)
