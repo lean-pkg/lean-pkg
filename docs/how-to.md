@@ -518,6 +518,16 @@ A `note:` line (and `--json` `notes[]`) says when the checkout is on a branch ot
 default, or detached; the current HEAD is still what is evaluated.
 See [`lean-pkg next`](commands/next.md) in the command reference.
 
+## Recover an interrupted campaign, or check old receipts after an upgrade
+
+`next --repo DIR` and `gate --check --repo DIR` cover one checkout. Across several candidate checkouts and
+collected job directories, `git`, `receipt check --json`, `receipt slurm --check --json`, `squeue` and `sacct`
+compose into a read-only recovery report that sorts each receipt into *passes now*, *needs restoration only*
+(which file) or *needs a new run*, and each job into collectible, pending or failed; the same loop, run with a
+new lean-pkg, says which old receipts still pass. See
+[Recovering an interrupted campaign](receipts.md#recovering-an-interrupted-campaign-read-only) and
+[Will my old receipts still pass?](receipts.md#will-my-old-receipts-still-pass-upgrade-impact).
+
 ## Report a problem
 
 ```bash

@@ -9,6 +9,25 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Documentation
+
+- docs/receipts.md: "Recovering an interrupted campaign (read-only)" and
+  "Will my old receipts still pass? (upgrade impact)" (lab field report):
+  a read-only composition of existing commands across an explicit list
+  of candidate checkouts and collected job directories. `git log` and
+  `git merge-base --is-ancestor` link each frozen candidate to its
+  evidence-only descendants; `receipt check --json` validates each link;
+  `receipt slurm --check --json`, `squeue` and `sacct` report each job's
+  files and live state; a classifier script on the page reads only the
+  saved JSON and prints *passes now* (only when `receipt check` said
+  `ok`), *restore* (which file) or *new run* per receipt, and *collect*,
+  *pending* or *new run* per job. A table maps every failing
+  `receipt check` id and reason to one of the three classes; a test runs
+  the page's loops and script on fixtures and checks the table against
+  the check ids and refusal texts in the code. Nothing resubmits,
+  deletes, or writes the registry or a checkout. A packaged
+  `receipt audit` helper is left as a follow-up.
+
 ## [0.18.0] - 2026-10-18
 
 ### Added
