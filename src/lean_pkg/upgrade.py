@@ -479,6 +479,23 @@ def validate_record(doc) -> list[str]:
         if e.get("id") in seen:
             out.append(f"changes[{i}].id {e.get('id')!r} repeats")
         seen.add(e.get("id"))
+    # One PR may carry several entries (a command and a behavior change, say; 0.12.0 has five behavior entries for
+    # #222), but not two of the same kind under the same heading that disagree on `breaking`: the 0.19.0 record
+    # shipped #285 twice as a behavior fix, once breaking and once not (#290).
+    by_pr: dict[int, list[tuple[int, dict]]] = {}
+    for i, e in enumerate(changes):
+        if isinstance(e, dict) and isinstance(e.get("pr"), int):
+            by_pr.setdefault(e["pr"], []).append((i, e))
+    for pr, es in by_pr.items():
+        if isinstance(nac, list) and pr in nac:
+            out.append(f"#{pr} is both a changes entry and listed under no_author_change")
+        for k, (i, a) in enumerate(es):
+            for j, b in es[k + 1:]:
+                if (a.get("kind"), a.get("changelog")) == (b.get("kind"), b.get("changelog")) \
+                        and a.get("breaking") != b.get("breaking"):
+                    out.append(f"changes[{i}] and changes[{j}]: #{pr} twice as {a.get('kind')} under "
+                               f"{a.get('changelog')!r}, breaking {a.get('breaking')} and {b.get('breaking')} "
+                               "(one change, one entry: merge them)")
     return out
 
 

@@ -107,6 +107,10 @@ names, neither under `changes` nor under `no_author_change`, is listed in
 read for the record; a non-empty one tells the author to read those
 CHANGELOG entries. A malformed record is listed under `record_problems[]`
 and its malformed entries are not applied.
+A pull request may carry several entries, one per change; a record that
+lists it under both `changes` and `no_author_change`, or gives it two
+entries of the same `kind` under the same `changelog` heading that disagree
+on `breaking` (one change entered twice), is malformed.
 
 ## The command
 
