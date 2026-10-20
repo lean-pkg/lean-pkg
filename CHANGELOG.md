@@ -28,6 +28,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   the lock and the event log now sit beside the resolved file. A directory
   without it is refused naming `DIR/lean-packages.yaml`.
 
+### Documentation
+
+- docs/receipts.md, docs-only descendants (#288): the rule compares bytes,
+  not Lake semantics, so a lakefile edit that changes only metadata
+  (`license`, `description`, `keywords`, `version`) still changes a build
+  input; relicensing a gated package needs a new receipt at HEAD, as does a
+  `LICENSE`, `NOTICE`, `CITATION.cff` or `formalization.yaml` edit that the
+  record's `build_inputs` matches (a field report).
+
 ## [0.19.0] - 2026-10-19
 
 ### Added

@@ -1885,6 +1885,14 @@ package, paths outside the package directory stay irrelevant, as for the
 evidence-only rule. The evidence-only rule is always
 tried first; the docs-only rule only applies when it refuses.
 
+The rule compares bytes, not Lake semantics: a lakefile edit that only
+changes metadata Lake does not build from (`license`, `description`,
+`keywords`, `version`) still changes a build input. Relicensing a gated
+package by setting the lakefile's `license` therefore needs a new receipt at
+HEAD; so does a `LICENSE`, `NOTICE`, `CITATION.cff` or `formalization.yaml`
+edit when the record's `build_inputs` matches it. Plan the license, and the
+metadata that names it, before the gate run.
+
 The gated commit stays X, never H: the receipt is copied under X's name and
 the event records `commit: X`. When the docs-only rule admitted H, the text
 output says
