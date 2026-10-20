@@ -58,7 +58,7 @@ import yaml
 
 from . import cli as core
 from . import claims as claims_mod
-from .holes import check_definition_holes, summary as signoff_summary
+from .holes import check_definition_holes, smoke_paths as holes_smoke, summary as signoff_summary
 
 SCHEMA_VERSION = "v0.4"
 SCHEMA_FILE = "formalization-0.4.schema.json"
@@ -278,6 +278,10 @@ def headline_results(pkg: dict | None, repo: pathlib.Path, warnings: list[str], 
         sidecar = core.sidecar_at(repo)
     except ValueError as e:
         raise core.Fail(str(e))
+    if rel in holes_smoke(sidecar):
+        raise core.Fail(f"headline configuration {rel} ({source}) is marked as a smoke check in "
+                        f"lean-pkg-signoff.json: a smoke check states no result, so it cannot be the headline; "
+                        f"declare the configuration of the main results, or drop the smoke mark")
     from .comparator_config import scaffold_todo_names
     todo = scaffold_todo_names(cfg, rel, sidecar) if hl.is_config_path(rel) else set()
     names = cfg["theorem_names"]
@@ -307,7 +311,15 @@ def main_results(repo: pathlib.Path, warnings: list[str], pkg: dict | None = Non
     if picked is not None:
         return picked
     out: list[dict] = []
+    try:                                     # lean-pkg-signoff.json at HEAD (holes.py)
+        smoke = holes_smoke(core.sidecar_at(repo))
+    except ValueError as e:
+        raise core.Fail(str(e))
     for rel in core.head_comparator_configs(repo):
+        if rel in smoke:
+            warnings.append(f"{rel}: marked as a smoke check in lean-pkg-signoff.json; its theorems state no "
+                            f"result and are left out of status.main_results")
+            continue
         raw = core.git_show_bytes(repo, rel)
         try:
             cfg = json.loads(raw or b"")

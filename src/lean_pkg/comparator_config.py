@@ -137,16 +137,21 @@ def claim_covered(names, claim: dict, qualified: set[str], mapped: set[str] | No
     return covers(set(names) - set(mapped or ()), decl, decl in qualified)
 
 
-def judged_as_problems(claims: list[dict], configured: set[str], qualified: set[str]) -> list[str]:
+def judged_as_problems(claims: list[dict], configured: set[str], qualified: set[str],
+                       smoke: set[str] | None = None) -> list[str]:
     """What is wrong with the explicit mappings against the configurations at a commit: a `judged_as` that names
-    no configured theorem, or that is set on a claim whose decl is not the fully qualified name of a declaration
-    its file declares. Each is a false statement about the comparator evidence, whatever the claim's status."""
+    no configured theorem (or only a theorem of a smoke configuration, `smoke`), or that is set on a claim whose
+    decl is not the fully qualified name of a declaration its file declares. Each is a false statement about the
+    comparator evidence, whatever the claim's status."""
     out = []
     for c in claims:
         j = judged_name(c)
         if j is None:
             continue
-        if j not in configured:
+        if j not in configured and j in (smoke or ()):
+            out.append(f"{c.get('id')}: judged_as {j!r} is a theorem of a smoke configuration only "
+                       f"({holes.SIDECAR} smoke), which verifies no claim")
+        elif j not in configured:
             out.append(f"{c.get('id')}: judged_as {j!r} is in no comparator configuration's theorem_names")
         elif str(c.get("decl") or "") not in qualified:
             out.append(f"{c.get('id')}: judged_as {j!r} is set, but decl {c.get('decl')!r} is not the fully qualified "
@@ -541,12 +546,45 @@ def _sidecar_at(repo: pathlib.Path, rev: str) -> dict:
         raise core.Fail(str(e))
 
 
-def _names(configs: dict[str, bytes], sidecar: dict | None = None) -> tuple[set[str], set[str]]:
+def smoke_configs(repo: pathlib.Path, *revs: str | None) -> dict[str, str]:
+    """{configuration path: reason} of the configurations lean-pkg-signoff.json marks as smoke checks at any
+    of `revs` (the receipt's commit and HEAD, say). A mark at either commit takes credit away and nothing
+    else, so the union is the safe reading: a mark committed after the receipt removes the smoke theorems'
+    credit everywhere it exempts them from the coverage rule. Fail when a sidecar is malformed."""
+    out: dict[str, str] = {}
+    for rev in dict.fromkeys(r for r in revs if r):
+        for rel, why in holes.smoke_paths(_sidecar_at(repo, rev)).items():
+            out.setdefault(rel, why)
+    return out
+
+
+def smoke_names(configs: dict[str, bytes], smoke) -> set[str]:
+    """The theorem names of the configurations among `configs` whose path is in `smoke`."""
+    out: set[str] = set()
+    for path, blob in configs.items():
+        if path not in set(smoke or ()):
+            continue
+        try:
+            cfg = json.loads(blob or b"{}")
+        except ValueError:
+            continue
+        if isinstance(cfg, dict) and isinstance(cfg.get("theorem_names"), list):
+            out |= {n for n in cfg["theorem_names"] if isinstance(n, str)}
+    return out
+
+
+def _names(configs: dict[str, bytes], sidecar: dict | None = None,
+           smoke: set[str] | dict | None = None) -> tuple[set[str], set[str]]:
     """(theorem names, of which scaffold TODO names) over a set of configuration blobs; the TODO markers
-    from `sidecar` (lean-pkg-signoff.json at the same commit), else a config's deprecated inline key."""
+    from `sidecar` (lean-pkg-signoff.json at the same commit), else a config's deprecated inline key. A
+    smoke configuration (the sidecar's `smoke` mark, or a path in `smoke`) contributes no name: a smoke
+    check states no result, so its theorems credit no claim."""
     names: set[str] = set()
     todo: set[str] = set()
+    skip = set(holes.smoke_paths(sidecar)) | set(smoke or ())
     for path, blob in configs.items():
+        if path in skip:
+            continue
         try:
             cfg = json.loads(blob or b"{}")
         except ValueError:
@@ -558,12 +596,13 @@ def _names(configs: dict[str, bytes], sidecar: dict | None = None) -> tuple[set[
 
 
 def _classify(claims: list[dict], configs: dict[str, bytes], qualified: set[str],
-              sidecar: dict | None = None) -> dict:
-    names, todo = _names(configs, sidecar)
+              sidecar: dict | None = None, smoke: dict | set | None = None) -> dict:
+    names, todo = _names(configs, sidecar, smoke)
     real = names - todo
     mapped = mapped_names(claims)
+    smoke_thms = smoke_names(configs, set(holes.smoke_paths(sidecar)) | set(smoke or ()))
     out = {"covered": [], "todo": [], "not_covered": [], "not_applicable": 0,
-           "judged_as_problems": judged_as_problems(claims, names, qualified)}
+           "judged_as_problems": judged_as_problems(claims, names, qualified, smoke_thms)}
     for c in claims:
         decl = str(c.get("decl") or "")
         if c.get("kind") not in CLAIM_KINDS or c.get("status") == "superseded" or not decl:
@@ -610,7 +649,9 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
     at_bound = _configs_at(repo, bound)
     from .claims import _reader
     qualified = qualified_decls(_reader(repo, bound), claims)
-    cls = _classify(claims, at_bound, qualified, _sidecar_at(repo, bound))
+    side_bound = _sidecar_at(repo, bound)
+    smoke = smoke_configs(repo, bound, "HEAD")
+    cls = _classify(claims, at_bound, qualified, side_bound, smoke)
     work = _worktree_configs(repo)
     at_head = _configs_at(repo, head) if head else {}
     changed: list[dict] = []
@@ -666,7 +707,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
         lines.append("  not covered: " + ", ".join(f"{c.get('id')} ({c.get('decl')})" for c in cls["not_covered"][:10])
                      + (" ..." if len(cls["not_covered"]) > 10 else ""))
     lines += [f"  judged_as: {m}" for m in cls["judged_as_problems"]]
-    configured = _names(at_bound, _sidecar_at(repo, bound))[0]
+    configured = _names(at_bound, side_bound, smoke)[0]
     hints = [h for c in cls["not_covered"]
              for h in [decl_hint(configured, str(c.get("decl") or ""), str(c.get("decl") or "") in qualified)] if h]
     if hints:                                # #6: a configured name that misses the decl by its root namespace

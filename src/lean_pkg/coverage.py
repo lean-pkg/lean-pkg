@@ -63,6 +63,7 @@ import yaml
 
 from . import cli as core
 from . import sites
+from .holes import SIDECAR
 
 COVERAGE_SCHEMA = "coverage/1"
 DEFAULT_COVERAGE_FILE = "coverage.yaml"
@@ -620,7 +621,9 @@ def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.
     """The lab's lean-scope-page rules that apply to a rendered page (docs/page.md#from-lean-scope-page):
     R8/R9, every claim a row names has its `file` committed at HEAD (the page links the declaration
     there); R10/R11, every theorem the recorded comparator receipt compares is the declaration of a claim
-    some row names (the page says how many theorems were compared, so each must be accounted for);
+    some row names (the page says how many theorems were compared, so each must be accounted for), unless
+    its configuration is a declared smoke check (lean-pkg-signoff.json `smoke`, at the receipt's commit or
+    HEAD), which the page shows as such and whose theorems must then name no claim a row names;
     R12, every comparator configuration with definition holes carries a sign-off reviewer (the page names
     who judged the bodies): the receipt's `signoff` copy of lean-pkg-signoff.json, else its deprecated
     `judged_as` copy (holes.receipt_judged)."""
@@ -643,8 +646,20 @@ def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.
     qualified = cc.qualified_decls(claims_mod._reader(repo, "HEAD"), row_claims)
     decls = [(str(c.get("decl") or ""), str(c.get("decl") or "") in qualified) for c in row_claims]
     mapped = cc.mapped_names(list(claims.values()))      # a judged_as name judges its own claim only (#CM)
+    smoke = cc.smoke_configs(repo, str(comp.get("commit") or "") if core._HEX40.fullmatch(
+        str(comp.get("commit") or "")) else None, "HEAD")
     for c in configs:
         where = c.get("path") or "?"
+        if where in smoke:                                  # a declared smoke check: accounted for as such
+            for t in c.get("theorem_names") or []:
+                hit = [cid for (_i, cid), rc in zip(named, row_claims)
+                       if isinstance(t, str) and cc.claim_covered({t}, rc, qualified, mapped)]
+                if hit:
+                    errors.append(f"comparator theorem {t!r} ({where}) is in a configuration {SIDECAR} "
+                                  f"marks as a smoke check, but it is the declaration of claim {hit[0]!r}, which a "
+                                  f"row names: a smoke check verifies no result, so move the theorem to a "
+                                  f"configuration of its own, or drop the smoke mark")
+            continue
         for t in c.get("theorem_names") or []:
             if isinstance(t, str) and not any(cc.claim_covered({t}, rc, qualified, mapped) for rc in row_claims):
                 near = cc.name_hints([t], decls)            # #6: a root-namespace near miss, named, never credited

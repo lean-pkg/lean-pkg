@@ -203,8 +203,11 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
             limitations.append(f"claims file unreadable: {e}")
             claims, source = [], "unreadable"
         if bound:
-            names, todo = (cc._names(cc._configs_at(repo, bound), cc._sidecar_at(repo, bound))
+            configs = cc._configs_at(repo, bound) if stage == "promote" else {}
+            smoke = cc.smoke_configs(repo, bound, "HEAD") if stage == "promote" else {}
+            names, todo = (cc._names(configs, cc._sidecar_at(repo, bound), smoke)
                            if stage == "promote" else (set(), set()))
+            smoke_thms = cc.smoke_names(configs, smoke)
             read = claims_mod._reader(repo, bound)
             qualified = cc.qualified_decls(read, claims) if stage == "promote" else set()
             real, mapped = names - todo, cc.mapped_names(claims)
@@ -236,7 +239,11 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
                                         f"comparator name)")
                     judged = cc.judged_name(c)
                     if judged and q and judged not in names:
-                        why += f" (judged_as {judged} is in no comparator configuration's theorem_names)"
+                        why += (f" (judged_as {judged} is a theorem of a smoke configuration only, which verifies "
+                                f"no claim)" if judged in smoke_thms else
+                                f" (judged_as {judged} is in no comparator configuration's theorem_names)")
+                    elif not judged and q and cc.covers(smoke_thms, decl, q):
+                        why += " (only a smoke configuration names it, and a smoke check verifies no claim)"
                     near = cc.decl_hint(names, decl, q)     # #6: detail only; the digest covers codes
                     why += f"; hint: {near['hint']}" if near else ""
                     diags.append(_diag(code, f"{decl} at {bound[:12]}{why}"))
