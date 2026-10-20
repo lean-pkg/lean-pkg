@@ -181,6 +181,7 @@ From a finished Slurm job, `lean-pkg receipt` writes it for you:
 lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" --log verify.log \
   --stdout job-123.out --stderr job-123.err --checker "verify.sh (lake build; #print axioms)" --append-readme
 lean-pkg receipt slurm ... --sacct-file sacct.txt   # a host without Slurm: sacct output saved on the cluster
+lean-pkg receipt slurm ... --seal-sacct             # optional: keep the sacct record; gate rechecks it at HEAD
 ```
 
 It checks that the job finished `COMPLETED` with `0:0`, that the stdout's
@@ -192,6 +193,9 @@ remains, and writes `<c12>-slurm-<J>.json`, the redacted log and (with
 `--append-readme`) the `.lean-receipts/README.md` entry; then run the
 `gate NAME --check --receipt` command it prints. The lines it reads:
 [A lower-tier receipt from a Slurm job](receipts.md#a-lower-tier-receipt-from-a-slurm-job).
+With `--seal-sacct` the job's accounting record is sealed beside the receipt and `gate` refuses the receipt
+unless that record is committed and unchanged:
+[Sealing the sacct record](receipts.md#sealing-the-sacct-record---seal-sacct).
 
 Light checks run locally in a capped systemd unit instead: `receipt systemd`
 runs the verify script bounded (`systemd-run --user`, `MemoryMax`,

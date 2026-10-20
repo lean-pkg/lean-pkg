@@ -74,6 +74,31 @@ changes:
       new receipt is needed.
     breaking: false
     changelog: Added
+  - pr: 294
+    id: receipt-slurm-seal-sacct
+    kind: command
+    area: receipt slurm
+    summary: >-
+      New flag receipt slurm --seal-sacct [--user NAME] (a field report). receipt slurm read --sacct-file
+      (or live sacct) only for its own COMPLETED 0:0 check and the README elapsed/TotalCPU line; the
+      written receipt sealed nothing, so on a host without Slurm the terminal state rested on a file any
+      shell can write. With the flag the job's accounting record is sealed exactly as receipt comparator
+      --seal-sacct seals a comparator receipt: Start..End (with a zone) must contain the verify log's
+      generated-at: line and the account must be this one (live sacct) or --user; the normalized record
+      <c12>-slurm-<J>-sacct.txt (JobID|State|ExitCode|Start|End|Elapsed, UTC, no user or node names) is
+      written beside the receipt and the additive slurm_sacct block (schema slurm-sacct-seal/1, the
+      comparator's) binds it. gate, gate --check, receipt check and every other validator of a lower-tier
+      receipt (core.validate_receipt) then refuse a receipt whose sealed record is missing, uncommitted at
+      HEAD, re-hashed or edited, through the comparator's receipt.sacct_seal_problem. Optional and
+      additive: a receipt without the block is judged as before, and the JSON only gains keys
+      (slurm_sacct, a sealed[] entry with role sacct.txt).
+    action: >-
+      Nothing for a package author. To keep the job's accounting record with a lower-tier receipt, add
+      --seal-sacct to receipt slurm (on a host without Slurm, save the record with SLURM_TIME_FORMAT and
+      the documented sacct --format, then pass --sacct-file and --user) and commit the -sacct.txt record
+      with the receipt.
+    breaking: false
+    changelog: Added
 # Read for this record, nothing for a package author: release tooling, the record must name every
 # pull request merged since the last release, checked by make changelog and CI (#287).
 # Read for this record, nothing for a package author: docs, a metadata-only lakefile edit (license)
