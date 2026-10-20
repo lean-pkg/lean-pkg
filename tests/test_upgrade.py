@@ -294,6 +294,23 @@ def test_a_record_with_only_no_author_change_is_valid():
     assert any("non-empty" in p for p in up.validate_record({k: v for k, v in doc.items() if k != "changes"}))
 
 
+def test_a_pr_may_carry_several_entries_but_not_two_that_disagree():
+    def entry(id_, kind, changelog, breaking):
+        return {"pr": 5, "id": id_, "kind": kind, "summary": "s", "action": "a", "breaking": breaking,
+                "changelog": changelog}
+    doc = {"schema": up.RECORD_SCHEMA, "version": "1.2.0", "no_author_change": [],
+           "changes": [entry("new-command", "command", "Added", False), entry("old-default", "behavior", "Changed", True)]}
+    assert up.validate_record(doc) == []          # one PR, two different changes
+    doc["changes"][1]["changelog"] = "Added"
+    assert up.validate_record(doc) == []          # a command and a behavior under one heading (0.11.0's #201, #215)
+    # the 0.19.0 record as shipped: one fix entered twice under Fixed, breaking and not
+    doc["changes"] = [entry("hidden-edits", "behavior", "Fixed", True), entry("source-identity", "behavior", "Fixed", False)]
+    assert any("#5 twice as behavior under 'Fixed', breaking True and False" in p for p in up.validate_record(doc))
+    doc["changes"] = [entry("hidden-edits", "behavior", "Fixed", True)]
+    assert any("#5 is both a changes entry and listed under no_author_change" in p
+               for p in up.validate_record({**doc, "no_author_change": [5]}))
+
+
 def test_committed_records_are_valid_and_documented():
     records = sorted((ROOT / "docs" / "upgrades").glob("*.yaml"))
     assert records, "docs/upgrades/ has no record"

@@ -31,6 +31,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   llms text, the missing-flag refusal and the recovery command `receipt
   systemd` prints named the old `--commit` spelling; they now name
   `--receipt-commit`. The old spelling keeps working, with a note.
+- Upgrade records (#290): `doctor --upgrade-from` (`record_problems[]`)
+  and the record tests refuse a pull request listed under both `changes`
+  and `no_author_change`, and two entries of one pull request with the same
+  `kind` and `changelog` heading that disagree on `breaking` (one change
+  entered twice, as #285 shipped in the 0.19.0 record). Several entries for
+  one pull request, one per change, stay valid.
 
 ### Documentation
 

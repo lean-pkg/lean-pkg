@@ -26,4 +26,6 @@ changes:
 # still changes a build input under the docs-only rule (#288).
 # Read for this record, nothing for a package author: help, llms text and messages of receipt slurm and
 # receipt systemd name --receipt-commit, the documented spelling; --commit keeps working (#289).
-no_author_change: [287, 288, 289]
+# Read for this record, nothing for a package author: release tooling, an upgrade record that enters one
+# change twice (same kind and heading, different breaking) or lists a PR under both keys is malformed (#290).
+no_author_change: [287, 288, 289, 290]
