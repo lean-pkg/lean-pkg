@@ -34,7 +34,7 @@ lean-pkg receipt slurm [--job J] [--log PATH] [--receipt-commit SHA] [--template
 | `--log PATH` | the job's raw verify log (required unless --template); when it has no `checker:` line, --checker TEXT is required |
 | `--receipt-commit SHA` | the verified commit; must exist in --repo; required unless --template or --check (old spelling --commit, kept working) |
 | `--template` | print a minimal sbatch wrapper whose .out/.err/log meet every check below (placeholders for the package's own commands); needs no other flag |
-| `--check` | preflight the files of a finished (trial) job: every seal, stderr and log-line check, each problem named; no sacct (unless --sacct-file), commit checks only with --commit; writes nothing, exit 0/1 |
+| `--check` | preflight the files of a finished (trial) job: every seal, stderr and log-line check, each problem named; no sacct (unless --sacct-file), commit checks only with --receipt-commit; writes nothing, exit 0/1 |
 | `--preflight-deps` | before submitting: check that the staged dependency cache (--deps-tar or --deps-dir) holds, at the lake-manifest.json pins committed at --commit (default HEAD), the built .olean and .ilean of every external module in the import closure of the entry files the verifier elaborates (--entries); reads the committed tree, builds and writes nothing, exit 0/1 |
 | `--deps-tar PATH` | with --preflight-deps: the DEPS_TAR tarball the job will restore (gzip, bzip2, xz or plain; read in one pass, never extracted) |
 | `--deps-dir DIR` | with --preflight-deps: a directory holding .lake/packages, instead of --deps-tar |

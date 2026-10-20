@@ -1993,7 +1993,7 @@ def cmd_receipt_slurm(args) -> int:
     if args.preflight_deps:
         from . import deps_closure
         return deps_closure.cmd(args)
-    missing = [f for f, v in (("--job", args.job), ("--log", args.log), ("--commit", args.commit_sha)) if v is None]
+    missing = [f for f, v in (("--job", args.job), ("--log", args.log), ("--receipt-commit", args.commit_sha)) if v is None]
     if missing:
         raise core.UsageError(f"receipt slurm needs {', '.join(missing)} (or --template, or --check on a job's files)")
     job = (args.job or "").strip().removeprefix("slurm-")
@@ -2088,7 +2088,7 @@ def add_parsers(sub, add_json) -> None:
                         "for the package's own commands); needs no other flag")
     s.add_argument("--check", action="store_true",
                    help="preflight the files of a finished (trial) job: every seal, stderr and log-line check, "
-                        "each problem named; no sacct (unless --sacct-file), commit checks only with --commit; "
+                        "each problem named; no sacct (unless --sacct-file), commit checks only with --receipt-commit; "
                         "writes nothing, exit 0/1")
     s.add_argument("--preflight-deps", action="store_true",
                    help="before submitting: check that the staged dependency cache (--deps-tar or --deps-dir) "
