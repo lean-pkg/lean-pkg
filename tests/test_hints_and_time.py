@@ -29,6 +29,22 @@ def test_registry_not_found_names_env_source(lp, tmp_path, monkeypatch, capsys):
     assert "resolved from env" in capsys.readouterr().err
 
 
+def test_registry_dir_flag_and_env_resolve_lean_packages_yaml(lp, env, monkeypatch, capsys):
+    # A directory holding lean-packages.yaml is that registry, as ~/.lean-pkg/registry is.
+    d = env.registry.parent
+    assert lp.main(["--registry", str(d), "list"]) == 0
+    capsys.readouterr()
+    monkeypatch.setenv("LEAN_PKG_REGISTRY", str(d))
+    assert lp.main(["list"]) == 0
+
+
+def test_registry_dir_without_file_names_the_file(lp, tmp_path, capsys):
+    assert lp.main(["--registry", str(tmp_path), "list"]) == 1
+    err = capsys.readouterr().err
+    assert f"registry not found: {tmp_path / 'lean-packages.yaml'}" in err
+    assert "resolved from flag" in err
+
+
 def test_registry_not_found_names_cwd_source(lp, tmp_path, monkeypatch, capsys):
     monkeypatch.delenv("LEAN_PKG_REGISTRY", raising=False)
     monkeypatch.chdir(tmp_path)

@@ -1302,11 +1302,13 @@ _RESOLVED_SOURCE: dict[str, str] = {}   # registry path -> how registry_source f
 
 def registry_source(args) -> tuple[pathlib.Path, str]:
     """(registry path, source): --registry "flag", else $LEAN_PKG_REGISTRY "env", else the user-level default
-    <lean_pkg_home>/registry "user-default", else ./lean-packages.yaml "cwd"."""
-    if getattr(args, "registry", None):
-        path, src = pathlib.Path(args.registry).expanduser(), "flag"
-    elif os.environ.get(REGISTRY_ENV, "").strip():
-        path, src = pathlib.Path(os.environ[REGISTRY_ENV].strip()).expanduser(), "env"
+    <lean_pkg_home>/registry "user-default", else ./lean-packages.yaml "cwd". A flag or env value naming a
+    directory means its lean-packages.yaml, as the user-level default does."""
+    if getattr(args, "registry", None) or os.environ.get(REGISTRY_ENV, "").strip():
+        path, src = (pathlib.Path(args.registry).expanduser(), "flag") if getattr(args, "registry", None) \
+            else (pathlib.Path(os.environ[REGISTRY_ENV].strip()).expanduser(), "env")
+        if path.is_dir():
+            path = path / DEFAULT_REGISTRY_NAME
     else:
         user, _ = user_default_registry()
         path, src = (user, "user-default") if user is not None \

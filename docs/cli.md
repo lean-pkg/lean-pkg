@@ -96,7 +96,9 @@ says so on stderr.
 The registry is `--registry PATH`, else env
 `LEAN_PKG_REGISTRY`, else the user-level default `~/.lean-pkg/registry` (base
 directory env `LEAN_PKG_HOME`; a directory or symlink to one holding
-`lean-packages.yaml`, or the registry file itself), else `./lean-packages.yaml`;
+`lean-packages.yaml`, or the registry file itself), else `./lean-packages.yaml`.
+A `--registry` or `LEAN_PKG_REGISTRY` value naming a directory means its
+`lean-packages.yaml`, as for the user-level default;
 the event log is `--events PATH`, else `lean-package-events.jsonl` beside an
 explicit `--registry`, else env `LEAN_PKG_EVENTS`, else the sibling of whichever
 registry is in use. A write checks that every event log it appends to can be
