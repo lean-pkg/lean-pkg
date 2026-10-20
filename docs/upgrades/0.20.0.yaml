@@ -20,4 +20,6 @@ changes:
       event log inside DIR, beside the registry file, not in DIR's parent.
     breaking: false
     changelog: Fixed
-no_author_change: []
+# Read for this record, nothing for a package author: release tooling, the record must name every
+# pull request merged since the last release, checked by make changelog and CI (#287).
+no_author_change: [287]
