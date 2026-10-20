@@ -283,6 +283,23 @@ def _row_statuses(r: dict, by_id: dict) -> list[str]:
     return [(by_id.get(cid) or {}).get("status", "not in the ledger") for cid in r.get("claims") or []]
 
 
+def _status_cells(r: dict, by_id: dict) -> list[str]:
+    """Each claim's ledger status for a coverage table, an internal claim marked as such (claims.yaml status
+    internal: a step of the formalization, not a result offered for reuse; verified only when the comparator
+    judged it, claims ledger)."""
+    return [s + (" (internal)" if (by_id.get(cid) or {}).get("claim_status") == "internal" else "")
+            for cid, s in zip(r.get("claims") or [], _row_statuses(r, by_id))]
+
+
+def _internal_line(r: dict, by_id: dict) -> list[str]:
+    ids = [cid for cid in r.get("claims") or [] if (by_id.get(cid) or {}).get("claim_status") == "internal"]
+    if not ids:
+        return []
+    return [f"**Internal.** {', '.join(f'`{_code(c)}`' for c in ids)}: marked internal in `claims.yaml`, a step of "
+            f"the formalization rather than a result offered for reuse. An internal claim counts as verified only "
+            f"when the statement comparison judged its declaration, on the same evidence as any other result.", ""]
+
+
 def _ledger_word(r: dict, statuses: list[str]) -> str:
     if r.get("class") == "outside":
         return "—"
@@ -376,8 +393,9 @@ def _challenge_index(ctx: dict, module: str, read):
 
 def _compared(ctx: dict, st: dict) -> bool:
     """True when a passing configuration of the recorded comparator receipt, at the gate-bound commit,
-    judged this statement. A claim the comparator is not required to check (one that is not reusable) can
-    be verified without it; the page then does not say that its statement was compared."""
+    judged this statement. A claim the comparator is not required to check (an experimental claim, or a
+    reusable definition) can be verified without it; the page then does not say that its statement was compared.
+    An internal claim is verified only when the comparator judged it (claims ledger)."""
     comp, cfg = ctx["comp"], st.get("config")
     return bool(st["source"] == "challenge" and cfg and cfg.get("result") == "pass" and comp
                 and comp.get("result") == "pass" and ctx["bound"] and comp.get("commit") == ctx["bound"])
@@ -436,7 +454,7 @@ def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, statement: str 
     word = _ledger_word(r, _row_statuses(r, by_id))
     sts = [_lean_statement(ctx, cid) for cid in r.get("claims") or []]
     compared = _row_compared(ctx, sts)
-    md = [f"### {heading}", "", _status_line(word, compared), ""]
+    md = [f"### {heading}", "", _status_line(word, compared), "", *_internal_line(r, by_id)]
     if not ctx["library"]:
         md += ["**In the paper.**" + ("" if statement else " The statement is not quoted here; read it in the "
                                                           "paper."), ""]
@@ -738,11 +756,10 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
            "|---|---|---|---|---|---|---|---|"]
     for r in doc["rows"]:
         ids = list(r.get("claims") or [])
-        statuses = _row_statuses(r, by_id)
         md.append(f"| {_md(r['paper']['number'])} | {_md(r['paper']['title'])} | {cov.CLASS_GLOSS[r['class']]} | "
                   f"{'<br>'.join(f'`{_code(c)}`' for c in ids) or '—'} | "
                   f"{'<br>'.join(_decl_ref(claims[c], c, ctx['link_base']) for c in ids) or '—'} | "
-                  f"{'<br>'.join(statuses) or '—'} | "
+                  f"{'<br>'.join(_status_cells(r, by_id)) or '—'} | "
                   f"{'<br>'.join(_md(x) for x in r.get('inputs') or []) or '—'} | "
                   f"{_md(r['note']) if r.get('note') else '—'} |")
     md += ["", "One line per paper result of `coverage.yaml`. *Ledger*: the status `lean-pkg claims ledger` "
@@ -767,7 +784,7 @@ def _library_coverage_lines(ctx: dict, target: str) -> list[str]:
         ids = list(r["claims"])
         md.append(f"| {_md(r['title'])} | {'<br>'.join(f'`{_code(c)}`' for c in ids)} | "
                   f"{'<br>'.join(_decl_ref(claims[c], c, ctx['link_base']) for c in ids)} | "
-                  f"{'<br>'.join(_row_statuses(r, by_id))} | {_md(r['note']) if r.get('note') else '—'} |")
+                  f"{'<br>'.join(_status_cells(r, by_id))} | {_md(r['note']) if r.get('note') else '—'} |")
     md += ["", "One line per main result of `coverage.yaml`. *Ledger*: the status `lean-pkg claims ledger` gives "
                "each claim, in the order of the claims; only *verified* means the recorded "
                "receipts close the claim.", "",
