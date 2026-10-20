@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-20
+
 ### Added
 
 - `lean-pkg claims ledger`: an internal claim the comparator judged now
@@ -131,6 +133,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   input; relicensing a gated package needs a new receipt at HEAD, as does a
   `LICENSE`, `NOTICE`, `CITATION.cff` or `formalization.yaml` edit that the
   record's `build_inputs` matches (a field report).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.19.0] - 2026-10-19
 
