@@ -22,6 +22,7 @@ changes:
       move scripts to the new spellings at leisure (lean-pkg help aliases).
     breaking: false
     changelog: Changed
+    split: true
   - pr: 201
     id: bare-lean-pkg-newcomer-page
     kind: behavior
@@ -32,6 +33,7 @@ changes:
     action: A script that ran a bare `lean-pkg` for the board text should run `lean-pkg registry board`.
     breaking: true
     changelog: Changed
+    split: true
   - pr: 202
     id: receipt-sealed-log-required
     kind: behavior
@@ -47,6 +49,7 @@ changes:
       not ready until then.
     breaking: true
     changelog: Fixed
+    split: true
   - pr: 202
     id: slurm-claim-needs-sacct-seal
     kind: behavior
@@ -61,6 +64,7 @@ changes:
       and the record, and re-record it with lean-pkg comparator NAME --receipt R --replace.
     breaking: true
     changelog: Changed
+    split: true
   - pr: 205
     id: page-for-mathematicians
     kind: behavior
@@ -146,6 +150,7 @@ changes:
     action: A script that ran `lean-pkg new NAME` for a library adds --kind library.
     breaking: true
     changelog: Added
+    split: true
   - pr: 215
     id: mathlib-rev-none-checked
     kind: behavior
@@ -157,6 +162,7 @@ changes:
     action: Nothing for existing receipts; a new receipt of a Mathlib-free package records none.
     breaking: false
     changelog: Added
+    split: true
   - pr: 216
     id: formalization-kept-view
     kind: command

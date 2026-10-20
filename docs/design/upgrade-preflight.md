@@ -64,8 +64,16 @@ changes:
     action: ...                   # what a package author does about it
     breaking: true                # something that passed can now be refused, or a published file goes stale
     changelog: Fixed              # the CHANGELOG.md heading of the entry
+    split: true                   # optional: this PR made several separate changes, one entry each
 no_author_change: [200, 203]      # PRs of the release read for this record and found to need nothing
 ```
+
+**One entry per pull request.** A pull request has one entry, unless it
+made several separate changes: then it has one entry per change, and each
+of them carries `split: true`. The preflight adds to `record_problems[]` a
+pull request with several entries not all marked `split: true` (one change
+recorded twice, as #285 was in 0.19.0), a lone entry marked `split: true`,
+and a pull request listed both as a change and under `no_author_change`.
 
 The first pull request after a release opens the next record. If it changes
 nothing a package author must know, it opens it with `changes: []` and
