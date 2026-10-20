@@ -82,6 +82,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- Release tooling (#295): `scripts/release-version.py --curated` during
+  `make cut-release` (the version files already name the release being cut,
+  not tagged yet) read the whole history against the next record and
+  refused every cut; it now reads the record of the release being cut, from
+  the newest earlier release tag.
 - `--registry DIR` and `LEAN_PKG_REGISTRY=DIR` (#286): a directory holding
   `lean-packages.yaml` is that registry, as the user-level default
   `~/.lean-pkg/registry` already was. An explicit directory was refused as
