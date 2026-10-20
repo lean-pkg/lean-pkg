@@ -20,6 +20,7 @@ changes:
       and receipt-comparator.md; scripts may move to the new spellings at leisure (lean-pkg help aliases).
     breaking: false
     changelog: Added
+    split: true
   - pr: 222
     id: page-write-turns-on-docs-descendants
     kind: behavior
@@ -33,6 +34,7 @@ changes:
       set docs_descendants: false first if the package must not use the docs-only rule.
     breaking: false
     changelog: Changed
+    split: true
   - pr: 222
     id: comparator-workstation-default
     kind: behavior
@@ -44,6 +46,7 @@ changes:
     action: Set COMPARATOR_RECEIPT_WORKSTATION_DEFAULT=0 to keep the old allow-list-only behaviour.
     breaking: false
     changelog: Changed
+    split: true
   - pr: 222
     id: install-path-redaction
     kind: format
@@ -54,6 +57,7 @@ changes:
     action: Nothing; older receipts keep their meaning.
     breaking: false
     changelog: Changed
+    split: true
   - pr: 222
     id: comparator-rerun-after-verify-sh
     kind: behavior
@@ -65,6 +69,7 @@ changes:
     action: Nothing.
     breaking: false
     changelog: Fixed
+    split: true
   - pr: 219
     id: lean-diag-negative-tests
     kind: command

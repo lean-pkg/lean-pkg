@@ -60,7 +60,7 @@ KEY_LISTS = {   # format label -> (module, constant in lower case: an upper-case
     "formalization.yaml derived": ("formalization", "derived_paths"),
 }
 RECORD_KINDS = ("behavior", "format", "command", "requirement")
-RECORD_KEYS = {"pr", "id", "kind", "area", "summary", "action", "breaking", "changelog"}
+RECORD_KEYS = {"pr", "id", "kind", "area", "summary", "action", "breaking", "changelog", "split"}
 
 
 class Unknown:
@@ -460,6 +460,7 @@ def validate_record(doc) -> list[str]:
     if not isinstance(nac, list) or not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in nac):
         out.append("no_author_change must be a list of PR numbers")
     seen = set()
+    by_pr: dict[int, list[dict]] = {}
     for i, e in enumerate(changes):
         if not isinstance(e, dict):
             out.append(f"changes[{i}] is not a mapping")
@@ -476,9 +477,26 @@ def validate_record(doc) -> list[str]:
             out.append(f"changes[{i}].kind must be one of {', '.join(RECORD_KINDS)}")
         if "breaking" in e and not isinstance(e["breaking"], bool):
             out.append(f"changes[{i}].breaking must be true or false")
+        if "split" in e and not isinstance(e["split"], bool):
+            out.append(f"changes[{i}].split must be true or false")
         if e.get("id") in seen:
             out.append(f"changes[{i}].id {e.get('id')!r} repeats")
         seen.add(e.get("id"))
+        if isinstance(e.get("pr"), int) and not isinstance(e["pr"], bool):
+            by_pr.setdefault(e["pr"], []).append(e)
+    # One entry per pull request, unless the PR made several separate changes and each of its
+    # entries says so (split: true). An unmarked repeat is one change recorded twice, as #285
+    # was in 0.19.0 (one entry breaking, the other not).
+    for pr, es in by_pr.items():
+        ids = ", ".join(str(e.get("id")) for e in es)
+        if len(es) > 1 and not all(e.get("split") is True for e in es):
+            out.append(f"pr {pr} has {len(es)} entries ({ids}): merge them, or mark each split: true "
+                       f"when the pull request made separate changes")
+        if len(es) == 1 and es[0].get("split") is True:
+            out.append(f"pr {pr} has one entry ({ids}) marked split: true")
+    if isinstance(nac, list):
+        for pr in sorted(set(by_pr) & {n for n in nac if isinstance(n, int)}):
+            out.append(f"pr {pr} is both a change and in no_author_change")
     return out
 
 

@@ -294,6 +294,41 @@ def test_a_record_with_only_no_author_change_is_valid():
     assert any("non-empty" in p for p in up.validate_record({k: v for k, v in doc.items() if k != "changes"}))
 
 
+
+def entry(pr, id_, **kw):
+    return {"pr": pr, "id": id_, "kind": "behavior", "summary": "s", "action": "a", "breaking": False, **kw}
+
+
+def test_a_pull_request_has_one_entry_unless_marked_split():
+    doc = {"schema": up.RECORD_SCHEMA, "version": "1.2.0", "no_author_change": [],
+           "changes": [entry(285, "hidden-edits", breaking=True), entry(285, "source-identity")]}
+    # one change recorded twice (0.19.0's #285): reported, with both ids
+    assert up.validate_record(doc) == [
+        "pr 285 has 2 entries (hidden-edits, source-identity): merge them, or mark each split: true "
+        "when the pull request made separate changes"]
+    # a PR that made separate changes says so on every entry
+    split = {**doc, "changes": [entry(222, "a", split=True), entry(222, "b", split=True), entry(223, "c")]}
+    assert up.validate_record(split) == []
+    # marking only one of them is not enough
+    half = {**doc, "changes": [entry(222, "a", split=True), entry(222, "b")]}
+    assert any(p.startswith("pr 222 has 2 entries (a, b)") for p in up.validate_record(half))
+    # the marker on a lone entry, a non-boolean marker, and a PR both a change and read as no change
+    assert up.validate_record({**doc, "changes": [entry(9, "x", split=True)]}) == [
+        "pr 9 has one entry (x) marked split: true"]
+    assert "changes[0].split must be true or false" in up.validate_record(
+        {**doc, "changes": [entry(9, "x", split="yes")]})
+    assert up.validate_record({**doc, "changes": [entry(9, "x")], "no_author_change": [9, 10]}) == [
+        "pr 9 is both a change and in no_author_change"]
+
+
+def test_a_repeated_pull_request_reaches_record_problems(lp, capsys, src):
+    twice = {**RECORD, "changes": RECORD["changes"] + [{**RECORD["changes"][0], "id": "the-same-change-again"}]}
+    put(src, {"docs/upgrades/1.1.0.yaml": yaml.safe_dump(twice)})
+    git(src, "commit", "-qam", "the change recorded twice (#8)")
+    rc, out = preflight(lp, capsys, src, "1.0.0")
+    pr = RECORD["changes"][0]["pr"]
+    assert any(p.startswith(f"docs/upgrades/1.1.0.yaml: pr {pr} has 2 entries") for p in out["record_problems"])
+
 def test_committed_records_are_valid_and_documented():
     records = sorted((ROOT / "docs" / "upgrades").glob("*.yaml"))
     assert records, "docs/upgrades/ has no record"
