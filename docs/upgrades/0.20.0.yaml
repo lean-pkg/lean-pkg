@@ -22,4 +22,6 @@ changes:
     changelog: Fixed
 # Read for this record, nothing for a package author: release tooling, the record must name every
 # pull request merged since the last release, checked by make changelog and CI (#287).
-no_author_change: [287]
+# Read for this record, nothing for a package author: docs, a metadata-only lakefile edit (license)
+# still changes a build input under the docs-only rule (#288).
+no_author_change: [287, 288]
