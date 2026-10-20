@@ -10,8 +10,10 @@ with --plan-out; it never touches the base cache, the donor or the package's .la
 2. The donor checks: DONOR/lean-toolchain is byte for byte `git show SHA:lean-toolchain`; every manifest git
    package is in DONOR/.lake/packages at the manifest's rev (the preflight's own pin check, run on the donor);
    each such checkout has no source edits (`git status --porcelain --untracked-files=no` prints nothing, run
-   with GIT_OPTIONAL_LOCKS=0 so git does not refresh the donor's index; a package with no `.git` directory, or
-   one git cannot read, refuses: an edit cannot be ruled out); and the first 80 bytes of each candidate .olean
+   with GIT_OPTIONAL_LOCKS=0 so git does not refresh the donor's index and with the checkout's core.fsmonitor
+   off; no index entry is marked assume-unchanged or skip-worktree, which hide an edit from git status; and
+   no untracked or ignored *.lean, lakefile, lean-toolchain or lake-manifest.json sits outside .lake/; a
+   package with no `.git` directory, or one git cannot read, refuses: an edit cannot be ruled out); and the first 80 bytes of each candidate .olean
    (marker, format version, Lean version, Lean commit) equal those of the base cache's .olean files, which
    must agree with each other.
 3. The artifact families: for each missing module, every regular file the donor holds under the module's
@@ -106,29 +108,55 @@ def module_part(rel: str) -> str:
     return inner
 
 
+# Untracked or ignored files git status never shows but Lake would read: Lean sources and the package's own
+# configuration. `.lake/` is the one generated area (build outputs, nested packages) and is not looked at.
+SOURCE_PATHSPECS = ("*.lean", "lakefile.lean", "lakefile.toml", "lean-toolchain", "lake-manifest.json",
+                    ":(exclude).lake")
+
+
 def git_status(checkout: pathlib.Path) -> tuple[bool, str]:
     """(clean, detail) for one donor dependency checkout; never writes (no optional locks, no index refresh),
-    never discovers a repository above the checkout."""
+    never discovers a repository above the checkout. Clean means: no tracked change (git status), no index
+    entry hidden from git status (assume-unchanged, skip-worktree), and no untracked or ignored Lean source
+    or Lake configuration outside .lake/. The checkout's own core.fsmonitor and untracked cache are off."""
     gitdir = checkout / ".git"
     if not gitdir.is_dir() or gitdir.is_symlink():
         return False, "no .git directory: not a git checkout, so a source edit cannot be ruled out"
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(GIT_DIR=str(gitdir), GIT_WORK_TREE=str(checkout), GIT_OPTIONAL_LOCKS="0",
                GIT_CONFIG_NOSYSTEM="1", LC_ALL="C")
+
+    def git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-c", f"safe.directory={checkout}", "-c", "core.fsmonitor=false",
+                               "-c", "core.untrackedCache=false", "--no-optional-locks", *args],
+                              cwd=checkout, env=env, capture_output=True, text=True, timeout=600)
+
+    def shown(names: list[str]) -> str:
+        return ", ".join(names[:5]) + (f" (and {len(names) - 5} more)" if len(names) > 5 else "")
+
     try:
-        p = subprocess.run(["git", "-c", f"safe.directory={checkout}", "--no-optional-locks", "status",
-                            "--porcelain", "--untracked-files=no", "--ignore-submodules=none"],
-                           cwd=checkout, env=env, capture_output=True, text=True, timeout=600)
+        p = git("status", "--porcelain", "--untracked-files=no", "--ignore-submodules=none")
+        flags = git("ls-files", "-v", "-z") if p.returncode == 0 else p
+        others = (git("ls-files", "--others", "-z", "--", *SOURCE_PATHSPECS)
+                  if flags.returncode == 0 else flags)
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, f"git status could not run ({type(e).__name__}): a source edit cannot be ruled out"
-    if p.returncode != 0:
-        why = (p.stderr.strip().splitlines() or ["no message"])[0]
+    if others.returncode != 0:
+        why = (others.stderr.strip().splitlines() or ["no message"])[0]
         return False, f"git status failed ({why}): a source edit cannot be ruled out"
     lines = [ln for ln in p.stdout.splitlines() if ln.strip()]
     if lines:
-        shown = ", ".join(ln[3:] for ln in lines[:5]) + (f" (and {len(lines) - 5} more)" if len(lines) > 5 else "")
-        return False, f"{len(lines)} tracked file(s) differ from the checkout's commit: {shown}"
-    return True, "no tracked change"
+        return False, f"{len(lines)} tracked file(s) differ from the checkout's commit: {shown([ln[3:] for ln in lines])}"
+    # ls-files -v tags an assume-unchanged entry in lower case and a skip-worktree one with S (s if both).
+    hidden = [e[2:] for e in flags.stdout.split("\0") if e and (e[0].islower() or e[0] == "S")]
+    if hidden:
+        return False, (f"{len(hidden)} tracked file(s) hidden from git status (assume-unchanged or "
+                       f"skip-worktree), so an edit cannot be ruled out: {shown(hidden)}")
+    extra = [e for e in others.stdout.split("\0") if e]
+    if extra:
+        return False, (f"{len(extra)} untracked or ignored Lean source or Lake configuration file(s) outside "
+                       f".lake/: {shown(extra)}")
+    return True, "no tracked change, no hidden index entry, no untracked Lean source"
 
 
 def header_key(h: bytes | None) -> bytes | None:
@@ -259,8 +287,9 @@ def cmd(args) -> int:
             else:
                 donor_check("source edits", False, f"{name}: {detail}", DONOR_SOURCE)
         if heads and clean == len(heads):
-            donor_check("source edits", True, f"none in {clean} checkout(s) (git status --porcelain "
-                                              f"--untracked-files=no)", DONOR_SOURCE)
+            donor_check("source edits", True, f"none in {clean} checkout(s) (git status, no "
+                                              f"assume-unchanged/skip-worktree entry, no untracked or "
+                                              f"ignored Lean source outside .lake/)", DONOR_SOURCE)
 
     # 3. the artifact families of every missing module
     index = family_index(donor_cache)
