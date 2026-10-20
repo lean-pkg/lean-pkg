@@ -36,9 +36,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   mark when one is the declaration of a claim a row names; `page` names
   them on a "Smoke checks (not results)" line and leaves them out of the
   statements shown as proved; `formalization` leaves them out of
-  `status.main_results` and refuses a smoke headline configuration;
-  `claims mark --from-comparator --status reusable` refuses a smoke
-  configuration. The mark is read at the comparator receipt's commit and at
+  `status.main_results`, refuses a smoke headline configuration and lets
+  no smoke configuration cover a headline name; `index add` and `index
+  check --clone` judge no index headline by a smoke theorem; `comparator
+  config --from-claims` counts no smoke theorem as configured and refuses
+  to scaffold into a smoke configuration; `claims mark --from-comparator
+  --status reusable` refuses a smoke configuration. The mark is read at the comparator receipt's commit and at
   `HEAD`. Format: no schema bump and no migration; a sidecar without the
   key is unchanged and recorded receipts stay valid (their `signoff` copy
   holds the definitions only); lean-pkg 0.19.0 and older refuse a sidecar

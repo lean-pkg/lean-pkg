@@ -381,9 +381,14 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
     cfg = dict(existing_cfg) if existing_cfg is not None else json.loads(json.dumps(NEW_CONFIG))
     sidecar = load_sidecar(repo)
     entry = dict(sidecar["configs"].get(rel) or {})
+    smoke = set(holes.smoke_paths(sidecar)) | set(smoke_configs(repo, "HEAD"))
+    if rel in smoke:
+        raise core.Fail(f"--out {rel}: {holes.SIDECAR} marks it as a smoke check, which verifies no claim; "
+                        f"scaffold the claims into another configuration (--out), or drop the smoke mark; "
+                        f"nothing written")
     configured: set[str] = set(cfg.get("theorem_names") or [])
     for other in core.head_comparator_configs(repo):
-        if other == rel:
+        if other == rel or other in smoke:      # a smoke check's theorems configure no claim
             continue
         try:
             o = json.loads(core.git_show_bytes(repo, f"./{other}") or b"{}")

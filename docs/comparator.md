@@ -1227,8 +1227,18 @@ must pass like the others. What the mark changes:
   smoke theorem, its configuration and the reason; no result block uses a
   smoke configuration's Challenge, and the count of statements shown as
   proved leaves them out. `formalization.yaml`'s `status.main_results` leaves
-  them out too, and a headline configuration cannot be a smoke check.
-- **Marking claims.** `claims mark NAME --from-comparator CONFIG` with
+  them out too.
+- **Headlines.** A headline configuration cannot be a smoke check, and a
+  smoke configuration that shares its Challenge and Solution modules covers
+  none of its theorem names. In the [index](index-catalog.md), a headline
+  whose `judged_as` names a smoke theorem is not judged by the comparator
+  receipt (`index add`, and `index check --clone`, which reads the mark at
+  the pin, the receipt's commit and the default branch; a copy-only
+  `index check` has no clone to read it from).
+- **Scaffolds and marking claims.** `comparator config --from-claims` counts
+  no smoke theorem as configured, so a claim only a smoke configuration
+  names still gets its TODO entry, and it refuses to scaffold into a smoke
+  configuration. `claims mark NAME --from-comparator CONFIG` with
   `--status reusable` refuses a configuration the working copy's sidecar marks as a
   smoke check.
 

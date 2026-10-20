@@ -183,3 +183,148 @@ def test_claims_mark_refuses_a_smoke_configuration_for_reusable(lp, env, capsys)
     (env.repo_b / holes.SIDECAR).unlink()                            # unmarked: the same config marks claims
     rc, data = mark(lp, env, capsys)
     assert rc == 0 and {m["id"] for m in data["matched"]} == {"beta/foo-le-bar", "beta/mass-le"}
+
+
+# --- index: a smoke theorem judges no headline ------------------------------------------------------
+
+INDEX_HEADLINE = "Demo.foo_le_bar :: Demo/Main.lean :: A trivial demonstration theorem. :: foo_le_bar"
+
+
+def _index_add(lp, root, pkg, *extra):
+    return lp.main(["index", "add", "demo", "--index", str(root), "--repo-dir", str(pkg.repo),
+                    "--repo", pkg.url, "--license", "MIT", "--by", "maintainer", "--consent-recorded",
+                    "--allow-unpushed", "--comparator", pkg.comp_rel, "--headline", INDEX_HEADLINE, *extra])
+
+
+def test_index_add_refuses_a_headline_judged_only_by_a_smoke_configuration(lp, tmp_path, capsys):
+    """index's judged names leave a smoke configuration out: the comparator-only entry whose headline's
+    judged_as is the smoke theorem is refused; with a lower receipt it is lower-tier, never comparator."""
+    import yaml
+    from .conftest import make_index_package
+    side = {holes.SIDECAR: sidecar_text({"comparator.json": REASON})}
+    pkg = make_index_package(tmp_path / "a", lower=False, extra_files=side)
+    rc = _index_add(lp, tmp_path / "a" / "index", pkg)
+    err = capsys.readouterr().err
+    assert rc == 1 and "not judged" in err and "smoke checks credit nothing: comparator.json" in err
+    pkg = make_index_package(tmp_path / "b", extra_files=side)
+    rc = _index_add(lp, tmp_path / "b" / "index", pkg, "--lower", pkg.lower_rel)
+    assert rc == 0, capsys.readouterr().err
+    assert yaml.safe_load((tmp_path / "b" / "index" / "demo" / "entry.yaml").read_text())["trust"] == "lower-tier"
+    pkg = make_index_package(tmp_path / "c", lower=False)          # control: unmarked, comparator trust
+    assert _index_add(lp, tmp_path / "c" / "index", pkg) == 0, capsys.readouterr().err
+
+
+def test_index_check_clone_reads_a_smoke_mark_committed_after_the_pin(lp, tmp_path, git_url_map, capsys):
+    from .conftest import _git, index_add, make_index_package
+    pkg = make_index_package(tmp_path)
+    root = tmp_path / "index"
+    assert index_add(lp, root, pkg) == 0
+    git_url_map(pkg.url, pkg.repo)
+    assert lp.main(["index", "check", "--index", str(root), "--clone"]) == 0
+    capsys.readouterr()
+    (pkg.repo / holes.SIDECAR).write_text(sidecar_text({"comparator.json": REASON}))
+    _git(pkg.repo, "add", holes.SIDECAR)
+    _git(pkg.repo, "commit", "-q", "-m", "declare the smoke check")
+    assert lp.main(["index", "check", "--index", str(root), "--clone"]) == 1
+    out = capsys.readouterr().out
+    assert "stated trust 'comparator' != computed 'lower-tier'" in out and "smoke checks credit nothing" in out
+
+
+# --- the headline configuration ---------------------------------------------------------------------
+
+def _mark(repo, marks: dict[str, str]) -> None:
+    (repo / holes.SIDECAR).write_text(sidecar_text(marks))
+    _git(repo, "add", holes.SIDECAR)
+    _git(repo, "commit", "-q", "-m", "declare smoke checks")
+
+
+def test_a_smoke_configuration_covers_no_headline_name(lp, env, capsys):
+    """headline.judge: a headline name covered only by a smoke configuration with the same Challenge and
+    Solution modules is uncovered, so the headline is refused (unmarked, the same layout applies)."""
+    from .test_headline import HEADLINE, cli, main_three, rebind, set_field, write_cfg
+    main_three(env)
+    write_cfg(env.repo_b, HEADLINE, ["BetaAudit.A.one"])
+    _mark(env.repo_b, {"comparator.json": REASON})
+    rebind(env, ["comparator.json"])
+    set_field(env, HEADLINE)
+    assert cli(lp, env, "formalization", "beta") == 1
+    err = capsys.readouterr().err
+    assert "not a subset of the comparison the gate binds" in err and "BetaAudit.A.one" in err
+    (env.repo_b / holes.SIDECAR).unlink()
+    _git(env.repo_b, "commit", "-qam", "drop the smoke mark")
+    rebind(env, ["comparator.json"])
+    assert cli(lp, env, "formalization", "beta") == 0, capsys.readouterr().err
+
+
+def test_a_smoke_headline_configuration_is_refused_by_name(lp, env, capsys):
+    """formalization.headline_results: the convention headline, itself receipted, marked smoke."""
+    from .test_headline import cli, main_three, rebind, write_cfg
+    main_three(env)
+    write_cfg(env.repo_b, "comparator.headline.json", ["BetaHeadline.h1"],
+              challenge="HeadlineChallenge", solution="HeadlineSolution")
+    _mark(env.repo_b, {"comparator.headline.json": REASON})
+    rebind(env, ["comparator.headline.json", "comparator.json"])
+    assert cli(lp, env, "formalization", "beta") == 1
+    err = capsys.readouterr().err
+    assert "headline configuration comparator.headline.json (convention) is marked as a smoke check" in err
+
+
+# --- comparator config --from-claims ----------------------------------------------------------------
+
+def test_from_claims_scaffolds_a_claim_only_a_smoke_configuration_names(lp, env, capsys):
+    """A smoke configuration's theorems configure no claim: --from-claims still writes the TODO for a
+    claim only the smoke configuration names, and refuses to scaffold into the smoke configuration."""
+    from .test_comparator_coverage import gated_with_claims
+    gated_with_claims(lp, env, capsys)
+    (env.repo_b / "comparator").mkdir(exist_ok=True)
+    (env.repo_b / SMOKE_CFG).write_text(cfg_text(["Demo.baz"]))
+    _git(env.repo_b, "add", SMOKE_CFG)
+    _git(env.repo_b, "commit", "-q", "-m", "a configuration naming Demo.baz")
+
+    def plan() -> dict:
+        assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 0   # claims at HEAD
+        capsys.readouterr()
+        assert lp.main(["--registry", str(env.registry), "--json", "comparator", "config", "--from-claims",
+                        "beta", "--dry-run"]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    unmarked = plan()
+    assert "BetaAudit.Demo.baz" not in unmarked["added_names"]             # unmarked: configured
+    (env.repo_b / holes.SIDECAR).write_text(sidecar_text({SMOKE_CFG: REASON}))
+    _git(env.repo_b, "add", holes.SIDECAR)
+    _git(env.repo_b, "commit", "-q", "-m", "declare the smoke check")
+    marked = plan()
+    assert "BetaAudit.Demo.baz" in marked["added_names"]
+    assert marked["added"] == unmarked["added"] + 1
+    rc = lp.main(["--registry", str(env.registry), "comparator", "config", "--from-claims", "beta",
+                  "--out", SMOKE_CFG, "--dry-run"])
+    assert rc == 1 and "marks it as a smoke check" in capsys.readouterr().err
+
+
+# --- receipt check and status read the mark ---------------------------------------------------------
+
+def test_receipt_check_credits_no_claim_through_a_smoke_configuration(lp, env, capsys, tmp_path):
+    """receipt check's claimed theorems: the reusable claim judged (judged_as) by comparator.json passes;
+    with comparator.json marked smoke at HEAD, after the evidence, the same receipt credits it nothing."""
+    from .test_judged_as import AUDIT, audit_fixture, by_id, check, claims_doc
+    x = audit_fixture(lp, env, claims_doc(judged_as=AUDIT))
+    _rc, a = check(lp, capsys, env, tmp_path, x)
+    assert by_id(a)["claimed theorems"]["verdict"] == "pass"
+    _mark(env.repo_b, {"comparator.json": REASON})
+    rc, a = check(lp, capsys, env, tmp_path, x)
+    d = by_id(a)["claimed theorems"]
+    assert rc == 1 and d["verdict"] == "fail"
+    assert "a theorem of a smoke configuration only" in d["detail"] and "beta/foo-le-bar" in d["detail"]
+
+
+def test_status_counts_no_claim_covered_by_a_smoke_configuration(lp, env, capsys):
+    from .test_status_scope import status, sync
+    sync(lp, env, capsys)
+    _rc, out = status(lp, env, capsys, "--json")
+    comp = json.loads(out)["scope"]["comparator"]
+    assert (comp["claimed_theorems"], comp["claimed_theorems_covered"]) == (1, 1)
+    _mark(env.repo_b, {"comparator.json": REASON})
+    _rc, out = status(lp, env, capsys, "--json")
+    comp = json.loads(out)["scope"]["comparator"]
+    assert (comp["claimed_theorems"], comp["claimed_theorems_covered"]) == (1, 0)
+    assert comp["theorem_names"] == ["BetaAudit.Demo.foo_le_bar"]     # still listed: it was compared

@@ -830,20 +830,32 @@ def parse_headline(item: str) -> dict:
     return out
 
 
-def judged_names(comp) -> set[str]:
-    """Theorem and definition names the comparator receipt's configurations judged."""
+def judged_names(comp, smoke=None) -> set[str]:
+    """Theorem and definition names the comparator receipt's configurations judged, leaving out the
+    configurations in `smoke` (paths lean-pkg-signoff.json marks as smoke checks: they credit nothing)."""
     names: set[str] = set()
     for c in (comp or {}).get("configs") or []:
-        if isinstance(c, dict):
+        if isinstance(c, dict) and c.get("path") not in set(smoke or ()):
             names.update(str(x) for x in (c.get("theorem_names") or []))
             names.update(str(x) for x in (c.get("definition_names") or []))
     return names
 
 
-def unjudged_headlines(headline: list[dict], comp) -> list[str]:
-    """Headline names whose `judged_as` is missing or not among the judged names."""
-    judged = judged_names(comp)
+def unjudged_headlines(headline: list[dict], comp, smoke=None) -> list[str]:
+    """Headline names whose `judged_as` is missing or not among the judged names (smoke checks excluded)."""
+    judged = judged_names(comp, smoke)
     return [h["name"] for h in headline if not (h.get("judged_as") and h["judged_as"] in judged)]
+
+
+def smoke_at(clone: pathlib.Path, pin: str, comp) -> dict[str, str]:
+    """{configuration path: reason} of the smoke checks lean-pkg-signoff.json declares at the pin, at the
+    comparator receipt's commit, or at the tip of the clone's default branch (refs/remotes/origin/HEAD): a
+    mark at any of them only takes credit away, as for coverage check (comparator_config.smoke_configs).
+    Fail when a sidecar there is malformed. A copy-only check (no clone) cannot read the mark."""
+    from . import comparator_config as cc
+    commit = str((comp or {}).get("commit") or "")
+    return cc.smoke_configs(clone, pin, commit if core._HEX40.fullmatch(commit) else None,
+                            "refs/remotes/origin/HEAD")
 
 
 def headline_problems(clone: pathlib.Path, headline: list[dict]) -> list[str]:
@@ -1004,10 +1016,12 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
         coverage_note = None
         comparator_covers = res["comparator_ok"]
         if res["comparator_ok"]:
-            unjudged = unjudged_headlines(headline, res["comparator"])
+            smoke = smoke_at(clone, pin, res["comparator"])
+            unjudged = unjudged_headlines(headline, res["comparator"], smoke)
             if unjudged:
                 msg = (f"headline theorem(s) {', '.join(unjudged)} not judged by the comparator receipt "
-                       f"(judged: {', '.join(sorted(judged_names(res['comparator']))) or 'none'}); "
+                       f"(judged: {', '.join(sorted(judged_names(res['comparator'], smoke))) or 'none'}"
+                       f"{'; smoke checks credit nothing: ' + ', '.join(sorted(smoke)) if smoke else ''}); "
                        f"give each headline its Challenge name as a fourth '::' part")
                 if not res["lower_ok"]:
                     raise core.Fail(msg + "; a comparator-only entry needs every headline judged")
@@ -1317,16 +1331,22 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
                 if copy != res["bytes"][rel]:
                     rep["failures"].append(f"receipts.{k}: index copy differs from the bytes in the repository")
         rep["failures"] += at_pin_problems(clone, entry, res, record)
+        try:
+            smoke = smoke_at(clone, entry["pin"]["commit"], res["comparator"]) if res["comparator_ok"] else {}
+        except core.Fail as e:
+            rep["failures"].append(str(e))
+            smoke = {}
         rep["notes"] += built_on_manifest_notes(clone, entry)
         rep["uncredited_dependencies"] = uncredited_lake_dependencies(clone, entry)
         rep["notes"] += [f"warning: Lake dependency {d['name']} ({d['url'] or 'no url'}) in lake-manifest.json "
                          f"at the pin has no built_on credit" for d in rep["uncredited_dependencies"]]
     comparator_covers = res["comparator_ok"]
     if res["comparator_ok"]:
-        unjudged = unjudged_headlines(entry["headline"], res["comparator"])
+        unjudged = unjudged_headlines(entry["headline"], res["comparator"], smoke)
         if unjudged:
             comparator_covers = False
-            rep["notes"].append(f"headline theorem(s) {', '.join(unjudged)} not judged by the comparator receipt")
+            rep["notes"].append(f"headline theorem(s) {', '.join(unjudged)} not judged by the comparator receipt"
+                                + (f" (smoke checks credit nothing: {', '.join(sorted(smoke))})" if smoke else ""))
     computed = compute_trust(res["lower_ok"], comparator_covers, entry["palomar"])
     rep["trust_computed"] = computed
     if computed != entry["trust"]:

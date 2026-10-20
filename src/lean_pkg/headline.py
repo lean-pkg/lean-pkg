@@ -149,10 +149,15 @@ def judge(pkg: dict, repo: pathlib.Path, rel: str, cfg: dict) -> dict:
         out["reason"] = f"the recorded comparator receipt {comp_rel} does not validate at HEAD ({e})"
         return out
     commit = str(comp["commit"])
+    from .comparator_config import covers, smoke_configs
+    try:                                     # a smoke check covers no headline name (lean-pkg-signoff.json)
+        smoke = smoke_configs(repo, commit, "HEAD")
+    except core.Fail as e:
+        out["reason"] = f"{SIDECAR} cannot be read ({e})"
+        return out
     out.update(judged=True, receipt_commit=commit)
-    from .comparator_config import covers
     same = [c for c in comp["configs"] if c.get("challenge_module") == cfg["challenge_module"]
-            and c.get("solution_module") == cfg["solution_module"]]
+            and c.get("solution_module") == cfg["solution_module"] and c.get("path") not in smoke]
     same.sort(key=lambda c: (c.get("path") != rel, str(c.get("path"))))   # the headline's own entry first
     for name in cfg["theorem_names"]:
         by = [str(c["path"]) for c in same if covers(set(c.get("theorem_names") or []), name, True)]

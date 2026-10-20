@@ -257,6 +257,14 @@ def headline_results(pkg: dict | None, repo: pathlib.Path, warnings: list[str], 
     if rel is None:
         return None
     cfg = hl.load(repo, rel)
+    try:
+        sidecar = core.sidecar_at(repo)
+    except ValueError as e:
+        raise core.Fail(str(e))
+    if rel in holes_smoke(sidecar):          # before judging: the plain reason, not "not a subset"
+        raise core.Fail(f"headline configuration {rel} ({source}) is marked as a smoke check in "
+                        f"lean-pkg-signoff.json: a smoke check states no result, so it cannot be the headline; "
+                        f"declare the configuration of the main results, or drop the smoke mark")
     res = hl.judge(pkg or {}, repo, rel, cfg)
     if info is not None:
         info.update(receipt=res["receipt"], theorems=len(cfg["theorem_names"]))
@@ -274,14 +282,6 @@ def headline_results(pkg: dict | None, repo: pathlib.Path, warnings: list[str], 
     if core.git_show_bytes(repo, solution) is None:
         warnings.append(f"{rel}: solution module file {solution} is not tracked at HEAD "
                         f"(main_results.file uses the conventional module path)")
-    try:
-        sidecar = core.sidecar_at(repo)
-    except ValueError as e:
-        raise core.Fail(str(e))
-    if rel in holes_smoke(sidecar):
-        raise core.Fail(f"headline configuration {rel} ({source}) is marked as a smoke check in "
-                        f"lean-pkg-signoff.json: a smoke check states no result, so it cannot be the headline; "
-                        f"declare the configuration of the main results, or drop the smoke mark")
     from .comparator_config import scaffold_todo_names
     todo = scaffold_todo_names(cfg, rel, sidecar) if hl.is_config_path(rel) else set()
     names = cfg["theorem_names"]
