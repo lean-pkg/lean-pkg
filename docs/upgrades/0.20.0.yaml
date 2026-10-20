@@ -1,0 +1,23 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.19.0. Same keys as 0.19.0.yaml; the human page is docs/upgrades/0.20.0.md.
+# The name 0.20.0 is provisional (RELEASING.md, "The record's provisional name"): make cut-release
+# renames both files to the version it cuts, which make release-version prints.
+schema: lean-pkg-upgrade-record/1
+version: 0.20.0
+changes:
+  - pr: 286
+    id: registry-dir-resolves-file
+    kind: behavior
+    area: registry
+    summary: >-
+      --registry DIR and LEAN_PKG_REGISTRY=DIR now mean DIR/lean-packages.yaml, as the user-level default
+      ~/.lean-pkg/registry already did. An explicit directory was refused as "registry not found ...
+      (resolved from flag)" even when it held lean-packages.yaml; the registry lock and the event log now
+      sit beside the resolved file. A directory without the file is refused naming DIR/lean-packages.yaml.
+    action: >-
+      Nothing for a package author. A script that passed the file path keeps working; one that passed the
+      directory and got a refusal now works. An explicit --registry DIR with no --events now writes the
+      event log inside DIR, beside the registry file, not in DIR's parent.
+    breaking: false
+    changelog: Fixed
+no_author_change: []
