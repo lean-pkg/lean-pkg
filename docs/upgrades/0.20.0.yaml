@@ -127,6 +127,7 @@ changes:
       the check as a failed check: repair the receipt or run the gate again. To fail on preview drift too,
       add --strict-preview (entry page-check-strict-preview).
     breaking: false
+    split: true
     changelog: Fixed
   - pr: 291
     id: page-check-strict-preview
@@ -147,6 +148,7 @@ changes:
       commit's preview adds --strict-preview to its page --check --repo line. A script that read current
       from page --check --repo --json reads preview first: current is null under a preview.
     breaking: false
+    split: true
     changelog: Added
 # Read for this record, nothing for a package author: release tooling, the record must name every
 # pull request merged since the last release, checked by make changelog and CI (#287).

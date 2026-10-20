@@ -9,6 +9,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Fixed
+
+- Upgrade records (#296): one entry per pull request, unless the pull
+  request made several separate changes and each of its entries says so
+  with `split: true`. `doctor --upgrade-from` (`record_problems[]`) and the
+  record tests refuse several entries not all marked, a lone entry marked
+  `split: true`, and a pull request under both `changes` and
+  `no_author_change`. This replaces the narrower rule of #290 (same kind and
+  heading with different `breaking`), which let one change entered twice
+  pass when both copies agreed on `breaking` or sat under different
+  headings. The multi-entry pull requests of 0.11.0, 0.12.0 and 0.20.0 are
+  marked.
+
 ## [0.20.0] - 2026-10-20
 
 ### Added
