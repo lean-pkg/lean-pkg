@@ -826,7 +826,7 @@ def test_template_and_check_need_their_flags(lp, repo, tmp_path, capsys):
     assert lp.main(["receipt", "slurm", "--check", "--repo", str(repo)]) == 2
     assert "--check needs --log" in capsys.readouterr().err
     assert lp.main(["receipt", "slurm", "--log", str(Job(tmp_path).log)]) == 2
-    assert "needs --job, --commit" in capsys.readouterr().err
+    assert "needs --job, --receipt-commit" in capsys.readouterr().err
 
 
 # Review finding: Lean 4 (every toolchain from v4.29 to v4.35-rc2 checked) prints ``declaration uses `sorry` ``

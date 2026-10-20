@@ -19,7 +19,7 @@ options:
                         (placeholders for the package's own commands); needs no other flag
   --check               preflight the files of a finished (trial) job: every seal, stderr and log-
                         line check, each problem named; no sacct (unless --sacct-file), commit
-                        checks only with --commit; writes nothing, exit 0/1
+                        checks only with --receipt-commit; writes nothing, exit 0/1
   --preflight-deps      before submitting: check that the staged dependency cache (--deps-tar or
                         --deps-dir) holds, at the lake-manifest.json pins committed at --commit
                         (default HEAD), the built .olean and .ilean of every external module in

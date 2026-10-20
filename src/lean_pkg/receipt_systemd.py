@@ -412,7 +412,7 @@ def unit_running(ctl: str, unit: str) -> bool | None:
 def recovery_command(args, unit: str, repo: pathlib.Path, paths: dict, commit: str | None) -> str:
     """The `receipt systemd --unit U ...` (no --run) that writes the receipt from the unit once it finished."""
     argv = ["lean-pkg", "receipt", "systemd", "--unit", unit, "--log", str(paths["--log"]),
-            "--commit", commit or args.commit_sha, "--repo", str(repo)]
+            "--receipt-commit", commit or args.commit_sha, "--repo", str(repo)]
     for flag in ("--stdout", "--stderr"):
         if flag in paths:
             argv += [flag, str(paths[flag])]
