@@ -9,6 +9,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Fixed
+
+- `--registry DIR` and `LEAN_PKG_REGISTRY=DIR` (#286): a directory holding
+  `lean-packages.yaml` is that registry, as the user-level default
+  `~/.lean-pkg/registry` already was. An explicit directory was refused as
+  `registry not found ... (resolved from flag)` even when it held the file;
+  the lock and the event log now sit beside the resolved file. A directory
+  without it is refused naming `DIR/lean-packages.yaml`.
+
 ## [0.19.0] - 2026-10-19
 
 ### Added
