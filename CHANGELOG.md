@@ -27,6 +27,10 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `registry not found ... (resolved from flag)` even when it held the file;
   the lock and the event log now sit beside the resolved file. A directory
   without it is refused naming `DIR/lean-packages.yaml`.
+- `receipt slurm` and `receipt systemd` (#289): the `--check` help, the
+  llms text, the missing-flag refusal and the recovery command `receipt
+  systemd` prints named the old `--commit` spelling; they now name
+  `--receipt-commit`. The old spelling keeps working, with a note.
 
 ### Documentation
 
