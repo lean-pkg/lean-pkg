@@ -298,6 +298,40 @@ def test_source_edit_in_the_donor_is_refused_and_the_index_is_untouched(lp, env,
     assert (d / ".git/index").read_bytes() == index_before
 
 
+@pytest.mark.parametrize("flag", ["--assume-unchanged", "--skip-worktree"])
+def test_edit_hidden_by_an_index_flag_is_refused(lp, env, world, capsys, flag):
+    """git status skips an assume-unchanged or skip-worktree entry, so its edit would pass unseen (#284)."""
+    d = world.donor / ".lake/packages/mathlib"
+    _git(d, "update-index", flag, "Mathlib/Logic.lean")
+    (d / "Mathlib/Logic.lean").write_text("import Batteries.Logic\n-- edited\n")
+    code, out = world.run(lp, capsys)
+    assert code == 1 and codes(out) == ["donor-source-edits"]
+    assert any("mathlib: 1 tracked file(s) hidden from git status" in r["reason"]
+               and "Mathlib/Logic.lean" in r["reason"] for r in out["refusals"])
+
+
+@pytest.mark.parametrize("ignored", [False, True])
+def test_untracked_or_ignored_lean_source_is_refused(lp, env, world, capsys, ignored):
+    """--untracked-files=no never shows a Lean source outside the commit, ignored or not (#284)."""
+    d = world.donor / ".lake/packages/batteries"
+    if ignored:
+        (d / ".git/info/exclude").write_text("Extra.lean\n")
+    (d / "Extra.lean").write_text("def extra := 0\n")
+    code, out = world.run(lp, capsys)
+    assert code == 1 and codes(out) == ["donor-source-edits"]
+    assert any("batteries: 1 untracked or ignored Lean source" in r["reason"] and "Extra.lean" in r["reason"]
+               for r in out["refusals"])
+
+
+def test_untracked_files_under_dot_lake_are_not_sources(lp, env, world, capsys):
+    """.lake/ is the generated area: a nested build or package there is not a source edit."""
+    d = world.donor / ".lake/packages/batteries"
+    (d / ".lake/build/ir").mkdir(parents=True, exist_ok=True)
+    (d / ".lake/build/ir/Gen.lean").write_text("-- generated\n")
+    code, out = world.run(lp, capsys)
+    assert code == 0 and out["ok"]
+
+
 def test_donor_without_git_cannot_rule_out_edits(lp, env, world, capsys, tmp_path):
     """A stripped donor (only .git/HEAD) passes the pin check but not the source-edit check."""
     d = world.donor / ".lake/packages/batteries"

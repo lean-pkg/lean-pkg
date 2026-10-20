@@ -31,6 +31,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `receipt slurm --preflight-deps --fill-plan DONOR` (#284, a field
+  report): `donor-source-edits` now also refuses a donor checkout with an
+  index entry marked assume-unchanged or skip-worktree (git status skips
+  it, so an edit under it passed as clean), and one with an untracked or
+  ignored `*.lean`, `lakefile.*`, `lean-toolchain` or `lake-manifest.json`
+  outside `.lake/` (`--untracked-files=no` never looked). The probe turns
+  off the checkout's own `core.fsmonitor` and untracked cache. A donor
+  that passed before can now be refused; clear the flag
+  (`git update-index --no-assume-unchanged`, `--no-skip-worktree`) or move
+  the stray file away.
+
 - `--json`: stdout is the JSON document alone (a field report from a
   two-library release campaign). `comparator-receipt --estimate --json`
   (also `lean-pkg receipt comparator --estimate --json`) printed the stage

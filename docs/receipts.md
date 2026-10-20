@@ -675,7 +675,12 @@ mean for `--preflight-deps`.
    - the donor's checkouts carry no source edits: for each manifest
      package, `git status --porcelain --untracked-files=no` prints nothing
      (`donor-source-edits`). It runs with `GIT_OPTIONAL_LOCKS=0`, so git
-     does not refresh the donor's index. A package with no `.git`
+     does not refresh the donor's index, and with the checkout's own
+     `core.fsmonitor` and untracked cache off. Git status skips an index
+     entry marked assume-unchanged or skip-worktree, so such an entry
+     refuses, and so does an untracked or ignored `*.lean`, `lakefile.*`,
+     `lean-toolchain` or `lake-manifest.json` outside `.lake/` (the one
+     generated area, where the donor's own build lives). A package with no `.git`
      directory, or one git cannot read (a stripped checkout holding only
      `.git/HEAD`), refuses: an edit cannot be ruled out;
    - the objects come from the same Lean build (`olean-header`). In a
