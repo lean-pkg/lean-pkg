@@ -156,4 +156,6 @@ changes:
 # receipt systemd name --receipt-commit, the documented spelling; --commit keeps working (#289).
 # Read for this record, nothing for a package author: release tooling, an upgrade record that enters one
 # change twice (same kind and heading, different breaking) or lists a PR under both keys is malformed (#290).
-no_author_change: [287, 288, 289, 290]
+# Read for this record, nothing for a package author: release tooling, release-version --curated reads the
+# record of the release being cut during cut-release instead of refusing every cut (#295).
+no_author_change: [287, 288, 289, 290, 295]

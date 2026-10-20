@@ -460,8 +460,23 @@ def curated(repo: Path, pr: int | None = None) -> tuple[bool, list[str]]:
     `no_author_change`. doctor --upgrade-from lists the others as uncurated, which used to surface only
     when the release was cut (#285)."""
     current = current_version(repo)
-    record, problems = in_progress_record(repo, current)
-    want = squash_prs(repo, release_commit(repo, current)) + ([pr] if pr is not None else [])
+    since = release_commit(repo, current)
+    if since is None:
+        # Mid-cut (cut-release step 4): the version files already name the release being cut, which has no tag
+        # or `release:` commit yet. Its record is the one named for it; the range starts at the newest earlier
+        # release. Reading the record above it and the whole history refused every cut (0.20.0).
+        problems = []
+        f = repo / RECORD_DIR / f"{current}.yaml"
+        try:
+            record = load_record(f.relative_to(repo), f.read_text()) if f.is_file() else None
+        except (ValueError, yaml.YAMLError) as e:
+            record, problems = None, [str(e).splitlines()[0]]
+        earlier = [t[1:] for t in git(repo, "tag", "-l", "v*").stdout.split()
+                   if VERSION_RE.fullmatch(t[1:]) and vtuple(t[1:]) < vtuple(current)]
+        since = release_commit(repo, max(earlier, key=vtuple)) if earlier else None
+    else:
+        record, problems = in_progress_record(repo, current)
+    want = squash_prs(repo, since) + ([pr] if pr is not None else [])
     named = ({c.get("pr") for c in record.changes} | set(record.no_author_change)) if record else set()
     missing = sorted(set(want) - named)
     if missing:

@@ -230,6 +230,20 @@ def test_curated_right_after_a_release_asks_for_the_next_record(repo):
     assert r.returncode == 1 and "#14 not named by docs/upgrades/0.20.0.yaml (new)" in r.stderr
 
 
+def test_curated_mid_cut_reads_the_record_of_the_release_being_cut(repo):
+    # cut-release step 4: pyproject.toml already says 0.19.0 (uncommitted), no v0.19.0 tag or release commit yet
+    (repo / "pyproject.toml").write_text('[project]\nname = "lean-pkg"\nversion = "0.19.0"\n')
+    r = _run(repo, "--curated")
+    assert r.returncode == 0, r.stderr                         # #10 is named by 0.19.0.yaml; range from v0.18.0
+    _git(repo, "stash", "-q")                                  # a PR merged without an entry is still refused
+    _write(repo, {"docs/c.md": "c\n"})
+    _commit(repo, "[C] docs: c (#12)")
+    _git(repo, "stash", "pop", "-q")
+    r = _run(repo, "--curated")
+    assert r.returncode == 1 and "#12 not named by docs/upgrades/0.19.0.yaml:" in r.stderr
+    assert "#10" not in r.stderr and "0.20.0" not in r.stderr
+
+
 def test_check_passes_with_nothing_unreleased(tmp_path):
     r = tmp_path / "lp"
     r.mkdir()
