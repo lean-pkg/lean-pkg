@@ -31,6 +31,7 @@ versions:
 changelog:
 > python3 scripts/check-changelog-releases.py
 > python3 scripts/release-version.py --check
+> python3 scripts/release-version.py --curated
 
 # REUSE 3.3 compliance (gate G3 of the public-flip checklist); skipped, not passed, when the tool is absent.
 reuse:

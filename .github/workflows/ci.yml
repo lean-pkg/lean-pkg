@@ -57,6 +57,12 @@ jobs:
         run: |
           python -m pip install -q pyyaml
           python scripts/release-version.py --check
+      # Every pull request since the last release, and this one (its squash commit does not exist yet), is
+      # named by the in-progress record; doctor --upgrade-from only listed the gap at release time (#285).
+      - name: The upgrade record names every pull request
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: python scripts/release-version.py --curated ${PR:+--pr "$PR"}
       - name: No tab characters
         run: |
           if grep -rnP '\t' --include='*.py' --include='*.sh' --include='*.md' \
