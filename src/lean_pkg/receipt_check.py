@@ -416,7 +416,7 @@ def claimed_theorems_check(c: Checks, repo: pathlib.Path, pkg: dict, x: str, hav
         c.add(cid, SKIP, f"no claims.yaml at {x[:12]}: no claimed theorem to match")
         return
     cls = cc._classify(claims, cc._configs_at(repo, x), cc.qualified_decls(_reader(repo, x), claims),
-                       cc._sidecar_at(repo, x))
+                       cc._sidecar_at(repo, x), cc.smoke_configs(repo, x, "HEAD"))
     required = [cl for cl in cls["not_covered"] + cls["todo"] if cl.get("status") == "reusable"]
     problems = []
     if cls["judged_as_problems"]:

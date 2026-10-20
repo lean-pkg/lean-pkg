@@ -25,6 +25,28 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   line to a result block naming an internal claim and `(internal)` to its
   status in `coverage.md`, so such a package's page must be re-rendered
   (`page NAME --write`). See docs/lifecycle.md ("Claims ledger").
+- `lean-pkg-signoff.json` (`lean-pkg-signoff/1`) accepts an optional
+  `configs[<path>].smoke {reason}`: the configuration is a smoke check, a
+  sanity theorem that tests the comparator set-up and states no result of
+  the package (found next to real configurations in an audit of public Lean
+  repositories). It is still judged, listed in the receipt and must pass,
+  but its theorems credit no claim, by the naming rule or a `judged_as`
+  (claims ledger, `comparator config --coverage`, `receipt check`,
+  `status`); `coverage check` (R11) asks no row for them and refuses the
+  mark when one is the declaration of a claim a row names; `page` names
+  them on a "Smoke checks (not results)" line and leaves them out of the
+  statements shown as proved; `formalization` leaves them out of
+  `status.main_results`, refuses a smoke headline configuration and lets
+  no smoke configuration cover a headline name; `index add` and `index
+  check --clone` judge no index headline by a smoke theorem; `comparator
+  config --from-claims` counts no smoke theorem as configured and refuses
+  to scaffold into a smoke configuration; `claims mark --from-comparator
+  --status reusable` refuses a smoke configuration. The mark is read at the comparator receipt's commit and at
+  `HEAD`. Format: no schema bump and no migration; a sidecar without the
+  key is unchanged and recorded receipts stay valid (their `signoff` copy
+  holds the definitions only); lean-pkg 0.19.0 and older refuse a sidecar
+  that uses the key ([smoke checks](docs/comparator.md#smoke-checks))
+  (#293).
 
 ### Changed
 

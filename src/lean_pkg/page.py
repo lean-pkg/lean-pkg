@@ -259,11 +259,14 @@ def _context(pkg: dict, repo, allow_private: bool) -> dict:
     configs = [c for c in comp.get("configs") or [] if isinstance(c, dict)] if comp else []
     named = [claims[cid] for r in doc["rows"] for cid in r.get("claims") or [] if cid in claims]
     qualified = cc.qualified_decls(claims_mod._reader(repo, bound or "HEAD"), named) if configs else set()
+    ccommit = str(comp.get("commit") or "") if comp else ""
+    smoke = cc.smoke_configs(repo, ccommit if core._HEX40.fullmatch(ccommit) else None, "HEAD") if configs else {}
     return {
         "name": name, "pkg": pkg, "repo": repo, "doc": doc, "claims": claims, "warnings": warnings,
         "led": ledger_mod.ledger_for(pkg, "promote"), "gate": gate, "evidence": ev_rows, "lower": lower,
         "comp": comp, "backed": backed, "sites": profiles, "cite": citation(pkg, repo), "license": license_file(pkg, repo),
         "https": https, "prefix": prefix, "bound": bound, "configs": configs, "qualified": qualified,
+        "smoke": smoke,
         "link_base": (f"{https}/blob/{bound}" + (f"/{prefix}" if prefix else "")) if github and bound else None,
         "head_base": (f"{https}/blob/HEAD" + (f"/{prefix}" if prefix else "")) if github else None,
         "library": cov.doc_kind(doc) == "library",
@@ -324,6 +327,12 @@ def _holes_line(configs: list[dict]) -> str:
     return "; ".join(parts) or "none"
 
 
+def _smoke_line(cfgs: list[dict], smoke: dict) -> str:
+    """The theorems of the smoke configurations, each configuration with the reason its smoke mark gives."""
+    return "; ".join(", ".join(f"`{_code(t)}`" for t in _names(c.get("theorem_names"))) + f" in `{_code(c['path'])}` "
+                     f"({_md(smoke[c['path']])})" for c in cfgs)
+
+
 def _hole_text(c: dict) -> str:
     from .holes import receipt_judged
     holes = _names(c.get("definition_names"))
@@ -360,6 +369,8 @@ def _lean_statement(ctx: dict, cid: str) -> dict:
         return raw.decode("utf-8", errors="replace") if raw is not None else None
 
     for cfg in ctx["configs"]:
+        if cfg.get("path") in ctx.get("smoke", {}):         # a smoke check states no result
+            continue
         for t in cfg.get("theorem_names") or []:
             if isinstance(t, str) and cc.claim_covered({t}, c, ctx["qualified"],
                                                        cc.mapped_names(list(ctx["claims"].values()))):
@@ -631,8 +642,10 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
     else:
         md.append("- **No build check is recorded yet**: nothing on this page is backed by one.")
         warnings.append("the recorded gate receipt is not committed at HEAD (or none is recorded)")
-    if comp and configs:
-        thms = sum(len(c.get("theorem_names") or []) for c in configs)
+    smoke = ctx.get("smoke") or {}
+    smoke_cfgs = [c for c in configs if c.get("path") in smoke]
+    if comp and len(smoke_cfgs) < len(configs):
+        thms = sum(len(c.get("theorem_names") or []) for c in configs if c.get("path") not in smoke)
         md.append(f"- **The statements shown are the ones proved.** For {thms} statement(s), a second checker "
                   f"(comparator) confirmed that the proof proves exactly the statement shown, with only the "
                   f"permitted axioms, and independent Lean kernels replayed the proof.")
@@ -670,6 +683,10 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
                   f"against its Solution proof); permitted axioms: "
                   f"{', '.join(f'`{a}`' for a in permitted) or 'none'}; definitions compared by name only: "
                   f"{_holes_line(configs)}.")
+        if smoke_cfgs:
+            md.append(f"- Smoke checks (not results): {_smoke_line(smoke_cfgs, smoke)}. Each passed the comparison "
+                      f"like the others, to show the comparator set-up works; it states nothing of this package "
+                      f"and verifies no result on this page.")
     md += _stack_lines(doc, repo, warnings)
     md.append("")
     ev_rows = ctx["evidence"]

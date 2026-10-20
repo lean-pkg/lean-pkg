@@ -25,13 +25,17 @@ and Palomar would read that as a configuration)::
          "definitions": {
            "Foo.bar": {"reviewer": "<human name>", "date": "YYYY-MM-DD",
                        "judged_as": "<what the body was judged to be, and how>"}},
-         "scaffold": {"todo": [{"theorem_name": "...", ...}], ...}}}}
+         "scaffold": {"todo": [{"theorem_name": "...", ...}], ...},
+         "smoke": {"reason": "<why this configuration is a sanity check>"}}}}
 
 Strict: exact key sets, duplicate JSON keys refused, every configuration key
 a comparator configuration path. ``config_sha256`` binds the sign-off to the
 configuration's bytes: a changed configuration invalidates it until a human
 re-judges and re-binds. ``scaffold`` holds the TODO markers `comparator config
---from-claims` writes (formerly the ``lean_pkg_scaffold`` key).
+--from-claims` writes (formerly the ``lean_pkg_scaffold`` key). ``smoke`` (optional) declares the
+configuration a smoke check: a sanity theorem that tests the comparator set-up and states no result of
+the package. Its theorems must still pass (they are in the receipt), but they verify no claim, need no
+claim in coverage.yaml, and pages show them as smoke checks, never as results (`smoke_paths`).
 
 Deprecated: the inline ``judged_as`` object ({reviewer, date, definitions[],
 basis?}) and ``lean_pkg_scaffold`` keys inside the configuration still work
@@ -56,9 +60,10 @@ REVIEWER_DENY = frozenset({
 SIDECAR = "lean-pkg-signoff.json"
 SIDECAR_SCHEMA = "lean-pkg-signoff/1"
 INLINE_KEYS = ("judged_as", "lean_pkg_scaffold")      # deprecated in a configuration (Palomar refuses them)
-ENTRY_KEYS = frozenset({"config_sha256", "definitions", "scaffold"})
+ENTRY_KEYS = frozenset({"config_sha256", "definitions", "scaffold", "smoke"})
 SIGNOFF_KEYS = frozenset({"reviewer", "date", "judged_as"})
 SCAFFOLD_KEYS = frozenset({"generated_by", "note", "types_note", "todo"})
+SMOKE_KEYS = frozenset({"reason"})
 # Same rule as cli.COMPARATOR_CONFIG_RE (a test pins the two equal); holes.py imports nothing of lean-pkg.
 CONFIG_RE = re.compile(r"^(comparator[^/]*\.json|comparator/config[^/]*\.json)$")
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
@@ -155,7 +160,22 @@ def parse_sidecar(raw: bytes | None, label: str = SIDECAR) -> dict:
             for k in ("generated_by", "note", "types_note"):
                 if k in sc and not isinstance(sc[k], str):
                     raise ValueError(f"{where}.scaffold.{k}: must be a string")
+        sm = ent.get("smoke")
+        if sm is not None and (not isinstance(sm, dict) or set(sm) != SMOKE_KEYS
+                               or not isinstance(sm["reason"], str) or not sm["reason"].strip()):
+            raise ValueError(f"{where}.smoke: must be an object with exactly the key reason, a non-empty text "
+                             f"saying why the configuration is a sanity check and states no result")
     return doc
+
+
+def smoke_paths(sidecar: dict | None) -> dict[str, str]:
+    """{configuration path: reason} of the configurations the sidecar marks as smoke checks."""
+    out = {}
+    for rel, ent in ((sidecar or {}).get("configs") or {}).items():
+        sm = ent.get("smoke") if isinstance(ent, dict) else None
+        if isinstance(sm, dict) and isinstance(sm.get("reason"), str) and sm["reason"].strip():
+            out[rel] = sm["reason"].strip()
+    return out
 
 
 def dump_sidecar(doc: dict) -> str:

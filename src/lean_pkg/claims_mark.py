@@ -23,6 +23,7 @@ import yaml
 
 from . import cli as core
 from . import comparator_config as cc
+from . import holes
 
 MARK_STATUSES = ("reusable", "internal", "experimental")   # superseded needs superseded_by: edit by hand
 NO_REUSABLE_FIX = ("mark the results others should rely on as status: reusable (`lean-pkg claims mark {name} "
@@ -90,6 +91,14 @@ def do_claims_mark(reg: dict, name: str, config: str, status: str, write: bool,
     names = cfg.get("theorem_names") if isinstance(cfg, dict) else None
     if not isinstance(names, list) or not names or not all(isinstance(n, str) and n for n in names):
         raise core.Fail(f"{cpath}: theorem_names must be a non-empty list of strings")
+    try:
+        crel = cpath.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        crel = None
+    if status == "reusable" and crel in holes.smoke_paths(cc.load_sidecar(repo)):
+        raise core.Fail(f"{crel}: {holes.SIDECAR} marks this configuration as a smoke check, which verifies no "
+                        f"claim; mark claims from the configuration that judges them (docs/comparator.md, "
+                        f"\"Smoke checks\")")
     rel = pkg.get("claims_file") or cl.DEFAULT_CLAIMS_FILE
     fpath = repo / rel
     if fpath.is_symlink() or not fpath.is_file():

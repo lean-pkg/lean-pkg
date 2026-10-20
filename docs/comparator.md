@@ -1192,6 +1192,69 @@ sidecar at the bound commit and refuse a receipt whose copy differs.
 The same file holds the scaffold's TODO markers (`configs[<path>].scaffold`,
 written by `comparator config --from-claims`, below).
 
+### Smoke checks
+
+A configuration that only tests the comparator set-up (a one-line sanity
+theorem such as `two_mul_le` in `comparator/config-smoke.json`, run first to
+see the pipeline work) states no result of the package. Declare it in the same
+file, under its configuration path:
+
+```json
+{
+  "schema": "lean-pkg-signoff/1",
+  "configs": {
+    "comparator/config-smoke.json": {
+      "smoke": {"reason": "a sanity theorem that tests the comparator set-up"}
+    }
+  }
+}
+```
+
+`smoke` has exactly one key, `reason`, a non-empty text. A smoke configuration
+is still a configuration: the runner judges it, the receipt lists it, and it
+must pass like the others. What the mark changes:
+
+- **It verifies nothing.** Its theorem names credit no claim, by the naming
+  rule or by a `judged_as` (`claims ledger`, `comparator config --coverage`,
+  `receipt check`, `status`): a claim only a smoke configuration names is
+  `no-comparator-config`, with a detail saying so.
+- **Coverage.** `coverage check` (rule R11 of [the page](page.md)) does not
+  ask a row for its theorems, and refuses the mark when one of them is the
+  declaration of a claim a row names: a configuration that judges a result is
+  no smoke check.
+- **Pages.** The page counts every compared theorem in its comparator line,
+  as before, and adds a line `Smoke checks (not results): ...` naming each
+  smoke theorem, its configuration and the reason; no result block uses a
+  smoke configuration's Challenge, and the count of statements shown as
+  proved leaves them out. `formalization.yaml`'s `status.main_results` leaves
+  them out too.
+- **Headlines.** A headline configuration cannot be a smoke check, and a
+  smoke configuration that shares its Challenge and Solution modules covers
+  none of its theorem names. In the [index](index-catalog.md), a headline
+  whose `judged_as` names a smoke theorem is not judged by the comparator
+  receipt (`index add`, and `index check --clone`, which reads the mark at
+  the pin, the receipt's commit and the default branch; a copy-only
+  `index check` has no clone to read it from).
+- **Scaffolds and marking claims.** `comparator config --from-claims` counts
+  no smoke theorem as configured, so a claim only a smoke configuration
+  names still gets its TODO entry, and it refuses to scaffold into a smoke
+  configuration. `claims mark NAME --from-comparator CONFIG` with
+  `--status reusable` refuses a configuration the working copy's sidecar marks as a
+  smoke check.
+
+The mark is read at the comparator receipt's commit and at `HEAD`, either
+one, so a mark committed after the receipt needs no new receipt: for claims
+it only takes credit away, and the one thing it grants, the coverage
+exemption, is shown on the page. The receipt's `signoff` copy holds only the
+definition sign-off, so the mark never changes what a receipt must match, and
+receipts recorded before it stay valid. A mark is a declaration, not a check:
+nothing tests that the theorem is trivial, which is why the page names it.
+
+Format: an optional key of `lean-pkg-signoff/1`; no schema bump. A sidecar
+without `smoke` means what it meant before. lean-pkg 0.19.0 and older refuse
+a sidecar that uses the key (the sidecar is strict), so once a package adds
+it, every reader (CI, coauthors) needs a lean-pkg that knows it.
+
 ### Migrating from inline `judged_as` / `lean_pkg_scaffold`
 
 Earlier releases put the sign-off in a `judged_as` object
