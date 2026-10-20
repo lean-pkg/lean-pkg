@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-19
+
 ### Added
 
 - `lean-pkg comparator check NAME --contracts-only` (#280, #283): a
@@ -78,6 +80,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   curl error 18. "Estimate first" names
   `comparator-stages/04-comparator.estimate.json` as the machine-readable
   source and says stdout under `--json` is JSON only (#281).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.18.1] - 2026-10-19
 
