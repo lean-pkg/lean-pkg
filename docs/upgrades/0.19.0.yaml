@@ -83,21 +83,4 @@ changes:
       --no-assume-unchanged, --no-skip-worktree) or move the stray file away, then run the preflight again.
     breaking: true
     changelog: Fixed
-  - pr: 285
-    id: fill-plan-donor-source-identity
-    kind: behavior
-    area: receipt slurm --preflight-deps --fill-plan
-    summary: >-
-      donor-source-edits now also refuses a donor dependency checkout with an index entry marked
-      assume-unchanged or skip-worktree (git status skips such an entry, so an edit under it passed as
-      clean), and one with an untracked or ignored *.lean, lakefile.*, lean-toolchain or lake-manifest.json
-      outside .lake/ (git status --untracked-files=no never looked); the probe runs with the checkout's own
-      core.fsmonitor and untracked cache off (#284, a field report). The refusal code and the JSON shapes
-      are unchanged.
-    action: >-
-      Nothing for a package author. A donor that was accepted before can now be refused: clear the flag
-      (git update-index --no-assume-unchanged or --no-skip-worktree) or move the stray file out of the
-      checkout, then plan again.
-    breaking: false
-    changelog: Fixed
 no_author_change: []
