@@ -1,0 +1,10 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.20.0. Same keys as 0.20.0.yaml; the human page is docs/upgrades/0.21.0.md.
+# The name 0.21.0 is provisional (RELEASING.md, "The record's provisional name"): make cut-release
+# renames both files to the version it cuts, which make release-version prints.
+schema: lean-pkg-upgrade-record/1
+version: 0.21.0
+changes: []
+# Read for this record, nothing for a package author: release tooling, one entry per pull request unless
+# each of its entries is marked split: true; marks the multi-entry PRs of 0.11.0, 0.12.0 and 0.20.0 (#296).
+no_author_change: [296]
