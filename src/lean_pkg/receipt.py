@@ -1,6 +1,6 @@
 # lean-pkg receipt slurm -- a lower-tier receipt from a finished Slurm job
 """`lean-pkg receipt slurm --job J --log PATH --commit SHA [--stdout PATH] [--stderr PATH] [--checker TEXT]
-[--repo DIR] [--redact REGEX ...] [--sacct-file F] [--out PATH] [--append-readme [--readme-heading TEXT]
+[--repo DIR] [--redact REGEX ...] [--sacct-file F] [--seal-sacct [--user NAME]] [--out PATH] [--append-readme [--readme-heading TEXT]
 [--readme-line TEXT ...] [--tar-sha256 HEX]] [--json]` (#70): turn a Slurm verification job (its accounting,
 its verify log, its stdout and stderr) into a lower-tier receipt in exactly the shape `gate --receipt`
 validates. It never reads or writes a registry.
@@ -71,6 +71,13 @@ gains the additive `claim_axioms` {checked, nonstandard [{decl, axioms}], missin
 sorryAx, a claim of claims.yaml at the commit without a line, an incomplete probe, or a name whose `#print axioms`
 output in the same log disagrees refuses; a redaction that alters one of those lines refuses. A log without them
 gives a receipt without the key, as before.
+Sacct seal (`--seal-sacct`, optional): the job's accounting record is sealed into the receipt exactly as
+`receipt comparator --seal-sacct` seals a comparator receipt (sacct_seal_record): live sacct runs SLURM_SEAL_QUERY
+with zoned times (or `--sacct-file`, saved with its header); Start..End must contain the log's `generated-at:`
+line (required) and the account must be this one (live) or `--user`. The normalized record
+`<c12>-slurm-<J>-sacct.txt` is written beside the receipt and the additive `slurm_sacct` block (slurm-sacct-seal/1)
+binds it; core.validate_receipt (gate, receipt check, ...) then checks a present block with sacct_seal_problem
+against the record committed at HEAD. Without the flag nothing changes.
 Everything after the executor's own terminal-state check (2. to 5. and the output) is `produce`, shared with
 `receipt systemd` (receipt_systemd.py), which hands it an `Evidence` with its job identity, check lines, README
 lines and extra evidence files.
@@ -618,6 +625,11 @@ def check_job(job: str, text: str) -> tuple[dict | None, str | None]:
 # .lean-receipts/<c12>-comparator-sacct.txt and bound by its SHA-256 in the receipt's `slurm_sacct` block.
 # Only a sealed receipt backs a coverage `compute` job (coverage.slurm_job_of); user and node names are
 # checked, never written.
+# `receipt slurm --seal-sacct` seals a lower-tier receipt the same way while writing it: the same checks, the
+# same record format and the same `slurm_sacct` block (file .lean-receipts/<c12>-slurm-<J>-sacct.txt), with
+# job J taken from job_id `slurm-J` and the run time from the verify log's `generated-at:` line; gate
+# (core.validate_receipt) then checks a present block with sacct_seal_problem against the record committed at
+# HEAD (committed_sacct_seal_problem).
 
 SACCT_SEAL_SCHEMA = "slurm-sacct-seal/1"
 SACCT_SEAL_FORMAT = "JobID,State,ExitCode,Start,End,Elapsed"
@@ -625,6 +637,9 @@ SACCT_SEAL_QUERY = SACCT_SEAL_FORMAT + ",User,NodeList"
 # sacct prints Start/End in the cluster's local time without a zone; this format adds the offset
 SACCT_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 SACCT_SEAL_SUFFIX = "-comparator-sacct.txt"
+SLURM_SACCT_SUFFIX = "sacct.txt"        # receipt slurm: <c12>-slurm-<J>-sacct.txt beside the receipt
+# receipt slurm --seal-sacct runs sacct itself: the seal's columns plus TotalCPU for the README entry
+SLURM_SEAL_QUERY = "JobID,State,ExitCode,Start,End,Elapsed,TotalCPU,User,NodeList"
 SACCT_SEAL_KEYS = ("schema", "job", "file", "sha256", "state", "exit_code", "start", "end", "elapsed")
 _OFFSET_RE = re.compile(r"([+-])(\d{2})(\d{2})$")
 
@@ -661,30 +676,56 @@ def comparator_slurm_job(rec: dict) -> str | None:
     return None
 
 
-def sacct_window_problem(job: str, rec: dict, start, end) -> str | None:
+def lower_slurm_job(rec: dict) -> str | None:
+    """The bare Slurm job number a lower-tier receipt names: job_id `slurm-J` (what `receipt slurm` writes),
+    J a job or array-task number; never a comparator receipt's."""
+    if not isinstance(rec, dict) or rec.get("schema") in core.COMPARATOR_SCHEMAS:
+        return None
+    m = re.fullmatch(r"slurm-(\d+(?:_\d+)?)", str(rec.get("job_id") or ""))
+    return m.group(1) if m else None
+
+
+def sacct_seal_job(rec: dict) -> tuple[str | None, str]:
+    """(job, kind) for a `slurm_sacct` seal: a comparator receipt's Slurm claim (comparator_slurm_job), else a
+    lower-tier receipt's job_id `slurm-J` (lower_slurm_job); kind is "comparator" or "lower-tier"."""
+    job = comparator_slurm_job(rec)
+    if job is not None:
+        return job, "comparator"
+    job = lower_slurm_job(rec)
+    return job, ("lower-tier" if job is not None else "comparator")
+
+
+def sacct_window_problem(job: str, rec: dict, start, end, kind: str = "comparator") -> str | None:
     """The run must lie inside the job: Start <= generated_at <= End, both times with a zone."""
+    query = SACCT_SEAL_QUERY if kind == "comparator" else SLURM_SEAL_QUERY
     if start is None or end is None:
         return (f"sacct: job {job} has no zoned Start/End (got Start={start!r}, End={end!r}); save it with "
-                f"`SLURM_TIME_FORMAT={SACCT_TIME_FORMAT} sacct -j {job} --format={SACCT_SEAL_QUERY} -P`")
+                f"`SLURM_TIME_FORMAT={SACCT_TIME_FORMAT} sacct -j {job} --format={query} -P`")
+    what = "comparator run" if kind == "comparator" else "verify run"
     try:
         at = core.parse_ts(rec.get("generated_at"))
     except (ValueError, TypeError):
-        return f"comparator receipt generated_at {rec.get('generated_at')!r} is not a timestamp"
+        return f"{kind} receipt generated_at {rec.get('generated_at')!r} is not a timestamp"
     if not start <= at <= end:
         return (f"sacct: job {job} ran {start.isoformat()} .. {end.isoformat()}, which does not contain the "
-                f"comparator run (generated_at {at.isoformat()}); this record is of another run")
+                f"{what} (generated_at {at.isoformat()}); this record is of another run")
     return None
 
 
 def sacct_seal_problem(rec: dict, sealed: bytes | None) -> str | None:
     """Why the receipt's `slurm_sacct` block does not corroborate its Slurm claim, or None when it does:
     the block is well formed, `sealed` (the bytes of block.file) hashes to block.sha256, parses (check_job)
-    as job J COMPLETED 0:0, J is the receipt's job, and Start..End contain generated_at."""
-    job = comparator_slurm_job(rec)
+    as job J COMPLETED 0:0, J is the receipt's job, and Start..End contain generated_at. The receipt is a
+    comparator receipt claiming Slurm job J, or a lower-tier receipt with job_id `slurm-J` (sacct_seal_job)."""
+    job, kind = sacct_seal_job(rec)
     if job is None:
-        return "the receipt does not claim a Slurm job (job_id J with host_policy `Slurm job J ...`)"
+        return ("the receipt does not claim a Slurm job (job_id J with host_policy `Slurm job J ...`, or a "
+                "lower-tier job_id slurm-J)")
     block = rec.get("slurm_sacct")
     if not isinstance(block, dict):
+        if kind == "lower-tier":
+            return (f"no sacct seal: slurm_sacct is not a block; rewrite the receipt with `lean-pkg receipt "
+                    f"slurm --seal-sacct` where sacct sees job {job} (or with --sacct-file)")
         return (f"no sacct seal: job_id {job} comes from SLURM_JOB_ID, which any shell can set; after the job "
                 f"finished run `comparator-receipt --seal-sacct <receipt>` where sacct sees job {job}")
     missing = [k for k in SACCT_SEAL_KEYS if k not in block]
@@ -703,13 +744,71 @@ def sacct_seal_problem(rec: dict, sealed: bytes | None) -> str | None:
     if why:
         return why
     start, end = sacct_time(seen.get("start")), sacct_time(seen.get("end"))
-    why = sacct_window_problem(job, rec, start, end)
+    why = sacct_window_problem(job, rec, start, end, kind)
     if why:
         return why
     if (block["state"], block["exit_code"]) != ("COMPLETED", "0:0") or \
             sacct_time(block["start"]) != start or sacct_time(block["end"]) != end:
         return f"slurm_sacct's fields differ from the sealed record {rel}"
     return None
+
+
+def committed_sacct_seal_problem(repo: pathlib.Path, rec: dict, rev: str = "HEAD") -> str | None:
+    """sacct_seal_problem against the record committed at `rev` (default HEAD) of the package checkout `repo`:
+    the bytes of slurm_sacct.file read from git, never from the working tree (an uncommitted record is None)."""
+    block = rec.get("slurm_sacct") if isinstance(rec, dict) else None
+    rel = block.get("file") if isinstance(block, dict) and isinstance(block.get("file"), str) else None
+    sealed = core.git_show_bytes(repo, f"./{rel}", rev) if rel and rel.startswith(".lean-receipts/") else None
+    return sacct_seal_problem(rec, sealed)
+
+
+def sacct_seal_query(job: str, query: str) -> tuple[str | None, str | None]:
+    """(output, refusal) of live `sacct -j J --format=QUERY -P` with zoned times (SLURM_TIME_FORMAT); the
+    header line stays, so check_job reads the columns by name."""
+    exe = shutil.which("sacct")
+    if exe is None:
+        return None, (f"sacct is not on PATH; on the cluster save `SLURM_TIME_FORMAT={SACCT_TIME_FORMAT} "
+                      f"sacct -j {job} --format={query} -P` and pass --sacct-file")
+    try:
+        p = subprocess.run([exe, "-j", job, f"--format={query}", "-P"], capture_output=True,
+                           text=True, timeout=SACCT_TIMEOUT,
+                           env={**os.environ, "SLURM_TIME_FORMAT": SACCT_TIME_FORMAT})
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, f"sacct could not run: {e}"
+    if p.returncode != 0:
+        return None, f"sacct exited {p.returncode}: {(p.stderr or p.stdout).strip() or 'no output'}"
+    return p.stdout, None
+
+
+def sacct_seal_record(job: str, rec: dict, seen: dict, *, live: bool, user: str | None, rel: str,
+                      kind: str = "comparator") -> tuple[dict, bytes]:
+    """The checks of a seal after check_job accepted `seen` (job J COMPLETED 0:0): Start..End contain the
+    receipt's generated_at, the account (--user, else this one with live sacct) and the receipt's host where
+    known. Returns (the `slurm_sacct` block naming `rel`, the normalized record's bytes); raises core.Fail
+    (`...; not sealed`) otherwise. Shared by `comparator-receipt --seal-sacct` and `receipt slurm --seal-sacct`."""
+    start, end = sacct_time(seen.get("start")), sacct_time(seen.get("end"))
+    why = sacct_window_problem(job, rec, start, end, kind)
+    if why:
+        raise core.Fail(why + "; not sealed")
+    checks = {}
+    account = user or (getpass.getuser() if live else None)
+    if seen.get("user") and account:
+        if seen["user"] != account:
+            raise core.Fail(f"sacct: job {job} ran under another account than {'--user' if user else 'this one'};"
+                            f" not sealed")
+        checks["user"] = "matched"
+    else:
+        checks["user"] = "not checked"
+    checks["node"] = sacct_node_check(job, str(rec.get("host") or ""), str(seen.get("nodelist") or ""),
+                                      labelled=bool(rec.get("host_label")))
+    body = sacct_seal_text(job, seen, start, end).encode()
+    block = {"schema": SACCT_SEAL_SCHEMA, "job": job, "file": rel, "sha256": hashlib.sha256(body).hexdigest(),
+             "state": "COMPLETED", "exit_code": "0:0",
+             "start": start.astimezone(dt.timezone.utc).isoformat(timespec="seconds"),
+             "end": end.astimezone(dt.timezone.utc).isoformat(timespec="seconds"),
+             "elapsed": seen.get("elapsed") or "", "checks": checks,
+             "source": "sacct" if live else "sacct-file"}
+    return block, body
 
 
 HASHED_HOST_RE = re.compile(r"h-[0-9a-f]{12}")
@@ -761,49 +860,19 @@ def seal_comparator_sacct(receipt_path: pathlib.Path, sacct_file: str | None = N
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise core.Fail(f"--seal-sacct {receipt_path}: receipt commit is not a 40-hex sha")
     if sacct_file is None:
-        exe = shutil.which("sacct")
-        if exe is None:
-            raise core.Fail(f"sacct is not on PATH; on the cluster save `SLURM_TIME_FORMAT={SACCT_TIME_FORMAT} "
-                            f"sacct -j {job} --format={SACCT_SEAL_QUERY} -P` and pass --sacct-file")
-        try:
-            p = subprocess.run([exe, "-j", job, f"--format={SACCT_SEAL_QUERY}", "-P"], capture_output=True,
-                               text=True, timeout=SACCT_TIMEOUT,
-                               env={**os.environ, "SLURM_TIME_FORMAT": SACCT_TIME_FORMAT})
-        except (OSError, subprocess.TimeoutExpired) as e:
-            raise core.Fail(f"sacct could not run: {e}") from None
-        if p.returncode != 0:
-            raise core.Fail(f"sacct exited {p.returncode}: {(p.stderr or p.stdout).strip() or 'no output'}")
-        text, live = p.stdout, True
+        text, why = sacct_seal_query(job, SACCT_SEAL_QUERY)
+        if why:
+            raise core.Fail(why)
+        live = True
     else:
         text, _ = sacct_text(job, sacct_file)
         live = False
     seen, why = check_job(job, text)
     if why:
         raise core.Fail(why + "; not sealed")
-    start, end = sacct_time(seen.get("start")), sacct_time(seen.get("end"))
-    why = sacct_window_problem(job, rec, start, end)
-    if why:
-        raise core.Fail(why + "; not sealed")
-    checks = {}
-    account = user or (getpass.getuser() if live else None)
-    if seen.get("user") and account:
-        if seen["user"] != account:
-            raise core.Fail(f"sacct: job {job} ran under another account than {'--user' if user else 'this one'};"
-                            f" not sealed")
-        checks["user"] = "matched"
-    else:
-        checks["user"] = "not checked"
-    checks["node"] = sacct_node_check(job, str(rec.get("host") or ""), str(seen.get("nodelist") or ""),
-                                      labelled=bool(rec.get("host_label")))
-    body = sacct_seal_text(job, seen, start, end).encode()
     rel = f".lean-receipts/{commit[:12]}{SACCT_SEAL_SUFFIX}"
     out = receipt_path.parent / pathlib.PurePosixPath(rel).name
-    block = {"schema": SACCT_SEAL_SCHEMA, "job": job, "file": rel, "sha256": hashlib.sha256(body).hexdigest(),
-             "state": "COMPLETED", "exit_code": "0:0",
-             "start": start.astimezone(dt.timezone.utc).isoformat(timespec="seconds"),
-             "end": end.astimezone(dt.timezone.utc).isoformat(timespec="seconds"),
-             "elapsed": seen.get("elapsed") or "", "checks": checks,
-             "source": "sacct" if live else "sacct-file"}
+    block, body = sacct_seal_record(job, rec, seen, live=live, user=user, rel=rel)
     old = rec.get("slurm_sacct")
     if isinstance(old, dict) and {k: old.get(k) for k in SACCT_SEAL_KEYS} == {k: block[k] for k in SACCT_SEAL_KEYS} \
             and out.is_file() and out.read_bytes() == body:
@@ -1436,7 +1505,7 @@ class Evidence:
                  executor_lines, default_heading: str, check_log_job_id, json_extra: dict,
                  redactions=DEFAULT_REDACTIONS, redaction_note: str = "per-job paths redacted",
                  stdout_check=None, evidence_files=(), redact_help: str = "add a --redact REGEX for it",
-                 receipt_extra: dict | None = None):
+                 receipt_extra: dict | None = None, sacct_seal=None):
         self.verb, self.job_id = verb, job_id
         self.refusals, self.checks = refusals, checks
         self.executor_lines = executor_lines          # (receipt file name, tar clause) -> list[str]
@@ -1450,6 +1519,9 @@ class Evidence:
         self.evidence_files = list(evidence_files)
         self.redact_help = redact_help
         self.receipt_extra = dict(receipt_extra or {})   # additive receipt keys (e.g. `producer`), gate ignores
+        # `receipt slurm --seal-sacct`: (receipt, record's .lean-receipts/ path) -> (slurm_sacct block, record
+        # bytes), raising core.Fail; the record is written beside the receipt as `<c12>-<slug>-sacct.txt`
+        self.sacct_seal = sacct_seal
 
 
 def check_seal(paths: dict, raw: bytes, manifest: bytes | None, c12: str | None, refusals: list[str],
@@ -1699,6 +1771,30 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
         files.append((path, data))
         sealed_files.append({"role": suffix, "path": str(path), "sha256": digest, "receipt_key": key})
         evidence_lines.append(line.format(name=path.name, sha=digest))
+    if ev.sacct_seal is not None:  # additive (--seal-sacct): the job's sacct record, sealed like a comparator's
+        sacct_path = out.with_name(f"{name12}-{slug}-{SLURM_SACCT_SUFFIX}")
+        if not fields.get("generated-at"):
+            refusals.append("--seal-sacct: the verify log has no `generated-at:` line (stamped inside the job, "
+                            "as the --template prints it); the sacct window must contain the run, and a receipt "
+                            "stamped at writing time lies after the job")
+        else:
+            try:
+                sblock, sbody = ev.sacct_seal(receipt, f".lean-receipts/{sacct_path.name}")
+            except core.Fail as e:
+                refusals.append(str(e))
+            else:
+                receipt["slurm_sacct"] = sblock
+                files.append((sacct_path, sbody))
+                sealed_files.append({"role": SLURM_SACCT_SUFFIX, "path": str(sacct_path),
+                                     "sha256": sblock["sha256"], "receipt_key": "slurm_sacct.sha256"})
+                checks.append(f"✓ sacct seal: job {sblock['job']} COMPLETED, exit 0:0, {sblock['start']} .. "
+                              f"{sblock['end']} contains generated_at (user {sblock['checks']['user']}, node "
+                              f"{sblock['checks']['node']}; {sblock['source']})")
+                evidence_lines.append(
+                    f"- Seal: sacct record `{sacct_path.name}`, SHA-256 `{sblock['sha256']}` (= "
+                    f"`slurm_sacct.sha256`, {SACCT_SEAL_SCHEMA}): job `{sblock['job']}` COMPLETED, exit `0:0`, "
+                    f"{sblock['start']} .. {sblock['end']} (UTC) containing `generated_at`; user "
+                    f"{sblock['checks']['user']}, node {sblock['checks']['node']}; from {sblock['source']}.")
     gz_out = log_out.with_name(log_out.name + core.REPORT_GZ_SUFFIX)
     compress = bool(getattr(args, "compress_log", False))
     gz_bytes = gz_sha = None
@@ -1775,6 +1871,9 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
                 _write(readme, (old.rstrip() + "\n\n" + block).encode("utf-8"))
                 appended = True
         next_cmd = f"lean-pkg gate NAME --check --receipt {rel_r}"
+        if "slurm_sacct" in receipt:
+            checks.append(f"· commit {_shown(sacct_path, repo)} with the receipt: gate checks the sealed sacct "
+                          f"record committed at HEAD")
 
     if args.json_out:
         payload = {"ok": not refusals, "receipt": None if refusals else str(out),
@@ -1783,6 +1882,8 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
                    "job_id": ev.job_id, "seal": seal, "log_commit_bound": log_commit_bound,
                    "report_compressed": receipt.get("report_compressed")}
         payload.update(ev.json_extra)
+        if ev.sacct_seal is not None:      # additive, only with --seal-sacct: the block written into the receipt
+            payload["slurm_sacct"] = None if refusals else receipt.get("slurm_sacct")
         # The exact files this run wrote and bound, so a caller never guesses a sidecar by its name: the
         # receipt itself, the redacted log (report_sha256) and each evidence file with the receipt key that
         # holds its SHA-256. Empty on a refusal (nothing written).
@@ -1972,6 +2073,11 @@ def cmd_receipt_slurm(args) -> int:
                             ("--preflight-deps", args.preflight_deps)) if v]
     if len(modes) > 1:
         raise core.UsageError(f"{' and '.join(modes)} do not combine")
+    seal = bool(getattr(args, "seal_sacct", False))
+    if seal and modes:
+        raise core.UsageError(f"--seal-sacct seals the receipt this command writes; not with {modes[0]}")
+    if getattr(args, "sacct_user", None) is not None and not seal:
+        raise core.UsageError("--user goes with --seal-sacct (the account the job must have run under)")
     if not args.preflight_deps:
         given = [f for f, v in (("--deps-tar", args.deps_tar), ("--deps-dir", args.deps_dir),
                                 ("--entries", args.entries), ("--fill-plan", args.fill_plan),
@@ -2005,10 +2111,15 @@ def cmd_receipt_slurm(args) -> int:
     paths = _job_files(args)
     art = artifacts_args(args, paths)
     extra = common_usage(args)
+    if seal:
+        seal_usage(args, job, repo)
 
     refusals: list[str] = []
     checks: list[str] = []
-    text, why = sacct_text(job, args.sacct_file)
+    if seal and args.sacct_file is None:   # the seal needs zoned Start/End: sacct with its header and time format
+        text, why = sacct_seal_query(job, SLURM_SEAL_QUERY)
+    else:
+        text, why = sacct_text(job, args.sacct_file)
     sacct = None
     if why:
         refusals.append(why)
@@ -2031,12 +2142,33 @@ def cmd_receipt_slurm(args) -> int:
 
     evidence_files, art_summary = _artifact_evidence(art, paths, refusals, checks)
     json_extra = {"sacct": sacct}
+    if seal and sacct is not None:         # user and node names are checked, never printed or written
+        json_extra["sacct"] = {k: v for k, v in sacct.items() if k not in ("user", "nodelist")}
     if art is not None:                    # additive, only with --artifacts: without it nothing changes
         json_extra["artifacts"] = art_summary
+    sacct_seal = None
+    if seal and sacct is not None:
+        live = args.sacct_file is None
+
+        def sacct_seal(receipt: dict, rel: str) -> tuple[dict, bytes]:
+            return sacct_seal_record(job, receipt, sacct, live=live, user=args.sacct_user, rel=rel,
+                                     kind="lower-tier")
     ev = Evidence(verb="receipt slurm", job_id=job_id, refusals=refusals, checks=checks, executor_lines=lines,
                   default_heading=f"lower-tier receipt, Slurm job {job}", check_log_job_id=log_job_id,
-                  json_extra=json_extra, evidence_files=evidence_files)
+                  json_extra=json_extra, evidence_files=evidence_files, sacct_seal=sacct_seal)
     return produce(args, ev, repo, paths, extra)
+
+
+def seal_usage(args, job: str, repo: pathlib.Path) -> None:
+    """The usage checks of `receipt slurm --seal-sacct` (exit 2): a job number sacct can be asked about, and the
+    receipt in <repo>/.lean-receipts/, where slurm_sacct.file names the record beside it."""
+    if not re.fullmatch(r"\d+(?:_\d+)?", job):
+        raise core.UsageError(f"--seal-sacct needs a Slurm job number (J or J_T), got --job {args.job!r}")
+    if args.out:
+        want = (repo / ".lean-receipts").resolve()
+        if pathlib.Path(args.out).expanduser().resolve().parent != want:
+            raise core.UsageError("--seal-sacct writes the record beside the receipt under <repo>/.lean-receipts/ "
+                                  "(slurm_sacct.file names it there); --out must name a file in that directory")
 
 
 def add_common_flags(s, kind: str, name_hint: str) -> None:
@@ -2133,7 +2265,21 @@ def add_parsers(sub, add_json) -> None:
                    help=f"also replace matches with {REDACT_TOKEN} (repeatable); the built-in prefixes are always "
                         f"redacted to {USER_TOKEN} instead (/tmp/{USER_TOKEN}-job, /scratch/{USER_TOKEN}/)")
     s.add_argument("--sacct-file", default=None, metavar="F",
-                   help=f"saved output of `sacct -j J --format={SACCT_FORMAT} -P -n` (a host without Slurm)")
+                   help=f"saved output of `sacct -j J --format={SACCT_FORMAT} -P -n` (a host without Slurm); "
+                        f"with --seal-sacct: of `SLURM_TIME_FORMAT=%%Y-%%m-%%dT%%H:%%M:%%S%%z sacct -j J "
+                        f"--format={SLURM_SEAL_QUERY} -P` (with its header line)")
+    s.add_argument("--seal-sacct", action="store_true",
+                   help="seal the job's sacct record into the receipt, as `receipt comparator --seal-sacct` does: "
+                        "the main line must also show Start..End (with a zone) containing the log's generated-at: "
+                        "line, the account (this one with live sacct, or --user); writes <commit12>-slurm-<J>-"
+                        "sacct.txt beside the receipt (JobID|State|ExitCode|Start|End|Elapsed, UTC; no user or "
+                        "node names) and the additive slurm_sacct block (slurm-sacct-seal/1) with its sha256; gate "
+                        "then refuses the receipt unless that record is committed at HEAD and still hashes and "
+                        "parses to the block. Live sacct runs the seal query; on a host without Slurm pass "
+                        "--sacct-file")
+    s.add_argument("--user", dest="sacct_user", default=None, metavar="NAME",
+                   help="--seal-sacct: the account the job must have run under (default with live sacct: this "
+                        "one; with --sacct-file: not checked unless given); compared, never written")
     s.add_argument("--artifacts", default=None, metavar="DIR",
                    help=f"the collected copy of the job's sealed artifact directory (the template's ARTIFACTS_DIR): "
                         f"the manifest's sha256 must be the --stdout {ARTIFACTS_KEY} line and every file under DIR "

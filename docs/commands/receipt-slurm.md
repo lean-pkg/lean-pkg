@@ -17,9 +17,9 @@ lean-pkg receipt slurm [--job J] [--log PATH] [--receipt-commit SHA] [--template
                        [--check] [--preflight-deps] [--deps-tar PATH] [--deps-dir DIR]
                        [--entries GLOB] [--fill-plan DONOR] [--plan-out FILE]
                        [--base-list FILE] [--stdout PATH] [--stderr PATH]
-                       [--redact REGEX] [--sacct-file F] [--artifacts DIR]
-                       [--artifacts-manifest NAME] [--checker TEXT] [--repo DIR]
-                       [--out PATH] [--compress-log] [--append-readme]
+                       [--redact REGEX] [--sacct-file F] [--seal-sacct] [--user NAME]
+                       [--artifacts DIR] [--artifacts-manifest NAME] [--checker TEXT]
+                       [--repo DIR] [--out PATH] [--compress-log] [--append-readme]
                        [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
                        [common flags]
 ```
@@ -45,7 +45,9 @@ lean-pkg receipt slurm [--job J] [--log PATH] [--receipt-commit SHA] [--template
 | `--stdout PATH` | the job's stdout (.out): verify-log-sha256 = sha256(raw log), pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at the commit); without it the log must carry its own seal |
 | `--stderr PATH` | the job's stderr (.err); must be empty |
 | `--redact REGEX` | also replace matches with &lt;redacted&gt; (repeatable); the built-in prefixes are always redacted to &lt;USER&gt; instead (/tmp/&lt;USER&gt;-job, /scratch/&lt;USER&gt;/) |
-| `--sacct-file F` | saved output of `sacct -j J --format=JobID,State,ExitCode,Elapsed,TotalCPU -P -n` (a host without Slurm) |
+| `--sacct-file F` | saved output of `sacct -j J --format=JobID,State,ExitCode,Elapsed,TotalCPU -P -n` (a host without Slurm); with --seal-sacct: of `SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j J --format=JobID,State,ExitCode,Start,End,Elapsed,TotalCPU,User,NodeList -P` (with its header line) |
+| `--seal-sacct` | seal the job's sacct record into the receipt, as `receipt comparator --seal-sacct` does: the main line must also show Start..End (with a zone) containing the log's generated-at: line, the account (this one with live sacct, or --user); writes &lt;commit12&gt;-slurm-&lt;J&gt;-sacct.txt beside the receipt (JobID\|State\|ExitCode\|Start\|End\|Elapsed, UTC; no user or node names) and the additive slurm_sacct block (slurm-sacct-seal/1) with its sha256; gate then refuses the receipt unless that record is committed at HEAD and still hashes and parses to the block. Live sacct runs the seal query; on a host without Slurm pass --sacct-file |
+| `--user NAME` | --seal-sacct: the account the job must have run under (default with live sacct: this one; with --sacct-file: not checked unless given); compared, never written |
 | `--artifacts DIR` | the collected copy of the job's sealed artifact directory (the template's ARTIFACTS_DIR): the manifest's sha256 must be the --stdout artifacts-manifest-sha256 line and every file under DIR is rehashed against it (missing, extra, changed files, symlinks, special files, path traversal and duplicate entries refuse); the receipt gains artifacts_manifest_sha256 and the manifest is written beside it. Needs --stdout |
 | `--artifacts-manifest NAME` | the manifest's file name inside --artifacts DIR (default artifacts.sha256) |
 | `--checker TEXT` | the exact checker command or mode (default: the log's `checker:` line) |

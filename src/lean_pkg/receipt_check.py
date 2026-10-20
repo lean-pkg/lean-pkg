@@ -31,7 +31,10 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   keys when present (manifest_sha256 against lake-manifest.json at X, artifacts_manifest_sha256 and
   unit_properties_sha256 against their committed files; job_stdout_sha256 is not checkable: the job's stdout
   is not published); the `container` key when present (#236: shown with its engine, digest and image ref;
-  a malformed one fails; the digest itself is not re-derivable, the image is not published).
+  a malformed one fails; the digest itself is not re-derivable, the image is not published); the
+  `slurm_sacct` block when present (`receipt slurm --seal-sacct`): the validator refuses it unless the sealed
+  sacct record is committed at REF and still hashes and parses to the block (receipt.sacct_seal_problem, the
+  check of a comparator receipt's seal), and a row names the job, the window and the record.
 - per lower-tier receipt with the additive `claim_axioms` key (AX1): re-derived from the sealed log's
   claim-axioms lines against claims.yaml at X (every claim checked, none missing, no sorryAx,
   agreeing with the log's `#print axioms` output) and compared with the key.
@@ -322,6 +325,16 @@ def evidence_file_checks(c: Checks, repo: pathlib.Path, view: dict, x: str) -> N
     else:
         c.add(cid, SKIP, "; ".join(skipped) or "no additive evidence key (manifest_sha256, "
               "artifacts_manifest_sha256, unit_properties_sha256)")
+
+
+def sacct_seal_check(c: Checks, view: dict) -> None:
+    """The additive `slurm_sacct` block (`receipt slurm --seal-sacct`), when present: shown. The validator
+    (core.validate_receipt, run first) already refused a block whose record is missing, uncommitted at the
+    published ref, rehashed or edited (receipt.sacct_seal_problem); this row names what it corroborated."""
+    rec, rel = view["data"], view["path"]
+    if "slurm_sacct" not in rec:
+        return
+    c.add(f"lower {rel}: sacct seal", PASS, core.sacct_seal_lines(rec)[0][2:].replace("at HEAD", "at the ref"))
 
 
 def container_check(c: Checks, view: dict, tier: str = "lower") -> None:
@@ -626,6 +639,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                 except core.Fail as e:
                     c.add(f"lower {rel}: report log", FAIL, str(e))
                 evidence_file_checks(c, repo, v, x)
+                sacct_seal_check(c, v)
                 container_check(c, v)
                 claim_axioms_check(c, repo, v, x)
         cs = core.claims_schema_at(pkg_name, pkg, repo, x)

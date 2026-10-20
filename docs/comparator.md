@@ -2302,6 +2302,12 @@ decides whether its job counts as compute. A receipt already recorded with
 schema stays `comparator-receipt/2`, and a receipt written before 0.11.0 reads as
 before except that its unsealed Slurm claim no longer backs a `compute` job.
 
+A lower-tier receipt is sealed the same way while it is written:
+`lean-pkg receipt slurm ... --seal-sacct [--sacct-file F] [--user NAME]`
+writes `<commit12>-slurm-<J>-sacct.txt` and the same `slurm_sacct` block, and
+`gate` then refuses that receipt unless the record is committed at HEAD and
+still corroborates it ([Sealing the sacct record](receipts.md#sealing-the-sacct-record---seal-sacct)).
+
 ### Which hosts can produce receipts
 
 The policy above says where a run is *allowed*; whether a host *can* produce a

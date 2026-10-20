@@ -471,11 +471,7 @@ def receipt_mod():
 def unsealed_comparator_job(rec: dict, repo: pathlib.Path) -> str | None:
     """Why a comparator receipt's Slurm claim is not corroborated (receipt.sacct_seal_problem against the
     seal file committed at HEAD), or None when it is; also a reason when it claims no Slurm job."""
-    r = receipt_mod()
-    block = rec.get("slurm_sacct")
-    rel = block.get("file") if isinstance(block, dict) and isinstance(block.get("file"), str) else None
-    sealed = core.git_show_bytes(repo, f"./{rel}") if rel and rel.startswith(".lean-receipts/") else None
-    return r.sacct_seal_problem(rec, sealed)
+    return receipt_mod().committed_sacct_seal_problem(repo, rec)
 
 
 def slurm_jobs_at_head(repo: pathlib.Path) -> dict[str, str]:

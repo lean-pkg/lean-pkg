@@ -47,6 +47,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   holds the definitions only); lean-pkg 0.19.0 and older refuse a sidecar
   that uses the key ([smoke checks](docs/comparator.md#smoke-checks))
   (#293).
+- `receipt slurm --seal-sacct [--user NAME]` (#294, a field report): an
+  optional sacct seal for a lower-tier receipt, the one `receipt comparator
+  --seal-sacct` gives a comparator receipt. Besides `COMPLETED` `0:0`, the
+  job's `Start`..`End` (with a zone) must contain the verify log's
+  `generated-at:` line and the account must be this one (live `sacct`) or
+  `--user`; the normalized record `<c12>-slurm-<J>-sacct.txt` is written
+  beside the receipt and bound by the additive `slurm_sacct` block (schema
+  `slurm-sacct-seal/1`), a `- Seal:` README line and a `sealed[]` entry
+  (role `sacct.txt`). `gate`, `gate --check`, `receipt check` and every other
+  validator of a lower-tier receipt refuse a receipt whose sealed record is
+  missing, uncommitted at HEAD, re-hashed or edited
+  (`receipt.sacct_seal_problem`, shared with the comparator seal). A receipt
+  without the block is judged as before.
 
 ### Changed
 

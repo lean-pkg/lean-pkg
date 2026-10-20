@@ -51,6 +51,7 @@ covered, and how a third party re-verifies a page, is the
 | `report_sha256` | 64 hex characters: the frozen verification report; when the redacted verify log `<commit12>-<job slug>-verify.redacted.log` that `receipt slurm`/`systemd` writes is found (beside the receipt file, in the package's `.lean-receipts/`, or tracked there at HEAD), every copy must hash to it, else `gate` refuses; none found (or a copy that cannot be read) is refused too, as `report log missing: ...` naming where it looked and the path to restore it to (see [Restoring preserved evidence](#restoring-preserved-evidence)). The same rule holds wherever a recorded lower-tier receipt is judged: the claims ledger (and so `promote`), `next`, `comparator`, `palomar` and `index check`. A compressed copy `<...>-verify.redacted.log.gz` is checked the same way on its uncompressed bytes ([compressed sealed log](#a-compressed-sealed-log---compress-log)); report_sha256 is never the hash of the .gz, and `report_compressed.bytes` is the decoded length, not the .gz size ([checking it yourself](#checking-a-compressed-log-yourself)) |
 | `job_id`, `checker`, `generated_at` | nonempty: the executor's terminal job identity, the exact checker mode, and an ISO-8601 time that must parse. The stored copy is named `<commit12>-<job_id>.json`, with characters outside `[A-Za-z0-9._-]` replaced by `-` and leading dots and dashes dropped |
 | `claim_axioms` (optional, additive) | `{checked, nonstandard: [{decl, axioms}], missing: []}`: the axioms of **every** claim in `claims.yaml`, read from the built environment ([Per-claim axioms](#per-claim-axioms-claim_axioms)). When present, `missing` must be empty and every axiom under `nonstandard` must be in `gate.axioms_allowed` (`sorryAx` never is). A receipt without the key is valid, as before |
+| `slurm_sacct` (optional, additive) | the job's sacct record sealed by [`receipt slurm --seal-sacct`](#sealing-the-sacct-record---seal-sacct): `{schema: slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source}`, the block a sealed comparator receipt carries. When present, `job_id` must be `slurm-<job>`, `file` (`.lean-receipts/<commit12>-slurm-<J>-sacct.txt`) must be committed at HEAD and hash to `sha256`, and the record must parse as job J `COMPLETED` `0:0` with a `Start`..`End` containing `generated_at` and equal to the block's (`receipt.sacct_seal_problem`). A receipt without the key is valid, as before |
 
 The frozen report named by `report_sha256` is expected to bind the candidate
 commit or tree, the toolchain and dependency pins, complete checker
@@ -266,6 +267,66 @@ refused (gate refuses it too: see [the rule](#evidence-binding-the-evidence-only
 hash is in the entry. A differing file already at either path is refused;
 an identical one is left alone. The command prints the README entry and
 the next step, `lean-pkg gate NAME --check --receipt .lean-receipts/<commit12>-slurm-<J>.json`.
+
+### Sealing the sacct record (`--seal-sacct`)
+
+The job check above runs once, when the receipt is written, and nothing in
+the receipt records what `sacct` said: on a host without Slurm the terminal
+state rests on a `--sacct-file` any shell can write, and `gate` never sees
+it. `--seal-sacct` (optional) keeps the record, exactly as
+[`receipt comparator --seal-sacct`](comparator.md#seal-the-slurm-claim-with-sacct)
+does for a comparator receipt: the same checks, the same normalized record
+and the same `slurm_sacct` block (schema `slurm-sacct-seal/1`).
+
+```bash
+# on the cluster, where sacct sees the job: sacct is run with a header and zoned times
+lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" \
+  --log verify.log --stdout job-123.out --stderr job-123.err --seal-sacct
+
+# on a host without Slurm: save the record on the cluster first
+SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j 123 \
+  --format=JobID,State,ExitCode,Start,End,Elapsed,TotalCPU,User,NodeList -P > job-123.sacct
+lean-pkg receipt slurm --job 123 --commit <sha> --log verify.log --stdout job-123.out \
+  --stderr job-123.err --seal-sacct --sacct-file job-123.sacct --user <cluster account>
+```
+
+Besides `COMPLETED` and `0:0`, the seal refuses (exit 1, nothing written)
+unless the main job line has a `Start` and an `End` with a zone that contain
+the receipt's `generated_at`, taken from the verify log's `generated-at:`
+line (the `--template` prints it inside the job; a log without it is refused,
+since the time of writing lies after the job), and the job ran under this
+account (live `sacct`) or the `--user` given (with `--sacct-file` and no
+`--user`, not checked). A lower-tier receipt names no node, so the node is
+`not checked`. The file needs its header line (`-P` without `-n`); the plain
+five-column file of the job check has no `Start`/`End` and is refused as
+`no zoned Start/End`. `--job` must be a job number (`J` or an array task
+`J_T`), and `--out`, when given, must name a file in `<repo>/.lean-receipts/`.
+`--user` goes only with `--seal-sacct`; `--check`, `--template` and
+`--preflight-deps` do not combine with it.
+
+It writes `<commit12>-slurm-<J>-sacct.txt` beside the receipt (the record
+normalized to `JobID|State|ExitCode|Start|End|Elapsed`, UTC times, no user or
+node names) and adds `slurm_sacct` {`schema`, `job`, `file`, `sha256`,
+`state`, `exit_code`, `start`, `end`, `elapsed`, `checks` {`user`, `node`},
+`source` (`sacct` or `sacct-file`)} to the receipt. The README entry gains a
+line
+
+```markdown
+- Seal: sacct record `<commit12>-slurm-123-sacct.txt`, SHA-256 `<hex>` (= `slurm_sacct.sha256`, slurm-sacct-seal/1): job `123` COMPLETED, exit `0:0`, <start> .. <end> (UTC) containing `generated_at`; user matched, node not checked; from sacct.
+```
+
+`--json` lists the record in `sealed[]` (role `sacct.txt`, receipt key
+`slurm_sacct.sha256`) and prints the block as `slurm_sacct`; its `sacct`
+object then leaves out the user and node names. Commit the record with the
+receipt: `gate`, `gate --check`, `receipt check` and every other place a
+lower-tier receipt is judged (`core.validate_receipt`) read it from git at
+HEAD and refuse the receipt when it is missing or uncommitted, when it no
+longer hashes to the block (`sacct seal record missing or changed: ...`:
+restore the byte-exact file), or when the block names another job, a window
+that does not contain the run, or fields the record does not say
+(`sacct seal: ...`). An uncommitted edit of the file changes nothing; a
+`slurm_sacct` key that is not a block is refused, never ignored. Without the
+flag nothing changes, and a receipt without the block is judged as before.
 
 ### Before sbatch
 
@@ -1705,7 +1766,7 @@ still exits 127 as an incomplete list, not as a host fault.
 | `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601. `host`, and the host in `job_id` (`local-<host>-<pid>-<stamp>` outside Slurm), is the host's label, never its name: `h-` and 12 hex digits of the SHA-256 of the lower-cased host name (the label `receipt systemd` uses) or the runner's `--host-label`; a receipt written by lean-pkg 0.10.0 or earlier may name the host itself (still valid; `public-safety` reports it as `receipt-raw-host`, see [Comparator](comparator.md#host-policy)) |
 | `host_label` | the label in `host` (always written since host labels; before, only with `--host-label`); not validated |
 | `host_policy` | the runner's host-policy reason (an override run is visible here), naming the host by its label |
-| `slurm_sacct` | optional, additive: the sacct seal of a Slurm claim (`job_id` J, `host_policy` `Slurm job J ...`), written after the job by `lean-pkg receipt comparator --seal-sacct`: `{schema: slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source}`, `file` the normalized record `.lean-receipts/<commit12>-comparator-sacct.txt` it hashes. Only a sealed claim backs a `coverage.yaml` `compute` job; see [Comparator](comparator.md#seal-the-slurm-claim-with-sacct) |
+| `slurm_sacct` | optional, additive: the sacct seal of a Slurm claim (`job_id` J, `host_policy` `Slurm job J ...`), written after the job by `lean-pkg receipt comparator --seal-sacct`: `{schema: slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source}`, `file` the normalized record `.lean-receipts/<commit12>-comparator-sacct.txt` it hashes. Only a sealed claim backs a `coverage.yaml` `compute` job; see [Comparator](comparator.md#seal-the-slurm-claim-with-sacct). A lower-tier receipt carries the same block with [`receipt slurm --seal-sacct`](#sealing-the-sacct-record---seal-sacct) |
 | `stack_limit` | optional, additive, not validated: `{soft_kb, hard_kb, source}`, the soft stack limit the runner's `lake`/`lean` children ran under (`soft_kb`/`hard_kb` an integer or `unlimited`; `source` `inherited` or `COMPARATOR_RECEIPT_STACK`); see [Comparator](comparator.md#stages-and---prepare) |
 | `lean_threads` | optional, additive, not validated: the `LEAN_NUM_THREADS` the runner gave its `lake`/`lean` children (`COMPARATOR_RECEIPT_LEAN_THREADS`), or `null` when unset; see [Comparator](comparator.md#stages-and---prepare) |
 | `judges`, `unit_size` | optional, additive, not validated (toolchain mechanism): the judge pool width (`--judges`, `LEAN_PKG_COMPARATOR_JOBS`) and the names per judge unit (`--unit-size`, `LEAN_PKG_COMPARATOR_UNIT_SIZE`), `unit_size` `null` when each configuration was cut into `judges` shards (the default); see [Comparator](comparator.md#stages-and---prepare) |
@@ -2106,6 +2167,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `lower <receipt>` | `gate`'s validator: every receipt key, the binding, `lean_toolchain` and `mathlib_rev` against `lean-toolchain` and `lake-manifest.json` at X, no path dependency outside the package, `sorry_count` 0, axioms within `propext`, `Quot.sound`, `Classical.choice` |
 | `... report log` | `report_sha256` is the SHA-256 of the committed redacted log (or of its `.gz`, decompressed); a missing log fails |
 | `... evidence files` | `manifest_sha256`, `artifacts_manifest_sha256`, `unit_properties_sha256` against the files they name, when present; `job_stdout_sha256` is not checkable (the job's stdout is not published) |
+| `... sacct seal` | only when the receipt has a `slurm_sacct` block ([`--seal-sacct`](#sealing-the-sacct-record---seal-sacct)): shown (job, window, record); the validator of `lower <receipt>` already failed it unless the sealed record is committed at REF and still hashes and parses to the block |
 | `... container` | only when the receipt has a `container` key: shown (engine, digest, image ref); a malformed one fails; the digest is not re-derivable (the image is not published) |
 | `... claim axioms` | only when the receipt has a `claim_axioms` key: re-derived from the committed sealed log against `claims.yaml` at X (every claim checked, none missing, no `sorryAx`, agreeing with the log's `#print axioms` output) and equal to the key |
 | `claims` | `claims.yaml` at X passes the claims/1 schema and the declaration check `gate` runs |
@@ -2394,6 +2456,7 @@ RULES = [
     (r"lower \S+: claim axioms", "sealed verify log is not readable", "restore", "the sealed log"),
     (r"lower \S+: evidence files", "lake-manifest.json", "new-run", "manifest_sha256 is not the commit's lake-manifest.json"),
     (r"lower \S+: evidence files", None, "restore", "the artifacts.sha256 or unit.properties file the job wrote"),
+    (r"lower \S+", "sacct seal record missing or changed: ", "restore", "the sealed sacct record <c12>-slurm-<J>-sacct.txt, byte-exact"),
     (r"lower \S+(: .*)?", None, "new-run", "the receipt itself: a field, a pin, sorry_count, axioms, container"),
     (r"receipts", None, "restore", "the lower-tier receipt for the commit and its sealed log, byte-exact"),
     (r"receipt \S+", None, "restore", "a file named for the commit that is not its receipt: rename it or restore the receipt"),
@@ -2488,6 +2551,8 @@ The classes only explain: a receipt passes when `receipt check` (or
 | `lower R` | `receipt missing required field`, `toolchain mismatch`, `mathlib mismatch`, path dependency, `sorry_count`, `axioms ... outside`, `generated_at`, `job_id` | new run | the receipt's own content; receipts are never edited |
 | `lower R` | `receipt commit ... != repo HEAD` | new run (for that ref) | as `binding` |
 | `lower R: container` | malformed `container` | new run | the receipt's own content |
+| `lower R` | `sacct seal record missing or changed: ...` | restoration only | the sealed sacct record `.lean-receipts/<c12>-slurm-<J>-sacct.txt` ([`receipt slurm --seal-sacct`](#sealing-the-sacct-record---seal-sacct)), byte-exact, committed; lost: a new `receipt slurm --seal-sacct` run |
+| `lower R` | `sacct seal: ...` (another job, a window that does not contain the run, fields that differ from the record) | new run | the receipt's own `slurm_sacct` block; receipts are never edited |
 | `receipts` | `no lower-tier receipt ... binds X` | restoration only | the receipt JSON and its sealed log, byte-exact, committed after X; never produced: new run |
 | `receipt FILE` | `named for X but binds Y`, `not a readable receipt` | restoration only | the file under X's name is not X's receipt: rename it (`<commit12>-<job>.json` of its own commit) or keep it outside `.lean-receipts/`, or restore X's receipt |
 | `binding` | `... is not ... an evidence-only descendant` | new run (for that ref) | the receipts certify X, not the ref: check X at its evidence commit (`--at`); a ref with source changes needs its own run. A detail ending in the docs-only hint is the package's opt-in to decide |
