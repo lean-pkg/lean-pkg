@@ -67,4 +67,37 @@ changes:
       mandatory.
     breaking: false
     changelog: Added
+  - pr: 285
+    id: fill-plan-donor-hidden-edits
+    kind: behavior
+    area: receipt slurm
+    summary: >-
+      receipt slurm --preflight-deps --fill-plan DONOR (#284, a field report): donor-source-edits ran git
+      status --porcelain --untracked-files=no only, so an edit under an index entry marked assume-unchanged
+      or skip-worktree, and an untracked or ignored *.lean, lakefile.*, lean-toolchain or
+      lake-manifest.json outside .lake/, passed as clean. It now also refuses an index entry with either
+      flag (git ls-files -v) and any such untracked or ignored file, and turns off the checkout's own
+      core.fsmonitor and untracked cache for the probe.
+    action: >-
+      A donor that passed before can now be refused. Clear the flag (git update-index
+      --no-assume-unchanged, --no-skip-worktree) or move the stray file away, then run the preflight again.
+    breaking: true
+    changelog: Fixed
+  - pr: 285
+    id: fill-plan-donor-source-identity
+    kind: behavior
+    area: receipt slurm --preflight-deps --fill-plan
+    summary: >-
+      donor-source-edits now also refuses a donor dependency checkout with an index entry marked
+      assume-unchanged or skip-worktree (git status skips such an entry, so an edit under it passed as
+      clean), and one with an untracked or ignored *.lean, lakefile.*, lean-toolchain or lake-manifest.json
+      outside .lake/ (git status --untracked-files=no never looked); the probe runs with the checkout's own
+      core.fsmonitor and untracked cache off (#284, a field report). The refusal code and the JSON shapes
+      are unchanged.
+    action: >-
+      Nothing for a package author. A donor that was accepted before can now be refused: clear the flag
+      (git update-index --no-assume-unchanged or --no-skip-worktree) or move the stray file out of the
+      checkout, then plan again.
+    breaking: false
+    changelog: Fixed
 no_author_change: []
