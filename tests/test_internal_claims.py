@@ -39,6 +39,14 @@ def test_an_internal_claim_the_comparator_did_not_judge_stays_out_of_scope(lp, e
     assert rows["zap"]["status"] == "verified"               # an out-of-scope dependency blocks nothing, as before
 
 
+def test_a_name_matching_only_the_last_component_judges_nothing(lp, env, capsys):
+    # the exact-name rule of a reusable claim (#140): `Other.baz` or a bare `baz` is not `Demo.baz`
+    gated(env, claims=claims_list(baz=internal("baz", "Demo.baz", kind="lemma")),
+          names=("BetaAudit.Demo.foo_le_bar", "BetaAudit.Demo.zap", "BetaAudit.Other.baz", "baz"))
+    rows = by_id(ledger(lp, env, capsys)[1])
+    assert rows["baz"]["status"] == "out-of-scope" and rows["baz"]["judged_internal"] is False
+
+
 def test_a_scaffold_todo_name_judges_nothing(lp, env, capsys):
     gated(env, claims=claims_list(baz=internal("baz", "Demo.baz", kind="lemma")), todo=("BetaAudit.Demo.baz",))
     assert by_id(ledger(lp, env, capsys)[1])["baz"]["status"] == "out-of-scope"
