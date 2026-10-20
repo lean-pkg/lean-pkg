@@ -236,13 +236,67 @@ def _evidence(repo, gate: dict) -> tuple[list[dict], dict, dict]:
     return rows, lower or {}, comp or {}
 
 
-def _context(pkg: dict, repo, allow_private: bool) -> dict:
+def _receipt_view(pkg: dict, repo, gate: dict, lower: dict) -> dict:
+    """`page --repo DIR` (field report): whether the recorded gate receipt validates at DIR's committed HEAD
+    (core.validate_receipt: bound to HEAD or an evidence-only descendant, as `formalization render --repo`
+    decides). {head, receipt, commit, included, binds_head, reason}. Two ways to fail, never confused:
+    binds_head False (no receipt, or its commit is not HEAD nor an ancestor HEAD descends from by the binding
+    rule, core.package_descendant): a candidate commit between gate runs, rendered as a preview;
+    binds_head True with included False: the receipt binds HEAD but is invalid (axioms, sorry count,
+    toolchain, Mathlib, a malformed field): a failed check, never called expected drift."""
+    head = core.git_head(repo)
+    commit = lower.get("commit") if lower else None
+    view = {"head": head, "receipt": gate.get("receipt"), "commit": commit, "included": False,
+            "binds_head": False, "reason": None}
+    if not gate.get("receipt"):
+        view["reason"] = "no gate receipt is recorded in the registry"
+        return view
+    if not lower:
+        view["reason"] = f"the recorded gate receipt {gate['receipt']} is not committed at HEAD (or not JSON)"
+        return view
+    if head is not None and isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit):
+        try:
+            binds, note, _docs = core.package_descendant(repo, commit, head, pkg, checker=lower.get("checker"))
+        except core.Fail as e:
+            binds, note = False, str(e)
+        if not binds:
+            view["reason"] = (f"the recorded gate receipt {gate['receipt']} binds commit {commit[:12]}, which "
+                              f"HEAD {head[:12]} is not an evidence-only descendant of ({note})")
+            return view
+    # the receipt binds HEAD (or its commit is malformed, which is no binding to wait for either): validate it
+    view["binds_head"] = True
+    try:
+        core.validate_receipt(pkg, repo, lower)
+        view["included"] = True
+    except core.Fail as e:
+        view["reason"] = f"the recorded gate receipt {gate['receipt']} does not validate ({e})"
+    return view
+
+
+def _context(pkg: dict, repo, allow_private: bool, override: dict | None = None) -> dict:
+    """override (`page --repo DIR`): the source links and Lean statements are read at the commit the gate
+    receipt binds when that receipt validates at DIR's committed HEAD (so a CI checkout renders the
+    registered page), else at DIR's committed HEAD, and then no receipt fact is used (field report: a new
+    claim was linked at the old bound commit, where its file did not exist)."""
     from . import ledger as ledger_mod
     from . import index as index_mod
     name = pkg["name"]
     doc, claims, warnings = cov.load_checked(pkg, repo, None, allow_private)
     gate = pkg.get("gate") or {}
     ev_rows, lower, comp = _evidence(repo, gate)
+    view = _receipt_view(pkg, repo, gate, lower) if override is not None else None
+    invalid = view is not None and not view["included"] and view["binds_head"]
+    if view is not None and not view["included"]:
+        lower, comp = {}, {}
+        ev_rows = [{**e, "recorded": False} for e in ev_rows]
+        if invalid:
+            warnings.append(f"--repo {override.get('path')} at {str(view['head'])[:12]}: receipt facts omitted: "
+                            f"{view['reason']}; the receipt binds this commit, so this is a failed check, not "
+                            f"drift between gate runs")
+        else:
+            warnings.append(f"--repo {override.get('path')} at {str(view['head'])[:12]}: receipt facts omitted: "
+                            f"{view['reason']}; the source links and Lean statements are read at "
+                            f"{str(view['head'])[:12]} (the receipts committed there do not bind it)")
     profiles = sites.for_repo(repo)
     backed, _problems = cov.compute_backing(doc, repo, profiles)   # load_checked refused any unbacked job
     try:
@@ -253,12 +307,19 @@ def _context(pkg: dict, repo, allow_private: bool) -> dict:
                         f"a placeholder")
     prefix = core.git(repo, "rev-parse", "--show-prefix").stdout.strip().strip("/")
     bound = lower.get("commit") if _c12(lower.get("commit")) else None
+    preview = view is not None and not view["included"] and not invalid
+    if invalid:       # the receipt binds HEAD: read at the commit it names (same build inputs), as without --repo
+        anchor = view["commit"] if _c12(view["commit"]) else view["head"]
+    else:
+        anchor = view["head"] if preview else bound      # the commit links and statements are read at
+    if view is not None:
+        view["anchor_commit"] = anchor
     github = bool(https and https.startswith("https://github.com/"))
     from . import claims as claims_mod
     from . import comparator_config as cc
     configs = [c for c in comp.get("configs") or [] if isinstance(c, dict)] if comp else []
     named = [claims[cid] for r in doc["rows"] for cid in r.get("claims") or [] if cid in claims]
-    qualified = cc.qualified_decls(claims_mod._reader(repo, bound or "HEAD"), named) if configs else set()
+    qualified = cc.qualified_decls(claims_mod._reader(repo, anchor or "HEAD"), named) if configs else set()
     ccommit = str(comp.get("commit") or "") if comp else ""
     smoke = cc.smoke_configs(repo, ccommit if core._HEX40.fullmatch(ccommit) else None, "HEAD") if configs else {}
     return {
@@ -267,7 +328,9 @@ def _context(pkg: dict, repo, allow_private: bool) -> dict:
         "comp": comp, "backed": backed, "sites": profiles, "cite": citation(pkg, repo), "license": license_file(pkg, repo),
         "https": https, "prefix": prefix, "bound": bound, "configs": configs, "qualified": qualified,
         "smoke": smoke,
-        "link_base": (f"{https}/blob/{bound}" + (f"/{prefix}" if prefix else "")) if github and bound else None,
+        "anchor": anchor, "preview": view if preview else None, "invalid": view if invalid else None,
+        "repo_view": view,
+        "link_base": (f"{https}/blob/{anchor}" + (f"/{prefix}" if prefix else "")) if github and anchor else None,
         "head_base": (f"{https}/blob/HEAD" + (f"/{prefix}" if prefix else "")) if github else None,
         "library": cov.doc_kind(doc) == "library",
         "kind": None if cov.doc_kind(doc) == "library" else cov.manuscript_kind(doc["manuscript"]["version"]),
@@ -356,13 +419,14 @@ def _lean_statement(ctx: dict, cid: str) -> dict:
     """{decl, file, source ('challenge' | 'declaration'), text or None, config or None} for one claim.
     When the recorded comparator receipt compares the claim, the statement is the one in that
     configuration's Challenge module (what the proof was checked against); otherwise the declaration in
-    the claim's own file. Read at the gate-bound commit (HEAD when there is none)."""
+    the claim's own file. Read at the gate-bound commit (HEAD when there is none; under `--repo` DIR's
+    committed HEAD when the gate receipt does not validate there)."""
     from . import comparator_config as cc
     from . import lean_scan
     from .formalization import module_path
     c = ctx["claims"][cid]
     decl = str(c.get("decl") or "")
-    rev = ctx["bound"] or "HEAD"
+    rev = ctx["anchor"] or "HEAD"
 
     def read(rel: str | None) -> str | None:
         raw = core.git_show_bytes(ctx["repo"], rel, rev) if rel else None
@@ -440,7 +504,8 @@ def _lean_block(ctx: dict, st: dict) -> list[str]:
     else:
         head = f"**In Lean.** `{_code(name)}` in {where}."
     if st["text"] is None and not st["found"]:
-        return [head + " The file is not committed at the checked commit, so its statement is not shown here.", ""]
+        at = "the commit this page reads" if ctx["preview"] or ctx["invalid"] else "the checked commit"
+        return [head + f" The file is not committed at {at}, so its statement is not shown here.", ""]
     if st["text"] is None:
         return [head + " Its statement could not be read reliably from the source; open the file to read it.",
                 ""]
@@ -504,6 +569,18 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     doc, led = ctx["doc"], ctx["led"]
     by_id = {r["id"]: r for r in led["claims"]}
     md: list[str] = ["## Verification at a glance", "", LIBRARY_TRUST_LINE if ctx["library"] else TRUST_LINE, ""]
+    if ctx["preview"]:
+        pv = ctx["preview"]
+        binds = (f"the recorded build check binds commit `{_c12(pv['commit'])}`" if _c12(pv.get("commit"))
+                 else "no recorded build check is committed here")
+        md += [f"> **Preview of commit `{_c12(pv['head'])}`.** The links to the Lean files and the Lean "
+               f"statements below are read at `{_c12(pv['head'])}`. No check binds this commit yet ({binds}), "
+               f"so no result below is verified and no check is reported for it.", ""]
+    if ctx["invalid"]:
+        iv = ctx["invalid"]
+        md += [f"> **The recorded build check does not validate.** The recorded receipt "
+               f"`{_code(str(iv['receipt']))}` binds this commit, but it does not validate: {_md(str(iv['reason']))}. "
+               f"No result below is verified and no check is reported for it.", ""]
     if ctx["kind"] == "unposted":
         md += ["> **Manuscript not yet posted.** The paper numbers below refer to an unposted draft; a reader "
                "cannot check them until a version is posted.", ""]
@@ -696,8 +773,15 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
         for e in ev_rows:
             md.append(f"| `{_code(e['path'])}`{' (used here)' if e['recorded'] else ''} | {e['tier']} | "
                       f"`{e['commit'][:12]}` | {e['date'] or '—'} | {e['job'] or '—'} | `{e['sha256']}` |")
-        md += ["", "*(used here)*: the receipt the lean-pkg registry holds for this package, which the lines "
-                   "above read. SHA-256 is of the file as committed.", ""]
+        if ctx["preview"]:
+            md += ["", f"None of these receipts binds `{_c12(ctx['anchor'])}`, the commit this page reads: the "
+                       f"lines above use none of them. SHA-256 is of the file as committed.", ""]
+        elif ctx["invalid"]:
+            md += ["", "The receipt the lean-pkg registry holds for this package does not validate: the lines "
+                       "above use none of these receipts. SHA-256 is of the file as committed.", ""]
+        else:
+            md += ["", "*(used here)*: the receipt the lean-pkg registry holds for this package, which the lines "
+                       "above read. SHA-256 is of the file as committed.", ""]
     else:
         md += ["No receipt is committed under `.lean-receipts/`.", ""]
     # reproduce
@@ -712,6 +796,11 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
     md += [f"git clone {clone}", f"cd {dirname}" + (f"/{prefix}" if prefix else "")]
     if bound:
         md.append(f"git checkout {bound}   # the commit the build check binds")
+    elif ctx["preview"] and ctx["anchor"]:
+        md.append(f"git checkout {ctx['anchor']}   # the commit this page reads; no check binds it yet")
+    elif ctx["invalid"] and ctx["anchor"]:
+        md.append(f"git checkout {ctx['anchor']}   # the commit this page reads; its recorded check does not "
+                  f"validate")
     if rev:
         md.append("lake exe cache get")
     md += ["lake build", "```", ""]
@@ -824,13 +913,15 @@ def _scan(pkg: dict, repo, outputs: dict[str, str]) -> None:
                         + "\n  ".join(f"{w} line {n}: {ex}" for w, (n, _p, ex) in hits[:10]))
 
 
-def render_all(pkg: dict, repo, allow_private: bool = False, advisories: bool = True
-               ) -> tuple[dict[str, str], dict, list[str]]:
+def render_all(pkg: dict, repo, allow_private: bool = False, advisories: bool = True,
+               override: dict | None = None) -> tuple[dict[str, str], dict, list[str]]:
     """({'readme': block, 'verification.md', 'coverage.md', 'html'}: every output, each with a final
     newline; the facts for --json; warnings). One context feeds them all; all are scanned together.
-    advisories=False leaves the toolchain advisory lines out: the baseline `--check` compares against."""
+    advisories=False leaves the toolchain advisory lines out: the baseline `--check` compares against.
+    override (`--repo DIR`): see _context; the facts then carry `repo_view` {head, anchor_commit, receipt,
+    commit, included, reason}."""
     from . import page_html
-    ctx = _context(pkg, repo, allow_private)
+    ctx = _context(pkg, repo, allow_private, override)
     ctx["advisories"] = advisories
     name = ctx["name"]
     body, extra = _body(ctx, "readme")
@@ -843,8 +934,9 @@ def render_all(pkg: dict, repo, allow_private: bool = False, advisories: bool = 
                               ["# Verification", "", *html_body, "", *_coverage_lines(ctx, "html")])
     outputs = {README: block, SITE_FILES[0]: verification, SITE_FILES[1]: coverage, HTML_NAME: html}
     _scan(pkg, repo, outputs)
+    facts = extra["facts"] if ctx["repo_view"] is None else {**extra["facts"], "repo_view": ctx["repo_view"]}
     return ({"readme": block, SITE_FILES[0]: verification, SITE_FILES[1]: coverage, "html": html},
-            extra["facts"], ctx["warnings"] + extra["warnings"])
+            facts, ctx["warnings"] + extra["warnings"])
 
 
 def render(pkg: dict, repo, allow_private: bool = False) -> tuple[str, dict, list[str]]:
@@ -1017,9 +1109,12 @@ def _write_site(targets, outputs: dict[str, str]) -> list[dict]:
 
 def do_page(reg: dict, name: str, *, write: bool, check: bool, out: str | None, allow_private: bool,
             agent: str | None, site: str | None = None, html: str | None = None,
-            repo_arg: str | None = None) -> tuple[list[str], dict, list[str], int]:
+            repo_arg: str | None = None, strict_preview: bool = False) -> tuple[list[str], dict, list[str], int]:
     if sum(map(bool, (write, check, out))) > 1:
         raise core.UsageError("--write, --check and --out are mutually exclusive")
+    if strict_preview and not (check and repo_arg is not None):
+        raise core.UsageError("--strict-preview applies to `page --check --repo DIR` only (it makes the differences "
+                              "of a preview from the receipt-bound files fail the check)")
     if repo_arg is not None and write:
         raise core.UsageError("--repo reads another checkout; --write edits the registered checkout's README.md "
                               "(drop one)")
@@ -1030,10 +1125,21 @@ def do_page(reg: dict, name: str, *, write: bool, check: bool, out: str | None, 
             print(note, file=core.sys.stderr)
     pkg, repo = cov.package_checkout(reg, name)
     targets = _site_targets(site, html)
-    outputs, facts, warnings = render_all(pkg, repo, allow_private)
+    outputs, facts, warnings = render_all(pkg, repo, allow_private, override=override)
+    if override is not None:
+        rv = facts.pop("repo_view")
+        override = {**override, "head": rv["head"], "anchor_commit": rv["anchor_commit"],
+                    "source": "committed-head",
+                    "receipt_facts": {k: rv[k] for k in ("receipt", "commit", "included", "binds_head",
+                                                         "reason")}}
+        if core.git(repo, "status", "--porcelain", "--untracked-files=no").stdout.strip():
+            warnings = [f"--repo {override['path']}: uncommitted changes to tracked files are not read (the page "
+                        f"uses the committed HEAD only)"] + warnings
     block = outputs["readme"]
+    rf = (override or {}).get("receipt_facts") or {}
+    preview = override is not None and rf.get("included") is False and not rf.get("binds_head")
     payload = {"ok": True, "name": name, "readme": README, "markdown": block, "written": False,
-               "unchanged": False, "current": None, "problems": [], "warnings": warnings,
+               "unchanged": False, "current": None, "preview": preview, "problems": [], "warnings": warnings,
                "site_files": [], "repo_override": override, **facts}
     existing = new = None
     if write:                                          # a lease refusal comes before any file is written
@@ -1062,17 +1168,30 @@ def do_page(reg: dict, name: str, *, write: bool, check: bool, out: str | None, 
     if check:
         readme = _read_readme(repo)
         problems = readme_problems(readme, block, backed_sites(facts), sites.for_repo(repo))
-        baseline = render_all(pkg, repo, allow_private, advisories=False)[0] if facts.get("toolchain_advisories") \
+        baseline = render_all(pkg, repo, allow_private, advisories=False, override=override)[0] \
+            if facts.get("toolchain_advisories") \
             else None
         status = site_status(targets, outputs, baseline)
         payload["site_files"] = [{"path": shown, "status": st} for shown, st, _p in status]
         problems += [x for _s, _st, x in status if x]
-        payload.update(ok=not problems, current=not problems, problems=problems)
+        said = _override_problems(problems, override, [shown for shown, st, _p in status if st == "stale"])
+        # option C (#291): under a preview, a difference that comes only from the preview is a warning (the
+        # committed files are receipt-bound by design) unless --strict-preview; every other problem still fails
+        drift = [x for x, is_drift in said if is_drift and not strict_preview]
+        problems = [x for x, is_drift in said if not (is_drift and not strict_preview)]
+        warnings += drift                                # the same list object as payload["warnings"]
+        payload.update(ok=not problems, current=None if preview else not problems, problems=problems)
         where = README + "".join(f", {shown}" for shown, _p, _k in targets)
         notes = [f"  {n}" for n in advisory_notes(facts, readme)]   # #237: never a staleness reason
         if problems:
             return ([f"{name}: page: STALE ({len(problems)} problem(s))"] + [f"  {p}" for p in problems]
                     + notes + [f"{name}: page: STALE"]), payload, warnings, 1
+        if preview:
+            n = len(drift)
+            return ([f"{name}: page: preview of commit {_c12(override.get('head'))} ({where}): "
+                     + (f"{n} difference(s) from the receipt-bound files, expected between gate runs (warnings; "
+                        f"--strict-preview fails on them)" if n else "no difference from the committed files")]
+                    + notes), payload, warnings, 0
         return [f"{name}: page: current ({where})"] + notes, payload, warnings, 0
     if not write:
         if targets:
@@ -1085,6 +1204,32 @@ def do_page(reg: dict, name: str, *, write: bool, check: bool, out: str | None, 
     payload.update(written=True, current=True)
     return site_lines + [f"{name}: wrote the page block into {repo / README} — not committed; commit it yourself"], \
         payload, warnings, 0
+
+
+def _override_problems(problems: list[str], override: dict | None, stale_sites: list[str]
+                       ) -> list[tuple[str, bool]]:
+    """[(problem, is preview drift)] for `--check --repo` when the receipt facts were withheld: a stale README
+    block or --site/--html file is reworded to say why. A preview (the receipt does not bind HEAD) names both
+    commits and is expected drift between gate runs (True: do_page makes it a warning unless --strict-preview);
+    a receipt that binds HEAD but does not validate is a failed check, never called drift (False). Every other
+    problem (missing block, markers, credit, an unbacked site sentence, a missing file) is never drift."""
+    rf = (override or {}).get("receipt_facts") or {}
+    if override is None or rf.get("included") is not False:
+        return [(p, False) for p in problems]
+    head = _c12(override.get("head")) or "HEAD"
+    stale = {f"{README}: the page block is stale (`lean-pkg page NAME --write`)": f"{README}: the page block"}
+    stale.update({f"{s} is stale (`lean-pkg page NAME --site DIR` / `--html PATH`)": s for s in stale_sites})
+
+    def why(what: str) -> str:
+        if rf.get("binds_head"):
+            return (f"{what} differs from what --repo renders at commit {head}: the recorded receipt "
+                    f"{rf.get('receipt')} binds that commit but does not validate ({rf.get('reason')}), so no receipt "
+                    f"fact is shown; this is a failed check, not drift between gate runs (repair or rerun the gate)")
+        return (f"{what} differs from this preview: --repo renders commit {head}, which the receipts (bound to "
+                f"{_c12(rf.get('commit')) or 'none'}) do not cover, while the committed file is the receipt-bound "
+                f"page; expected between gate runs, not a failed gate (`lean-pkg page NAME --check` without --repo "
+                f"checks the official page)")
+    return [(why(stale[p]), not rf.get("binds_head")) if p in stale else (p, False) for p in problems]
 
 
 def publish_item(pkg: dict, repo) -> tuple[tuple[str, str], dict]:
@@ -1136,7 +1281,8 @@ def cmd_page(args) -> int:
     reg = core.load_registry(core.registry_path(args))
     lines, payload, warnings, rc = do_page(reg, args.name, write=args.write, check=args.check, out=args.out,
                                            allow_private=args.allow_private_manuscript, agent=args.agent,
-                                           site=args.site, html=args.html, repo_arg=args.repo)
+                                           site=args.site, html=args.html, repo_arg=args.repo,
+                                           strict_preview=getattr(args, "strict_preview", False))
     for w in warnings:
         print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
     if args.write and payload.get("written") and rc == 0:
@@ -1204,7 +1350,13 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--repo", default=None, metavar="DIR",
                    help="read the checkout DIR instead of the registered local_path, for this call only (never "
                         "saved; for CI): DIR must be a git work tree, and when it has remotes one must be the "
-                        "package's repo; not with --write")
+                        "package's repo; not with --write. Its committed HEAD is read: when the recorded gate "
+                        "receipt does not bind that HEAD (or an evidence-only descendant), the links and Lean "
+                        "statements are read at HEAD, no receipt fact is shown and the page says so; with --check, "
+                        "differences of such a preview from the receipt-bound files are warnings (exit 0)")
+    s.add_argument("--strict-preview", action="store_true",
+                   help="with --check --repo: a preview's differences from the receipt-bound README block and "
+                        "--site/--html files fail the check (exit 1) instead of warning")
     s.add_argument("--allow-private-manuscript", action="store_true",
                    help="render against manuscript.version 'unposted'; the page then says so")
     s.add_argument("--agent", default=None, help="with --write: the lease holder, when the package is leased")

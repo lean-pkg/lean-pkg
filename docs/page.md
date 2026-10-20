@@ -371,6 +371,50 @@ job writes one from a repository secret and points `--repo` at the checkout.
 `--repo DIR` reads that checkout instead of the registered `local_path`, for
 this call only; one of its remotes must be the package's repository.
 
+The page is read from DIR's committed HEAD (never its working tree; a
+warning names uncommitted changes). When the recorded gate receipt binds that
+HEAD, or HEAD is an evidence-only descendant of the commit it binds (the
+rule `gate` applies), the page is the one the registered checkout renders: its
+file links and Lean statements are at the bound commit. When it does not (a
+candidate commit not yet gated), the page is a preview of HEAD: the links and
+statements are read at HEAD, so a result added since the last gate links to
+its own file; no fact of the receipts is shown (axioms, `sorry` count,
+statement comparison, *(used here)*); no result is verified (the ledger
+decides that, and it closes nothing at an unbound commit); and a *Preview of
+commit* note under the first heading names the commit the page reads and the
+commit the build check binds. `formalization render --repo` decides receipt
+facts by the same rule. The JSON `repo_override` then carries `head`,
+`anchor_commit` (the commit the links are at) and `receipt_facts` {receipt,
+commit, included, binds_head, reason}.
+
+A receipt that binds HEAD (or an ancestor HEAD descends from by that rule)
+but does not validate for another reason (axioms outside the allowed set, a
+nonzero `sorry` count, a toolchain or Mathlib mismatch, a malformed field) is
+not a preview: it is a failed check. The page reads the links and statements
+at the commit the receipt names, shows no receipt fact, verifies no result,
+and says under the first heading *The recorded build check does not
+validate*, with the reason; `receipt_facts.binds_head` is `true` and
+`included` `false`. `page --check --repo` then never calls the difference
+drift between gate runs: repair the receipt or run the gate again.
+
+The official page stays bound to the accepted evidence: `page --write` and
+`page --check` without `--repo` render the receipt-bound page. So between gate
+runs, `page --check --repo` on a candidate commit compares its preview with
+that committed receipt-bound block, and they differ. Each difference (the
+README block, and a `--site` or `--html` file) is a warning that names both
+commits (the preview's HEAD and the commit the receipts bind): expected drift,
+not a failed gate. The check exits 0, and its JSON says `preview: true` and
+`current: null` (whether the committed files are current is not known: they
+are receipt-bound by design); outside a preview `preview` is `false` and
+`current` is `true` or `false`. Real problems still exit 1 under a preview: a
+missing README or page block, unbalanced markers, a missing lean-pkg credit, a
+site acknowledgment without backing, a missing `--site`/`--html` file, a
+private-string hit, and a receipt that binds HEAD but does not validate.
+`--strict-preview` (only with `--check --repo`) makes the differences fail
+again (exit 1). The drift clears when the gate is run at that commit and the
+page is written again; `page --check` without `--repo` checks the official
+page.
+
 1. Put a registry file holding the package's record into a repository secret
    named `LEAN_PKG_REGISTRY_YAML` (the record names local paths, so it does
    not belong in the public tree). Refresh it when the record changes (a new
@@ -400,6 +444,8 @@ jobs:
           lean-pkg --registry "$RUNNER_TEMP/lean-packages.yaml" page my-companion --check --repo "$GITHUB_WORKSPACE" --site docs
 ```
 
+On a commit between gate runs the job passes with a warning per difference
+(the preview above); add `--strict-preview` to make it fail there instead.
 Drop `--site docs` when the package has no docs pages; add `--html PATH`
 when it ships the HTML file. Pin the lean-pkg version you render with: a newer
 version may word a section differently, and the check then reports the

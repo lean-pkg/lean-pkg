@@ -1,6 +1,6 @@
 usage: lean-pkg page [-h] [--write] [--check] [--out PATH] [--site DIR] [--html PATH] [--repo DIR]
-                     [--allow-private-manuscript] [--agent AGENT] [--json] [--commit] [--push]
-                     [--no-commit]
+                     [--strict-preview] [--allow-private-manuscript] [--agent AGENT] [--json]
+                     [--commit] [--push] [--no-commit]
                      name
 
 positional arguments:
@@ -24,7 +24,14 @@ options:
                         same data; with --check, compare it instead
   --repo DIR            read the checkout DIR instead of the registered local_path, for this call
                         only (never saved; for CI): DIR must be a git work tree, and when it has
-                        remotes one must be the package's repo; not with --write
+                        remotes one must be the package's repo; not with --write. Its committed
+                        HEAD is read: when the recorded gate receipt does not bind that HEAD (or
+                        an evidence-only descendant), the links and Lean statements are read at
+                        HEAD, no receipt fact is shown and the page says so; with --check,
+                        differences of such a preview from the receipt-bound files are warnings
+                        (exit 0)
+  --strict-preview      with --check --repo: a preview's differences from the receipt-bound README
+                        block and --site/--html files fail the check (exit 1) instead of warning
   --allow-private-manuscript
                         render against manuscript.version 'unposted'; the page then says so
   --agent AGENT         with --write: the lease holder, when the package is leased
