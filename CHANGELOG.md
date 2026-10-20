@@ -9,6 +9,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Changed
+
+- Release tooling (#287): `scripts/release-version.py --curated [--pr N]`
+  refuses unless the in-progress upgrade record names every pull request
+  squash-merged since the last release (a `changes` entry or
+  `no_author_change`). `make changelog` (part of `make check`) runs it, and
+  CI adds the pull request under test (`--pr N`), whose squash commit does
+  not exist yet. A pull request merged without a record entry used to pass
+  CI and surface only as `uncurated[]` when the release was cut (#285).
+
 ### Fixed
 
 - `--registry DIR` and `LEAN_PKG_REGISTRY=DIR` (#286): a directory holding

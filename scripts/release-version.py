@@ -4,6 +4,7 @@
 scripts/release-version.py [--repo DIR] [--milestone NAME] [--bare]   print the required next version
 scripts/release-version.py --check-version X.Y.Z [--milestone NAME]    refuse unless X.Y.Z is that version
 scripts/release-version.py --check                                     the CHANGELOG category check only
+scripts/release-version.py --curated [--pr N]                         the record names every merged PR (and N)
 scripts/release-version.py --rename X.Y.Z                              name the in-progress record X.Y.Z
 scripts/release-version.py --history [--since 0.7.0]                   the rule applied to every tag
 
@@ -447,6 +448,29 @@ def audit_lines(rows: list[Audit]) -> list[str]:
 # --------------------------------------------------------------------------
 
 
+def squash_prs(repo: Path, since: str | None) -> list[int]:
+    """The pull requests squash-merged after `since` (a commit; None = all history): subjects ending `(#N)`."""
+    p = git(repo, "log", "--format=%s", f"{since}..HEAD" if since else "HEAD")
+    return sorted({int(m.group(1)) for s in p.stdout.splitlines() if (m := re.search(r"\(#(\d+)\)\s*$", s))})
+
+
+def curated(repo: Path, pr: int | None = None) -> tuple[bool, list[str]]:
+    """Every pull request merged since the last release, and `pr` (CI passes the one under test, whose
+    squash commit does not exist yet), is named by the in-progress record: a `changes` entry or
+    `no_author_change`. doctor --upgrade-from lists the others as uncurated, which used to surface only
+    when the release was cut (#285)."""
+    current = current_version(repo)
+    record, problems = in_progress_record(repo, current)
+    want = squash_prs(repo, release_commit(repo, current)) + ([pr] if pr is not None else [])
+    named = ({c.get("pr") for c in record.changes} | set(record.no_author_change)) if record else set()
+    missing = sorted(set(want) - named)
+    if missing:
+        where = str(record.path) if record else f"{RECORD_DIR}/{next_version(current, 'minor')}.yaml (new)"
+        problems.append("pull request(s) " + ", ".join(f"#{n}" for n in missing) + f" not named by {where}: "
+                        "add a `changes` entry (RELEASING.md) or list the number under `no_author_change`")
+    return not problems, problems
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--repo", type=Path, default=ROOT, help="repository root (default: this checkout)")
@@ -457,6 +481,11 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--check", action="store_true", help="only the CHANGELOG/record consistency check")
     g.add_argument("--rename", metavar="X.Y.Z", help="name the in-progress record for X.Y.Z")
     g.add_argument("--history", action="store_true", help="apply the rule to every tag (see --since)")
+    g.add_argument("--curated", action="store_true",
+                   help="refuse unless the in-progress record names every pull request merged since the last "
+                        "release (and --pr N)")
+    ap.add_argument("--pr", type=int, default=None, metavar="N",
+                    help="with --curated: the pull request under test, not merged yet")
     ap.add_argument("--since", default="0.7.0", metavar="X.Y.Z", help="with --history: the first release audited")
     ap.add_argument("--bare", action="store_true", help="print only the required version")
     a = ap.parse_args(argv)
@@ -468,6 +497,13 @@ def main(argv: list[str] | None = None) -> int:
     if a.history:
         print("\n".join(audit_lines(audit(repo, a.since))))
         return 0
+    if a.curated:
+        ok, problems = curated(repo, a.pr)
+        for p in problems:
+            print(f"{NAME}: {p}", file=sys.stderr)
+        if ok:
+            print(f"{NAME}: the upgrade record names every pull request since the last release")
+        return 0 if ok else 1
     n = next_release(repo, a.milestone)
     if a.rename:
         if n.record is None:

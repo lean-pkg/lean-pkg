@@ -54,7 +54,12 @@ listed under `no_author_change` under `### Added`, `### Deprecated` or
 `### Removed`. An entry belongs to a pull request when its text cites
 `(#N)` or when the squash commit `... (#N)` since the last release added its
 first line. `make changelog` (part of `make check`, and CI) runs the same
-consistency check on every pull request.
+consistency check on every pull request. It also runs
+`scripts/release-version.py --curated`: every pull request merged since the
+last release must be a record entry or listed under `no_author_change`, and
+CI adds the pull request under test (`--pr N`), whose squash commit does not
+exist yet, so a missing entry fails the pull request itself instead of
+surfacing as `uncurated[]` when the release is cut.
 
 ### CHANGELOG headings
 

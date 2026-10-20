@@ -206,6 +206,30 @@ def test_check_attributes_an_entry_through_the_squash_commit(repo):
     assert _run(repo, "--check").returncode == 0 and _run(repo, "--bare").stdout == "0.18.1\n"
 
 
+def test_curated_names_every_merged_pr_and_the_pr_under_test(repo):
+    # #10 is named (no_author_change); #12 merged without a record entry, as #285 did
+    assert _run(repo, "--curated").returncode == 0
+    r = _run(repo, "--curated", "--pr", "13")
+    assert r.returncode == 1 and "#13 not named by docs/upgrades/0.19.0.yaml" in r.stderr
+    _write(repo, {"docs/c.md": "c\n"})
+    _commit(repo, "[C] docs: c (#12)")
+    r = _run(repo, "--curated")
+    assert r.returncode == 1 and "#12 not named" in r.stderr and "#10" not in r.stderr
+    rec = yaml.safe_load((repo / "docs/upgrades/0.19.0.yaml").read_text())
+    rec["changes"].append(change(12, "behavior", "Fixed"))
+    _write(repo, {"docs/upgrades/0.19.0.yaml": yaml.safe_dump(rec, sort_keys=False)})
+    _commit(repo, "upgrades: record #12")
+    assert _run(repo, "--curated").returncode == 0
+
+
+def test_curated_right_after_a_release_asks_for_the_next_record(repo):
+    _write(repo, {"pyproject.toml": '[project]\nname = "lean-pkg"\nversion = "0.19.0"\n'})
+    _commit(repo, "release: 0.19.0")
+    assert _run(repo, "--curated").returncode == 0            # nothing merged since the release
+    r = _run(repo, "--curated", "--pr", "14")
+    assert r.returncode == 1 and "#14 not named by docs/upgrades/0.20.0.yaml (new)" in r.stderr
+
+
 def test_check_passes_with_nothing_unreleased(tmp_path):
     r = tmp_path / "lp"
     r.mkdir()
