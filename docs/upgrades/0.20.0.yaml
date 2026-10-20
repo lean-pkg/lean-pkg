@@ -99,6 +99,55 @@ changes:
       with the receipt.
     breaking: false
     changelog: Added
+  - pr: 291
+    id: page-repo-head-anchors
+    kind: behavior
+    area: page
+    summary: >-
+      page --repo DIR read coverage.yaml and claims.yaml at DIR's committed HEAD but linked every Lean file
+      and read every Lean statement at the commit the recorded gate receipt binds, and showed that
+      receipt's facts, also when HEAD was a candidate commit the receipt does not bind (a field report: a
+      result added since the last gate linked to a commit where its file did not exist, and its statement
+      was "not committed at the checked commit"). The source links and Lean statements now come from DIR's
+      committed HEAD whenever the gate receipt does not bind it (HEAD or an evidence-only descendant of its
+      commit, the rule gate and formalization render --repo apply); the page then shows no receipt
+      fact (axioms, sorry count, statement comparison, the receipt used), verifies no row, and says under
+      its first heading which commit it reads and which commit the build check binds. When the receipt
+      does validate at HEAD the page is unchanged. A receipt that binds HEAD but does not validate (axioms,
+      sorry count, toolchain or Mathlib mismatch, a malformed field) is a failed check, not a preview: the
+      page says "The recorded build check does not validate" with the reason, shows no receipt fact and
+      verifies no row. JSON repo_override gains head, anchor_commit, source committed-head and receipt_facts
+      {receipt, commit, included, binds_head, reason}; uncommitted changes to tracked files are never read
+      and get a warning. page without --repo is unchanged.
+    action: >-
+      Nothing for most package authors. A CI job running page --check --repo keeps passing between gate runs:
+      on a commit the recorded receipts do not bind, the differences of the preview from the receipt-bound
+      README block and --site/--html files are warnings naming both commits (JSON preview true, current
+      null), and real problems still fail. A receipt that binds the commit but does not validate now fails
+      the check as a failed check: repair the receipt or run the gate again. To fail on preview drift too,
+      add --strict-preview (entry page-check-strict-preview).
+    breaking: false
+    changelog: Fixed
+  - pr: 291
+    id: page-check-strict-preview
+    kind: command
+    area: page
+    summary: >-
+      New flag page --check --repo DIR --strict-preview. Without it, when DIR's committed HEAD is a preview
+      (the recorded gate receipt does not bind it), the differences that come only from the preview (the
+      README block, --site and --html files differing from the receipt-bound files committed there) are
+      warnings that name the preview's commit and the commit the receipts bind, and the check exits 0; with
+      it they are problems (exit 1). Real problems exit 1 either way: a missing README or page block,
+      unbalanced markers, a missing lean-pkg credit, an unbacked site acknowledgment, a missing --site or
+      --html file, a private-string hit, and a receipt that binds HEAD but does not validate. The flag is
+      refused (exit 2) without both --check and --repo. page --json gains preview (true under a preview,
+      else false); under a preview current is null, since the committed files are receipt-bound by design.
+    action: >-
+      Nothing required. A CI job that should fail whenever the committed page differs from the candidate
+      commit's preview adds --strict-preview to its page --check --repo line. A script that read current
+      from page --check --repo --json reads preview first: current is null under a preview.
+    breaking: false
+    changelog: Added
 # Read for this record, nothing for a package author: release tooling, the record must name every
 # pull request merged since the last release, checked by make changelog and CI (#287).
 # Read for this record, nothing for a package author: docs, a metadata-only lakefile edit (license)

@@ -60,6 +60,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   missing, uncommitted at HEAD, re-hashed or edited
   (`receipt.sacct_seal_problem`, shared with the comparator seal). A receipt
   without the block is judged as before.
+- `page --check --repo DIR --strict-preview` (#291): makes the
+  differences of a preview (DIR's HEAD is a commit the recorded receipts
+  do not bind) from the receipt-bound README block and `--site`/`--html`
+  files fail the check (exit 1). Without it they are warnings naming both
+  commits and the check exits 0; real problems (a missing block, markers,
+  the lean-pkg credit, an unbacked site acknowledgment, a missing file, a
+  private-string hit, a receipt that binds HEAD but does not validate)
+  exit 1 either way. Refused (exit 2) without `--check` and `--repo`.
+  `page --json` gains `preview`; under a preview `current` is `null`.
 
 ### Changed
 
@@ -89,6 +98,25 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `kind` and `changelog` heading that disagree on `breaking` (one change
   entered twice, as #285 shipped in the 0.19.0 record). Several entries for
   one pull request, one per change, stay valid.
+- `page --repo DIR` (a field report): the links to the Lean files and the
+  Lean statements are read at DIR's committed HEAD whenever the recorded
+  gate receipt does not bind it (HEAD or an evidence-only descendant, as
+  `gate` and `formalization render --repo` decide). They were read at the
+  receipt's bound commit, so a result added since the last gate linked to
+  a commit where its file did not exist. The page then shows no receipt
+  fact (axioms, `sorry` count, statement comparison, the receipt used),
+  verifies no row, and a *Preview of commit* note names the commit it
+  reads and the commit the build check binds; JSON `repo_override` gains
+  `head`, `anchor_commit`, `source` and `receipt_facts`. Uncommitted
+  changes in DIR are never read (a warning says so). When the receipt
+  validates at HEAD, and without `--repo`, the page is unchanged. A
+  receipt that binds HEAD but does not validate (axioms, `sorry` count,
+  toolchain or Mathlib mismatch) is a failed check, not a preview: the
+  page says *The recorded build check does not validate* with the reason,
+  and `page --check --repo` fails on it. Between gate runs
+  `page --check --repo` keeps passing: the preview's differences from the
+  receipt-bound files are warnings naming both commits, not a failed gate
+  (#291).
 
 ### Documentation
 
