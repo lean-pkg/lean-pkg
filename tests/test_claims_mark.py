@@ -36,7 +36,7 @@ EXTRA = """\
 TEXT = CLAIMS_YAML.replace("status: reusable", "status: experimental") + EXTRA
 
 
-def setup(env, cfg_names=("BetaAudit.Demo.mass_le", "Demo.foo_le_bar", "Demo.nowhere")) -> str:
+def claims_mark_setup(env, cfg_names=("BetaAudit.Demo.mass_le", "Demo.foo_le_bar", "Demo.nowhere")) -> str:
     commit_claims(env.repo_b, TEXT, lean=LEAN)
     cfg = env.repo_b / "comparator" / "config-mass.json"
     cfg.parent.mkdir(exist_ok=True)
@@ -51,7 +51,7 @@ def mark(lp, env, capsys, *extra) -> tuple[int, dict]:
 
 
 def test_dry_run_by_default_reports_matches_and_unmatched(lp, env, capsys):
-    setup(env)
+    claims_mark_setup(env)
     before = (env.repo_b / "claims.yaml").read_text()
     rc, data = mark(lp, env, capsys)
     assert rc == 0 and data["written"] is False
@@ -61,7 +61,7 @@ def test_dry_run_by_default_reports_matches_and_unmatched(lp, env, capsys):
 
 
 def test_write_edits_only_status_values_and_never_commits(lp, env, capsys):
-    setup(env)
+    claims_mark_setup(env)
     head = _git(env.repo_b, "rev-parse", "HEAD").stdout
     rc, data = mark(lp, env, capsys, "--write")
     assert rc == 0 and data["written"] is True and data["reformatted"] is False
@@ -77,13 +77,13 @@ def test_write_edits_only_status_values_and_never_commits(lp, env, capsys):
 
 
 def test_negative_control_a_shared_last_component_never_matches(lp, env, capsys):
-    setup(env, cfg_names=("Other.mass_le",))
+    claims_mark_setup(env, cfg_names=("Other.mass_le",))
     rc, data = mark(lp, env, capsys)
     assert data["matched"] == [] and data["unmatched"] == ["Other.mass_le"]
 
 
 def test_write_and_dry_run_conflict_and_bad_config(lp, env, capsys):
-    setup(env)
+    claims_mark_setup(env)
     assert lp.main(["--registry", str(env.registry), "claims", "mark", "beta", "--from-comparator",
                     "comparator/config-mass.json", "--status", "reusable", "--write", "--dry-run"]) == 2
     (env.repo_b / "comparator" / "config-mass.json").write_text(json.dumps({"theorem_names": []}))
@@ -98,7 +98,7 @@ def rebind(env) -> None:
 
 
 def test_sync_and_check_warn_on_a_gated_package_with_no_reusable_claim(lp, env, capsys):
-    setup(env)
+    claims_mark_setup(env)
     rebind(env)
     assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
@@ -118,7 +118,7 @@ def test_no_warning_with_a_reusable_claim(lp, env, capsys):
 
 
 def test_publish_names_the_fix(lp, env, fake_gh, capsys):
-    setup(env)
+    claims_mark_setup(env)
     rebind(env)
     lp.main(["--registry", str(env.registry), "claims", "sync", "beta"])
     publish_evidence(env.repo_b)

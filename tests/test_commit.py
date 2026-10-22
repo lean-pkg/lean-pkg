@@ -19,6 +19,14 @@ EV = "lean-package-events.jsonl"
 CLAIM = ["claim", "alpha", "--workspace", "w3", "--agent", "vera"]
 
 
+@pytest.fixture(autouse=True)
+def _no_host_git_config(monkeypatch):
+    """The host's git config must not reach these clones and their origin: a global core.hooksPath (the lab
+    sets one) both hid the fake remotes' pre-receive hooks and ran the host's own hooks on every test push."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
 def _clone(origin: Path, dest: Path) -> SimpleNamespace:
     _git(origin.parent, "clone", "-q", str(origin), str(dest))
     _git(dest, "config", "user.name", "Test")
@@ -41,6 +49,8 @@ def shared(env, tmp_path):
     _git(seed, "commit", "-q", "-m", "registry")
     origin = tmp_path / "origin.git"
     _git(tmp_path, "clone", "-q", "--bare", str(seed), str(origin))
+    # The fake remotes' hooks live in origin/hooks; a repo-local core.hooksPath beats any global or system one.
+    _git(origin, "config", "core.hooksPath", str(origin / "hooks"))
     a = _clone(origin, tmp_path / "clone-a")
     return SimpleNamespace(origin=origin, a=a, clone_b=lambda: _clone(origin, tmp_path / "clone-b"))
 
@@ -508,6 +518,23 @@ def test_push_retries_zero_fails_at_once(lp, env, shared, monkeypatch, capsys):
     rc, cap = run(lp, a, capsys, *CLAIM, "--push")
     assert rc == 1 and "push attempt" not in cap.err
     assert counter.read_text().strip() == "1"
+
+
+def test_a_global_hooks_path_cannot_hide_the_remotes_hooks(lp, env, shared, monkeypatch, capsys, tmp_path):
+    """A host whose global git config sets core.hooksPath to an accept-everything pre-receive (the lab's global
+    ~/.git-hooks did this) must not turn the fake remote's refusal into a successful push."""
+    accept = tmp_path / "host-hooks"
+    accept.mkdir()
+    (accept / "pre-receive").write_text("#!/bin/sh\nexit 0\n")
+    (accept / "pre-receive").chmod(0o755)
+    hostile = tmp_path / "host-gitconfig"
+    hostile.write_text(f"[core]\n\thooksPath = {accept}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(hostile))
+    a = shared.a
+    counter = _flaky_remote(shared.origin, 1)
+    monkeypatch.setenv("LEAN_PKG_PUSH_RETRIES", "0")
+    rc, cap = run(lp, a, capsys, *CLAIM, "--push")
+    assert rc == 1 and counter.read_text().strip() == "1", cap.err   # origin's own hook ran and refused
 
 
 def test_permanent_push_failure_is_not_retried(lp, env, shared, capsys):
