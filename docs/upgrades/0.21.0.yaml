@@ -7,4 +7,5 @@ version: 0.21.0
 changes: []
 # Read for this record, nothing for a package author: release tooling, one entry per pull request unless
 # each of its entries is marked split: true; marks the multi-entry PRs of 0.11.0, 0.12.0 and 0.20.0 (#296).
-no_author_change: [296]
+# Tests only: the suite no longer depends on the host's pytest version or global git config (#298).
+no_author_change: [296, 298]

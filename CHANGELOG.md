@@ -9,6 +9,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Changed
+
+- Tests (#298): the suite no longer depends on the host. Two helpers named
+  `setup` (in `tests/test_claims_mark.py` and `tests/test_claims_rebase.py`)
+  were taken by pytest 7 and 8 for nose-style module setup and called with the
+  module, so 23 tests errored there (`setup() missing 1 required positional
+  argument`); they are now `claims_mark_setup` and `rebase_setup`, and the
+  suite passes on pytest 7.4, 8.0 and 9.1 alike (`pytest>=7` stays). The
+  committed-mode tests (`tests/test_commit.py`) ignore the host's global and
+  system git config, and their bare origin sets its own `core.hooksPath`, so a
+  global `core.hooksPath` can no longer hide the fake remotes' `pre-receive`
+  hooks (7 tests passed pushes that were meant to fail) or run the host's own
+  hooks on test pushes.
+
 ### Fixed
 
 - Upgrade records (#296): one entry per pull request, unless the pull

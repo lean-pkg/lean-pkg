@@ -172,8 +172,8 @@ def test_formalization_main_results_leave_a_smoke_check_out(env):
 # --- claims mark ------------------------------------------------------------------------------------
 
 def test_claims_mark_refuses_a_smoke_configuration_for_reusable(lp, env, capsys):
-    from .test_claims_mark import mark, setup
-    rel = setup(env)
+    from .test_claims_mark import claims_mark_setup, mark
+    rel = claims_mark_setup(env)
     (env.repo_b / holes.SIDECAR).write_text(sidecar_text({rel: REASON}))
     rc = lp.main(["--registry", str(env.registry), "claims", "mark", "beta", "--from-comparator", rel,
                   "--status", "reusable"])

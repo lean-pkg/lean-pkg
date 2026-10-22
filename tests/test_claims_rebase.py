@@ -113,7 +113,7 @@ FINDINGS = [
 ]
 
 
-def setup(env_, tmp_path, *, old=None, new=None, new_aux=NEW_AUX, findings=FINDINGS, cov=True, record_sha=True):
+def rebase_setup(env_, tmp_path, *, old=None, new=None, new_aux=NEW_AUX, findings=FINDINGS, cov=True, record_sha=True):
     old = old if old is not None else old_tex()
     new = new if new is not None else new_tex()
     d = tmp_path / "tex"
@@ -152,7 +152,7 @@ def by_label(payload):
 
 
 def test_classifies_carries_and_rekeys(lp, env, tmp_path, capsys):
-    d = setup(env, tmp_path)
+    d = rebase_setup(env, tmp_path)
     out = tmp_path / "out"
     rc, p = run(lp, env, d, "--from-aux", str(d / "old.aux"), "--to-commit", COMMIT, out=out, capsys=capsys)
     assert rc == 1                      # something needs review
@@ -183,7 +183,7 @@ def test_only_colour_whitespace_comment_changes_are_carried(rb):
 
 
 def test_reworded_hypothesis_is_changed_with_excerpts(lp, env, tmp_path, capsys):
-    d = setup(env, tmp_path, new=new_tex(aux="Assume $f\\in L^4$. Then $g$ is smooth.", gone=False, move=False))
+    d = rebase_setup(env, tmp_path, new=new_tex(aux="Assume $f\\in L^4$. Then $g$ is smooth.", gone=False, move=False))
     out = tmp_path / "out"
     rc, p = run(lp, env, d, "--to-commit", COMMIT, out=out, capsys=capsys)
     assert rc == 1
@@ -205,7 +205,7 @@ def test_reworded_hypothesis_is_changed_with_excerpts(lp, env, tmp_path, capsys)
 
 
 def test_numbers_and_pages_come_from_the_new_aux(lp, env, tmp_path, capsys):
-    d = setup(env, tmp_path, new=new_tex(gone=False, move=False),
+    d = rebase_setup(env, tmp_path, new=new_tex(gone=False, move=False),
               new_aux=aux([(K_MAIN, "7.1", 30), (K_AUX, "7.2", 31), (K_GONE, "7.3", 31), (K_MOVE, "7.4", 31),
                            (K_EQ, "7.9", 33)]))
     out = tmp_path / "out"
@@ -236,7 +236,7 @@ def test_tex_line_offset_when_identical(rb):
 
 
 def test_baseline_hash_mismatch_refused(lp, env, tmp_path, capsys):
-    d = setup(env, tmp_path, record_sha=False)
+    d = rebase_setup(env, tmp_path, record_sha=False)
     out = tmp_path / "out"
     rc, _ = run(lp, env, d, "--to-commit", COMMIT, out=out)
     err = capsys.readouterr().err
@@ -244,7 +244,7 @@ def test_baseline_hash_mismatch_refused(lp, env, tmp_path, capsys):
 
 
 def test_no_recorded_hash_needs_from_sha256(lp, env, tmp_path, capsys):
-    d = setup(env, tmp_path, record_sha=None)
+    d = rebase_setup(env, tmp_path, record_sha=None)
     rc, _ = run(lp, env, d)
     assert rc == 1 and "--from-sha256" in capsys.readouterr().err
     rc, _ = run(lp, env, d, "--from-sha256", "0" * 64)
@@ -254,7 +254,7 @@ def test_no_recorded_hash_needs_from_sha256(lp, env, tmp_path, capsys):
 
 
 def test_statuses_never_change_and_outputs_are_deterministic(lp, env, tmp_path, capsys):
-    d = setup(env, tmp_path)
+    d = rebase_setup(env, tmp_path)
     before = read_reg(env)
     head = repo_head(env.repo_b)
     dirty = _git(env.repo_b, "status", "--porcelain").stdout
@@ -277,7 +277,7 @@ def test_statuses_never_change_and_outputs_are_deterministic(lp, env, tmp_path, 
 
 
 def test_refuses_existing_out_dir(lp, env, tmp_path, capsys):
-    d = setup(env, tmp_path)
+    d = rebase_setup(env, tmp_path)
     out = tmp_path / "out"
     out.mkdir()
     (out / "x").write_text("x")
@@ -287,13 +287,13 @@ def test_refuses_existing_out_dir(lp, env, tmp_path, capsys):
 
 def test_duplicate_label_refused(lp, env, tmp_path, capsys):
     new = new_tex().replace(END, tenv("lemma", K_AUX, "Again.") + END)
-    d = setup(env, tmp_path, new=new)
+    d = rebase_setup(env, tmp_path, new=new)
     rc, _ = run(lp, env, d)
     assert rc == 1 and "defined 2 times" in capsys.readouterr().err
 
 
 def test_unbalanced_and_non_utf8_tex_refused(lp, env, tmp_path, capsys):
-    d = setup(env, tmp_path, new=new_tex().replace(f"{BS}end{{proof}}", "", 1))
+    d = rebase_setup(env, tmp_path, new=new_tex().replace(f"{BS}end{{proof}}", "", 1))
     rc, _ = run(lp, env, d)
     assert rc == 1 and "unbalanced" in capsys.readouterr().err
     (d / "new.tex").write_bytes(b"\xff\xfe broken")
@@ -302,7 +302,7 @@ def test_unbalanced_and_non_utf8_tex_refused(lp, env, tmp_path, capsys):
 
 
 def test_coverage_needs_a_new_version_to_write(lp, env, tmp_path, capsys):
-    d = setup(env, tmp_path)
+    d = rebase_setup(env, tmp_path)
     rc, _ = run(lp, env, d, out=tmp_path / "out")
     assert rc == 2 and "--to-version" in capsys.readouterr().err
 
@@ -335,7 +335,7 @@ def rb(lp):
 def _anchor_v1(env_, tmp_path, tex_sha):
     """coverage.yaml on an arXiv version with eprint_sha256, and its source-baseline record committed."""
     from lean_pkg import anchor
-    d = setup(env_, tmp_path, record_sha=None)
+    d = rebase_setup(env_, tmp_path, record_sha=None)
     repo = env_.repo_b
     cov = yaml.safe_load((repo / "coverage.yaml").read_text())
     cov["manuscript"]["eprint_sha256"] = "e" * 64
