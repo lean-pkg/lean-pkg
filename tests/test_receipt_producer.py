@@ -87,9 +87,66 @@ def test_sources_sha256_is_the_coreutils_recipe(pkgcopy):
 def test_the_receipt_key_names_no_path(pkgcopy, tmp_path):
     from lean_pkg import producer as pr
     p = pr.receipt_producer(pr.fingerprint())
-    assert set(p) == {"lean_pkg", "install", "commit", "dirty", "sources_sha256", "source_files", "python"}
+    assert set(p) == {"lean_pkg", "install", "commit", "dirty", "sources_sha256", "source_files", "python",
+                      "bytecode_tag", "bytecode_files", "bytecode_sha256", "other_bytecode_files"}
     assert str(tmp_path) not in json.dumps(p)
     assert p["install"] == "installed" and p["commit"] is None            # the copy is not a git checkout
+
+
+def _plant_bytecode(pkg: Path) -> str:
+    """Own-tag caches (plain and opt-1), another interpreter's cache, a sourceless .pyc and a .pyo."""
+    import sys
+    tag = sys.implementation.cache_tag
+    cache = pkg / "__pycache__"
+    cache.mkdir(exist_ok=True)
+    (cache / f"receipt.{tag}.pyc").write_bytes(b"own")
+    (cache / f"receipt.{tag}.opt-1.pyc").write_bytes(b"own-opt")
+    (cache / "receipt.cpython-310.pyc").write_bytes(b"foreign")             # LO-20261021-04: a 3.10 import
+    (pkg / "stale.pyc").write_bytes(b"sourceless")
+    (cache / "old.pyo").write_bytes(b"pyo")
+    return tag
+
+
+def test_bytecode_is_reported_separately_and_never_a_change(pkgcopy):
+    """sources_sha256 covers sources only; the executing interpreter's own caches are fingerprinted beside it,
+    every other bytecode file is counted, and none of it is a producer change (a writable install gains its
+    own caches during a run)."""
+    from lean_pkg import producer as pr
+    a = pr.fingerprint()
+    tag = _plant_bytecode(pkgcopy)
+    b = pr.fingerprint()
+    assert sorted(b["bytecode"]) == [f"__pycache__/receipt.{tag}.opt-1.pyc", f"__pycache__/receipt.{tag}.pyc"]
+    assert b["other_bytecode"] == 3                                          # foreign tag, sourceless, .pyo
+    assert b["sources"] == a["sources"]                                       # sources_sha256 unaffected
+    assert pr.changes(a, b) == []
+    p = pr.receipt_producer(b)
+    assert p["bytecode_tag"] == tag and p["bytecode_files"] == 2 and p["other_bytecode_files"] == 3
+    assert p["bytecode_sha256"] == pr.sources_sha256(b["bytecode"])
+    assert p["sources_sha256"] == pr.sources_sha256(a["sources"])
+    (pkgcopy / "__pycache__" / f"receipt.{tag}.pyc").write_bytes(b"other bytes")
+    assert pr.receipt_producer(pr.fingerprint())["bytecode_sha256"] != p["bytecode_sha256"]
+
+
+def test_bytecode_sha256_is_the_coreutils_recipe(pkgcopy):
+    from lean_pkg import producer as pr
+    if shutil.which("sha256sum") is None:
+        pytest.skip("coreutils sha256sum not on PATH")
+    tag = _plant_bytecode(pkgcopy)
+    cmd = (f"find . -type f -path '*/__pycache__/*' \\( -name '*.{tag}.pyc' -o -name '*.{tag}.opt-*.pyc' \\) | "
+           "sed 's|^\\./||' | LC_ALL=C sort | xargs -d '\\n' sha256sum | sha256sum")
+    out = subprocess.run(["bash", "-c", cmd], cwd=pkgcopy, capture_output=True, text=True, check=True).stdout
+    assert out.split()[0] == pr.receipt_producer(pr.fingerprint())["bytecode_sha256"]
+
+
+def test_an_interpreter_without_a_cache_tag_reports_no_own_bytecode(pkgcopy, monkeypatch):
+    import sys
+    from lean_pkg import producer as pr
+    _plant_bytecode(pkgcopy)
+    monkeypatch.setattr(sys.implementation, "cache_tag", None)
+    own, other = pr.bytecode_files(pkgcopy)
+    assert own == {} and other == 5
+    p = pr.receipt_producer(pr.fingerprint())
+    assert p["bytecode_tag"] is None and p["bytecode_sha256"] is None and p["bytecode_files"] == 0
 
 
 def test_install_probe_does_not_rewrite_the_checkout_index(lp, tmp_path):
@@ -134,6 +191,9 @@ def test_unchanged_producer_passes_and_is_sealed(lp, env, repo, tmp_path, fake_s
     assert any(c.startswith("✓ producer: lean-pkg") for c in payload["checks"])
     readme = payload["readme_block"]
     assert f"- Producer: lean-pkg {rec['producer']['lean_pkg']} (installed), sources SHA-256 `{want}`" in readme
+    code = rec["producer"]["bytecode_sha256"]
+    assert f"own bytecode ({rec['producer']['bytecode_tag']}, {rec['producer']['bytecode_files']} file(s)) " \
+           f"SHA-256 `{code}`" in readme and "sources unchanged from run start" in readme
     assert _gate(lp, env, rp) == 0                                          # gate ignores the additive key
 
 

@@ -25,10 +25,25 @@ of the package files, paths relative to the package directory, sorted bytewise:
       find . -type f ! -path '*/__pycache__/*' ! -name '*.pyc' | sed 's|^\\./||' | LC_ALL=C sort |
       xargs -d '\\n' sha256sum | sha256sum
 
+`sources_sha256` identifies the SOURCES only, not the bytecode the interpreter executes: Python runs a module
+from its cached `__pycache__/<name>.<cache_tag>.pyc` when that cache is valid for the source, and those files
+are left out above. `bytecode_files(pkg)` therefore reports, separately, the running interpreter's own caches
+(`__pycache__/*.<tag>.pyc` and `*.<tag>.opt-N.pyc`, `tag` = `sys.implementation.cache_tag`) and counts every
+other `.pyc`/`.pyo` in the package (another interpreter's caches, or a sourceless/untagged file). It is a
+snapshot at run start and never part of `changes()`: on a writable install the interpreter adds its own
+caches while a long run imports modules lazily, which is not a producer change. A read-only install (the lab
+seals release venvs) keeps it fixed. The own-tag listing hashes like the sources:
+
+    cd PKGDIR && TAG=$(python3 -c 'import sys; print(sys.implementation.cache_tag)') &&
+      find . -type f -path '*/__pycache__/*' \\( -name "*.$TAG.pyc" -o -name "*.$TAG.opt-*.pyc" \\) |
+      sed 's|^\\./||' | LC_ALL=C sort | xargs -d '\\n' sha256sum | sha256sum
+
 `receipt_producer(fp)` is the part sealed into the receipt as the additive key `producer` (gate and
 `receipt check` ignore it): the version, the install kind (editable / installed / unknown, as `--version`
-detects it), the editable checkout's commit and dirtiness, `sources_sha256`, the number of source files and the
-Python version. No path, host or user name is written."""
+detects it), the editable checkout's commit and dirtiness, `sources_sha256`, the number of source files, the
+Python version, and the bytecode at run start: `bytecode_tag`, `bytecode_files`, `bytecode_sha256` (the
+own-tag listing; null when the interpreter has no cache tag) and `other_bytecode_files`. No path, host or user
+name is written."""
 
 from __future__ import annotations
 
@@ -72,6 +87,29 @@ def source_files(pkg: pathlib.Path) -> dict[str, str]:
             p = pathlib.Path(root, name)
             out[p.relative_to(pkg).as_posix()] = _sha(p)
     return out
+
+
+def bytecode_files(pkg: pathlib.Path, tag: str | None = None) -> tuple[dict[str, str], int]:
+    """({path: SHA-256} of the interpreter's own caches `__pycache__/<name>.<tag>[.opt-N].pyc`, the number of
+    every other `.pyc`/`.pyo` in the package). `tag` defaults to `sys.implementation.cache_tag`; with no tag
+    (an interpreter that writes no caches) every bytecode file counts as other."""
+    tag = sys.implementation.cache_tag if tag is None else tag
+    own, other = {}, 0
+    for root, dirs, files in os.walk(pkg):
+        dirs.sort()
+        in_cache = os.path.basename(root) == "__pycache__"
+        for name in files:
+            if not name.endswith(SKIP_SUFFIXES):
+                continue
+            parts = name[:-len(".pyc")].split(".") if name.endswith(".pyc") else []
+            mine = (in_cache and tag and len(parts) in (2, 3) and parts[1] == tag
+                    and (len(parts) == 2 or parts[2].startswith("opt-")))
+            if mine:
+                p = pathlib.Path(root, name)
+                own[p.relative_to(pkg).as_posix()] = _sha(p)
+            else:
+                other += 1
+    return own, other
 
 
 def sources_sha256(files: dict[str, str]) -> str:
@@ -122,7 +160,9 @@ def fingerprint(pkg: pathlib.Path | None = None) -> dict:
         for name in DIST_FILES:
             if (info / name).is_file():
                 env[f"dist-info {name}"] = _sha(info / name)
-    return {"version": __version__, "pkg": str(pkg), "sources": source_files(pkg), "environment": env}
+    own, other = bytecode_files(pkg)
+    return {"version": __version__, "pkg": str(pkg), "sources": source_files(pkg), "environment": env,
+            "bytecode": own, "other_bytecode": other}
 
 
 def changes(before: dict, after: dict) -> list[str]:
@@ -161,6 +201,11 @@ def receipt_producer(fp: dict) -> dict:
     if info["install"] == "editable":
         p = core.registry_git(pathlib.Path(info["path"]), "--no-optional-locks", "rev-parse", "HEAD")
         commit = p.stdout.strip() if p.returncode == 0 else None
+    tag = sys.implementation.cache_tag
+    own = fp.get("bytecode", {})
     return {"lean_pkg": fp["version"], "install": info["install"], "commit": commit, "dirty": info["dirty"],
             "sources_sha256": sources_sha256(fp["sources"]), "source_files": len(fp["sources"]),
-            "python": platform.python_version()}
+            "python": platform.python_version(),
+            "bytecode_tag": tag, "bytecode_files": len(own),
+            "bytecode_sha256": sources_sha256(own) if tag else None,
+            "other_bytecode_files": fp.get("other_bytecode", 0)}
