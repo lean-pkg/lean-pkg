@@ -4,7 +4,26 @@
 # renames both files to the version it cuts, which make release-version prints.
 schema: lean-pkg-upgrade-record/1
 version: 0.21.0
-changes: []
+changes:
+  - pr: 297
+    id: producer-bytecode-fingerprint
+    kind: format
+    area: receipts
+    summary: >-
+      The receipt key producer (receipt systemd/local --run) gains bytecode_tag, bytecode_files,
+      bytecode_sha256 and other_bytecode_files. sources_sha256 covers the sources only (it leaves out
+      __pycache__/ and every .pyc), but Python executes a module from its cached
+      __pycache__/<name>.<cache_tag>.pyc, so the key now also fingerprints, at the run start, the running
+      interpreter's own caches (__pycache__/*.<tag>.pyc and *.<tag>.opt-N.pyc, hashed like the sources; null
+      without a cache tag) and counts every other .pyc/.pyo in the package. Bytecode is never compared during
+      a run. The - Producer: README line names the bytecode digest.
+    action: >-
+      Nothing for a package author: gate and receipt check ignore the key, and receipts written before keep
+      validating. A pin or audit that cites sources_sha256 as the identity of the code that ran should also
+      read bytecode_sha256 (and treat a nonzero other_bytecode_files as another interpreter's caches in the
+      install).
+    breaking: false
+    changelog: Added
 # Read for this record, nothing for a package author: release tooling, one entry per pull request unless
 # each of its entries is marked split: true; marks the multi-entry PRs of 0.11.0, 0.12.0 and 0.20.0 (#296).
 no_author_change: [296]
