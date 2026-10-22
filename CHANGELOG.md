@@ -9,6 +9,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- Receipt `producer` key (#297): `sources_sha256` covers the sources only (it
+  leaves out `__pycache__/` and every `.pyc`), not the bytecode Python
+  executes. The key now also records, at the run start, the interpreter's
+  own caches: `bytecode_tag` (`sys.implementation.cache_tag`),
+  `bytecode_files` and `bytecode_sha256` (`__pycache__/*.<tag>.pyc` and
+  `*.<tag>.opt-N.pyc`, hashed like the sources; null without a cache tag),
+  and `other_bytecode_files`, a count of every other `.pyc`/`.pyo` in the
+  package (another interpreter's caches, a sourceless file: what a whole-tree
+  pin of an install trips over). The `- Producer:` README line names the
+  bytecode digest. Additive: gate and `receipt check` ignore the key, and
+  bytecode is never compared during a run (a writable install gains its own
+  caches as modules load).
+
 ### Fixed
 
 - Upgrade records (#296): one entry per pull request, unless the pull

@@ -1580,8 +1580,10 @@ it into the receipt as the additive key `producer`, which `gate` and
 so this is no schema change):
 
 ```json
-"producer": {"lean_pkg": "0.11.0", "install": "installed", "commit": null, "dirty": null,
-             "sources_sha256": "<64 hex>", "source_files": 57, "python": "3.13.1"}
+"producer": {"lean_pkg": "0.21.0", "install": "installed", "commit": null, "dirty": null,
+             "sources_sha256": "<64 hex>", "source_files": 76, "python": "3.12.3",
+             "bytecode_tag": "cpython-312", "bytecode_files": 74, "bytecode_sha256": "<64 hex>",
+             "other_bytecode_files": 0}
 ```
 
 `install` is what `lean-pkg --version` detects (`editable`, `installed` or
@@ -1594,6 +1596,30 @@ be recomputed from any install of the same release:
 cd "$(python3 -c 'import lean_pkg, os; print(os.path.dirname(lean_pkg.__file__))')" &&
   find . -type f ! -path '*/__pycache__/*' ! -name '*.pyc' | sed 's|^\./||' | LC_ALL=C sort |
   xargs -d '\n' sha256sum | sha256sum
+```
+
+`sources_sha256` covers the **sources only**: it leaves out `__pycache__/`
+and every `.pyc`, but Python executes a module from its cached
+`__pycache__/<name>.<cache_tag>.pyc` whenever that cache is valid for the
+source. So it identifies which sources are installed, not which bytecode
+ran. The bytecode is reported beside it, as found at the run start:
+`bytecode_tag` is the interpreter's `sys.implementation.cache_tag`,
+`bytecode_files` and `bytecode_sha256` cover its own caches
+(`__pycache__/*.<tag>.pyc` and `*.<tag>.opt-N.pyc`, hashed like the
+sources; `bytecode_sha256` is null for an interpreter without a cache tag),
+and `other_bytecode_files` counts every other `.pyc`/`.pyo` in the package
+(another interpreter's caches, or a sourceless file). A nonzero
+`other_bytecode_files` is what a whole-tree pin of an install trips over:
+another Python imported the package from it and left its own caches.
+Neither the bytecode nor its count is compared during the run (a writable
+install gains its own caches as modules are imported lazily, which is not a
+producer change); a read-only install keeps them fixed. The own-tag listing
+is recomputed with the interpreter that ran:
+
+```bash
+cd PKGDIR && TAG=$(PYTHON -c 'import sys; print(sys.implementation.cache_tag)') &&
+  find . -type f -path '*/__pycache__/*' \( -name "*.$TAG.pyc" -o -name "*.$TAG.opt-*.pyc" \) |
+  sed 's|^\./||' | LC_ALL=C sort | xargs -d '\n' sha256sum | sha256sum
 ```
 
 The forms without `--run` (`receipt slurm`, `receipt systemd --unit` or

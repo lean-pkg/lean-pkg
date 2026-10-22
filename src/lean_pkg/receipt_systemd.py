@@ -784,8 +784,12 @@ def cmd_receipt_systemd(args) -> int:
         if sealed_producer:
             p = sealed_producer
             build = f"editable {p['commit'][:12]}{'+dirty' if p['dirty'] else ''}" if p["commit"] else p["install"]
-            out.append(f"- Producer: lean-pkg {p['lean_pkg']} ({build}), sources SHA-256 `{p['sources_sha256']}`; "
-                       f"unchanged from run start to collection.")
+            code = (f", own bytecode ({p['bytecode_tag']}, {p['bytecode_files']} file(s)) SHA-256 "
+                    f"`{p['bytecode_sha256']}`" if p.get("bytecode_sha256") else "")
+            other = (f", {p['other_bytecode_files']} other bytecode file(s)"
+                     if p.get("other_bytecode_files") else "")
+            out.append(f"- Producer: lean-pkg {p['lean_pkg']} ({build}), sources SHA-256 `{p['sources_sha256']}`"
+                       f"{code}{other}; sources unchanged from run start to collection.")
         return out
 
     def log_job_id(value: str) -> str | None:
