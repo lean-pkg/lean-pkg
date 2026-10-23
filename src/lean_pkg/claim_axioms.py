@@ -23,7 +23,9 @@ Verdict (`judge`, used by `receipt slurm|systemd`, the receipt key `claim_axioms
 the lines must be complete (one final `claim-axioms-done: N` line, N lines before it, no name twice, nothing
 malformed) and every claim in claims.yaml committed at the receipt's commit must have a line.
 Refused: a missing claim, a claim depending on `sorryAx`, a name whose `#print axioms` output in the same log
-disagrees with its claim-axioms line, an unchecked claim. A claim using an axiom beyond propext,
+names an axiom its claim-axioms line does not, an unchecked claim. The walk is the verdict: a `#print axioms`
+output naming FEWER axioms (the module system can give it a narrower view of a structure type) is a check
+line, not a refusal. A claim using an axiom beyond propext,
 Classical.choice and Quot.sound is listed under `nonstandard`; `gate` refuses it unless the package's
 gate.axioms_allowed lists it, exactly as for the receipt's `axioms`. A log with no claim-axioms line at all
 (an older verify script) gives a receipt without the key, valid as before.
@@ -182,19 +184,36 @@ def judge(text: str, required: list[str] | None) -> tuple[dict | None, list[str]
             refusals.append(f"claim axioms: {len(unchecked)} claim(s) in claims.yaml have no claim-axioms line: "
                             f"{', '.join(unchecked[:10])}" + (" ..." if len(unchecked) > 10 else "")
                             + " (the job's claims reader read block-style YAML; every claim must be checked)")
+    # The environment walk is the verdict. `#print axioms` naming an axiom the walk did not find means the walk
+    # missed something (or the log was altered): refused. `#print axioms` naming FEWER axioms is the safe
+    # direction and is reported, not refused: under the Lean module system `#print axioms` on a structure type
+    # can read a narrower view than the walk, which visits every body (`loadExts := false`).
     printed = printed_axioms(text)
+    narrower = []
     for name, axs in records:
-        if axs is not None and name in printed and set(axs) != printed[name]:
-            refusals.append(f"claim axioms: {name}: the environment gives {axs or 'none'}, its `#print axioms` "
-                            f"output in the same log {sorted(printed[name]) or 'none'}; the two disagree")
+        if axs is None or name not in printed:
+            continue
+        extra = printed[name] - set(axs)
+        if extra:
+            refusals.append(f"claim axioms: {name}: its `#print axioms` output in the same log names "
+                            f"{sorted(extra)}, which the environment walk did not find (the environment gives "
+                            f"{axs or 'none'}, `#print axioms` {sorted(printed[name]) or 'none'}); the two disagree")
+        elif printed[name] != set(axs):
+            narrower.append(name)
     n = sum(1 for _, axs in records if axs is not None)
     summary = {"checked": n, "nonstandard": nonstandard, "missing": missing}
     lines = []
     if not refusals:
         both = sorted(set(checked) & set(printed))
+        agree = len(both) - len(narrower)
         lines.append(f"✓ claim axioms: {n} claim(s) read from the built environment (collectAxioms)"
                      + (f", every claim in claims.yaml" if required else "")
-                     + (f"; {len(both)} agree with their #print axioms output" if both else ""))
+                     + (f"; {agree} agree with their #print axioms output" if agree else ""))
+        for name in narrower:
+            axs = checked[name]
+            lines.append(f"  claim axioms: {name}: `#print axioms` names fewer axioms "
+                         f"({sorted(printed[name]) or 'none'}) than the environment walk ({axs}); the walk is "
+                         f"the verdict (the module system can give `#print axioms` a narrower view)")
     return summary, refusals, lines
 
 

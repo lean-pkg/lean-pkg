@@ -104,10 +104,31 @@ def test_incomplete_or_failing_lines_are_refused(lines, needle):
     assert any(needle in r for r in refusals), refusals
 
 
-def test_disagreeing_with_print_axioms_is_refused():
-    # the fixture log prints 'Demo.helper' depends on axioms: [propext]
-    _s, refusals, _ = ca.judge(LOG + f"claim-axioms: Demo.helper {STD}\nclaim-axioms-done: 1\n", ["Demo.helper"])
-    assert any("Demo.helper" in r and "disagree" in r for r in refusals), refusals
+def test_print_axioms_naming_an_axiom_the_walk_missed_is_refused():
+    # the fixture log prints 'Demo.helper' depends on axioms: [propext]; a walk without propext missed it
+    _s, refusals, _ = ca.judge(LOG + "claim-axioms: Demo.helper none\nclaim-axioms-done: 1\n", ["Demo.helper"])
+    assert any("Demo.helper" in r and "['propext']" in r and "did not find" in r for r in refusals), refusals
+
+
+def test_print_axioms_naming_fewer_axioms_is_reported_not_refused():
+    # a field report: under the Lean module system `#print axioms` on a structure type printed none while the
+    # environment walk gave the three standard axioms. The walk is the verdict; the narrower view is a note.
+    log = ("'Demo.Data' does not depend on any axioms\n"
+           "'Demo.helper' depends on axioms: [propext]\n"
+           f"claim-axioms: Demo.Data {STD}\nclaim-axioms: Demo.helper {STD}\nclaim-axioms-done: 2\n")
+    summary, refusals, lines = ca.judge(log, ["Demo.Data", "Demo.helper"])
+    assert refusals == [], refusals
+    assert summary["checked"] == 2 and summary["nonstandard"] == []
+    notes = [x for x in lines if "names fewer axioms" in x]
+    assert len(notes) == 2 and any("Demo.Data" in x and "(none)" in x for x in notes), lines
+    assert "agree with their #print axioms" not in lines[0]               # neither printed list agrees exactly
+
+
+def test_a_narrower_print_does_not_hide_a_nonstandard_axiom():
+    # the walk's list stays the verdict: a custom axiom it finds is listed even when #print axioms omits it
+    log = "'A.t' depends on axioms: [propext]\nclaim-axioms: A.t A.myAx,propext\nclaim-axioms-done: 1\n"
+    summary, refusals, _ = ca.judge(log, ["A.t"])
+    assert refusals == [] and summary["nonstandard"] == [{"decl": "A.t", "axioms": ["A.myAx"]}]
 
 
 def test_custom_axiom_is_listed_and_gate_refuses_it_unless_allowed():

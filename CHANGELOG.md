@@ -40,6 +40,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- Claim axioms (#299, a field report): a claim whose `#print axioms` output
+  names FEWER axioms than the environment walk is no longer refused. Under the
+  Lean module system `#print axioms` on a structure type can print `does not
+  depend on any axioms` while the walk (`ClaimAxioms.lean`, every body
+  visited) gives `Classical.choice, Quot.sound, propext`; `receipt slurm`
+  refused the whole receipt. The walk is the verdict, so the narrower print is
+  a check line naming both lists. A `#print axioms` output that names an axiom
+  the walk did not find is still refused. This is the rule proposal 0005 states
+  ("a `#print axioms` result for the same name that names other axioms
+  refuses"); the check was stricter than that. `docs/receipts.md`,
+  "Per-claim axioms".
+
 - Upgrade records (#296): one entry per pull request, unless the pull
   request made several separate changes and each of its entries says so
   with `split: true`. `doctor --upgrade-from` (`record_problems[]`) and the
