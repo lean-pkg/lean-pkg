@@ -95,9 +95,19 @@ What refuses the receipt (nothing is written), with the lines present:
 - a claim of `claims.yaml` at the commit with no line, or an incomplete probe (no final
   `claim-axioms-done: N`, a count that does not match, a name twice, a malformed line, a line after
   the count);
-- a claim whose `#print axioms` output in the same log names other axioms than its line (the two
-  checks must agree);
+- a claim whose `#print axioms` output in the same log names an axiom its line does not (the
+  environment walk missed something, or the log was altered);
 - a redaction that alters one of the lines.
+
+The environment walk is the verdict. A `#print axioms` output that names **fewer** axioms than the
+walk is reported, not refused: under the Lean module system, `#print axioms` on a structure type can
+read a narrower view (`'Pkg.Data' does not depend on any axioms`) than the walk, which visits every
+body. The check line names both lists:
+
+```text
+✓ claim axioms: 1525 claim(s) read from the built environment (collectAxioms), every claim in claims.yaml; 1523 agree with their #print axioms output
+  claim axioms: Pkg.Data: `#print axioms` names fewer axioms (none) than the environment walk (['Classical.choice', 'Quot.sound', 'propext']); the walk is the verdict (the module system can give `#print axioms` a narrower view)
+```
 
 A claim using an axiom beyond `propext`, `Quot.sound` and `Classical.choice` is recorded under
 `nonstandard` (with a WARN), and `gate` refuses it unless the package's `gate.axioms_allowed` lists
@@ -2195,7 +2205,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `... evidence files` | `manifest_sha256`, `artifacts_manifest_sha256`, `unit_properties_sha256` against the files they name, when present; `job_stdout_sha256` is not checkable (the job's stdout is not published) |
 | `... sacct seal` | only when the receipt has a `slurm_sacct` block ([`--seal-sacct`](#sealing-the-sacct-record---seal-sacct)): shown (job, window, record); the validator of `lower <receipt>` already failed it unless the sealed record is committed at REF and still hashes and parses to the block |
 | `... container` | only when the receipt has a `container` key: shown (engine, digest, image ref); a malformed one fails; the digest is not re-derivable (the image is not published) |
-| `... claim axioms` | only when the receipt has a `claim_axioms` key: re-derived from the committed sealed log against `claims.yaml` at X (every claim checked, none missing, no `sorryAx`, agreeing with the log's `#print axioms` output) and equal to the key |
+| `... claim axioms` | only when the receipt has a `claim_axioms` key: re-derived from the committed sealed log against `claims.yaml` at X (every claim checked, none missing, no `sorryAx`, no axiom in the log's `#print axioms` output that the walk did not find) and equal to the key |
 | `claims` | `claims.yaml` at X passes the claims/1 schema and the declaration check `gate` runs |
 | `comparator <receipt>` | `gate`'s validator: the exact set of configurations tracked at X, each one's SHA-256, theorem names and sign-off, each log's SHA-256 and PASS line, the lower tier's commit |
 | `... olean manifest` | the receipt's `olean_manifest` names the toolchain and `lake-manifest.json` of X (the manifest file itself is not published) |

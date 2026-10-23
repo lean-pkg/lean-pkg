@@ -5,6 +5,23 @@
 schema: lean-pkg-upgrade-record/1
 version: 0.21.0
 changes:
+  - pr: 299
+    id: claim-axioms-narrower-print
+    kind: behavior
+    area: receipts
+    summary: >-
+      The per-claim axiom check (receipt slurm, receipt systemd, gate, receipt check) no longer refuses a claim
+      whose #print axioms output in the same log names fewer axioms than the environment walk. Under the Lean
+      module system #print axioms on a structure type can print 'does not depend on any axioms' while the walk
+      gives the standard axioms; the walk is the verdict, so this is now a check line naming both lists. A
+      #print axioms output naming an axiom the walk did not find is still refused, as proposal 0005 states.
+    action: >-
+      Nothing for most package authors. A package using the module system whose receipt slurm or receipt
+      systemd refused 'claim axioms: NAME: the environment gives [...], its #print axioms output in the same
+      log none; the two disagree' reruns the same command on the same saved files with this release; no new
+      verification job is needed.
+    breaking: false
+    changelog: Fixed
   - pr: 297
     id: producer-bytecode-fingerprint
     kind: format
