@@ -95,6 +95,24 @@ whose file name is not its version, an older record that was never released,
 and an unreleased record listing a pull request that already shipped (the
 rename was missed).
 
+### The breaking-entries file
+
+`src/lean_pkg/data/upgrade-breaking.yaml` lists every record entry with
+`breaking: true` (version, id, pr, kind, area), provisional record included.
+It ships in the package, so an installed lean-pkg, which has no `docs/`, can
+name the breaking changes between the lean-pkg that wrote a package's
+receipts and the running one (`status NAME`, `doctor --package NAME`;
+[docs/receipts.md](docs/receipts.md#which-lean-pkg-wrote-a-receipt-producer-skew)).
+It is generated, never edited: a pull request that adds a breaking entry,
+or changes the `version`, `id`, `pr`, `kind`, `area` or `breaking` of one,
+runs `python3 scripts/upgrade-breaking.py` (or `make docs`) and commits the
+file; `tests/test_producer_skew.py` fails when it differs from the
+records. A record entry whose `area` uses a component that is new to the
+records also classifies it, in `EVIDENCE_AREAS` or `OTHER_AREAS` of
+`src/lean_pkg/producer_skew.py` (the same test names an unclassified one).
+`scripts/release-version.py --rename` (step 2b) rewrites the file with the
+record, and step 2b commits both.
+
 ### Version history
 
 `scripts/release-version.py --history --since 0.1.0` applies the rule to

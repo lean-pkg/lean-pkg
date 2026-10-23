@@ -550,6 +550,7 @@
       "name",
       "ok",
       "package",
+      "producer_skew",
       "scope"
     ],
     "rc": 0,

@@ -2153,9 +2153,15 @@ def cmd_receipt_slurm(args) -> int:
         def sacct_seal(receipt: dict, rel: str) -> tuple[dict, bytes]:
             return sacct_seal_record(job, receipt, sacct, live=live, user=args.sacct_user, rel=rel,
                                      kind="lower-tier")
+    # The lean-pkg that writes this receipt (the collector, not the one that ran inside the job), with the
+    # shape `receipt systemd --run` seals; additive, gate and receipt check ignore it (producer.py)
+    from . import producer as pr
+    written_by = pr.receipt_producer(pr.fingerprint())
+    json_extra["producer"] = written_by
     ev = Evidence(verb="receipt slurm", job_id=job_id, refusals=refusals, checks=checks, executor_lines=lines,
                   default_heading=f"lower-tier receipt, Slurm job {job}", check_log_job_id=log_job_id,
-                  json_extra=json_extra, evidence_files=evidence_files, sacct_seal=sacct_seal)
+                  json_extra=json_extra, evidence_files=evidence_files, sacct_seal=sacct_seal,
+                  receipt_extra={"producer": written_by})
     return produce(args, ev, repo, paths, extra)
 
 

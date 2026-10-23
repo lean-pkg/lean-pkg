@@ -197,7 +197,8 @@ def test_without_artifacts_the_receipt_is_unchanged(lp, repo, tmp_path, capsys, 
     assert "artifacts" not in payload
     assert [s["role"] for s in payload["sealed"]] == ["receipt", "redacted-log"]
     r = receipt_json(repo)
-    assert list(r) == list(lp.RECEIPT_FIELDS) + ["job_stdout_sha256", "manifest_sha256", "log_commit_bound"]
+    assert list(r) == list(lp.RECEIPT_FIELDS) + ["job_stdout_sha256", "manifest_sha256", "log_commit_bound",
+                                            "producer"]
 
 
 def refused(lp, repo, job, art, capsys, *extra) -> str:

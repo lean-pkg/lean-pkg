@@ -52,6 +52,7 @@ covered, and how a third party re-verifies a page, is the
 | `job_id`, `checker`, `generated_at` | nonempty: the executor's terminal job identity, the exact checker mode, and an ISO-8601 time that must parse. The stored copy is named `<commit12>-<job_id>.json`, with characters outside `[A-Za-z0-9._-]` replaced by `-` and leading dots and dashes dropped |
 | `claim_axioms` (optional, additive) | `{checked, nonstandard: [{decl, axioms}], missing: []}`: the axioms of **every** claim in `claims.yaml`, read from the built environment ([Per-claim axioms](#per-claim-axioms-claim_axioms)). When present, `missing` must be empty and every axiom under `nonstandard` must be in `gate.axioms_allowed` (`sorryAx` never is). A receipt without the key is valid, as before |
 | `slurm_sacct` (optional, additive) | the job's sacct record sealed by [`receipt slurm --seal-sacct`](#sealing-the-sacct-record---seal-sacct): `{schema: slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source}`, the block a sealed comparator receipt carries. When present, `job_id` must be `slurm-<job>`, `file` (`.lean-receipts/<commit12>-slurm-<J>-sacct.txt`) must be committed at HEAD and hash to `sha256`, and the record must parse as job J `COMPLETED` `0:0` with a `Start`..`End` containing `generated_at` and equal to the block's (`receipt.sacct_seal_problem`). A receipt without the key is valid, as before |
+| `producer` (optional, additive, not validated) | the lean-pkg that **wrote** this receipt: `{lean_pkg, install, commit, dirty, sources_sha256, source_files, python, bytecode_tag, bytecode_files, bytecode_sha256, other_bytecode_files}`, the shape [`receipt systemd --run`](#a-lower-tier-receipt-from-a-systemd-unit) seals. `receipt slurm` always writes it, built from the running lean-pkg when it writes the receipt: that is the collector, not the lean-pkg that ran inside the job. `receipt systemd` writes it only with `--run`. `gate`, `gate --check` and `receipt check` ignore it; a receipt without it (any receipt written before) is valid, as before. `status NAME` and `doctor --package NAME` compare it with the running lean-pkg ([Which lean-pkg wrote a receipt](#which-lean-pkg-wrote-a-receipt-producer-skew)) |
 
 The frozen report named by `report_sha256` is expected to bind the candidate
 commit or tree, the toolchain and dependency pins, complete checker
@@ -1624,7 +1625,11 @@ cd PKGDIR && TAG=$(PYTHON -c 'import sys; print(sys.implementation.cache_tag)') 
 
 The forms without `--run` (`receipt slurm`, `receipt systemd --unit` or
 `--properties-file`) only post-process evidence lean-pkg did not run, in
-seconds, and carry no `producer` key.
+seconds; nothing runs long enough to be compared. `receipt systemd` without
+`--run` writes no `producer` key. `receipt slurm` and `receipt comparator`
+record the same key, without the comparison: the lean-pkg that wrote the
+receipt, fingerprinted when it writes it. For `receipt slurm` that is the
+collector, not the lean-pkg inside the Slurm job.
 
 ### Long runs: freeze the producer
 
@@ -1792,6 +1797,7 @@ still exits 127 as an incomplete list, not as a host fault.
 | `host`, `job_id`, `generated_at` | nonempty; `generated_at` must parse as ISO-8601. `host`, and the host in `job_id` (`local-<host>-<pid>-<stamp>` outside Slurm), is the host's label, never its name: `h-` and 12 hex digits of the SHA-256 of the lower-cased host name (the label `receipt systemd` uses) or the runner's `--host-label`; a receipt written by lean-pkg 0.10.0 or earlier may name the host itself (still valid; `public-safety` reports it as `receipt-raw-host`, see [Comparator](comparator.md#host-policy)) |
 | `host_label` | the label in `host` (always written since host labels; before, only with `--host-label`); not validated |
 | `host_policy` | the runner's host-policy reason (an override run is visible here), naming the host by its label |
+| `producer` | optional, additive, not validated: the lean-pkg that **wrote** this receipt (`receipt comparator`, alias `comparator-receipt`, when it writes it), in the lower-tier receipt's `producer` shape; no path, host or user name. A receipt without it (any receipt written before) is valid, as before; see [Which lean-pkg wrote a receipt](#which-lean-pkg-wrote-a-receipt-producer-skew) |
 | `slurm_sacct` | optional, additive: the sacct seal of a Slurm claim (`job_id` J, `host_policy` `Slurm job J ...`), written after the job by `lean-pkg receipt comparator --seal-sacct`: `{schema: slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source}`, `file` the normalized record `.lean-receipts/<commit12>-comparator-sacct.txt` it hashes. Only a sealed claim backs a `coverage.yaml` `compute` job; see [Comparator](comparator.md#seal-the-slurm-claim-with-sacct). A lower-tier receipt carries the same block with [`receipt slurm --seal-sacct`](#sealing-the-sacct-record---seal-sacct) |
 | `stack_limit` | optional, additive, not validated: `{soft_kb, hard_kb, source}`, the soft stack limit the runner's `lake`/`lean` children ran under (`soft_kb`/`hard_kb` an integer or `unlimited`; `source` `inherited` or `COMPARATOR_RECEIPT_STACK`); see [Comparator](comparator.md#stages-and---prepare) |
 | `lean_threads` | optional, additive, not validated: the `LEAN_NUM_THREADS` the runner gave its `lake`/`lean` children (`COMPARATOR_RECEIPT_LEAN_THREADS`), or `null` when unset; see [Comparator](comparator.md#stages-and---prepare) |
@@ -2636,6 +2642,48 @@ is edited, every restored file must hash to what the receipt recorded, and
 `receipt check` still decides. For a registered package,
 `lean-pkg gate NAME --check --repo DIR` gives the author's view of the same
 receipts, with the registry's recorded paths and opt-ins.
+
+### Which lean-pkg wrote a receipt (producer skew)
+
+A package's evidence chain can mix lean-pkg versions: the lower-tier
+receipt written by one release, the comparator receipt by another, and
+`gate` or `receipt check` run by a third (a field report). Each receipt
+names its writer in `producer.lean_pkg` (`receipt slurm`,
+`receipt comparator`, `receipt systemd --run`). `lean-pkg status NAME` compares it,
+for the two receipts the package's gate state rests on (the registry's
+`gate.receipt` and `gate.comparator`, read from the checkout), with the
+running lean-pkg, and `lean-pkg doctor --package NAME` runs the same check
+on demand:
+
+| Producer | Result |
+|---|---|
+| no `producer` key (written before receipts recorded it, or by `receipt systemd` without `--run`), or not `X.Y.Z` | info: `producer unknown`; nothing to compare |
+| the running version | info; commits between releases are not compared |
+| older, with a breaking upgrade-record entry in an evidence area after it | **WARN** naming the entry ids and `lean-pkg doctor --upgrade-from vPRODUCER --source DIR` (DIR: a lean-pkg clone; omit `--source` when lean-pkg runs from its own checkout) |
+| older, with no such entry in between | info only: the breaking entries in other areas (the page, the CLI) are named, no warning |
+| newer than the running lean-pkg | **WARN**, always: an older checker ignores evidence it does not know (lean-pkg 0.19.0 and older never check a sealed `slurm_sacct` record), and its list cannot name later releases' changes; upgrade lean-pkg to at least the producer's version before trusting `gate`, `gate --check` or `receipt check` on it |
+
+The breaking entries come from `src/lean_pkg/data/upgrade-breaking.yaml`,
+generated from `docs/upgrades/*.yaml` and shipped in the package, so a wheel
+install can read it. It ships with the running lean-pkg, so every entry in
+it is part of the running code: the range is (producer, running], the
+running lean-pkg's own unreleased record included. The evidence areas are
+the `area` components that change what a receipt holds or how it is judged:
+`receipts`, `receipt slurm`, `receipt check`, `comparator receipts`,
+`comparator`, `comparator (legacy mechanism)`, `stage logs`, `gate`, and
+what turns evidence into credited claims: `claims`, `claims ledger`,
+`claims mark`, `coverage check`, `lean-pkg-signoff.json`, `palomar check`,
+`verify`. An entry counts when any component of its `area` is one of them.
+
+The check never refuses and never changes an exit status. `status --json`
+adds `producer_skew` {running, receipts[], warnings[], skew, data_problem};
+each receipt row has its `role`, `producer` (or `unknown`), `direction`
+(`unknown`, `same`, `older` or `newer`), `breaking[]`, `other_breaking[]`,
+`level` (`info` or `warn`), `message` and the `command`. With `--json` the
+WARN lines also go to stderr as `lean-pkg: WARN: producer skew: ...`.
+`doctor --package NAME` prints one `producer lower-tier` and one
+`producer comparator` line (`warn`, `ok`, or `n/a` when unknown) and adds
+the same object as `producer_skew` to `doctor --json`.
 
 ## Publishing a package incubated beside private work
 
