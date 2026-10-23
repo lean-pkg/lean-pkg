@@ -81,6 +81,18 @@ the product the page certifies (`paper` or `library`), read from the committed
 readable file, the product is `null` and the output says `not declared` with a
 reason; status never refuses. This is separate from the record's DOI `track`.
 
+Without `--fields`, text mode also prints a `producer` block, one line per
+gate receipt: the lean-pkg that wrote it (its `producer.lean_pkg`, or
+`producer unknown`) against the running one, and `--json` adds
+`producer_skew` {running, receipts[] {role, receipt, readable, producer,
+producer_record, direction, breaking[], other_breaking[], level, message,
+command}, warnings[], skew, data_problem}. A line starts with `WARN` when an
+older producer lies before a breaking upgrade-record entry that touches
+receipts, gate or claims (it names the entries and `lean-pkg doctor
+--upgrade-from vPRODUCER --source DIR`) and when the producer is newer than
+the running lean-pkg; with `--json` those lines go to stderr. Never a
+refusal; see [Which lean-pkg wrote a receipt](../receipts.md#which-lean-pkg-wrote-a-receipt-producer-skew).
+
 ## Exit codes
 
 0 success (dry runs and no-ops included), 1 refused or failed, 2 usage error; see [Exit codes](../cli.md#exit-codes).
@@ -89,7 +101,7 @@ reason; status never refuses. This is separate from the record's DOI `track`.
 
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
-- `status` (exit 0): `branch`, `history_count`, `lease_state`, `name`, `ok`, `package`, `scope`
+- `status` (exit 0): `branch`, `history_count`, `lease_state`, `name`, `ok`, `package`, `producer_skew`, `scope`
 - `status-unknown` (exit 1): `error`, `ok`
 
 ## Examples

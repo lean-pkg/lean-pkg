@@ -43,7 +43,7 @@ The `make` targets:
 | `make changelog` | each released `## [X.Y.Z]` section of `CHANGELOG.md` reads as it did at tag `vX.Y.Z` (only record-doi's DOI line may be added); new entries go under `## [Unreleased]`, under the heading RELEASING.md "CHANGELOG headings" assigns, agreeing with the upgrade record |
 | `make reuse` | REUSE compliance (skipped, not passed, without `pipx install reuse`) |
 | `make goldens` | re-record the golden CLI contract after an intended help or JSON change |
-| `make docs` | rewrite the generated files (`llms.txt`, `docs/llms.txt`, `index/README.md`) |
+| `make docs` | rewrite the generated files (`llms.txt`, `docs/llms.txt`, `index/README.md`, the command reference, `src/lean_pkg/data/upgrade-breaking.yaml`) |
 | `make history` | the boundary scan over every blob and commit message reachable from any ref |
 | `make public-safety` | lean-pkg's own public-safety scan, history included (needs the untracked `.lean-pkg-private-patterns`; maintainers only) |
 
@@ -66,8 +66,9 @@ maintainer's release steps ([RELEASING.md](RELEASING.md)).
   JSON payload is intended, run `make goldens` and review `git diff tests/golden`.
   Adding a key is fine; removing or renaming a key, command or flag needs a
   [proposal](docs/proposals/README.md).
-- **Generated files.** Run `make docs` when `LLMS_TEXT` or an index entry
-  changes; CI fails on a stale generated file.
+- **Generated files.** Run `make docs` when `LLMS_TEXT`, an index entry or
+  a breaking upgrade-record entry changes (RELEASING.md, "The
+  breaking-entries file"); CI fails on a stale generated file.
 - **Public safety.** No host names, user names, local paths, student data or
   private paper names, in files, commit messages or PR text: GitHub keeps
   them after a force-push. `make boundary` checks the tree and CI checks the

@@ -7,3 +7,15 @@ the product the page certifies (`paper` or `library`), read from the committed
 `coverage.yaml` at HEAD (`kind: paper` is the default). With no committed or
 readable file, the product is `null` and the output says `not declared` with a
 reason; status never refuses. This is separate from the record's DOI `track`.
+
+Without `--fields`, text mode also prints a `producer` block, one line per
+gate receipt: the lean-pkg that wrote it (its `producer.lean_pkg`, or
+`producer unknown`) against the running one, and `--json` adds
+`producer_skew` {running, receipts[] {role, receipt, readable, producer,
+producer_record, direction, breaking[], other_breaking[], level, message,
+command}, warnings[], skew, data_problem}. A line starts with `WARN` when an
+older producer lies before a breaking upgrade-record entry that touches
+receipts, gate or claims (it names the entries and `lean-pkg doctor
+--upgrade-from vPRODUCER --source DIR`) and when the producer is newer than
+the running lean-pkg; with `--json` those lines go to stderr. Never a
+refusal; see [Which lean-pkg wrote a receipt](../receipts.md#which-lean-pkg-wrote-a-receipt-producer-skew).

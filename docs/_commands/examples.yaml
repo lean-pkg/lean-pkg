@@ -44,6 +44,8 @@ lean-pkg verify:
 lean-pkg doctor:
   - cmd: lean-pkg doctor
     say: Check the installation, the registry, the index and the tools in one line each; exit 1 when the registry is unreadable or its schema version is unsupported.
+  - cmd: lean-pkg doctor --package my-proof
+    say: Also compare the lean-pkg that wrote each of the package's gate receipts with the running one; a warn line names the breaking changes in between and the `doctor --upgrade-from` command to read. Never an exit 1.
 
 lean-pkg help:
   - cmd: lean-pkg help

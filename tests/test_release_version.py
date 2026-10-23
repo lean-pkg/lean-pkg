@@ -270,6 +270,21 @@ def test_rename_moves_both_files_and_rewrites_the_version(repo):
     assert _run(repo, "--check-version", "0.18.1").returncode == 0
 
 
+def test_rename_rewrites_the_breaking_entries_list(repo):
+    """The shipped list of breaking entries (scripts/upgrade-breaking.py) names each entry's record version, so
+    --rename rewrites it with the record; tests/test_producer_skew.py would fail on a stale copy."""
+    rec = {"schema": "lean-pkg-upgrade-record/1", "version": "0.19.0", "no_author_change": [10], "changes": [
+        {"pr": 11, "id": "a-breaking-fix", "kind": "behavior", "area": "receipts", "summary": "s", "action": "a",
+         "breaking": True, "changelog": "Fixed"}]}
+    _write(repo, {"docs/upgrades/0.19.0.yaml": yaml.safe_dump(rec, sort_keys=False),
+                  "src/lean_pkg/data/upgrade-breaking.yaml": "stale\n"})
+    r = _run(repo, "--rename", "0.18.1")
+    assert r.returncode == 0, r.stderr
+    assert "src/lean_pkg/data/upgrade-breaking.yaml" in r.stdout
+    text = (repo / "src/lean_pkg/data/upgrade-breaking.yaml").read_text()
+    assert '{version: "0.18.1", id: "a-breaking-fix", pr: 11' in text and "0.19.0" not in text
+
+
 def test_two_unreleased_records_or_a_misnamed_one_are_refused(repo):
     rec = {"schema": "lean-pkg-upgrade-record/1", "version": "0.20.0", "changes": [], "no_author_change": [12]}
     _write(repo, {"docs/upgrades/0.20.0.yaml": yaml.safe_dump(rec)})

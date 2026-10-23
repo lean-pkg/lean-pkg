@@ -13,7 +13,8 @@ Runs the RELEASING.md checklist from `## [Unreleased]` to the recorded Zenodo DO
       them on their own (`citation: bibtex examples cite X.Y.Z`)
   2b  names the in-progress upgrade record for X.Y.Z: docs/upgrades/<provisional>.yaml and
       .md become X.Y.Z.yaml and .md, the version inside both rewritten, committed on their
-      own (`upgrades: the record is X.Y.Z's`); nothing when it already carries X.Y.Z
+      own (`upgrades: the record is X.Y.Z's`, with src/lean_pkg/data/upgrade-breaking.yaml
+      rewritten when its versions change); nothing when it already carries X.Y.Z
   3   runs `make public-safety` and refuses unless it reports 0 blocking, 0 warnings
   1,2 moves `## [Unreleased]` to `## [X.Y.Z] - today`, appends the public-safety
       summary line, and sets the version in pyproject.toml, CITATION.cff
@@ -200,7 +201,7 @@ def step2b_record(rv, record, v: str) -> None:
         say(f"step 2b: the upgrade record is already named for {v}" if record else "step 2b: no upgrade record")
         return
     paths = rv.rename_record(ROOT, record, v)
-    git("add", "-A", "--", rv.RECORD_DIR)
+    git("add", "-A", "--", rv.RECORD_DIR, *[p for p in paths if p == rv.BREAKING_FILE])
     git("commit", "-q", "-m", f"upgrades: the record is {v}'s", *trailer_args())
     say(f"step 2b: committed {git('rev-parse', '--short', 'HEAD')} {record.path} -> {', '.join(paths)}")
 

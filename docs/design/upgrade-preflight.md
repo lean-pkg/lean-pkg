@@ -119,6 +119,14 @@ A record that breaks the one-entry-per-pull-request rule above (several
 entries not all marked `split: true`, a lone entry marked `split: true`, or
 a pull request both under `changes` and `no_author_change`) is malformed.
 
+**Shipped with the package.** The entries with `breaking: true` are also
+written to `src/lean_pkg/data/upgrade-breaking.yaml` by
+`scripts/upgrade-breaking.py` (RELEASING.md, "The breaking-entries file"),
+so a lean-pkg without the repository can name them: `status NAME` and
+`doctor --package NAME` compare the lean-pkg that wrote each gate receipt
+(`producer.lean_pkg`) with the running one and point at this preflight
+([Which lean-pkg wrote a receipt](../receipts.md#which-lean-pkg-wrote-a-receipt-producer-skew)).
+
 ## The command
 
 ```bash
