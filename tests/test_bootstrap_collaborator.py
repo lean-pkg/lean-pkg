@@ -48,8 +48,13 @@ def _world(tmp_path: Path) -> dict:
     for t in ("pipx", "elan", "go", "cargo", "jq"):
         _exe(stubs / t, "#!/bin/sh\nexit 0\n")
     (stubs / "python3").symlink_to(sys.executable)
+    # the code under test, except that FAKE_VERSION replaces its --version line (an older install) and
+    # a register call is logged to REGISTER_LOG
     _exe(stubs / "lean-pkg",
-         f"#!/bin/sh\nexec {sys.executable} -c 'import sys; from lean_pkg.cli import main; sys.exit(main())' \"$@\"\n")
+         "#!/bin/sh\n"
+         'if [ "$1" = --version ] && [ -n "$FAKE_VERSION" ]; then echo "lean-pkg $FAKE_VERSION"; exit 0; fi\n'
+         'if [ "$1" = register ] && [ -n "$REGISTER_LOG" ]; then echo "$*" >> "$REGISTER_LOG"; fi\n'
+         f"exec {sys.executable} -c 'import sys; from lean_pkg.cli import main; sys.exit(main())' \"$@\"\n")
 
     base = tmp_path / "gitbase"
     (base / "lean-pkg").mkdir(parents=True)
@@ -116,3 +121,30 @@ def test_bootstrap_stops_at_missing_access_and_names_the_human_step(tmp_path):
     assert "no access to owner/toy" in r.stdout and "accept the invitation" in r.stdout
     assert "NOT READY" in r.stdout
     assert not (w["home"] / ".lean-pkg").exists()
+
+
+def test_bootstrap_registers_with_url_on_a_current_lean_pkg(tmp_path):
+    w = _world(tmp_path)
+    log = tmp_path / "register.log"
+    r = _run(w, "owner/toy", REGISTER_LOG=str(log))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert log.read_text().startswith("register toy --url git@github.com:owner/toy.git --path ")
+
+
+def test_bootstrap_falls_back_to_repo_before_0_11_0(tmp_path):
+    """--url exists from lean-pkg 0.11.0; an older install (pipx upgrade failed) gets --repo, its old spelling."""
+    w = _world(tmp_path)
+    log = tmp_path / "register.log"
+    r = _run(w, "owner/toy", REGISTER_LOG=str(log), FAKE_VERSION="0.10.9")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "lean-pkg 0.10.9" in r.stdout
+    assert log.read_text().startswith("register toy --repo git@github.com:owner/toy.git --path ")
+    assert "toy:" in (w["home"] / ".lean-pkg" / "registry" / "lean-packages.yaml").read_text()
+
+
+def test_bootstrap_uses_repo_when_the_version_is_unreadable(tmp_path):
+    w = _world(tmp_path)
+    log = tmp_path / "register.log"
+    r = _run(w, "owner/toy", REGISTER_LOG=str(log), FAKE_VERSION="dev")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert log.read_text().startswith("register toy --repo ")

@@ -61,6 +61,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   global `core.hooksPath` can no longer hide the fake remotes' `pre-receive`
   hooks (7 tests passed pushes that were meant to fail) or run the host's own
   hooks on test pushes.
+- scripts/bootstrap-collaborator.sh (#303): registers the package with
+  `register --url`, the spelling `--help` gives since 0.11.0, and falls back
+  to `--repo`, its old spelling, when the installed lean-pkg is older than
+  0.11.0 or its `--version` line cannot be read (the script's
+  `pipx upgrade` may fail and leave an older install in place).
 
 ### Fixed
 

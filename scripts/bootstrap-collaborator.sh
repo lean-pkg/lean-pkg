@@ -76,6 +76,13 @@ else
   export PATH="${PIPX_BIN_DIR:-$HOME/.local/bin}:$PATH"
 fi
 have lean-pkg && ok "$(lean-pkg --version)" || { bad "lean-pkg not on PATH; open a new shell and run this again"; finish; }
+# register's URL flag is --url from lean-pkg 0.11.0; --repo, its old spelling, works in every release, so it
+# is used for an older lean-pkg and for a version this cannot read (`pipx upgrade` above may have failed).
+URL_FLAG=--repo
+if [[ "$(lean-pkg --version 2>/dev/null)" =~ ^lean-pkg\ ([0-9]+)\.([0-9]+) ]] \
+   && (( BASH_REMATCH[1] > 0 || BASH_REMATCH[2] >= 11 )); then
+  URL_FLAG=--url
+fi
 
 echo "== 4. checkouts under $SRC"
 mkdir -p "$SRC"
@@ -105,7 +112,7 @@ fi
 export LEAN_PKG_REGISTRY="$REG"
 if lean-pkg status "$PKG" >/dev/null 2>&1; then
   ok "$PKG already registered"
-elif lean-pkg register "$PKG" --repo "git@github.com:$PKG_SLUG.git" --path "${SRC#"$HOME"/}/$PKG" >/dev/null; then
+elif lean-pkg register "$PKG" "$URL_FLAG" "git@github.com:$PKG_SLUG.git" --path "${SRC#"$HOME"/}/$PKG" >/dev/null; then
   git -C "$REG_DIR" add -A && git -C "$REG_DIR" commit -qm "registry: register $PKG"
   ok "$PKG registered and committed"
 else
