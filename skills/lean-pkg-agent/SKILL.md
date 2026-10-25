@@ -45,7 +45,7 @@ drifts from the installed tool's behavior.
 ```bash
 lean-pkg llms                                   # the contract; read it
 lean-pkg registry board --json                           # or: lean-pkg list --json
-lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof --json
+lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof --json
 lean-pkg lease claim my-proof --workspace w1 --agent my-agent --reason "receipts" --json
 
 # lower tier: build, sorry scan, exact axiom audit at HEAD (lean-receipt-discipline),

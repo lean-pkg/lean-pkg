@@ -589,7 +589,7 @@ def repository_gaps(pkg: dict, tree: Tree) -> list[dict]:
     if not core.gh_nwo(str(pkg.get("repo") or "")):
         gaps.append(_gap("repository.not_github", "error", f"repo {pkg.get('repo')!r} is not a GitHub repository; "
                          "Palomar accepts public GitHub repositories only",
-                         f"lean-pkg update {name} --repo git@github.com:OWNER/REPO.git (after creating it)"))
+                         f"lean-pkg update {name} --url git@github.com:OWNER/REPO.git (after creating it)"))
     if pkg.get("visibility") != "public":
         gaps.append(_gap("repository.not_public", "warn",
                          f"the registry records visibility {pkg.get('visibility')!r} (not queried)",

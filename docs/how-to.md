@@ -74,7 +74,7 @@ the declarations at `HEAD`.
 ## Add a package
 
 ```bash
-lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof \
+lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof \
     [--owner-project paper-7] [--visibility private] [--status active] \
     [--upstream-target none|mathlib|palomar] [--automation "..."] [--notes "..."] [--dry-run]
 ```

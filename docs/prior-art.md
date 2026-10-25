@@ -378,7 +378,7 @@ repository and commit, and decide on it like any other candidate.
 ## The record
 
 `--record` writes `docs/prior-art/<YYYY-MM-DD>-<slug>.md` into the package's
-checkout (`--package`) or into `--repo-dir`, and appends one
+checkout (`--package`) or into `--repo`, and appends one
 `prior-art-searched` line to the registry's event log. The record lists the
 term, the date, every source with its revision, state and hit count, the top
 five candidates per source, and ends with
@@ -402,7 +402,7 @@ Privacy: registry rows, cached claims and event lines stay private. A record
 lists claims of other private packages only when the package it is written for
 is itself private, and then says `private-claims: yes` near the top; check such
 a record before that repository goes public. Otherwise it gives only their
-number. A record written with `--repo-dir` into a folder that is not the
+number. A record written with `--repo` into a folder that is not the
 package's own checkout treats the package's own claims the same way: they are
 listed only when the package is public.
 

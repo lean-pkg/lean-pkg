@@ -50,7 +50,7 @@ telescoping-paper/              the manuscript repository
 ## 1. Register the package and take the lease
 
 ```bash
-lean-pkg register telescoping-companion --repo git@github.com:you/telescoping-paper.git \
+lean-pkg register telescoping-companion --url git@github.com:you/telescoping-paper.git \
   --path src/telescoping-paper/lean --owner-project telescoping-paper
 lean-pkg lease claim telescoping-companion --workspace laptop --agent you
 ```

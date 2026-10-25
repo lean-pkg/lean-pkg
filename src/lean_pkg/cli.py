@@ -26,7 +26,7 @@ touch the outside world are dry-run by default.
     migrate   [--dry-run]                   upgrade the registry schema in place
     record    <name> EVENT --field K=V ...  publication evidence event, validated
                                             before writing (rules: `lean-pkg llms`)
-    register  <name> --repo URL --path P    the ONLY write path for new packages;
+    register  <name> --url URL --path P     the ONLY write path for new packages;
               [--dry-run]                   validated, deduping, auto-detects
                                             toolchain + mathlib pin
     update    <name> [--notes ...] [--status S --reason T]
@@ -2285,7 +2285,7 @@ def do_update(reg_path, reg, events_p, name, *, sets, status, reason,
                        f"(settable: {', '.join(sorted(UPDATABLE))})")
         value = sets[field]
         if field in ("repo", "owner_project"):
-            require_nonempty("--" + field.replace("_", "-"), value)
+            require_nonempty("--url" if field == "repo" else "--owner-project", value)
         if field == "license_spdx" and not spdx_expression_ok(value):
             raise Fail(f"license_spdx must be an SPDX identifier such as Apache-2.0 or MIT, or an SPDX "
                        f"expression such as 'MIT OR Apache-2.0', got {value!r}")
@@ -4364,7 +4364,7 @@ def do_register(reg_path, reg, events_p, name, repo, local_path, owner_project,
     if name in pkgs:
         raise Fail(f"name already registered: {name!r} — refusing to "
                    f"overwrite; inspect with `lean-pkg status {name}`")
-    require_nonempty("--repo", repo)
+    require_nonempty("--url", repo)
     require_nonempty("--owner-project", owner_project)
     local_path, new_key = normalize_local_path(local_path)
     for existing, pkg in pkgs.items():
@@ -6683,13 +6683,13 @@ record    record a D5 evidence event; validated before writing (a schema error i
           package's https://reservoir.lean-lang.org/@owner/name page; Reservoir API: 404 refuses, unreachable records verified=false; a url naming neither package nor repo warns)
           retract: event ts + --reason: append-only correction (event evidence-retracted); validate and the upstreamed check ignore the entry
           ex: lean-pkg record my-lean doi-minted --field doi=10.5281/zenodo.1 --field tag=v1.0.0 --field commit=<40hex>
-register  add a package; dedupes by name AND resolved local_path (~/ expanded, stored $HOME-relative; empty --path/--repo refused); auto-detects toolchain + mathlib pin; a Lean root namespace (lakefile lean_lib, else top-level *.lean) another package's checkout also uses: stderr note + `notes`, never a refusal. --like OTHER: a sibling package; copies repo/owner-project/upstream-target/automation from OTHER (flags win; never visibility), refused when DIR is in another git repo and --repo is absent; notes whether toolchain/Mathlib pin match OTHER's (JSON like {name, copied[], toolchain, mathlib_pin}). warn: DIR inside or containing another package's dir; a lake path dependency outside DIR.
+register  add a package; dedupes by name AND resolved local_path (~/ expanded, stored $HOME-relative; empty --path/--url refused); auto-detects toolchain + mathlib pin; a Lean root namespace (lakefile lean_lib, else top-level *.lean) another package's checkout also uses: stderr note + `notes`, never a refusal. --like OTHER: a sibling package; copies repo/owner-project/upstream-target/automation from OTHER (flags win; never visibility), refused when DIR is in another git repo and --url is absent; notes whether toolchain/Mathlib pin match OTHER's (JSON like {name, copied[], toolchain, mathlib_pin}). warn: DIR inside or containing another package's dir; a lake path dependency outside DIR.
   flags: --url URL (required; old spelling --repo) --path HOME-RELATIVE (required) [--license-spdx SPDX] [--owner-project N]
          [--visibility private|public] [--status scratch|active|gate-pending|public (public: --visibility public --reason R)]
          [--upstream-target none|mathlib|palomar] [--automation TEXT] [--notes TEXT] [--workspace W] [--agent A] [--dry-run]
   --workspace/--agent are metadata only; they do NOT claim. Claiming is a separate act.
   ex: lean-pkg register my-lean --url git@github.com:you/my-lean.git --path src/my-lean --license-spdx Apache-2.0
-update    set fields (--notes over non-empty notes: exit 2, nothing written, unless --replace-notes, which replaces, prints the old value, event notes_replaced + notes_from; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT` and prints only `appended note: <line>` (--json changes.notes keeps from/to), not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --repo/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. --track palomar|doi-only --reason R: the optional DOI track (see record doi-minted). --accept-docs-descendants | --no-accept-docs-descendants --reason R: the optional docs_descendants true/false (opt in to the docs-only rule, see gate); --build-inputs GLOB,GLOB --reason R: the optional build_inputs list ('' clears); --headline-config REL: the optional headline_config (the headline comparator configuration formalization renders as status.main_results; '' clears); these three accept --dry-run (event update-dry-run, nothing written). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
+update    set fields (--notes over non-empty notes: exit 2, nothing written, unless --replace-notes, which replaces, prints the old value, event notes_replaced + notes_from; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT` and prints only `appended note: <line>` (--json changes.notes keeps from/to), not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --url/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. --track palomar|doi-only --reason R: the optional DOI track (see record doi-minted). --accept-docs-descendants | --no-accept-docs-descendants --reason R: the optional docs_descendants true/false (opt in to the docs-only rule, see gate); --build-inputs GLOB,GLOB --reason R: the optional build_inputs list ('' clears); --headline-config REL: the optional headline_config (the headline comparator configuration formalization renders as status.main_results; '' clears); these three accept --dry-run (event update-dry-run, nothing written). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --withdraw-publication --reason TEXT [--agent A] [--dry-run]: record the owner's privacy withdrawal of a public package (see the transitions; event publication-withdrawn {status_from, status_to, visibility_from, visibility_to, reason, by, github_visibility, promoted_commit, forced}; JSON status/visibility {from, to}, publication_hold, github_visibility, github_check). --release-publication-hold --reason TEXT [--agent A] [--dry-run]: lift it, status/visibility unchanged (event publication-hold-released {reason, hold, by, forced}). Each on its own (other fields: exit 2).   |   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
   exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
@@ -6999,7 +6999,7 @@ def cmd_record(args) -> int:
 def like_fields(reg: dict, like: str, path, given: dict) -> tuple[dict, list[str]]:
     """`register --like OTHER`: the fields `given` leaves unset (None) taken from OTHER's record, and the
     names copied. Copying OTHER's repo is refused when the new checkout and OTHER's are both on this host
-    and in different git repositories (a sibling shares the repository; pass --repo otherwise)."""
+    and in different git repositories (a sibling shares the repository; pass --url otherwise)."""
     base = get_pkg(reg, like)
     out, copied = dict(given), []
     for field in ("repo", "owner_project", "upstream_target", "automation"):
@@ -7013,7 +7013,7 @@ def like_fields(reg: dict, like: str, path, given: dict) -> tuple[dict, list[str
             top = [git(d, "rev-parse", "--show-toplevel").stdout.strip() for d in (mine, theirs)]
             if top[0] != top[1]:
                 raise Fail(f"--like {like}: {path} is not in {like}'s git repository ({top[1] or '?'}), so its "
-                           f"repo {base.get('repo')} is not this package's; pass --repo; nothing written")
+                           f"repo {base.get('repo')} is not this package's; pass --url; nothing written")
     return out, copied
 
 
@@ -7026,7 +7026,7 @@ def cmd_register(args) -> int:
     if args.like is not None:
         f, copied = like_fields(reg, args.like, args.path, f)
     if f["repo"] is None:
-        raise UsageError("register needs --repo URL (or --like OTHER to take a sibling's)")
+        raise UsageError("register needs --url URL (or --like OTHER to take a sibling's)")
     out, payload = do_register(reg_path, reg, events_p,
                                args.name, f["repo"], args.path,
                                f["owner_project"], args.visibility, args.status,

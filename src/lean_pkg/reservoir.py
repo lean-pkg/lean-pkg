@@ -42,7 +42,7 @@ def github_items(pkg: dict, nwo: str | None) -> list[tuple[str, str]]:
         if pending:
             return [("✗", f"{PENDING}repo {pkg.get('repo')!r} is not a GitHub URL yet (Reservoir indexes "
                           f"GitHub repositories); create the GitHub repository, point the registry at it "
-                          f"(`lean-pkg update {name} --repo git@github.com:OWNER/REPO.git`), then "
+                          f"(`lean-pkg update {name} --url git@github.com:OWNER/REPO.git`), then "
                           f"`lean-pkg promote {name} --yes` makes it public")]
         return [("✗", f"repo {pkg.get('repo')!r} is not on GitHub (Reservoir indexes GitHub repositories)")]
     p = core.gh("repo", "view", nwo, "--json", "visibility,isFork,stargazerCount")

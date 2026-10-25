@@ -87,7 +87,7 @@ mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init
 lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
 # ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
-lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
+lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof
 ```
 
 Continue with [Getting started](getting-started.md) for the initial registry
