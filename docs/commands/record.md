@@ -39,3 +39,29 @@ lean-pkg record [--field KEY=VALUE] [--reason REASON] [--doi-track {palomar,doi-
 ## Exit codes
 
 0 success (dry runs and no-ops included), 1 refused or failed, 2 usage error; see [Exit codes](../cli.md#exit-codes).
+
+## Examples
+
+Append a publication evidence event with its required fields to the package's history and the matching record field; the same who, role and pointer again is a no-op with exit 0.
+
+```bash
+lean-pkg record my-proof consent-recorded --field who=ada --field role=author --field pointer=https://example.org/consent
+```
+
+Sample output:
+
+```text
+my-proof: consent-recorded recorded
+```
+
+Record a minted DOI; refused with exit 1 and nothing written (rule doi-in-palomar) unless a palomar-\* event already recorded that commit or the package is public on the doi-only track.
+
+```bash
+lean-pkg record my-proof doi-minted --field doi=10.5281/zenodo.1234567 --field tag=v1.0.0 --field commit=<40hex>
+```
+
+Mark an earlier evidence entry retracted, append-only (event evidence-retracted), so validate and the upstreamed check ignore it.
+
+```bash
+lean-pkg record my-proof retract --field event=doi-minted --field ts=<timestamp> --reason "wrong commit"
+```

@@ -48,3 +48,23 @@ lean-pkg formalization anchor [--arxiv ID] [--from-file E-PRINT] [--fetch]
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `formalization-anchor` (exit 0): `arxiv`, `compare`, `eprint_sha256`, `files`, `format`, `ledger`, `main_tex`, `name`, `ok`, `rebase_command`, `record`, `record_path`, `registry_source_paper`, `source`, `tied`, `warnings`, `would_write`, `write`, `written`
+
+## Examples
+
+Read the downloaded e-print in memory, hash it and its source files, find the main .tex and compare it with your paper.tex; a dry run, nothing is written and nothing is fetched.
+
+```bash
+lean-pkg formalization anchor my-proof --arxiv 2510.01234v1 --from-file 2510.01234v1.tar.gz --compare-tex paper.tex
+```
+
+Also write the source-baseline record under data/source-baselines/, coverage.yaml's manuscript version and eprint_sha256, and the formalization.yaml source id, refused unless the e-print is tied to the manuscript coverage.yaml is bound to; never the registry, never a commit.
+
+```bash
+lean-pkg formalization anchor my-proof --arxiv 2510.01234v1 --from-file 2510.01234v1.tar.gz --compare-tex paper.tex --write
+```
+
+Download that version's e-print over HTTPS instead (60 s timeout, 64 MiB cap) and that version's arXiv API entry (its submission timestamps), the only network access the command makes.
+
+```bash
+lean-pkg formalization anchor my-proof --arxiv 2510.01234v1 --fetch --compare-tex paper.tex
+```

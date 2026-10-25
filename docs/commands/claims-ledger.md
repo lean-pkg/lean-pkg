@@ -42,3 +42,39 @@ Exit 1 is also a negative answer here:
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `claims-ledger` (exit 0): `bound_commit`, `claims`, `claims_source`, `comparator_sha256`, `counts`, `ledger_digest`, `manuscript_findings`, `name`, `ok`, `package_status`, `reasons`, `receipt_sha256`, `required`, `schema`, `stage`
+
+## Examples
+
+Re-check each claim against the recorded gate and comparator receipts (promote stage, the default) and print its status with named diagnostics; an internal theorem or lemma that a comparator configuration at the gate-bound commit names, with the comparator tier clean, is judged like a reusable one (verified when its diagnostics are empty) but never required, nothing is stored, and the exit is 0 only when the package is ready.
+
+```bash
+lean-pkg claims ledger my-proof
+```
+
+Sample output:
+
+```text
+my-proof: claims ledger (promote stage): READY; 1 required, 2 verified
+  claims from claims.yaml at 23d643ab1b53; gate-bound commit 23d643ab1b53
+  verified     my-proof/main-bound (MyProof.main_bound)
+  verified     my-proof/aux-bound (MyProof.aux_bound) [internal, judged by the comparator]
+  ledger_digest: sha256:f092217e8c62f3dfbf6f528663d5b6a484c5c2075fb03230e5d989ef5e62adfd
+my-proof: claims ledger (promote stage): READY; 1 required, 2 verified
+```
+
+Require only the lower-tier receipt; an internal claim is judged only at the promote stage, so here it stays out-of-scope.
+
+```bash
+lean-pkg claims ledger my-proof --stage gate
+```
+
+Sample output:
+
+```text
+my-proof: claims ledger (gate stage): READY; 1 required, 1 verified, 1 out-of-scope
+  claims from claims.yaml at 23d643ab1b53; gate-bound commit 23d643ab1b53
+  verified     my-proof/main-bound (MyProof.main_bound)
+  out-of-scope my-proof/aux-bound (MyProof.aux_bound) [internal]
+  ledger_digest: sha256:512d404728b4332e3f2e27427c1f4482ba1256e2634520860a3244e1a69b1960
+my-proof: claims ledger (gate stage): READY; 1 required, 1 verified, 1 out-of-scope
+```

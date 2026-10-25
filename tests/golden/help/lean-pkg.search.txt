@@ -31,8 +31,8 @@ options:
   --sources a,b,c       subset of: registry,index,loogle,leansearch,reservoir,palomar,github
                         (order is fixed)
   --index INDEX         index root (default: $LEAN_PKG_INDEX, else ./index)
-  --record              write docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-
-                        dir) and a prior-art-searched event
+  --record              write docs/prior-art/<date>-<slug>.md in the package checkout (or --repo)
+                        and a prior-art-searched event
   --repo DIR            research repository for --record (old spelling --repo-dir, kept working)
   --agent AGENT         with --record: the agent acting (recorded as the event's actor); another
                         agent's live lease on --package then refuses

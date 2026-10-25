@@ -60,3 +60,31 @@ Dry run: classify every file under the manifest's roots at COMMIT (default deny)
 | `--manifest PATH` | the extract manifest, strict JSON, schema lean-pkg-extract/1. Required. |
 | `--json` | JSON on stdout (schema lean-pkg-extract-plan/1) |
 | `--report PATH` | also write the JSON plan (with the private excluded list) to PATH, outside SRC |
+
+### Examples
+
+Classify every file under the manifest's roots at the commit (default deny), check pins, modules, claims and imports from git objects only, and print the inventory; writes nothing, exit 1 with every refusal listed.
+
+```bash
+lean-pkg-extract plan --repo . --commit HEAD --manifest extract.json
+```
+
+Sample output:
+
+```text
+plan: REFUSED (1 refusal(s)): 16 file(s) included (25095 bytes), 0 excluded, 0 allowed private, 4 module(s), 0 claim(s), 0 weakening(s); source commit d3cb7c86cccc608017c2dc944db57931d6007409
+refusals:
+  - verify.sh: unclassified in a lean-package root (default deny); exclude it, move it, or put it in a root whose kind carries it
+included (to <- from, size, sha256, blob, mode, class):
+  ...
+modules (module -> file, library):
+  MyProof.Axioms -> MyProof/Axioms.lean  (MyProof)
+  ...
+plan: REFUSED (1 refusal(s)): 16 file(s) included (25095 bytes), 0 excluded, 0 allowed private, 4 module(s), 0 claim(s), 0 weakening(s); source commit d3cb7c86cccc608017c2dc944db57931d6007409
+```
+
+The same at a tag, also writing the JSON plan (with the private excluded list) to a path outside the source repository, its one write.
+
+```bash
+lean-pkg-extract plan --repo . --commit v1.0 --manifest extract.json --report ../extract-plan.json
+```

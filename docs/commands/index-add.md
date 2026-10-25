@@ -51,3 +51,23 @@ lean-pkg index add [--from-registry] [--repo-dir REPO_DIR] [--url URL] [--tag TA
 | Form | What it does | Key flags |
 |---|---|---|
 | `index add NAME` | write `index/<name>/entry.yaml` from a clone at the pin: receipts validated with the `gate` and `comparator` validators and copied verbatim, trust computed, duplicates refused, event `index-added`; `--replace` re-pins an existing entry and carries its `built_on` credits over, `--built-on-file` sets them | `--by HANDLE` `--headline 'NAME :: FILE :: SUMMARY'` `[--from-registry]` `[--repo URL]` `[--repo-dir PATH]` `[--lower REL]` `[--comparator REL]` `[--license SPDX]` `[--tag T]` `[--field-tag T]` `[--formalization-yaml REL]` `[--consent-recorded]` `[--notes]` `[--built-on-file FILE]` `[--replace]` `[--index PATH]` |
+
+## Examples
+
+Write index/my-proof/entry.yaml from the registry row (repository, receipts, license, Palomar, DOI, Reservoir), cloning the package at the pin, validating and copying its receipts and computing the trust level; refused when consent is not recorded, the entry already exists or the pin is not on a public branch.
+
+```bash
+lean-pkg index add my-proof --from-registry --by your-handle --headline 'MyProof.main_theorem :: MyProof/Main.lean :: One sentence saying what it proves.'
+```
+
+The same without a registry, with the repository, license and receipt paths passed as flags and every coauthor's consent asserted.
+
+```bash
+lean-pkg index add my-proof --url https://github.com/you/my-proof --license Apache-2.0 --lower .lean-receipts/0123456789ab-slurm-4242.json --comparator .lean-receipts/0123456789ab-comparator.json --consent-recorded --by your-handle --headline 'MyProof.main_theorem :: MyProof/Main.lean :: One sentence.'
+```
+
+Re-pin an existing entry at a new gated commit, replacing its receipt copies and carrying its built_on credits over unless --built-on-file is given.
+
+```bash
+lean-pkg index add my-proof --from-registry --replace --by your-handle --headline 'MyProof.main_theorem :: MyProof/Main.lean :: One sentence.'
+```

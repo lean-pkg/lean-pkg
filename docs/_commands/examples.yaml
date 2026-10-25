@@ -55,6 +55,32 @@ lean-pkg help:
   - cmd: lean-pkg help gate
     say: Print exactly the text of `lean-pkg gate --help`.
 
+lean-pkg llms:
+  - cmd: lean-pkg llms
+    say: Print the agent contract (standing rules, status transitions, every subcommand, receipt and event schemas, exit codes), the text llms.txt carries below its header.
+    output: |
+      lean-pkg llms.txt — agent contract for the Lean 4 package registry
+
+      PURPOSE
+      ...
+  - cmd: lean-pkg llms --short
+    say: A compact contract of about 40 lines cut from the full text by its section headers (purpose, standing rules, the first line of each subcommand).
+  - cmd: lean-pkg llms --json
+    say: The contract as JSON, an object whose `text` holds the full contract.
+
+lean-pkg report:
+  - cmd: lean-pkg report --command "status my-proof" --package my-proof
+    say: Assemble a redacted bug report (version, doctor and host-check lines, the command re-run with its output, the package's record) and print it; a dry run by default that files nothing.
+    output: |
+      title: report: lean-pkg status my-proof
+      labels: bug
+      repository: lean-pkg/lean-pkg
+      redactions: 15
+      ---
+      ...
+  - cmd: lean-pkg report --from-log logs/build.log:100 --body "lake build hangs at Mathlib.Order" --yes
+    say: File it on lean-pkg/lean-pkg with `gh issue create` and print the issue URL; refused with exit 1 when gh is missing or not logged in (a blocking private-pattern hit left after redaction refuses in either mode).
+
 # --- see the registry -------------------------------------------------------------------------------
 
 lean-pkg list:
@@ -100,6 +126,69 @@ lean-pkg registry audit:
   - cmd: lean-pkg registry audit --write
     say: Clear expired leases and copy GitHub's visibility and archived flag into the registry.
 
+lean-pkg registry board:
+  - cmd: lean-pkg registry board
+    say: Show every package's status, visibility, lease, pin and re-audit date, as a curses TUI on a terminal (whose keys can claim, release and gate) and otherwise as a static, read-only table.
+    output: |
+      NAME      STATUS  VIS      LEASE  EXPIRES  PIN  REAUDIT
+      my-proof  active  private  -      -        -    -
+  - cmd: lean-pkg registry board --only my-proof --fields status,lease.agent
+    say: Only the named packages, each cut to the named keys (the same dotted paths and aliases as `status --fields`) and printed as YAML; never opens the TUI, and an unknown package exits 1.
+    output: |
+      my-proof:
+        status: active
+        lease:
+          agent: null
+  - cmd: lean-pkg registry board --no-claims --json
+    say: The whole registry as JSON for scripts, with the bulk `claims` key dropped from each record and its name listed under `omitted`.
+
+lean-pkg registry migrate:
+  - cmd: lean-pkg registry migrate --dry-run
+    say: Print what upgrading the registry schema to version 3 would add (the v2 and v3 fields with their defaults, and any legacy `~/` `local_path` rewritten to its $HOME-relative form); nothing is written.
+    output: |
+      registry already at version 3; nothing to do
+  - cmd: lean-pkg registry migrate
+    say: Apply that upgrade in place, additively and idempotently, and record a registry-migrated event.
+
+lean-pkg registry wiki:
+  - cmd: lean-pkg registry wiki
+    say: Render a Markdown status page (packages, active leases, third-party adoptions) from the registry to stdout; read-only.
+    output: |
+      ---
+      title: Lean Verification Status
+      type: lean-verification
+      updated: '2026-10-25'
+      ---
+      ...
+      | name | status | visibility | lease | mathlib pin | reaudit_after |
+      |---|---|---|---|---|---|
+      | my-proof | active | private | - | - | - |
+      ...
+  - cmd: lean-pkg registry wiki --out docs/lean-status.md --candidates ~/.lean-pkg/registry/lean-adoption-candidates.yaml
+    say: Write the page to a file instead of stdout, reading the adoption ledger from the given path (default lean-adoption-candidates.yaml next to the registry).
+
+lean-pkg search:
+  - cmd: lean-pkg search "heat mass" --package my-proof
+    say: Search for prior art in the registry, the index, Loogle, LeanSearch, Reservoir, Palomar and GitHub, in that order (Loogle only for a declaration pattern), with each source marked ok or skipped; exit 0 even with zero hits.
+  - cmd: lean-pkg search "heat mass" --offline
+    say: Skip every network source; as always, packages without synced claims are searched by declaration, and the incomplete line says a zero is not a negative result (add --require-complete to exit 1 then).
+    output: |
+      lean-pkg search "heat mass" on 2026-10-25
+      registry: ok at sha256:fff31473c971, 1 hit
+        [1 name] my-proof: heat_mass_le  (theorem, declaration (unclaimed), trust none, MyProof/Basic.lean:1)
+            theorem heat_mass_le : True := trivial
+      index: skipped: no index directory
+      loogle: skipped: offline
+      leansearch: skipped: offline
+      reservoir: skipped: offline
+      palomar: skipped: offline
+      github: skipped: offline
+      registry coverage: 1 of 1 packages have no synced claims: 1 searched by declaration only, 0 not searched (no checkout)
+      incomplete: searched 1 of 7 sources; skipped: index, loogle, leansearch, reservoir, palomar, github; a zero here is not a negative result
+      consulted: registry (ok, 1 hit), index (skipped: no index directory), loogle (skipped: offline), leansearch (skipped: offline), reservoir (skipped: offline), palomar (skipped: offline), github (skipped: offline)
+  - cmd: lean-pkg search heat_mass_le --package my-proof --record
+    say: Also write docs/prior-art/<date>-<slug>.md (decision pending) in the package's checkout and a prior-art-searched event; edit the page, then commit it in that repository.
+
 # --- register, lease, edit --------------------------------------------------------------------------
 
 lean-pkg register:
@@ -139,6 +228,30 @@ lean-pkg repo adopt:
 lean-pkg update:
   - cmd: lean-pkg update my-proof --license-spdx Apache-2.0
     say: Set a field of a registered package (register is only for new ones).
+
+lean-pkg record:
+  - cmd: lean-pkg record my-proof consent-recorded --field who=ada --field role=author --field pointer=https://example.org/consent
+    say: Append a publication evidence event with its required fields to the package's history and the matching record field; the same who, role and pointer again is a no-op with exit 0.
+    output: |
+      my-proof: consent-recorded recorded
+  - cmd: lean-pkg record my-proof doi-minted --field doi=10.5281/zenodo.1234567 --field tag=v1.0.0 --field commit=<40hex>
+    say: Record a minted DOI; refused with exit 1 and nothing written (rule doi-in-palomar) unless a palomar-* event already recorded that commit or the package is public on the doi-only track.
+  - cmd: lean-pkg record my-proof retract --field event=doi-minted --field ts=<timestamp> --reason "wrong commit"
+    say: Mark an earlier evidence entry retracted, append-only (event evidence-retracted), so validate and the upstreamed check ignore it.
+
+lean-pkg repo move:
+  - cmd: lean-pkg repo move my-proof work/my-proof-2 --reason "checkout moved" --dry-run
+    say: Show what pointing the record at another $HOME-relative checkout would clear (gate receipts and cached claims not bound to the new HEAD) and the next commands; nothing is written.
+    output: |
+      my-proof: relocated work/my-proof -> work/my-proof-2
+        note: lean_toolchain/mathlib_pin left as recorded; run `lean-pkg update my-proof --redetect` to re-read toolchain/pin
+      DRY RUN — nothing written. Re-run without --dry-run to relocate.
+      binding at the new path (HEAD 52c57490bfd1):
+        no gate receipt recorded
+        formalization.yaml (pointer not recorded): not applicable
+      next: nothing to re-gate
+  - cmd: lean-pkg repo move my-proof work/my-proof-2 --reason "checkout moved"
+    say: Relocate it, keeping name and history (and the claims cache only when it was synced at the new HEAD) and recording a relocated event (a verified-private package whose receipt is cleared drops to gate-pending); without --reason it exits 1.
 
 # --- evidence ---------------------------------------------------------------------------------------
 
@@ -267,6 +380,95 @@ lean-pkg page:
   - cmd: lean-pkg page my-proof --site docs --html docs/verification.html
     say: Also write the docs pages and one self-contained HTML file.
 
+lean-pkg claims list:
+  - cmd: lean-pkg claims list
+    say: Print a table of every cached claim in the registry (id, kind, status, the package's trust level from the evidence the registry records, the pinned commit, the declaration).
+    output: |
+      ID                   KIND     STATUS    TRUST       PIN           DECL
+      my-proof/main-bound  theorem  reusable  comparator  23d643ab1b53  MyProof.main_bound
+      my-proof/aux-bound   lemma    internal  comparator  23d643ab1b53  MyProof.aux_bound
+  - cmd: lean-pkg claims list my-proof
+    say: One package's claims; with none cached it states the package's coverage (here a claims.yaml committed but not synced), names any legacy claims JSON in the checkout, and prints the next command.
+    output: |
+      my-proof: coverage: unsynced (cached_claims: 0, claims.yaml: present)
+        legacy: legacy-claims.json (not read by lean-pkg; migrate it)
+        next: claims.yaml is committed at HEAD but not synced: lean-pkg claims sync my-proof
+
+lean-pkg claims migrate:
+  - cmd: lean-pkg claims migrate my-proof --from legacy-claims.json
+    say: Convert a legacy claims JSON (path relative to the checkout) into a claims/1 skeleton claims.yaml in the checkout, with TODO placeholders that `claims sync` refuses for an unmapped decl, file or summary (an unmapped kind or status gets a valid default, flagged in the comment header); it never overwrites a file, never writes the registry and grants no verification.
+  - cmd: lean-pkg claims migrate my-proof --from legacy-claims.json --dry-run
+    say: Print the skeleton, with its comment header listing the TODOs and the unmapped legacy keys, and write nothing.
+  - cmd: lean-pkg claims migrate my-proof --from legacy-claims.json --out claims-migrated.yaml
+    say: Write the skeleton to another repo-relative path (here because claims.yaml already exists); fix the TODOs, commit it, then run `claims sync`.
+    output: |
+      my-proof: 1 claim(s) from legacy-claims.json, 1 with TODO markers
+      wrote claims-migrated.yaml (not committed, not synced; the registry is unchanged)
+      next: edit claims-migrated.yaml: resolve the TODO markers; git add claims-migrated.yaml && git commit; lean-pkg claims sync my-proof
+
+lean-pkg claims ledger:
+  - cmd: lean-pkg claims ledger my-proof
+    say: Re-check each claim against the recorded gate and comparator receipts (promote stage, the default) and print its status with named diagnostics; an internal theorem or lemma that a comparator configuration at the gate-bound commit names, with the comparator tier clean, is judged like a reusable one (verified when its diagnostics are empty) but never required, nothing is stored, and the exit is 0 only when the package is ready.
+    output: |
+      my-proof: claims ledger (promote stage): READY; 1 required, 2 verified
+        claims from claims.yaml at 23d643ab1b53; gate-bound commit 23d643ab1b53
+        verified     my-proof/main-bound (MyProof.main_bound)
+        verified     my-proof/aux-bound (MyProof.aux_bound) [internal, judged by the comparator]
+        ledger_digest: sha256:f092217e8c62f3dfbf6f528663d5b6a484c5c2075fb03230e5d989ef5e62adfd
+      my-proof: claims ledger (promote stage): READY; 1 required, 2 verified
+  - cmd: lean-pkg claims ledger my-proof --stage gate
+    say: Require only the lower-tier receipt; an internal claim is judged only at the promote stage, so here it stays out-of-scope.
+    output: |
+      my-proof: claims ledger (gate stage): READY; 1 required, 1 verified, 1 out-of-scope
+        claims from claims.yaml at 23d643ab1b53; gate-bound commit 23d643ab1b53
+        verified     my-proof/main-bound (MyProof.main_bound)
+        out-of-scope my-proof/aux-bound (MyProof.aux_bound) [internal]
+        ledger_digest: sha256:512d404728b4332e3f2e27427c1f4482ba1256e2634520860a3244e1a69b1960
+      my-proof: claims ledger (gate stage): READY; 1 required, 1 verified, 1 out-of-scope
+
+lean-pkg claims mark:
+  - cmd: lean-pkg claims mark my-proof --from-comparator comparator.json --status reusable
+    say: Print which claims in the checkout's claims file the configuration's theorem_names cover and how their status would change; a dry run, nothing is written.
+    output: |
+      my-proof: 2 claim(s) covered by 2 theorem name(s) of comparator.json; 1 would change to status reusable
+        kept my-proof/main-bound (MyProof.main_bound): reusable -> reusable
+        set my-proof/aux-bound (MyProof.aux_bound): internal -> reusable
+      DRY RUN — nothing written; --write edits claims.yaml in the checkout (never commits)
+  - cmd: lean-pkg claims mark my-proof --from-comparator comparator.json --status reusable --write
+    say: Edit only those status values in the working copy (comments and layout kept when an in-place edit is possible, else the file is re-dumped and says so) and validate the result; it never commits and never writes the registry, so commit, run `claims sync` and re-gate.
+
+lean-pkg claims rebase:
+  - cmd: lean-pkg claims rebase my-proof --from-tex old/paper.tex --to-tex new/paper.tex --to-aux new/paper.aux --from-aux old/paper.aux --to-version arXiv:2510.01234v2 --out-dir rebase-v2
+    say: Compare each label the claims and coverage.yaml committed at HEAD refer to between the old and the new TeX, and write the proposed claims.yaml and coverage.yaml, the report and the review excerpts into the new or empty rebase-v2; it never edits the checkout or the registry and exits 1 when anything needs review.
+  - cmd: lean-pkg claims rebase my-proof --from-tex old/paper.tex --to-tex new/paper.tex --to-aux new/paper.aux --from-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef --json
+    say: The report only (no --out-dir, nothing written), stating the old TeX's SHA-256 because coverage.yaml records none; a mismatch is refused.
+
+lean-pkg formalization render:
+  - cmd: lean-pkg formalization render my-proof
+    say: Print formalization.yaml (v0.4) rendered from the registry and the repository at HEAD to stdout, with a warning for each placeholder the registry cannot fill.
+  - cmd: lean-pkg formalization render my-proof --write
+    say: Write it into the checkout (a no-op when equal, refused when the file differs unless --force) and set the registry's formalization_yaml pointer when it is not already set (a registry write); the file is not committed.
+  - cmd: lean-pkg formalization render my-proof --write --no-registry
+    say: Write the file only and leave the registry untouched (no pointer, no event, no lock).
+
+lean-pkg formalization anchor:
+  - cmd: lean-pkg formalization anchor my-proof --arxiv 2510.01234v1 --from-file 2510.01234v1.tar.gz --compare-tex paper.tex
+    say: Read the downloaded e-print in memory, hash it and its source files, find the main .tex and compare it with your paper.tex; a dry run, nothing is written and nothing is fetched.
+  - cmd: lean-pkg formalization anchor my-proof --arxiv 2510.01234v1 --from-file 2510.01234v1.tar.gz --compare-tex paper.tex --write
+    say: Also write the source-baseline record under data/source-baselines/, coverage.yaml's manuscript version and eprint_sha256, and the formalization.yaml source id, refused unless the e-print is tied to the manuscript coverage.yaml is bound to; never the registry, never a commit.
+  - cmd: lean-pkg formalization anchor my-proof --arxiv 2510.01234v1 --fetch --compare-tex paper.tex
+    say: Download that version's e-print over HTTPS instead (60 s timeout, 64 MiB cap) and that version's arXiv API entry (its submission timestamps), the only network access the command makes.
+
+lean-pkg formalization kept:
+  - cmd: lean-pkg formalization kept
+    say: Print the kept view of formalization.yaml in the current directory (every key `formalization render` derives removed) as JSON and the SHA-256 of its canonical bytes; it reads no registry and writes nothing.
+  - cmd: lean-pkg formalization kept --at HEAD --against HEAD~1
+    say: Read the file committed at HEAD and list the kept keys that differ from HEAD~1; exit 1 when any does, so a derived-key refresh alone passes.
+    output: |
+      ...
+      kept-view sha256 b52beedad1b9b64e5c551e4987a130471861913ece8ae0f7cd1e7e63dfbdb962  formalization.yaml at HEAD (055bf9995e82)
+      changed kept key(s) since HEAD~1 (28fbec50ee3e): status.scope
+
 # --- publish ----------------------------------------------------------------------------------------
 
 lean-pkg publish:
@@ -283,8 +485,124 @@ lean-pkg public-safety:
   - cmd: lean-pkg public-safety my-proof
     say: Scan the tree and the history publishing would expose for private patterns; exit 1 on a blocking hit.
 
+lean-pkg index add:
+  - cmd: "lean-pkg index add my-proof --from-registry --by your-handle --headline 'MyProof.main_theorem :: MyProof/Main.lean :: One sentence saying what it proves.'"
+    say: Write index/my-proof/entry.yaml from the registry row (repository, receipts, license, Palomar, DOI, Reservoir), cloning the package at the pin, validating and copying its receipts and computing the trust level; refused when consent is not recorded, the entry already exists or the pin is not on a public branch.
+  - cmd: "lean-pkg index add my-proof --url https://github.com/you/my-proof --license Apache-2.0 --lower .lean-receipts/0123456789ab-slurm-4242.json --comparator .lean-receipts/0123456789ab-comparator.json --consent-recorded --by your-handle --headline 'MyProof.main_theorem :: MyProof/Main.lean :: One sentence.'"
+    say: The same without a registry, with the repository, license and receipt paths passed as flags and every coauthor's consent asserted.
+  - cmd: "lean-pkg index add my-proof --from-registry --replace --by your-handle --headline 'MyProof.main_theorem :: MyProof/Main.lean :: One sentence.'"
+    say: Re-pin an existing entry at a new gated commit, replacing its receipt copies and carrying its built_on credits over unless --built-on-file is given.
+
+lean-pkg index check:
+  - cmd: lean-pkg index check
+    say: Statically check every entry (schema, receipt copies, trust, duplicates), printing the verdict before and after the per-entry lines; exit 0 all pass, 1 any failure, 2 a usage error.
+    output: |
+      3 entries checked: all pass
+      PASS gromov-filling-lean (comparator)
+        note: static check only: pass --clone (or --repo) to re-derive from bytes
+      PASS markovprocess-pilot (comparator)
+        note: static check only: pass --clone (or --repo) to re-derive from bytes
+      PASS total-coloring-lean (comparator)
+        note: static check only: pass --clone (or --repo) to re-derive from bytes
+      3 entries checked: all pass
+  - cmd: lean-pkg index check --clone my-proof
+    say: Clone the entry's repository at the pin into a temporary directory, re-derive its receipts, toolchain, license, tag and headline files from those bytes and recompute trust; Palomar and Reservoir are verified when reachable, else reported as skipped.
+  - cmd: lean-pkg index check my-proof --repo ../my-proof
+    say: The same re-derivation from a local clone of one package, which is never modified.
+
+lean-pkg index render:
+  - cmd: lean-pkg index render --index index
+    say: Regenerate the Markdown table index/README.md from every index/*/entry.yaml, plus a claims list when index-entry/2 entries exist.
+    output: |
+      index rendered: index/README.md (3 entries)
+  - cmd: lean-pkg index render --check --index index
+    say: Write nothing and exit 1 when index/README.md is stale against the entries.
+    output: |
+      index/README.md: current
+
+lean-pkg index migrate:
+  - cmd: lean-pkg index migrate --check
+    say: Write nothing and exit 1 when any entry is still index-entry/1.
+    output: |
+      gromov-filling-lean: already index-entry/2
+      markovprocess-pilot: already index-entry/2
+      total-coloring-lean: already index-entry/2
+  - cmd: lean-pkg index migrate
+    say: Rewrite every index-entry/1 entry as index-entry/2 by deriving its claims from its headline, changing no other key.
+
+lean-pkg reservoir check:
+  - cmd: lean-pkg reservoir check my-proof
+    say: Check, read-only, Reservoir's listing criteria for the registered package (a public non-fork GitHub repository with at least 2 stars, tracked lake-manifest.json and lean-toolchain, a license matching the record, a lakefile with a package name that has not opted out; a non-release toolchain, no tag at HEAD or no listing yet only warns), then query Reservoir's package API; exit 0 when no criterion fails, else 1.
+  - cmd: lean-pkg reservoir check my-proof --offline
+    say: The same checklist without querying Reservoir's package API.
+
+lean-pkg palomar prepare:
+  - cmd: lean-pkg palomar prepare my-proof --dry-run
+    say: Run every check a bundle needs (recorded consent, gate and comparator receipts bound to HEAD or an evidence-only ancestor, the formalization.yaml render, no `error` gap from `palomar check`, no blocking public-safety hit) and print the plan; nothing is written and nothing is submitted.
+  - cmd: lean-pkg palomar prepare my-proof
+    say: Write the Palomar submission bundle (formalization.yaml, configs/, receipts/, README.txt with the manual steps, MANIFEST.sha256) to <checkout>/.lean-receipts/palomar-<HEAD12>/ and record `palomar-prepared`; exit 1 with nothing written when a check fails.
+  - cmd: lean-pkg palomar prepare my-proof --out ~/palomar-bundle --json
+    say: The same into a directory that must not exist or be empty, with the result as JSON.
+
+lean-pkg palomar check:
+  - cmd: lean-pkg palomar check my-proof
+    say: List every gap between the package at the gate-bound commit (else HEAD) and Palomar's pinned mechanical rules, read-only and offline from git objects; exit 1 when any gap is an `error`.
+    output: |
+      my-proof: Palomar check at 9f18d4268b03: NOT READY — 5 gap(s): 3 error, 2 warn [HEAD]
+        ✗  formalization.missing: formalization.yaml is not tracked in the project
+              formalization.yaml
+              fix: render it (`lean-pkg formalization my-proof --write`), fill the placeholders, commit
+        ✗  license.spdx_unset: license_spdx is not recorded in the registry
+              fix: lean-pkg update my-proof --license-spdx ID
+        ...
+        WARN  commit.not_pushed: commit 9f18d4268b03 is in no remote-tracking branch (local refs; nothing fetched)
+              fix: push it; Palomar pins a commit of the public repository
+      rules: PalomarSubmission@d4e41c1d5b0d (committed 2026-10-05, read 2026-10-16); toolchain minimum v4.35.0-rc2; 3 .lean file(s), 0 without a module header
+      ...
+      my-proof: Palomar check at 9f18d4268b03: NOT READY — 5 gap(s): 3 error, 2 warn
+  - cmd: lean-pkg palomar check my-proof --rev HEAD --config comparator.json --json
+    say: Judge HEAD and only the named comparator configuration, with each gap as JSON {code, severity, paths, detail, fix}.
+
+lean-pkg palomar port-modules:
+  - cmd: lean-pkg palomar port-modules my-proof
+    say: A dry run (the default) of the port to Lean's module system that Palomar requires; prints per file the edits (`module` header, `public import`, `public section` ... `end`), the review items and a unified diff, and writes nothing.
+    output: |
+      my-proof: port-modules at e571a8019193: 1 file(s) to port, 3 already module-headed, 0 refused, 0 review item(s) (dry run: nothing written)
+        PORT  MyProof/Extra.lean
+                - insert `module` as the first command
+                - 1 import(s) -> public import
+                - wrap the body in `public section` ... `end`
+        (3 already module-headed file(s) skipped)
+      ...
+      next: lean-pkg palomar port-modules my-proof --write (a clean working tree; never commits)
+      my-proof: port-modules at e571a8019193: 1 file(s) to port, 3 already module-headed, 0 refused, 0 review item(s) (dry run: nothing written)
+  - cmd: lean-pkg palomar port-modules my-proof --write
+    say: Apply the plan to a clean working tree (a dirty tree, a refused file or a foreign lease exits 1 with nothing written); it never commits and never writes the registry.
+
 # --- other programs ---------------------------------------------------------------------------------
 
 lean-exercise check:
   - cmd: lean-exercise check --challenge Challenge.lean --solution Solution.lean
     say: Judge each sorry'd theorem of the Challenge against the Solution with `lake comparator`, sandboxed; no registry.
+
+lean-exercise batch:
+  - cmd: lean-exercise batch --challenge Challenge.lean --solutions submissions/ --csv grades.csv --logs logs/
+    say: Judge every *.lean file directly in submissions/ as `check` would, sandboxed and each in its own fresh project, writing one CSV row and one <stem>.log per file; exit 1 when any file fails or is refused.
+  - cmd: lean-exercise batch --challenge Midterm.lean --solutions submissions/ --csv grades.csv --logs logs/ --project ~/course-mathlib --forbid MeasurableSpace.DynkinSystem. --forbid-exact MeasurableSpace.induction_on_inter
+    say: The same against a prebuilt Mathlib project (bound read-only, nothing downloaded), rejecting a proof that depends on the forbidden constants.
+
+lean-pkg-extract plan:
+  - cmd: lean-pkg-extract plan --repo . --commit HEAD --manifest extract.json
+    say: Classify every file under the manifest's roots at the commit (default deny), check pins, modules, claims and imports from git objects only, and print the inventory; writes nothing, exit 1 with every refusal listed.
+    output: |
+      plan: REFUSED (1 refusal(s)): 16 file(s) included (25095 bytes), 0 excluded, 0 allowed private, 4 module(s), 0 claim(s), 0 weakening(s); source commit d3cb7c86cccc608017c2dc944db57931d6007409
+      refusals:
+        - verify.sh: unclassified in a lean-package root (default deny); exclude it, move it, or put it in a root whose kind carries it
+      included (to <- from, size, sha256, blob, mode, class):
+        ...
+      modules (module -> file, library):
+        MyProof.Axioms -> MyProof/Axioms.lean  (MyProof)
+        ...
+      plan: REFUSED (1 refusal(s)): 16 file(s) included (25095 bytes), 0 excluded, 0 allowed private, 4 module(s), 0 claim(s), 0 weakening(s); source commit d3cb7c86cccc608017c2dc944db57931d6007409
+  - cmd: lean-pkg-extract plan --repo . --commit v1.0 --manifest extract.json --report ../extract-plan.json
+    say: The same at a tag, also writing the JSON plan (with the private excluded list) to a path outside the source repository, its one write.

@@ -36,3 +36,17 @@ lean-pkg reservoir check [--offline] [common flags] NAME
 Exit 1 is also a negative answer here:
 
 - `reservoir check NAME`: not eligible for Reservoir
+
+## Examples
+
+Check, read-only, Reservoir's listing criteria for the registered package (a public non-fork GitHub repository with at least 2 stars, tracked lake-manifest.json and lean-toolchain, a license matching the record, a lakefile with a package name that has not opted out; a non-release toolchain, no tag at HEAD or no listing yet only warns), then query Reservoir's package API; exit 0 when no criterion fails, else 1.
+
+```bash
+lean-pkg reservoir check my-proof
+```
+
+The same checklist without querying Reservoir's package API.
+
+```bash
+lean-pkg reservoir check my-proof --offline
+```

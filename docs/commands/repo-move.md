@@ -29,3 +29,29 @@ lean-pkg repo move [--reason REASON] [--agent AGENT] [--force] [--dry-run]
 | `--agent AGENT` | lease holder, if one is live |
 | `--force` | override a live lease held by another agent; needs --reason |
 | `--dry-run` | print the would-be changes, write nothing |
+
+## Examples
+
+Show what pointing the record at another $HOME-relative checkout would clear (gate receipts and cached claims not bound to the new HEAD) and the next commands; nothing is written.
+
+```bash
+lean-pkg repo move my-proof work/my-proof-2 --reason "checkout moved" --dry-run
+```
+
+Sample output:
+
+```text
+my-proof: relocated work/my-proof -> work/my-proof-2
+  note: lean_toolchain/mathlib_pin left as recorded; run `lean-pkg update my-proof --redetect` to re-read toolchain/pin
+DRY RUN — nothing written. Re-run without --dry-run to relocate.
+binding at the new path (HEAD 52c57490bfd1):
+  no gate receipt recorded
+  formalization.yaml (pointer not recorded): not applicable
+next: nothing to re-gate
+```
+
+Relocate it, keeping name and history (and the claims cache only when it was synced at the new HEAD) and recording a relocated event (a verified-private package whose receipt is cleared drops to gate-pending); without --reason it exits 1.
+
+```bash
+lean-pkg repo move my-proof work/my-proof-2 --reason "checkout moved"
+```

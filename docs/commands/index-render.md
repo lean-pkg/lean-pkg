@@ -37,3 +37,29 @@ lean-pkg index render [--out OUT] [--check] [--index INDEX] [common flags]
 Exit 1 is also a negative answer here:
 
 - `index render --check`: an entry fails its checks / README.md is stale
+
+## Examples
+
+Regenerate the Markdown table index/README.md from every index/\*/entry.yaml, plus a claims list when index-entry/2 entries exist.
+
+```bash
+lean-pkg index render --index index
+```
+
+Sample output:
+
+```text
+index rendered: index/README.md (3 entries)
+```
+
+Write nothing and exit 1 when index/README.md is stale against the entries.
+
+```bash
+lean-pkg index render --check --index index
+```
+
+Sample output:
+
+```text
+index/README.md: current
+```

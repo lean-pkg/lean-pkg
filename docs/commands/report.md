@@ -47,3 +47,28 @@ lean-pkg report [--command ARGS] [--body TEXT] [--from-log FILE[:N]] [--package 
 Exit 1 is also a negative answer here:
 
 - `report --yes`: a blocking public-safety hit left, or gh missing or logged out
+
+## Examples
+
+Assemble a redacted bug report (version, doctor and host-check lines, the command re-run with its output, the package's record) and print it; a dry run by default that files nothing.
+
+```bash
+lean-pkg report --command "status my-proof" --package my-proof
+```
+
+Sample output:
+
+```text
+title: report: lean-pkg status my-proof
+labels: bug
+repository: lean-pkg/lean-pkg
+redactions: 15
+---
+...
+```
+
+File it on lean-pkg/lean-pkg with `gh issue create` and print the issue URL; refused with exit 1 when gh is missing or not logged in (a blocking private-pattern hit left after redaction refuses in either mode).
+
+```bash
+lean-pkg report --from-log logs/build.log:100 --body "lake build hangs at Mathlib.Order" --yes
+```

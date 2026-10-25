@@ -30,3 +30,25 @@ lean-pkg index migrate [--check] [--index INDEX] [common flags]
 | Form | What it does | Key flags |
 |---|---|---|
 | `index migrate` | rewrite every `index-entry/1` entry as `index-entry/2`, deriving `claims` from its headline; nothing else changes; `--check` exits 1 when an entry is not current and writes nothing | `[--check]` `[--index PATH]` |
+
+## Examples
+
+Write nothing and exit 1 when any entry is still index-entry/1.
+
+```bash
+lean-pkg index migrate --check
+```
+
+Sample output:
+
+```text
+gromov-filling-lean: already index-entry/2
+markovprocess-pilot: already index-entry/2
+total-coloring-lean: already index-entry/2
+```
+
+Rewrite every index-entry/1 entry as index-entry/2 by deriving its claims from its headline, changing no other key.
+
+```bash
+lean-pkg index migrate
+```

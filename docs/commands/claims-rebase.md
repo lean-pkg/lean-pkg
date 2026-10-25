@@ -51,3 +51,17 @@ lean-pkg claims rebase --from-tex OLD.tex --to-tex NEW.tex --to-aux NEW.aux
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `claims-rebase` (exit 0): `citations`, `counts`, `files`, `findings`, `inputs`, `labels`, `name`, `needs_review`, `normalizations`, `ok`, `out_dir`, `proposed_errors`, `rows`, `statuses_changed`, `to_version`, `warnings`, `written`
+
+## Examples
+
+Compare each label the claims and coverage.yaml committed at HEAD refer to between the old and the new TeX, and write the proposed claims.yaml and coverage.yaml, the report and the review excerpts into the new or empty rebase-v2; it never edits the checkout or the registry and exits 1 when anything needs review.
+
+```bash
+lean-pkg claims rebase my-proof --from-tex old/paper.tex --to-tex new/paper.tex --to-aux new/paper.aux --from-aux old/paper.aux --to-version arXiv:2510.01234v2 --out-dir rebase-v2
+```
+
+The report only (no --out-dir, nothing written), stating the old TeX's SHA-256 because coverage.yaml records none; a mismatch is refused.
+
+```bash
+lean-pkg claims rebase my-proof --from-tex old/paper.tex --to-tex new/paper.tex --to-aux new/paper.aux --from-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef --json
+```

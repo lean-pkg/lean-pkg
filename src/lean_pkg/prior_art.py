@@ -2,7 +2,7 @@
 """`lean-pkg search TERM --record` writes two things, with different roles:
 
 - `docs/prior-art/<YYYY-MM-DD>-<slug>.md` in the research repository (the
-  package's checkout, or --repo-dir): terms, date, every source with its
+  package's checkout, or --repo): terms, date, every source with its
   revision, state and hit count (zeros included), the top candidates, and a
   `decision: pending` line a human edits to require | reuse | vendor |
   contribute | build with a reason;
@@ -11,7 +11,7 @@
 It never writes into the registry directory and never overwrites a record.
 Claims of private packages other than the target appear only when the target
 package is itself private, and the record then says `private-claims: yes`. A
-record written into a folder that is not the package's own checkout (--repo-dir)
+record written into a folder that is not the package's own checkout (--repo)
 lists the package's own claims only when the package is public.
 """
 
@@ -203,15 +203,15 @@ def _target(reg_path: pathlib.Path, reg: dict | None, package: str | None,
     elif pkg is not None:
         target = core.repo_path(pkg)
     elif package:
-        raise core.Fail(f"--record --package {package}: not in the registry; pass --repo-dir PATH")
+        raise core.Fail(f"--record --package {package}: not in the registry; pass --repo DIR")
     else:
-        raise core.UsageError("--record needs --package NAME (its checkout) or --repo-dir PATH")
+        raise core.UsageError("--record needs --package NAME (its checkout) or --repo DIR")
     if not target.is_dir():
         raise core.Fail(f"record target is not a directory: {target}")
     reg_dir = reg_path.parent.resolve()
     if reg_dir in (target.resolve(), (target / RECORD_DIR).resolve()):
         raise core.Fail("refusing to write a search record into the registry directory; "
-                        "records live in the research repository (--package or --repo-dir)")
+                        "records live in the research repository (--package or --repo)")
     vis = pkg.get("visibility") if pkg is not None else "unknown"
     own_checkout = pkg is not None
     if repo_dir and pkg is not None:
@@ -228,7 +228,7 @@ def _withhold(payload: dict, reg: dict | None, package: str | None, visibility: 
               own_checkout: bool = True) -> tuple[dict, int, bool]:
     """A copy of the payload whose registry block hides other private packages' hits unless the target is
     private. The package's own hits are exempt only when the record goes into its own checkout: written into
-    any other folder (--repo-dir), a non-public package's hits are withheld like any other private package's.
+    any other folder (--repo), a non-public package's hits are withheld like any other private package's.
     Returns (payload copy, number withheld, whether hits of private packages other than the target's own
     checkout are listed)."""
     pkgs = (reg or {}).get("packages") or {}

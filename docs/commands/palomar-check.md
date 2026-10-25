@@ -40,3 +40,34 @@ lean-pkg palomar check [--rev REV] [--config PATH] [--rules FILE] [--repo DIR]
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `palomar-check` (exit 1): `commit`, `commit_source`, `configs`, `counts`, `gaps`, `headline`, `lean_files`, `lean_toolchain`, `missing_module`, `name`, `not_checked`, `ok`, `project_path`, `ready`, `repo_override`, `rules`, `toolchain_advisories`
+
+## Examples
+
+List every gap between the package at the gate-bound commit (else HEAD) and Palomar's pinned mechanical rules, read-only and offline from git objects; exit 1 when any gap is an `error`.
+
+```bash
+lean-pkg palomar check my-proof
+```
+
+Sample output:
+
+```text
+my-proof: Palomar check at 9f18d4268b03: NOT READY — 5 gap(s): 3 error, 2 warn [HEAD]
+  ✗  formalization.missing: formalization.yaml is not tracked in the project
+        formalization.yaml
+        fix: render it (`lean-pkg formalization my-proof --write`), fill the placeholders, commit
+  ✗  license.spdx_unset: license_spdx is not recorded in the registry
+        fix: lean-pkg update my-proof --license-spdx ID
+  ...
+  WARN  commit.not_pushed: commit 9f18d4268b03 is in no remote-tracking branch (local refs; nothing fetched)
+        fix: push it; Palomar pins a commit of the public repository
+rules: PalomarSubmission@d4e41c1d5b0d (committed 2026-10-05, read 2026-10-16); toolchain minimum v4.35.0-rc2; 3 .lean file(s), 0 without a module header
+...
+my-proof: Palomar check at 9f18d4268b03: NOT READY — 5 gap(s): 3 error, 2 warn
+```
+
+Judge HEAD and only the named comparator configuration, with each gap as JSON {code, severity, paths, detail, fix}.
+
+```bash
+lean-pkg palomar check my-proof --rev HEAD --config comparator.json --json
+```
