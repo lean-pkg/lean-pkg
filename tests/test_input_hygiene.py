@@ -91,8 +91,9 @@ def test_register_refuses_empty_home_and_user_tilde_paths(lp, env, home, capsys,
     unchanged(env, before)
 
 
-@pytest.mark.parametrize("argv, flag", [(["--repo", ""], "--repo"), (["--repo", "  "], "--repo"),
-                                        (["--repo", "u", "--owner-project", ""], "--owner-project")])
+@pytest.mark.parametrize("argv, flag", [(["--url", ""], "--url"), (["--url", "  "], "--url"),
+                                        (["--repo", ""], "--url"),   # the old spelling is named as --url
+                                        (["--url", "u", "--owner-project", ""], "--owner-project")])
 def test_register_refuses_empty_repo_and_owner_project(lp, env, home, capsys, argv, flag):
     before = env.registry.read_text()
     assert cli(lp, env, "register", "zeta", "--path", "zeta", *argv, "--json") == 1
@@ -138,10 +139,11 @@ def test_update_path_same_checkout_is_a_noop_exit_0(lp, env, home, capsys):
 # --------------------------------------------------------------------------
 # R24: empty update values, SPDX expressions
 
-@pytest.mark.parametrize("flag", ["--repo", "--owner-project"])
-def test_update_refuses_empty_repo_and_owner_project(lp, env, capsys, flag):
+@pytest.mark.parametrize("given, flag", [("--url", "--url"), ("--repo", "--url"),   # old spelling named as --url
+                                         ("--owner-project", "--owner-project")])
+def test_update_refuses_empty_repo_and_owner_project(lp, env, capsys, given, flag):
     before = env.registry.read_text()
-    assert cli(lp, env, "update", "beta", flag, "", "--json") == 1
+    assert cli(lp, env, "update", "beta", given, "", "--json") == 1
     assert f"{flag} must not be empty" in refused_json(capsys)["error"]
     unchanged(env, before)
 

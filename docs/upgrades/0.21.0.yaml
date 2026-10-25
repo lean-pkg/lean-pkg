@@ -88,4 +88,5 @@ changes:
 # Tests only: the suite no longer depends on the host's pytest version or global git config (#298).
 # Docs and messages: an example for every runnable command in the command reference, and index check and
 # search --record name their local-clone flag --repo in messages, help and llms (--repo-dir still works) (#301).
-no_author_change: [296, 298, 301]
+# Messages and docs: register and update name their URL flag --url, as --help does (--repo still works) (#302).
+no_author_change: [296, 298, 301, 302]

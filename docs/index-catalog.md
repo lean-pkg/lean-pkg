@@ -123,7 +123,7 @@ listed; Lean core is not listed. Tools that are not Lean code the package
 builds on (scripts, CI helpers) are out of scope.
 
 A missing credit for a Lake dependency is caught: `index check --clone` (or
-`--repo-dir`) reads `lake-manifest.json` at the entry's pin and prints one
+`--repo`) reads `lake-manifest.json` at the entry's pin and prints one
 note, "warning: Lake dependency NAME (URL) in lake-manifest.json at the pin
 has no built_on credit", for each package in `packages[]` that is not
 implicit and that no credit names; `--json` lists them in the entry's
@@ -175,7 +175,7 @@ lean-pkg index add my-lean --from-registry --by your-handle \
 Without a registry, pass the facts as flags:
 
 ```bash
-lean-pkg index add my-lean --repo https://github.com/you/my-lean --license Apache-2.0 \
+lean-pkg index add my-lean --url https://github.com/you/my-lean --license Apache-2.0 \
   --lower .lean-receipts/0123456789ab-slurm-4242.json \
   --comparator .lean-receipts/0123456789ab-comparator.json \
   --by your-handle --headline 'MyLean.main_theorem :: MyLean/Main.lean :: One sentence.'
@@ -222,7 +222,7 @@ lean-pkg index check --clone             # every entry, re-derived from bytes at
 lean-pkg index check --clone my-lean --json
 ```
 
-With `--clone` (or `--repo-dir` for one entry) the check re-derives the
+With `--clone` (or `--repo` for one entry) the check re-derives the
 receipts and logs at the pin, compares the index copies byte for byte,
 checks the toolchain, `lake-manifest.json`, the license, the tag and the
 headline files, and recomputes trust. Palomar ids and the Reservoir listing
@@ -239,7 +239,7 @@ of the pin, or, when the package's registry record opts in
 `lean-pkg update NAME --accept-docs-descendants --reason R`), a docs-only
 descendant: one where no build input changed (see
 [Receipts](receipts.md)). `index add` and `index check --clone` /
-`--repo-dir` read the opt-in from the registry they resolve (`--registry`, `$LEAN_PKG_REGISTRY` or the user default), and only
+`--repo` read the opt-in from the registry they resolve (`--registry`, `$LEAN_PKG_REGISTRY` or the user default), and only
 from the record with the entry's name and repository, never from a file in
 the package repository. Without a registry, or without the opt-in, the
 evidence-only rule binds; a tag the docs-only rule would admit is then
@@ -249,7 +249,7 @@ A repository whose HEAD has moved past the pin still passes: the pin is the
 claim. The rendered table shows the pin, not HEAD.
 
 The static check refuses only a stated trust above the evidence; a stated
-trust below it is caught by `--clone` or `--repo-dir`, which recompute trust
+trust below it is caught by `--clone` or `--repo`, which recompute trust
 from bytes and require equality.
 
 ## An unfinished project as an entry

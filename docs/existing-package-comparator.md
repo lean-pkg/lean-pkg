@@ -71,7 +71,7 @@ lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
 git -C ~/.lean-pkg/registry add lean-packages.yaml lean-package-events.jsonl
 git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 export LEAN_PKG_REGISTRY=~/.lean-pkg/registry/lean-packages.yaml
-lean-pkg register <package> --repo git@github.com:<owner>/<package>.git --path src/<package>
+lean-pkg register <package> --url git@github.com:<owner>/<package>.git --path src/<package>
 git -C ~/.lean-pkg/registry add -A && git -C ~/.lean-pkg/registry commit -m "registry: register <package>"
 
 python3 ~/src/lean-pkg/scripts/install_skills.py --agent codex

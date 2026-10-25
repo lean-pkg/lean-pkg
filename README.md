@@ -158,7 +158,7 @@ git -C ~/.lean-pkg/registry commit -m "registry: initialize lean-pkg"
 
 # placeholders: replace you/my-proof with your repository and src/my-proof with
 # the path of your checkout under $HOME (here ~/src/my-proof)
-lean-pkg register my-proof --repo git@github.com:you/my-proof.git --path src/my-proof
+lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-proof
 lean-pkg lease claim my-proof --workspace laptop --agent you --reason "first receipt"
 lean-pkg lease renew my-proof --agent you            # past 24 h: renew before the lease lapses (`lean-pkg lease list`)
 cd ~/src/my-proof && lake exe cache get    # your checkout: the --path above, under $HOME

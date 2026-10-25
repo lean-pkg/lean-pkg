@@ -50,7 +50,7 @@ lean-pkg index add [--from-registry] [--repo-dir REPO_DIR] [--url URL] [--tag TA
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `index add NAME` | write `index/<name>/entry.yaml` from a clone at the pin: receipts validated with the `gate` and `comparator` validators and copied verbatim, trust computed, duplicates refused, event `index-added`; `--replace` re-pins an existing entry and carries its `built_on` credits over, `--built-on-file` sets them | `--by HANDLE` `--headline 'NAME :: FILE :: SUMMARY'` `[--from-registry]` `[--repo URL]` `[--repo-dir PATH]` `[--lower REL]` `[--comparator REL]` `[--license SPDX]` `[--tag T]` `[--field-tag T]` `[--formalization-yaml REL]` `[--consent-recorded]` `[--notes]` `[--built-on-file FILE]` `[--replace]` `[--index PATH]` |
+| `index add NAME` | write `index/<name>/entry.yaml` from a clone at the pin: receipts validated with the `gate` and `comparator` validators and copied verbatim, trust computed, duplicates refused, event `index-added`; `--replace` re-pins an existing entry and carries its `built_on` credits over, `--built-on-file` sets them | `--by HANDLE` `--headline 'NAME :: FILE :: SUMMARY'` `[--from-registry]` `[--url URL]` `[--repo-dir PATH]` `[--lower REL]` `[--comparator REL]` `[--license SPDX]` `[--tag T]` `[--field-tag T]` `[--formalization-yaml REL]` `[--consent-recorded]` `[--notes]` `[--built-on-file FILE]` `[--replace]` `[--index PATH]` |
 
 ## Examples
 

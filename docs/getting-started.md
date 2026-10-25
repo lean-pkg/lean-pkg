@@ -312,7 +312,7 @@ Assume the shared registry from the setup above:
 ```bash
 # ~/.lean-pkg/registry is the default registry location: no LEAN_PKG_REGISTRY needed
 
-lean-pkg register my-proof --repo git@github.com:you/my-proof.git \
+lean-pkg register my-proof --url git@github.com:you/my-proof.git \
     --path src/my-proof --upstream-target palomar
 lean-pkg lease claim my-proof --workspace laptop --agent alice --reason "comparator tier"
 lean-pkg update my-proof --agent alice --status gate-pending --reason "lower-tier check submitted"

@@ -95,6 +95,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   line of `lean-pkg llms`, which now names `--url URL` (its `--repo` is the
   old spelling of `--url`; `index add --repo-dir` is unchanged).
 
+- `--url` spelling (#302): `register` and `update` name their URL flag
+  `--url` in their messages, the agent contract and the docs, as `--help`
+  does since 0.11.0 (`--repo` is still its old spelling, kept working). The
+  `register` usage error ("register needs --url URL"), the `--like`
+  refusal, the empty-value refusals of both commands (an empty `--repo` is
+  now reported as `--url must not be empty`), and the `update NAME --url`
+  hints of `reservoir check` and `palomar check`. Docs: every `register`
+  example (README.md, docs/index.md, how-to, getting-started,
+  paper-companion, existing-package-comparator, the `lean-pkg-agent`
+  skill), the `index add` example and `index check` / `search --record`
+  mentions in docs/index-catalog.md and docs/prior-art.md, and the
+  `register`, `update`, `index add` and `search` reference pages.
+  scripts/bootstrap-collaborator.sh keeps `--repo`, which works with any
+  installed lean-pkg.
+
 ### Documentation
 
 - Command reference (#301): every runnable command has an example in

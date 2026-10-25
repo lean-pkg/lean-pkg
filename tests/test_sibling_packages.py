@@ -220,7 +220,7 @@ def test_register_like_unknown_package_and_missing_repo(lp, env, tmp_path, capsy
     assert reg(lp, env, "x-lean-r2", "--path", str(root / "lean-r2"), "--like", "nope") == 1
     assert "unknown package: 'nope'" in capsys.readouterr().err
     assert reg(lp, env, "x-lean-r2", "--path", str(root / "lean-r2")) == 2
-    assert "--repo" in capsys.readouterr().err
+    assert "--url" in capsys.readouterr().err
     assert read_events(env) == []
 
 

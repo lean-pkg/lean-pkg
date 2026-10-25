@@ -53,7 +53,7 @@ public-safety:
 >  export LEAN_PKG_REGISTRY="$$d/lean-packages.yaml" PYTHONPATH="$$PWD/src" && \
 >  unset LEAN_PKG_COMMIT LEAN_PKG_PUSH LEAN_PKG_EVENTS LEAN_PKG_INDEX LEAN_PKG_HOME LEAN_PKG_REGISTRY_SNAPSHOT && \
 >  python3 -m lean_pkg.cli init >/dev/null && \
->  python3 -m lean_pkg.cli register lean-pkg-self --repo https://github.com/lean-pkg/lean-pkg --path "$$d/lean-pkg" --owner-project lean-pkg --status scratch >/dev/null && \
+>  python3 -m lean_pkg.cli register lean-pkg-self --url https://github.com/lean-pkg/lean-pkg --path "$$d/lean-pkg" --owner-project lean-pkg --status scratch >/dev/null && \
 >  python3 -m lean_pkg.cli public-safety lean-pkg-self --history --strict
 
 # Every generated file, rewritten from its source: llms.txt and docs/llms.txt (cli.llms_txt),
