@@ -14,6 +14,8 @@ RELEASING.md "When to tag" is the rule; this script applies it to two sources th
   the current version (pyproject.toml). Its name is provisional until the release is cut: the first
   pull request after a release opens it as the next minor, and `--rename` (run by cut-release) gives it
   the version actually cut.
+  `--rename` also rewrites src/lean_pkg/data/upgrade-breaking.yaml, which lists the records' breaking
+  entries by version (scripts/upgrade-breaking.py).
 * the `### <Heading>` sections of `## [Unreleased]` in CHANGELOG.md, each entry attributed to the pull
   requests that wrote it: a `(#N)` in its text, or a squash commit `... (#N)` since the last release
   whose CHANGELOG.md diff added the entry's first line.
@@ -45,6 +47,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 NAME = "release-version"
 RECORD_DIR = "docs/upgrades"
+BREAKING_FILE = "src/lean_pkg/data/upgrade-breaking.yaml"   # generated from the records: scripts/upgrade-breaking.py
 # Keep a Changelog 1.1.0's six types, plus Documentation for docs-only entries (RELEASING.md).
 HEADINGS = ("Added", "Changed", "Deprecated", "Removed", "Fixed", "Security", "Documentation")
 MINOR_HEADINGS = ("Added", "Deprecated", "Removed")
@@ -388,7 +391,20 @@ def rename_record(repo: Path, record: Record, new: str) -> list[str]:
     check = load_record(Path(done[0]), (repo / done[0]).read_text())
     if check.version != new:
         raise ValueError(f"{done[0]}: version is {check.version} after the rename, not {new}")
+    if (repo / BREAKING_FILE).is_file() and regenerate_breaking(repo):   # its versions follow the record's
+        done.append(BREAKING_FILE)
     return done
+
+
+def regenerate_breaking(repo: Path) -> bool:
+    """Rewrite repo/BREAKING_FILE from repo's records with scripts/upgrade-breaking.py beside this script;
+    True when its bytes changed."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("upgrade_breaking", Path(__file__).resolve().parent
+                                                  / "upgrade-breaking.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.write(repo)
 
 
 # --------------------------------------------------------------------------

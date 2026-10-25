@@ -23,6 +23,30 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   bytecode digest. Additive: gate and `receipt check` ignore the key, and
   bytecode is never compared during a run (a writable install gains its own
   caches as modules load).
+- `producer` in `receipt slurm` and `receipt comparator` receipts (#300; a
+  field report): both now record the lean-pkg that wrote the receipt, as the
+  additive key `producer`, with the shape `receipt systemd --run` seals
+  (version, install kind, checkout commit and dirtiness, `sources_sha256`,
+  Python, bytecode). For `receipt slurm` that is the collector, not the
+  lean-pkg inside the job, and it is always recorded; `receipt slurm --json`
+  gains `producer`. Gate, `gate --check`, `receipt check` and
+  `validate_comparator` ignore the key, and receipts without it keep
+  validating ([receipts](docs/receipts.md#which-lean-pkg-wrote-a-receipt-producer-skew)).
+- Producer skew in `status NAME` and the new `doctor --package NAME` (#300): for
+  the package's gate receipts (lower tier and comparator), the lean-pkg that
+  wrote each against the running one. A WARN names the breaking upgrade-record
+  entries that touch receipts, gate or claims between an older producer and
+  the running lean-pkg, with `lean-pkg doctor --upgrade-from vPRODUCER
+  --source DIR`, and always flags a producer newer than the running lean-pkg
+  (an older checker ignores evidence it does not know); an older producer with
+  no such entry, the same version or no `producer` is info only. Never a
+  refusal or an exit 1. `status --json` gains `producer_skew`, `doctor --json`
+  gains it with `--package`. The breaking entries ship as
+  `src/lean_pkg/data/upgrade-breaking.yaml`, generated from
+  `docs/upgrades/*.yaml` by `scripts/upgrade-breaking.py` (also `make docs`
+  and `release-version.py --rename`) and checked against the records by the
+  suite ([receipts](docs/receipts.md#which-lean-pkg-wrote-a-receipt-producer-skew),
+  RELEASING.md "The breaking-entries file").
 
 ### Changed
 

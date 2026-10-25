@@ -2205,6 +2205,10 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
     image = ctr.from_environment()
     if image is not None:
         receipt["container"] = image
+    # The lean-pkg that writes this receipt, with the shape `receipt systemd --run` seals (producer.py): no
+    # path, host or user name. Additive: validate_comparator, gate and receipt check ignore it.
+    from . import producer as pr
+    receipt["producer"] = pr.receipt_producer(pr.fingerprint())
     receipt = label_host_fields(redact_json(receipt))   # #41: <checkout>/, <home>/, <tmp>/ instead of host paths
     rec_tmp = tmp / "receipt.json"
     rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")

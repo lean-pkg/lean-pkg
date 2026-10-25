@@ -1,5 +1,5 @@
-usage: lean-pkg doctor [-h] [--fetch] [--upgrade-from OLD] [--to NEW] [--source DIR] [--json]
-                       [--commit] [--push] [--no-commit]
+usage: lean-pkg doctor [-h] [--fetch] [--package NAME] [--upgrade-from OLD] [--to NEW]
+                       [--source DIR] [--json] [--commit] [--push] [--no-commit]
                        [NAME]
 
 positional arguments:
@@ -12,6 +12,11 @@ options:
   -h, --help          show this help message and exit
   --fetch             git fetch origin in the tool checkout and the registry repo before comparing
                       (default: local refs)
+  --package NAME      also compare the lean-pkg that wrote each gate receipt of package NAME (the
+                      receipt's producer.lean_pkg) with the running one: a `producer <role>` warn
+                      line on a skew across a breaking change to receipts, gate or claims, naming
+                      the upgrade-record entries and the `doctor --upgrade-from` command, or on a
+                      newer producer; never an exit 1. --json adds producer_skew
   --upgrade-from OLD  instead of the diagnostics: what changed for a package author since OLD (a
                       version, 0.9.0 / v0.9.0, or any commit of the lean-pkg repository): formats,
                       on-disk keys, commands, flags, --json keys, aliases, Python floor, packaged

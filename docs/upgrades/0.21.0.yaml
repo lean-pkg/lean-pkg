@@ -41,6 +41,48 @@ changes:
       install).
     breaking: false
     changelog: Added
+  - pr: 300
+    id: receipt-producer-slurm-comparator
+    kind: format
+    area: receipts, receipt slurm, comparator receipts
+    summary: >-
+      receipt slurm and receipt comparator (alias comparator-receipt) now write the additive key producer, the
+      lean-pkg that wrote the receipt, with the shape receipt systemd --run seals (lean_pkg, install, commit,
+      dirty, sources_sha256, source_files, python, bytecode_tag, bytecode_files, bytecode_sha256,
+      other_bytecode_files), built from the running lean-pkg when it writes the receipt (a field report: an
+      evidence chain mixing lean-pkg versions was invisible). For receipt slurm that is the collector, not the
+      lean-pkg inside the job, and it is always recorded (receipt systemd records it only with --run).
+      receipt slurm --json gains producer. No path, host or user name is written.
+    action: >-
+      Nothing for a package author: gate, gate --check, receipt check and the comparator validator ignore the
+      key, receipts written before keep validating, and an older lean-pkg reads a receipt with the key
+      unchanged. A script that compares a receipt's exact key list sees one more key.
+    breaking: false
+    split: true
+    changelog: Added
+  - pr: 300
+    id: producer-skew-status-doctor
+    kind: command
+    area: status, doctor
+    summary: >-
+      New flag doctor --package NAME, and a producer block in status NAME: for the package's gate receipts
+      (gate.receipt and gate.comparator), the lean-pkg that wrote each (producer.lean_pkg, or unknown) against
+      the running one. A WARN names the breaking upgrade-record entries in an evidence area (receipts, gate,
+      claims and their components; producer_skew.EVIDENCE_AREAS) between an older producer and the running
+      lean-pkg, with lean-pkg doctor --upgrade-from vPRODUCER --source DIR, and always flags a producer newer
+      than the running lean-pkg; an older producer with no such entry, the same version or no producer is info
+      only. Never a refusal or an exit 1. status --json gains producer_skew; doctor --json gains it with
+      --package; doctor --package with --upgrade-from exits 2. The breaking entries ship in the package as
+      src/lean_pkg/data/upgrade-breaking.yaml, generated from docs/upgrades/*.yaml by
+      scripts/upgrade-breaking.py.
+    action: >-
+      Nothing required. Run lean-pkg status NAME (or doctor --package NAME) after moving to another lean-pkg;
+      on a WARN, read the named entries with the printed doctor --upgrade-from command, and upgrade lean-pkg
+      before trusting gate or receipt check on a receipt a newer lean-pkg wrote. A pull request adding a
+      breaking record entry regenerates the data file (RELEASING.md, "The breaking-entries file").
+    breaking: false
+    split: true
+    changelog: Added
 # Read for this record, nothing for a package author: release tooling, one entry per pull request unless
 # each of its entries is marked split: true; marks the multi-entry PRs of 0.11.0, 0.12.0 and 0.20.0 (#296).
 # Tests only: the suite no longer depends on the host's pytest version or global git config (#298).
