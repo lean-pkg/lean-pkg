@@ -89,5 +89,6 @@ changes:
 # Docs and messages: an example for every runnable command in the command reference, and index check and
 # search --record name their local-clone flag --repo in messages, help and llms (--repo-dir still works) (#301).
 # Messages and docs: register and update name their URL flag --url, as --help does (--repo still works) (#302).
-# Collaborator setup script: register --url, or --repo for a lean-pkg older than 0.11.0 (#303).
-no_author_change: [296, 298, 301, 302, 303]
+# Collaborator setup script: register --url, or --repo for a lean-pkg older than 0.11.0 (#303); its
+# checks written as if/then/else, so ShellCheck reports nothing (#304).
+no_author_change: [296, 298, 301, 302, 303, 304]
