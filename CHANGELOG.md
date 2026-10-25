@@ -66,6 +66,10 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   to `--repo`, its old spelling, when the installed lean-pkg is older than
   0.11.0 or its `--version` line cannot be read (the script's
   `pipx upgrade` may fail and leave an older install in place).
+- scripts/bootstrap-collaborator.sh (#304): its 11 `A && ok || bad` checks
+  are `if A; then ok; else bad; fi`, so ShellCheck (0.11.0) reports nothing
+  at any severity. Before, a check whose `ok` line could not be written (a
+  closed stdout) would also print `[FAIL]` and count as a failure (SC2015).
 
 ### Fixed
 

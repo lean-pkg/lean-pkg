@@ -40,13 +40,14 @@ finish() {
 case "$SRC" in "$HOME"/*) ;; *) echo "LEAN_PKG_SRC must be under \$HOME (registry paths are home-relative)" >&2; exit 2 ;; esac
 
 echo "== 1. machine and tools"
-[ "$(uname -s)" = Linux ] && ok "Linux" || note "not Linux: setup works, comparator-receipt (guide step 7) will not"
+if [ "$(uname -s)" = Linux ]; then ok "Linux"; else note "not Linux: setup works, comparator-receipt (guide step 7) will not"; fi
 for t in git gh python3 pipx elan; do
-  have "$t" && ok "$t" || bad "$t not on PATH"
+  if have "$t"; then ok "$t"; else bad "$t not on PATH"; fi
 done
-python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null && ok "python3 >= 3.11" || bad "python3 older than 3.11"
+if python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then ok "python3 >= 3.11"
+else bad "python3 older than 3.11"; fi
 for t in go cargo jq; do
-  have "$t" && ok "$t" || note "$t not on PATH: needed later by comparator-receipt (guide step 7)"
+  if have "$t"; then ok "$t"; else note "$t not on PATH: needed later by comparator-receipt (guide step 7)"; fi
 done
 if have bwrap || have landrun; then ok "sandbox: bwrap or landrun"; else note "neither bwrap nor landrun: comparator-receipt needs one (landrun is built on first use)"; fi
 for t in lake lean; do
@@ -54,16 +55,16 @@ for t in lake lean; do
   case "$p" in "" | "$HOME/.elan/bin/"*) ;; *) note "$t resolves to $p, not ~/.elan/bin: put ~/.elan/bin first on PATH so lean-toolchain is honoured" ;; esac
 done
 free_gb=$(df -Pk "$HOME" | awk 'NR == 2 {print int($4 / 1048576)}')
-[ "${free_gb:-0}" -ge "$MIN_FREE_GB" ] && ok "disk: $free_gb GB free" \
-  || note "disk: ${free_gb:-?} GB free; budget about $MIN_FREE_GB GB for the toolchain, the Mathlib cache and the build"
+if [ "${free_gb:-0}" -ge "$MIN_FREE_GB" ]; then ok "disk: $free_gb GB free"
+else note "disk: ${free_gb:-?} GB free; budget about $MIN_FREE_GB GB for the toolchain, the Mathlib cache and the build"; fi
 [ "$fail" -eq 0 ] || { echo "Install the missing tools, then run this again."; finish; }
 
 echo "== 2. GitHub access (a failure here is a human step)"
-gh auth status >/dev/null 2>&1 && ok "gh is logged in" || { bad "gh is not logged in: run 'gh auth login'"; finish; }
-gh auth setup-git >/dev/null 2>&1 && ok "git uses gh's credentials for https" || note "gh auth setup-git failed"
+if gh auth status >/dev/null 2>&1; then ok "gh is logged in"; else bad "gh is not logged in: run 'gh auth login'"; finish; fi
+if gh auth setup-git >/dev/null 2>&1; then ok "git uses gh's credentials for https"; else note "gh auth setup-git failed"; fi
 for r in "$TOOL_REPO" "$PKG_SLUG"; do
-  gh api "repos/$r" --silent >/dev/null 2>&1 && ok "access to $r" \
-    || bad "no access to $r: accept the invitation (https://github.com/$r/invitations) or ask the owner for access"
+  if gh api "repos/$r" --silent >/dev/null 2>&1; then ok "access to $r"
+  else bad "no access to $r: accept the invitation (https://github.com/$r/invitations) or ask the owner for access"; fi
 done
 [ "$fail" -eq 0 ] || finish
 
@@ -75,7 +76,8 @@ else
   pipx ensurepath >/dev/null 2>&1 || true
   export PATH="${PIPX_BIN_DIR:-$HOME/.local/bin}:$PATH"
 fi
-have lean-pkg && ok "$(lean-pkg --version)" || { bad "lean-pkg not on PATH; open a new shell and run this again"; finish; }
+if have lean-pkg; then ok "$(lean-pkg --version)"
+else bad "lean-pkg not on PATH; open a new shell and run this again"; finish; fi
 # register's URL flag is --url from lean-pkg 0.11.0; --repo, its old spelling, works in every release, so it
 # is used for an older lean-pkg and for a version this cannot read (`pipx upgrade` above may have failed).
 URL_FLAG=--repo
@@ -118,7 +120,7 @@ elif lean-pkg register "$PKG" "$URL_FLAG" "git@github.com:$PKG_SLUG.git" --path 
 else
   bad "lean-pkg register $PKG failed"
 fi
-lean-pkg validate >/dev/null 2>&1 && ok "registry validates" || bad "lean-pkg validate failed"
+if lean-pkg validate >/dev/null 2>&1; then ok "registry validates"; else bad "lean-pkg validate failed"; fi
 
 echo "== 6. agent skills for Codex"
 if python3 "$SRC/lean-pkg/scripts/install_skills.py" --agent codex >/dev/null 2>&1; then
@@ -128,7 +130,7 @@ else
 fi
 
 echo "== 7. lean-pkg doctor"
-lean-pkg doctor >/dev/null 2>&1 && ok "doctor exit 0" || bad "lean-pkg doctor failed; run it to see why"
+if lean-pkg doctor >/dev/null 2>&1; then ok "doctor exit 0"; else bad "lean-pkg doctor failed; run it to see why"; fi
 
 echo
 echo "Package checkout: $SRC/$PKG"
