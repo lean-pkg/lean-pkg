@@ -1307,7 +1307,7 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
     if not entry["consent"]["recorded"]:
         rep["notes"].append("consent not recorded: every coauthor must agree before this entry is published")
     if source is None and not clone_it:
-        rep["notes"].append("static check only: pass --clone (or --repo-dir) to re-derive from bytes")
+        rep["notes"].append("static check only: pass --clone (or --repo) to re-derive from bytes")
         rep["ok"] = not rep["failures"]
         return rep
     record = docs_record(reg, name, entry["repo"])
@@ -1367,7 +1367,7 @@ def do_index_check(root: pathlib.Path, names: list[str], repo_dir: str | None,
                    clone_it: bool, reg: dict | None = None) -> tuple[list[str], dict, int]:
     """`reg`: the registry whose records may opt an entry in to the docs-only rule (docs_record)."""
     if repo_dir and len(names) != 1:
-        raise core.UsageError("--repo-dir needs exactly one NAME")
+        raise core.UsageError("--repo needs exactly one NAME")
     all_names = entry_names(root)
     targets = names or all_names
     seen: dict = {}

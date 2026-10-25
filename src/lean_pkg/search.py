@@ -763,7 +763,7 @@ def render_text(payload: dict) -> list[str]:
 
 def cmd_search(args) -> int:
     if args.repo_dir and not args.record:
-        raise core.UsageError("--repo-dir is only used with --record")
+        raise core.UsageError("--repo is only used with --record")
     if args.agent and not args.record:
         raise core.UsageError("--agent is only used with --record")
     reg_path = core.registry_path(args)
@@ -839,7 +839,7 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--index", default=None,
                    help=f"index root (default: ${idx.INDEX_ENV}, else ./{idx.DEFAULT_INDEX_DIR})")
     s.add_argument("--record", action="store_true",
-                   help="write docs/prior-art/<date>-<slug>.md in the package checkout (or --repo-dir) "
+                   help="write docs/prior-art/<date>-<slug>.md in the package checkout (or --repo) "
                         "and a prior-art-searched event")
     s.add_argument("--repo", dest="repo_dir", metavar="DIR", default=None, help="research repository for --record")
     s.add_argument("--agent", default=None,

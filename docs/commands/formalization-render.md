@@ -42,3 +42,23 @@ lean-pkg formalization render [--write] [--no-registry] [--out PATH] [--force]
 | Form | What it does | Key flags |
 |---|---|---|
 | `formalization render NAME` (or `formalization NAME`) | render `formalization.yaml` (mathlib-initiative v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout by default; `--write` writes `<repo>/<formalization_yaml or formalization.yaml>`, is a no-op when equal, refuses a differing file without `--force`, then sets the registry pointer (event `updated`), so `--write` is a registry write; `--write --no-registry` writes the file only and leaves the registry untouched (no pointer, no event, no lock, `--commit` ignored; `"registry_skipped": true`); the lease (another agent's live lease refuses unless `--force --reason`) and a dry run of the registry update are checked before the file is written; validated against the vendored schema; `--headline-config PATH` (else the registry's `headline_config`, else `comparator.headline.json` when tracked) makes `status.main_results` list that [headline configuration](../comparator.md#headline-configuration-the-papers-main-results)'s theorems only, refused unless the gate-bound comparator receipt covers every name and signs every hole, not applied (warning) when no receipt validates at HEAD; `--write` records it; `--json` `headline` {config, source, applied, reason, receipt, theorems} or null; see [formalization.yaml](../formalization.md) | `[--write [--no-registry]]` `[--out PATH]` `[--force [--reason TEXT]]` `[--author NAME]…` `[--headline-config PATH]` `[--agent A]` |
+
+## Examples
+
+Print formalization.yaml (v0.4) rendered from the registry and the repository at HEAD to stdout, with a warning for each placeholder the registry cannot fill.
+
+```bash
+lean-pkg formalization render my-proof
+```
+
+Write it into the checkout (a no-op when equal, refused when the file differs unless --force) and set the registry's formalization_yaml pointer when it is not already set (a registry write); the file is not committed.
+
+```bash
+lean-pkg formalization render my-proof --write
+```
+
+Write the file only and leave the registry untouched (no pointer, no event, no lock).
+
+```bash
+lean-pkg formalization render my-proof --write --no-registry
+```

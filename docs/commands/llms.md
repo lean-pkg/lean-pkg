@@ -39,3 +39,32 @@ lean-pkg llms [--short] [common flags]
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `llms` (exit 0): `ok`, `text`
+
+## Examples
+
+Print the agent contract (standing rules, status transitions, every subcommand, receipt and event schemas, exit codes), the text llms.txt carries below its header.
+
+```bash
+lean-pkg llms
+```
+
+Sample output:
+
+```text
+lean-pkg llms.txt — agent contract for the Lean 4 package registry
+
+PURPOSE
+...
+```
+
+A compact contract of about 40 lines cut from the full text by its section headers (purpose, standing rules, the first line of each subcommand).
+
+```bash
+lean-pkg llms --short
+```
+
+The contract as JSON, an object whose `text` holds the full contract.
+
+```bash
+lean-pkg llms --json
+```

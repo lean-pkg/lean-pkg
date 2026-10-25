@@ -87,6 +87,26 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   headings. The multi-entry pull requests of 0.11.0, 0.12.0 and 0.20.0 are
   marked.
 
+- `--repo` spelling (#301): `index check` and `search --record` name their
+  local-clone flag `--repo` in their messages, help and the agent contract,
+  as `--help` does since the 1.0 command tree (`--repo-dir` is still the old
+  spelling, kept working). The `index check` static-check note and its usage
+  error, the `search` usage errors and `--record` help, and the `index add`
+  line of `lean-pkg llms`, which now names `--url URL` (its `--repo` is the
+  old spelling of `--url`; `index add --repo-dir` is unchanged).
+
+### Documentation
+
+- Command reference (#301): every runnable command has an example in
+  docs/_commands/examples.yaml (26 added, for `registry board`, `registry
+  migrate`, `registry wiki`, `record`, `repo move`, `llms`, `report`,
+  `search`, the `index`, `claims`, `formalization` and `palomar`
+  subcommands, `reservoir check`, `lean-exercise batch` and
+  `lean-pkg-extract plan`), so `python3 scripts/command_docs.py --missing`
+  lists none. Each example parses with the real parser; sample output is
+  from a run on a throwaway fixture, and commands that need the network, a
+  Lean build or an e-print show no output.
+
 ## [0.20.0] - 2026-10-20
 
 ### Added

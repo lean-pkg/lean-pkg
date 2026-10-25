@@ -41,3 +41,25 @@ lean-pkg formalization kept [--repo DIR] [--file REL] [--at REV] [--against REV2
 Exit 1 is also a negative answer here:
 
 - `formalization kept --against`: a kept (hand-written) key changed
+
+## Examples
+
+Print the kept view of formalization.yaml in the current directory (every key `formalization render` derives removed) as JSON and the SHA-256 of its canonical bytes; it reads no registry and writes nothing.
+
+```bash
+lean-pkg formalization kept
+```
+
+Read the file committed at HEAD and list the kept keys that differ from HEAD~1; exit 1 when any does, so a derived-key refresh alone passes.
+
+```bash
+lean-pkg formalization kept --at HEAD --against HEAD~1
+```
+
+Sample output:
+
+```text
+...
+kept-view sha256 b52beedad1b9b64e5c551e4987a130471861913ece8ae0f7cd1e7e63dfbdb962  formalization.yaml at HEAD (055bf9995e82)
+changed kept key(s) since HEAD~1 (28fbec50ee3e): status.scope
+```

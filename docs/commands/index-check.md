@@ -31,10 +31,43 @@ lean-pkg index check [--clone] [--repo DIR] [--index INDEX] [common flags] [NAME
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `index check [NAME ...]` | index root: `--index`, else env `LEAN_PKG_INDEX`, else `index/` beside the registry when present, else `./index`; `check`, `render` and `migrate` exit 1 with `no index at <path>` when it is missing (`render` creates it only for an explicit `--index` or `--out`). Static checks, or re-derive each entry from bytes at the pin and recompute trust; Palomar and Reservoir verified when reachable, else skipped; the summary `N entries checked: all pass\|FAILED` comes before the per-entry lines and again last; exit 0, 1 or 2 | `[--clone]` `[--repo-dir PATH]` `[--index PATH]` |
+| `index check [NAME ...]` | index root: `--index`, else env `LEAN_PKG_INDEX`, else `index/` beside the registry when present, else `./index`; `check`, `render` and `migrate` exit 1 with `no index at <path>` when it is missing (`render` creates it only for an explicit `--index` or `--out`). Static checks, or re-derive each entry from bytes at the pin and recompute trust; Palomar and Reservoir verified when reachable, else skipped; the summary `N entries checked: all pass\|FAILED` comes before the per-entry lines and again last; exit 0, 1 or 2 | `[--clone]` `[--repo DIR]` `[--index PATH]` |
 
 ## Exit codes
 
 Exit 1 is also a negative answer here:
 
 - `index check`: an entry fails its checks / README.md is stale
+
+## Examples
+
+Statically check every entry (schema, receipt copies, trust, duplicates), printing the verdict before and after the per-entry lines; exit 0 all pass, 1 any failure, 2 a usage error.
+
+```bash
+lean-pkg index check
+```
+
+Sample output:
+
+```text
+3 entries checked: all pass
+PASS gromov-filling-lean (comparator)
+  note: static check only: pass --clone (or --repo) to re-derive from bytes
+PASS markovprocess-pilot (comparator)
+  note: static check only: pass --clone (or --repo) to re-derive from bytes
+PASS total-coloring-lean (comparator)
+  note: static check only: pass --clone (or --repo) to re-derive from bytes
+3 entries checked: all pass
+```
+
+Clone the entry's repository at the pin into a temporary directory, re-derive its receipts, toolchain, license, tag and headline files from those bytes and recompute trust; Palomar and Reservoir are verified when reachable, else reported as skipped.
+
+```bash
+lean-pkg index check --clone my-proof
+```
+
+The same re-derivation from a local clone of one package, which is never modified.
+
+```bash
+lean-pkg index check my-proof --repo ../my-proof
+```

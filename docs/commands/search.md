@@ -35,7 +35,7 @@ Prior-art search. Packages without synced claims are searched by declaration (fu
 | `--cache-dir DIR` | use DIR as the lean-pkg cache for this search (Palomar snapshots, Reservoir index) instead of $XDG_CACHE_HOME/lean-pkg or ~/.cache/lean-pkg |
 | `--sources a,b,c` | subset of: registry,index,loogle,leansearch,reservoir,palomar,github (order is fixed) |
 | `--index INDEX` | index root (default: $LEAN_PKG_INDEX, else ./index) |
-| `--record` | write docs/prior-art/&lt;date&gt;-&lt;slug&gt;.md in the package checkout (or --repo-dir) and a prior-art-searched event |
+| `--record` | write docs/prior-art/&lt;date&gt;-&lt;slug&gt;.md in the package checkout (or --repo) and a prior-art-searched event |
 | `--repo DIR` | research repository for --record (old spelling --repo-dir, kept working) |
 | `--agent AGENT` | with --record: the agent acting (recorded as the event's actor); another agent's live lease on --package then refuses |
 
@@ -48,3 +48,41 @@ Prior-art search. Packages without synced claims are searched by declaration (fu
 ## Exit codes
 
 0 success (dry runs and no-ops included), 1 refused or failed, 2 usage error; see [Exit codes](../cli.md#exit-codes).
+
+## Examples
+
+Search for prior art in the registry, the index, Loogle, LeanSearch, Reservoir, Palomar and GitHub, in that order (Loogle only for a declaration pattern), with each source marked ok or skipped; exit 0 even with zero hits.
+
+```bash
+lean-pkg search "heat mass" --package my-proof
+```
+
+Skip every network source; as always, packages without synced claims are searched by declaration, and the incomplete line says a zero is not a negative result (add --require-complete to exit 1 then).
+
+```bash
+lean-pkg search "heat mass" --offline
+```
+
+Sample output:
+
+```text
+lean-pkg search "heat mass" on 2026-10-25
+registry: ok at sha256:fff31473c971, 1 hit
+  [1 name] my-proof: heat_mass_le  (theorem, declaration (unclaimed), trust none, MyProof/Basic.lean:1)
+      theorem heat_mass_le : True := trivial
+index: skipped: no index directory
+loogle: skipped: offline
+leansearch: skipped: offline
+reservoir: skipped: offline
+palomar: skipped: offline
+github: skipped: offline
+registry coverage: 1 of 1 packages have no synced claims: 1 searched by declaration only, 0 not searched (no checkout)
+incomplete: searched 1 of 7 sources; skipped: index, loogle, leansearch, reservoir, palomar, github; a zero here is not a negative result
+consulted: registry (ok, 1 hit), index (skipped: no index directory), loogle (skipped: offline), leansearch (skipped: offline), reservoir (skipped: offline), palomar (skipped: offline), github (skipped: offline)
+```
+
+Also write docs/prior-art/&lt;date&gt;-&lt;slug&gt;.md (decision pending) in the package's checkout and a prior-art-searched event; edit the page, then commit it in that repository.
+
+```bash
+lean-pkg search heat_mass_le --package my-proof --record
+```

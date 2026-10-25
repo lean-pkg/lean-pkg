@@ -37,3 +37,23 @@ lean-pkg registry migrate [--dry-run] [common flags]
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `migrate-dry-run` (exit 0): `changes`, `dry_run`, `from_version`, `ok`, `to_version`
+
+## Examples
+
+Print what upgrading the registry schema to version 3 would add (the v2 and v3 fields with their defaults, and any legacy `~/` `local_path` rewritten to its $HOME-relative form); nothing is written.
+
+```bash
+lean-pkg registry migrate --dry-run
+```
+
+Sample output:
+
+```text
+registry already at version 3; nothing to do
+```
+
+Apply that upgrade in place, additively and idempotently, and record a registry-migrated event.
+
+```bash
+lean-pkg registry migrate
+```

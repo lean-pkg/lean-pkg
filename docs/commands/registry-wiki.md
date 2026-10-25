@@ -32,3 +32,32 @@ lean-pkg registry wiki [--out OUT] [--candidates CANDIDATES] [common flags]
 | Form | What it does | Key flags |
 |---|---|---|
 | `wiki` | render a Markdown status page | `[--out PATH]` `[--candidates PATH]` |
+
+## Examples
+
+Render a Markdown status page (packages, active leases, third-party adoptions) from the registry to stdout; read-only.
+
+```bash
+lean-pkg registry wiki
+```
+
+Sample output:
+
+```text
+---
+title: Lean Verification Status
+type: lean-verification
+updated: '2026-10-25'
+---
+...
+| name | status | visibility | lease | mathlib pin | reaudit_after |
+|---|---|---|---|---|---|
+| my-proof | active | private | - | - | - |
+...
+```
+
+Write the page to a file instead of stdout, reading the adoption ledger from the given path (default lean-adoption-candidates.yaml next to the registry).
+
+```bash
+lean-pkg registry wiki --out docs/lean-status.md --candidates ~/.lean-pkg/registry/lean-adoption-candidates.yaml
+```

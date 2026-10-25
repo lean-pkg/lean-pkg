@@ -126,3 +126,17 @@ Judge every Solution (\*.lean, not recursive) in a directory as `check` would, s
 ### Exit codes
 
 0 every Solution passed; 1 a Solution failed or was refused; 2 usage or host refusal
+
+### Examples
+
+Judge every \*.lean file directly in submissions/ as `check` would, sandboxed and each in its own fresh project, writing one CSV row and one &lt;stem&gt;.log per file; exit 1 when any file fails or is refused.
+
+```bash
+lean-exercise batch --challenge Challenge.lean --solutions submissions/ --csv grades.csv --logs logs/
+```
+
+The same against a prebuilt Mathlib project (bound read-only, nothing downloaded), rejecting a proof that depends on the forbidden constants.
+
+```bash
+lean-exercise batch --challenge Midterm.lean --solutions submissions/ --csv grades.csv --logs logs/ --project ~/course-mathlib --forbid MeasurableSpace.DynkinSystem. --forbid-exact MeasurableSpace.induction_on_inter
+```

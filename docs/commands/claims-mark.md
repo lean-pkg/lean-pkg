@@ -36,3 +36,26 @@ lean-pkg claims mark --from-comparator CONFIG.json
 | Form | What it does | Key flags |
 |---|---|---|
 | `claims mark NAME` | set `status` on exactly the claims whose `decl` a comparator configuration's `theorem_names` cover (the `comparator coverage` and ledger rule: the full name, or `<Prefix>.<decl>`, of a fully qualified decl; a shared last component never matches), in the checkout's working copy of the claims file; read-only unless `--write` (the default prints the plan); `--write` edits only the changed `status:` values (comments and layout kept; when that is impossible the file is re-dumped and the output says so), validates the result against `claims/1`, never commits and never writes the registry; another agent's live lease refuses `--write`; configuration names that cover no claim are listed (`unmatched theorem name: ...`), followed by the rule (`rule: ...`) and a `hint:` for each name that differs from exactly one claim's decl only in its leading namespace component (never applied; docs/comparator.md#how-a-theorem-name-maps-to-a-claim); next: commit, `claims sync`, re-gate. `claims sync` and `claims check` print `WARN NAME: gated, N claim(s), none with status reusable: ...` (JSON `warnings[]`) for a gated package with claims and none `reusable`, and the ledger's `unknown` reason names this fix. `--json` {ok, name, file, config, status, matched[] {id, decl, from, to, changed}, changed, unmatched[], written, reformatted, rule, hints[] {name, decl, shape, rename_to, hint}} | `--from-comparator CONFIG.json` `--status reusable\|internal\|experimental` `[--write \| --dry-run]` `[--agent A]` `[--json]` |
+
+## Examples
+
+Print which claims in the checkout's claims file the configuration's theorem_names cover and how their status would change; a dry run, nothing is written.
+
+```bash
+lean-pkg claims mark my-proof --from-comparator comparator.json --status reusable
+```
+
+Sample output:
+
+```text
+my-proof: 2 claim(s) covered by 2 theorem name(s) of comparator.json; 1 would change to status reusable
+  kept my-proof/main-bound (MyProof.main_bound): reusable -> reusable
+  set my-proof/aux-bound (MyProof.aux_bound): internal -> reusable
+DRY RUN — nothing written; --write edits claims.yaml in the checkout (never commits)
+```
+
+Edit only those status values in the working copy (comments and layout kept when an in-place edit is possible, else the file is re-dumped and says so) and validate the result; it never commits and never writes the registry, so commit, run `claims sync` and re-gate.
+
+```bash
+lean-pkg claims mark my-proof --from-comparator comparator.json --status reusable --write
+```

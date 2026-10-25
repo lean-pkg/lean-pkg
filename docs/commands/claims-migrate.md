@@ -34,3 +34,31 @@ lean-pkg claims migrate --from PATH [--out OUT] [--dry-run] [--agent AGENT]
 | Form | What it does | Key flags |
 |---|---|---|
 | `claims migrate NAME --from PATH` | convert a legacy claims JSON (a list of rows, rows under `claims`/`rows`/`items`/`entries`, or a mapping id to row; `PATH` relative to the checkout) into a `claims/1` skeleton in the checkout: mapped fields are copied (`claim_id`/`id`, `lean_decl`/`decl`, `statement`/`summary`, `lean_file`/`file`, `type`/`kind`, `paper_ref`/`citation`, `tags`/`keywords`, `depends_on`), the rest get `TODO` markers (`decl: TODO`, `summary: TODO: ...`, `file: TODO.lean`, each of which `claims sync` refuses) listed in a comment header with any unmapped keys. Never overwrites, never writes the registry or the event log, and grants no verification: commit the finished file, then `claims sync` | `[--out claims.yaml]` `[--dry-run]` `[--agent A]` `[--json]` |
+
+## Examples
+
+Convert a legacy claims JSON (path relative to the checkout) into a claims/1 skeleton claims.yaml in the checkout, with TODO placeholders that `claims sync` refuses for an unmapped decl, file or summary (an unmapped kind or status gets a valid default, flagged in the comment header); it never overwrites a file, never writes the registry and grants no verification.
+
+```bash
+lean-pkg claims migrate my-proof --from legacy-claims.json
+```
+
+Print the skeleton, with its comment header listing the TODOs and the unmapped legacy keys, and write nothing.
+
+```bash
+lean-pkg claims migrate my-proof --from legacy-claims.json --dry-run
+```
+
+Write the skeleton to another repo-relative path (here because claims.yaml already exists); fix the TODOs, commit it, then run `claims sync`.
+
+```bash
+lean-pkg claims migrate my-proof --from legacy-claims.json --out claims-migrated.yaml
+```
+
+Sample output:
+
+```text
+my-proof: 1 claim(s) from legacy-claims.json, 1 with TODO markers
+wrote claims-migrated.yaml (not committed, not synced; the registry is unchanged)
+next: edit claims-migrated.yaml: resolve the TODO markers; git add claims-migrated.yaml && git commit; lean-pkg claims sync my-proof
+```

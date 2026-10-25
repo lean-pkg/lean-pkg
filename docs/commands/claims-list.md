@@ -35,3 +35,33 @@ lean-pkg claims list [common flags] [NAME]
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `claims-list` (exit 0): `claims`, `ok`
+
+## Examples
+
+Print a table of every cached claim in the registry (id, kind, status, the package's trust level from the evidence the registry records, the pinned commit, the declaration).
+
+```bash
+lean-pkg claims list
+```
+
+Sample output:
+
+```text
+ID                   KIND     STATUS    TRUST       PIN           DECL
+my-proof/main-bound  theorem  reusable  comparator  23d643ab1b53  MyProof.main_bound
+my-proof/aux-bound   lemma    internal  comparator  23d643ab1b53  MyProof.aux_bound
+```
+
+One package's claims; with none cached it states the package's coverage (here a claims.yaml committed but not synced), names any legacy claims JSON in the checkout, and prints the next command.
+
+```bash
+lean-pkg claims list my-proof
+```
+
+Sample output:
+
+```text
+my-proof: coverage: unsynced (cached_claims: 0, claims.yaml: present)
+  legacy: legacy-claims.json (not read by lean-pkg; migrate it)
+  next: claims.yaml is committed at HEAD but not synced: lean-pkg claims sync my-proof
+```

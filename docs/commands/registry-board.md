@@ -83,3 +83,39 @@ package record (the "package" object of status --json, each entry of "packages" 
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `board` (exit 0): `packages`, `version`
+
+## Examples
+
+Show every package's status, visibility, lease, pin and re-audit date, as a curses TUI on a terminal (whose keys can claim, release and gate) and otherwise as a static, read-only table.
+
+```bash
+lean-pkg registry board
+```
+
+Sample output:
+
+```text
+NAME      STATUS  VIS      LEASE  EXPIRES  PIN  REAUDIT
+my-proof  active  private  -      -        -    -
+```
+
+Only the named packages, each cut to the named keys (the same dotted paths and aliases as `status --fields`) and printed as YAML; never opens the TUI, and an unknown package exits 1.
+
+```bash
+lean-pkg registry board --only my-proof --fields status,lease.agent
+```
+
+Sample output:
+
+```text
+my-proof:
+  status: active
+  lease:
+    agent: null
+```
+
+The whole registry as JSON for scripts, with the bulk `claims` key dropped from each record and its name listed under `omitted`.
+
+```bash
+lean-pkg registry board --no-claims --json
+```

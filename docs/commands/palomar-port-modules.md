@@ -38,3 +38,31 @@ lean-pkg palomar port-modules [--dry-run] [--write] [--agent AGENT] [common flag
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `palomar-port-modules` (exit 0): `commit`, `counts`, `diff`, `dry_run`, `excluded`, `expose`, `files`, `follow_ups`, `name`, `ok`, `outside_package`, `project_path`, `vendored_dirs`, `written`
+
+## Examples
+
+A dry run (the default) of the port to Lean's module system that Palomar requires; prints per file the edits (`module` header, `public import`, `public section` ... `end`), the review items and a unified diff, and writes nothing.
+
+```bash
+lean-pkg palomar port-modules my-proof
+```
+
+Sample output:
+
+```text
+my-proof: port-modules at e571a8019193: 1 file(s) to port, 3 already module-headed, 0 refused, 0 review item(s) (dry run: nothing written)
+  PORT  MyProof/Extra.lean
+          - insert `module` as the first command
+          - 1 import(s) -> public import
+          - wrap the body in `public section` ... `end`
+  (3 already module-headed file(s) skipped)
+...
+next: lean-pkg palomar port-modules my-proof --write (a clean working tree; never commits)
+my-proof: port-modules at e571a8019193: 1 file(s) to port, 3 already module-headed, 0 refused, 0 review item(s) (dry run: nothing written)
+```
+
+Apply the plan to a clean working tree (a dirty tree, a refused file or a foreign lease exits 1 with nothing written); it never commits and never writes the registry.
+
+```bash
+lean-pkg palomar port-modules my-proof --write
+```
