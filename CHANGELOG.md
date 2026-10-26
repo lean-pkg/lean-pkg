@@ -174,6 +174,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   docs/design/improvement-plan-2026-10.md, with a wave 2b for the small fixes
   (#325 to #328, #330) between the linter and the cli.py split; rows 10 to 14
   are done (#334, #335, #336).
+- Proposal 0008 accepted (#337): the CI-runner receipt, GitHub Actions
+  first, accepted 2026-10-26 with the recommended answers; implementation
+  in stages S1 to S5 (#318).
 
 ## [0.21.0] - 2026-10-26
 
