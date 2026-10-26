@@ -6,8 +6,8 @@ title: "Plan: hygiene, the 1.0 format freeze and the next features (2026-10)"
 
 *Status: in progress. Written 2026-10-26 after the 0.21.0 release, from three read-only surveys of the
 repository (pending work in the design docs; test-suite and CI health; code structure and command-line
-consistency). Each item lands as its own pull request that names its row here; this page is updated
-as rows land.*
+consistency). Rows 10 to 15 come from issues filed the same day (#325 to #330). Each item lands as its
+own pull request that names its row here; this page is updated as rows land.*
 
 ## The items
 
@@ -24,6 +24,12 @@ as rows land.*
 | 9a [#318](https://github.com/lean-pkg/lean-pkg/issues/318) | A compute receipt from a CI runner (GitHub Actions first) | [sites and CI receipts](sites-and-ci-receipts.md) section 4 | L | F | planned |
 | 9b [#319](https://github.com/lean-pkg/lean-pkg/issues/319) | Proposal [0002](../proposals/0002-committed-docs-only-opt-in.md): the committed docs-only opt-in | accepted 2026-10-26 | M | G | planned |
 | 9c [#320](https://github.com/lean-pkg/lean-pkg/issues/320) | Proposal [0003](../proposals/0003-conditional-claims-and-discharge.md): conditional claims and discharge | accepted 2026-10-26 | L | H | planned |
+| 10 [#326](https://github.com/lean-pkg/lean-pkg/issues/326) | `new`: the lakefile globs include the root module (`["Foo", "Foo.+"]`), so an umbrella module builds | `lean-pkg new --kind library --module Foo` writes `globs = ["Foo.+"]`; `lake build Foo.Solution` then fails on an umbrella `Foo.lean` | XS | I | planned |
+| 11 [#327](https://github.com/lean-pkg/lean-pkg/issues/327) | `new`: the newest **stable** Lean and Mathlib by default, an rc only when no newer stable exists, and the chosen pins printed | on 2026-10-26 `new` pinned `v4.35.0-rc2` although `v4.35.0` was released | S | I | planned |
+| 12 [#328](https://github.com/lean-pkg/lean-pkg/issues/328) | `coverage check --file` offline, before the package is registered, running every schema and cross-file check that needs no receipt | `coverage check NAME --file` refuses an unregistered package; `claims check --file` already works offline | S-M | J | planned |
+| 13 [#325](https://github.com/lean-pkg/lean-pkg/issues/325) | `verify` runs the claims/1 and coverage/1 checks at HEAD (step 0) before producing any receipt | a claims schema refusal at the gate voided both receipts and cost a full re-run | S | J | planned |
+| 14 [#330](https://github.com/lean-pkg/lean-pkg/issues/330) | `report`: redact registry-derived names (lease workspaces) and the index path in the text it attaches itself, so its own guard does not block every report; name the section a refusal came from | with a live lease every report is refused; filed reports showed a partly redacted index path | S | K | planned |
+| 15 [#329](https://github.com/lean-pkg/lean-pkg/issues/329) | `repo export` / `new`: extraction from existing modules with a rename map, and a ledger that re-checks the extraction against the source commit | a hand-written per-declaration ledger was needed to show statements and proofs unchanged | L | L (design first) | planned |
 
 ## Order
 
@@ -31,9 +37,14 @@ The pull requests are ordered so that no two edit the same part of `cli.py` at o
 
 1. **Wave 1, in parallel:** A (items 1 to 4), B (item 6), C (item 7).
 2. **Wave 2:** D (item 5), after wave 1, because a linter's first pass touches most files.
-3. **Wave 3:** E (item 8), alone. Every name `cli.py` exports keeps working for one release through
+3. **Wave 2b, after D and before E:** I (rows 10 and 11, both in `scaffold.py`), J (row 12, then row 13, which
+   reuses row 12's offline check) and K (row 14). Small, contained fixes from reports filed on 2026-10-26: they
+   land after D, so the linter's first pass does not conflict with them, and before the split moves code.
+4. **Wave 3:** E (item 8), alone. Every name `cli.py` exports keeps working for one release through
    re-exports, so `from . import cli as core` callers and outside scripts do not break at once.
-4. **Wave 4:** F, G and H (items 9a to 9c), each in its own staged pull requests.
+5. **Wave 4:** F, G and H (items 9a to 9c), each in its own staged pull requests; F starts once proposal
+   0008 is accepted. L (row 15) is designed first: its extraction ledger is a new on-disk format, so it may
+   need a proposal (docs/proposals/README.md).
 
 ## The bar for every pull request
 
