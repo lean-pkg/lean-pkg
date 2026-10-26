@@ -330,6 +330,32 @@ def test_make_test_says_when_it_runs_serially_for_lack_of_xdist(tmp_path):
         assert (p.stderr.strip() == note) if noted else (p.stderr == ""), p.stderr
 
 
+def test_make_docs_writes_no_bytecode_into_the_tree(tmp_path):
+    """`make docs` regenerates llms.txt, the index page, the command reference and the stacks and breaking-entries
+    data with several python3 runs; like `make test`, it gives them a private bytecode cache, so none writes
+    __pycache__ into src/, tests/ or scripts/ (the #310 leak, in the docs target). Run on a copy of the tracked
+    tree, with every bytecode setting removed from the environment."""
+    import os, shutil, subprocess
+    import pytest
+    make = shutil.which("make")
+    if make is None:
+        pytest.skip("make not installed")
+    files = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, check=True).stdout
+    tree = tmp_path / "tree"
+    for rel in filter(None, files.decode().split("\0")):
+        src = ROOT / rel
+        if src.is_file() and not src.is_symlink():
+            (tree / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, tree / rel)
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE", "MAKEFLAGS", "MFLAGS", "MAKELEVEL")}
+    p = subprocess.run([make, "-s", "-C", str(tree), "docs"], env=env, capture_output=True, text=True, timeout=240)
+    assert p.returncode == 0, p.stderr
+    leaked = sorted(str(d.relative_to(tree)) for top in ("src", "tests", "scripts")
+                    for d in (tree / top).rglob("__pycache__"))
+    assert leaked == [], leaked
+
+
 def test_make_test_removes_its_bytecode_cache_on_sigint(tmp_path):
     """Interrupting `make test` (Ctrl-C reaches the whole process group) must not leak the temp dir.
 
