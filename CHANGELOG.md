@@ -170,6 +170,10 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   job ids, an additive `ci` block in `lower-receipt/1`, and three
   corroboration levels (offline, `--corroborate` against the GitHub API,
   a Sigstore attestation); for the maintainer's decision (#318).
+- Plan rows 10 to 15 (#332): issues #325 to #330 added to
+  docs/design/improvement-plan-2026-10.md, with a wave 2b for the small fixes
+  (#325 to #328, #330) between the linter and the cli.py split; rows 10 to 14
+  are done (#334, #335, #336).
 
 ## [0.21.0] - 2026-10-26
 
