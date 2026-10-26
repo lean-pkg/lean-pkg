@@ -92,7 +92,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   corroboration levels (offline, `--corroborate` against the GitHub API,
   a Sigstore attestation); for the maintainer's decision (#318).
 
-
 ## [0.21.0] - 2026-10-26
 
 ### Added
