@@ -12,7 +12,7 @@ import shutil
 import pytest
 import yaml
 
-from .conftest import _git, commit_claims, make_comparator_receipt, read_events, write_receipt
+from .conftest import _git, commit_claims, make_comparator_receipt, read_events, write_receipt, patch_core
 from .test_comparator_types import CLAIMS as TYPES_CLAIMS
 from .test_comparator_types import LEAN as TYPES_LEAN
 from .test_comparator_types import dry_cfg, fake_lake, good_output  # noqa: F401  (fake_lake: a fixture)
@@ -33,7 +33,7 @@ def snapshot(env):
 def _no_gh(lp, monkeypatch):
     def refuse(*a):
         pytest.fail(f"called gh {a}")
-    monkeypatch.setattr(lp, "gh", refuse)
+    patch_core(monkeypatch, "gh", refuse)
 
 
 # --------------------------------------------------------------------------

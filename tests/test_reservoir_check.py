@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from .conftest import _git, read_events, read_reg, write_reg
+from .conftest import _git, read_events, read_reg, write_reg, patch_core
 
 LAKEFILE = ('import Lake\nopen Lake DSL\n\npackage «beta» where\n  description := "x"\n'
             '  keywords := #["math"]\n  versionTags := optRegex "v.*"\n')
@@ -23,8 +23,8 @@ def gh_repo(lp, monkeypatch):
         if "view" in args:
             return SimpleNamespace(returncode=0, stdout=json.dumps(info), stderr="")
         return SimpleNamespace(returncode=1, stdout="", stderr="unexpected")
-    monkeypatch.setattr(lp, "gh", fake)
-    monkeypatch.setattr(lp, "reservoir_listing_status", lambda owner, name: 404)
+    patch_core(monkeypatch, "gh", fake)
+    patch_core(monkeypatch, "reservoir_listing_status", lambda owner, name: 404)
     return info
 
 
@@ -78,7 +78,7 @@ def test_missing_lakefile_metadata_and_opt_out(lp, env, gh_repo, capsys):
 
 def test_unrecorded_listing_prints_the_record_command(lp, env, gh_repo, monkeypatch, capsys):
     ready(env)
-    monkeypatch.setattr(lp, "reservoir_listing_status", lambda owner, name: 200)
+    patch_core(monkeypatch, "reservoir_listing_status", lambda owner, name: 200)
     rc, data = check(lp, env, capsys)
     assert rc == 0
     assert data["record"] == ("lean-pkg record beta reservoir-listed "
@@ -86,7 +86,7 @@ def test_unrecorded_listing_prints_the_record_command(lp, env, gh_repo, monkeypa
 
 
 def test_offline_skips_the_api_and_no_manifest_fails(lp, env, gh_repo, monkeypatch, capsys):
-    monkeypatch.setattr(lp, "reservoir_listing_status", lambda *a: pytest.fail("queried"))
+    patch_core(monkeypatch, "reservoir_listing_status", lambda *a: pytest.fail("queried"))
     rc, data = check(lp, env, capsys, "--offline")
     assert rc == 1                                              # the fixture repo has no lakefile
     assert "no lakefile.lean or lakefile.toml" in fails(data)

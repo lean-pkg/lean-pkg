@@ -1,7 +1,8 @@
-"""The core split (#317, stage 1): the shared core moved from cli.py to core.py, and cli.py re-exports it.
+"""The core split (#317): the shared core moved from cli.py to core.py (stage 1), cli.py re-exports it,
+and lean-pkg's own modules import core directly (stage 2).
 
-`import lean_pkg` is not the supported interface (AGENTS.md), but `from . import cli as core` callers,
-the tests and outside scripts must keep working for at least one release, so:
+`import lean_pkg` is not the supported interface (AGENTS.md), but the tests and outside scripts that
+read the core through lean_pkg.cli must keep working for at least one release, so:
 
 - every attribute the cli module had before the split is still an attribute of lean_pkg.cli
   (tests/data/cli_module_names.txt, recorded from origin/main at 72e4f24);
@@ -9,6 +10,10 @@ the tests and outside scripts must keep working for at least one release, so:
 - core.py never imports cli (no cycle), and importing it imports no other lean_pkg module;
 - cli.py never rebinds a core name: module state (caches, the lease actor, pending events) has exactly
   one home, core.py, and a rebinding in cli.py would not be seen by the code there.
+
+Inside lean-pkg (src/ and scripts/), no module imports cli under the name `core` any more: `core` is the
+core module, and a name still defined in cli.py is reached as `cli.X`, so the spelling says which module
+a name is read from (and which one a test must patch).
 """
 from __future__ import annotations
 
@@ -110,3 +115,49 @@ def test_a_name_core_rebinds_is_read_through_from_cli(env):
     assert core._LOADED_PACKAGES is reg["packages"]
     assert cli._LOADED_PACKAGES is core._LOADED_PACKAGES
     assert not hasattr(cli, "no_such_name_in_cli")
+
+
+def own_python_files() -> list:
+    """Every Python file of lean-pkg itself: the package (src/) and the maintenance scripts (scripts/)."""
+    files = sorted((ROOT / "src").rglob("*.py")) + sorted((ROOT / "scripts").rglob("*.py"))
+    assert SRC / "cli.py" in files and SRC / "core.py" in files and len(files) > 50
+    return files
+
+
+def test_no_module_imports_cli_under_the_name_core():
+    # stage 2: `from . import cli as core` (and every other spelling: `from lean_pkg import cli as core`,
+    # `import lean_pkg.cli as core`) is gone from src/ and scripts/; read by the AST, so every form counts,
+    # at the top level or inside a function, and a comment or docstring quoting it does not
+    found = []
+    for path in own_python_files():
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom):
+                mod = "." * node.level + (node.module or "")
+                names = [(f"{mod}.{a.name}" if mod.strip(".") else mod + a.name, a.asname) for a in node.names]
+            elif isinstance(node, ast.Import):
+                names = [(a.name, a.asname) for a in node.names]
+            else:
+                continue
+            found += [f"{path.relative_to(ROOT)}:{node.lineno}" for full, asname in names
+                      if asname == "core" and full.rsplit(".", 1)[-1] == "cli"]
+    assert not found, f"cli imported as `core` (import lean_pkg.core instead): {found}"
+    # the plain-text form too, so a grep for it in src/ and scripts/ stays empty
+    quoted = [str(p.relative_to(ROOT)) for p in own_python_files() if "cli as core" in p.read_text()]
+    assert not quoted, quoted
+
+
+def test_every_core_attribute_a_module_reads_is_on_core():
+    # a module that imports core reaches through it only names core.py has; a name still defined in
+    # cli.py is spelled cli.X (a `core` alias that silently fell back to cli would hide which module a
+    # test has to patch)
+    missing = []
+    for path in sorted(SRC.glob("*.py")):
+        tree = ast.parse(path.read_text())
+        imports_core = any(isinstance(n, ast.ImportFrom) and n.level == 1 and n.module is None
+                           and any(a.name == "core" and a.asname is None for a in n.names) for n in ast.walk(tree))
+        if not imports_core:
+            continue
+        missing += [f"{path.name}:{n.lineno}: core.{n.attr}" for n in ast.walk(tree)
+                    if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "core"
+                    and not hasattr(core, n.attr)]
+    assert not missing, missing

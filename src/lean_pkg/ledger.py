@@ -39,7 +39,8 @@ import hashlib
 import json
 import pathlib
 
-from . import cli as core
+from . import cli
+from . import core
 
 LEDGER_SCHEMA = "claims-ledger/1"
 STAGES = ("gate", "promote")
@@ -94,7 +95,7 @@ def _gate_evidence(pkg: dict, repo: pathlib.Path) -> tuple[list[dict], str | Non
     hashes = {"receipt_sha256": _sha256_file(repo / rel) if rel else None}
     if not rel:
         return [_diag("no-gate-receipt", f"run `lean-pkg gate {pkg['name']} --receipt R`")], None, hashes
-    rec = core.recorded_json(repo, rel)
+    rec = cli.recorded_json(repo, rel)
     if not isinstance(rec, dict):
         return [_diag("receipt-unreadable", f"{rel} is missing or not a JSON object")], None, hashes
     bound = str(rec.get("commit") or "")
@@ -103,7 +104,7 @@ def _gate_evidence(pkg: dict, repo: pathlib.Path) -> tuple[list[dict], str | Non
                                               f"(fetch it)")], None, hashes
     diags: list[dict] = []
     head = core.git_head(repo) or ""
-    ok, note, _docs = core.package_descendant(repo, bound, head, pkg, checker=rec.get("checker"))
+    ok, note, _docs = cli.package_descendant(repo, bound, head, pkg, checker=rec.get("checker"))
     if not ok:
         diags.append(_diag("receipt-commit-mismatch", f"receipt {bound[:12]}, HEAD {head[:12]} ({note}); re-gate"))
     allowed = set(gate.get("axioms_allowed") or core.DEFAULT_AXIOMS)
@@ -114,14 +115,14 @@ def _gate_evidence(pkg: dict, repo: pathlib.Path) -> tuple[list[dict], str | Non
         diags.append(_diag("axiom-not-allowed", f"axioms {extra} outside {sorted(allowed)}"))
     if ok:
         try:
-            core.validate_receipt(pkg, repo, rec)
+            cli.validate_receipt(pkg, repo, rec)
         except core.Fail as e:
             if not (extra and str(e).startswith("axioms ")):
                 diags.append(_diag("receipt-invalid", str(e)))
         else:
-            why = core.recorded_report_log_problem(repo, rec, rel)
+            why = cli.recorded_report_log_problem(repo, rec, rel)
             if why:
-                diags.append(_diag("report-log-missing" if why.startswith(core.REPORT_LOG_MISSING)
+                diags.append(_diag("report-log-missing" if why.startswith(cli.REPORT_LOG_MISSING)
                                    else "receipt-invalid", why))
     return diags, bound, hashes
 
@@ -133,7 +134,7 @@ def _comparator_evidence(pkg: dict, repo: pathlib.Path, bound: str | None) -> tu
     if not rel:
         return [_diag("no-comparator-receipt", f"run comparator-receipt, then `lean-pkg comparator "
                                                f"{pkg['name']} --receipt C`")], hashes
-    comp = core.recorded_json(repo, rel)
+    comp = cli.recorded_json(repo, rel)
     if not isinstance(comp, dict):
         return [_diag("comparator-unreadable", f"{rel} is missing or not a JSON object")], hashes
     commit = str(comp.get("commit") or "")
@@ -141,13 +142,13 @@ def _comparator_evidence(pkg: dict, repo: pathlib.Path, bound: str | None) -> tu
         return [_diag("comparator-commit-mismatch", f"comparator {commit[:12] or '(none)'}, gate receipt "
                                                     f"{bound[:12]}: both tiers must bind one commit")], hashes
     head = core.git_head(repo) or ""
-    ok, note, _docs = (core.package_descendant(repo, commit, head, pkg)
+    ok, note, _docs = (cli.package_descendant(repo, commit, head, pkg)
                        if core._HEX40.fullmatch(commit) else (False, "not a 40-hex commit", None))
     if not ok:                                      # stale, not contradicted: re-run, do not call it invalid
         return [_diag("comparator-commit-mismatch", f"comparator {commit[:12] or '(none)'}, HEAD {head[:12]} "
                                                     f"({note})")], hashes
     try:
-        core.validate_comparator(pkg, repo, comp, bound)
+        cli.validate_comparator(pkg, repo, comp, bound)
     except core.Fail as e:
         return [_diag("comparator-invalid", str(e))], hashes
     return [], hashes
@@ -378,7 +379,7 @@ def package_findings(pkg: dict, repo) -> dict:
     gives an empty summary with `source` saying why."""
     bound = None
     rel = (pkg.get("gate") or {}).get("receipt")
-    rec = core.recorded_json(repo, rel) if rel else None
+    rec = cli.recorded_json(repo, rel) if rel else None
     if isinstance(rec, dict) and core._HEX40.fullmatch(str(rec.get("commit") or "")) and not core.git(
             repo, "cat-file", "-e", f"{rec['commit']}^{{commit}}").returncode:
         bound = rec["commit"]

@@ -27,7 +27,7 @@ import re
 import tarfile
 from collections import deque
 
-from . import cli as core
+from . import core
 
 TOOLCHAIN_ROOTS = ("Init", "Std", "Lean", "Lake")
 # The .lean files a verifier typically elaborates besides the build: the receipt template's Verify/, the lab

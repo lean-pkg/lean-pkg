@@ -377,7 +377,7 @@ def test_formalization_refuses_before_writing(lp, env, capsys):
 
 
 def test_formalization_refuses_on_an_update_error_before_writing(lp, env, monkeypatch, capsys):
-    monkeypatch.setattr(lp, "split_new_errors", lambda _b, _a: (["packages.beta: injected"], []))
+    patch_core(monkeypatch, "split_new_errors", lambda _b, _a: (["packages.beta: injected"], []))
     rc, cap = main(lp, env, capsys, "formalization", "beta", "--write")
     assert rc == 1 and "update would break the registry schema" in cap.err
     assert not (env.repo_b / "formalization.yaml").exists()

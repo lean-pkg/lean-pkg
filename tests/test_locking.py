@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from .conftest import CLI, read_events, read_reg, set_lease, subprocess_env, write_reg
+from .conftest import CLI, read_events, read_reg, set_lease, subprocess_env, write_reg, patch_core
 
 
 def _spawn(env, *argv):
@@ -170,7 +170,7 @@ def test_no_event_line_when_the_save_fails(lp, env, monkeypatch, capsys):
 
     def failing_save(path, data):
         raise RuntimeError("simulated crash after record()")
-    monkeypatch.setattr(lp, "save_registry", failing_save)
+    patch_core(monkeypatch, "save_registry", failing_save)
     rc = lp.main(["--registry", str(env.registry), "claim", "alpha", "--workspace", "w", "--agent", "a"])
     assert rc == 1
     err = capsys.readouterr().err

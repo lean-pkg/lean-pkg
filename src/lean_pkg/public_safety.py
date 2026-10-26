@@ -75,7 +75,7 @@ import re
 import subprocess
 import zlib
 
-from . import cli as core
+from . import core
 
 PATTERNS_FILE = ".lean-pkg-private-patterns"
 # #6 field report: the PUBLIC companion of the patterns file. It holds `allow:` lines only (a benign

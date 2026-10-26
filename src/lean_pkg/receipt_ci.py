@@ -36,7 +36,7 @@ the job's step summary (`GITHUB_STEP_SUMMARY`).
 
 `--collect RUN [--attempt N] [--repo DIR]` (on the author's machine): downloads the run's receipt artifact
 with `gh run download` (the author's own `gh` login), checks it as `gate --check` does against the local
-checkout (core.validate_receipt, which runs the `ci` block's level 1, and the redacted log against
+checkout (cli.validate_receipt, which runs the `ci` block's level 1, and the redacted log against
 report_sha256), and copies the receipt and its log into `.lean-receipts/`. It never commits or pushes.
 
 `--template`: prints the caller workflow a package commits (`uses: lean-pkg/lean-pkg/.github/workflows/

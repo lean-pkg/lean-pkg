@@ -24,10 +24,10 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   referee also accepts a docs-only descendant (no build input changed: the docs-only rule of
   docs/receipts.md). That opt-in lives in the author's registry today, which a referee cannot read, so it is
   the referee's choice here and is printed with the result.
-- per lower-tier receipt: gate's own validator (core.validate_receipt: the receipt keys, the binding, the
+- per lower-tier receipt: gate's own validator (cli.validate_receipt: the receipt keys, the binding, the
   toolchain and Mathlib pins against lean-toolchain and lake-manifest.json committed at X, no path dependency
   outside the package, sorry_count 0, axioms within propext, Quot.sound, Classical.choice); report_sha256
-  against the committed redacted log (core.report_log_check; a missing log fails here); the additive evidence
+  against the committed redacted log (cli.report_log_check; a missing log fails here); the additive evidence
   keys when present (manifest_sha256 against lake-manifest.json at X, artifacts_manifest_sha256 and
   unit_properties_sha256 against their committed files; job_stdout_sha256 is not checkable: the job's stdout
   is not published); the `container` key when present (#236: shown with its engine, digest and image ref;
@@ -42,8 +42,8 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
 - per lower-tier receipt with the additive `claim_axioms` key (AX1): re-derived from the sealed log's
   claim-axioms lines against claims.yaml at X (every claim checked, none missing, no sorryAx,
   agreeing with the log's `#print axioms` output) and compared with the key.
-- claims: claims.yaml at X, with the claims/1 schema and declaration check gate runs (core.claims_schema_at).
-- per comparator receipt: gate's validator (core.validate_comparator: schema, binding, toolchain, the exact
+- claims: claims.yaml at X, with the claims/1 schema and declaration check gate runs (cli.claims_schema_at).
+- per comparator receipt: gate's validator (cli.validate_comparator: schema, binding, toolchain, the exact
   set of configurations tracked at X, each configuration's sha256 and fields, the sign-off of definition
   holes, each log's sha256 and its PASS line, the same commit as the lower-tier receipt); the olean manifest
   record when present (its lean_toolchain and lake_manifest_sha256 against X; the manifest file itself
@@ -73,7 +73,8 @@ import tempfile
 
 from . import claim_axioms as ca
 from .binding_file import referee_opt_in
-from . import cli as core
+from . import cli
+from . import core
 from . import container as ctr
 from . import toolchain_advisories
 
@@ -258,7 +259,7 @@ class Checks:
 
 
 def check_binding(c: Checks, repo: pathlib.Path, x: str, ref: str, pkg: dict, checker) -> None:
-    ok, note, docs = core.package_descendant(repo, x, ref, pkg, checker=checker, nested=(),
+    ok, note, docs = cli.package_descendant(repo, x, ref, pkg, checker=checker, nested=(),
                                              opt_in=referee_opt_in(x, pkg.get("docs_descendants") is True))
     if ok:
         what = ("the published ref is the bound commit" if x == ref
@@ -308,7 +309,7 @@ def evidence_file_checks(c: Checks, repo: pathlib.Path, view: dict, x: str) -> N
         else:
             passed.append("manifest_sha256 = lake-manifest.json at X")
     try:
-        slug = core.receipt_job_slug(rec.get("job_id"))
+        slug = cli.receipt_job_slug(rec.get("job_id"))
     except core.Fail:
         slug = None
     for key, suffix in EVIDENCE_FILE_KEYS.items():
@@ -335,17 +336,17 @@ def evidence_file_checks(c: Checks, repo: pathlib.Path, view: dict, x: str) -> N
 
 def sacct_seal_check(c: Checks, view: dict) -> None:
     """The additive `slurm_sacct` block (`receipt slurm --seal-sacct`), when present: shown. The validator
-    (core.validate_receipt, run first) already refused a block whose record is missing, uncommitted at the
+    (cli.validate_receipt, run first) already refused a block whose record is missing, uncommitted at the
     published ref, rehashed or edited (receipt.sacct_seal_problem); this row names what it corroborated."""
     rec, rel = view["data"], view["path"]
     if "slurm_sacct" not in rec:
         return
-    c.add(f"lower {rel}: sacct seal", PASS, core.sacct_seal_lines(rec)[0][2:].replace("at HEAD", "at the ref"))
+    c.add(f"lower {rel}: sacct seal", PASS, cli.sacct_seal_lines(rec)[0][2:].replace("at HEAD", "at the ref"))
 
 
 def ci_check(c: Checks, repo: pathlib.Path, view: dict) -> None:
     """The additive `ci` block (a GitHub Actions run, proposal 0008), at level 1: shown. The validator
-    (core.validate_receipt, run first) already refused a block that fails level 1; this row names the run, and
+    (cli.validate_receipt, run first) already refused a block that fails level 1; this row names the run, and
     the workflow-file row says whether the file was rehashed or why not. A gha- receipt without the block: a
     skip row (it backs no GitHub Actions compute job)."""
     from . import ci_github
@@ -383,10 +384,10 @@ def _sealed_log_text(repo: pathlib.Path, rec: dict) -> str | None:
     """The receipt's redacted verify log as tracked under .lean-receipts/ (its .gz decompressed), or None."""
     import gzip
     try:
-        name = core.report_log_name(rec)
+        name = cli.report_log_name(rec)
     except (core.Fail, KeyError):
         return None
-    for fname, unpack in ((name, False), (name + core.REPORT_GZ_SUFFIX, True)):
+    for fname, unpack in ((name, False), (name + cli.REPORT_GZ_SUFFIX, True)):
         path = repo / RECEIPTS_DIR / fname
         if path.is_file() and not path.is_symlink():
             try:
@@ -543,7 +544,7 @@ def page_checks(c: Checks, repo: pathlib.Path, x: str, found: dict) -> None:
     m = PAGE_TOOLCHAIN_RE.search(block)
     if not m or m.group(1) != tc:
         problems.append(f"toolchain {m.group(1) if m else '(none)'!r} != lean-toolchain at {x[:12]} {tc!r}")
-    rev = core.committed_mathlib_rev(repo, x)
+    rev = cli.committed_mathlib_rev(repo, x)
     m = PAGE_MATHLIB_RE.search(block)
     if not m or (m.group(1) or None) != (rev or None):
         problems.append(f"Mathlib {(m.group(1) or 'not a dependency') if m else '(none)'} != lake-manifest.json "
@@ -658,11 +659,11 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
         check_binding(c, repo, x, ref, pkg, checker)
         for v in found["lower"]:
             rec, rel = v["data"], v["path"]
-            if c.run(f"lower {rel}", lambda: core.validate_receipt(pkg, repo, rec),  # noqa: B023  called synchronously, within this iteration
+            if c.run(f"lower {rel}", lambda: cli.validate_receipt(pkg, repo, rec),  # noqa: B023  called synchronously, within this iteration
                      f"schema, binding, pins (lean-toolchain, lake-manifest.json at {x[:12]}), sorry_count 0, "
                      f"axioms {sorted(rec.get('axioms') or [])} within {list(DEFAULT_AXIOMS)}"):
                 try:
-                    line, _view = core.report_log_check(repo, rec, repo / rel)   # a missing log refuses
+                    line, _view = cli.report_log_check(repo, rec, repo / rel)   # a missing log refuses
                     c.add(f"lower {rel}: report log", PASS, line[2:])
                 except core.Fail as e:
                     c.add(f"lower {rel}: report log", FAIL, str(e))
@@ -671,16 +672,16 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                 ci_check(c, repo, v)
                 container_check(c, v)
                 claim_axioms_check(c, repo, v, x)
-        cs = core.claims_schema_at(pkg_name, pkg, repo, x)
+        cs = cli.claims_schema_at(pkg_name, pkg, repo, x)
         if not cs["checked"]:
             c.add("claims", SKIP, f"no {cs['file']} at {x[:12]}")
         else:
-            c.add("claims", PASS if cs["ok"] else FAIL, core.claims_schema_line(cs)[2:])
+            c.add("claims", PASS if cs["ok"] else FAIL, cli.claims_schema_line(cs)[2:])
         lower_commit = x if found["lower"] else None
         for v in found["comparator"]:
             rel = v["path"]
             n_cfg = len(v["data"].get("configs") or [])
-            c.run(f"comparator {rel}", lambda: core.validate_comparator(pkg, repo, v["data"], lower_commit),  # noqa: B023  called synchronously, within this iteration
+            c.run(f"comparator {rel}", lambda: cli.validate_comparator(pkg, repo, v["data"], lower_commit),  # noqa: B023  called synchronously, within this iteration
                   f"{n_cfg} configuration(s) tracked at {x[:12]} re-derived from bytes (sha256, theorem names, "
                   f"sign-off), every log's sha256 and PASS line, same commit as the lower tier")
             olean_check(c, repo, v, x)

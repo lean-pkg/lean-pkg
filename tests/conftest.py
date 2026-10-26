@@ -503,8 +503,8 @@ class FakeGh:
 @pytest.fixture()
 def fake_gh(lp, monkeypatch) -> FakeGh:
     fake = FakeGh()
-    monkeypatch.setattr(lp, "gh", fake)
-    monkeypatch.setattr(lp, "find_reuse", lambda: None)
+    patch_core(monkeypatch, "gh", fake)
+    patch_core(monkeypatch, "find_reuse", lambda: None)
     return fake
 
 
@@ -515,7 +515,7 @@ def fake_notify(lp, monkeypatch) -> list[str]:
     def _notify(msg):
         calls.append(msg)
         return "sent"
-    monkeypatch.setattr(lp, "notify", _notify)
+    patch_core(monkeypatch, "notify", _notify)
     return calls
 
 # --- index fixtures (lean-pkg index) ---------------------------------------

@@ -8,7 +8,7 @@ string or the entry-point script alone does not show it; the package's internal 
 
 `fingerprint()` records, at run start, the SHA-256 of
 
-- every file of the imported `lean_pkg` package directory (`core.package_dir()`: Python sources, shipped
+- every file of the imported `lean_pkg` package directory (`cli.package_dir()`: Python sources, shipped
   scripts, schemas, templates; `__pycache__/` and `*.pyc` are skipped, they are caches of the sources),
 - the installed distribution's metadata (`*.dist-info`: RECORD, METADATA, direct_url.json, entry_points.txt)
   when it is the one this package was imported from,
@@ -57,7 +57,8 @@ import sys
 import urllib.parse
 import urllib.request
 
-from . import cli as core
+from . import cli
+from . import core
 
 SKIP_DIRS = ("__pycache__",)
 SKIP_SUFFIXES = (".pyc", ".pyo")
@@ -147,7 +148,7 @@ def _dist_info(pkg: pathlib.Path) -> pathlib.Path | None:
 def fingerprint(pkg: pathlib.Path | None = None) -> dict:
     """{"version", "sources": {rel: sha}, "environment": {label: sha}} of the running lean-pkg."""
     from . import __version__
-    pkg = (pkg or core.package_dir()).resolve()
+    pkg = (pkg or cli.package_dir()).resolve()
     env = {}
     exe = os.path.realpath(sys.executable) if sys.executable else ""
     if exe:
@@ -196,7 +197,7 @@ def changed_message(names: list[str], when: str) -> str:
 
 def receipt_producer(fp: dict) -> dict:
     """The additive receipt key `producer`: what wrote the receipt, without any path."""
-    info = core.install_detect(pathlib.Path(fp["pkg"]))
+    info = cli.install_detect(pathlib.Path(fp["pkg"]))
     commit = None
     if info["install"] == "editable":
         p = core.registry_git(pathlib.Path(info["path"]), "--no-optional-locks", "rev-parse", "HEAD")

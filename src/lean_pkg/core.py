@@ -7,10 +7,11 @@ the building blocks of the docs-only rule (docs_build_input, nested_exclusions, 
 (resolution, load, lock, save), the event log (one line per event, EVENT_KEYS) and the pure
 lease-time helpers.
 
-It never imports cli: cli.py and the command modules import it. Its only lean_pkg import is
+It never imports cli: cli.py and the command modules import it (`from . import core`; a module that
+also needs a name still defined in cli.py imports cli under its own name). Its only lean_pkg import is
 build_scope, a leaf module, inside the functions that use it. Moved here from cli.py (#317); cli.py
-re-exports every name for at least one release, so `from . import cli as core` keeps working. The
-supported interface is the CLI and its --json outputs, not `import lean_pkg` (AGENTS.md).
+re-exports every name for at least one release, for outside scripts. The supported interface is the
+CLI and its --json outputs, not `import lean_pkg` (AGENTS.md).
 """
 
 from __future__ import annotations

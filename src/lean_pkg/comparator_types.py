@@ -49,7 +49,8 @@ import shutil
 import subprocess
 import tempfile
 
-from . import cli as core
+from . import cli
+from . import core
 
 SCHEMA = "comparator-types/1"
 DEFAULT_JOBS = 2
@@ -616,7 +617,7 @@ def driver_script(config: dict, *, lean_threads: bool = True) -> str:
 
 
 def lake_dir_rel(repo: pathlib.Path, lake_env: str | None) -> str:
-    rel = core._safe_rel(lake_env, "--lake-env") if lake_env else "."
+    rel = cli._safe_rel(lake_env, "--lake-env") if lake_env else "."
     d = repo / rel
     if not any((d / n).is_file() for n in LAKEFILES):
         raise core.Fail(f"no lakefile.lean or lakefile.toml in {d}; `--challenge-from-type` needs a Lake "
@@ -671,8 +672,8 @@ def refuse_non_elan() -> None:
                 raise core.Fail(f"{tool} is not on PATH; `--challenge-from-type` runs `lake env lean` "
                                 f"(install elan, or use --emit-script on a host that has it)")
             continue
-        if not core.is_elan_proxy(where, tool):
-            raise core.Fail(f"{tool} on PATH ({where}) is not elan's ({core.elan_bin() / tool}); a {tool} "
+        if not cli.is_elan_proxy(where, tool):
+            raise core.Fail(f"{tool} on PATH ({where}) is not elan's ({cli.elan_bin() / tool}); a {tool} "
                             f"outside elan ignores the package's lean-toolchain")
 
 

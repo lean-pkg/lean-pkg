@@ -12,7 +12,7 @@ import pytest
 
 from .conftest import (_git, add_comparator_config, make_comparator_receipt, make_receipt,
                        make_repo, publish_evidence, read_events, read_reg, repo_head,
-                       write_receipt, write_reg)
+                       write_receipt, write_reg, patch_core)
 
 DIRTY_TC = "leanprover/lean4:v4.99.0"
 
@@ -215,8 +215,8 @@ def _failing_gh(*args):
 
 
 def test_promote_gh_failure_is_warn_on_dry_run_and_fail_on_yes(lp, env, monkeypatch, capsys):
-    monkeypatch.setattr(lp, "gh", _failing_gh)
-    monkeypatch.setattr(lp, "find_reuse", lambda: None)
+    patch_core(monkeypatch, "gh", _failing_gh)
+    patch_core(monkeypatch, "find_reuse", lambda: None)
     publish_evidence(env.repo_b)
     rc, data = promote_json(lp, env, capsys)
     assert rc == 0

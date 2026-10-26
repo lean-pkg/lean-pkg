@@ -20,7 +20,7 @@ from __future__ import annotations
 import pathlib
 
 from . import __version__
-from . import cli as core
+from . import core
 
 RECORD_DIR = "docs/prior-art"
 TOP_PER_SOURCE = 5

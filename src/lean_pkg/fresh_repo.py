@@ -51,7 +51,8 @@ import subprocess
 import tarfile
 import tempfile
 
-from . import cli as core
+from . import cli
+from . import core
 from . import export_paths as xp
 from . import public_safety as ps
 
@@ -160,7 +161,7 @@ def _copy_tree(srcdir: pathlib.Path, dest: pathlib.Path, files: list[str], drop)
 def gate_bound_commit(pkg: dict, repo: pathlib.Path) -> str | None:
     """The commit the recorded gate receipt binds, when it can be read; provenance only."""
     rel = (pkg.get("gate") or {}).get("receipt")
-    rec = core.recorded_json(repo, rel) if rel and repo.is_dir() else None
+    rec = cli.recorded_json(repo, rel) if rel and repo.is_dir() else None
     sha = str((rec or {}).get("commit") or "")
     return sha if core._HEX40.fullmatch(sha) else None
 
@@ -179,7 +180,7 @@ def source_commit(pkg: dict, repo: pathlib.Path, given: str | None) -> tuple[str
             raise core.Fail(f"{name}: --source-commit {given!r} is not a commit of {repo}")
         return sha, "--source-commit"
     rel = (pkg.get("gate") or {}).get("receipt")
-    rec = core.recorded_json(repo, rel) if rel else None
+    rec = cli.recorded_json(repo, rel) if rel else None
     sha = str((rec or {}).get("commit") or "")
     if not rel:
         raise core.Fail(f"{name}: no gate receipt recorded, so there is no gate-bound commit to export; "
@@ -385,7 +386,7 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
     # #339: an explicit identity, checked before anything is staged (a dry run predicts the refusal too)
     ident = export_identity(name, author, [srcdir, repo] if srcdir is not None else [repo], allow_author_email)
     # the relocation's own refusals (lease, another package's path), before anything is written
-    _o, preview = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
+    _o, preview = cli.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
                                    agent=agent, redetect=False, dry_run=True)
 
     if dry_run:
@@ -527,7 +528,7 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
     new = core.git_head(target) or ""
 
     old_gate = dict(pkg.get("gate") or {})
-    reloc_out, reloc = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
+    reloc_out, reloc = cli.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
                                         agent=agent, redetect=False, dry_run=False)
     pkg = core.get_pkg(reg, name)
     if srcdir is None:
@@ -543,7 +544,7 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
     sets: dict = {"notes": {"text": note, "agent": (agent or "lean-pkg").strip()}}
     if remote:
         sets["repo"] = remote
-    core.do_update(reg_path, reg, events_p, name, sets=sets, status=None, reason=reason, redetect=False,
+    cli.do_update(reg_path, reg, events_p, name, sets=sets, status=None, reason=reason, redetect=False,
                    agent=agent, force=False)
     status_after = pkg.get("status")
     nxt = next_commands(name, target, new[:12], remote, status_after != "gate-pending")
@@ -600,7 +601,7 @@ def do_adopt_repo(reg_path, reg, events_p, name, *, target_arg, remote, allow_hi
     if remote and origin_url and origin_url != remote:
         raise core.Fail(f"{name}: repo adopt: DIR {target} already has origin {origin_url}, not --remote {remote}; "
                         f"refusing to change it (git remote set-url origin URL yourself)")
-    _o, preview = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
+    _o, preview = cli.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
                                    agent=agent, redetect=False, dry_run=True)
     pat_root = patterns_root(repo, target)
     result = ps.scan(pkg, target, history=True, patterns_root=pat_root, source_repo=target)
@@ -646,7 +647,7 @@ def do_adopt_repo(reg_path, reg, events_p, name, *, target_arg, remote, allow_hi
         if p.returncode != 0:
             raise core.Fail(f"{name}: git remote add origin failed: {(p.stderr or p.stdout).strip()[:200]}")
     old_gate = dict(pkg.get("gate") or {})
-    reloc_out, reloc = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
+    reloc_out, reloc = cli.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
                                         agent=agent, redetect=False, dry_run=False)
     pkg = core.get_pkg(reg, name)
     note = (f"adopted-repository release: adopted {stored} at {head[:12]} ({commits} commit(s)) as the public "
@@ -655,7 +656,7 @@ def do_adopt_repo(reg_path, reg, events_p, name, *, target_arg, remote, allow_hi
     sets: dict = {"notes": {"text": note, "agent": (agent or "lean-pkg").strip()}}
     if remote:
         sets["repo"] = remote
-    core.do_update(reg_path, reg, events_p, name, sets=sets, status=None, reason=reason, redetect=False,
+    cli.do_update(reg_path, reg, events_p, name, sets=sets, status=None, reason=reason, redetect=False,
                    agent=agent, force=False)
     status_after = pkg.get("status")
     nxt = next_commands(name, target, head[:12], remote or origin_url, status_after != "gate-pending")

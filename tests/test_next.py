@@ -9,7 +9,7 @@ import shlex
 import pytest
 
 from .conftest import (FIXTURE_REPORT_SHA, write_report_log, _git, base_pkg, commit_claims, make_receipt, make_repo, read_events, read_reg,
-                       repo_head, set_lease, write_reg)
+                       repo_head, set_lease, write_reg, patch_core)
 
 PAYLOAD_KEYS = {"ok", "name", "command", "reason", "blockers", "notes", "state", "repo_override"}
 STATE_KEYS = {"status", "visibility", "lease", "gate_commit", "comparator_commit", "head", "checkout",
@@ -50,7 +50,7 @@ def _no_gh(lp, monkeypatch):
     """next never consults GitHub."""
     def refuse(*a):
         pytest.fail(f"next called gh {a}")
-    monkeypatch.setattr(lp, "gh", refuse)
+    patch_core(monkeypatch, "gh", refuse)
 
 
 def test_json_shape_and_read_only(lp, env, capsys):

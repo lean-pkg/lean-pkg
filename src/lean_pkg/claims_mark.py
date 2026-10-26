@@ -21,7 +21,7 @@ import pathlib
 
 import yaml
 
-from . import cli as core
+from . import core
 from . import comparator_config as cc
 from . import holes
 

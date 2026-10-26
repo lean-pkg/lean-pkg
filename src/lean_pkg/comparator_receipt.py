@@ -69,11 +69,12 @@ import time
 SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
 # Acceptance is decided by the same predicate the validator uses (one source of truth).
-from .cli import build_provenance_line, comparator_pass  # noqa: E402
+from .cli import build_provenance_line  # noqa: E402
+from .core import comparator_pass  # noqa: E402
 from . import container as ctr  # noqa: E402
 from . import lake_hygiene as lh  # noqa: E402
 # Every lean/lake/git/bash below runs without the repository-selecting Git variables (#27).
-from .cli import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
+from .core import GIT_REPO_ENV, git_env_set, scrubbed_env  # noqa: E402,F401
 from .json_stdout import chatter_to_stderr  # noqa: E402
 from .holes import SIDECAR, check_definition_holes, parse_sidecar  # noqa: E402
 from .comparator_stage import redact, redact_bytes, redact_json, set_redactions  # noqa: E402
@@ -2385,7 +2386,7 @@ def attempts_main(args) -> int:
 def seal_sacct_main(args) -> int:
     """--seal-sacct RECEIPT [--sacct-file F] [--user NAME] [--json]: receipt.seal_comparator_sacct."""
     from . import receipt as receipt_mod
-    from .cli import Fail, UsageError as CliUsage
+    from .core import Fail, UsageError as CliUsage
     if args.seal_sacct is None:
         print("comparator-receipt: --sacct-file and --user go with --seal-sacct RECEIPT", file=sys.stderr)
         return 2

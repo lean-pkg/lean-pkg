@@ -58,7 +58,7 @@ import subprocess
 
 from . import claim_axioms
 from . import hypotheses
-from . import cli as core
+from . import core
 from . import page as page_mod
 
 # The newest pins (no --stack): the Lean releases lean-pkg knows, as (Lean tag, the Mathlib tag of that

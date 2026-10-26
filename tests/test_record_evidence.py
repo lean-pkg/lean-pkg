@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from .conftest import _git, read_events, read_reg, repo_head, write_reg
+from .conftest import _git, read_events, read_reg, repo_head, write_reg, patch_core
 
 C = "0123456789abcdef0123456789abcdef01234567"
 
@@ -69,7 +69,7 @@ def test_mathlib_pr_github_url_accepted(lp, env):
 # ---- reservoir-listed: a url not naming this package warns, never refuses ---------------------
 
 def test_reservoir_url_for_another_package_warns(lp, env, monkeypatch, capsys):
-    monkeypatch.setattr(lp, "reservoir_listing_status", lambda owner, name: 200)
+    patch_core(monkeypatch, "reservoir_listing_status", lambda owner, name: 200)
     assert rec(lp, env, "beta", "reservoir-listed", "url=https://reservoir.lean-lang.org/@someone/other",
                json_out=True) == 0
     cap = capsys.readouterr()
@@ -80,7 +80,7 @@ def test_reservoir_url_for_another_package_warns(lp, env, monkeypatch, capsys):
 
 
 def test_reservoir_url_naming_the_repo_does_not_warn(lp, env, monkeypatch, capsys):
-    monkeypatch.setattr(lp, "reservoir_listing_status", lambda owner, name: 200)
+    patch_core(monkeypatch, "reservoir_listing_status", lambda owner, name: 200)
     assert rec(lp, env, "beta", "reservoir-listed", "url=https://reservoir.lean-lang.org/@example/beta",
                json_out=True) == 0
     cap = capsys.readouterr()

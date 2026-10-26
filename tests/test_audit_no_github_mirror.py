@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from .conftest import read_reg, write_reg
+from .conftest import read_reg, write_reg, patch_core
 
 DETAIL = "repo is not on GitHub; visibility not mirrored"
 
@@ -39,7 +39,7 @@ def test_human_output_prints_one_summary_line(lp, env, fake_gh, capsys):
 
 def test_gh_query_failures_stay_individual_warnings(lp, env, monkeypatch, capsys):
     _off_github(env, "alpha")
-    monkeypatch.setattr(lp, "gh", lambda *a: SimpleNamespace(returncode=1, stdout="", stderr="HTTP 502"))
+    patch_core(monkeypatch, "gh", lambda *a: SimpleNamespace(returncode=1, stdout="", stderr="HTTP 502"))
     assert lp.main(["--registry", str(env.registry), "audit"]) == 0
     out = capsys.readouterr().out
     assert "gh query failed: HTTP 502" in out and "beta" in out

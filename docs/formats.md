@@ -307,7 +307,7 @@ stands for one key per field `update` changed, holding its old value.
 | `mathlib-pr-opened` | `record` | `url`, `reason` |
 | `mathlib-pr-merged` | `record` | `url`, `reason` |
 
-The table is `EVENT_KEYS` in `src/lean_pkg/cli.py`. The test suite checks
+The table is `EVENT_KEYS` in `src/lean_pkg/core.py`. The test suite checks
 that every event a call in the source can write is listed there and here,
 and that every event line any test makes lean-pkg write has only the keys
 listed for its event: a new event or key fails the suite until it is

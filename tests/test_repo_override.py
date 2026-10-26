@@ -9,7 +9,7 @@ import shutil
 
 import pytest
 
-from .conftest import _git, make_receipt, read_events, read_reg, write_reg, write_receipt
+from .conftest import _git, make_receipt, read_events, read_reg, write_reg, write_receipt, patch_core
 
 
 def run(lp, env, capsys, *argv):
@@ -29,7 +29,7 @@ def move_registered(env, tmp_path):
 def _no_gh(lp, monkeypatch):
     def refuse(*a):
         pytest.fail(f"called gh {a}")
-    monkeypatch.setattr(lp, "gh", refuse)
+    patch_core(monkeypatch, "gh", refuse)
 
 
 def test_next_repo_evaluates_dir_and_writes_nothing(lp, env, capsys, tmp_path):

@@ -237,7 +237,7 @@ def test_every_reason_marker_the_classifier_matches_is_in_the_code():
     code = "".join((ROOT / "src" / "lean_pkg" / f).read_text() for f in ("cli.py", "receipt_check.py"))
     for m in markers:
         assert m in code, m
-    from lean_pkg import cli as core
-    assert core.REPORT_LOG_MISSING == "report log missing: "
+    from lean_pkg import cli
+    assert cli.REPORT_LOG_MISSING == "report log missing: "
     classes = {row[2] for row in table_rows()}
     assert classes == {"passes now", "restoration only", "new run", "new run (for that ref)"}

@@ -64,7 +64,8 @@ import tempfile
 
 import yaml
 
-from . import cli as core
+from . import cli
+from . import core
 from . import public_safety as ps
 
 REPO = "lean-pkg/lean-pkg"
@@ -191,9 +192,9 @@ def local_paths(reg_path: pathlib.Path, args) -> list[tuple[str, pathlib.Path]]:
             if p is not None and str(p) not in ("", "/", "."):
                 out.append((token, pathlib.Path(p).absolute()))
 
-    pkg_dir = core.package_dir()
+    pkg_dir = cli.package_dir()
     probe(INSTALL_TOKEN, lambda: pkg_dir)
-    info = core.install_detect(pkg_dir) if shutil.which("git") else {}
+    info = cli.install_detect(pkg_dir) if shutil.which("git") else {}
     if info.get("install") == "editable":
         probe(LEAN_PKG_CHECKOUT_TOKEN, lambda: info["path"])
     probe(PYTHON_TOKEN, lambda: sys.executable)
@@ -271,15 +272,15 @@ def build_redactor(reg_path: pathlib.Path, records: dict, pkg: dict | None, args
 def _parse_quietly(parser: argparse.ArgumentParser, argv: list[str]):
     """parser.parse_known_args(argv) with argparse's own output and exits swallowed; None when it
     would exit (a usage error, --help)."""
-    saved = core._Parser.json_requested
-    core._Parser.json_requested = False
+    saved = cli._Parser.json_requested
+    cli._Parser.json_requested = False
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return parser.parse_known_args(argv)[0]
     except SystemExit:
         return None
     finally:
-        core._Parser.json_requested = saved
+        cli._Parser.json_requested = saved
 
 
 def _deepest(parser: argparse.ArgumentParser, ns) -> argparse.ArgumentParser:
@@ -300,14 +301,14 @@ def _writes(cmd: str, ns) -> str | None:
         return "verify writes receipts and gates the package"
     if cmd == "board":
         return None                    # off a tty (the re-run's stdout is a pipe): the static table
-    if core.is_write_invocation(ns):
+    if cli.is_write_invocation(ns):
         return "it writes the registry or its event log"
     fn = lambda attr: getattr(getattr(ns, attr, None), "__name__", "")   # noqa: E731
     if cmd == "wiki" and getattr(ns, "out", None):
         return "--out writes a file"
     if cmd == "formalization" and (getattr(ns, "write", False) or getattr(ns, "out", None)):
         return "--write/--out writes formalization.yaml"
-    if cmd == "comparator" and getattr(ns, "name", None) == core.CONFIG_CMD \
+    if cmd == "comparator" and getattr(ns, "name", None) == cli.CONFIG_CMD \
             and not (getattr(ns, "coverage", None) or getattr(ns, "dry_run", False)):
         return "comparator config writes the package's comparator configuration"
     if cmd == "index" and fn("index_fn") in ("run_render", "run_migrate") and not getattr(ns, "check", False):
@@ -366,13 +367,13 @@ def run_child(argv: list[str]) -> tuple[int | None, str, str]:
 
 def version_text() -> str:
     from . import __version__
-    line = core.version_line(__version__, core.install_detect(core.package_dir()))
+    line = cli.version_line(__version__, cli.install_detect(cli.package_dir()))
     return f"{line}; Python {platform.python_version()}; {platform.platform()}"
 
 
 def doctor_lines(args) -> list[str]:
     """`doctor --json`: its ok and warn lines, one each."""
-    checks, _ok = core.doctor_checks(args)
+    checks, _ok = cli.doctor_checks(args)
     return [f"{c['level']} {c['item']}: {c['detail']}" for c in checks if c["level"] in ("ok", "warn")]
 
 
@@ -574,7 +575,7 @@ def cmd_report(args) -> int:
         except core.Fail:
             data = None
         with contextlib.suppress(OSError, yaml.YAMLError):
-            valid = not core.validate_registry(yaml.safe_load(reg_path.read_text()))
+            valid = not cli.validate_registry(yaml.safe_load(reg_path.read_text()))
     pkg = None
     if args.package is not None:
         if data is None:

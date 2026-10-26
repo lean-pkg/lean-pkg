@@ -35,7 +35,7 @@ from . import claims as cl
 from . import export_paths as xp
 from . import lean_scan
 from . import public_safety as ps
-from .cli import scrubbed_env
+from .core import scrubbed_env
 
 MANIFEST_SCHEMA = "lean-pkg-extract/1"
 PLAN_SCHEMA = "lean-pkg-extract-plan/1"

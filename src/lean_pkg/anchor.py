@@ -38,7 +38,7 @@ import tarfile
 import urllib.request
 import zlib
 
-from . import cli as core
+from . import core
 from . import coverage as cov
 
 RECORD_SCHEMA = "source-baseline/1"

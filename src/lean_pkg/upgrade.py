@@ -33,7 +33,8 @@ import tomllib
 
 import yaml
 
-from . import cli as core
+from . import cli
+from . import core
 
 SCHEMA = "lean-pkg-upgrade/1"
 RECORD_SCHEMA = "lean-pkg-upgrade-record/1"
@@ -583,7 +584,7 @@ def merged_prs(repo: pathlib.Path, old: str | None, new: str) -> dict[int, dict]
 
 def default_source() -> pathlib.Path | None:
     """The git checkout the running lean-pkg is imported from (an editable install), else None."""
-    d = core.package_dir()
+    d = cli.package_dir()
     p = core.git(d, "rev-parse", "--show-toplevel")
     return pathlib.Path(p.stdout.strip()) if p.returncode == 0 and p.stdout.strip() else None
 

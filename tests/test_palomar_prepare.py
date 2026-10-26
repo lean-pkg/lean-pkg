@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from .conftest import (put_receipt, _git, make_comparator_receipt, make_receipt, read_events, read_reg, repo_head,
-                       write_reg)
+                       write_reg, patch_core)
 from .test_palomar_check import files, make_pkg
 
 
@@ -50,7 +50,7 @@ def no_network(lp, monkeypatch):
     def refuse(*a, **k):
         raise AssertionError("palomar prepare must not touch the network")
     monkeypatch.setattr(urllib.request, "urlopen", refuse)
-    monkeypatch.setattr(lp, "gh", refuse)
+    patch_core(monkeypatch, "gh", refuse)
 
 
 def test_prepare_writes_the_bundle_and_records_the_event(lp, env, capsys, assume_ready):
