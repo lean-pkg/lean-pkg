@@ -85,7 +85,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
-- `new` globs the library's root module (#PR_I, #326): `lakefile.toml`
+- `new` globs the library's root module (#334, #326): `lakefile.toml`
   writes `globs = ["MOD", "MOD.+"]`, as published lean-pkg packages do,
   and the scaffold writes `MOD.lean`, an empty root module for the
   library's imports, so a bare `lake build` still passes. With `MOD.+`
@@ -93,7 +93,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   library through it failed with `object file ... MOD.olean of module MOD
   does not exist`. The getting-started template changes with it.
 - `new` pins the newest stable Lean release, not a release candidate
-  (#PR_I, #327): without `--stack` (the default of `--kind library`, and of
+  (#334, #327): without `--stack` (the default of `--kind library`, and of
   `--kind paper` when no stack is current) the pins come from a table
   lean-pkg ships (no network, as before), and the newest release in Lean's
   version order wins, so a stable release beats its own release

@@ -74,7 +74,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 334
     id: new-root-module-glob
     kind: behavior
     area: new
@@ -89,7 +89,7 @@ changes:
     breaking: false
     changelog: Fixed
     split: true
-  - pr: 0
+  - pr: 334
     id: new-stable-pins
     kind: behavior
     area: new
