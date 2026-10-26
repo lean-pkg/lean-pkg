@@ -5,7 +5,7 @@
 schema: lean-pkg-upgrade-record/1
 version: 0.22.0
 changes:
-  - pr: 0
+  - pr: 322
     id: commit-flags-on-write-commands
     kind: command
     area: cli
@@ -22,7 +22,7 @@ changes:
     breaking: false
     changelog: Changed
     split: true
-  - pr: 0
+  - pr: 322
     id: repo-for-the-checkout
     kind: command
     area: cli, comparator receipts

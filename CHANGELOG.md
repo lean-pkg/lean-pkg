@@ -11,7 +11,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
-- Command-line consistency (#PR_C, #316): `--commit`, `--push` and
+- Command-line consistency (#322): `--commit`, `--push` and
   `--no-commit` appear in the help of the commands that can write the
   registry (and of `verify`, which passes them on) only; a read-only command
   (`list`, `next`, `public-safety`, `claims check`, ...) still accepts them,
@@ -21,7 +21,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   also listed them on `new` and the `receipt` commands, which never
   accepted them). `doctor --upgrade-from` does not list the hidden flags
   as removed (`command_tree.HELP_HIDDEN_FLAGS`).
-- The package checkout is `--repo DIR` on every command (#PR_C, #316):
+- The package checkout is `--repo DIR` on every command (#322):
   `lean-pkg receipt comparator` (and the `comparator-receipt` program),
   `python3 -m lean_pkg.claim_axioms` and `python3 -m lean_pkg.dup_constants`
   said `--project`, which stays a permanent alias (RELEASING.md, "Aliases
