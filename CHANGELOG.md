@@ -275,7 +275,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   docs/page.md lists what `page --check` compares and what it never reads
   (prose outside the markers, other files), with an assumed-versus-derived
   checklist for hand-written prose.
-- Conditional claims, stage H0 (#PR_H0; #320): docs/comparator.md states
+- Conditional claims, stage H0 (#346; #320): docs/comparator.md states
   the planned statements-module rule (a Challenge of a package with
   conditional claims may import one declared, trusted module of `Prop`
   definitions, linked on the page; `palomar check` warns; Palomar's
