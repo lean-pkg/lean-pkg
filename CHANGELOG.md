@@ -178,7 +178,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (attach and `--check`) when the docs-only rule admitted HEAD: `source` is
   `committed` (the file at X, `path` `lean-pkg-binding.yaml`) or `registry`
   (the record, `path` null). An evidence-only admission carries none.
-- `receipt check --evidence-only` (#PR_G2; #319, proposal 0002, stage G2):
+- `receipt check --evidence-only` (#356; #319, proposal 0002, stage G2):
   the referee's strict rule over the author's committed opt-in. Only an
   evidence-only descendant of X binds; the `opt-in` check is `SKIP` with
   `ignored: --evidence-only`, and the validators apply the same rule.
@@ -265,7 +265,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   which decided (`overridden by lean-pkg-binding.yaml at <pin12>`, or
   `the registry record opts in` only when the pin has no file).
 - `receipt check` and a public `index check` apply the committed opt-in
-  (#PR_G2; #319, proposal 0002, stage G2). `receipt check` reads
+  (#356; #319, proposal 0002, stage G2). `receipt check` reads
   `lean-pkg-binding.yaml` at the bound commit X (never at the published ref
   or in the referee's working tree) and applies it by default: a new
   `opt-in` check before `binding` (`PASS opt-in: lean-pkg-binding.yaml at

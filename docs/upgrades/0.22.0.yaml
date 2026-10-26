@@ -387,7 +387,7 @@ changes:
     breaking: false
     changelog: Changed
     split: true
-  - pr: 0
+  - pr: 356
     id: receipt-check-committed-opt-in
     kind: behavior
     area: receipt check, index check
@@ -416,7 +416,7 @@ changes:
     breaking: false
     changelog: Changed
     split: true
-  - pr: 0
+  - pr: 356
     id: receipt-check-evidence-only
     kind: command
     area: receipt check
