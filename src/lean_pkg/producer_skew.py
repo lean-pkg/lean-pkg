@@ -53,7 +53,7 @@ EVIDENCE_AREAS = frozenset({
     "comparator (legacy mechanism)", "stage logs", "gate", "claims", "claims ledger", "claims mark",
     "coverage check", "lean-pkg-signoff.json", "palomar check", "verify"})
 OTHER_AREAS = frozenset({
-    "page", "cli", "--json", "new", "doctor", "status", "registry", "public-safety", "extract",
+    "page", "cli", "--json", "new", "doctor", "status", "registry", "public-safety", "report", "extract",
     "lean-pkg-extract", "formalization", "formalization render", "formalization.yaml", "coverage.yaml",
     "index add", "index check", "index render", "index entries", "blueprint", "stacks", "comparator check",
     "comparator config --coverage and --from-claims", "tests", "docs (receipts recipe)"})

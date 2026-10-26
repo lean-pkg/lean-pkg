@@ -22,18 +22,27 @@ Filled automatically, all read-only:
 Redaction is mandatory and applies to every captured text (the command, its output, the doctor and
 host lines, the record, the title) before it is printed or sent, in this order:
 
+0. in the sections report attaches itself (version, doctor, host, record, the re-run's stdout and
+   stderr) only: every record's and lease's `agent`, `workspace` and `contact` value -> `<agent>`,
+   `<workspace>`, `<contact>` (#330);
 1. the registry file -> `<registry>`, its directory -> `<registry-dir>`, every record's checkout
    (`local_path`, as stored, joined to $HOME and resolved) -> `<checkout>`; the user-level default
    registry (`~/.lean-pkg/registry`, which doctor resolves), when it is another one ->
-   `<user-default-registry>` / `<user-default-registry-dir>`;
+   `<user-default-registry>` / `<user-default-registry-dir>`; the other local paths doctor and the
+   version line name (local_paths, #330): lean-pkg's package directory -> `<lean-pkg-install>`, an
+   editable install's checkout -> `<lean-pkg-checkout>`, the Python executable -> `<python>`, the git
+   work tree holding the registry -> `<registry-repo>`, the index directory -> `<index-dir>`, an event
+   log that is not the registry's sibling -> `<events-path>`;
 2. the current user's home directory -> `~`;
 3. the `public_safety` scanner: its built-in families, the `--package` checkout's
    `.lean-pkg-private-patterns` and the registry directory's one, and the user/host tokens derived
    from every registry record (`local_path`, `agent`, `workspace`, lease); each match becomes `[…]`.
    Email addresses are redacted even when a record declares them.
 
-The finished title and body are scanned once more; a blocking hit left there refuses (exit 1, the hit
-families listed, nothing filed). Default is a dry run (print title, labels and body; exit 0). `--yes`
+Every redacted section, the user's (title, --command, --body, --from-log, --package) and the attached
+ones, is scanned once more, line by line; a blocking hit left refuses (exit 1, the hit families listed
+and the sections named, nothing filed). The report's own fixed prose is not scanned: a derived token can
+be an ordinary word (#330). Default is a dry run (print title, labels and body; exit 0). `--yes`
 needs `gh` on PATH and `gh auth status` passing (else exit 1 with the `gh auth login` hint).
 """
 
@@ -65,6 +74,13 @@ SECTIONS = ("Version", "Command", "What happened", "What you expected", "Minimal
             "Checklist")
 REGISTRY_TOKEN, REGISTRY_DIR_TOKEN, CHECKOUT_TOKEN = "<registry>", "<registry-dir>", "<checkout>"
 USER_REGISTRY_TOKEN, USER_REGISTRY_DIR_TOKEN = "<user-default-registry>", "<user-default-registry-dir>"
+INDEX_DIR_TOKEN, EVENTS_TOKEN, REGISTRY_REPO_TOKEN = "<index-dir>", "<events-path>", "<registry-repo>"
+INSTALL_TOKEN, LEAN_PKG_CHECKOUT_TOKEN, PYTHON_TOKEN = "<lean-pkg-install>", "<lean-pkg-checkout>", "<python>"
+# #330: the registry fields whose values name a person, an agent or a machine. In the sections report
+# attaches itself, each value becomes its field's placeholder before the scanner runs.
+NAME_FIELDS = (("agent", "<agent>"), ("workspace", "<workspace>"), ("contact", "<contact>"))
+NAME_MIN_LEN = 3
+USER, ATTACHED = "user", "attached"   # the origin of a section the blocking guard scans
 RERUN_TIMEOUT = 600                  # seconds for the re-run command
 KEEP_HEAD, KEEP_TAIL = 150, 50       # lines kept of a long captured stream
 LOG_TAIL = 200                       # default N of --from-log FILE[:N]
@@ -78,10 +94,13 @@ _SUB: list = []                      # the CLI's subparsers action, captured by 
 # redaction
 
 class Redactor:
-    """Every captured text goes through __call__: placeholders for the registry and checkouts, `~` for
-    the home directory, then the public-safety scanner (each match -> […]). count: replacements made."""
+    """Every captured text goes through __call__: placeholders for the registry, checkouts and the index,
+    `~` for the home directory, then the public-safety scanner (each match -> […]). The sections report
+    attaches itself go through attached(), which first replaces every registry agent, workspace and contact
+    value with its placeholder (#330). count: replacements made."""
 
-    def __init__(self, scanner: ps.Scanner, literals: dict[str, str], homes: list[str]):
+    def __init__(self, scanner: ps.Scanner, literals: dict[str, str], homes: list[str],
+                 names: dict[str, str] | None = None):
         self.scanner = scanner
         self.count = 0
         self.literals = literals
@@ -89,6 +108,18 @@ class Redactor:
         self.literal_rx = re.compile("(?:" + "|".join(re.escape(k) for k in keys) + ")" + _PATH_END) if keys else None
         homes = sorted({h for h in homes if len(h) > 1}, key=len, reverse=True)
         self.home_rx = re.compile("(?:" + "|".join(re.escape(h) for h in homes) + ")" + _PATH_END) if homes else None
+        self.names = names or {}
+        nkeys = sorted(self.names, key=len, reverse=True)
+        self.names_rx = (re.compile(r"(?<![A-Za-z0-9_.-])(?:" + "|".join(re.escape(k) for k in nkeys)
+                                    + r")(?![A-Za-z0-9_.-])") if nkeys else None)
+
+    def attached(self, text: str | None) -> str:
+        """A section report attaches itself (doctor, host, version, record, the re-run's output): registry
+        names -> placeholders, then __call__."""
+        if text and self.names_rx is not None:
+            text, n = self.names_rx.subn(lambda m: self.names[m.group(0)], text)
+            self.count += n
+        return self(text)
 
     def __call__(self, text: str | None) -> str:
         if not text:
@@ -110,6 +141,17 @@ class Redactor:
         return sorted({ps.PATTERNS_FILE if pat.kind == "file" else pat.label
                        for _n, pat, _ex in self.scanner.scan_text(text) if pat.severity == ps.BLOCK})
 
+    def blocking_sections(self, sections: list[tuple[str, str, str]]) -> list[dict]:
+        """#330: [{section, origin, families}] of the (name, origin, redacted text) sections holding a
+        blocking hit. The guard scans what the report carries from the user and from its probes, never
+        its own fixed prose (a registry-derived name such as `home` is also an English word)."""
+        out = []
+        for name, origin, text in sections:
+            fams = self.blocking_families(text) if text else []
+            if fams:
+                out.append({"section": name, "origin": origin, "families": fams})
+        return out
+
 
 def _path_forms(p: pathlib.Path) -> set[str]:
     out = {str(p)}
@@ -118,9 +160,67 @@ def _path_forms(p: pathlib.Path) -> set[str]:
     return {s for s in out if len(s) > 1}
 
 
-def build_redactor(reg_path: pathlib.Path, records: dict, pkg: dict | None) -> Redactor:
+def registry_names(records: dict) -> dict[str, str]:
+    """{value: placeholder} of every record's agent and workspace and its lease's agent, workspace and
+    contact (#330); a value shorter than NAME_MIN_LEN or a scanner stopword is left to the scanner."""
+    names: dict[str, str] = {}
+    for rec in records.values():
+        if not isinstance(rec, dict):
+            continue
+        lease = rec.get("lease") if isinstance(rec.get("lease"), dict) else {}
+        for src in (rec, lease):
+            for field, token in NAME_FIELDS:
+                v = src.get(field)
+                v = v.strip() if isinstance(v, str) else ""
+                if len(v) >= NAME_MIN_LEN and v.casefold() not in ps.DERIVED_STOPWORDS:
+                    names.setdefault(v, token)
+    return names
+
+
+def local_paths(reg_path: pathlib.Path, args) -> list[tuple[str, pathlib.Path]]:
+    """(placeholder, path) of the local paths doctor and the version line name besides the registry and the
+    checkouts (#330): lean-pkg's package directory and, for an editable install, its checkout; the Python
+    executable; the git work tree holding the registry; the index directory; the event log when it is not
+    the registry's sibling (that one already reads `<registry-dir>/lean-package-events.jsonl`). A probe
+    that fails names nothing."""
+    out: list[tuple[str, pathlib.Path]] = []
+
+    def probe(token: str, fn) -> None:
+        with contextlib.suppress(OSError, RuntimeError, ValueError, TypeError, KeyError, AttributeError):
+            p = fn()
+            if p is not None and str(p) not in ("", "/", "."):
+                out.append((token, pathlib.Path(p).absolute()))
+
+    pkg_dir = core.package_dir()
+    probe(INSTALL_TOKEN, lambda: pkg_dir)
+    info = core.install_detect(pkg_dir) if shutil.which("git") else {}
+    if info.get("install") == "editable":
+        probe(LEAN_PKG_CHECKOUT_TOKEN, lambda: info["path"])
+    probe(PYTHON_TOKEN, lambda: sys.executable)
+    if shutil.which("git") and reg_path.parent.is_dir():
+        top = core.registry_git(reg_path.parent, "rev-parse", "--show-toplevel")
+        if top.returncode == 0 and top.stdout.strip():
+            probe(REGISTRY_REPO_TOKEN, lambda: top.stdout.strip())
+    if args is not None:
+        from . import index as index_mod
+        probe(INDEX_DIR_TOKEN, lambda: index_mod.index_source(args)[0])
+
+        def events():
+            ev = core.events_source(args)[0].absolute()
+            return ev if _path_forms(ev.parent).isdisjoint(_path_forms(reg_path.parent)) else None
+        probe(EVENTS_TOKEN, events)
+    return out
+
+
+def build_redactor(reg_path: pathlib.Path, records: dict, pkg: dict | None, args=None) -> Redactor:
     """The redaction layers for this report (see the module docstring for the order)."""
     literals: dict[str, str] = {}
+    # #330: every other local path the attached sections name, whole (absolute and resolved forms): a
+    # path left to `~` and the scanner keeps whatever follows a redacted prefix such as `~/Dropbox/`.
+    # Set first, so a registry placeholder below wins over one of these naming the same path.
+    for token, path in local_paths(reg_path, args):
+        for s in _path_forms(path):
+            literals[s] = token
     for rec in records.values():
         if not isinstance(rec, dict) or not rec.get("local_path"):
             continue
@@ -162,7 +262,7 @@ def build_redactor(reg_path: pathlib.Path, records: dict, pkg: dict | None) -> R
             sc.patterns += ps.derived_patterns(rec)
     for problem in sc.problems:
         print(f"lean-pkg: WARN {problem}", file=sys.stderr)
-    return Redactor(sc, literals, sorted(homes))
+    return Redactor(sc, literals, sorted(homes), registry_names(records))
 
 
 # --------------------------------------------------------------------------
@@ -377,6 +477,30 @@ def render_body(f: dict) -> str:
 # --------------------------------------------------------------------------
 # the command
 
+def report_sections(f: dict, title: str, title_is_user: bool) -> list[tuple[str, str, str]]:
+    """(name, origin, redacted text) of every variable part of the title and body (#330): the user's own
+    text, and the sections report attaches itself. render_body adds only fixed prose around them."""
+    out = [("title", USER if title_is_user else ATTACHED, title), ("--command", USER, f["command"]),
+           ("--body", USER, f.get("body_text") or ""), ("--package", USER, f.get("package") or "")]
+    if f.get("log"):
+        out.append(("--from-log", USER, f["log"]["path"] + "\n" + (f["log"]["text"] or "")))
+    out += [("version", ATTACHED, f["version"]), ("doctor", ATTACHED, "\n".join(f["doctor"])),
+            ("host-check", ATTACHED, f["host"]), ("record", ATTACHED, "\n".join(f["record"]))]
+    if f["run"] is not None:
+        out += [("stdout", ATTACHED, f["run"]["stdout"]), ("stderr", ATTACHED, f["run"]["stderr"])]
+    return out
+
+
+def where(hits: list[dict]) -> str:
+    """`your text (--body)`, `an attached section (doctor)`, or both, for a refusal."""
+    mine = [h["section"] for h in hits if h["origin"] == USER]
+    theirs = [h["section"] for h in hits if h["origin"] == ATTACHED]
+    parts = [f"your text ({', '.join(mine)})"] if mine else []
+    if theirs:
+        parts.append(f"{'an attached section' if len(theirs) == 1 else 'attached sections'} ({', '.join(theirs)})")
+    return " and ".join(parts)
+
+
 def _gh_ready() -> None:
     if shutil.which("gh") is None:
         raise core.Fail("gh is not on PATH: install the GitHub CLI, run `gh auth login`, then re-run with --yes "
@@ -456,7 +580,8 @@ def cmd_report(args) -> int:
         if data is None:
             core.load_registry(reg_path)                      # raises the right refusal
         pkg = core.get_pkg(data, args.package)
-    red = build_redactor(reg_path, records, pkg)
+    red = build_redactor(reg_path, records, pkg, args)
+    att = red.attached
 
     def safely(fn, *a):
         try:
@@ -465,11 +590,11 @@ def cmd_report(args) -> int:
             return f"unavailable ({type(e).__name__}: {e})"
 
     doctor = safely(doctor_lines, args)
-    facts = {"version": red(safely(version_text)),
-             "doctor": [red(x) for x in doctor] if isinstance(doctor, list) else [red(doctor)],
-             "host": red(safely(host_verdict)),
+    facts = {"version": att(safely(version_text)),
+             "doctor": [att(x) for x in doctor] if isinstance(doctor, list) else [att(doctor)],
+             "host": att(safely(host_verdict)),
              "package": red(args.package) if args.package else None,
-             "record": [red(x) for x in record_lines(pkg)] if pkg is not None else [],
+             "record": [att(x) for x in record_lines(pkg)] if pkg is not None else [],
              "valid": valid, "run": None, "json": False, "what": None,
              "body_text": red(args.body.strip("\n")) if args.body is not None else None,
              "log": ({"path": red(log["path"]), "lines": len(log["tail"]), "text": red("\n".join(log["tail"]))}
@@ -492,7 +617,7 @@ def cmd_report(args) -> int:
                     argv = [flag, str(getattr(args, dest))] + argv
             code, out, err = run_child(argv)
             facts["run"] = {"json_added": plan["json_added"], "exit": "timeout" if code is None else code,
-                            "stdout": red(clip(out)), "stderr": red(clip(err))}
+                            "stdout": att(clip(out)), "stderr": att(clip(err))}
     if args.title is not None:
         title = red(args.title.strip().splitlines()[0])
     else:
@@ -501,16 +626,17 @@ def cmd_report(args) -> int:
     labels = ["enhancement" if args.enhancement else "bug"]
     body = render_body(facts)
     repo = args.repo or REPO
-    families = red.blocking_families(title + "\n" + body)
+    hits = red.blocking_sections(report_sections(facts, title, args.title is not None or shown is not None))
+    families = sorted({f for h in hits for f in h["families"]})
     payload = {"ok": True, "filed": False, "url": None, "title": title, "labels": labels, "body": body,
                "redactions": red.count}
     if facts["log"] is not None:
         payload["log_excerpt"] = {"path": facts["log"]["path"], "lines": facts["log"]["lines"]}
     if families:
-        msg = (f"report: a blocking private pattern remains after redaction ({', '.join(families)}); nothing "
-               f"filed")
+        msg = (f"report: a blocking private pattern remains after redaction ({', '.join(families)}) in "
+               f"{where(hits)}; nothing filed")
         if args.json_out:
-            core.print_json(dict(payload, ok=False, body=None, error=msg, families=families))
+            core.print_json(dict(payload, ok=False, body=None, error=msg, families=families, sections=hits))
         print(f"lean-pkg: {msg}", file=sys.stderr)
         return 1
     if not args.yes:
