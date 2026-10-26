@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from .conftest import _git, make_receipt, read_events, read_reg, set_lease, write_receipt
+from .conftest import _git, make_receipt, patch_core, read_events, read_reg, set_lease, write_receipt
 
 REG = "lean-packages.yaml"
 EV = "lean-package-events.jsonl"
@@ -103,7 +103,7 @@ def _claim_commit_one_commit_both_files(lp, shared, capsys, monkeypatch):
     # Both claims below stamp claimed_at with now_iso() (second precision) and print
     # "until <claimed_at + ttl>". Pin it: a loaded host puts the two claims in different seconds.
     stamp = lp.now_iso()
-    monkeypatch.setattr(lp, "now_iso", lambda: stamp)
+    patch_core(monkeypatch, "now_iso", lambda: stamp)
     before = _count(a.root)
     rc, cap = run(lp, a, capsys, *CLAIM, "--commit")
     assert rc == 0
@@ -129,7 +129,7 @@ def test_claim_commit_makes_one_commit_with_both_files(lp, env, shared, capsys, 
 def test_claim_commit_stdout_comparison_across_a_second_boundary(lp, env, shared, capsys, monkeypatch):
     """Regression: the two claims above land in different seconds whenever the host is loaded
     (the full suite under concurrent agents); the stdout comparison must not depend on that."""
-    monkeypatch.setattr(lp, "dt", _TickingClock())
+    patch_core(monkeypatch, "dt", _TickingClock())
     _claim_commit_one_commit_both_files(lp, shared, capsys, monkeypatch)
 
 
@@ -562,7 +562,7 @@ def test_event_log_conflict_merges_by_union_in_timestamp_order(lp, env, shared, 
     not after origin's (file order)."""
     a, b = shared.a, shared.clone_b()
     stamp = {"now": "2026-01-01T00:00:00+00:00"}
-    monkeypatch.setattr(lp, "now_iso", lambda: stamp["now"])
+    patch_core(monkeypatch, "now_iso", lambda: stamp["now"])
     real, fired = lp.commit_preflight, []
 
     def preflight(args, mode):
@@ -597,11 +597,11 @@ def test_rebase_conflict_aborts_and_leaves_the_clone_as_it_was(lp, env, shared, 
             if args[:1] == ("push",) and "head" not in seen and Path(root) == a.root:   # A's, not B's
                 seen["head"] = real_commit(root, "rev-parse", "HEAD").stdout.strip()
             return real_commit(root, *args)
-        monkeypatch.setattr(lp, "registry_git", spy)
+        patch_core(monkeypatch, "registry_git", spy)
         try:
             return real_finish(ctx, rc)
         finally:
-            monkeypatch.setattr(lp, "registry_git", real_commit)
+            patch_core(monkeypatch, "registry_git", real_commit)
     monkeypatch.setattr(lp, "commit_finish", finish)
     rc, cap = run(lp, a, capsys, "--json", *CLAIM, "--push")
     assert rc == 1

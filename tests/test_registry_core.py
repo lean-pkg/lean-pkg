@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from .conftest import _git, read_events, read_reg, set_lease, write_reg
+from .conftest import _git, patch_core, read_events, read_reg, set_lease, write_reg
 from .test_commit import CLAIM, EV, REG, _clean, _head, _race, _subject, run, shared  # noqa: F401 (fixture)
 
 HUGE = "100000000"
@@ -123,10 +123,10 @@ def test_flush_keeps_the_queued_lines_when_the_write_fails(lp, env, monkeypatch)
 
     def boom(p, lines):
         raise OSError(28, "No space left on device")
-    monkeypatch.setattr(lp, "_write_event_lines", boom)
+    patch_core(monkeypatch, "_write_event_lines", boom)
     with pytest.raises(OSError):
         lp.flush_events(reg)
-    monkeypatch.setattr(lp, "_write_event_lines", real)
+    patch_core(monkeypatch, "_write_event_lines", real)
     n0 = len(read_events(env))
     lp.flush_events(reg)                       # the line was kept, so a retry writes it
     assert [e["event"] for e in read_events(env)[n0:]] == ["updated"]

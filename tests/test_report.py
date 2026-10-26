@@ -13,7 +13,7 @@ import subprocess
 
 import pytest
 
-from .conftest import ROOT, read_reg, set_lease, write_reg
+from .conftest import ROOT, patch_core, read_reg, set_lease, write_reg
 
 FAKE_GH = """#!/bin/sh
 # fake gh: `auth status` exits $FAKE_GH_AUTH (default 0); `issue create` records its argv (one per line)
@@ -62,7 +62,7 @@ def _private_notes(lp, env, monkeypatch) -> dict:
     """Notes on alpha holding a path under the home directory, another user's home path and an email;
     alpha leased by an agent whose name is a record-derived token. The home directory is one outside
     tmp_path (which may itself lie under the real home, and is the registry directory here)."""
-    monkeypatch.setattr(lp, "HOME", pathlib.Path("/srv/report-test-home/u1"))
+    patch_core(monkeypatch, "HOME", pathlib.Path("/srv/report-test-home/u1"))
     set_lease(env, "alpha", agent="zorblax-7", workspace="w3")
     reg = read_reg(env)
     home_file = f"{lp.HOME}/proj/file.txt"
@@ -386,7 +386,7 @@ WORKSPACE, AGENT = "/home/zanzibar-desk/round-4", "quillfeather-9"
 def _live_lease(lp, env, monkeypatch) -> None:
     """alpha leased live by AGENT in WORKSPACE, whose derived tokens include `home`, a word the report's
     own prose uses ("home directory")."""
-    monkeypatch.setattr(lp, "HOME", pathlib.Path("/srv/report-test-home/u1"))
+    patch_core(monkeypatch, "HOME", pathlib.Path("/srv/report-test-home/u1"))
     set_lease(env, "alpha", agent=AGENT, workspace=WORKSPACE)
 
 
@@ -458,7 +458,7 @@ def test_a_hit_left_in_an_attached_section_is_named_as_attached(lp, env, capsys,
 def test_the_index_directory_becomes_a_placeholder(lp, env, capsys, monkeypatch, tmp_path_factory):
     home = tmp_path_factory.mktemp("homes") / "u7"
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr(lp, "HOME", home)
+    patch_core(monkeypatch, "HOME", home)
     for root in (home / "Dropbox" / "workspace" / "svn" / "Project-idx" / "index",       # under the home
                  tmp_path_factory.mktemp("elsewhere") / "srv-lean" / "index"):         # any other path
         root.mkdir(parents=True)
@@ -497,7 +497,7 @@ def test_no_absolute_local_path_survives_in_the_attached_sections(lp, env, capsy
     python.write_text("")
     events.write_text("")
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr(lp, "HOME", home)
+    patch_core(monkeypatch, "HOME", home)
     monkeypatch.setenv("LEAN_PKG_INDEX", str(index))
     monkeypatch.setattr(lp, "package_dir", lambda: pkg_dir)
     monkeypatch.setattr(lp, "install_detect", lambda d: {"install": "editable", "path": str(checkout),

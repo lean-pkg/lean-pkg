@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from .conftest import _git, make_repo
+from .conftest import _git, make_repo, patch_core
 
 TOOLS = ("lake", "lean", "elan", "git", "gh", "reuse", "bwrap", "comparator", "nanoda", "go", "cargo", "jq")
 
@@ -42,7 +42,7 @@ def test_version_flag_editable_build_commit_and_dirty_without_network(lp, tmp_pa
     short = _git(repo, "rev-parse", "--short", "HEAD").stdout.strip()
     calls = []
     real_git = lp.registry_git
-    monkeypatch.setattr(lp, "registry_git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
+    patch_core(monkeypatch, "registry_git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
     assert lp.main(["--json", "--version"]) == 0
     assert json.loads(capsys.readouterr().out) == {"ok": True, "version": lean_pkg.__version__, "commit": short,
                                                    "dirty": False, "install": "editable", "path": root}
@@ -145,7 +145,7 @@ def test_doctor_editable_install_reports_branch_and_counts_without_fetching(lp, 
     monkeypatch.setattr(lp, "package_dir", lambda: pkgdir)
     calls = []
     real_git = lp.registry_git                           # lean-pkg's own checkout: registry_git (#27)
-    monkeypatch.setattr(lp, "registry_git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
+    patch_core(monkeypatch, "registry_git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
     rc, cap = _doctor(lp, env, capsys)
     assert rc == 0
     line = next(x for x in cap.out.splitlines() if "install:" in x)
@@ -357,7 +357,7 @@ def test_doctor_fetch_fetches_both_repos_and_says_so(lp, env, fake_path, install
     _git(repo, "remote", "add", "origin", str(origin))
     calls = []
     real_git = lp.registry_git                           # registry-repository git (#27)
-    monkeypatch.setattr(lp, "registry_git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
+    patch_core(monkeypatch, "registry_git", lambda r, *a: (calls.append(a), real_git(r, *a))[1])
     rc = lp.main(["--registry", str(reg), "doctor", "--fetch"])
     cap = capsys.readouterr()
     assert rc == 0

@@ -149,6 +149,14 @@ def lp():
     return load_module()
 
 
+def patch_core(monkeypatch, name: str, value) -> None:
+    """Set NAME to VALUE on lean_pkg.core and on its lean_pkg.cli re-export (#317). Code in core.py reads
+    core's globals and code in cli.py reads cli's, so a name used on both sides is patched on both; a
+    patch on cli alone would miss every caller that moved to core.py."""
+    monkeypatch.setattr(importlib.import_module("lean_pkg.core"), name, value)
+    monkeypatch.setattr(load_module(), name, value)
+
+
 @pytest.fixture(autouse=True)
 def documented_event_lines(monkeypatch):
     """Every event line any test makes lean-pkg write must match the documented event-line schema
@@ -162,7 +170,7 @@ def documented_event_lines(monkeypatch):
         problems = cli.event_line_problems(json.loads(line))
         assert not problems, "undocumented event line: " + "; ".join(problems)
         return line
-    monkeypatch.setattr(cli, "_event_line", checked)
+    patch_core(monkeypatch, "_event_line", checked)   # its callers (append_event, record) are in core.py
 
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
@@ -659,8 +667,9 @@ def no_user_default_registry(monkeypatch, tmp_path):
 def home_outside_tmp_path(monkeypatch, tmp_path):
     """local_path is stored $HOME-relative when it lies under $HOME (#17). Tests pass absolute paths
     under tmp_path and expect them back verbatim, which holds only when tmp_path is outside $HOME; on a
-    host whose TMPDIR is under the real home it would not. cli.HOME is an empty per-test directory."""
-    monkeypatch.setattr(load_module(), "HOME", tmp_path / "home")
+    host whose TMPDIR is under the real home it would not. HOME is an empty per-test directory (in core.py,
+    where repo_path and normalize_local_path read it, and on its cli.py re-export)."""
+    patch_core(monkeypatch, "HOME", tmp_path / "home")
 
 
 STACK_DAY = __import__("datetime").date(2026, 11, 2)   # inside lts-2026.10's window
