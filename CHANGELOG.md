@@ -33,7 +33,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   test writes an event key, that the table does not list.
   `doctor --upgrade-from` reports `event_line_version` among its named
   constants.
-- Offline coverage check (#PR_J; #328): `lean-pkg coverage check --file
+- Offline coverage check (#335; #328): `lean-pkg coverage check --file
   coverage.yaml [--claims claims.yaml] [--comparator comparator.json ...]`,
   without `NAME`, validates `coverage.yaml` before the package is registered
   or the file is committed, as `claims check --file` does for `claims.yaml`.
@@ -96,7 +96,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `strict=False` on `zip()` (13). Kept with a reason: `F811` in `tests/`
   (fixtures imported from a shared module and named as test parameters),
   and four `B023` lambdas called within their loop iteration.
-- `lean-pkg verify NAME` runs a preflight as step 0 (#PR_J; #325): the
+- `lean-pkg verify NAME` runs a preflight as step 0 (#335; #325): the
   `claims/1` check of `claims check --file` on the claims file committed at
   `HEAD` and, when `coverage.yaml` is committed, the offline coverage check
   (#328) against the files and comparator configurations committed there.
