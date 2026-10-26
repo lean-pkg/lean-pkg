@@ -95,4 +95,6 @@ changes:
 # make shellcheck in make check, and a pinned ShellCheck step in CI (#306).
 # Docs: canonical flag spellings in every example, and a test that keeps them canonical (#307); canonical
 # command spellings too, and the test covers command aliases (#308).
-no_author_change: [296, 298, 301, 302, 303, 304, 305, 306, 307, 308]
+# Tests: run in parallel with pytest-xdist in make test and CI; two tests no longer patch the
+# process-wide time.sleep (#309).
+no_author_change: [296, 298, 301, 302, 303, 304, 305, 306, 307, 308, 309]

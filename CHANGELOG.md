@@ -85,6 +85,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `make reuse`. CI's `private-boundary` job installs a pinned ShellCheck
   (`shellcheck-py==0.11.0.1`) and runs it on every pull request and push to
   main.
+- Tests in parallel (#309): the `test` extra adds `pytest-xdist`. `make test`
+  runs the suite with `-n auto` when xdist is importable and serially
+  otherwise (`make test TEST_JOBS=` forces serial, `TEST_JOBS=4` four
+  workers), and CI's test job runs `pytest -n auto`. On a 16-core host the
+  suite took 2m33s to 2m37s in three runs, against 13m51s to 14m07s
+  serially. Two tests faked a Ctrl-C by replacing the process-wide
+  `time.sleep`, so under xdist the worker's own calls hit the fake and a
+  `KeyboardInterrupt` took the whole session down; the new
+  `patch_rs_sleep` replaces it for `receipt_systemd` only.
 
 ### Fixed
 

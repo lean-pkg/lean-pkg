@@ -8,8 +8,13 @@ check: test boundary tabs versions changelog reuse shellcheck
 
 # A private bytecode cache per run: concurrent runs never share pytest's rewritten .pyc files.
 # The EXIT trap removes it on every exit, including Ctrl-C (INT/TERM/HUP exit through it).
+# In parallel (pytest-xdist, `-n $(TEST_JOBS)`) when xdist is importable, else serially; the cache is
+# exported first, so the workers inherit it. `make test TEST_JOBS=` runs serially.
+TEST_JOBS ?= auto
 test:
-> @d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && trap 'exit 130' INT TERM HUP && PYTHONPYCACHEPREFIX="$$d" python3 -m pytest -q -p no:cacheprovider
+> @d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && trap 'exit 130' INT TERM HUP && export PYTHONPYCACHEPREFIX="$$d" && \
+>  n=$$( [ -n "$(TEST_JOBS)" ] && python3 -c 'import xdist' 2>/dev/null && echo "-n $(TEST_JOBS)" || true) && \
+>  python3 -m pytest -q -p no:cacheprovider $$n
 
 # Re-record the golden CLI contract (help texts, --json key sets) after an intended change; review
 # `git diff tests/golden` before committing (CONTRIBUTING.md, "The golden CLI contract").

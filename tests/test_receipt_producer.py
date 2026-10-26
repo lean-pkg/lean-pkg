@@ -17,7 +17,8 @@ from pathlib import Path
 import pytest
 
 from .test_receipt_systemd import (  # noqa: F401  (fixtures)
-    RUNNING, _fixed_identity, fake_systemd, props_text, rdir, repo, run_live, assert_nothing_written)
+    RUNNING, _fixed_identity, fake_systemd, patch_rs_sleep, props_text, rdir, repo, run_live,
+    assert_nothing_written)
 
 
 @pytest.fixture()
@@ -228,7 +229,7 @@ def test_a_change_is_warned_while_the_unit_still_runs(lp, repo, tmp_path, fake_s
     def sleep(_s):
         sleeps.append(1)
         props.write_text(props_text(host=None))                           # finished after the first poll
-    monkeypatch.setattr(rs.time, "sleep", sleep)
+    patch_rs_sleep(monkeypatch, sleep)
     touch = f"open({str(pkgcopy / 'cli.py')!r}, 'a').write('# pulled\\n')"
     rc, _d = run_live(lp, repo, tmp_path, touch=touch)
     err = capsys.readouterr().err

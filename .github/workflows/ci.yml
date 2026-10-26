@@ -26,8 +26,9 @@ jobs:
         run: |
           lean-pkg --help >/dev/null
           comparator-receipt --help >/dev/null
+      # In parallel (pytest-xdist from the test extra): about 5x faster than serial on 16 cores.
       - name: Test
-        run: python -m pytest -q
+        run: python -m pytest -q -n auto
       - name: Generated files are current
         run: |
           make docs
