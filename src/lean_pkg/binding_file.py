@@ -106,7 +106,7 @@ def _scalar_value(node):
 def parse(raw: bytes, where: str = FILE) -> tuple[dict | None, list[str]]:
     """(doc, problems) of the bytes of a lean-pkg-binding.yaml. doc is {schema, docs_descendants (bool),
     build_inputs (list)} when there are no problems, else None. Each problem starts with `where`."""
-    from .cli import build_inputs_errors   # cli imports this module
+    from .audit import build_inputs_errors   # audit imports gate, which imports this module
     if len(raw) > MAX_BYTES:
         return None, [f"{where}: {len(raw)} bytes, larger than the {MAX_BYTES}-byte limit"]
     try:

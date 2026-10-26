@@ -236,6 +236,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - Internal: lean-pkg's modules import the shared core from core.py
   directly (#351, #317); cli.py keeps its re-exports for one release; no
   change to the CLI or its JSON.
+- Internal: gate, audit/validate and the argument parser move out of
+  cli.py into gate.py, audit.py and cli_parser.py (#PR_E3, #317); cli.py
+  keeps re-exports for one release; no change to the CLI or its JSON.
 
 - `formalization render NAME --write` refreshes derived keys without
   `--force` (#347; #341). After a re-gate moves the receipts,

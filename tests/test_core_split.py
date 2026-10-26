@@ -18,6 +18,7 @@ a name is read from (and which one a test must patch).
 from __future__ import annotations
 
 import ast
+import importlib
 import subprocess
 import sys
 import types
@@ -161,3 +162,125 @@ def test_every_core_attribute_a_module_reads_is_on_core():
                     if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "core"
                     and not hasattr(core, n.attr)]
     assert not missing, missing
+
+
+# --------------------------------------------------------------------------
+# stage 3: gate.py, audit.py and cli_parser.py, cut out of cli.py verbatim
+
+SPLIT = ("gate", "audit", "cli_parser")
+
+
+def defined_names(module: str) -> set[str]:
+    """Names a module binds at module level (functions, classes, assignments), not its imports."""
+    out = set()
+    for node in ast.parse((SRC / f"{module}.py").read_text()).body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            for target in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                out |= {n.id for n in ast.walk(target) if isinstance(n, ast.Name)}
+    return out
+
+
+def test_every_split_name_is_re_exported_as_the_same_object():
+    assert {"validate_receipt", "validate_comparator", "package_descendant", "cmd_gate", "_do_gate",
+            "repo_override", "REPORT_GZ_DEFAULT_CAP"} <= defined_names("gate")
+    assert {"audit_registry", "validate_registry", "cmd_audit", "cmd_validate", "build_inputs_errors"} \
+        <= defined_names("audit")
+    assert {"build_parser", "_Parser", "_hidden_copies"} <= defined_names("cli_parser")
+    for module in SPLIT:
+        mod = importlib.import_module(f"lean_pkg.{module}")
+        names = defined_names(module)
+        missing = sorted(n for n in names if not hasattr(cli, n))
+        assert not missing, f"cli.py does not re-export from {module}.py: {missing}"
+        copies = sorted(n for n in names if getattr(cli, n) is not getattr(mod, n))
+        assert not copies, f"cli.X is not {module}.X for: {copies}"
+        in_cli = sorted(n for n in names if isinstance(getattr(mod, n), (types.FunctionType, type))
+                        and getattr(mod, n).__module__ in ("lean_pkg.cli", "__main__"))
+        assert not in_cli, f"{module} names whose object is defined in cli.py: {in_cli}"
+        # one home per name: no two of cli.py, core.py and the split modules define it
+        for other in ("cli", "core") + tuple(m for m in SPLIT if m != module):
+            assert not names & defined_names(other), (module, other, sorted(names & defined_names(other)))
+
+
+# The only imports of cli.py in the split modules: inside these functions, for names that stay in cli.py
+# with the commands they belong to (cli.py imports the split modules, so a top-level import is a cycle).
+CLI_IMPORTS_ALLOWED = {"audit": {"audit_registry", "validate_registry"}, "cli_parser": {"build_parser"}}
+
+
+def cli_import_sites(module: str) -> list[str]:
+    """The function (or <module>) holding each import of cli.py in a module, nested functions by name."""
+    tree = ast.parse((SRC / f"{module}.py").read_text())
+    owner = {}
+    for fn in ast.walk(tree):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for node in ast.walk(fn):
+                owner.setdefault(id(node), fn.name)
+    sites = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module in ("cli", "lean_pkg.cli") or (
+                node.module in (None, "lean_pkg") and any(a.name == "cli" for a in node.names))):
+            sites.append(owner.get(id(node), "<module>"))
+        elif isinstance(node, ast.Import) and any(a.name == "lean_pkg.cli" for a in node.names):
+            sites.append(owner.get(id(node), "<module>"))
+    return sites
+
+
+def test_split_modules_import_cli_only_inside_the_allowed_functions():
+    for module in SPLIT:
+        sites = cli_import_sites(module)
+        assert set(sites) == CLI_IMPORTS_ALLOWED.get(module, set()), (module, sites)
+    # the layers: gate imports neither audit nor cli_parser; audit does not import cli_parser
+    assert not {"audit", "cli_parser", "cli"} & set(lean_pkg_imports("gate")), lean_pkg_imports("gate")
+    assert "cli_parser" not in lean_pkg_imports("audit"), lean_pkg_imports("audit")
+
+
+def test_split_modules_import_alone_without_cli():
+    for module in SPLIT:
+        r = subprocess.run([sys.executable, "-c", f"import sys, lean_pkg.{module}; "
+                            "print(' '.join(sorted(m for m in sys.modules if m.startswith('lean_pkg'))))"],
+                           capture_output=True, text=True, check=True, cwd=ROOT,
+                           env={"PYTHONPATH": str(ROOT / "src"), "PYTHONDONTWRITEBYTECODE": "1",
+                                "PATH": "/usr/bin:/bin"})
+        loaded = r.stdout.split()
+        assert f"lean_pkg.{module}" in loaded and "lean_pkg.cli" not in loaded, (module, loaded)
+
+
+def test_no_module_reaches_a_split_name_through_cli():
+    # stage 2's rule for the stage-3 names: lean-pkg's own modules read a name where it is defined
+    # (gate_mod.X, audit.X, cli_parser.X; gate.py is imported as gate_mod, because `gate` is a common local
+    # name for a package's gate record), never through cli.py's re-export, which is for outside scripts
+    moved = set().union(*(defined_names(m) for m in SPLIT))
+    found = []
+    for path in own_python_files():
+        if path == SRC / "cli.py":
+            continue
+        tree = ast.parse(path.read_text())
+        aliases = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)
+                   and ((n.level == 1 and n.module is None) or n.module == "lean_pkg")
+                   for a in n.names if a.name == "cli"}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in aliases \
+                    and n.attr in moved:
+                found.append(f"{path.relative_to(ROOT)}:{n.lineno}: {n.value.id}.{n.attr}")
+            elif isinstance(n, ast.ImportFrom) and n.module in ("cli", "lean_pkg.cli") \
+                    and any(a.name in moved for a in n.names):
+                found.append(f"{path.relative_to(ROOT)}:{n.lineno}: from {n.module} import")
+    assert not found, found
+
+
+def test_gate_is_never_imported_under_its_own_name():
+    # `from . import gate` would be shadowed by the local `gate = pkg.get("gate")` many functions have;
+    # lean-pkg's modules import it as gate_mod
+    found = [f"{p.relative_to(ROOT)}:{n.lineno}" for p in own_python_files()
+             for n in ast.walk(ast.parse(p.read_text()))
+             if isinstance(n, ast.ImportFrom) and ((n.level == 1 and n.module is None) or n.module == "lean_pkg")
+             and any(a.name == "gate" and a.asname != "gate_mod" for a in n.names)]
+    assert not found, found
+
+
+def test_no_split_module_rebinds_a_core_name():
+    names = core_defined_names()
+    for module in SPLIT:
+        clash = defined_names(module) & names
+        assert not clash, f"{module}.py rebinds core names (core.py would not see it): {sorted(clash)}"

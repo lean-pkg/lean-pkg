@@ -22,7 +22,7 @@ import re
 import shlex
 import sys
 
-from . import cli
+from . import audit, cli, gate as gate_mod
 from . import core
 
 TERMINAL = ("upstreamed", "archived")
@@ -62,8 +62,8 @@ def lower_receipt(pkg: dict, repo: pathlib.Path) -> tuple[dict | None, list[dict
             bad.append({"path": rel, "error": "not valid JSON"})
             continue
         try:
-            cli.validate_receipt(pkg, repo, obj)
-            why = cli.recorded_report_log_problem(repo, obj, rel)   # gate refuses a receipt without its log
+            gate_mod.validate_receipt(pkg, repo, obj)
+            why = gate_mod.recorded_report_log_problem(repo, obj, rel)   # gate refuses a receipt without its log
             if why:
                 raise core.Fail(why)
         except core.Fail as e:
@@ -80,11 +80,11 @@ def comparator_on_disk(pkg: dict, repo: pathlib.Path, commit: str) -> tuple[str 
     """(path, None) when .lean-receipts/<commit12>-comparator.json validates against `commit` at HEAD,
     (path, error) when it exists but does not, (None, None) when there is none."""
     rel = f".lean-receipts/{commit[:12]}-comparator.json"
-    obj = cli.recorded_json(repo, rel)
+    obj = gate_mod.recorded_json(repo, rel)
     if obj is None:
         return (rel, "not valid JSON") if (repo / rel).exists() else (None, None)
     try:
-        cli.validate_comparator(pkg, repo, obj, commit)
+        gate_mod.validate_comparator(pkg, repo, obj, commit)
     except core.Fail as e:
         return rel, str(e)
     return rel, None
@@ -136,7 +136,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
         repo = None
     state["checkout"] = str(repo) if repo is not None else None
     if repo is None or not repo.is_dir():
-        detail = cli.missing_path_detail(name, pkg, repo)
+        detail = audit.missing_path_detail(name, pkg, repo)
         cmd = detail.split("`")[1] if detail.count("`") >= 2 else None   # its `lean-pkg update ... --dry-run`
         return blocked("missing-checkout", f"missing checkout: {detail}", cmd)
     head = core.git_head(repo)
@@ -174,13 +174,13 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
 
     # Recorded evidence.
     gate = pkg.get("gate") or {}
-    rec = cli.recorded_json(repo, gate.get("receipt"))
-    comp = cli.recorded_json(repo, gate.get("comparator"))
+    rec = gate_mod.recorded_json(repo, gate.get("receipt"))
+    comp = gate_mod.recorded_json(repo, gate.get("comparator"))
     state["gate_commit"] = (rec or {}).get("commit") if isinstance(rec, dict) else None
     state["comparator_commit"] = (comp or {}).get("commit") if isinstance(comp, dict) else None
-    state["comparator_configs"] = cli.head_comparator_configs(repo)
+    state["comparator_configs"] = gate_mod.head_comparator_configs(repo)
     if status in CLEAN_TREE_STATUSES:
-        state["dirty"] = cli.dirty_tracked(repo)
+        state["dirty"] = gate_mod.dirty_tracked(repo)
 
     if status in ("scratch", "active") and not live:
         return out(f"lean-pkg lease claim {name} --workspace W --agent {_q(ag)} --reason \"...\"",
@@ -215,7 +215,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
             return out(f"lean-pkg gate {name} --receipt {_q(repo / cand['path'])}{comp_flag}{as_agent}",
                        f"gate-pending with a lower-tier receipt bound to HEAD {head[:12]}; validate first: "
                        f"`lean-pkg gate {name} --check --receipt {_q(repo / cand['path'])}{comp_flag}`")
-        at_head = [b for b in bad if b.get("commit") and cli.package_descendant(
+        at_head = [b for b in bad if b.get("commit") and gate_mod.package_descendant(
             repo, b["commit"], head, pkg)[0]] if bad else []
         if at_head:
             b = at_head[0]
@@ -239,7 +239,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
                            f"restore it from git, or re-gate (`lean-pkg update {name} --status gate-pending "
                            f"--reason TEXT`)")
         try:
-            cli.validate_receipt(pkg, repo, rec)
+            gate_mod.validate_receipt(pkg, repo, rec)
         except core.Fail as e:
             # #67: one step (`gate --regate`), not `update --status gate-pending` then `gate`.
             cand, bad = lower_receipt(pkg, repo)
@@ -261,7 +261,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
                        f"the gate receipt no longer binds HEAD ({e}): produce a lower-tier receipt for HEAD "
                        f"{head[:12]} (checker job on HEAD), validate it with this command, then "
                        f"`lean-pkg gate {name} --receipt R --regate`")
-        why = cli.recorded_report_log_problem(repo, rec, gate["receipt"])
+        why = gate_mod.recorded_report_log_problem(repo, rec, gate["receipt"])
         if why:            # gate would refuse this receipt today: its sealed log is gone or differs
             rp = _q(repo / gate["receipt"])
             return blocked("invalid-receipt", f"invalid receipt {gate['receipt']}: {why}",
@@ -277,7 +277,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
                                f"unreadable receipt: comparator receipt {gate.get('comparator')!r} is missing "
                                f"or not JSON in {repo}")
             try:
-                cli.validate_comparator(pkg, repo, comp, bound)
+                gate_mod.validate_comparator(pkg, repo, comp, bound)
             except core.Fail as e:
                 notes.append(f"recorded comparator receipt is not valid at HEAD: {e}")
             else:
@@ -362,10 +362,10 @@ def toolchain_below_floor(pkg: dict, repo: pathlib.Path, head: str | None) -> tu
     lines = raw.decode("utf-8", "replace").splitlines() if raw else []
     tc = (lines[0].strip() if lines else "") or str(pkg.get("lean_toolchain") or "").strip()
     try:
-        floor = cli.resolve_toolchain_floor(None)
+        floor = audit.resolve_toolchain_floor(None)
     except core.UsageError:
-        floor = cli.DEFAULT_TOOLCHAIN_FLOOR
-    key, floor_key = cli.parse_lean_toolchain(tc), cli.parse_lean_toolchain(floor)
+        floor = audit.DEFAULT_TOOLCHAIN_FLOOR
+    key, floor_key = audit.parse_lean_toolchain(tc), audit.parse_lean_toolchain(floor)
     return (tc, floor) if key and floor_key and key < floor_key else None
 
 
@@ -472,8 +472,8 @@ def cmd_next(args) -> int:
         core.require_nonempty("--agent", args.agent)
     override = None
     if getattr(args, "repo", None) is not None:
-        reg, override = cli.repo_override(reg, args.name, args.repo)
-        if note := cli.repo_override_note(override):
+        reg, override = gate_mod.repo_override(reg, args.name, args.repo)
+        if note := gate_mod.repo_override_note(override):
             print(note, file=sys.stderr)
     payload = decide(reg, args.name, args.agent)
     payload["repo_override"] = override

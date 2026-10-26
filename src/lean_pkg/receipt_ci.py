@@ -36,7 +36,7 @@ the job's step summary (`GITHUB_STEP_SUMMARY`).
 
 `--collect RUN [--attempt N] [--repo DIR]` (on the author's machine): downloads the run's receipt artifact
 with `gh run download` (the author's own `gh` login), checks it as `gate --check` does against the local
-checkout (cli.validate_receipt, which runs the `ci` block's level 1, and the redacted log against
+checkout (gate_mod.validate_receipt, which runs the `ci` block's level 1, and the redacted log against
 report_sha256), and copies the receipt and its log into `.lean-receipts/`. It never commits or pushes.
 
 `--template`: prints the caller workflow a package commits (`uses: lean-pkg/lean-pkg/.github/workflows/
@@ -59,7 +59,7 @@ import tempfile
 import urllib.error
 import urllib.request
 
-from . import ci_github, cli, core
+from . import ci_github, core, gate as gate_mod
 from . import producer as pr
 from . import receipt as rc
 
@@ -345,7 +345,7 @@ def cmd_write(args) -> int:
         return code
     c12 = sha[:12]
     out = (pathlib.Path(args.out).expanduser() if args.out
-           else repo / ".lean-receipts" / f"{c12}-{cli.receipt_job_slug(job_id)}.json")
+           else repo / ".lean-receipts" / f"{c12}-{gate_mod.receipt_job_slug(job_id)}.json")
     receipt_bytes = out.read_bytes()
     written = json.loads(receipt_bytes)
     if written.get("report_sha256") != report_sha:     # an internal invariant: produce hashed other bytes
@@ -468,15 +468,15 @@ def cmd_collect(args) -> int:
             return _collect_refuse(args, refusals, checks, base)
         pkg = receipt_check.referee_pkg(repo.resolve().name, False)
         try:
-            cli.validate_receipt(pkg, repo, rec)
-            line, _info = cli.report_log_check(repo, rec, rpath)
+            gate_mod.validate_receipt(pkg, repo, rec)
+            line, _info = gate_mod.report_log_check(repo, rec, rpath)
         except core.Fail as e:
             return _collect_refuse(args, [f"{rpath.name}: {e}"], checks, base)
         checks.append(f"✓ receipt: {rpath.name} passes gate's validator at this checkout's HEAD (the ci block's "
                       f"level 1 included)")
         checks.append(line)
-        log_name = cli.report_log_name(rec)
-        logs = [p for p in (adir / log_name, adir / (log_name + cli.REPORT_GZ_SUFFIX)) if p.is_file()]
+        log_name = gate_mod.report_log_name(rec)
+        logs = [p for p in (adir / log_name, adir / (log_name + gate_mod.REPORT_GZ_SUFFIX)) if p.is_file()]
         base["log"] = f".lean-receipts/{logs[0].name}" if logs else None
         copies = [(rpath, rdir / rpath.name)] + [(p, rdir / p.name) for p in logs]
         for src, dst in copies:

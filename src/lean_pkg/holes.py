@@ -64,7 +64,7 @@ ENTRY_KEYS = frozenset({"config_sha256", "definitions", "scaffold", "smoke"})
 SIGNOFF_KEYS = frozenset({"reviewer", "date", "judged_as"})
 SCAFFOLD_KEYS = frozenset({"generated_by", "note", "types_note", "todo"})
 SMOKE_KEYS = frozenset({"reason"})
-# Same rule as cli.COMPARATOR_CONFIG_RE (a test pins the two equal); holes.py imports nothing of lean-pkg.
+# Same rule as gate.COMPARATOR_CONFIG_RE (a test pins the two equal); holes.py imports nothing of lean-pkg.
 CONFIG_RE = re.compile(r"^(comparator[^/]*\.json|comparator/config[^/]*\.json)$")
 _DATE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")

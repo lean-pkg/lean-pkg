@@ -44,7 +44,7 @@ from __future__ import annotations
 import json
 import pathlib
 
-from . import cli
+from . import gate as gate_mod
 from . import core
 from .holes import CONFIG_RE, SIDECAR, check_definition_holes, summary as signoff_summary
 
@@ -139,13 +139,13 @@ def judge(pkg: dict, repo: pathlib.Path, rel: str, cfg: dict) -> dict:
         out["reason"] = "no comparator receipt is recorded (lean-pkg comparator NAME --receipt R)"
         return out
     out["receipt"] = comp_rel
-    comp = cli.recorded_json(repo, comp_rel)
+    comp = gate_mod.recorded_json(repo, comp_rel)
     if not isinstance(comp, dict):
         out["reason"] = f"the recorded comparator receipt {comp_rel} is missing or not JSON"
         return out
-    lower = cli.recorded_json(repo, gate.get("receipt")) if gate.get("receipt") else None
+    lower = gate_mod.recorded_json(repo, gate.get("receipt")) if gate.get("receipt") else None
     try:
-        cli.validate_comparator(pkg, repo, comp, str((lower or {}).get("commit") or "") or None)
+        gate_mod.validate_comparator(pkg, repo, comp, str((lower or {}).get("commit") or "") or None)
     except core.Fail as e:
         out["reason"] = f"the recorded comparator receipt {comp_rel} does not validate at HEAD ({e})"
         return out
@@ -169,7 +169,7 @@ def judge(pkg: dict, repo: pathlib.Path, rel: str, cfg: dict) -> dict:
     holes = list(cfg.get("definition_names") or [])
     if holes:
         try:
-            sidecar = cli.sidecar_at(repo, commit)
+            sidecar = gate_mod.sidecar_at(repo, commit)
         except ValueError as e:
             raise core.Fail(str(e)) from None
         signed: dict = {}

@@ -149,12 +149,20 @@ def lp():
     return load_module()
 
 
+# The modules cut out of cli.py that import core's names by name (#317 stage 3): each holds its own binding.
+SPLIT_MODULES = ("lean_pkg.gate", "lean_pkg.audit", "lean_pkg.cli_parser")
+
+
 def patch_core(monkeypatch, name: str, value) -> None:
-    """Set NAME to VALUE on lean_pkg.core and on its lean_pkg.cli re-export (#317). Code in core.py reads
-    core's globals and code in cli.py reads cli's, so a name used on both sides is patched on both; a
-    patch on cli alone would miss every caller that moved to core.py."""
+    """Set NAME to VALUE on lean_pkg.core, on its lean_pkg.cli re-export, and on every module cut out of
+    cli.py that imports it by name (gate.py, audit.py, cli_parser.py; #317). Code in each module reads its
+    own globals, so a name used on several sides is patched on all of them; a patch on cli alone would miss
+    every caller that moved to core.py, gate.py or audit.py."""
     monkeypatch.setattr(importlib.import_module("lean_pkg.core"), name, value)
     monkeypatch.setattr(load_module(), name, value)
+    for mod in map(importlib.import_module, SPLIT_MODULES):
+        if name in vars(mod):
+            monkeypatch.setattr(mod, name, value)
 
 
 @pytest.fixture(autouse=True)

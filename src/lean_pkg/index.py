@@ -22,7 +22,7 @@ import urllib.request
 
 import yaml
 
-from . import cli
+from . import gate as gate_mod
 from . import core
 from . import lean_scan
 
@@ -573,14 +573,14 @@ def receipt_checker(blob) -> str:
 
 def descends(clone: pathlib.Path, bound: str, head: str, record: dict | None = None,
              checker: str = "") -> tuple[bool, str, list[str] | None]:
-    """The binding rule for the tag and the evidence commits: cli.package_descendant, the rule every
+    """The binding rule for the tag and the evidence commits: gate_mod.package_descendant, the rule every
     other consumer applies, when `record` (docs_record) opts in; otherwise exactly the evidence-only rule.
     The clone has no registered nested packages, and its formalization.yaml keeps the evidence-only
     rule's stricter reading unless the record opts in. (ok, note, docs_paths)."""
     if record is None:
-        ok, note = cli.evidence_only_descendant(clone, bound, head)
+        ok, note = gate_mod.evidence_only_descendant(clone, bound, head)
         return ok, note, None
-    return cli.package_descendant(clone, bound, head, record, checker=checker or "", nested=())
+    return gate_mod.package_descendant(clone, bound, head, record, checker=checker or "", nested=())
 
 
 def find_evidence(clone: pathlib.Path, rel: str, pin: str | None, record: dict | None = None,
@@ -765,10 +765,10 @@ def materialize_report_log(clone: pathlib.Path, pin: str, receipt: dict, lower_r
     pin or an evidence-only descendant, written into the clone like every other evidence file so that
     report_log_check hashes those bytes. None committed: refused, as `gate` refuses (a receipt whose
     report_sha256 binds nothing is not evidence; the index keeps the receipts, never the logs)."""
-    name = cli.report_log_name(receipt)
+    name = gate_mod.report_log_name(receipt)
     base = pathlib.PurePosixPath(lower_rel).parent
     out: dict[str, bytes] = {}
-    for fname in (name, name + cli.REPORT_GZ_SUFFIX):
+    for fname in (name, name + gate_mod.REPORT_GZ_SUFFIX):
         rel = str(base / fname)
         try:
             out.update(materialize(clone, pin, [rel], record, checker))
@@ -776,11 +776,11 @@ def materialize_report_log(clone: pathlib.Path, pin: str, receipt: dict, lower_r
             if "is not committed at the pin" not in str(e):
                 raise
     if not out:
-        raise core.Fail(f"{cli.REPORT_LOG_MISSING}{base / name} (or its {cli.REPORT_GZ_SUFFIX}) is not committed "
+        raise core.Fail(f"{gate_mod.REPORT_LOG_MISSING}{base / name} (or its {gate_mod.REPORT_GZ_SUFFIX}) is not committed "
                         f"at the pin or in an evidence-only descendant of it; without it report_sha256 binds "
                         f"nothing. Commit the sealed redacted log byte-exact at that path (a copy kept under "
                         f"another name may be copied there when its SHA-256 is the receipt's report_sha256) and "
-                        f"push it ({cli.REPORT_LOG_RESTORE})")
+                        f"push it ({gate_mod.REPORT_LOG_RESTORE})")
     return out
 
 
@@ -798,11 +798,11 @@ def derive(clone: pathlib.Path, pin: str, lower_rel: str | None,
     if lower_rel:
         try:
             res["lower"] = json.loads(got[lower_rel])
-            cli.validate_receipt(PUBLIC_GATE_PKG, clone, res["lower"])
+            gate_mod.validate_receipt(PUBLIC_GATE_PKG, clone, res["lower"])
             if res["lower"]["commit"] != pin:
                 raise core.Fail(f"lower-tier receipt binds {res['lower']['commit'][:12]}, not the pin")
             got.update(materialize_report_log(clone, pin, res["lower"], lower_rel, record, checker))
-            cli.report_log_check(clone, res["lower"], clone / lower_rel)
+            gate_mod.report_log_check(clone, res["lower"], clone / lower_rel)
             res["lower_ok"] = True
         except (ValueError, core.Fail) as e:
             res["failures"].append(f"lower-tier receipt {lower_rel}: {e}")
@@ -814,7 +814,7 @@ def derive(clone: pathlib.Path, pin: str, lower_rel: str | None,
                     if isinstance(c, dict) and isinstance(c.get("log"), str)]
             got.update(materialize(clone, pin, logs, record, checker))
             lower_commit = res["lower"]["commit"] if res["lower_ok"] else None
-            cli.validate_comparator(PUBLIC_GATE_PKG, clone, res["comparator"], lower_commit)
+            gate_mod.validate_comparator(PUBLIC_GATE_PKG, clone, res["comparator"], lower_commit)
             if res["comparator"]["commit"] != pin:
                 raise core.Fail(f"comparator receipt binds {res['comparator']['commit'][:12]}, not the pin")
             res["comparator_ok"] = True
@@ -930,7 +930,7 @@ def tag_docs_hint(clone: pathlib.Path, pin: str, head: str, checker: str, name: 
     """Without the opt-in: a clause naming the docs-only route when that rule would admit the tag."""
     if not core._is_ancestor(clone, pin, head):
         return ""
-    ok, note, _ = cli.docs_only_descendant(clone, pin, head, {}, checker)
+    ok, note, _ = gate_mod.docs_only_descendant(clone, pin, head, {}, checker)
     if not ok:
         return ""
     return (f"; it is a {note.replace('; opted in', '')}, which binds only when the package's registry record "

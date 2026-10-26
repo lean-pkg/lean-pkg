@@ -59,7 +59,7 @@ lines are not recommended.
 
 | # | Slogan | What it claims | Verdict | Rank |
 |---|---|---|---|---|
-| A1 | Lean checks the proofs. You check the statements. lean-pkg checks the receipts. | three checkers, three objects: the kernel checks proofs, the reader checks statement fidelity, lean-pkg checks that receipts agree with the bytes at one commit | exact: `gate` validates receipts against the commit (`cli.validate_receipt`), and statement fidelity is the reader's (page trust line) | 1 |
+| A1 | Lean checks the proofs. You check the statements. lean-pkg checks the receipts. | three checkers, three objects: the kernel checks proofs, the reader checks statement fidelity, lean-pkg checks that receipts agree with the bytes at one commit | exact: `gate` validates receipts against the commit (`gate.validate_receipt`), and statement fidelity is the reader's (page trust line) | 1 |
 | A2 | What was verified, against which statement, at which commit. | the three facts a page records | exact: the page reads the statement from the bound commit, the receipts name the commit, the comparator receipt names the theorems compared | 2 |
 | A3 | Lean checks every step; you check the statement. | the division between kernel and reader | exact; already the tutorial's motto. Says nothing about lean-pkg's own job | 3 |
 | A4 | Verified means: this statement, this proof, this commit. | a definition of the word *verified* on a page | close: on a page *verified* also needs the claims ledger to close the row (`page`), which this leaves out | 15 |

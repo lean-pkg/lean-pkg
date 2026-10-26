@@ -49,7 +49,7 @@ import shutil
 import subprocess
 import tempfile
 
-from . import cli
+from . import cli, gate as gate_mod
 from . import core
 
 SCHEMA = "comparator-types/1"
@@ -617,7 +617,7 @@ def driver_script(config: dict, *, lean_threads: bool = True) -> str:
 
 
 def lake_dir_rel(repo: pathlib.Path, lake_env: str | None) -> str:
-    rel = cli._safe_rel(lake_env, "--lake-env") if lake_env else "."
+    rel = gate_mod._safe_rel(lake_env, "--lake-env") if lake_env else "."
     d = repo / rel
     if not any((d / n).is_file() for n in LAKEFILES):
         raise core.Fail(f"no lakefile.lean or lakefile.toml in {d}; `--challenge-from-type` needs a Lake "

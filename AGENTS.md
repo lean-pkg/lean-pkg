@@ -45,15 +45,27 @@ bash scripts/private-boundary-check.sh    # must exit 0
 
 Layout:
 
-- `src/lean_pkg/cli.py`: the `lean-pkg` CLI (`main(argv)`): the parser, dispatch and the
-  commands not yet in their own module.
+- `src/lean_pkg/cli.py`: the `lean-pkg` CLI (`main(argv)`): dispatch, committed mode, the
+  registry lock, `LLMS_TEXT` and the commands not yet in their own module.
+- `src/lean_pkg/cli_parser.py`: `build_parser()`, the whole argparse tree `main` parses with
+  (the contract tests and `scripts/command_docs.py` use it too), and `_Parser`.
+- `src/lean_pkg/gate.py`: the trust gate (`gate`, `gate --check`, `validate_receipt`), the
+  comparator evidence path (`validate_comparator`, `comparator attach|check`), the descendant
+  rules (`package_descendant`) and `--repo DIR` (`repo_override`). Imported as `gate_mod`:
+  `gate` is a common local name for a package's gate record.
+- `src/lean_pkg/audit.py`: `registry audit` (`audit_registry`) and `registry validate`
+  (`validate_registry`). gate.py, audit.py and cli_parser.py were cut out of cli.py (#317); they
+  never import `cli` at the top level (cli_parser's `build_parser` and two audit functions import
+  it where they run), and lean-pkg's modules read their names there, not through `cli`
+  (`tests/test_core_split.py`). `cli.py` re-exports them for one release.
 - `src/lean_pkg/core.py`: the shared core the command modules build on: `Fail` and
   `UsageError`, the registry constants, time policy, the git helpers, registry IO and the
   event log. It never imports `cli` (only `build_scope`, a leaf). The command modules import it
   directly (`from . import core`) and reach a name still defined in `cli.py` as `cli.X`, never
   through a `cli as core` alias (`tests/test_core_split.py`). `cli.py` re-exports every name that
   moved here (#317) for one release, for outside scripts; a test that patches one of them
-  patches it on both modules (`patch_core` in `tests/conftest.py`).
+  patches it on every module that binds it (`patch_core` in `tests/conftest.py`: core, cli,
+  gate, audit, cli_parser), and a name defined in a split module is patched there.
 - `src/lean_pkg/comparator_receipt.py`: the `comparator-receipt` runner (also `lean-pkg receipt comparator`)
   (`main(argv)`).
 - `src/lean_pkg/scripts/comparator-check.sh`: the vendored Palomar

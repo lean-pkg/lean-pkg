@@ -16,7 +16,7 @@ import tomllib
 
 import pytest
 
-from lean_pkg import cli, core
+from lean_pkg import audit, cli, core, gate
 from lean_pkg import extract as ex
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -283,7 +283,7 @@ def test_source_workspace_is_unchanged_and_no_registry_is_opened(src, tmp_path, 
     def boom(*a, **k):
         raise AssertionError("the registry must not be opened")
     for name in ("load_registry", "registry_path", "save_registry"):
-        for mod in (cli, core):   # defined in core.py, re-exported by cli.py (#317): both bindings
+        for mod in (cli, core, gate, audit):   # defined in core.py; cli, gate and audit bind it too (#317)
             if hasattr(mod, name):
                 monkeypatch.setattr(mod, name, boom)
     reg = tmp_path / "never" / "lean-packages.yaml"
