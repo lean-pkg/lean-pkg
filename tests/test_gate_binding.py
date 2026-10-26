@@ -329,13 +329,13 @@ def test_gz_expanding_past_the_recorded_bytes_is_refused(lp, env, tmp_path, caps
 def test_gz_without_report_compressed_is_bounded_by_the_default_cap(lp, env, tmp_path, capsys, monkeypatch):
     """A .gz compressed by hand for an older receipt (no report_compressed) is still checked against
     report_sha256, under the fixed default decompression cap."""
-    from lean_pkg import cli
+    from lean_pkg import gate   # the cap is read by gunzip_digest, in gate.py (#317)
     r = make_receipt(env.repo_a, report_sha256=hashlib.sha256(LOG).hexdigest())
     (tmp_path / (_log_name(r) + ".gz")).write_bytes(_gz(LOG))
     p = write_receipt(tmp_path, r)
     assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 0
     capsys.readouterr()
-    monkeypatch.setattr(cli, "REPORT_GZ_DEFAULT_CAP", 10)
+    monkeypatch.setattr(gate, "REPORT_GZ_DEFAULT_CAP", 10)
     assert main(lp, env, "gate", "alpha", "--receipt", str(p), "--check") == 1
     assert "decompresses to more than the 10 bytes" in capsys.readouterr().err
 

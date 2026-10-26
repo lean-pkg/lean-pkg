@@ -30,7 +30,7 @@ from . import exercise_forbid as fb
 from . import lean_scan
 from .deps_closure import header_imports
 from .palomar_check import has_module_header
-from .cli import parse_lean_toolchain
+from .audit import parse_lean_toolchain
 from .core import scrubbed_env
 
 SCHEMA = "exercise-check/1"

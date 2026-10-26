@@ -84,11 +84,11 @@ def test_a_comparator_receipt_given_as_the_lower_tier_keeps_its_old_refusal(lp, 
 
 def test_every_reader_shares_the_check(lp, env):
     """ledger, next, page, palomar, index check, formalization, receipt check and receipt ci all call
-    validate_receipt (defined in cli.py, so a module reaches it as cli.validate_receipt, #317)."""
+    validate_receipt (defined in gate.py, so a module reaches it as gate_mod.validate_receipt, #317)."""
     pkg = lp.get_pkg(lp.load_registry(env.registry), "alpha")
     with pytest.raises(lp.Fail, match="upgrade lean-pkg"):
         lp.validate_receipt(pkg, env.repo_a, make_receipt(env.repo_a, schema="lower-receipt/2"))
-    callers = sorted(p.name for p in SRC.glob("*.py") if "cli.validate_receipt(" in p.read_text())
+    callers = sorted(p.name for p in SRC.glob("*.py") if "gate_mod.validate_receipt(" in p.read_text())
     assert callers == ["formalization.py", "index.py", "ledger.py", "next_step.py", "page.py", "palomar.py",
                        "receipt_check.py", "receipt_ci.py"]
 
@@ -306,7 +306,7 @@ def test_the_event_scan_has_teeth(lp):
         ["m: event 'registry-created' keys ['nope'] are not in EVENT_KEYS"]
     assert scan_problems(lp, lp.EVENT_KEYS, {"m": opaque}) == ["cannot resolve m:2: event e"]
     lost = {k: v for k, v in lp.EVENT_KEYS.items() if k != "regated"}
-    assert scan_problems(lp, lost, source_modules()) == ["cli: event 'regated' is not in EVENT_KEYS"]
+    assert scan_problems(lp, lost, source_modules()) == ["gate: event 'regated' is not in EVENT_KEYS"]
 
 
 def test_the_runtime_check_refuses_an_undocumented_event_or_key(lp):

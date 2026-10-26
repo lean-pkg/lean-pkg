@@ -56,7 +56,7 @@ import tempfile
 
 import yaml
 
-from . import cli
+from . import cli, cli_parser, gate as gate_mod
 from . import core
 from . import claims as claims_mod
 from .holes import check_definition_holes, smoke_paths as holes_smoke, summary as signoff_summary
@@ -328,7 +328,7 @@ def headline_results(pkg: dict | None, repo: pathlib.Path, warnings: list[str], 
         return None
     cfg = hl.load(repo, rel)
     try:
-        sidecar = cli.sidecar_at(repo)
+        sidecar = gate_mod.sidecar_at(repo)
     except ValueError as e:
         raise core.Fail(str(e)) from e
     if rel in holes_smoke(sidecar):          # before judging: the plain reason, not "not a subset"
@@ -382,10 +382,10 @@ def main_results(repo: pathlib.Path, warnings: list[str], pkg: dict | None = Non
         return picked
     out: list[dict] = []
     try:                                     # lean-pkg-signoff.json at HEAD (holes.py)
-        smoke = holes_smoke(cli.sidecar_at(repo))
+        smoke = holes_smoke(gate_mod.sidecar_at(repo))
     except ValueError as e:
         raise core.Fail(str(e)) from e
-    for rel in cli.head_comparator_configs(repo):
+    for rel in gate_mod.head_comparator_configs(repo):
         if rel in smoke:
             warnings.append(f"{rel}: marked as a smoke check in lean-pkg-signoff.json; its theorems state no "
                             f"result and are left out of status.main_results")
@@ -412,7 +412,7 @@ def main_results(repo: pathlib.Path, warnings: list[str], pkg: dict | None = Non
         holes = cfg.get("definition_names") or []
         judged = None
         try:                                 # lean-pkg-signoff.json at HEAD (holes.py)
-            sidecar = cli.sidecar_at(repo)
+            sidecar = gate_mod.sidecar_at(repo)
         except ValueError as e:
             raise core.Fail(str(e)) from e
         if holes:
@@ -447,12 +447,12 @@ def receipt_facts(pkg: dict, repo: pathlib.Path, bind: dict | None = None) -> di
     """sorry_count, axioms and evidence pointers from the lower-tier gate receipt, if readable.
 
     bind (render --repo): a dict that receives {receipt, included, reason}; the facts are then used only
-    when the receipt validates against HEAD of `repo` (cli.validate_receipt: bound to HEAD or an
+    when the receipt validates against HEAD of `repo` (gate_mod.validate_receipt: bound to HEAD or an
     evidence-only descendant), so a registry receipt for another commit is never presented as this
     checkout's evidence."""
     gate = pkg.get("gate") or {}
     rel = gate.get("receipt")
-    rec = cli.recorded_json(repo, rel) if rel else None
+    rec = gate_mod.recorded_json(repo, rel) if rel else None
     if bind is not None:
         bind.update(receipt=rel, included=False, reason=None)
         if not rel:
@@ -462,7 +462,7 @@ def receipt_facts(pkg: dict, repo: pathlib.Path, bind: dict | None = None) -> di
             bind["reason"] = f"the recorded gate receipt {rel} is not committed at HEAD (or not JSON)"
             return None
         try:
-            cli.validate_receipt(pkg, repo, rec)
+            gate_mod.validate_receipt(pkg, repo, rec)
         except core.Fail as e:
             bind["reason"] = f"the recorded gate receipt {rel} does not validate at HEAD ({e})"
             return None
@@ -805,10 +805,10 @@ def _render_from_repo(reg: dict, name: str, repo_dir: str, *, out: str | None, a
                       ) -> tuple[list[str], dict, list[str]]:
     """`formalization render NAME --repo DIR`: read-only (never --write, never the registry). The checkout
     rules, the stderr note and JSON repo_override {path, registered_path, remote_match} are page --repo's
-    (cli.repo_override); repo_override also carries head (DIR's HEAD), source "committed-head" and
+    (gate_mod.repo_override); repo_override also carries head (DIR's HEAD), source "committed-head" and
     receipt_facts {receipt, included, reason}."""
-    _reg, override = cli.repo_override(reg, name, repo_dir)
-    if note := cli.repo_override_note(override):
+    _reg, override = gate_mod.repo_override(reg, name, repo_dir)
+    if note := gate_mod.repo_override_note(override):
         print(note, file=core.sys.stderr)
     d = pathlib.Path(override["path"])
     pkg = core.get_pkg(_reg, name)
@@ -1070,8 +1070,8 @@ def add_parsers(sub, add_json) -> None:
                         "formalization.yaml source id (never the registry; not committed); without it a dry run")
     a.add_argument("--agent", default=None, help="lease holder, if one is live")
     add_json(a)
-    cli._hidden_copies(a, render)   # a render flag on anchor (and back) is refused as before, by name
-    cli._hidden_copies(render, a)
+    cli_parser._hidden_copies(a, render)   # a render flag on anchor (and back) is refused as before, by name
+    cli_parser._hidden_copies(render, a)
     a.set_defaults(fn=cmd_formalization, name=ANCHOR_CMD)
     render.set_defaults(fn=cmd_formalization)
     from .formalization_kept import add_parser as add_kept   # the kept view and its hash (read-only)

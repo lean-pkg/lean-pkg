@@ -363,4 +363,6 @@ changes:
 # Docs: proposal 0003 stage H0, the planned statements-module rule and hyp-probe/1 format (#346).
 # Internal (#351, #317): lean-pkg's modules import core.py directly instead of `cli` under the name core;
 # cli.py keeps its re-exports for one release; no change to the CLI or its JSON.
-no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346, 351]
+# Internal: gate, audit/validate and the argument parser move out of cli.py into gate.py, audit.py and
+# cli_parser.py; cli.py keeps re-exports for one release; no change to the CLI or its JSON (#353, #317).
+no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346, 351, 353]

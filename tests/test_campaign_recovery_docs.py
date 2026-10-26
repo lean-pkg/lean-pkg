@@ -234,10 +234,10 @@ def test_every_reason_marker_the_classifier_matches_is_in_the_code():
     assert set(markers) == {"report log missing: ", "mismatch", "sealed verify log is not readable",
                             "lake-manifest.json", "comparator log missing: ", "log_sha256 mismatch",
                             "sacct seal record missing or changed: "}
-    code = "".join((ROOT / "src" / "lean_pkg" / f).read_text() for f in ("cli.py", "receipt_check.py"))
+    code = "".join((ROOT / "src" / "lean_pkg" / f).read_text() for f in ("gate.py", "receipt_check.py"))
     for m in markers:
         assert m in code, m
-    from lean_pkg import cli
-    assert cli.REPORT_LOG_MISSING == "report log missing: "
+    from lean_pkg import gate
+    assert gate.REPORT_LOG_MISSING == "report log missing: "
     classes = {row[2] for row in table_rows()}
     assert classes == {"passes now", "restoration only", "new run", "new run (for that ref)"}

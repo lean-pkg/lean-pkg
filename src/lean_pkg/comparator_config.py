@@ -32,7 +32,7 @@ import pathlib
 import re
 import shlex
 
-from . import cli
+from . import gate as gate_mod
 from . import core
 from . import holes
 from . import lean_scan
@@ -288,7 +288,7 @@ def synced_claims(pkg: dict, repo: pathlib.Path, checkout: bool = False) -> list
     synced = pkg.get("claims_synced_commit")
     if not synced or not pkg.get("claims"):
         raise core.Fail(f"{name}: claims are not synced (`lean-pkg claims sync {name}` first)")
-    ok, note, _docs = cli.package_descendant(repo, synced, head, pkg)
+    ok, note, _docs = gate_mod.package_descendant(repo, synced, head, pkg)
     if not ok:
         if checkout:     # #31: say how this checkout differs from the commit the claims are bound to
             raise core.Fail(f"{name}: --checkout {repo}: HEAD {head[:12]} is not the claims-synced commit "
@@ -353,12 +353,12 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
         from . import comparator_types as ct
         scratch = ct.emit_path(repo, out, "--out")
         out = "comparator.json"
-    rel = cli._safe_rel(out, "--out")
-    if not cli.COMPARATOR_CONFIG_RE.match(rel):
+    rel = gate_mod._safe_rel(out, "--out")
+    if not gate_mod.COMPARATOR_CONFIG_RE.match(rel):
         raise core.Fail(f"--out {rel}: not a comparator configuration path (comparator*.json at the "
                         f"package root or comparator/config*.json); the runner would not find it")
     from .comparator_receipt import cfg_name_collision
-    clash = cfg_name_collision([c for c in cli.head_comparator_configs(repo) if c != rel] + [rel])
+    clash = cfg_name_collision([c for c in gate_mod.head_comparator_configs(repo) if c != rel] + [rel])
     if clash:
         a, b, log = clash
         raise core.Fail(f"--out {rel}: {a} and {b} both map to the log name {log}.log, so "
@@ -388,7 +388,7 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
                         f"scaffold the claims into another configuration (--out), or drop the smoke mark; "
                         f"nothing written")
     configured: set[str] = set(cfg.get("theorem_names") or [])
-    for other in cli.head_comparator_configs(repo):
+    for other in gate_mod.head_comparator_configs(repo):
         if other == rel or other in smoke:      # a smoke check's theorems configure no claim
             continue
         try:
@@ -535,7 +535,7 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
 # changed or uncommitted configuration cannot certify that tree. Never substitutes a candidate config.
 
 def _configs_at(repo: pathlib.Path, rev: str) -> dict[str, bytes]:
-    return {c: core.git_show_bytes(repo, f"./{c}", rev) or b"" for c in cli.head_comparator_configs(repo, rev)}
+    return {c: core.git_show_bytes(repo, f"./{c}", rev) or b"" for c in gate_mod.head_comparator_configs(repo, rev)}
 
 
 def _worktree_configs(repo: pathlib.Path) -> dict[str, bytes]:
@@ -547,7 +547,7 @@ def _worktree_configs(repo: pathlib.Path) -> dict[str, bytes]:
 def _sidecar_at(repo: pathlib.Path, rev: str) -> dict:
     """lean-pkg-signoff.json tracked at <rev> (holes.py); empty when not tracked; Fail when malformed."""
     try:
-        return cli.sidecar_at(repo, rev)
+        return gate_mod.sidecar_at(repo, rev)
     except ValueError as e:
         raise core.Fail(str(e)) from e
 
@@ -643,7 +643,7 @@ def do_coverage(reg: dict, name: str) -> tuple[list[str], dict]:
     if not repo.is_dir():
         raise core.Fail(f"{name}: local_path does not exist: {repo}")
     gate = pkg.get("gate") or {}
-    rec = cli.recorded_json(repo, gate.get("receipt"))
+    rec = gate_mod.recorded_json(repo, gate.get("receipt"))
     bound = str((rec or {}).get("commit") or "")
     if not core._HEX40.fullmatch(bound):
         raise core.Fail(f"{name}: no gate-bound commit (no readable gate receipt recorded); gate first: "

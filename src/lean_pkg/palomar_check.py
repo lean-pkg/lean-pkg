@@ -35,7 +35,7 @@ import pathlib
 import re
 import subprocess
 
-from . import cli
+from . import gate as gate_mod
 from . import core
 from .holes import INLINE_KEYS, SIDECAR, check_definition_holes, migrate_command, parse_sidecar
 from .holes import summary as signoff_summary
@@ -310,7 +310,7 @@ def layout_gaps(tree: Tree) -> list[dict]:
 
 
 def comparator_gaps(tree: Tree, policy: dict, only: str | None) -> tuple[list[dict], list[str]]:
-    configs = cli.head_comparator_configs(tree.repo, tree.commit)
+    configs = gate_mod.head_comparator_configs(tree.repo, tree.commit)
     if only is not None:
         if only not in configs:
             return [_gap("comparator.path_missing", "error",
@@ -757,8 +757,8 @@ def cmd_check(args) -> int:
     reg = core.load_registry(core.registry_path(args))
     override = None
     if getattr(args, "repo", None) is not None:
-        reg, override = cli.repo_override(reg, args.name, args.repo)
-        if note := cli.repo_override_note(override):
+        reg, override = gate_mod.repo_override(reg, args.name, args.repo)
+        if note := gate_mod.repo_override_note(override):
             print(note, file=core.sys.stderr)
     policy, source = load_rules(args.rules)
     pkg = core.get_pkg(reg, args.name)

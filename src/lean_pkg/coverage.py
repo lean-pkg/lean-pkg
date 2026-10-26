@@ -63,7 +63,7 @@ import re
 
 import yaml
 
-from . import cli
+from . import cli, gate as gate_mod
 from . import core
 from . import sites
 from .holes import SIDECAR
@@ -1039,7 +1039,7 @@ def preflight_at_head(name: str, pkg: dict, repo: pathlib.Path) -> dict:
         return res
     where = f"{DEFAULT_COVERAGE_FILE} at {c12}"
     try:
-        sidecar = cli.sidecar_at(repo, "HEAD")
+        sidecar = gate_mod.sidecar_at(repo, "HEAD")
         profiles = sites.for_repo(repo)
     except (ValueError, core.Fail) as e:
         res["ok"] = False

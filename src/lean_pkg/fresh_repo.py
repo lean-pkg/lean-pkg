@@ -51,7 +51,7 @@ import subprocess
 import tarfile
 import tempfile
 
-from . import cli
+from . import cli, gate as gate_mod
 from . import core
 from . import export_paths as xp
 from . import public_safety as ps
@@ -161,7 +161,7 @@ def _copy_tree(srcdir: pathlib.Path, dest: pathlib.Path, files: list[str], drop)
 def gate_bound_commit(pkg: dict, repo: pathlib.Path) -> str | None:
     """The commit the recorded gate receipt binds, when it can be read; provenance only."""
     rel = (pkg.get("gate") or {}).get("receipt")
-    rec = cli.recorded_json(repo, rel) if rel and repo.is_dir() else None
+    rec = gate_mod.recorded_json(repo, rel) if rel and repo.is_dir() else None
     sha = str((rec or {}).get("commit") or "")
     return sha if core._HEX40.fullmatch(sha) else None
 
@@ -180,7 +180,7 @@ def source_commit(pkg: dict, repo: pathlib.Path, given: str | None) -> tuple[str
             raise core.Fail(f"{name}: --source-commit {given!r} is not a commit of {repo}")
         return sha, "--source-commit"
     rel = (pkg.get("gate") or {}).get("receipt")
-    rec = cli.recorded_json(repo, rel) if rel else None
+    rec = gate_mod.recorded_json(repo, rel) if rel else None
     sha = str((rec or {}).get("commit") or "")
     if not rel:
         raise core.Fail(f"{name}: no gate receipt recorded, so there is no gate-bound commit to export; "

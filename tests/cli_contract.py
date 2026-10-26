@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Parse-only access to the `lean-pkg` argument parser, for the golden CLI contract tests.
 
-`main` builds its parser inline. `parser()` stops `main` at its top-level `parse_args` call and keeps
-the parser; `parse_only(argv)` then parses argv with it, exactly as `main` would (old spellings rewritten
-by the root parser, lean_pkg.command_tree), and never runs a command. Nothing here reads or writes a registry."""
+`parser()` is the parser `main` parses with, built by lean_pkg.cli_parser.build_parser (#317);
+`parse_only(argv)` then parses argv with it, exactly as `main` would (old spellings rewritten by the root
+parser, lean_pkg.command_tree), and never runs a command. Nothing here reads or writes a registry."""
 
 from __future__ import annotations
 
@@ -25,33 +25,11 @@ def cli():
     return importlib.import_module("lean_pkg.cli")
 
 
-class _Stop(Exception):
-    pass
-
-
 def parser() -> argparse.ArgumentParser:
-    """The parser `main` builds, captured at `parse_args` (subparsers use parse_known_args, so only the
-    top-level call stops). Built fresh on each call: help texts read the environment when built."""
-    lp = cli()
-    cls = lp._Parser
-    own = "parse_args" in vars(cls)   # restore exactly: an inherited method must stay inherited, or a
-    orig = vars(cls).get("parse_args")   # later patch of argparse.ArgumentParser.parse_args is shadowed
-
-    def stop(self, *args, **kwargs):
-        raise _Stop(self)
-
-    cls.parse_args = stop
-    try:
-        with contextlib.redirect_stdout(io.StringIO()):
-            lp.main([])
-    except _Stop as e:
-        return e.args[0]
-    finally:
-        if own:
-            cls.parse_args = orig
-        else:
-            del cls.parse_args
-    raise AssertionError("main() returned without calling parse_args")
+    """The parser `main` builds (lean_pkg.cli_parser.build_parser), built fresh on each call: help texts
+    read the environment when built."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        return importlib.import_module("lean_pkg.cli_parser").build_parser()
 
 
 def parse_only(argv: list[str], ap: argparse.ArgumentParser | None = None) -> SimpleNamespace:

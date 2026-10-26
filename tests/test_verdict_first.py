@@ -56,7 +56,8 @@ def test_audit_first_line_is_the_count_and_last_line_unchanged(lp, env, capsys):
 
 
 def test_audit_no_findings_is_one_line(lp, env, capsys, monkeypatch):
-    monkeypatch.setattr(lp, "audit_registry", lambda *a, **k: [])
+    from lean_pkg import audit   # cmd_audit reads audit_registry there (#317)
+    monkeypatch.setattr(audit, "audit_registry", lambda *a, **k: [])
     assert lp.main(["--registry", str(env.registry), "audit", "--no-gh"]) == 0
     assert capsys.readouterr().out == "no findings\n"
 

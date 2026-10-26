@@ -16,7 +16,7 @@ import argparse
 import re
 import subprocess
 
-from . import cli
+from . import cli, gate as gate_mod
 from . import core
 
 LAKEFILE_PACKAGE_RE = re.compile(r"^\s*package\s+(«[^»\n]+»|[A-Za-z_][A-Za-z0-9_'!?.-]*)", re.MULTILINE)
@@ -37,13 +37,13 @@ def evidence_paths(pkg: dict, repo) -> list[str]:
     (stages.json, stage logs) kept beside them."""
     gate = pkg.get("gate") or {}
     rels = [r for r in (gate.get("receipt"), gate.get("comparator")) if isinstance(r, str) and r]
-    comp = cli.recorded_json(repo, gate.get("comparator"))
+    comp = gate_mod.recorded_json(repo, gate.get("comparator"))
     if isinstance(comp, dict) and isinstance(comp.get("configs"), list):
         rels += [c["log"] for c in comp["configs"]
                  if isinstance(c, dict) and isinstance(c.get("log"), str) and c["log"]]
-    lower = cli.recorded_json(repo, gate.get("receipt"))
+    lower = gate_mod.recorded_json(repo, gate.get("receipt"))
     if isinstance(lower, dict):
-        rels += cli.report_log_rels(repo, lower)
+        rels += gate_mod.report_log_rels(repo, lower)
     dirs = {".lean-receipts"} | {r.rsplit("/", 1)[0] for r in rels if "/" in r}
     for d in sorted(dirs):
         base = repo / d
@@ -161,7 +161,7 @@ def claims_item(pkg: dict, repo, head: str | None) -> tuple[str, str]:
         return ("✓", f"no {rel} tracked at HEAD (nothing to sync)")
     synced = pkg.get("claims_synced_commit")
     if synced:
-        ok, _note, _docs = cli.package_descendant(repo, synced, head, pkg)
+        ok, _note, _docs = gate_mod.package_descendant(repo, synced, head, pkg)
         if ok:
             return ("✓", f"claims synced at {str(synced)[:12]}")
     return ("✗", f"{rel} not synced at HEAD {head[:12]} (`lean-pkg claims sync {pkg['name']}`)")

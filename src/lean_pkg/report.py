@@ -64,7 +64,7 @@ import tempfile
 
 import yaml
 
-from . import cli
+from . import audit, cli, cli_parser
 from . import core
 from . import public_safety as ps
 
@@ -272,15 +272,15 @@ def build_redactor(reg_path: pathlib.Path, records: dict, pkg: dict | None, args
 def _parse_quietly(parser: argparse.ArgumentParser, argv: list[str]):
     """parser.parse_known_args(argv) with argparse's own output and exits swallowed; None when it
     would exit (a usage error, --help)."""
-    saved = cli._Parser.json_requested
-    cli._Parser.json_requested = False
+    saved = cli_parser._Parser.json_requested
+    cli_parser._Parser.json_requested = False
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             return parser.parse_known_args(argv)[0]
     except SystemExit:
         return None
     finally:
-        cli._Parser.json_requested = saved
+        cli_parser._Parser.json_requested = saved
 
 
 def _deepest(parser: argparse.ArgumentParser, ns) -> argparse.ArgumentParser:
@@ -575,7 +575,7 @@ def cmd_report(args) -> int:
         except core.Fail:
             data = None
         with contextlib.suppress(OSError, yaml.YAMLError):
-            valid = not cli.validate_registry(yaml.safe_load(reg_path.read_text()))
+            valid = not audit.validate_registry(yaml.safe_load(reg_path.read_text()))
     pkg = None
     if args.package is not None:
         if data is None:

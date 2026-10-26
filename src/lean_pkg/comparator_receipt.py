@@ -69,7 +69,7 @@ import time
 SCHEMA = "comparator-receipt/2"
 PASS_LINE = "Your solution is okay!"
 # Acceptance is decided by the same predicate the validator uses (one source of truth).
-from .cli import build_provenance_line  # noqa: E402
+from .gate import build_provenance_line  # noqa: E402
 from .core import comparator_pass  # noqa: E402
 from . import container as ctr  # noqa: E402
 from . import lake_hygiene as lh  # noqa: E402

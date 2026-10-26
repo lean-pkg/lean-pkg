@@ -51,7 +51,7 @@ class AdvisoryError(ValueError):
 
 def release_key(text) -> tuple[int, int, int, int, int] | None:
     """Sort key of `[leanprover/lean4:]vX.Y.Z[-rcN]`, else None: (X, Y, Z, 0, N) for an rc, (X, Y, Z, 1, 0)
-    for the release, so an rc sorts before its release (the same order as cli.parse_lean_toolchain)."""
+    for the release, so an rc sorts before its release (the same order as audit.parse_lean_toolchain)."""
     m = _RELEASE_RE.match(str(text or "").strip())
     if not m:
         return None
