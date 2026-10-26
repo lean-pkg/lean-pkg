@@ -141,6 +141,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   scaffold of `lean-pkg new` verifies as before. The preflight runs under
   `--dry-run` too, and `--json` `steps[]` begins with `0/3 preflight`
   ([verify](docs/commands/verify.md)).
+- Internal: the shared core moved from cli.py to core.py (#PR_E, #317);
+  cli.py re-exports every moved name for one release; no change to the
+  CLI or its JSON.
 
 ### Fixed
 
