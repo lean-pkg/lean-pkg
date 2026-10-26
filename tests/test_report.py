@@ -479,3 +479,54 @@ def test_the_index_placeholder_covers_a_relative_index_and_its_resolved_form(rp,
     monkeypatch.chdir(tmp_path)
     red = rp.build_redactor(env.registry, {}, None, argparse.Namespace(index="linked-index"))
     assert red(f"{tmp_path}/linked-index and {real}") == "<index-dir> and <index-dir>"
+
+
+def test_no_absolute_local_path_survives_in_the_attached_sections(lp, env, capsys, monkeypatch, tmp_path_factory):
+    """An editable lean-pkg, a Python, an event log and an index, all under a fake home behind a cloud-sync
+    prefix: each becomes its placeholder; nothing of the local layout is left (#330)."""
+    import sys
+    home = tmp_path_factory.mktemp("homes") / "u7"
+    work = home / "Dropbox" / "workspace" / "svn"
+    checkout = work / "Project-lp"
+    pkg_dir = checkout / "src" / "lean_pkg"
+    python = work / "Project-venv" / "bin" / "python"
+    events = work / "Project-ev" / "lean-package-events.jsonl"
+    index = work / "Project-idx" / "index"
+    for d in (pkg_dir, python.parent, events.parent, index):
+        d.mkdir(parents=True)
+    python.write_text("")
+    events.write_text("")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(lp, "HOME", home)
+    monkeypatch.setenv("LEAN_PKG_INDEX", str(index))
+    monkeypatch.setattr(lp, "package_dir", lambda: pkg_dir)
+    monkeypatch.setattr(lp, "install_detect", lambda d: {"install": "editable", "path": str(checkout),
+                                                         "commit": "abc1234", "dirty": False})
+    monkeypatch.setattr(sys, "executable", str(python))
+    rc = lp.main(["--registry", str(env.registry), "--events", str(events), "report", "--body",
+                  f"lean-pkg from {pkg_dir}", "--json"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0, out.get("error")
+    body = out["body"]
+    assert "(abc1234, editable <lean-pkg-checkout>)" in body              # the version line
+    assert re.search(r"^(ok|warn) install: editable <lean-pkg-checkout> ", body, re.M)
+    assert "ok events: <events-path> [source: flag]" in body
+    assert "ok index: <index-dir> (0 entries) [source: env]" in body
+    assert "(<python>)" in body and "lean-pkg from <lean-pkg-install>" in body
+    for fragment in ("/home/", "Dropbox", "workspace/svn", "Project-", str(home)):
+        assert fragment not in body
+
+
+def test_the_events_path_beside_the_registry_keeps_its_name(rp, env):
+    import argparse
+    red = rp.build_redactor(env.registry, {}, None, argparse.Namespace(registry=str(env.registry), events=None))
+    assert red(str(env.registry.parent / "lean-package-events.jsonl")) == "<registry-dir>/lean-package-events.jsonl"
+
+
+def test_the_git_work_tree_holding_the_registry_is_a_placeholder(rp, tmp_path):
+    from .conftest import make_repo
+    repo = make_repo(tmp_path / "registry-repo")
+    reg = repo / "sub" / "lean-packages.yaml"
+    reg.parent.mkdir()
+    red = rp.build_redactor(reg, {}, None)
+    assert red(f"{repo} @ abc1234 on main; {reg}") == "<registry-repo> @ abc1234 on main; <registry>"

@@ -146,11 +146,15 @@ changes:
       scanned the whole body, the report's own fixed prose included, where a registry-derived name that is also
       a word (home, from a workspace under /home/...) matched; it now scans the user's text (title, --command,
       --body, --from-log, --package) and each section report attaches itself, line by line, and a refusal names
-      the section in text and in --json (additive sections[] {section, origin user|attached, families}). In the
-      attached sections every record's and lease's agent, workspace and contact value becomes <agent>,
-      <workspace>, <contact>, and doctor's index line shows <index-dir> instead of a partly redacted local path.
+      the section in text and in --json (additive sections[] {section, origin user|attached, families}). A
+      private name in the user's own text is still redacted to […], not refused. In the attached sections every
+      record's and lease's agent, workspace and contact value becomes <agent>, <workspace>, <contact>, and the
+      local paths doctor and the version line name become whole placeholders instead of a partly redacted path:
+      <lean-pkg-install>, <lean-pkg-checkout> (editable install), <python>, <registry-repo>, <index-dir>,
+      <events-path> (an event log that is not the registry's sibling).
     action: >-
-      Nothing. A script that matched […] for an agent or workspace in a report body sees the placeholder.
+      Nothing. A script that matched […] or ~/... for an agent, a workspace or one of those paths in a report
+      body sees the placeholder.
     breaking: false
     changelog: Fixed
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and

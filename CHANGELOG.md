@@ -140,12 +140,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   itself), line by line as before, and a refusal names the section, in
   text ("in your text (--body)", "in an attached section (doctor)") and
   in `--json` (additive `sections[]` {section, origin user|attached,
-  families}). In the attached sections, every record's and lease's
-  `agent`, `workspace` and `contact` value becomes `<agent>`,
-  `<workspace>`, `<contact>`. doctor's index line no longer keeps most of
-  a local path (`[…]workspace/svn/<checkout>/index`: the home directory
-  became `~`, then the `~/Dropbox/` built-in became `[…]`, leaving the
-  rest): the index directory becomes `<index-dir>`, wherever it is.
+  families}). A private name in the user's own text is still redacted to
+  `[…]`, not refused, as before; the guard refuses only what redaction
+  left. In the attached sections, every record's and lease's `agent`,
+  `workspace` and `contact` value becomes `<agent>`, `<workspace>`,
+  `<contact>`. Local paths no longer keep most of their layout
+  (`[…]workspace/svn/<checkout>/index`: the home directory became `~`,
+  then the `~/Dropbox/` built-in became `[…]`, leaving the rest): the
+  paths doctor and the version line name become placeholders whole,
+  wherever they are: `<lean-pkg-install>` (lean-pkg's package directory),
+  `<lean-pkg-checkout>` (an editable install's checkout), `<python>`,
+  `<registry-repo>` (the git work tree holding the registry),
+  `<index-dir>`, and `<events-path>` (an event log that is not the
+  registry's sibling).
 
 ### Documentation
 

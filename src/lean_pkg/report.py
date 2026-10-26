@@ -28,8 +28,11 @@ host lines, the record, the title) before it is printed or sent, in this order:
 1. the registry file -> `<registry>`, its directory -> `<registry-dir>`, every record's checkout
    (`local_path`, as stored, joined to $HOME and resolved) -> `<checkout>`; the user-level default
    registry (`~/.lean-pkg/registry`, which doctor resolves), when it is another one ->
-   `<user-default-registry>` / `<user-default-registry-dir>`; the index directory doctor names ->
-   `<index-dir>` (#330);
+   `<user-default-registry>` / `<user-default-registry-dir>`; the other local paths doctor and the
+   version line name (local_paths, #330): lean-pkg's package directory -> `<lean-pkg-install>`, an
+   editable install's checkout -> `<lean-pkg-checkout>`, the Python executable -> `<python>`, the git
+   work tree holding the registry -> `<registry-repo>`, the index directory -> `<index-dir>`, an event
+   log that is not the registry's sibling -> `<events-path>`;
 2. the current user's home directory -> `~`;
 3. the `public_safety` scanner: its built-in families, the `--package` checkout's
    `.lean-pkg-private-patterns` and the registry directory's one, and the user/host tokens derived
@@ -71,7 +74,8 @@ SECTIONS = ("Version", "Command", "What happened", "What you expected", "Minimal
             "Checklist")
 REGISTRY_TOKEN, REGISTRY_DIR_TOKEN, CHECKOUT_TOKEN = "<registry>", "<registry-dir>", "<checkout>"
 USER_REGISTRY_TOKEN, USER_REGISTRY_DIR_TOKEN = "<user-default-registry>", "<user-default-registry-dir>"
-INDEX_DIR_TOKEN = "<index-dir>"
+INDEX_DIR_TOKEN, EVENTS_TOKEN, REGISTRY_REPO_TOKEN = "<index-dir>", "<events-path>", "<registry-repo>"
+INSTALL_TOKEN, LEAN_PKG_CHECKOUT_TOKEN, PYTHON_TOKEN = "<lean-pkg-install>", "<lean-pkg-checkout>", "<python>"
 # #330: the registry fields whose values name a person, an agent or a machine. In the sections report
 # attaches itself, each value becomes its field's placeholder before the scanner runs.
 NAME_FIELDS = (("agent", "<agent>"), ("workspace", "<workspace>"), ("contact", "<contact>"))
@@ -173,14 +177,50 @@ def registry_names(records: dict) -> dict[str, str]:
     return names
 
 
+def local_paths(reg_path: pathlib.Path, args) -> list[tuple[str, pathlib.Path]]:
+    """(placeholder, path) of the local paths doctor and the version line name besides the registry and the
+    checkouts (#330): lean-pkg's package directory and, for an editable install, its checkout; the Python
+    executable; the git work tree holding the registry; the index directory; the event log when it is not
+    the registry's sibling (that one already reads `<registry-dir>/lean-package-events.jsonl`). A probe
+    that fails names nothing."""
+    out: list[tuple[str, pathlib.Path]] = []
+
+    def probe(token: str, fn) -> None:
+        with contextlib.suppress(OSError, RuntimeError, ValueError, TypeError, KeyError, AttributeError):
+            p = fn()
+            if p is not None and str(p) not in ("", "/", "."):
+                out.append((token, pathlib.Path(p).absolute()))
+
+    pkg_dir = core.package_dir()
+    probe(INSTALL_TOKEN, lambda: pkg_dir)
+    info = core.install_detect(pkg_dir) if shutil.which("git") else {}
+    if info.get("install") == "editable":
+        probe(LEAN_PKG_CHECKOUT_TOKEN, lambda: info["path"])
+    probe(PYTHON_TOKEN, lambda: sys.executable)
+    if shutil.which("git") and reg_path.parent.is_dir():
+        top = core.registry_git(reg_path.parent, "rev-parse", "--show-toplevel")
+        if top.returncode == 0 and top.stdout.strip():
+            probe(REGISTRY_REPO_TOKEN, lambda: top.stdout.strip())
+    if args is not None:
+        from . import index as index_mod
+        probe(INDEX_DIR_TOKEN, lambda: index_mod.index_source(args)[0])
+
+        def events():
+            ev = core.events_source(args)[0].absolute()
+            return ev if _path_forms(ev.parent).isdisjoint(_path_forms(reg_path.parent)) else None
+        probe(EVENTS_TOKEN, events)
+    return out
+
+
 def build_redactor(reg_path: pathlib.Path, records: dict, pkg: dict | None, args=None) -> Redactor:
     """The redaction layers for this report (see the module docstring for the order)."""
     literals: dict[str, str] = {}
-    if args is not None:               # #330: doctor's index line names a whole local directory
-        from . import index as index_mod
-        with contextlib.suppress(OSError, RuntimeError, ValueError):
-            for s in _path_forms(index_mod.index_source(args)[0].absolute()):
-                literals[s] = INDEX_DIR_TOKEN
+    # #330: every other local path the attached sections name, whole (absolute and resolved forms): a
+    # path left to `~` and the scanner keeps whatever follows a redacted prefix such as `~/Dropbox/`.
+    # Set first, so a registry placeholder below wins over one of these naming the same path.
+    for token, path in local_paths(reg_path, args):
+        for s in _path_forms(path):
+            literals[s] = token
     for rec in records.values():
         if not isinstance(rec, dict) or not rec.get("local_path"):
             continue
