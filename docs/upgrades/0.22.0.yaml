@@ -255,6 +255,29 @@ changes:
       publish --dry-run, which still report it.
     breaking: false
     changelog: Changed
+  - pr: 0
+    id: receipt-ci
+    kind: command
+    area: receipts, receipt ci
+    summary: >-
+      Stage S2 of proposal 0008 (#318): lean-pkg receipt ci writes a lower-tier receipt inside a GitHub Actions
+      job (job_id gha-<run_id>-<run_attempt>) with the ci block built from the runner's variables (job_workflow
+      from the OIDC token's job_workflow_ref claim when the job has id-token: write, else null), through the same
+      pipeline as receipt slurm. It refuses, writing nothing, outside GitHub Actions, on a self-hosted runner, with
+      a runner variable missing, on an event other than push and workflow_dispatch, on a server other than
+      github.com, with --receipt-commit other than GITHUB_SHA (the default), with the workflow file missing at
+      GITHUB_WORKFLOW_SHA, and on every receipt slurm refusal; it redacts the runner's paths, prints one
+      ::notice title=lean-pkg-receipt line binding the written bytes and appends to the step summary. receipt ci
+      --collect RUN [--attempt N] downloads a run's receipt artifact with gh, checks it as gate --check does and
+      copies it into .lean-receipts/, never committing or pushing; receipt ci --template prints the caller
+      workflow. lean-pkg ships the reusable .github/workflows/verify.yml (workflow_call only, contents: read and
+      id-token: write, every action pinned to a commit).
+    action: >-
+      Nothing for a package on Slurm or receipt local. To verify on GitHub Actions instead, commit the workflow
+      receipt ci --template prints, pinned to a 40-hex lean-pkg commit, and collect each run's receipt with
+      receipt ci --collect RUN.
+    breaking: false
+    changelog: Added
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

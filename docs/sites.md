@@ -132,9 +132,41 @@ that carries that sentence fails `page --check` and the page line of
 (`Verification ran on [GitHub Actions`): a CI badge or "tests run on GitHub
 Actions" is not a claim and is never refused.
 
-Writing the receipt in the job (`lean-pkg receipt ci`) and lean-pkg's
-reusable `verify.yml` are the next stages of the proposal; this release
-judges a `ci` block, it does not write one.
+### Writing the receipt in CI
+
+`lean-pkg receipt ci` writes the receipt inside the job, and lean-pkg's
+reusable workflow `.github/workflows/verify.yml` runs it for you. Print the
+caller workflow, commit it and push:
+
+```bash
+lean-pkg receipt ci --template > .github/workflows/lean-pkg.yml
+```
+
+The caller names `lean-pkg/lean-pkg/.github/workflows/verify.yml@<40-hex>`,
+a full commit: the template fills in the commit of the installed lean-pkg
+when pip recorded one (a `pipx install git+...@vX.Y.Z`); otherwise it
+prints a placeholder to replace. It runs on `push` and `workflow_dispatch`
+only, with `contents: read` and `id-token: write`, never
+`contents: write`: CI never pushes to your repository. The job checks out the pushed
+commit, installs elan (a pinned release), the Mathlib cache and lean-pkg at
+the commit of `verify.yml` itself, runs your verify command (input
+`verify-command`, default `bash verify.sh`, the script `lean-pkg new`
+writes) with the log path as its last argument, seals the log in-log, runs
+`lean-pkg receipt ci` and uploads the receipt and its redacted log as the
+artifact `lean-pkg-receipt-<run_id>-<run_attempt>`. After a green run, on
+your machine:
+
+```bash
+lean-pkg receipt ci --collect 11622958301   # gh run download, the gate's checks, copy into .lean-receipts/
+```
+
+`--collect` uses your own `gh` login, checks the receipt as `gate --check`
+does against your checkout, and never commits or pushes: commit the two
+files under `.lean-receipts/` yourself (an evidence-only descendant), then
+name the job under `compute` as above. A re-run writes `gha-<run>-2`; pass
+`--attempt N` when a run has more than one receipt artifact. Every refusal
+and the built-in redactions are in [Receipts and
+trust](receipts.md#a-lower-tier-receipt-from-github-actions).
 
 ## No cluster at all
 
@@ -142,6 +174,7 @@ Nothing above is required. A page without `compute` carries only the
 lean-pkg credit. The lower-tier receipt can come from any executor
 (`lean-pkg receipt systemd --run` runs the verify script in a capped local unit; see
 [Receipts and trust](receipts.md)). A receipt from a GitHub Actions run is
-judged at level 1 ([GitHub Actions](#github-actions)); writing one in the
-job, and corroborating it against the run, are the next stages of
+judged at level 1 and written in the job by `lean-pkg receipt ci`
+([Writing the receipt in CI](#writing-the-receipt-in-ci)); corroborating it
+against the run is the next stage of
 [proposal 0008](proposals/0008-github-actions-compute-receipt.md).

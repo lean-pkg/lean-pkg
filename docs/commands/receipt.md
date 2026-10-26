@@ -8,7 +8,7 @@ title: lean-pkg receipt
 
 # lean-pkg receipt
 
-produce receipts (slurm, systemd: the lower tier; comparator: the comparator run; each writes files in the package checkout, never the registry); check a published package's receipts from git alone (check).
+produce receipts (slurm, systemd, ci: the lower tier; comparator: the comparator run; each writes files in the package checkout, never the registry); check a published package's receipts from git alone (check).
 
 ## Usage
 
@@ -20,6 +20,7 @@ lean-pkg receipt [--json] COMMAND
 
 - [`lean-pkg receipt slurm`](receipt-slurm.md): a lower-tier receipt from a finished Slurm job, its verify log and its stdout seal (--template: an sbatch wrapper that meets it; --check: preflight the job's files)
 - [`lean-pkg receipt systemd`](receipt-systemd.md): a lower-tier receipt from a finished systemd --user service unit (run bounded with --run, or its saved properties), its verify log and its stdout seal
+- [`lean-pkg receipt ci`](receipt-ci.md): a lower-tier receipt written inside a GitHub Actions job (job_id gha-&lt;run&gt;-&lt;attempt&gt;, the ci block from the runner's variables); --collect RUN: fetch and check a run's receipt; --template: the caller workflow
 - [`lean-pkg receipt comparator`](receipt-comparator.md): run the comparator on a Lake project and write the comparator receipt (the `comparator-receipt` program: the same code and flags)
 - [`lean-pkg receipt check`](receipt-check.md): validate a published package's receipts from git alone: no registry, no network, never runs Lean (an outside referee's check; exit 0 only when every check passes)
 
@@ -27,7 +28,7 @@ lean-pkg receipt [--json] COMMAND
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `receipt` | produce lower-tier receipts; writes files in the package checkout, never the registry. Two forms, one pipeline: `receipt slurm` (a Slurm job) and `receipt systemd` (alias `receipt local`: a systemd --user service unit). `receipt check` reads them back: a published package's receipts checked from git alone, with no registry | `slurm` `systemd` `check` |
+| `receipt` | produce lower-tier receipts; writes files in the package checkout, never the registry. Three forms, one pipeline: `receipt slurm` (a Slurm job), `receipt systemd` (alias `receipt local`: a systemd --user service unit) and `receipt ci` (inside a GitHub Actions job; `--collect RUN` fetches its receipt). `receipt check` reads them back: a published package's receipts checked from git alone, with no registry | `slurm` `systemd` `ci` `check` |
 
 ## Exit codes
 

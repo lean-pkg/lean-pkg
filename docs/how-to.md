@@ -226,6 +226,20 @@ killer, a signal or the runtime cap, or that exited non-zero, and a
 checkout that changed during the run:
 [A lower-tier receipt from a systemd unit](receipts.md#a-lower-tier-receipt-from-a-systemd-unit).
 
+No cluster and a public GitHub repository: let GitHub Actions run the
+verify script and write the receipt (`receipt ci`, run by lean-pkg's
+reusable `verify.yml`), then fetch it:
+
+```bash
+lean-pkg receipt ci --template > .github/workflows/lean-pkg.yml   # commit and push it
+lean-pkg receipt ci --collect 11622958301   # after a green run: download, check, copy into .lean-receipts/
+```
+
+`--collect` never commits or pushes; commit the two files yourself. The
+receipt backs `compute: [{cluster: github-actions, jobs: [gha-R-A]}]`:
+[Writing the receipt in CI](sites.md#writing-the-receipt-in-ci) and
+[A lower-tier receipt from GitHub Actions](receipts.md#a-lower-tier-receipt-from-github-actions).
+
 ## Check that this machine can produce comparator receipts
 
 ```bash

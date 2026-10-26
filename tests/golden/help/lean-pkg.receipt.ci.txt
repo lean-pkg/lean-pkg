@@ -1,0 +1,44 @@
+usage: lean-pkg receipt ci [-h] [--log PATH] [--receipt-commit SHA] [--redact REGEX]
+                           [--collect RUN] [--attempt N] [--template] [--checker TEXT]
+                           [--repo DIR] [--out PATH] [--compress-log] [--append-readme]
+                           [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
+                           [--json]
+
+options:
+  -h, --help            show this help message and exit
+  --log PATH            the job's raw verify log, sealed in-log (one `verify-log-sha256: <hex>`
+                        line, the SHA-256 of the log without it); when it has no `checker:` line,
+                        --checker TEXT is required
+  --receipt-commit SHA  the verified commit (default GITHUB_SHA; any other value refuses) (old
+                        spelling --commit, kept working)
+  --redact REGEX        also replace matches with <redacted> (repeatable); the checkout,
+                        GITHUB_WORKSPACE, RUNNER_TEMP, RUNNER_TOOL_CACHE, $HOME, /home/runner and
+                        /run/user/N/ are always redacted to <repo>, <GITHUB_WORKSPACE>,
+                        <RUNNER_TEMP>, <RUNNER_TOOL_CACHE>, <HOME>, /run/user/<UID>/ instead
+  --collect RUN         on your machine: download run RUN's receipt artifact with `gh run
+                        download` (your gh login), check it as gate --check does against the
+                        --repo checkout, copy the receipt and its log into .lean-receipts/; never
+                        commits or pushes
+  --attempt N           with --collect: the run attempt (default: the run's only receipt artifact)
+  --template            print the caller workflow (.github/workflows/lean-pkg.yml) that runs lean-
+                        pkg's reusable verify.yml pinned to a 40-hex commit; needs no other flag
+  --checker TEXT        the exact checker command or mode (default: the log's `checker:` line)
+  --repo DIR            the package checkout (default: the current directory)
+  --out PATH            receipt path (default <repo>/.lean-receipts/<commit12>-gha-<R>-<A>.json);
+                        the redacted log is written beside it as
+                        <commit12>-gha-<R>-<A>-verify.redacted.log
+  --compress-log        write the redacted log as deterministic gzip <...>-verify.redacted.log.gz
+                        (level 9, mtime 0, no file name) instead of the plain .log; report_sha256
+                        stays the SHA-256 of the uncompressed log and the receipt gains
+                        report_compressed {format: gzip, sha256 of the .gz, bytes = decoded
+                        length, not the .gz size}; gate decompresses (bounded) and checks
+                        report_sha256. Restore: gzip -dc X.log.gz > X.log. Without it, a log over
+                        90 MiB prints a WARN naming this flag
+  --append-readme       append the entry block to README.md beside the receipt (created if absent;
+                        an entry already naming the receipt is not repeated)
+  --readme-heading TEXT
+                        the entry heading after the short commit (default: lower-tier receipt,
+                        GitHub Actions run R attempt A)
+  --readme-line TEXT    an extra line at the end of the entry block (repeatable)
+  --tar-sha256 HEX      the frozen source tarball's SHA-256, named in the entry block
+  --json                machine-readable JSON on stdout

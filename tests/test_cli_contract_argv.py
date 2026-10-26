@@ -183,6 +183,9 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
       "--base-list", "l"], "receipt slurm", False, False, False),            # reads; writes only --plan-out
     (["receipt", "systemd", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),
     (["receipt", "local", "--unit", "u", "--log", "l", "--commit", "c"], "receipt systemd", False, False, False),   # alias
+    (["receipt", "ci", "--log", "l", "--commit", "c"], "receipt ci", False, False, False),   # in the job, no registry
+    (["receipt", "ci", "--collect", "5", "--attempt", "1"], "receipt ci", False, False, False),   # copies, never commits
+    (["receipt", "ci", "--template"], "receipt ci", False, False, False),
     (["receipt", "check", "--repo", "d", "--commit", "c"], "receipt check", False, False, False),   # no registry
     (["verify-receipts", "--repo", "d", "--commit", "c"], "receipt check", False, False, False),     # alias
     (["receipt", "comparator"], "receipt comparator", False, False, False),        # writes .lean-receipts only
@@ -267,6 +270,7 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["receipt", "slurm", "--job", "1", "--log", "l", "--receipt-commit", "c"], "receipt slurm", False, False, False),
     (["receipt", "systemd", "--unit", "u", "--log", "l", "--receipt-commit", "c"], "receipt systemd", False, False,
      False),
+    (["receipt", "ci", "--log", "l", "--receipt-commit", "c"], "receipt ci", False, False, False),
     # global flags never change the predicate (a snapshot is refused later, by run_snapshot)
     (["--json", "list"], "list", False, False, False),
     (["--registry", "r.yaml", "--commit", "claim", "demo", "--workspace", "w", "--agent", "a"], "lease claim", True, True, False),
@@ -363,6 +367,7 @@ ALIAS_PAIRS: list[tuple[list[str], list[str]]] = [
     (["receipt", "slurm", "--job", "1", "--commit", "c"], ["receipt", "slurm", "--job", "1", "--receipt-commit", "c"]),
     (["receipt", "systemd", "--unit", "u", "--log", "l", "--commit", "c"],
      ["receipt", "systemd", "--unit", "u", "--log", "l", "--receipt-commit", "c"]),
+    (["receipt", "ci", "--log", "l", "--commit", "c"], ["receipt", "ci", "--log", "l", "--receipt-commit", "c"]),
     (["register", "demo", "--repo", "u", "--path", "p"], ["register", "demo", "--url", "u", "--path", "p"]),
     (["update", "demo", "--repo", "u"], ["update", "demo", "--url", "u"]),
     (["index", "add", "demo", "--by", "m", "--repo", "u"], ["index", "add", "demo", "--by", "m", "--url", "u"]),

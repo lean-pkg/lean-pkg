@@ -49,7 +49,7 @@ ENTRY_KEYS = ("version", "id", "pr", "kind", "area")
 ROLES = (("lower-tier", "receipt"), ("comparator", "comparator"))   # (role, the registry's gate.<key>)
 
 EVIDENCE_AREAS = frozenset({
-    "receipts", "receipt slurm", "receipt check", "comparator receipts", "comparator",
+    "receipts", "receipt slurm", "receipt ci", "receipt check", "comparator receipts", "comparator",
     "comparator (legacy mechanism)", "stage logs", "gate", "claims", "claims ledger", "claims mark",
     "coverage check", "lean-pkg-signoff.json", "palomar check", "verify"})
 OTHER_AREAS = frozenset({

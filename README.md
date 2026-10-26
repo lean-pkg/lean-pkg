@@ -212,6 +212,10 @@ commit, and `DEPS_TAR` restores prebuilt dependencies while the package
 itself still builds fresh; `receipt slurm --preflight-deps` checks before
 submission that the tarball holds every module the audit files import
 ([Receipts and trust](docs/receipts.md#a-lower-tier-receipt-from-a-slurm-job)).
+No cluster: `lean-pkg receipt ci --template` prints a workflow that runs
+lean-pkg's reusable `verify.yml` on a GitHub-hosted runner, and
+`lean-pkg receipt ci --collect RUN` fetches and checks the receipt it wrote
+([Writing the receipt in CI](docs/sites.md#writing-the-receipt-in-ci)).
 
 Writing the comparator configuration:
 `lean-pkg comparator config --from-claims NAME --claims-file claims.yaml`

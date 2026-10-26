@@ -118,7 +118,9 @@ means what it meant before, and a lean-pkg that predates the key ignores it
 `ci` rule). A receipt whose `job_id` is `gha-<run_id>-<run_attempt>` and
 whose `ci` block passes level 1 is the job of the built-in `github-actions`
 scheduler and can back `coverage.yaml` `compute`
-([Compute sites](sites.md#github-actions)).
+([Compute sites](sites.md#github-actions)). `lean-pkg receipt ci` writes
+the block inside the job, keys in the order of the table below
+([A lower-tier receipt from GitHub Actions](receipts.md#a-lower-tier-receipt-from-github-actions)).
 
 Level 1 is offline and is what `gate`, `gate --check`, `coverage check`,
 `page` and `receipt check` apply. A block that fails any rule below refuses
