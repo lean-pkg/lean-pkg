@@ -8,10 +8,11 @@ on:
 permissions:
   contents: read
 
-# A new push to a pull request cancels its superseded run; runs on main are never cancelled, so every
-# commit there keeps a complete result.
+# A new push to a pull request cancels its superseded run. Every other run (a push to main) has a group of
+# its own, its commit: a shared group would still drop a queued run when a third arrived, even without
+# cancel-in-progress, so every commit on main keeps a complete result.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
