@@ -71,7 +71,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   naming the `github-actions` scheduler, and an acknowledgement with the
   `{runs}` token outside a built-in level-2 profile, are refused
   ([compute sites](docs/sites.md#github-actions)).
-- `lean-pkg receipt ci` (#PR_S2; stage S2 of proposal 0008, #318): a
+- `lean-pkg receipt ci` (#348; stage S2 of proposal 0008, #318): a
   lower-tier receipt written inside a GitHub Actions job, `job_id`
   `gha-<run_id>-<run_attempt>`, with the `ci` block built from the
   runner's variables (`job_workflow` from the OIDC token's

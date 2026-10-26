@@ -255,7 +255,7 @@ changes:
       publish --dry-run, which still report it.
     breaking: false
     changelog: Changed
-  - pr: 0
+  - pr: 348
     id: receipt-ci
     kind: command
     area: receipts, receipt ci
