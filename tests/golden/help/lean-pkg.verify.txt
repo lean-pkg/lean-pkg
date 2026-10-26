@@ -5,10 +5,12 @@ usage: lean-pkg verify [-h] [--work-dir DIR] [--unit UNIT] [--script FILE] [--ju
 
 Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bash verify.sh` and
 `gate` (an active package first moves to gate-pending; a gated one is re-gated), each as its own
-lean-pkg invocation with its own checks. Writes only what those commands write; commits nothing in
-the checkout. A package whose committed coverage.yaml declares an LTS stack (`stack: NAME`,
-docs/stacks/) is checked against it (lean-toolchain, the Mathlib commit, the comparator receipt's
-tool digests): a warning per difference, never a refusal.
+lean-pkg invocation with its own checks. First (step 0, read-only, also under --dry-run) the
+claims/1 check on the claims file committed at HEAD and, when coverage.yaml is committed, the
+offline `coverage check`: a refusal stops verify before any receipt. Writes only what those
+commands write; commits nothing in the checkout. A package whose committed coverage.yaml declares
+an LTS stack (`stack: NAME`, docs/stacks/) is checked against it (lean-toolchain, the Mathlib
+commit, the comparator receipt's tool digests): a warning per difference, never a refusal.
 
 positional arguments:
   name

@@ -628,15 +628,21 @@ def do_claims_check_file(path: str, name: str | None = None) -> tuple[list[str],
     p = pathlib.Path(str(path)).expanduser()
     if not p.is_file():
         raise core.Fail(f"claims file not found: {p}")
-    n, errors = schema_check_text(p.read_text(encoding="utf-8", errors="replace"), str(p), name)
+    return do_claims_check_text(p.read_text(encoding="utf-8", errors="replace"), str(p), name)
+
+
+def do_claims_check_text(text: str, where: str, name: str | None = None) -> tuple[list[str], dict, int]:
+    """The schema check of `claims check --file` on a claims file's text read from `where` (a path, or
+    `claims.yaml at <commit>` for verify's preflight)."""
+    n, errors = schema_check_text(text, where, name)
     count = "?" if n is None else n
     if errors:
-        lines = [f"FAIL {p}: {len(errors)} schema error(s) ({count} claim(s))"]
+        lines = [f"FAIL {where}: {len(errors)} schema error(s) ({count} claim(s))"]
         lines += [f"  fail: {e}" for e in errors]
-        lines.append(f"FAIL {p}: fix the errors above before you commit the file you will gate")
+        lines.append(f"FAIL {where}: fix the errors above before you commit the file you will gate")
     else:
-        lines = [f"PASS {p}: schema ok ({count} claim(s))"]
-    return lines, {"ok": not errors, "path": str(p), "claims": n, "errors": errors}, (1 if errors else 0)
+        lines = [f"PASS {where}: schema ok ({count} claim(s))"]
+    return lines, {"ok": not errors, "path": where, "claims": n, "errors": errors}, (1 if errors else 0)
 
 
 # --------------------------------------------------------------------------

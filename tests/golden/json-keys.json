@@ -188,6 +188,27 @@
     "rc": 0,
     "type": "object"
   },
+  "coverage-check-offline": {
+    "keys": [
+      "checks",
+      "claims_file",
+      "comparator",
+      "counts",
+      "errors",
+      "file",
+      "kind",
+      "manuscript",
+      "name",
+      "offline",
+      "ok",
+      "private_manuscript",
+      "rows",
+      "skipped",
+      "warnings"
+    ],
+    "rc": 0,
+    "type": "object"
+  },
   "doctor-name": {
     "keys": [
       "checks",

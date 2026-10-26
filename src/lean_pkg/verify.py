@@ -6,6 +6,12 @@ docs/design/1.0-command-tree.md, decision 4).
 A pure orchestrator. Each step is the lean-pkg command a person would type, run as its own invocation (its own
 checks, refusals, registry lock and committed mode), and printed before it runs:
 
+0. the preflight (#325), read-only and in-process, also under --dry-run: the claims/1 check `claims check --file`
+   runs, on the claims file committed at HEAD, and, when coverage.yaml is committed, the offline `coverage
+   check` (coverage.preflight_at_head: schema and length limits, claim ids, comparator theorems mapped to rows,
+   against the files and configurations committed at HEAD; placeholder text and an unposted manuscript are
+   warnings here, since `coverage check` and `page` refuse them later). A refusal stops verify with that message
+   before any receipt work: nothing run, nothing written. Files only in the working tree are never read;
 1. the comparator receipt: `lean-pkg receipt comparator --repo CHECKOUT` (the `comparator-receipt` program);
 2. the lower-tier receipt on this workstation: `lean-pkg receipt systemd --unit U --receipt-commit X --log
    W/verify.log --stdout W/unit.out --stderr W/unit.err --repo CHECKOUT --run -- bash verify.sh W/verify.log`,
@@ -289,6 +295,20 @@ def stack_digests(res: dict | None, repo: pathlib.Path, comparator: pathlib.Path
         print(f"lean-pkg: warning: {w}", file=sys.stderr)
 
 
+def preflight(steps: Steps, name: str, pkg: dict, repo: pathlib.Path, c12: str) -> dict:
+    """Step 0 (#325): `claims check --file`'s claims/1 check on the claims file committed at HEAD and, when
+    coverage.yaml is committed, the offline `coverage check` (coverage.preflight_at_head). Read-only, run in
+    --dry-run too; ok true when nothing refuses. Files only in the working tree are not read: HEAD is judged."""
+    from . import coverage as cov
+    res = cov.preflight_at_head(name, pkg, repo)
+    steps.say(f"verify: 0/3 preflight: claims and coverage files committed at {c12}")
+    for line in res["lines"]:
+        steps.say(f"  {line}")
+    steps.done.append({"step": "0/3 preflight", "rc": 0 if res["ok"] else 1,
+                       "output": {"ok": res["ok"], "claims": res["claims"], "coverage": res["coverage"]}})
+    return res
+
+
 def cmd_verify(args) -> int:
     p = plan(args)
     name, repo, head, c12 = args.name, p["repo"], p["head"], p["c12"]
@@ -306,6 +326,14 @@ def cmd_verify(args) -> int:
                     f"{p['pkg']['gate'].get('comparator')}; nothing to do")
         payload.update(ok=True, already=p["already"], status=p["status"])
         return _finish(args, payload, 0)
+    # 0. the preflight: the schema refusals of claims.yaml and coverage.yaml at HEAD, before any receipt work
+    pre = preflight(steps, name, p["pkg"], repo, c12)
+    if not pre["ok"]:
+        bad = pre["claims"] if pre["claims"]["errors"] else pre["coverage"]
+        return _finish(args, payload, 1, f"the preflight refused {bad['file']} at {c12}: "
+                                         + "; ".join(bad["errors"][:10])
+                                         + "; fix it in a new commit, then run verify again; nothing run, "
+                                           "nothing written")
     work, unit, script = p["work"], p["unit"], p["script"]
     comp_argv = ["receipt", "comparator", "--repo", str(repo)] + (["--judges", str(args.judges)] if args.judges else [])
     comp_env = {"COMPARATOR_RECEIPT_NO_MATHLIB": "1"} if p["no_mathlib"] else None
@@ -316,6 +344,7 @@ def cmd_verify(args) -> int:
     regate = p["status"] in REGATE_FROM
     if args.dry_run:
         steps.say(f"verify {name}: dry run at {c12}; nothing run, nothing written. The steps:")
+        steps.say("  0/3 preflight: claims/1 and the offline coverage check at HEAD (read-only; its result above)")
         env = "".join(f"{k}={v} " for k, v in (comp_env or {}).items())
         steps.say(f"  1/3 comparator receipt: {env}lean-pkg {shlex.join(comp_argv)}")
         steps.say(f"  2/3 lower-tier receipt: lean-pkg {shlex.join(lower_argv)}")
@@ -407,6 +436,9 @@ def add_parsers(sub, add_json) -> None:
                        description="Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bash "
                                    "verify.sh` and `gate` (an active package first moves to gate-pending; a gated "
                                    "one is re-gated), each as its own lean-pkg invocation with its own checks. "
+                                   "First (step 0, read-only, also under --dry-run) the claims/1 check on the "
+                                   "claims file committed at HEAD and, when coverage.yaml is committed, the "
+                                   "offline `coverage check`: a refusal stops verify before any receipt. "
                                    "Writes only what those commands write; commits nothing in the checkout. A "
                                    "package whose committed coverage.yaml declares an LTS stack (`stack: NAME`, "
                                    "docs/stacks/) is checked against it (lean-toolchain, the Mathlib commit, the "

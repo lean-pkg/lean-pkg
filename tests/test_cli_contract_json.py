@@ -94,6 +94,7 @@ CASES = {
     # last: these commit page inputs and receipts to beta's checkout (tests/test_page.py prepare)
     "page": lambda e, t: (_page_ready(e), ["page", "beta"])[1],
     "coverage-check": ["coverage", "check", "beta"],
+    "coverage-check-offline": lambda e, t: _offline_argv(t),
     "doctor-name": ["doctor", "beta"],
     "new-stack": lambda e, t: ["new", "golden-pkg", "--dir", str(t / "golden-pkg"), "--author", "Ada Lovelace",
                                "--stack", "lts-2026.10"],
@@ -113,6 +114,14 @@ def _rebase_argv(tmp_path) -> list[str]:
     (d / "new.aux").write_text(f"{bs}newlabel{{{key}}}{{{{1}}{{1}}}}\n")
     return ["claims", "rebase", "beta", "--from-tex", str(d / "old.tex"), "--to-tex", str(d / "new.tex"),
             "--to-aux", str(d / "new.aux"), "--from-sha256", hashlib.sha256(tex.encode()).hexdigest()]
+
+
+def _offline_argv(tmp_path) -> list[str]:
+    """`coverage check --file` without NAME (#328): a package directory on disk, no registry record."""
+    from .test_coverage_offline import package
+    d = package(tmp_path)
+    return ["coverage", "check", "--file", str(d / "coverage.yaml"), "--claims", str(d / "claims.yaml"),
+            "--comparator", str(d / "comparator.json")]
 
 
 def _page_ready(env) -> None:

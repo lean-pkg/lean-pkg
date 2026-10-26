@@ -3,7 +3,7 @@ usage: lean-pkg coverage [-h] [--json] {check} ...
 positional arguments:
   {check}
     check     validate coverage.yaml against claims.yaml and the receipts at HEAD; exit 0/1; read-
-              only
+              only (--file without NAME: offline, no registry)
 
 options:
   -h, --help  show this help message and exit

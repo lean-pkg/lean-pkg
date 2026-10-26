@@ -1,4 +1,6 @@
-usage: lean-pkg coverage check [-h] [--file PATH] [--allow-private-manuscript] [--json] name
+usage: lean-pkg coverage check [-h] [--file PATH] [--claims PATH] [--comparator PATH]
+                               [--allow-private-manuscript] [--json]
+                               [name]
 
 positional arguments:
   name
@@ -6,7 +8,14 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --file PATH           check this working-copy file instead of coverage.yaml committed at HEAD
-                        (claim ids and receipts are still read at HEAD)
+                        (claim ids and receipts are still read at HEAD); without NAME: the offline
+                        check, which reads no registry and no receipt and says which checks it
+                        skipped
+  --claims PATH         offline only (no NAME): the claims file the rows' claim ids are checked
+                        against
+  --comparator PATH     offline only (no NAME): a comparator configuration whose theorems must
+                        each be the declaration of a claim a row names (repeat for each
+                        configuration)
   --allow-private-manuscript
                         accept manuscript.version 'unposted' (a private draft); the output says so
   --json                machine-readable JSON on stdout

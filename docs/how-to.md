@@ -71,6 +71,18 @@ names a declaration missing from its file, at the receipt's commit, and the fix
 then costs a new receipt. `--file` checks the schema only; `claims sync` checks
 the declarations at `HEAD`.
 
+`coverage.yaml` has the same kind of check before registration:
+
+```bash
+lean-pkg coverage check --file coverage.yaml --claims claims.yaml --comparator comparator.json
+```
+
+reads no registry and no receipt, runs the schema and length limits, the row
+claim ids against `claims.yaml` and the comparator theorems against the rows,
+and lists the checks it skipped ([coverage check](commands/coverage-check.md)).
+`lean-pkg verify` runs both checks on the files committed at `HEAD` as its step
+0, and stops before any receipt when one refuses.
+
 ## Add a package
 
 ```bash

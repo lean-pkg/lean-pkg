@@ -121,3 +121,13 @@ def test_audit_quiet_prints_the_count_line_only(lp, env, capsys):
     quiet_json = json.loads(capsys.readouterr().out)
     assert lp.main([*base, "--json"]) == 0
     assert quiet_json == json.loads(capsys.readouterr().out)
+
+
+def test_offline_coverage_check_first_and_last_line_is_the_verdict(lp, tmp_path, capsys):
+    from .test_coverage_offline import package
+    d = package(tmp_path)
+    (d / "coverage.yaml").write_text((d / "coverage.yaml").read_text().replace("summary: ", "summary: FIXME "))
+    assert lp.main(["coverage", "check", "--file", str(d / "coverage.yaml"), "--claims", str(d / "claims.yaml")]) == 1
+    lines = _lines(capsys.readouterr().out)
+    assert lines[0].startswith(f"{d / 'coverage.yaml'}: coverage: INVALID (1 problem(s); offline")
+    assert lines[-1] == lines[0] and any("skipped: compute receipts" in ln for ln in lines)

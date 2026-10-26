@@ -1,5 +1,7 @@
 # lean-pkg coverage -- the coverage file (coverage/1: a paper's results, or a library's) and its checker
-"""`lean-pkg coverage check NAME [--file PATH] [--allow-private-manuscript]`.
+"""`lean-pkg coverage check NAME [--file PATH] [--allow-private-manuscript]`, and the offline form
+`lean-pkg coverage check --file PATH [--claims PATH] [--comparator PATH ...] [--allow-private-manuscript]` (#328:
+no registry record, no receipt; offline_check, which verify's preflight also runs at HEAD).
 
 `claims.yaml` is declaration-centric: one row per Lean result. `coverage.yaml` (schema `coverage/1`, in
 the package directory) is paper-centric: one row per numbered result of a citable manuscript, saying how
@@ -233,9 +235,10 @@ def _manuscript_errors(m, errors: list[str]) -> None:
         errors.append("manuscript.version: must be a string or a mapping {repo, commit, sha256}")
 
 
-def validate(doc, package: str | None = None, profiles: dict | None = None) -> list[str]:
+def validate(doc, package: str | None = None, profiles: dict | None = None, placeholders: bool = True) -> list[str]:
     """Schema errors of a coverage/1 document (claim ids and receipts are checked by check_against).
-    profiles: the site profiles compute may name (sites.for_repo); None: the built-in ones."""
+    profiles: the site profiles compute may name (sites.for_repo); None: the built-in ones. placeholders:
+    false leaves out the placeholder rule (placeholder_problems), which verify's preflight reports apart."""
     errors: list[str] = []
     if not isinstance(doc, dict):
         _keys(doc, TOP_REQUIRED, TOP_OPTIONAL, "<root>", errors)
@@ -256,7 +259,7 @@ def validate(doc, package: str | None = None, profiles: dict | None = None) -> l
         _library_rows_errors(doc, errors)
     else:
         _paper_rows_errors(doc, errors)
-    _tail_errors(doc, errors, sites.builtin() if profiles is None else profiles)
+    _tail_errors(doc, errors, sites.builtin() if profiles is None else profiles, placeholders)
     return errors
 
 
@@ -269,8 +272,16 @@ def _identity_errors(doc: dict, package: str | None, errors: list[str]) -> None:
         errors.append(f"package: {doc['package']!r} is not {package!r}")
 
 
-def _tail_errors(doc: dict, errors: list[str], profiles: dict) -> None:
-    """compute, placeholders, lean_pkg_version and stack: the same for both kinds."""
+def placeholder_problems(doc) -> list[str]:
+    """lean-scope-page R4: each string of the document that carries a placeholder marker."""
+    return [f"{where or '<root>'}: carries the placeholder {PLACEHOLDER_RE.search(s).group(0)!r}; "
+            f"write the text (a placeholder never reaches the page)"
+            for where, s in _strings(doc, "") if PLACEHOLDER_RE.search(s)]
+
+
+def _tail_errors(doc: dict, errors: list[str], profiles: dict, placeholders: bool = True) -> None:
+    """compute, placeholders (unless `placeholders` is false), lean_pkg_version and stack: the same for both
+    kinds."""
     comp = doc.get("compute")
     if "compute" in doc:
         if not isinstance(comp, list) or not comp:
@@ -294,10 +305,8 @@ def _tail_errors(doc: dict, errors: list[str], profiles: dict) -> None:
                     errors.append(f"{w}.jobs: must be a non-empty list of {sched.label} job ids ({sched.example})")
                 elif len(set(jobs)) != len(jobs):
                     errors.append(f"{w}.jobs: repeats a job id")
-    for where, s in _strings(doc, ""):
-        if PLACEHOLDER_RE.search(s):
-            errors.append(f"{where or '<root>'}: carries the placeholder {PLACEHOLDER_RE.search(s).group(0)!r}; "
-                          f"write the text (a placeholder never reaches the page)")
+    if placeholders:
+        errors += placeholder_problems(doc)
     lv = doc.get("lean_pkg_version")
     if "lean_pkg_version" in doc and _keys(lv, ("version", "doi"), (), "lean_pkg_version", errors):
         if not (isinstance(lv["version"], str) and VERSION_RE.match(lv["version"])):
@@ -590,19 +599,25 @@ def version_doi_problems(doc: dict, cff: dict | None = None) -> tuple[list[str],
     return [], []
 
 
-def check_against(doc: dict, claims: dict[str, dict], claims_rel: str, repo: pathlib.Path | None
-                  ) -> tuple[list[str], list[str]]:
-    """(errors, warnings) of a schema-valid document against the package: claim ids, receipts, versions."""
+def claim_id_problems(doc: dict, claims: dict[str, dict], where: str) -> list[str]:
+    """Each claim id a row names is a claim of `claims` (read from `where`) and is not superseded."""
     errors: list[str] = []
-    warnings: list[str] = []
     for i, r in enumerate(doc["rows"]):
         for cid in r.get("claims") or []:
             c = claims.get(cid)
             if c is None:
-                errors.append(f"rows[{i}].claims: {cid!r} is not a claim id in {claims_rel} at HEAD")
+                errors.append(f"rows[{i}].claims: {cid!r} is not a claim id in {where}")
             elif c.get("status") == "superseded":
                 errors.append(f"rows[{i}].claims: {cid!r} is superseded (by {c.get('superseded_by')!r}); "
                               f"name its successor")
+    return errors
+
+
+def check_against(doc: dict, claims: dict[str, dict], claims_rel: str, repo: pathlib.Path | None
+                  ) -> tuple[list[str], list[str]]:
+    """(errors, warnings) of a schema-valid document against the package: claim ids, receipts, versions."""
+    errors = claim_id_problems(doc, claims, f"{claims_rel} at HEAD")
+    warnings: list[str] = []
     if repo is not None:
         _backed, problems = compute_backing(doc, repo)
         errors += problems
@@ -611,6 +626,40 @@ def check_against(doc: dict, claims: dict[str, dict], claims_rel: str, repo: pat
         errors, warnings = errors + e, warnings + w
     p, w = version_doi_problems(doc)
     return errors + p, warnings + w
+
+
+def theorem_mapping_problems(doc: dict, claims: dict[str, dict], configs: list[dict], smoke, read_file,
+                             source: str) -> list[str]:
+    """R10/R11: every theorem of `configs` ({path, theorem_names} each) is the declaration of a claim some row
+    names, unless its configuration is a declared smoke check (its path in `smoke`), whose theorems must then
+    name no claim a row names. `read_file(rel)` reads the claims' Lean files (a decl counts only when its file
+    declares it: comparator_config.qualified_decls); `source` says where the configurations came from."""
+    from . import comparator_config as cc
+    errors: list[str] = []
+    named = [(i, cid) for i, r in enumerate(doc["rows"]) for cid in r.get("claims") or [] if cid in claims]
+    row_claims = [claims[cid] for _i, cid in named]
+    qualified = cc.qualified_decls(read_file, row_claims)
+    decls = [(str(c.get("decl") or ""), str(c.get("decl") or "") in qualified) for c in row_claims]
+    mapped = cc.mapped_names(list(claims.values()))      # a judged_as name judges its own claim only (#CM)
+    for c in configs:
+        where = c.get("path") or "?"
+        if where in smoke:                                  # a declared smoke check: accounted for as such
+            for t in c.get("theorem_names") or []:
+                hit = [cid for (_i, cid), rc in zip(named, row_claims, strict=False)
+                       if isinstance(t, str) and cc.claim_covered({t}, rc, qualified, mapped)]
+                if hit:
+                    errors.append(f"comparator theorem {t!r} ({where}) is in a configuration {SIDECAR} "
+                                  f"marks as a smoke check, but it is the declaration of claim {hit[0]!r}, which a "
+                                  f"row names: a smoke check verifies no result, so move the theorem to a "
+                                  f"configuration of its own, or drop the smoke mark")
+            continue
+        for t in c.get("theorem_names") or []:
+            if isinstance(t, str) and not any(cc.claim_covered({t}, rc, qualified, mapped) for rc in row_claims):
+                near = cc.name_hints([t], decls)            # #6: a root-namespace near miss, named, never credited
+                errors.append(f"comparator theorem {t!r} ({where}, {source}) is the declaration "
+                              f"of no claim a row names: map it to its paper result (a row's claims), or drop it "
+                              f"from the configuration" + (f"; hint: {near[0]['hint']}" if near else ""))
+    return errors
 
 
 def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.Path) -> list[str]:
@@ -638,30 +687,14 @@ def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.
     configs = [c for c in (comp or {}).get("configs") or [] if isinstance(c, dict)]
     if not configs:
         return errors
-    row_claims = [claims[cid] for _i, cid in named]
-    qualified = cc.qualified_decls(claims_mod._reader(repo, "HEAD"), row_claims)
-    decls = [(str(c.get("decl") or ""), str(c.get("decl") or "") in qualified) for c in row_claims]
-    mapped = cc.mapped_names(list(claims.values()))      # a judged_as name judges its own claim only (#CM)
     smoke = cc.smoke_configs(repo, str(comp.get("commit") or "") if core._HEX40.fullmatch(
         str(comp.get("commit") or "")) else None, "HEAD")
+    errors += theorem_mapping_problems(doc, claims, configs, smoke, claims_mod._reader(repo, "HEAD"),
+                                       "recorded comparator receipt")
     for c in configs:
         where = c.get("path") or "?"
-        if where in smoke:                                  # a declared smoke check: accounted for as such
-            for t in c.get("theorem_names") or []:
-                hit = [cid for (_i, cid), rc in zip(named, row_claims, strict=False)
-                       if isinstance(t, str) and cc.claim_covered({t}, rc, qualified, mapped)]
-                if hit:
-                    errors.append(f"comparator theorem {t!r} ({where}) is in a configuration {SIDECAR} "
-                                  f"marks as a smoke check, but it is the declaration of claim {hit[0]!r}, which a "
-                                  f"row names: a smoke check verifies no result, so move the theorem to a "
-                                  f"configuration of its own, or drop the smoke mark")
+        if where in smoke:
             continue
-        for t in c.get("theorem_names") or []:
-            if isinstance(t, str) and not any(cc.claim_covered({t}, rc, qualified, mapped) for rc in row_claims):
-                near = cc.name_hints([t], decls)            # #6: a root-namespace near miss, named, never credited
-                errors.append(f"comparator theorem {t!r} ({where}, recorded comparator receipt) is the declaration "
-                              f"of no claim a row names: map it to its paper result (a row's claims), or drop it "
-                              f"from the configuration" + (f"; hint: {near[0]['hint']}" if near else ""))
         judged = receipt_judged(c)
         if c.get("definition_names") and not str(judged.get("reviewer") or "").strip():
             errors.append(f"comparator configuration {where} (recorded comparator receipt) has definition holes "
@@ -706,6 +739,309 @@ def load_checked(pkg: dict, repo: pathlib.Path, file: str | None = None, allow_p
     return doc, claims, warnings
 
 
+# --------------------------------------------------------------------------
+# the offline check (#328): no registry record, no receipt
+
+# the checks of the registered mode that need the registry record, the checkout at HEAD or a receipt
+OFFLINE_SKIPPED = (
+    ("compute receipts", "each compute job is a receipt committed under .lean-receipts/: needs the receipts at "
+                         "HEAD"),
+    ("claim files at HEAD", "each named claim's file is committed at HEAD (R8/R9): needs the package checkout"),
+    ("definition sign-off", "each comparator configuration with definition holes names a sign-off reviewer "
+                            "(R12): needs the recorded comparator receipt"),
+    ("e-print baseline", "manuscript.eprint_sha256 against the source-baseline record committed at HEAD: needs "
+                         "the package checkout"),
+)
+UNPOSTED_PROBLEM = ("manuscript.version: unposted: theorem numbers of a private draft are not checkable by a "
+                    "reader; pin a posted version (arXiv:IDvN or {repo, commit, sha256}), or pass "
+                    "--allow-private-manuscript (the output is then marked)")
+
+
+def offline_check(text: str, where: str, *, claims_text: str | None = None, claims_where: str = "claims.yaml",
+                  configs: dict[str, bytes] | None = None, sidecar: dict | None = None, read_file=None,
+                  profiles: dict | None = None, allow_private: bool = False, draft: bool = False) -> dict:
+    """Every check of `coverage check` that needs no registry record and no receipt, on the coverage file's
+    text: the coverage/1 schema and its length limits, the manuscript version, lean_pkg_version; with the
+    claims file's text, its claims/1 schema, each row's claim ids (present, not superseded) and a warning for
+    each reusable claim no row names; with comparator configurations ({path: bytes}), R10/R11 (each theorem
+    the declaration of a claim a row names; `sidecar` marks smoke configurations; `read_file(rel)` reads the
+    claims' Lean files, skipped when one is unreadable). draft (verify's preflight): placeholder text and an
+    unposted manuscript are warnings, not problems (`coverage check` and `page` still refuse them).
+    {doc, errors, warnings, checks[{check, status pass|fail|warn|skipped, detail}], skipped[]}."""
+    from . import claims as claims_mod
+    out: dict = {"doc": None, "errors": [], "warnings": [], "checks": [], "skipped": []}
+
+    def _add(check: str, status: str, detail: str, problems=(), warnings=()) -> None:
+        out["checks"].append({"check": check, "status": status, "detail": detail})
+        out["errors"].extend(problems)
+        out["warnings"].extend(warnings)
+        if status == "skipped":
+            out["skipped"].append(check)
+
+    # the claims file first: its package is the one the coverage file must name
+    claims: dict[str, dict] | None = None
+    claims_pkg = None
+    claims_entry = None
+    if claims_text is None:
+        claims_entry = ("claims file", "skipped", "no claims file given (--claims PATH)", [])
+    else:
+        try:
+            cdoc = claims_mod.load_claims_text(claims_text, claims_where)
+            cerr = [f"{claims_where}: {e}" for e in claims_mod.validate_claims(cdoc, None)]
+        except core.Fail as e:
+            cdoc, cerr = None, [str(e)]
+        if cerr:
+            claims_entry = ("claims file", "fail", f"{claims_where} is not a valid claims/1 file", cerr)
+        else:
+            claims = {str(c.get("id")): c for c in cdoc.get("claims") or [] if isinstance(c, dict)}
+            claims_pkg = cdoc.get("package") if isinstance(cdoc.get("package"), str) else None
+            claims_entry = ("claims file", "pass", f"{claims_where}: claims/1 schema ok ({len(claims)} claim(s))", [])
+    try:
+        doc = load_text(text, where)
+    except core.Fail as e:
+        doc = None
+        _add("schema", "fail", f"{where} does not load", [str(e)])
+    valid = False
+    if doc is not None:
+        errs = validate(doc, claims_pkg, profiles, placeholders=not draft)
+        held = placeholder_problems(doc) if draft else []
+        _add("schema", "fail" if errs else ("warn" if held else "pass"),
+               f"{COVERAGE_SCHEMA} schema and length limits" + (f" ({len(errs)} problem(s))" if errs else ""),
+               errs, held)
+        valid = not errs
+        out["doc"] = doc if valid else None
+    why_not = f"{where} is not a valid {COVERAGE_SCHEMA} file"
+    if not valid:
+        _add("manuscript", "skipped", why_not)
+    elif doc_kind(doc) == "library":
+        _add("manuscript", "pass", "kind library: no manuscript")
+    else:
+        kind = manuscript_kind(doc["manuscript"]["version"])
+        if kind == "unposted" and not allow_private:
+            if draft:
+                _add("manuscript", "warn", "manuscript unposted", (), [UNPOSTED_PROBLEM])
+            else:
+                _add("manuscript", "fail", "manuscript unposted", [UNPOSTED_PROBLEM])
+        else:
+            _add("manuscript", "pass", f"manuscript {kind}"
+                   + (" (PRIVATE DRAFT, --allow-private-manuscript)" if kind == "unposted" else ""))
+    if not valid:
+        _add("lean_pkg_version", "skipped", why_not)
+    elif "lean_pkg_version" not in doc:
+        _add("lean_pkg_version", "pass", "not set")
+    else:
+        p, w = version_doi_problems(doc)
+        _add("lean_pkg_version", "fail" if p else "pass", f"lean-pkg {doc['lean_pkg_version']['version']}", p, w)
+    _add(*claims_entry)
+    if claims is None or not valid:
+        why = why_not if not valid else ("no claims file given (--claims PATH)" if claims_text is None
+                                         else f"{claims_where} is not a valid claims/1 file")
+        _add("claim ids", "skipped", why)
+        _add("reusable claims", "skipped", why)
+    else:
+        p = claim_id_problems(doc, claims, claims_where)
+        _add("claim ids", "fail" if p else "pass", f"each row's claim ids are claims of {claims_where}", p)
+        named = {cid for r in doc["rows"] for cid in r.get("claims") or []}
+        unnamed = [cid for cid, c in claims.items() if c.get("status") == "reusable" and cid not in named]
+        if unnamed:
+            _add("reusable claims", "warn", f"{len(unnamed)} reusable claim(s) named by no row", (),
+                   [f"{len(unnamed)} reusable claim(s) of {claims_where} named by no row: "
+                    + ", ".join(unnamed[:10]) + (f" (+{len(unnamed) - 10} more)" if len(unnamed) > 10 else "")
+                    + " (the page shows only what a row names: add each to the row of the result it formalizes)"])
+        else:
+            _add("reusable claims", "pass", "every reusable claim is named by a row")
+    _offline_comparator(_add, doc if valid else None, claims, configs, sidecar, read_file,
+                        why_not if not valid else None, claims_text is None)
+    for check, why in OFFLINE_SKIPPED:
+        _add(check, "skipped", why)
+    return out
+
+
+def _offline_comparator(_add, doc, claims, configs, sidecar, read_file, invalid: str | None,
+                        no_claims: bool) -> None:
+    """The R10/R11 entry of offline_check."""
+    from . import holes
+    check = "comparator theorems"
+    if configs is None:
+        _add(check, "skipped", "no comparator configuration given (--comparator PATH)")
+        return
+    parsed, problems = [], []
+    for path, blob in configs.items():
+        try:
+            cfg = json.loads(blob or b"")
+        except ValueError as e:
+            problems.append(f"{path}: not valid JSON ({e})")
+            continue
+        names = cfg.get("theorem_names", []) if isinstance(cfg, dict) else None
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            problems.append(f"{path}: not a JSON object whose theorem_names is a list of strings")
+            continue
+        parsed.append({"path": path, "theorem_names": names})
+    if problems:
+        _add(check, "fail", "a comparator configuration does not load", problems)
+        return
+    if invalid or claims is None:
+        _add(check, "skipped", invalid or ("no claims file given (--claims PATH)" if no_claims
+                                             else "the claims file is not a valid claims/1 file"))
+        return
+    files = sorted({str(claims[cid].get("file") or "") for r in doc["rows"] for cid in r.get("claims") or []
+                    if cid in claims})
+    unreadable = [f for f in files if not f or read_file is None or read_file(f) is None]
+    if unreadable:
+        _add(check, "skipped", "the Lean file(s) of the named claims are not readable here ("
+               + ", ".join(unreadable[:5]) + "): a decl counts only when its file declares it")
+        return
+    p = theorem_mapping_problems(doc, claims, parsed, holes.smoke_paths(sidecar), read_file,
+                                 "comparator configuration")
+    n = sum(len(c["theorem_names"]) for c in parsed)
+    _add(check, "fail" if p else "pass", f"each of {n} theorem(s) in {len(parsed)} configuration(s) is the "
+           f"declaration of a claim a row names (R11)", p)
+
+
+def _offline_reader(root: pathlib.Path):
+    """read(rel) -> text of root/rel, or None: a package-relative path only (no absolute path, no ..)."""
+    def read(rel: str) -> str | None:
+        pp = pathlib.PurePosixPath(str(rel))
+        if pp.is_absolute() or ".." in pp.parts:
+            return None
+        p = root / pp
+        return p.read_text(encoding="utf-8", errors="replace") if p.is_file() else None
+    return read
+
+
+def offline_payload(rep: dict, name, file: str, claims_file, comparator: list[str]) -> dict:
+    doc = rep["doc"]
+    kind = doc_kind(doc) if doc else None
+    counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in CLASSES} if kind == "paper" else None
+    mkind = manuscript_kind(doc["manuscript"]["version"]) if kind == "paper" else None
+    return {"ok": not rep["errors"], "name": name, "file": file, "kind": kind,
+            "rows": len(doc["rows"]) if doc else None, "counts": counts, "manuscript": mkind,
+            "private_manuscript": (mkind == "unposted") if doc else None, "errors": rep["errors"],
+            "warnings": rep["warnings"], "offline": True, "claims_file": claims_file, "comparator": comparator,
+            "checks": rep["checks"], "skipped": rep["skipped"]}
+
+
+def offline_lines(rep: dict, payload: dict, where: str) -> list[str]:
+    """Verdict first and last (AGENTS.md "Verdict first"), then the problems, warnings and every check."""
+    n_skip = len(rep["skipped"])
+    if rep["errors"]:
+        verdict = f"{where}: coverage: INVALID ({len(rep['errors'])} problem(s); offline, {n_skip} check(s) skipped)"
+    else:
+        doc = rep["doc"]
+        what = (f"library; {len(doc['rows'])} main result(s)" if payload["kind"] == "library" else
+                f"{len(doc['rows'])} row(s): " + ", ".join(f"{n} {c}" for c, n in payload["counts"].items())
+                + f"; manuscript {payload['manuscript']}")
+        verdict = f"{where}: coverage: OK; {what}; offline, {n_skip} check(s) skipped"
+    lines = [verdict] + [f"  {e}" for e in rep["errors"]] + [f"  warning: {w}" for w in rep["warnings"]]
+    lines += [f"  {c['status']}: {c['check']}: {c['detail']}" for c in rep["checks"]]
+    if n_skip:
+        lines.append("  the skipped checks need the registry record, the checkout at HEAD or a receipt: "
+                     "`lean-pkg coverage check NAME` runs them once the package is registered and committed")
+    return lines + [verdict]
+
+
+def do_coverage_check_file(file: str, claims_path: str | None, comparator_paths: list[str] | None,
+                           allow_private: bool) -> tuple[list[str], dict, int]:
+    """`coverage check --file PATH` without NAME: the offline check (offline_check) on working-copy files;
+    reads no registry. The Lean files, lean-pkg-signoff.json and the site profiles are read from the coverage
+    file's directory (the package directory)."""
+    p = pathlib.Path(str(file)).expanduser()
+    if not p.is_file():
+        payload = {"ok": False, "name": None, "file": str(p), "kind": None, "rows": None, "counts": None,
+                   "manuscript": None, "private_manuscript": None, "errors": [f"{p}: no such file"],
+                   "warnings": [], "offline": True, "claims_file": claims_path, "comparator": comparator_paths or [],
+                   "checks": [], "skipped": []}
+        verdict = f"{p}: coverage: INVALID (1 problem(s); offline)"
+        return [verdict, f"  {p}: no such file", verdict], payload, 1
+    root = p.resolve().parent
+    claims_text = None
+    if claims_path is not None:
+        cp = pathlib.Path(str(claims_path)).expanduser()
+        if not cp.is_file():
+            raise core.Fail(f"claims file not found: {cp}")
+        claims_text = cp.read_text(encoding="utf-8", errors="replace")
+    configs = None
+    if comparator_paths:
+        configs = {}
+        for c in comparator_paths:
+            cp = pathlib.Path(str(c)).expanduser()
+            if not cp.is_file():
+                raise core.Fail(f"comparator configuration not found: {cp}")
+            try:
+                key = cp.resolve().relative_to(root).as_posix()
+            except ValueError:
+                key = str(c)
+            configs[key] = cp.read_bytes()
+    side = root / SIDECAR
+    try:
+        sidecar = core.parse_sidecar(side.read_bytes() if side.is_file() else None, str(side))
+    except ValueError as e:
+        raise core.Fail(str(e)) from e
+    rep = offline_check(p.read_text(encoding="utf-8", errors="replace"), str(p), claims_text=claims_text,
+                        claims_where=str(claims_path) if claims_path else "claims.yaml", configs=configs,
+                        sidecar=sidecar, read_file=_offline_reader(root), profiles=sites.for_repo(root),
+                        allow_private=allow_private)
+    doc = rep["doc"]
+    name = doc.get("package") if doc else None
+    payload = offline_payload(rep, name, str(p), claims_path, list(comparator_paths or []))
+    return offline_lines(rep, payload, str(p)), payload, (1 if rep["errors"] else 0)
+
+
+def preflight_at_head(name: str, pkg: dict, repo: pathlib.Path) -> dict:
+    """verify's step 0 (#325): at HEAD, the claims/1 check `claims check --file` runs on the claims file
+    (refused: its errors), and, when coverage.yaml is committed, offline_check in draft mode against that
+    claims file and the comparator configurations committed at HEAD. Reads only HEAD, never the working tree.
+    {ok, claims {file, present, claims, errors[]}, coverage {file, present, ...offline_check} , lines[]}."""
+    from . import claims as claims_mod
+    from . import comparator_config as cc
+    head = core.git_head(repo) or "HEAD"
+    c12 = head[:12]
+    rel = pkg.get("claims_file") or claims_mod.DEFAULT_CLAIMS_FILE
+    raw = core.git_show_bytes(repo, rel)
+    lines: list[str] = []
+    res: dict = {"ok": True, "claims": {"file": rel, "present": raw is not None, "claims": None, "errors": []},
+                 "coverage": {"file": DEFAULT_COVERAGE_FILE, "present": False, "errors": [], "warnings": [],
+                              "checks": [], "skipped": []}}
+    claims_text = None
+    if raw is None:
+        lines.append(f"{rel} at {c12}: not committed; no claims/1 check")
+    else:
+        claims_text = raw.decode("utf-8", errors="replace")
+        out, payload, rc = claims_mod.do_claims_check_text(claims_text, f"{rel} at {c12}", name)
+        res["claims"].update(claims=payload["claims"], errors=payload["errors"])
+        lines += out
+        if rc:
+            res["ok"] = False
+            res["lines"] = lines
+            return res
+    craw = core.git_show_bytes(repo, DEFAULT_COVERAGE_FILE)
+    if craw is None:
+        lines.append(f"{DEFAULT_COVERAGE_FILE} at {c12}: not committed; no coverage check")
+        res["lines"] = lines
+        return res
+    where = f"{DEFAULT_COVERAGE_FILE} at {c12}"
+    try:
+        sidecar = core.sidecar_at(repo, "HEAD")
+        profiles = sites.for_repo(repo)
+    except (ValueError, core.Fail) as e:
+        res["ok"] = False
+        res["coverage"].update(present=True, errors=[str(e)])
+        verdict = f"{where}: coverage: INVALID (1 problem(s); offline)"
+        res["lines"] = lines + [verdict, f"  {e}", verdict]
+        return res
+    rep = offline_check(craw.decode("utf-8", errors="replace"), where, claims_text=claims_text,
+                        claims_where=f"{rel} at {c12}", configs=cc._configs_at(repo, "HEAD"), sidecar=sidecar,
+                        read_file=claims_mod._reader(repo, "HEAD"), profiles=profiles, draft=True)
+    res["coverage"].update(present=True, errors=rep["errors"], warnings=rep["warnings"], checks=rep["checks"],
+                           skipped=rep["skipped"])
+    payload = offline_payload(rep, name, where, rel if claims_text is not None else None,
+                              sorted(cc._configs_at(repo, "HEAD")))
+    lines += offline_lines(rep, payload, where)
+    res["ok"] = not rep["errors"]
+    res["lines"] = lines
+    return res
+
+
 def package_checkout(reg: dict, name: str) -> tuple[dict, pathlib.Path]:
     pkg = core.get_pkg(reg, name)
     repo = core.repo_path(pkg)
@@ -745,8 +1081,19 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
 
 
 def run_check(args) -> int:
-    out, payload, rc = do_coverage_check(core.load_registry(core.registry_path(args)), args.name,
-                                         args.file, args.allow_private_manuscript)
+    if args.name is None:
+        if args.file is None:
+            raise core.UsageError("coverage check takes a package NAME (the registered package), or --file PATH "
+                                  "without NAME (the offline check: no registry, no receipts)")
+        out, payload, rc = do_coverage_check_file(args.file, args.claims, args.comparator,
+                                                  args.allow_private_manuscript)
+    else:
+        if args.claims is not None or args.comparator:
+            raise core.UsageError("--claims and --comparator go with the offline form, `coverage check --file PATH` "
+                                  "without NAME; with NAME the claims are read at HEAD and the configurations from "
+                                  "the recorded comparator receipt")
+        out, payload, rc = do_coverage_check(core.load_registry(core.registry_path(args)), args.name,
+                                             args.file, args.allow_private_manuscript)
     if args.json_out:
         core.print_json(payload)
     else:
@@ -768,11 +1115,17 @@ def add_parsers(sub, add_json) -> None:
     s.set_defaults(fn=cmd_coverage, coverage_fn=None)
     csub = s.add_subparsers(dest="coverage_cmd")
     c = csub.add_parser("check", help="validate coverage.yaml against claims.yaml and the receipts at HEAD; "
-                                      "exit 0/1; read-only")
-    c.add_argument("name")
+                                      "exit 0/1; read-only (--file without NAME: offline, no registry)")
+    c.add_argument("name", nargs="?", default=None)
     c.add_argument("--file", default=None, metavar="PATH",
                    help="check this working-copy file instead of coverage.yaml committed at HEAD (claim ids and "
-                        "receipts are still read at HEAD)")
+                        "receipts are still read at HEAD); without NAME: the offline check, which reads no "
+                        "registry and no receipt and says which checks it skipped")
+    c.add_argument("--claims", default=None, metavar="PATH",
+                   help="offline only (no NAME): the claims file the rows' claim ids are checked against")
+    c.add_argument("--comparator", action="append", default=None, metavar="PATH",
+                   help="offline only (no NAME): a comparator configuration whose theorems must each be the "
+                        "declaration of a claim a row names (repeat for each configuration)")
     c.add_argument("--allow-private-manuscript", action="store_true",
                    help="accept manuscript.version 'unposted' (a private draft); the output says so")
     add_json(c)

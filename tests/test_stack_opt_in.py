@@ -48,7 +48,10 @@ def manifest(commit: str | None = ML_COMMIT, input_rev: str = "v4.35.0") -> str:
 
 def on_stack_repo(tmp_path, name="p", toolchain=TC, commit=ML_COMMIT, stack=STACK, extra=None):
     files = {"lake-manifest.json": manifest(commit), "verify.sh": VERIFY_SH, "comparator.json": "{}\n",
-             "coverage.yaml": f"schema: coverage/1\npackage: {name}\nkind: library\nstack: {stack}\n"}
+             # a valid library coverage: verify's preflight (#325) checks the committed file before the stack
+             "coverage.yaml": f"schema: coverage/1\npackage: {name}\nkind: library\nstack: {stack}\n"
+                              f"summary: The main bound is formalized.\n"
+                              f"rows:\n  - title: Main bound\n    claims: [{name}/main]\n"}
     files.update(extra or {})
     return make_repo(tmp_path / f"{name}-repo", toolchain=toolchain, extra_files=files)
 

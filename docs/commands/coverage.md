@@ -18,7 +18,7 @@ lean-pkg coverage [--json] [COMMAND]
 
 ## Subcommands
 
-- [`lean-pkg coverage check`](coverage-check.md): validate coverage.yaml against claims.yaml and the receipts at HEAD; exit 0/1; read-only
+- [`lean-pkg coverage check`](coverage-check.md): validate coverage.yaml against claims.yaml and the receipts at HEAD; exit 0/1; read-only (--file without NAME: offline, no registry)
 
 ## Exit codes
 
