@@ -111,7 +111,7 @@ globs = ["{module}", "{module}.+"]
 ROOT_FILE = """\
 module
 
--- The root module of the library {module} (lakefile.toml globs it with {module}.+). Import the library's
+-- The root module of the library {module} (the lakefile.toml glob "{module}" includes it). Import the library's
 -- modules from here (`public import {module}.Basic`), and this module from Solution.lean (`public import
 -- {module}`); never Challenge or Solution, which declare the same theorem.
 """

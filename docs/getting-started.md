@@ -178,7 +178,7 @@ EOF
 cat > MyProof.lean <<'EOF'
 module
 
--- The root module of the library MyProof (lakefile.toml globs it with MyProof.+). Import the library's
+-- The root module of the library MyProof (the lakefile.toml glob "MyProof" includes it). Import the library's
 -- modules from here (`public import MyProof.Basic`), and this module from Solution.lean (`public import
 -- MyProof`); never Challenge or Solution, which declare the same theorem.
 EOF
