@@ -1869,7 +1869,7 @@ formalization renderer derives changed (`version`, `project.name`,
 changed kept key (a hand-authored one such as `project.description` or
 `project.authors`) is drift, and the refusal names it. `claims.yaml` is
 hand-authored and never exempt. A `formalization.yaml` first added after X
-is drift too: render it (`lean-pkg formalization NAME --write`) and commit
+is drift too: render it (`lean-pkg formalization render NAME --write`) and commit
 it with the source before gating, then regenerate it after the gate.
 
 With no `formalization_yaml` pointer recorded, the exception does not apply,

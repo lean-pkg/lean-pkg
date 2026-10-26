@@ -155,7 +155,7 @@ The runner wrote nothing until every configuration passed. Check the
 receipt before recording it:
 
 ```bash
-lean-pkg comparator markovprocess-pilot --check --receipt .lean-receipts/<c12>-comparator.json
+lean-pkg comparator check markovprocess-pilot --receipt .lean-receipts/<c12>-comparator.json
 # markovprocess-pilot: comparator receipt valid at commit <c12> (1 config(s)) — not recorded (--check)
 ```
 

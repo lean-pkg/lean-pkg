@@ -56,7 +56,7 @@ git add .lean-receipts && git commit -m "evidence: gate receipt"   # after gatin
 
 # comparator tier, on an allowed host, clean tree
 lean-pkg receipt comparator --project .
-lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.json --json
+lean-pkg comparator check my-proof --receipt .lean-receipts/<c12>-comparator.json --json
 git add .lean-receipts && git commit -m "evidence: comparator receipt"
 lean-pkg comparator attach my-proof --receipt .lean-receipts/<c12>-comparator.json --json
 

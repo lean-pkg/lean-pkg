@@ -8,7 +8,7 @@ title: Lifecycle
 
 ## One registry, append-only history
 
-A single YAML registry (`version: 3`, a `packages` map; `lean-pkg migrate`
+A single YAML registry (`version: 3`, a `packages` map; `lean-pkg registry migrate`
 upgrades a `version: 1` or `version: 2` file in place, additively) is the source of
 truth. Each entry records the repository URL, a `$HOME`-relative
 `local_path`, visibility, status, the current lease, the Lean toolchain and

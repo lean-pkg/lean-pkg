@@ -181,7 +181,7 @@ The holder is whatever `--agent` (and `--workspace`) the claim passed, so:
 Each package in the registry, and the `package` object of `status NAME --json`, is a mapping
 with these top-level keys (also listed by `lean-pkg status --help`; both come from one table
 in the code). Tier `v1` keys are required at every schema version; `v2` and `v3` keys are
-added by `lean-pkg migrate` to that schema version; `optional` keys are absent unless set.
+added by `lean-pkg registry migrate` to that schema version; `optional` keys are absent unless set.
 `board --json` and `list --json` hold the same records under `packages`. In `status`, `list` and
 `board` output (JSON, text and `--fields`), a lease also carries `expires_at`: derived as
 `claimed_at` + `ttl_hours`, ISO 8601 UTC (null when the lease fields are unparseable), never

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""The user-facing docs show the canonical flag spellings, never an old one from command_tree.FLAG_ALIASES.
+"""The user-facing docs show canonical spellings, never an old command or flag spelling from command_tree.
 
 An old spelling keeps working (the CLI rewrites it and prints a note), so a stale example passes every other
 test; #301 and #302 found `--repo-dir` and `register --repo` by hand. Each `lean-pkg ...` invocation in a
-fenced block (backslash continuations joined) or an inline code span is put through the CLI's own rewrite
-(command_tree.rewrite_argv, then flag_hits on the canonical command), so this checks exactly what the tool
-would flag. History (CHANGELOG, docs/upgrades, proposals, design, decisions) keeps the spelling of its day,
+fenced block (backslash continuations joined) or an inline code span is put through the CLI's own rewrite:
+command_tree.rewrite_argv for the command words (COMMAND_ALIASES, IMPLIED_VERBS, MODE_ALIASES), then
+flag_hits on the canonical command (FLAG_ALIASES). It checks exactly what the tool would note. History (CHANGELOG, docs/upgrades, proposals, design, decisions) keeps the spelling of its day,
 and docs/commands is generated from the parser.
 """
 
@@ -63,26 +63,26 @@ def invocations(cmd: str):
             yield argv[1:]
 
 
-def old_flags(argv: list[str]) -> list[ct.Hit]:
-    """The old flag spellings in argv, judged on its canonical command as the CLI judges them."""
-    new, _ = ct.rewrite_argv(argv)
+def old_spellings(argv: list[str]) -> list[ct.Hit]:
+    """The old command and flag spellings in argv, judged as the CLI judges them."""
+    new, hits = ct.rewrite_argv(argv)
     i = ct._command_index(new)
     words = new[i:] if i is not None else []
     paths = dict.fromkeys(fa.command for fa in ct.FLAG_ALIASES)   # once each: flag_hits reports every alias
-    return [h for p in paths if tuple(words[:len(p)]) == p for h in ct.flag_hits(new, " ".join(p))]
+    return hits + [h for p in paths if tuple(words[:len(p)]) == p for h in ct.flag_hits(new, " ".join(p))]
 
 
 def stale(text: str, where: str) -> list[str]:
     return [f"{where}:{n}: `lean-pkg {h.old}` is now `lean-pkg {h.new}`"
-            for n, cmd in snippets(text) for argv in invocations(cmd) for h in old_flags(argv)]
+            for n, cmd in snippets(text) for argv in invocations(cmd) for h in old_spellings(argv)]
 
 
-def test_docs_use_no_old_flag_spelling():
+def test_docs_use_no_old_spelling():
     found = [s for p in doc_files() for s in stale(p.read_text(), p.relative_to(ROOT).as_posix())]
     examples = yaml.safe_load((ROOT / "docs" / "_commands" / "examples.yaml").read_text())
     for key, items in examples.items():
         found += stale("\n".join(f"`{e['cmd']}`" for e in items), f"docs/_commands/examples.yaml ({key})")
-    assert not found, f"{len(found)} old flag spelling(s) in the docs:\n" + "\n".join(found)
+    assert not found, f"{len(found)} old spelling(s) in the docs:\n" + "\n".join(found)
 
 
 def test_the_check_has_teeth():
@@ -95,3 +95,16 @@ def test_the_check_has_teeth():
         assert len(stale(f"run `lean-pkg {cmd} {fa.old}=v` here", "i")) == 1, fa
         assert stale(f"```\nlean-pkg {cmd} x {fa.new} v\n```\n", "c") == [], fa
     assert stale("```\nlean-pkg --commit lease claim demo\n```\n", "g") == []
+
+
+def test_every_command_alias_is_caught():
+    """Each old command spelling (a moved command, a noun without its verb, a flag that chose another job) is
+    caught; the canonical command it becomes is not."""
+    cases = [list(a.old) + ["demo"] for a in ct.COMMAND_ALIASES]
+    cases += [[noun, "demo"] for noun in ct.IMPLIED_VERBS]
+    cases += [list(m.command) + ["demo", m.flag] + (["v"] if m.value else []) for m in ct.MODE_ALIASES]
+    for argv in cases:
+        line = "lean-pkg " + " ".join(argv)
+        assert len(stale(f"```\n{line}\n```\n", "c")) == 1, line
+        canonical, _ = ct.rewrite_argv(argv)
+        assert stale(f"```\nlean-pkg {' '.join(canonical)}\n```\n", "c") == [], canonical

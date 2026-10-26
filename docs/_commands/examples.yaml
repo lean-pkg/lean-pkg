@@ -25,7 +25,7 @@ lean-pkg registry init:
     say: Create the registry and its event log once, at the default location (~/.lean-pkg/registry, or $LEAN_PKG_REGISTRY).
     output: |
       registry created: ~/.lean-pkg/registry/lean-packages.yaml (version 3); events: ~/.lean-pkg/registry/lean-package-events.jsonl
-  - cmd: lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+  - cmd: lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
     say: The same with the registry file named explicitly; the global --registry flag goes before the command.
 
 lean-pkg verify:

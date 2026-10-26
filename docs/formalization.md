@@ -6,7 +6,7 @@ title: formalization.yaml
 
 *Report what the registry and the receipts record. Invent nothing.*
 
-`lean-pkg formalization NAME` renders a repo-root `formalization.yaml` in the
+`lean-pkg formalization render NAME` renders a repo-root `formalization.yaml` in the
 [mathlib-initiative](https://github.com/mathlib-initiative/formalization.yaml)
 self-reporting standard, schema **v0.4**, which is the file the Palomar
 registry reads at submission. Until now the registry's `formalization_yaml`
@@ -100,13 +100,13 @@ the schema but is not Palomar-ready; the warnings are the to-do list.
 ## Modes
 
 ```bash
-lean-pkg formalization my-lean                       # YAML on stdout
-lean-pkg formalization my-lean --out /tmp/f.yaml     # write elsewhere; registry untouched
-lean-pkg formalization my-lean --write               # <repo>/formalization.yaml + registry pointer
-lean-pkg formalization my-lean --write --force       # overwrite a file that differs
-lean-pkg formalization my-lean --write --no-registry # the file only; the registry is not written
-lean-pkg formalization my-lean --write --author "Ada Lovelace" --json
-lean-pkg formalization my-lean --repo ../candidate --out /tmp/f.yaml   # another checkout, read-only
+lean-pkg formalization render my-lean                       # YAML on stdout
+lean-pkg formalization render my-lean --out /tmp/f.yaml     # write elsewhere; registry untouched
+lean-pkg formalization render my-lean --write               # <repo>/formalization.yaml + registry pointer
+lean-pkg formalization render my-lean --write --force       # overwrite a file that differs
+lean-pkg formalization render my-lean --write --no-registry # the file only; the registry is not written
+lean-pkg formalization render my-lean --write --author "Ada Lovelace" --json
+lean-pkg formalization render my-lean --repo ../candidate --out /tmp/f.yaml   # another checkout, read-only
 ```
 
 `--repo DIR` renders from another checkout of the package for this call
@@ -248,7 +248,7 @@ reports `formalization-missing` when the file is gone and
 `formalization-drift` when it no longer equals what the generator emits
 today (a new or changed comparator configuration, a receipt, a registry
 field, a hand edit of a derived key). `audit` never rewrites the file; the
-fix is `lean-pkg formalization NAME --write --force` after reading the
+fix is `lean-pkg formalization render NAME --write --force` after reading the
 render.
 
 ## What it is not

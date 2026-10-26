@@ -155,6 +155,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (`command_tree.rewrite_argv`, `flag_hits`), and an old spelling from
   `FLAG_ALIASES` fails it. History (CHANGELOG, docs/upgrades, proposals,
   design, decisions) is not checked.
+- Old command spellings (#308): the docs and skills show the canonical
+  commands. `formalization render NAME` (14 said `formalization NAME`),
+  `comparator check NAME --receipt R` (9 said `comparator NAME --check`),
+  `registry migrate` (5), `lease claim` (4, and the README's lease row and
+  docs/how-to.md's lease paragraph name `lease renew`, `lease release`,
+  `lease list` and `registry audit --write`), `receipt systemd` (1, said
+  `receipt local`) and `registry init` (the second `registry init` example in
+  docs/_commands/examples.yaml). tests/test_docs_old_spellings.py now also
+  fails on an old command spelling (`COMMAND_ALIASES`, `IMPLIED_VERBS`,
+  `MODE_ALIASES`, all through `rewrite_argv`), and a test runs every alias in
+  those tables through it.
 
 ## [0.20.0] - 2026-10-20
 
