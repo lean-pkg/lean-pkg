@@ -110,6 +110,9 @@ will automate the registry bootstrap; it is not implemented yet.
   the steps to re-verify a published page from the public repository alone.
 - [Receipts and trust](receipts.md): both receipt schemas, the evidence-only
   descendant rule, and the trust boundary.
+- [On-disk formats](formats.md): every file lean-pkg reads or writes, its
+  owner, current and accepted versions, migration command, the rule for
+  additive changes within a version, and the event names with their keys.
 - [The comparator tier](comparator.md): the Palomar layout, the runner, the
   host policy, the tool pins.
 - [formalization.yaml](formalization.md): render the mathlib-initiative v0.4

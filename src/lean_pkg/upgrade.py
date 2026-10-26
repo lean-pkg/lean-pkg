@@ -47,6 +47,7 @@ FORMAT_RE = re.compile(r"^([a-z][a-z0-9-]*)/(\d+)$")
 NAMED = {
     "registry_version": ("cli", "REGISTRY_VERSION"),
     "registry_versions_read": ("cli", "SUPPORTED_REGISTRY_VERSIONS"),
+    "event_line_version": ("cli", "EVENT_LINE_VERSION"),
     "formalization_yaml_version": ("formalization", "SCHEMA_VERSION"),
 }
 KEY_LISTS = {   # format label -> (module, constant in lower case: an upper-case COMPARATOR_* literal reads as an

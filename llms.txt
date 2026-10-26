@@ -113,7 +113,8 @@ search    TERM [--package NAME] [--offline] [--sources a,b,c] [--loogle] [--loog
   --record: docs/prior-art/<date>-<slug>.md in the package checkout (or --repo; never the registry dir; never
   overwritten; "decision: pending" for a human) + event prior-art-searched; prints "note: <path> is new; a strict MkDocs build needs a nav entry (or a literate-nav glob) for it" when the repository has an mkdocs.yml (--json nav_hint {path, reason}, else null; mkdocs.yml is never edited). claim/index add print advisory notes on stderr (`notes` in --json).
 
-RECEIPT SCHEMA (JSON object; `gate` enforces every line)
+RECEIPT SCHEMA (JSON object; `gate` enforces every line; every on-disk format and its versions: docs/formats.md)
+schema         "lower-receipt/1", written first by receipt slurm/systemd since 0.22.0; absent (a receipt written before) = version 0, judged as before (receipts are never rewritten); a newer "lower-receipt/N" is refused ("... upgrade lean-pkg"), any other value is refused
 commit         40 lowercase hex; MUST equal HEAD, or HEAD must be an evidence-only descendant of it
                (only .lean-receipts/ paths differ between the two commits)
 lean_toolchain string; MUST equal the lean-toolchain file committed at `commit`, stripped (the working tree never counts)
@@ -173,13 +174,14 @@ terminal scheduler accounting; hosted reports bind run/attempt/job identity, ter
 conclusion, immutable workflow/control revision, runner identity, and resources. A pilot,
 partial manifest, pre-terminal marker, or prior-candidate receipt is not gate evidence.
 
-EVENT LINE SCHEMA (one JSON object per line; package events also go to history[]; index-added, prior-art-searched, registry-* are log-only)
+EVENT LINE SCHEMA (one JSON object per line, keys sorted; package events also go to history[]; index-added, prior-art-searched, registry-* are log-only; every event name and its keys: docs/formats.md "Event log")
+v       1 (the line's version, since 0.22.0); a line without v is version 0, read as before; a newer or unreadable v is not interpreted (the claim prior-art note skips it with a stderr warning naming the upgrade)
 ts      UTC ISO-8601 with offset, second precision (all written times; dates are UTC; same-second order = file order; naive = legacy UTC, doctor warns)
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
-        released, release-forced, lease-expired, gate-passed, regated, promoted, audit-fix, relocated, status-changed,
+        released, release-forced, lease-expired, gate-passed, regated, promoted, publication-withdrawn, publication-hold-released, audit-fix, relocated, status-changed,
         comparator-attached, comparator-replaced, palomar-prepared, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`
 name    package name or null
-plus event-specific fields (agent, workspace, ttl_hours, reason, contact, commit, receipt, ...)
+plus event-specific fields (agent, workspace, ttl_hours, reason, contact, commit, receipt, ...); a package event may also carry actor (the --agent of a gate, comparator, record, publish, claims sync or verify run)
 
 EXIT CODES
 0  success, including dry-runs and the "already gated" no-op

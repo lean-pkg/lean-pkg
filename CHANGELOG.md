@@ -9,6 +9,31 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- Lower-tier receipt schema marker (#324; the format freeze of the 1.0
+  command tree, section 6, item 1): `receipt slurm` and `receipt systemd`
+  (alias `receipt local`) write `"schema": "lower-receipt/1"` as the first
+  key of every receipt. Additive: a receipt without the key (every receipt
+  written before) is version 0 and is judged exactly as before by `gate`,
+  `gate --check`, `receipt check`, the claims ledger, `next`, `page`,
+  `palomar`, `index check` and `formalization`, forever. A receipt naming a
+  newer `lower-receipt/N` is refused with `... this lean-pkg is older than
+  the receipt: upgrade lean-pkg` (exit 1), and any other `schema` value is
+  refused as malformed ([receipts](docs/receipts.md#lower-tier-receipt-schema),
+  [on-disk formats](docs/formats.md)).
+- Event-line version key (#324; section 6, item 2): every line lean-pkg
+  appends to `lean-package-events.jsonl` carries `v: 1`; a line without
+  `v` is version 0 and is read as before. The one reader that interprets
+  events (the prior-art note of `lease claim`) skips a line with a newer or
+  unreadable `v` and prints a warning naming the upgrade. Every event name
+  and its keys are documented in [On-disk formats](docs/formats.md#event-log)
+  and in `lean-pkg llms`, from the new `EVENT_KEYS` table in the code; the
+  test suite fails when a call in the source can write an event, or any
+  test writes an event key, that the table does not list.
+  `doctor --upgrade-from` reports `event_line_version` among its named
+  constants.
+
 ### Changed
 
 - Command-line consistency (#322): `--commit`, `--push` and
@@ -54,6 +79,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   a Python linter, the format freeze (1.0 command tree, section 6), command
   line consistency, the cli.py split, the CI-runner receipt and proposals
   0002 and 0003, both accepted 2026-10-26 as written.
+- On-disk formats (#324; section 6, item 3): docs/formats.md lists every
+  format lean-pkg reads or writes, its owner (lean-pkg or an outside
+  project: formalization.yaml, Palomar), current and accepted versions,
+  migration command, and the rule for changes within a version (a new
+  optional key keeps the version; a new required key, a removed key or a
+  changed meaning bumps it). Linked from docs/index.md, docs/receipts.md
+  and the 1.0 command tree.
 
 ## [0.21.0] - 2026-10-26
 

@@ -131,8 +131,9 @@ def test_happy_path_receipt_passes_gate_check(lp, env, repo, tmp_path, fake_sacc
     assert "elapsed 00:12:05, TotalCPU 01:10:22." in out
     assert f"next: lean-pkg gate NAME --check --receipt .lean-receipts/{c12}-slurm-123.json" in out
     receipt = json.loads(rp.read_text())
-    assert list(receipt) == list(lp.RECEIPT_FIELDS) + ["job_stdout_sha256", "manifest_sha256", "log_commit_bound",
+    assert list(receipt) == ["schema", *lp.RECEIPT_FIELDS, "job_stdout_sha256", "manifest_sha256", "log_commit_bound",
                                                      "producer"]
+    assert receipt["schema"] == "lower-receipt/1"                # the marker, first (docs/formats.md)
     assert receipt["log_commit_bound"] is False                # the fixture log has no `commit:` line
     assert receipt["report_sha256"] == sha(lg.read_bytes())
     assert receipt["job_id"] == "slurm-123" and receipt["sorry_count"] == 0
@@ -539,7 +540,7 @@ def test_no_seal_evidence_without_stdout(lp, repo, tmp_path, fake_sacct, capsys)
     assert sha(job.out.read_bytes()) not in data["readme_block"]
     assert sha(MATHLIB_MANIFEST.encode()) not in data["readme_block"]
     receipt = json.loads(Path(data["receipt"]).read_text())
-    assert list(receipt) == list(lp.RECEIPT_FIELDS) + ["log_commit_bound", "producer"]
+    assert list(receipt) == ["schema", *lp.RECEIPT_FIELDS, "log_commit_bound", "producer"]
     assert receipt["log_commit_bound"] is True
 
 
