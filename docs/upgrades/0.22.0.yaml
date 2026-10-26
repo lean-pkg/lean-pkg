@@ -278,7 +278,7 @@ changes:
       receipt ci --collect RUN.
     breaking: false
     changelog: Added
-  - pr: 0
+  - pr: 350
     id: hyp-probe-log-section
     kind: format
     area: receipts

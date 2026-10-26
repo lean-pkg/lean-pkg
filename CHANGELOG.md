@@ -105,7 +105,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   addresses of every ref the flip publishes (`✓` when each is a GitHub
   noreply address, else a `WARN` naming the others; never a failure)
   ([repo export](docs/commands/repo-export.md)).
-- Conditional claims, stage H1 (#PR_H1; #320, proposal 0003): the
+- Conditional claims, stage H1 (#350; #320, proposal 0003): the
   lower-tier verify scripts (`receipt slurm --template` and the `verify.sh`
   of `lean-pkg new`) append a `hyp-probe/1` section to the verify log after
   the claim-axioms lines, before the seal. A core-Lean program,
