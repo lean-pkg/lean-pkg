@@ -1,0 +1,20 @@
+rc=0
+receipt check: PASS beta at <X12> (tier comparator; 13 passed, 1 skipped)
+  commit <X> (published ref <REF12>)
+  rule: evidence-only or docs-only descendants (docs-only accepted by the referee: --docs-descendants)
+  note: this command never runs Lean and never uses the network: rebuilding at the commit and re-running the comparator are steps 4 and 5 of docs/trust-model.md#re-verify-a-page-yourself
+  PASS receipts: 1 lower-tier and 1 comparator receipt(s) bind <X12>
+  PASS binding: docs-only descendant of <X12> (1 non-build file(s): README.md; opted in) (accepted with --docs-descendants)
+  PASS lower .lean-receipts/<X12>-slurm-12345.json: schema, binding, pins (lean-toolchain, lake-manifest.json at <X12>), sorry_count 0, axioms ['Classical.choice', 'Quot.sound', 'propext'] within ['propext', 'Quot.sound', 'Classical.choice']
+  PASS lower .lean-receipts/<X12>-slurm-12345.json: report log: report_sha256 = sha256 of <X12>-slurm-12345-verify.redacted.log (beside the receipt, tracked at HEAD)
+  PASS lower .lean-receipts/<X12>-slurm-12345.json: evidence files: manifest_sha256 = lake-manifest.json at X
+  PASS claims: claims.yaml at <X12>: schema ok (1 claims), declarations found
+  PASS comparator .lean-receipts/<X12>-comparator.json: 1 configuration(s) tracked at <X12> re-derived from bytes (sha256, theorem names, sign-off), every log's sha256 and PASS line, same commit as the lower tier
+  SKIP comparator .lean-receipts/<X12>-comparator.json: olean manifest: the receipt records no olean_manifest
+  PASS claimed theorems: every reusable theorem/lemma claim of claims.yaml at <X12> is named by a comparator configuration (1 covered)
+  PASS coverage: coverage.yaml: 2 row(s); every compared theorem is the declaration of a claim a row names (R11)
+  PASS page: commit: the page's Reproduce section checks out <X12>
+  PASS page: pins: toolchain leanprover/lean4:v4.32.0 and Mathlib <SHA> as committed at <X12>
+  PASS page: evidence: 2 Evidence row(s): every path, commit and SHA-256 as committed
+  PASS page: trust boundary: sorry count, axioms and comparator counts as the receipts record them
+receipt check: PASS beta at <X12> (tier comparator; 13 passed, 1 skipped)

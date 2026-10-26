@@ -31,7 +31,7 @@ lean-pkg index add [--from-registry] [--repo-dir REPO_DIR] [--url URL] [--tag TA
 | `--from-registry` | start from the registry row (repo, receipts, license, palomar, doi, reservoir) |
 | `--repo-dir REPO_DIR` | local clone to read from (never modified) |
 | `--url URL` | public https URL (a GitHub ssh URL is converted) (old spelling --repo, kept working) |
-| `--tag TAG` | release tag at the pin or an evidence-only descendant |
+| `--tag TAG` | release tag at the pin or an evidence-only descendant (or a docs-only one when lean-pkg-binding.yaml at the pin opts in) |
 | `--lower REL` | lower-tier receipt, .lean-receipts/...json |
 | `--comparator REL` | comparator receipt, .lean-receipts/...json |
 | `--license SPDX` |   |

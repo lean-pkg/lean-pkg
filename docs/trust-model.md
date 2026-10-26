@@ -142,6 +142,13 @@ separates what has shipped from what the Lean FRO has announced.
   evidence only (`gate.evidence_only_descendant`), or, when the package opted
   in, a docs-only descendant (`gate.docs_only_descendant`). A receipt copied
   onto unrelated history is refused.
+- **An opt-in granted after the fact.** The docs-only opt-in is
+  `lean-pkg-binding.yaml` read at the bound commit X and nowhere else, by
+  every reader (`gate`, `receipt check`, `index check`): a copy added after
+  X grants nothing, a later edit or removal of it is drift, a copy under
+  `.lean-receipts/`, at the repository root above a subdirectory package or
+  in the referee's working tree is never read, and a file at X that does not
+  validate does not opt in.
 - **Source edits after the gate.** Any change under the package directory
   other than `.lean-receipts/` (and the derived keys of `formalization.yaml`)
   is drift. Under the docs-only opt-in, a change to any build input (`.lean`
@@ -210,7 +217,10 @@ separates what has shipped from what the Lean FRO has announced.
 - **Files the build reads that the docs-only rule cannot see.** A package
   that reads data at elaboration time (`include_str`, a file loaded by a
   macro) must list it in `build_inputs`; lean-pkg cannot check the list is
-  complete. Without the opt-in this does not arise.
+  complete. Without the opt-in this does not arise. With it, the opt-in and
+  the declared inputs are committed at X, public and the author's: a reader
+  sees them, and `receipt check` applies them by default (a referee who does
+  not accept them passes `--evidence-only`).
 - **The registry.** The page reads the package's status and recorded
   receipts from the author's registry, which is private. A reader sees the
   rendered result, not the record.
@@ -237,7 +247,8 @@ git diff --no-renames --name-status "$X" HEAD     # what changed after the gate
 ```
 
 Everything listed must be evidence (`.lean-receipts/`) or, for a package
-that opted in to the docs-only rule, files the build does not read (the
+that opted in to the docs-only rule (`git show "$X":lean-pkg-binding.yaml`
+prints the opt-in when there is one), files the build does not read (the
 README, `coverage.yaml`, notes). A `.lean` file, a lakefile,
 `lake-manifest.json` or `lean-toolchain` in that list means the page
 describes an older source than HEAD.
@@ -288,11 +299,23 @@ Exit 0 only when no check fails.
 
 A tag on the evidence commit itself passes without any option, even though
 that commit refreshed `formalization.yaml`. A package that committed its
-README, `coverage.yaml` or notes after the evidence (a docs-only
-descendant) fails the `binding` check: the author's opt-in to the docs-only
-rule is in their registry, which you cannot read. Look at step 1's list
-yourself; if every path there is a file the build does not read, re-run with
-`--docs-descendants`, and the result says that you accepted that rule.
+README, `coverage.yaml` or notes after the evidence is a docs-only
+descendant. When the author committed `lean-pkg-binding.yaml` at X (the
+committed opt-in), `receipt check` applies it without a flag: an `opt-in`
+line names the file and its declared `build_inputs`, the `rule:` line says
+the docs-only rule is the author's opt-in, committed at X, and the `binding`
+line lists every path that changed after X. That `pass` means "only files
+the author declared the build does not read changed", not "nothing changed":
+read the list against step 1. The opt-in proves that the author chose the
+rule at X, before the later commits, and which inputs they declared; it does
+not prove that the list of inputs is complete (a file read at elaboration
+time and left out of `build_inputs` can still change). To refuse the rule,
+re-run with `--evidence-only`. For a package without the file (an author who
+opted in only in a private registry) the `binding` check fails; look at step
+1's list yourself, and if every path there is a file the build does not
+read, re-run with `--docs-descendants`: the result says that you accepted
+that rule. A file at X that says `false` or does not validate overrides that
+flag.
 
 Steps 1 to 3 establish that the evidence is consistent. They do not
 establish that a run happened. Steps 4 and 5 do.
@@ -335,11 +358,13 @@ challenge module) against the paper: that last step is the one no tool does.
   from the repository alone. `receipt check` compares the page's facts (the
   bound commit, the pins, the Evidence table, the trust boundary counts) with
   the receipts instead; the prose around them is the author's.
-- **The docs-only opt-in.** It is recorded in the author's registry, not in
-  the repository. `receipt check` and `index check` without that registry
-  apply the stricter evidence-only rule (`receipt check` with `gate`'s
-  derived-keys exemption for `formalization.yaml` at the package root); `receipt check --docs-descendants`
-  applies the docs-only rule when you have judged the later commits yourself
-  (step 1).
+- **The docs-only opt-in of a package without `lean-pkg-binding.yaml`.**
+  An author who opted in only in their registry (the deprecated route) left
+  no record in the repository. `receipt check` and `index check` without that
+  registry then apply the stricter evidence-only rule (`receipt check` with
+  `gate`'s derived-keys exemption for `formalization.yaml` at the package
+  root); `receipt check --docs-descendants` applies the docs-only rule when
+  you have judged the later commits yourself (step 1). The committed file is
+  reproducible: both read it at X.
 - **The olean manifest.** It describes the author's build directory, which is
   not published.

@@ -16,7 +16,7 @@ Also spelled: `lean-pkg verify-receipts` ([all aliases](aliases.md)).
 
 ```text
 lean-pkg receipt check --repo DIR --commit SHA [--at REF] [--docs-descendants]
-                       [--name NAME] [--json]
+                       [--evidence-only] [--name NAME] [--json]
 ```
 
 ## Arguments and flags
@@ -25,15 +25,16 @@ lean-pkg receipt check --repo DIR --commit SHA [--at REF] [--docs-descendants]
 |---|---|
 | `--repo DIR` | a local clone of the package (the package directory; cloned privately, never modified). Required. |
 | `--commit SHA` | the commit the receipts bind (the page's `git checkout <commit>` line). Required. |
-| `--at REF` | the published ref whose .lean-receipts/, coverage.yaml and README.md are read (default HEAD of --repo); it must be the commit or an evidence-only descendant of it |
-| `--docs-descendants` | also accept a docs-only descendant (no build input changed); the author's opt-in lives in a registry the referee cannot read, so this is the referee's choice, printed in the result |
+| `--at REF` | the published ref whose .lean-receipts/, coverage.yaml and README.md are read (default HEAD of --repo); it must be the commit or an evidence-only descendant of it (or a docs-only one, when the docs-only rule applies) |
+| `--docs-descendants` | for a package without lean-pkg-binding.yaml at the commit: also accept a docs-only descendant (no build input changed) as the referee's choice, printed in the result; a committed file that says false or does not validate overrides it |
+| `--evidence-only` | accept only evidence-only descendants: ignore the author's committed opt-in (lean-pkg-binding.yaml at the commit, applied by default) |
 | `--name NAME` | the package name the claims must carry (default: `package` in coverage.yaml, else claims.yaml, else the directory name) |
 
 ## Details
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `receipt check` | an outside referee's check of a published package: reads no registry, opens no network connection and never runs Lean. Clones `--repo` privately (local transport only; its working tree is never read or changed), checks out the published ref (`--at`, default HEAD) and runs `gate`'s and `comparator`'s own validators on the receipts under `.lean-receipts/` that bind `--commit` (a JSON file named for the commit that is not a receipt fails, unless its `schema` is one of the comparator runner's own records, such as `comparator-stages/1`, which is skipped and listed): the binding (evidence-only descendants, with `gate`'s exemption for a `formalization.yaml` at the package root that differs only in derived keys, printed when applied; docs-only ones too with `--docs-descendants`, the referee's choice, printed with the result), the toolchain and Mathlib pins at the commit, every SHA-256 (configurations, logs, the redacted verify log, `manifest_sha256` and the other additive evidence keys, the olean manifest record), the claims at the commit, the comparator configurations naming every reusable theorem claim, `coverage.yaml` (R11) and the README page block against the receipts. One line per check, `PASS`, `FAIL` or `SKIP` (not applicable, with the reason); `--json` lists them all. A toolchain on lean-pkg's toolchain advisories list adds one `WARN: toolchain advisory ...` line per entry after the verdict, never a failure (JSON `toolchain_advisories[]`; [toolchain advisories](../receipts.md#checking-a-published-packages-receipts-receipt-check)). Exit 0 only when no check fails, 1 otherwise, 2 on a usage error. Re-running Lean is the comparator step of docs/trust-model.md, "Re-verify a page yourself". The 1.0 command tree's read-only verb on the `receipt` noun; the spelling `verify-receipts` is reserved for its alias table | `--repo DIR` `--commit SHA` `--at REF` `--docs-descendants` `--json` |
+| `receipt check` | an outside referee's check of a published package: reads no registry, opens no network connection and never runs Lean. Clones `--repo` privately (local transport only; its working tree is never read or changed), checks out the published ref (`--at`, default HEAD) and runs `gate`'s and `comparator`'s own validators on the receipts under `.lean-receipts/` that bind `--commit` (a JSON file named for the commit that is not a receipt fails, unless its `schema` is one of the comparator runner's own records, such as `comparator-stages/1`, which is skipped and listed): the binding (evidence-only descendants, with `gate`'s exemption for a `formalization.yaml` at the package root that differs only in derived keys, printed when applied; docs-only ones too when `lean-pkg-binding.yaml` committed at the commit opts in, by default, reported first as an `opt-in` check (`PASS`, or `SKIP` with the reason for a file that says `false`, does not validate, was added after the commit, or is ignored by `--evidence-only`); for a package without that file, with `--docs-descendants`, the referee's choice, printed with the result, which a committed `false` or invalid file overrides; never with `--evidence-only`; the `rule:` line says which rule bound and who chose it, `--json` `docs_descendants`, `evidence_only` and `opt_in {source, commit, path, build_inputs, file, problems}`), the toolchain and Mathlib pins at the commit, every SHA-256 (configurations, logs, the redacted verify log, `manifest_sha256` and the other additive evidence keys, the olean manifest record), the claims at the commit, the comparator configurations naming every reusable theorem claim, `coverage.yaml` (R11) and the README page block against the receipts. One line per check, `PASS`, `FAIL` or `SKIP` (not applicable, with the reason); `--json` lists them all. A toolchain on lean-pkg's toolchain advisories list adds one `WARN: toolchain advisory ...` line per entry after the verdict, never a failure (JSON `toolchain_advisories[]`; [toolchain advisories](../receipts.md#checking-a-published-packages-receipts-receipt-check)). Exit 0 only when no check fails, 1 otherwise, 2 on a usage error (`--docs-descendants` with `--evidence-only` is one). Re-running Lean is the comparator step of docs/trust-model.md, "Re-verify a page yourself". The 1.0 command tree's read-only verb on the `receipt` noun; the spelling `verify-receipts` is reserved for its alias table | `--repo DIR` `--commit SHA` `--at REF` `--docs-descendants` `--evidence-only` `--json` |
 
 ## Examples
 
@@ -55,7 +56,32 @@ receipt check: PASS my-proof at 0123456789ab (tier comparator; 13 passed, 1 skip
 receipt check: PASS my-proof at 0123456789ab (tier comparator; 13 passed, 1 skipped)
 ```
 
-The same at a release tag, also accepting a README or notes committed after the evidence (the docs-only rule, the referee's choice); every check with its verdict as JSON.
+At a release tag after the page commit, for a package that committed lean-pkg-binding.yaml at the bound commit; its opt-in to the docs-only rule is applied without a flag, and the binding line lists what changed.
+
+```bash
+lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --at v1.0.0
+```
+
+Sample output:
+
+```text
+receipt check: PASS my-proof at 0123456789ab (tier comparator; 14 passed, 1 skipped)
+  commit 0123456789abcdef0123456789abcdef01234567 (published ref 89abcdef0123)
+  rule: evidence-only or docs-only descendants (docs-only: the author's opt-in, lean-pkg-binding.yaml committed at 0123456789ab; --evidence-only to refuse them)
+  ...
+  PASS opt-in: lean-pkg-binding.yaml at 0123456789ab opts in to docs-only descendants (build_inputs: 0 glob(s))
+  PASS binding: docs-only descendant of 0123456789ab (1 non-build file(s): README.md; opted in at 0123456789ab by lean-pkg-binding.yaml)
+  ...
+receipt check: PASS my-proof at 0123456789ab (tier comparator; 14 passed, 1 skipped)
+```
+
+The strict rule over the author's committed opt-in, where only an evidence-only descendant binds; every check with its verdict as JSON.
+
+```bash
+lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --at v1.0.0 --evidence-only --json
+```
+
+For a package without lean-pkg-binding.yaml, also accept a README or notes committed after the evidence (the docs-only rule, the referee's choice); every check with its verdict as JSON.
 
 ```bash
 lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --at v1.0.0 --docs-descendants --json

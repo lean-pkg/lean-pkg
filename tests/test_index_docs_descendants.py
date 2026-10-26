@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """index add / index check bind the tag and the evidence commits with the same rule as gate, ledger,
 promote, publish and comparator (core.package_descendant): the evidence-only rule, plus the docs-only
-rule when the package's registry record opts in (docs_descendants: true). Without the opt-in nothing
-changes: a docs-only descendant tag is refused, and a build-input change is refused either way."""
+rule when the package opts in: lean-pkg-binding.yaml committed at the pin (read with or without a
+registry, proposal 0002), or, with no file there, the package's registry record (docs_descendants: true).
+Without the opt-in nothing changes: a docs-only descendant tag is refused, and a build-input change is
+refused either way."""
 
 from __future__ import annotations
 
@@ -131,6 +133,7 @@ def test_add_finds_evidence_committed_with_docs_when_the_record_opts_in(lp, tmp_
 # --- lean-pkg-binding.yaml at the pin (proposal 0002, stage G1): with a registry, the same precedence as gate --
 
 BINDING = "lean-pkg-binding.yaml"
+TRUE = "schema: lean-pkg-binding/1\ndocs_descendants: true\n"
 
 
 def test_registry_true_is_vetoed_by_a_committed_false_at_the_pin(lp, tmp_path, capsys):
@@ -176,11 +179,95 @@ def test_registry_true_and_a_committed_true_at_the_pin_name_the_file(lp, tmp_pat
     assert "the registry record opts in" not in out
 
 
-def test_public_index_check_does_not_read_the_file_in_g1(lp, tmp_path, capsys):
-    """Without a registry index check keeps the evidence-only rule: a committed opt-in at the pin is not read
-    yet (stage G2 adds it), so the tag on a docs-only descendant is refused exactly as before."""
-    pkg, root = tagged_entry(lp, tmp_path, at_pin={BINDING: "schema: lean-pkg-binding/1\ndocs_descendants: true\n"})
+# --- a public index check (no registry) reads the file at the pin (proposal 0002, stage G2) -----------------
+# Stage G1's test (d), test_public_index_check_does_not_read_the_file_in_g1, pinned the opposite: without a
+# registry the file at the pin was not read and the tag was refused. G2 reads it; the test became the first one
+# below, with the refusals that keep the rule bound to the pin after it.
+
+def test_public_index_check_accepts_the_tag_with_the_file_at_the_pin(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path, at_pin={BINDING: TRUE})
+    assert check(lp, root, pkg, None) == 0, capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "PASS demo" in out
+    assert f"docs-only descendants accepted for the tag and the evidence: {BINDING} at {pkg.pin[:12]} opts in" in out
+
+
+def test_public_index_check_refuses_the_tag_without_the_file_and_names_it(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path)
     assert check(lp, root, pkg, None) == 1
     out = capsys.readouterr().out
     assert "tag 'v1.0.0' is neither the pin nor an evidence-only descendant of it" in out
-    assert "lean-pkg update demo --accept-docs-descendants" in out and f"{BINDING} at" not in out
+    assert (f"; it is a docs-only descendant of {pkg.pin[:12]} (2 non-build file(s): README.md, coverage.yaml; not "
+            f"opted in), which binds only when {BINDING} committed at the pin opts in") in out, out
+    assert "; opted in" not in out
+
+
+def test_public_index_check_refuses_a_file_added_after_the_pin(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path, files={**DOCS, BINDING: TRUE})
+    assert check(lp, root, pkg, None) == 1
+    out = capsys.readouterr().out
+    assert "neither the pin nor" in out
+    assert f"{BINDING} was added after {pkg.pin[:12]}; the opt-in is read at the bound commit only" in out, out
+    assert "FAIL demo" in out and f"{BINDING} at {pkg.pin[:12]} opts in" not in out
+
+
+def test_public_index_check_names_a_committed_false_at_the_pin(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path, at_pin={BINDING: "schema: lean-pkg-binding/1\ndocs_descendants: false\n"})
+    assert check(lp, root, pkg, None) == 1
+    out = capsys.readouterr().out
+    assert f"{BINDING} at {pkg.pin[:12]} says docs_descendants: false" in out, out
+    assert (f"note: {BINDING} at {pkg.pin[:12]} says docs_descendants: false; the evidence-only rule binds the tag "
+            f"and the evidence") in out, out
+
+
+def test_a_registry_false_vetoes_the_file_at_the_pin(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path, at_pin={BINDING: TRUE})
+    assert check(lp, root, pkg, write_registry(tmp_path, pkg, opt_in=False)) == 1
+    out = capsys.readouterr().out
+    assert "tag 'v1.0.0' is neither the pin nor an evidence-only descendant of it" in out
+    assert (f"the registry record refuses the docs-only rule (docs_descendants: false), over {BINDING} at "
+            f"{pkg.pin[:12]}") in out, out
+
+
+def test_another_packages_record_is_ignored_and_the_file_decides(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path, at_pin={BINDING: TRUE})
+    reg = write_registry(tmp_path, pkg, opt_in=False, repo="https://github.com/someone-else/demo")
+    assert check(lp, root, pkg, reg) == 0, capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert f"{BINDING} at {pkg.pin[:12]} opts in" in out and "registry record" not in out
+
+
+def test_index_add_with_a_tag_on_a_docs_only_descendant_and_the_file_at_the_pin(lp, tmp_path, capsys):
+    """No registry: add takes the tag (a README commit after the evidence) and writes an entry whose
+    tag check passes."""
+    pkg = make_index_package(tmp_path, extra_files={BINDING: TRUE})
+    head = commit_files(pkg.repo, DOCS, "docs after the release receipts")
+    _git(pkg.repo, "tag", "v1.0.0", head)
+    root = tmp_path / "index"
+    assert index_add(lp, root, pkg, "--tag", "v1.0.0") == 0, capsys.readouterr()
+    e = yaml.safe_load((root / "demo" / "entry.yaml").read_text())
+    assert e["pin"] == {**e["pin"], "commit": pkg.pin, "tag": "v1.0.0"}
+    capsys.readouterr()
+    assert check(lp, root, pkg, None) == 0, capsys.readouterr().out
+
+
+def test_index_add_finds_evidence_committed_with_docs_under_the_file(lp, tmp_path, capsys):
+    """find_evidence: receipts committed together with a README edit, a docs-only descendant of the pin, are
+    found without a registry when the file at the pin opts in, and refused without it."""
+    for sub, extra in (("yes", {BINDING: TRUE}), ("no", {})):
+        base = tmp_path / sub
+        base.mkdir()
+        pkg = make_index_package(base, extra_files={"README.md": "# demo\n", **extra})
+        (pkg.repo / "README.md").write_text("# demo\n\nNow with receipts.\n")
+        _git(pkg.repo, "commit", "-a", "--amend", "--no-edit")
+        root = base / "index"
+        capsys.readouterr()
+        rc = index_add(lp, root, pkg)
+        if extra:
+            assert rc == 0, capsys.readouterr()
+            assert yaml.safe_load((root / "demo" / "entry.yaml").read_text())["pin"]["commit"] == pkg.pin
+            capsys.readouterr()
+            assert check(lp, root, pkg, None) == 0, capsys.readouterr().out
+        else:
+            assert rc == 1
+            assert "not committed at the pin or in an evidence-only descendant" in capsys.readouterr().err
