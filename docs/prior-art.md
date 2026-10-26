@@ -52,6 +52,46 @@ claims:
 Unknown keys are refused, and so is anything that looks like a local path.
 Trust is never typed into a claim: it is derived from the package's receipts.
 
+### Conditional claims
+
+A theorem proved under hypotheses that are not yet formalized names them
+([proposal 0003](proposals/0003-conditional-claims-and-discharge.md)). Three
+optional keys of `claims/1` record that; a file without them is unchanged,
+and a lean-pkg older than the release that added them refuses them as
+unknown keys, so a package that uses them needs that release in its CI pin:
+
+```yaml
+- id: demo/main
+  decl: Paper.main
+  kind: theorem
+  # ... the keys above ...
+  hypotheses: [Hyp.A, Hyp.B]
+  witness: demo/main-witness
+- id: demo/main-of-b
+  decl: Paper.main_of_B
+  kind: theorem
+  # ... the keys above ...
+  hypotheses: [Hyp.B]
+  discharges:
+    claim: demo/main
+    hypotheses: [Hyp.A]
+    proofs: [demo/proof-a]
+```
+
+| Key | Rule |
+|---|---|
+| `hypotheses` | optional, theorem and lemma claims only: the assumptions the declaration takes as explicit binders, each the fully qualified name of a `def` or inductive `Prop` (the `decl` grammar; never `TODO`), each once. Absent or `[]` means the claim is not conditional, and normalizes exactly as before |
+| `discharges` | optional, on a theorem or lemma claim (the corollary): a mapping with exactly the keys `claim`, `hypotheses`, `proofs` |
+| `discharges.claim` | a theorem or lemma claim of this file, not the claim itself; a superseded claim is followed through `superseded_by`. A claim of another package (`Q/slug`) is refused: cross-package discharge is not implemented (proposal 0003, open question 2) |
+| `discharges.hypotheses` | a non-empty list of distinct names, each among the hypotheses of that claim; this claim's own `hypotheses` must equal the rest, as sets |
+| `discharges.proofs` | claim ids of this file, one per discharged hypothesis and in the same order, each a theorem or lemma claim other than this one |
+| `witness` | optional, only on a claim with non-empty `hypotheses`: the id of a theorem or lemma claim of this file, other than this one, that shows the hypotheses can hold together |
+
+`claims list` marks a claim with `hypotheses` `(conditional)` (`--json`:
+`conditional: true`). No release evaluates the keys yet: the
+[claims ledger](lifecycle.md#claims-ledger) gives every claim that uses
+them `hypotheses-unchecked`, so it is never `verified`.
+
 ### Manuscript findings
 
 A formalization often finds problems in the paper without any theorem being

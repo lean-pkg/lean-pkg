@@ -39,7 +39,14 @@ CLAIM_STATUSES = ("reusable", "internal", "experimental", "superseded")
 # after the claim's decl (`Audit.exit_mean` for `Pkg.integral_eval_exitTimeTrunc_Ioo`). It replaces the naming
 # rule for that claim: the claim is covered by exactly that `theorem_names` entry and by nothing else, and the
 # name credits no other claim (comparator_config.claim_covered).
-OPTIONAL_CLAIM_KEYS = ("statement_basis", "manuscript_findings", "judged_as")
+# `hypotheses`, `discharges`, `witness` (proposal 0003, stage H2, #320): a conditional claim names the assumptions
+# its declaration takes as explicit binders; a corollary claim says which hypotheses of another claim it removes,
+# and with which proof claims; a witness claim shows that the hypotheses can hold together. Same package only
+# (open question 2). The ledger does not evaluate them yet: a claim using any of them is `hypotheses-unchecked`.
+OPTIONAL_CLAIM_KEYS = ("statement_basis", "manuscript_findings", "judged_as", "hypotheses", "discharges", "witness")
+CONDITIONAL_KEYS = ("hypotheses", "discharges", "witness")
+DISCHARGE_KEYS = ("claim", "hypotheses", "proofs")
+CROSS_PACKAGE_DISCHARGE = "cross-package discharge is not implemented (proposal 0003, open question 2)"
 JUDGED_KINDS = ("theorem", "lemma")          # comparator_config.CLAIM_KINDS: what a configuration can judge
 STATEMENT_BASES = ("as-printed", "corrected")
 FINDING_KEYS = ("id", "kind", "location", "summary", "lean_evidence", "fixed_in")
@@ -107,7 +114,22 @@ def normalize_claim(c: dict) -> dict:
         fs = c["manuscript_findings"]
         out["manuscript_findings"] = [normalize_finding(f) if isinstance(f, dict) else f for f in fs] \
             if isinstance(fs, list) else fs
+    if c.get("hypotheses"):                      # [] or absent: not conditional, normalized exactly as before
+        out["hypotheses"] = c["hypotheses"]
+    if c.get("discharges") is not None:
+        d = c["discharges"]
+        out["discharges"] = {k: d.get(k) for k in DISCHARGE_KEYS} if isinstance(d, dict) and set(d) == set(
+            DISCHARGE_KEYS) else d
+    if c.get("witness") is not None:
+        out["witness"] = c["witness"]
     return out
+
+
+def uses_conditional_keys(c) -> list[str]:
+    """The CONDITIONAL_KEYS a claim sets: a non-empty hypotheses list, a discharges, a witness ([] for none)."""
+    if not isinstance(c, dict):
+        return []
+    return [k for k in CONDITIONAL_KEYS if (c.get(k) if k == "hypotheses" else c.get(k) is not None)]
 
 
 def findings_of(c) -> list[dict]:
@@ -206,6 +228,7 @@ def _optional_errors(c: dict, where: str) -> list[str]:
         elif c.get("kind") not in JUDGED_KINDS:
             errors.append(f"{where} ({c.get('id')}): judged_as is set but kind is {c.get('kind')!r}; a comparator "
                           f"configuration judges only {' and '.join(JUDGED_KINDS)} claims")
+    errors += _conditional_errors(c, where)
     misprints = [f.get("id") for f in fs if isinstance(f, dict) and f.get("kind") == "misprint"]
     if misprints and basis != "corrected":
         errors.append(f"{where} ({c.get('id')}): misprint finding(s) {misprints} need statement_basis: corrected "
@@ -213,6 +236,145 @@ def _optional_errors(c: dict, where: str) -> list[str]:
     if basis == "corrected" and not misprints:
         errors.append(f"{where} ({c.get('id')}): statement_basis corrected needs a misprint finding naming the "
                       f"correction")
+    return errors
+
+
+def _name_list_errors(v, where: str, what: str) -> list[str]:
+    """A list of distinct fully qualified Lean names (the decl grammar), never the TODO placeholder."""
+    if not isinstance(v, list):
+        return [f"{where} must be a list of fully qualified Lean names ({what}), got {v!r}"]
+    errors = []
+    for j, x in enumerate(v):
+        if x == TODO:
+            errors.append(f"{where}[{j}] is the placeholder {TODO}; name the declaration of {what}")
+        elif not (isinstance(x, str) and lean_scan.is_name(x)):
+            errors.append(f"{where}[{j}] must be the fully qualified Lean name of {what}, got {x!r}")
+    dups = sorted({x for x in v if isinstance(x, str) and v.count(x) > 1})
+    if dups:
+        errors.append(f"{where} repeats {dups} (list each name once)")
+    return errors
+
+
+def _conditional_errors(c: dict, where: str) -> list[str]:
+    """hypotheses, discharges and witness on one claim (proposal 0003, stage H2); the rules that read another
+    claim of the file are in _conditional_cross_errors."""
+    errors = []
+    cid, kind = c.get("id"), c.get("kind")
+    hyps = c.get("hypotheses")
+    if hyps is not None:
+        errors += _name_list_errors(hyps, f"{where}.hypotheses", "an assumption (a def or inductive Prop)")
+        if hyps and kind not in JUDGED_KINDS:
+            errors.append(f"{where} ({cid}): hypotheses is set but kind is {kind!r}; only "
+                          f"{' and '.join(JUDGED_KINDS)} claims take hypotheses")
+    d = c.get("discharges")
+    if d is not None:
+        if not isinstance(d, dict) or set(d) != set(DISCHARGE_KEYS):
+            got = sorted(map(str, d)) if isinstance(d, dict) else repr(d)
+            errors.append(f"{where}.discharges must be a mapping with exactly the keys {list(DISCHARGE_KEYS)}, "
+                          f"got {got}")
+        else:
+            if kind not in JUDGED_KINDS:
+                errors.append(f"{where} ({cid}): discharges is set but kind is {kind!r}; a corollary is a "
+                              f"{' or '.join(JUDGED_KINDS)} claim")
+            t = d["claim"]
+            if not (isinstance(t, str) and CLAIM_ID_RE.match(t)):
+                errors.append(f"{where}.discharges.claim must be a claim id <package>/<slug>, got {t!r}")
+            elif t == cid:
+                errors.append(f"{where} ({cid}): discharges.claim names the claim itself; a corollary discharges "
+                              f"hypotheses of another claim")
+            dh = d["hypotheses"]
+            errors += _name_list_errors(dh, f"{where}.discharges.hypotheses", "a discharged assumption")
+            if isinstance(dh, list) and not dh:
+                errors.append(f"{where}.discharges.hypotheses must name at least one hypothesis of "
+                              f"discharges.claim")
+            ps = d["proofs"]
+            if not isinstance(ps, list) or not all(isinstance(x, str) and CLAIM_ID_RE.match(x) for x in ps):
+                errors.append(f"{where}.discharges.proofs must be a list of claim ids <package>/<slug>, one per "
+                              f"discharged hypothesis, got {ps!r}")
+            else:
+                if isinstance(dh, list) and len(ps) != len(dh):
+                    errors.append(f"{where} ({cid}): discharges.proofs has {len(ps)} claim id(s) and "
+                                  f"discharges.hypotheses {len(dh)}; give one proof claim per discharged "
+                                  f"hypothesis, in the same order")
+                if cid in ps:
+                    errors.append(f"{where} ({cid}): discharges.proofs names the claim itself; a proof claim "
+                                  f"proves the hypothesis, the corollary removes it")
+    w = c.get("witness")
+    if w is not None:
+        if not (isinstance(w, str) and CLAIM_ID_RE.match(w)):
+            errors.append(f"{where}.witness must be a claim id <package>/<slug>, got {w!r}")
+        elif w == cid:
+            errors.append(f"{where} ({cid}): witness names the claim itself; a witness is another claim showing "
+                          f"that the hypotheses can hold together")
+        if not (isinstance(hyps, list) and hyps):
+            errors.append(f"{where} ({cid}): witness is set but the claim has no hypotheses; a witness shows "
+                          f"that the hypotheses of a conditional claim can hold together")
+    return errors
+
+
+def _conditional_cross_errors(claims: list, by_id: dict, pkg_name: str | None) -> list[str]:
+    """The hypotheses rules that read another claim of the file: the discharges target, after following
+    superseded_by, its proof claims and the witness claim."""
+    errors: list[str] = []
+
+    def _local(ref: str, cid: str, key: str) -> dict | None:
+        if pkg_name and not ref.startswith(pkg_name + "/"):
+            errors.append(f"{cid}: {key} {ref!r} is a claim of another package: {CROSS_PACKAGE_DISCHARGE}")
+            return None
+        if ref not in by_id:
+            errors.append(f"{cid}: {key} {ref!r} is not a claim in this file")
+            return None
+        return by_id[ref]
+
+    for c in claims:
+        if not isinstance(c, dict) or not isinstance(c.get("id"), str):
+            continue
+        cid = c["id"]
+        d = c.get("discharges")
+        if isinstance(d, dict) and set(d) == set(DISCHARGE_KEYS):
+            t = d["claim"]
+            target = _local(t, cid, "discharges.claim") if (
+                isinstance(t, str) and CLAIM_ID_RE.match(t) and t != cid) else None
+            seen = [t]
+            while target is not None and isinstance(target.get("superseded_by"), str) \
+                    and target["superseded_by"] in by_id and target["superseded_by"] not in seen:
+                seen.append(target["superseded_by"])           # a superseded target: follow superseded_by
+                target = by_id[seen[-1]]
+            tid = seen[-1]
+            via = f" (superseded by {tid})" if tid != t else ""
+            if target is not None and tid == cid:
+                errors.append(f"{cid}: discharges.claim {t!r} is superseded by the claim itself")
+            elif target is not None:
+                th = target.get("hypotheses")
+                th = [x for x in th if isinstance(x, str)] if isinstance(th, list) else []
+                dh = [x for x in d["hypotheses"] if isinstance(x, str)] if isinstance(d["hypotheses"], list) \
+                    else []
+                if target.get("kind") not in JUDGED_KINDS:
+                    errors.append(f"{cid}: discharges.claim {t!r}{via} has kind {target.get('kind')!r}; only a "
+                                  f"{' or '.join(JUDGED_KINDS)} claim has hypotheses to discharge")
+                missing = [x for x in dh if x not in th]
+                if missing:
+                    errors.append(f"{cid}: discharges.hypotheses {missing} are not hypotheses of {tid}{via} "
+                                  f"(its hypotheses: {th})")
+                own = c.get("hypotheses")
+                own = [x for x in own if isinstance(x, str)] if isinstance(own, list) else []
+                rest = [x for x in th if x not in dh]
+                if not missing and set(own) != set(rest):
+                    errors.append(f"{cid}: hypotheses {own} must equal the hypotheses of {tid}{via} minus the "
+                                  f"discharged ones, {rest}")
+            ps = d["proofs"]
+            for p in ps if isinstance(ps, list) else []:
+                if isinstance(p, str) and CLAIM_ID_RE.match(p) and p != cid:
+                    pc = _local(p, cid, "discharges.proofs entry")
+                    if pc is not None and pc.get("kind") not in JUDGED_KINDS:
+                        errors.append(f"{cid}: discharges.proofs entry {p!r} has kind {pc.get('kind')!r}; a "
+                                      f"proof claim is a {' or '.join(JUDGED_KINDS)} claim")
+        w = c.get("witness")
+        if isinstance(w, str) and CLAIM_ID_RE.match(w) and w != cid:
+            wc = _local(w, cid, "witness")
+            if wc is not None and wc.get("kind") not in JUDGED_KINDS:
+                errors.append(f"{cid}: witness {w!r} has kind {wc.get('kind')!r}; a witness is a "
+                              f"{' or '.join(JUDGED_KINDS)} claim")
     return errors
 
 
@@ -358,6 +520,7 @@ def validate_claims(doc, package: str | None = None) -> list[str]:
                 break
             seen.append(sb)
             sb = by_id[sb].get("superseded_by")
+    errors += _conditional_cross_errors(claims, by_id, pkg_name)
     for where, s in idx._strings(claims, "claims"):
         if idx.PRIVATE_PATH_RE.search(s):
             errors.append(f"{where} looks like a private local path: {s!r}")
@@ -563,10 +726,13 @@ def do_claims_list(reg: dict, name: str | None) -> tuple[list[str], dict]:
         pkg = reg["packages"][n]
         trust = package_trust(pkg)
         for c in pkg.get("claims") or []:
-            rows.append({"package": n, "id": c.get("id"), "decl": c.get("decl"),
-                         "kind": c.get("kind"), "status": c.get("status"), "trust": trust,
-                         "summary": c.get("summary"),
-                         "pin": pkg.get("claims_synced_commit")})
+            row = {"package": n, "id": c.get("id"), "decl": c.get("decl"),
+                   "kind": c.get("kind"), "status": c.get("status"), "trust": trust,
+                   "summary": c.get("summary"),
+                   "pin": pkg.get("claims_synced_commit")}
+            if c.get("hypotheses"):              # proposal 0003: a claim with hypotheses is conditional, always
+                row["conditional"] = True
+            rows.append(row)
     cov = coverage(name, reg["packages"][name]) if name is not None else None
     if not rows:
         if cov is not None:
@@ -574,8 +740,8 @@ def do_claims_list(reg: dict, name: str | None) -> tuple[list[str], dict]:
         return (["no cached claims for any package; run `lean-pkg claims sync NAME`"],
                 {"ok": True, "claims": []})
     head = ("ID", "KIND", "STATUS", "TRUST", "PIN", "DECL")
-    table = [head] + [(r["id"], r["kind"], r["status"], r["trust"], str(r["pin"] or "")[:12],
-                       r["decl"]) for r in rows]
+    table = [head] + [(r["id"], r["kind"], str(r["status"]) + (" (conditional)" if r.get("conditional") else ""),
+                       r["trust"], str(r["pin"] or "")[:12], r["decl"]) for r in rows]
     widths = [max(len(str(t[i])) for t in table) for i in range(len(head) - 1)]
     lines = ["  ".join(str(t[i]).ljust(widths[i]) for i in range(len(head) - 1)) + "  " + str(t[-1])
              for t in table]

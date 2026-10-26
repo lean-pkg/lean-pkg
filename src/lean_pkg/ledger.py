@@ -28,6 +28,10 @@ package-level `manuscript_findings` summary (what the formalization found: open 
 version) is what `publish --dry-run` and `palomar prepare` print. Only a lean_evidence declaration missing at
 the gate-bound commit is a diagnostic (`finding-evidence-missing`, like `decl-missing`).
 
+Conditional claims (proposal 0003, stage H2): a claim that sets `hypotheses`, `discharges` or `witness` gets
+`hypotheses-unchecked` (open) whatever else its evidence says, so it is never verified until the ledger evaluates
+hypotheses and discharge (stage H3). A claim without the keys gets exactly the rows, codes and digest it had.
+
 Package status fails closed: `unknown` with no claims, no required claim, or a limitation (no
 checkout, unreadable evidence); `failed` when recorded evidence contradicts a required claim;
 `ready` only when every required claim is verified; else `open`.
@@ -73,6 +77,9 @@ CODES = {
     "comparator-todo": ("open", "the declaration is listed only as a scaffold TODO entry"),
     "depends-on-open": ("blocked", "a depends_on claim in this package is not verified"),
     "depends-on-unknown": ("unknown", "a depends_on claim is in another package or not in this claims file"),
+    # proposal 0003, stage H2: fail closed until the ledger evaluates hypotheses and discharge (stage H3)
+    "hypotheses-unchecked": ("open", "the claim uses hypotheses, discharges or witness, which this lean-pkg does "
+                                     "not evaluate yet: it is never verified"),
 }
 
 
@@ -251,6 +258,11 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
         for d in c.get("depends_on") or []:
             if d not in ids:
                 diags.append(_diag("depends-on-unknown", f"{d} is not a claim of {name}'s claims file"))
+        keys = claims_mod.uses_conditional_keys(c)
+        if keys:                                    # fail closed: nothing evaluates them before stage H3
+            diags.append(_diag("hypotheses-unchecked", f"{cid} sets {', '.join(keys)}; this lean-pkg does not "
+                                                       f"evaluate hypotheses or discharge yet (proposal 0003), so "
+                                                       f"the claim stays open"))
         rows.append({"id": cid, "decl": decl, "kind": c.get("kind"), "claim_status": c.get("status"),
                      "required": required, "judged_internal": judged_internal,
                      "depends_on": list(c.get("depends_on") or []),

@@ -19,8 +19,13 @@ A format version names a set of keys and what each one means.
 
 - **A new optional key keeps the version.** Readers that do not know the
   key ignore it, and a file without it means what it meant before. The
-  receipt keys `producer`, `claim_axioms` and `report_compressed`, and
-  `kind: library` in `coverage/1`, were added this way.
+  receipt keys `producer`, `claim_axioms` and `report_compressed`,
+  `kind: library` in `coverage/1`, and the conditional-claim keys
+  (`hypotheses`, `discharges` and `witness` in `claims/1`, an `inputs`
+  entry `{hypothesis, text}` in `coverage/1`; proposal 0003) were added
+  this way. `claims/1` and `coverage/1` are strict, so an older lean-pkg
+  refuses a file that uses a key added after it: a package that uses one
+  needs a release that knows it in its CI pin.
 - **A new required key, a removed key, or a changed meaning bumps the
   version** (`claims/1` to `claims/2`, `v: 1` to `v: 2`). A lean-pkg that
   meets a version newer than it knows refuses the file, naming the upgrade,

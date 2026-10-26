@@ -192,9 +192,19 @@ one.
 | `comparator-todo` | open | the declaration is only a scaffold `TODO` entry (`comparator config --from-claims`) |
 | `depends-on-open` | blocked | a `depends_on` claim in this package is not verified |
 | `depends-on-unknown` | unknown | a `depends_on` claim is in another package or not in this claims file |
+| `hypotheses-unchecked` | open | the claim sets `hypotheses`, `discharges` or `witness` ([conditional claims](prior-art.md#conditional-claims)), which this lean-pkg does not evaluate yet: the claim is never `verified` |
 
 Receipt-level codes apply to every claim, and comparator codes to every
 required theorem and lemma: one stale receipt opens them all.
+
+A claim that sets `hypotheses` (non-empty), `discharges` or `witness` gets
+`hypotheses-unchecked` whatever its other evidence says (proposal 0003,
+stage H2). Until the ledger evaluates hypotheses and discharge from the
+sealed verify log (stage H3), a conditional result can therefore never show
+as `verified`, on the ledger, the page or anywhere that reads it; a
+`reusable` claim with the keys keeps the package `open`. A claims file
+without the keys gives the same ledger, codes and `ledger_digest` as
+before.
 
 A comparator configuration names a claim only by its full declaration name:
 a `theorem_names` entry equal to the claim's `decl`, or `<Prefix>.<decl>`
