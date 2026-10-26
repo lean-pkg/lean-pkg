@@ -38,7 +38,7 @@ changes:
     breaking: false
     changelog: Changed
     split: true
-  - pr: 0
+  - pr: 324
     id: lower-receipt-schema-marker
     kind: format
     area: receipts, receipt slurm, gate, receipt check
@@ -57,7 +57,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 324
     id: event-line-version
     kind: format
     area: registry
