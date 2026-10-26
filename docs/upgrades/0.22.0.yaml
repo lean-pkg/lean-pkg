@@ -81,4 +81,6 @@ changes:
 # tomllib loose ends (#310 to #313); nothing a package author sees.
 # Docs: proposal 0008, a compute receipt from a CI runner (GitHub Actions first), as a draft for the
 # maintainer's decision; no code changes (#331).
+# Python lint (#PR_D, #314): make lint runs ruff check (rules F, E9, B) in make check and in CI, pinned; the
+# first pass fixed every finding without a behavior change; nothing a package author sees.
 no_author_change: [321, 323, 331]

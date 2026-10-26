@@ -43,3 +43,19 @@ pythonpath = ["src"]
 # about 45 s; 300 s leaves room for a loaded runner under xdist. A test that runs the real Lean toolchain
 # carries its own @pytest.mark.timeout, sized to the limits of the builds and judges it runs.
 timeout = 300
+
+# `make lint` (and CI, pinned): ruff check on src/, scripts/ and tests/, which hold every Python file in the
+# repository. Pyflakes (F), syntax errors (E9) and bugbear (B) to start (#314); no formatter, no style rules.
+[tool.ruff]
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["F", "E9", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# F811: the tests import shared pytest fixtures (`from tests.x import repo, fake_sacct`) and pytest injects
+# them by naming them as test parameters, which pyflakes reads as redefining the unused import. Every one of
+# the 239 findings of the first pass was this pattern (a parameter, a lambda parameter or a local rebinding of
+# a fixture name), none a duplicated test function.
+"tests/**" = ["F811"]

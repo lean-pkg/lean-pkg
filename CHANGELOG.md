@@ -71,6 +71,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `lake_hygiene.py` are gone (`requires-python >= 3.11`); `make test`
   says on stderr when it runs serially because pytest-xdist is missing
   (#313).
+- Python lint (#PR_D, #314): `make lint` runs `ruff check` on `src/`,
+  `scripts/` and `tests/` with pyflakes, syntax-error and bugbear rules
+  (`F`, `E9`, `B`; pyproject.toml `[tool.ruff.lint]`), and `make check`
+  includes it; it prints `lint: SKIPPED` when ruff is not installed, and
+  CI installs ruff 0.17.2. The first pass fixed every finding without a
+  behavior change: unused imports and variables, placeholder-less
+  f-strings, unused loop variables renamed with `_`, `raise ... from` in
+  `except` blocks (66; only a traceback's wording changes), explicit
+  `strict=False` on `zip()` (13). Kept with a reason: `F811` in `tests/`
+  (fixtures imported from a shared module and named as test parameters),
+  and four `B023` lambdas called within their loop iteration.
 
 ### Documentation
 
