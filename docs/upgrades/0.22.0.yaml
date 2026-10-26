@@ -79,4 +79,6 @@ changes:
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,
 # Python 3.13 and 3.14, pytest-timeout, jsonschema and setuptools in the test extra, Makefile and
 # tomllib loose ends (#310 to #313); nothing a package author sees.
-no_author_change: [321, 323]
+# Docs: proposal 0008, a compute receipt from a CI runner (GitHub Actions first), as a draft for the
+# maintainer's decision; no code changes (#331).
+no_author_change: [321, 323, 331]
