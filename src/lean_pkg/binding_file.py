@@ -71,7 +71,7 @@ class OptIn:
             return f"opted in at {self.commit[:12]} by {FILE}"
         if self.source == "registry":
             return "opted in by the registry record"
-        return "opted in"   # the referee's wording is receipt check's (proposal 0002, stage G2)
+        return "opted in"   # the referee's: receipt check adds "(accepted with --docs-descendants)"
 
     def view(self) -> dict:
         """The additive `opt_in` of the gate/regate/comparator events and --json."""
@@ -278,7 +278,30 @@ def resolve_opt_in(repo: pathlib.Path, bound: str, pkg: dict | None) -> OptIn:
     return OptIn("docs-only", "committed", bound, FILE, "true", tuple(union))
 
 
-def referee_opt_in(bound: str, accepted: bool) -> OptIn:
-    """The opt-in of `receipt check`, which reads no registry: the referee's --docs-descendants or nothing.
-    Stage G1 of proposal 0002 does not read the committed file there; stage G2 does."""
-    return OptIn("docs-only", "referee", bound) if accepted else OptIn("evidence-only", None, bound)
+def referee_opt_in(repo: pathlib.Path, bound: str, accepted: bool = False, evidence_only: bool = False) -> OptIn:
+    """The opt-in of `receipt check`, which reads no registry (proposal 0002, stage G2; open questions 4 and 5):
+
+    | file at X      | flags               | rule          | source    |
+    |----------------|---------------------|---------------|-----------|
+    | true           | none                | docs-only     | committed |
+    | any            | --evidence-only     | evidence-only | None (a file at X is named as ignored) |
+    | absent         | --docs-descendants  | docs-only     | referee   |
+    | absent         | none                | evidence-only | None      |
+    | false/invalid  | --docs-descendants  | evidence-only | None (the flag is named as overridden) |
+
+    `accepted` is --docs-descendants, `evidence_only` --evidence-only; both at once is a usage error. The
+    file is read at `bound` only (read_at), so the referee's working tree is never consulted. build_inputs
+    keeps the file's globs even where the file is ignored, so the output can say what it declared."""
+    if accepted and evidence_only:
+        raise ValueError("--docs-descendants and --evidence-only are mutually exclusive")
+    oi = resolve_opt_in(repo, bound, None)
+    x12 = bound[:12]
+    if evidence_only:
+        notes = (f"{FILE} at {x12} opts in but is ignored: --evidence-only",) if oi.file_state == "true" else oi.notes
+        return dataclasses.replace(oi, rule="evidence-only", source=None, notes=notes)
+    if oi.file_state == "absent":
+        return OptIn("docs-only", "referee", bound) if accepted else oi
+    if oi.file_state == "true" or not accepted:
+        return oi
+    return dataclasses.replace(oi, notes=oi.notes + (
+        f"--docs-descendants is overridden: {FILE} at {x12} is the author's committed choice",))

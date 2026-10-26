@@ -171,13 +171,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   subdirectory package or in a nested package is not the package's. Write it
   by hand for now ([docs-only descendants](docs/receipts.md#docs-only-descendants-opt-in),
   [on-disk formats](docs/formats.md)); `receipt check` and a registry-less
-  `index check` read it in stage G2.
+  `index check` read it too (stage G2, below).
 - Additive `opt_in: {source, commit, path}` (#349; #319) in the
   `gate-passed`, `regated`, `comparator-attached` and `comparator-replaced`
   events and the `--json` of `gate`, `gate --check` and `comparator`
   (attach and `--check`) when the docs-only rule admitted HEAD: `source` is
   `committed` (the file at X, `path` `lean-pkg-binding.yaml`) or `registry`
   (the record, `path` null). An evidence-only admission carries none.
+- `receipt check --evidence-only` (#356; #319, proposal 0002, stage G2):
+  the referee's strict rule over the author's committed opt-in. Only an
+  evidence-only descendant of X binds; the `opt-in` check is `SKIP` with
+  `ignored: --evidence-only`, and the validators apply the same rule.
+  `--docs-descendants` and `--evidence-only` together are a usage error
+  (exit 2) ([Checking a published package's receipts](docs/receipts.md#checking-a-published-packages-receipts-receipt-check)).
 
 ### Changed
 
@@ -258,6 +264,37 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   invalid file there vetoes the record's `true`), and its check note says
   which decided (`overridden by lean-pkg-binding.yaml at <pin12>`, or
   `the registry record opts in` only when the pin has no file).
+- `receipt check` and a public `index check` apply the committed opt-in
+  (#356; #319, proposal 0002, stage G2). `receipt check` reads
+  `lean-pkg-binding.yaml` at the bound commit X (never at the published ref
+  or in the referee's working tree) and applies it by default: a new
+  `opt-in` check before `binding` (`PASS opt-in: lean-pkg-binding.yaml at
+  <X12> opts in to docs-only descendants (build_inputs: N glob(s))`, or
+  `SKIP` naming a file that says `false`, does not validate, was added after
+  X or is ignored), the `binding` line `docs-only descendant of <X12> (...;
+  opted in at <X12> by lean-pkg-binding.yaml)`, and the rule line
+  `evidence-only or docs-only descendants (docs-only: the author's opt-in,
+  lean-pkg-binding.yaml committed at <X12>; --evidence-only to refuse
+  them)`. `--docs-descendants` stays the referee's choice for a package
+  without the file, printed as before; a committed `false` or invalid file
+  overrides it, and the output says so. `--json` `docs_descendants` is now
+  true whenever the docs-only rule was applied, and it gains
+  `evidence_only` and `opt_in {source, commit, path, build_inputs, file,
+  problems}` (`source` `committed`, `referee` or null). Exit codes are
+  unchanged, and without the file and without a flag the output is
+  byte-for-byte as before. `index add` and `index check` read the file at
+  the entry's pin with or without a registry: without one, a committed
+  `true` admits a tag on a docs-only descendant and the receipts committed
+  in one, and the check note says `lean-pkg-binding.yaml at <pin12> opts
+  in`; a file added after the pin, a `false` or an invalid file is named in
+  the refusal; with a registry, its record's precedence applies as before,
+  and a record's `docs_descendants: false` now vetoes the file there. The
+  refusal of a tag the docs-only rule would admit names both routes (the
+  file, then the record) and reads `...; not opted in)` where it printed
+  the admission line without its last clause
+  ([docs-only descendants](docs/receipts.md#docs-only-descendants-opt-in),
+  [trust model](docs/trust-model.md#re-verify-a-page-yourself),
+  [index catalog](docs/index-catalog.md)).
 - Internal: the shared core moved from cli.py to core.py (#345, #317);
   cli.py re-exports every moved name for one release; no change to the
   CLI or its JSON.

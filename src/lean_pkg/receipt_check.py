@@ -1,5 +1,6 @@
 # lean-pkg receipt check -- validate a published package's receipts from git alone
-"""`lean-pkg receipt check --repo DIR --commit X [--at REF] [--docs-descendants] [--name NAME] [--json]`:
+"""`lean-pkg receipt check --repo DIR --commit X [--at REF] [--docs-descendants | --evidence-only] [--name NAME]
+[--json]`:
 the registry-free receipt verifier an outside referee runs on a clone of a published package. It needs no
 lean-pkg registry, no lab account and no network, and it never runs Lean: everything is read from git, at the
 bound commit X and at the published ref REF (default: the checkout's HEAD), in a private clone of DIR (the
@@ -17,13 +18,18 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   commit fails. A comparator `.replaced-` copy is history and is skipped. A JSON file named for X that is not
   receipt-shaped fails, unless its `schema` is one of the comparator runner's own non-receipt records
   (NON_RECEIPT_SCHEMAS: stages.json and its kin), which is skipped and printed as skipped.
+- opt-in: lean-pkg-binding.yaml in the package directory as committed at X (proposal 0002), the author's
+  docs-only opt-in, read at X and nowhere else (never at REF, never in the referee's working tree). Pass
+  when it opts in (docs_descendants: true) and is applied; skip, saying why, when it says false, does not
+  validate (the problem is named), or is ignored with --evidence-only; skip when it is absent at X but
+  committed at REF (added after X: it grants nothing). No row when no file is at X or at REF.
 - binding: REF is X, or an evidence-only descendant of X (only .lean-receipts/ changed, and formalization.yaml
   at the package root, the renderer's default path, in its derived keys only: gate's own exemption, #23.5,
   applied to the fixed path because the registry pointer is not readable here; the exemption is printed when
-  it was needed). With --docs-descendants the
-  referee also accepts a docs-only descendant (no build input changed: the docs-only rule of
-  docs/receipts.md). That opt-in lives in the author's registry today, which a referee cannot read, so it is
-  the referee's choice here and is printed with the result.
+  it was needed), or a docs-only descendant of X (no build input changed: the docs-only rule of
+  docs/receipts.md) when the docs-only rule applies: by default when lean-pkg-binding.yaml at X opts in;
+  with --docs-descendants, for a package without the file, as the referee's choice (printed with the
+  result; a file at X that says false or does not validate overrides the flag); never with --evidence-only.
 - per lower-tier receipt: gate's own validator (gate_mod.validate_receipt: the receipt keys, the binding, the
   toolchain and Mathlib pins against lean-toolchain and lake-manifest.json committed at X, no path dependency
   outside the package, sorry_count 0, axioms within propext, Quot.sound, Classical.choice); report_sha256
@@ -72,7 +78,7 @@ import re
 import tempfile
 
 from . import claim_axioms as ca
-from .binding_file import referee_opt_in
+from .binding_file import FILE as BINDING_FILE, referee_opt_in
 from . import gate as gate_mod
 from . import core
 from . import container as ctr
@@ -142,15 +148,20 @@ def open_source(repo_dir: str, commit: str, at: str | None, tmp: pathlib.Path) -
     return {"clone": clone, "root": dest, "commit": x, "at": ref, "prefix": prefix}
 
 
-def referee_pkg(name: str, docs_descendants: bool, comparator_rel: str | None = None) -> dict:
+def referee_pkg(name: str, docs_descendants: bool, comparator_rel: str | None = None,
+                evidence_only: bool = False) -> dict:
     """The package record the validators read, built from nothing but the referee's choices: the default
     axioms, the default claims file, the default formalization.yaml path (FORMALIZATION_REL; gate's
-    derived-keys rule decides from the file at X and at REF, and a file not tracked at X is never exempt), the
-    docs-only opt-in only when the referee passed --docs-descendants."""
+    derived-keys rule decides from the file at X and at REF, and a file not tracked at X is never exempt).
+    The docs-only opt-in is lean-pkg-binding.yaml at X, which every validator reads through the binding rule
+    (binding_file.resolve_opt_in); --docs-descendants stands in for the record's docs_descendants: true (it
+    applies only without a file at X), --evidence-only for its false (the veto: the file is not applied)."""
     pkg = {"name": name, "gate": {"axioms_allowed": list(DEFAULT_AXIOMS), "comparator": comparator_rel},
            "formalization_yaml": FORMALIZATION_REL}
     if docs_descendants:
         pkg["docs_descendants"] = True
+    elif evidence_only:
+        pkg["docs_descendants"] = False
     return pkg
 
 
@@ -258,12 +269,34 @@ class Checks:
         return sum(i["verdict"] == FAIL for i in self.items)
 
 
-def check_binding(c: Checks, repo: pathlib.Path, x: str, ref: str, pkg: dict, checker) -> None:
-    ok, note, docs = gate_mod.package_descendant(repo, x, ref, pkg, checker=checker, nested=(),
-                                             opt_in=referee_opt_in(x, pkg.get("docs_descendants") is True))
+def opt_in_check(c: Checks, repo: pathlib.Path, x: str, ref: str, oi) -> None:
+    """The `opt-in` row: lean-pkg-binding.yaml as committed at X, the only copy that can opt in (proposal
+    0002). No row when the file is neither at X nor at REF, so a package without it reads as before."""
+    x12 = x[:12]
+    if oi.file_state == "absent":
+        if x != ref and core.tracked_at(repo, BINDING_FILE, ref):
+            c.add("opt-in", SKIP, f"no {BINDING_FILE} at {x12}; the one at {ref[:12]} was added after {x12}, and "
+                                  f"the opt-in is read at the bound commit only, so it grants nothing")
+        return
+    if oi.file_state == "true":
+        what = (f"{BINDING_FILE} at {x12} opts in to docs-only descendants (build_inputs: "
+                f"{len(oi.build_inputs)} glob(s))")
+        if oi.rule == "docs-only":
+            c.add("opt-in", PASS, what)
+        else:
+            c.add("opt-in", SKIP, f"{what}; ignored: --evidence-only")
+        return
+    why = (f"{BINDING_FILE} at {x12} says docs_descendants: false" if oi.file_state == "false" else
+           f"{BINDING_FILE} at {x12} does not opt in: " + "; ".join(pr.split(": ", 1)[-1] for pr in oi.problems))
+    over = [n for n in oi.notes if n.startswith("--docs-descendants")]
+    c.add("opt-in", SKIP, f"{why}; the evidence-only rule binds" + "".join(f"; {n}" for n in over))
+
+
+def check_binding(c: Checks, repo: pathlib.Path, x: str, ref: str, pkg: dict, checker, oi) -> None:
+    ok, note, docs = gate_mod.package_descendant(repo, x, ref, pkg, checker=checker, nested=(), opt_in=oi)
     if ok:
         what = ("the published ref is the bound commit" if x == ref
-                else f"{note} (accepted with --docs-descendants)" if docs is not None
+                else f"{note} (accepted with --docs-descendants)" if docs is not None and oi.source == "referee"
                 else note)
         exempt = formalization_exemption(repo, x, ref, pkg)
         if exempt:
@@ -272,7 +305,7 @@ def check_binding(c: Checks, repo: pathlib.Path, x: str, ref: str, pkg: dict, ch
         c.add("binding", PASS, what)
     else:
         c.add("binding", FAIL, f"{ref[:12]} is not {x[:12]} or an evidence-only"
-              + (" or docs-only" if pkg.get("docs_descendants") else "") + f" descendant of it: {note}; the "
+              + (" or docs-only" if oi.rule == "docs-only" else "") + f" descendant of it: {note}; the "
               f"receipts certify {x[:12]}, not this tree (check the tree they bind with --at {x[:12]}, or an "
               f"evidence commit after it)")
 
@@ -624,16 +657,49 @@ def package_name(repo: pathlib.Path, x: str, given: str | None) -> str:
     return repo.name
 
 
+def rule_text(oi, x: str, evidence_only: bool = False) -> str:
+    """The `rule:` line: which descendants bind, and who chose the docs-only rule. Without a file at X and
+    without a flag it reads as before the committed opt-in existed."""
+    x12 = x[:12]
+    if evidence_only and oi.file_state != "true":
+        return "evidence-only descendants (docs-only not accepted: --evidence-only)"
+    if oi.source == "committed":
+        return (f"evidence-only or docs-only descendants (docs-only: the author's opt-in, {BINDING_FILE} "
+                f"committed at {x12}; --evidence-only to refuse them)")
+    if oi.source == "referee":
+        return "evidence-only or docs-only descendants (docs-only accepted by the referee: --docs-descendants)"
+    if oi.file_state == "true":   # applied only when --evidence-only did not ignore it
+        return f"evidence-only descendants (docs-only not accepted: --evidence-only ignores {BINDING_FILE} at {x12})"
+    if oi.file_state in ("false", "invalid"):
+        over = "; --docs-descendants overridden" if any(n.startswith("--docs-descendants") for n in oi.notes) else ""
+        return f"evidence-only descendants ({BINDING_FILE} at {x12} does not opt in{over})"
+    return "evidence-only descendants (docs-only not accepted; --docs-descendants to accept them)"
+
+
+def opt_in_view(oi) -> dict | None:
+    """JSON `opt_in`: {source (committed | referee | null), commit, path, build_inputs, file (absent | true |
+    false | invalid), problems}; null when no file is at X and the evidence-only rule applies."""
+    if oi.file_state == "absent" and oi.source is None:
+        return None
+    return {"source": oi.source, "commit": oi.commit, "path": oi.path, "build_inputs": list(oi.build_inputs),
+            "file": oi.file_state, "problems": list(oi.problems)}
+
+
 def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants: bool = False,
-             name: str | None = None) -> tuple[list[str], dict, int]:
+             name: str | None = None, evidence_only: bool = False) -> tuple[list[str], dict, int]:
     from . import index as index_mod
+    if docs_descendants and evidence_only:
+        raise core.UsageError("--docs-descendants and --evidence-only are mutually exclusive: --docs-descendants "
+                              f"accepts docs-only descendants for a package without {BINDING_FILE}, "
+                              "--evidence-only refuses them whatever the package committed")
     with tempfile.TemporaryDirectory(prefix="lean-pkg-receipt-check-") as tmp:
         src = open_source(repo_dir, commit, at, pathlib.Path(tmp))
         repo, x, ref = src["clone"], src["commit"], src["at"]
         pkg_name = package_name(repo, x, name)
         found = discover(repo, x)
         comp_rel = found["comparator"][0]["path"] if found["comparator"] else None
-        pkg = referee_pkg(pkg_name, docs_descendants, comp_rel)
+        pkg = referee_pkg(pkg_name, docs_descendants, comp_rel, evidence_only)
+        oi = referee_opt_in(repo, x, docs_descendants, evidence_only)
         c = Checks(repo, src["root"])
         bound = len(found["lower"]) + len(found["comparator"])
         if not found["lower"]:
@@ -656,7 +722,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                   f"{', '.join(NON_RECEIPT_SCHEMAS)}); rename a non-receipt file so it does not start with "
                   f"{x[:12]}, or keep it outside {RECEIPTS_DIR}/")
         checker = found["lower"][0]["data"].get("checker") if found["lower"] else None
-        check_binding(c, repo, x, ref, pkg, checker)
+        opt_in_check(c, repo, x, ref, oi)
+        check_binding(c, repo, x, ref, pkg, checker, oi)
         for v in found["lower"]:
             rec, rel = v["data"], v["path"]
             if c.run(f"lower {rel}", lambda: gate_mod.validate_receipt(pkg, repo, rec),  # noqa: B023  called synchronously, within this iteration
@@ -699,9 +766,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
     comp_ok = lower_ok and bool(found["comparator"]) and not any(
         i["verdict"] == FAIL for i in c.items if i["id"].startswith(("comparator ", "claimed theorems")))
     tier = index_mod.compute_trust(lower_ok, comp_ok, [])
-    rule = ("evidence-only or docs-only descendants (docs-only accepted by the referee: --docs-descendants)"
-            if docs_descendants else "evidence-only descendants (docs-only not accepted; --docs-descendants to "
-                                     "accept them)")
+    rule = rule_text(oi, x, evidence_only)
     ok = failed == 0
     counts = {v: sum(i["verdict"] == v for i in c.items) for v in (PASS, FAIL, SKIP)}
     summary = (f"receipt check: {'PASS' if ok else 'FAIL'} {pkg_name} at {x[:12]} "
@@ -719,7 +784,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                 for k in ("lower", "comparator")}
     receipts["other"] = [{"path": v["path"], "sha256": v["sha256"], "commit": v["commit"]} for v in found["other"]]
     payload = {"ok": ok, "name": pkg_name, "commit": x, "at": ref, "prefix": src["prefix"] or None,
-               "docs_descendants": bool(docs_descendants), "rule": rule, "tier": tier, "runs_lean": False,
+               "docs_descendants": oi.rule == "docs-only", "evidence_only": bool(evidence_only),
+               "opt_in": opt_in_view(oi), "rule": rule, "tier": tier, "runs_lean": False,
                "network": False, "note": RERUN_NOTE, "receipts": receipts, "bound_receipts": bound,
                "counts": counts, "exemptions": c.exemptions,
                "skipped_records": [v["path"] for v in found["sidecar"]], "checks": c.items,
@@ -728,7 +794,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
 
 
 def cmd_receipt_check(args) -> int:
-    lines, payload, rc = do_check(args.repo, args.commit_sha, args.at, args.docs_descendants, args.name)
+    lines, payload, rc = do_check(args.repo, args.commit_sha, args.at, args.docs_descendants, args.name,
+                                  getattr(args, "evidence_only", False))
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:
@@ -747,10 +814,16 @@ def add_parser(rsub) -> None:
                    help="the commit the receipts bind (the page's `git checkout <commit>` line)")
     s.add_argument("--at", default=None, metavar="REF",
                    help="the published ref whose .lean-receipts/, coverage.yaml and README.md are read (default "
-                        "HEAD of --repo); it must be the commit or an evidence-only descendant of it")
-    s.add_argument("--docs-descendants", action="store_true",
-                   help="also accept a docs-only descendant (no build input changed); the author's opt-in lives "
-                        "in a registry the referee cannot read, so this is the referee's choice, printed in the result")
+                        "HEAD of --repo); it must be the commit or an evidence-only descendant of it (or a docs-only "
+                        "one, when the docs-only rule applies)")
+    g = s.add_mutually_exclusive_group()
+    g.add_argument("--docs-descendants", action="store_true",
+                   help="for a package without lean-pkg-binding.yaml at the commit: also accept a docs-only "
+                        "descendant (no build input changed) as the referee's choice, printed in the result; a "
+                        "committed file that says false or does not validate overrides it")
+    g.add_argument("--evidence-only", action="store_true",
+                   help="accept only evidence-only descendants: ignore the author's committed opt-in "
+                        "(lean-pkg-binding.yaml at the commit, applied by default)")
     s.add_argument("--name", default=None,
                    help="the package name the claims must carry (default: `package` in coverage.yaml, else "
                         "claims.yaml, else the directory name)")

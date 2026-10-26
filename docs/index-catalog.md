@@ -68,7 +68,7 @@ from its headline (no other key changes), so its headlines become searchable.
 | `schema` | `index-entry/2` (or `index-entry/1`) |
 | `name` | the directory name |
 | `repo` | public https URL |
-| `pin` | `commit` (40 hex, the receipts' commit) and `tag` (or null; at the pin or an evidence-only descendant, or a docs-only one when the registry record opts in; see below) |
+| `pin` | `commit` (40 hex, the receipts' commit) and `tag` (or null; at the pin or an evidence-only descendant, or a docs-only one when the package opts in: `lean-pkg-binding.yaml` committed at the pin, or the registry record; see below) |
 | `lean_toolchain` | equals `lean-toolchain` at the pin |
 | `mathlib_rev` | equals the Mathlib rev in `lake-manifest.json` at the pin, or null |
 | `license_spdx` | SPDX id; a license file must exist at the pin |
@@ -234,27 +234,49 @@ passes, 1 on any failure, 2 on a usage error.
 
 The tag, and the commits the receipts are committed in, are bound by the
 same rule as `gate`, `publish` and `comparator`: an evidence-only descendant
-of the pin, or, when the package's registry record opts in
-(`docs_descendants: true`, set with
-`lean-pkg update NAME --accept-docs-descendants --reason R`), a docs-only
-descendant: one where no build input changed (see
-[Receipts](receipts.md)). `index add` and `index check --clone` /
-`--repo` read the opt-in from the registry they resolve (`--registry`, `$LEAN_PKG_REGISTRY` or the user default), and only
-from the record with the entry's name and repository. When that record opts
-in, the `lean-pkg-binding.yaml` committed at the pin takes precedence, as for
-`gate` ([docs-only descendants](receipts.md#docs-only-descendants-opt-in)): a
-file there saying `false`, or one that does not validate, overrides the
-record's `true`, and the check note says so:
+of the pin, or, when the package opts in, a docs-only descendant: one where
+no build input changed (see [Receipts](receipts.md)). The opt-in is
+`lean-pkg-binding.yaml` committed at the pin
+([docs-only descendants](receipts.md#docs-only-descendants-opt-in)), read at
+the pin and nowhere else, so a public `index check` with no registry applies
+it too:
+
+```
+note: docs-only descendants accepted for the tag and the evidence: lean-pkg-binding.yaml at <pin12> opts in
+```
+
+A copy of the file added after the pin grants nothing, and the tag's
+refusal says so:
+
+```
+lean-pkg-binding.yaml was added after <pin12>; the opt-in is read at the bound commit only
+```
+
+A file at the pin that says `false` or does not validate leaves the
+evidence-only rule in place, with a note naming it.
+`entry.yaml` does not change.
+
+With a registry (`--registry`, `$LEAN_PKG_REGISTRY` or the user default),
+`index add` and `index check --clone` / `--repo` also read the record with
+the entry's name and repository, with the precedence `gate` applies: the
+record's `docs_descendants: true` (set with
+`lean-pkg update NAME --accept-docs-descendants --reason R`) opts in only
+when the pin has no file, and the note then says
+`the registry record opts in`; a file at the pin saying `false`, or one
+that does not validate, overrides the record's `true`:
 
 ```
 the registry record's docs_descendants: true is overridden by lean-pkg-binding.yaml at <pin12> (...)
 ```
 
-The note says `the registry record opts in` only when the pin has no such
-file. Without a registry, or without the opt-in, the evidence-only rule
-binds and the file is not read (a later stage of #319 reads it there); a tag
-the docs-only rule would admit is then refused with a clause that names the
-opt-in.
+and the record's `docs_descendants: false` vetoes a committed `true`:
+
+```
+the registry record refuses the docs-only rule (docs_descendants: false), over lean-pkg-binding.yaml at <pin12>
+```
+
+A record of another package (another name or repository) is never read. Without any opt-in a tag the docs-only
+rule would admit is refused with a clause that names both routes.
 
 A repository whose HEAD has moved past the pin still passes: the pin is the
 claim. The rendered table shows the pin, not HEAD.

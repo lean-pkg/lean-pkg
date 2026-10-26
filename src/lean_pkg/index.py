@@ -525,13 +525,15 @@ def checkout_pin(clone: pathlib.Path, commit: str) -> None:
 
 
 def docs_record(reg: dict | None, name: str, repo: str) -> dict | None:
-    """The registry record whose docs-only opt-in binds this entry, or None. Index applies the opt-in
-    where gate, ledger, promote, publish and comparator read it: the package's registry record
-    (docs_descendants: true), never a file in the cloned repository (a tag or a descendant could add that
-    file itself). The record must be the entry's own: the same name and the same public repository.
-    Without a registry (a public `index check`), or with any other record, the evidence-only rule binds."""
+    """The registry record whose docs_descendants takes part in this entry's docs-only opt-in, or None: the
+    entry's own record (the same name and the same public repository) when it sets docs_descendants, true
+    (the deprecated grant, used only when the pin has no lean-pkg-binding.yaml) or false (the veto). Index
+    applies the opt-in where gate, ledger, promote, publish and comparator read it: lean-pkg-binding.yaml
+    committed at the pin and nowhere else (binding_file.resolve_opt_in; a tag or a descendant that adds the
+    file grants nothing), with this record's precedence. Without a registry (a public `index check`), or
+    with any other record, the file at the pin alone decides."""
     pkg = ((reg or {}).get("packages") or {}).get(name) if isinstance(reg, dict) else None
-    if not isinstance(pkg, dict) or pkg.get("docs_descendants") is not True:
+    if not isinstance(pkg, dict) or not isinstance(pkg.get("docs_descendants"), bool):
         return None
     try:
         if _repo_key(https_repo(pkg.get("repo"))) != _repo_key(repo):
@@ -545,20 +547,44 @@ REGISTRY_OPT_IN_NOTE = ("docs-only descendants accepted for the tag and the evid
                         "(docs_descendants: true)")
 
 
-def opt_in_note(clone: pathlib.Path, pin: str, record: dict) -> str:
-    """The check note for an opted-in registry record (docs_record), from the opt-in the binding rule applies
-    at the pin (binding_file.resolve_opt_in, the registry precedence of proposal 0002): the record's true
-    applies only when the pin has no lean-pkg-binding.yaml; once the file exists there it decides."""
-    from .binding_file import FILE, resolve_opt_in
-    oi = resolve_opt_in(clone, pin, record)
+def opt_in(clone: pathlib.Path, pin: str, record: dict | None):
+    """The docs-only opt-in that binds evidence at the pin (binding_file.OptIn): lean-pkg-binding.yaml
+    committed at the pin, with the precedence of `record` (docs_record) when there is one."""
+    from .binding_file import resolve_opt_in
+    return resolve_opt_in(clone, pin, record)
+
+
+def docs_rule(clone: pathlib.Path, pin: str | None, record: dict | None) -> bool:
+    """Whether the docs-only rule can bind a descendant of the pin: the opt-in at the pin applies it, or (as
+    before the committed file) the record says docs_descendants: true. With no pin yet (index add looking
+    for the receipts), the record's say only."""
+    if record is not None and record.get("docs_descendants") is True:
+        return True
+    return pin is not None and opt_in(clone, pin, record).rule == "docs-only"
+
+
+def opt_in_note(clone: pathlib.Path, pin: str, record: dict | None) -> str | None:
+    """The check note saying what decided the docs-only rule at the pin (binding_file.resolve_opt_in, the
+    registry precedence of proposal 0002), or None when nothing did (no file at the pin, no record): the
+    record's true applies only when the pin has no lean-pkg-binding.yaml; once the file exists there it
+    decides; a record's false vetoes."""
+    from .binding_file import FILE
+    oi = opt_in(clone, pin, record)
     if oi.source == "registry":
         return REGISTRY_OPT_IN_NOTE
     if oi.source == "committed":
         return f"docs-only descendants accepted for the tag and the evidence: {FILE} at {pin[:12]} opts in"
+    if oi.file_state == "absent":
+        return None
+    if oi.file_state == "true":   # a record's docs_descendants: false
+        return (f"the registry record refuses the docs-only rule (docs_descendants: false), over {FILE} at "
+                f"{pin[:12]}; the evidence-only rule binds the tag and the evidence")
     why = "says docs_descendants: false" if oi.file_state == "false" else (
         "does not opt in: " + (oi.problems[0].split(": ", 1)[-1] if oi.problems else "invalid"))
-    return (f"the registry record's docs_descendants: true is overridden by {FILE} at {pin[:12]} ({why}); "
-            f"the evidence-only rule binds the tag and the evidence")
+    if record is not None and record.get("docs_descendants") is True:
+        return (f"the registry record's docs_descendants: true is overridden by {FILE} at {pin[:12]} ({why}); "
+                f"the evidence-only rule binds the tag and the evidence")
+    return f"{FILE} at {pin[:12]} {why}; the evidence-only rule binds the tag and the evidence"
 
 
 def receipt_checker(blob) -> str:
@@ -574,13 +600,16 @@ def receipt_checker(blob) -> str:
 def descends(clone: pathlib.Path, bound: str, head: str, record: dict | None = None,
              checker: str = "") -> tuple[bool, str, list[str] | None]:
     """The binding rule for the tag and the evidence commits: gate_mod.package_descendant, the rule every
-    other consumer applies, when `record` (docs_record) opts in; otherwise exactly the evidence-only rule.
+    other consumer applies, when the package opts in (lean-pkg-binding.yaml committed at `bound`, or a
+    `record`, docs_record, that says docs_descendants: true); otherwise exactly the evidence-only rule.
     The clone has no registered nested packages, and its formalization.yaml keeps the evidence-only
-    rule's stricter reading unless the record opts in. (ok, note, docs_paths)."""
-    if record is None:
-        ok, note = gate_mod.evidence_only_descendant(clone, bound, head)
-        return ok, note, None
-    return gate_mod.package_descendant(clone, bound, head, record, checker=checker or "", nested=())
+    rule's stricter reading unless a record opts in. (ok, note, docs_paths)."""
+    oi = opt_in(clone, bound, record)
+    if oi.rule == "docs-only" or (record is not None and record.get("docs_descendants") is True):
+        return gate_mod.package_descendant(clone, bound, head, record or {}, checker=checker or "", nested=(),
+                                           opt_in=oi)
+    ok, note = gate_mod.evidence_only_descendant(clone, bound, head)
+    return ok, note, None
 
 
 def find_evidence(clone: pathlib.Path, rel: str, pin: str | None, record: dict | None = None,
@@ -606,7 +635,7 @@ def find_evidence(clone: pathlib.Path, rel: str, pin: str | None, record: dict |
         if ok:
             return bound, blob
     raise core.Fail(f"{rel} is not committed at the pin or in an evidence-only "
-                    f"{'or docs-only ' if record is not None else ''}descendant of it "
+                    f"{'or docs-only ' if docs_rule(clone, pin, record) else ''}descendant of it "
                     f"on any branch; commit and push the evidence first (untracked files do not count)")
 
 
@@ -673,7 +702,7 @@ def evidence_commit(clone: pathlib.Path, rel: str, pin: str, record: dict | None
         if ok:
             return c
     raise core.Fail(f"{rel} is not committed at the pin or in an evidence-only "
-                    f"{'or docs-only ' if record is not None else ''}descendant of it")
+                    f"{'or docs-only ' if docs_rule(clone, pin, record) else ''}descendant of it")
 
 
 def reachable_on(clone: pathlib.Path, public_repo: str, shas: list[str]) -> list[str]:
@@ -921,21 +950,37 @@ def at_pin_problems(clone: pathlib.Path, entry: dict, receipts: dict,
             ok, note, _ = descends(clone, pin, head, record, checker)
             if not ok:
                 out.append(f"tag {tag!r} is neither the pin nor an evidence-only descendant of it"
-                           + (f" ({note})" if record is not None else tag_docs_hint(clone, pin, head, checker, entry["name"])))
+                           + (f" ({note})" if docs_rule(clone, pin, record)
+                              else tag_docs_hint(clone, pin, head, checker, entry["name"], record)))
     out += headline_problems(clone, entry["headline"])
     return out
 
 
-def tag_docs_hint(clone: pathlib.Path, pin: str, head: str, checker: str, name: str) -> str:
-    """Without the opt-in: a clause naming the docs-only route when that rule would admit the tag."""
+def tag_docs_hint(clone: pathlib.Path, pin: str, head: str, checker: str, name: str,
+                  record: dict | None = None) -> str:
+    """Without the opt-in: the clauses saying why the docs-only rule did not bind the tag. When it would
+    admit the tag: the routes (lean-pkg-binding.yaml committed at the pin, or the registry record). Always:
+    a lean-pkg-binding.yaml added after the pin (it grants nothing), a file at the pin that does not opt in,
+    the record's veto."""
+    from .binding_file import FILE, SCHEMA
     if not core._is_ancestor(clone, pin, head):
         return ""
-    ok, note, _ = gate_mod.docs_only_descendant(clone, pin, head, {}, checker)
-    if not ok:
-        return ""
-    return (f"; it is a {note.replace('; opted in', '')}, which binds only when the package's registry record "
-            f"opts in (docs_descendants: true, `lean-pkg update {name} --accept-docs-descendants --reason R`) "
-            f"and index runs with that registry")
+    oi = opt_in(clone, pin, record)
+    out = ""
+    ok, note, _ = gate_mod.docs_only_descendant(clone, pin, head, {}, checker, opted="not opted in")
+    if ok and oi.file_state != "absent":   # the file at the pin decided: its notes say how
+        out = f"; it is a {note}"
+    elif ok:
+        out = (f"; it is a {note}, which binds only when {FILE} committed at the pin opts in (schema: {SCHEMA}, "
+               f"docs_descendants: true; docs/receipts.md#docs-only-descendants-opt-in), or the package's "
+               f"registry record opts in (docs_descendants: true, `lean-pkg update {name} "
+               f"--accept-docs-descendants --reason R`) and index runs with that registry")
+    out += "".join(f"; {n}" for n in oi.notes)
+    if oi.file_state == "absent" and core.tracked_at(clone, FILE, head):
+        out += f"; {FILE} was added after {pin[:12]}; the opt-in is read at the bound commit only"
+    if record is not None and record.get("docs_descendants") is False and not oi.notes:
+        out += "; the registry record refuses the docs-only rule (docs_descendants: false)"
+    return out
 
 
 def prior_art_notes(clone: pathlib.Path, headline: list[dict]) -> list[str]:
@@ -1169,7 +1214,8 @@ def _parser_add(isub, common) -> None:
     a.add_argument("--repo-dir", default=None, help="local clone to read from (never modified)")
     a.add_argument("--url", dest="repo", metavar="URL", default=None,
                    help="public https URL (a GitHub ssh URL is converted)")
-    a.add_argument("--tag", default=None, help="release tag at the pin or an evidence-only descendant")
+    a.add_argument("--tag", default=None, help="release tag at the pin or an evidence-only descendant (or a docs-only one "
+                   "when lean-pkg-binding.yaml at the pin opts in)")
     a.add_argument("--lower", default=None, metavar="REL", help="lower-tier receipt, .lean-receipts/...json")
     a.add_argument("--comparator", default=None, metavar="REL", help="comparator receipt, .lean-receipts/...json")
     a.add_argument("--license", default=None, metavar="SPDX")
@@ -1333,13 +1379,17 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
         return rep
     record = docs_record(reg, name, entry["repo"])
     at = len(rep["notes"])
-    if record is not None:
+    if record is not None and record.get("docs_descendants") is True:
         rep["notes"].append(REGISTRY_OPT_IN_NOTE)
     with tempfile.TemporaryDirectory(prefix="lean-pkg-index-") as tmp:
         try:
             clone = clone_at(source or entry["repo"], pathlib.Path(tmp) / "pkg")
-            if record is not None:   # what decides at the pin: the record, or lean-pkg-binding.yaml there
-                rep["notes"][at] = opt_in_note(clone, entry["pin"]["commit"], record)
+            # what decides at the pin: lean-pkg-binding.yaml there, or the record (no note: neither)
+            note = opt_in_note(clone, entry["pin"]["commit"], record)
+            if len(rep["notes"]) > at:
+                rep["notes"][at] = note
+            elif note is not None:
+                rep["notes"].insert(at, note)
             res = derive(clone, entry["pin"]["commit"], entry["receipts"]["lower"],
                          entry["receipts"]["comparator"], record)
         except core.Fail as e:

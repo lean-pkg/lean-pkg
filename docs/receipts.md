@@ -2132,9 +2132,14 @@ coordinates (`docs_descendants: false`), but it cannot grant it where the
 committed file says `false`. `build_inputs` is the union of the file's globs
 at X and the record's, so the record can only add inputs. The registry
 route stays during a deprecation period (from a later stage of #319, with a
-warning naming the file). `receipt check`, which reads no registry and
-applies only the referee's `--docs-descendants`, and an `index check` run
-without a registry do not read the file yet: a later stage of #319 adds it.
+warning naming the file).
+
+Readers without a registry read the same file at the same commit:
+`receipt check` applies it by default (the outside referee's check, below:
+[Checking a published package's receipts](#checking-a-published-packages-receipts-receipt-check)),
+and an `index check` run without a registry reads it at the entry's pin
+([Index catalog](index-catalog.md)). Neither ever reads it at HEAD, at the
+published ref or in a working tree.
 
 Build inputs, matched on paths relative to the package directory:
 
@@ -2435,7 +2440,8 @@ the working tree of `--repo` is never read or changed. It checks:
 |---|---|
 | `receipts` | at least one lower-tier receipt tracked under `.lean-receipts/` at REF binds X; a receipt file named for X that binds another commit fails |
 | `receipt <file>` | each `*.json` directly under `.lean-receipts/` whose name starts with X's 12-character prefix is a receipt that binds X; otherwise it fails, unless it is one of the comparator runner's own records (see the naming rule below), which is `skip` |
-| `binding` | REF is X or an evidence-only descendant of it, with `gate`'s `formalization.yaml` exemption (below); with `--docs-descendants`, also a docs-only one ([Docs-only descendants](#docs-only-descendants-opt-in)) |
+| `opt-in` | only when `lean-pkg-binding.yaml` is committed at X (or at REF): the author's docs-only opt-in, read at X and nowhere else. `pass` when it opts in and is applied; `skip` with the reason when it says `false`, does not validate (the problem and the key are named), is ignored with `--evidence-only`, or exists only at REF (added after X: it grants nothing) |
+| `binding` | REF is X or an evidence-only descendant of it, with `gate`'s `formalization.yaml` exemption (below); also a docs-only one ([Docs-only descendants](#docs-only-descendants-opt-in)) when `lean-pkg-binding.yaml` at X opts in (the default), or, for a package without the file, with the referee's `--docs-descendants` |
 | `lower <receipt>` | `gate`'s validator: every receipt key, the binding, `lean_toolchain` and `mathlib_rev` against `lean-toolchain` and `lake-manifest.json` at X, no path dependency outside the package, `sorry_count` 0, axioms within `propext`, `Quot.sound`, `Classical.choice` |
 | `... report log` | `report_sha256` is the SHA-256 of the committed redacted log (or of its `.gz`, decompressed); a missing log fails |
 | `... evidence files` | `manifest_sha256`, `artifacts_manifest_sha256`, `unit_properties_sha256` against the files they name, when present; `job_stdout_sha256` is not checkable (the job's stdout is not published) |
@@ -2452,11 +2458,52 @@ the working tree of `--repo` is never read or changed. It checks:
 
 A check that does not apply (no `coverage.yaml`, no page block, no olean
 manifest) is `skip`, with the reason. Exit 0 only when no check fails, 1
-otherwise, 2 on a usage error. The docs-only opt-in is a field of the
-author's registry record, which the reader cannot see, so `--docs-descendants`
-is the reader's own choice; the result prints which rule was applied.
-Re-running Lean is not part of it: see
+otherwise, 2 on a usage error. Re-running Lean is not part of it: see
 [Re-verify a page yourself](trust-model.md#re-verify-a-page-yourself).
+
+**Which descendants bind: the author's opt-in, or the referee's choice.**
+A published page is committed after the evidence, so the published ref is
+usually a docs-only descendant of X, and the `binding` check passes only
+under the docs-only rule. `receipt check` takes that rule from the package
+itself: `lean-pkg-binding.yaml` committed at X
+([Docs-only descendants](#docs-only-descendants-opt-in)), read at X only,
+exactly as `gate` reads it for the author. For a package with the file the
+referee passes no flag:
+
+```text
+  rule: evidence-only or docs-only descendants (docs-only: the author's opt-in, lean-pkg-binding.yaml committed at 3f2a9c1e0b7d; --evidence-only to refuse them)
+  ...
+  PASS opt-in: lean-pkg-binding.yaml at 3f2a9c1e0b7d opts in to docs-only descendants (build_inputs: 0 glob(s))
+  PASS binding: docs-only descendant of 3f2a9c1e0b7d (1 non-build file(s): README.md; opted in at 3f2a9c1e0b7d by lean-pkg-binding.yaml)
+```
+
+The `binding` line lists the paths that changed after X; read it, since a
+`pass` there does not mean that nothing changed. The rule never admits a
+build input (`*.lean`, the lakefile, `lake-manifest.json`, `lean-toolchain`,
+the file's own `build_inputs`, the files the receipt's checker names) or any
+change to `lean-pkg-binding.yaml` itself. The two flags, mutually exclusive
+(both at once is a usage error, exit 2):
+
+- `--evidence-only` ignores the committed opt-in: only an evidence-only
+  descendant binds, the `opt-in` check is `skip` (`ignored: --evidence-only`)
+  and the validators apply the same rule.
+- `--docs-descendants` is for a package **without** the file (one whose
+  author opted in only in a registry, which the referee cannot read): the
+  docs-only rule is then the referee's choice, and the result says so
+  (`docs-only accepted by the referee: --docs-descendants`, and
+  `(accepted with --docs-descendants)` on the `binding` line). A file at X
+  that says `false` or does not validate is the author's committed choice
+  and overrides the flag: the `opt-in` check and the `binding` refusal say
+  `--docs-descendants is overridden`.
+
+A package with no file at X and a referee with no flag get the evidence-only
+rule, and the output is the one lean-pkg printed before the file existed.
+`--json` keeps `docs_descendants` (true whenever the docs-only rule was
+applied) and adds `evidence_only` and `opt_in`
+(`{source, commit, path, build_inputs, file, problems}`), with `source`
+`committed`, `referee` or null
+and `file` `absent`, `true`, `false` or `invalid`; `opt_in` is null when no
+file is at X and the evidence-only rule applied.
 
 **Toolchain advisories.** A receipt made on a Lean release with a known
 kernel or runtime soundness bug is weaker evidence than one made on the
@@ -2512,8 +2559,8 @@ to any other key (`project.description`, `fidelity`, a hand-written
 the `binding` line says so (it ends with `exemption applied: ...`), an
 `exemption:` line follows the rule line, and `--json` lists it under `exemptions`. A package whose registry
 records another `formalization_yaml` path gets the strict reading for that
-file here: commit it at the default path, or the reader passes
-`--docs-descendants`.
+file here: commit it at the default path, or commit `lean-pkg-binding.yaml`
+(the docs-only rule then applies by default).
 
 **Naming rule for `.lean-receipts/`.** Every `*.json` file directly under
 `.lean-receipts/` whose name starts with the bound commit's 12-character
@@ -2663,8 +2710,10 @@ while read -r c e d; do
 done < "$OUT/links.txt"
 ```
 
-Add `--docs-descendants` only for a package that opted in to the docs-only
-rule ([Docs-only descendants](#docs-only-descendants-opt-in)), and
+A package that committed `lean-pkg-binding.yaml` at the commit gets the
+docs-only rule without a flag ([Docs-only descendants](#docs-only-descendants-opt-in));
+add `--docs-descendants` only for a package that opted in in a registry
+alone (`--evidence-only` asks for the strict rule), and
 `--at TIP` (a branch tip after the evidence commit) to ask whether a later
 tip still carries the receipts. The job ids the validated receipts record
 are in their file names (`slurm-<J>`,
@@ -2829,6 +2878,7 @@ The classes only explain: a receipt passes when `receipt check` (or
 | `receipts` | `no lower-tier receipt ... binds X` | restoration only | the receipt JSON and its sealed log, byte-exact, committed after X; never produced: new run |
 | `receipt FILE` | `named for X but binds Y`, `not a readable receipt` | restoration only | the file under X's name is not X's receipt: rename it (`<commit12>-<job>.json` of its own commit) or keep it outside `.lean-receipts/`, or restore X's receipt |
 | `binding` | `... is not ... an evidence-only descendant` | new run (for that ref) | the receipts certify X, not the ref: check X at its evidence commit (`--at`); a ref with source changes needs its own run. A detail ending in the docs-only hint is the package's opt-in to decide |
+| `binding` | `lean-pkg-binding.yaml was added after X; the opt-in is read at the bound commit only` | new run (for that ref) | the file grants nothing after X: verify a commit that contains it (or check X at its evidence commit with `--at`) |
 | `claims` | claims/1 schema or declaration check | new run | `claims.yaml` is bound to X; fix it at a new commit |
 | `comparator R` | `comparator log missing: ...` | restoration only | the comparator log, byte-exact ([Restoring preserved evidence](#restoring-preserved-evidence)) |
 | `comparator R` | `log_sha256 mismatch` | restoration only | the byte-exact comparator log in place of the committed copy |

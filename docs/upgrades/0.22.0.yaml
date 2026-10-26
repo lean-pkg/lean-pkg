@@ -353,8 +353,8 @@ changes:
       other than the literal true or false, a symlink, gitlink or directory at the path, or more than 64 KiB does
       not opt in, and the output names the file and the key. A copy under .lean-receipts/, at the repository root
       above a subdirectory package, or in a nested package is not the package's. The events and --json of a
-      docs-only admission gain opt_in {source, commit, path}. receipt check and a registry-less index check do
-      not read the file yet (stage G2).
+      docs-only admission gain opt_in {source, commit, path}. receipt check and a registry-less index check read
+      it too (stage G2: receipt-check-committed-opt-in).
     action: >-
       Nothing unless you add the file: no package has lean-pkg-binding.yaml before this release, so every binding
       is decided as before. To opt in with it, commit the file in the package directory before the verify run
@@ -378,13 +378,56 @@ changes:
       publish --dry-run's binding line and a refusal under the opt-in ('docs-only rule (<source>)').
       index check with a registry applies the same precedence at the pin (stricter: a committed false or an
       invalid file there vetoes the record's true, and the check note says 'overridden by lean-pkg-binding.yaml at
-      <pin12>' instead of 'the registry record opts in'); without a registry it does not read the file yet.
+      <pin12>' instead of 'the registry record opts in'); without a registry it reads the file at the pin from
+      stage G2 (receipt-check-committed-opt-in).
     action: >-
       Nothing: a package without the file binds exactly as before. A script that matches the admission line's
       '; opted in)' or the refusal's 'docs-only rule (opted in):' matches the new wording, or reads opt_in.source
       from --json.
     breaking: false
     changelog: Changed
+    split: true
+  - pr: 356
+    id: receipt-check-committed-opt-in
+    kind: behavior
+    area: receipt check, index check
+    summary: >-
+      receipt check and a public index check apply the committed docs-only opt-in (#319, proposal 0002, stage
+      G2). receipt check reads lean-pkg-binding.yaml at the bound commit X only and applies it by default: a new
+      opt-in check before binding ('PASS opt-in: lean-pkg-binding.yaml at <X12> opts in to docs-only descendants
+      (build_inputs: N glob(s))', or SKIP naming a false or invalid file, one added after X, or --evidence-only),
+      the binding line '... opted in at <X12> by lean-pkg-binding.yaml)', and the rule line 'docs-only: the
+      author's opt-in, lean-pkg-binding.yaml committed at <X12>'. So a docs-only descendant of X with the file
+      at X now passes binding without --docs-descendants, where it failed. --docs-descendants stays for a
+      package without the file; a committed false or invalid file overrides it. --json docs_descendants is true
+      whenever the docs-only rule applied, plus evidence_only and opt_in {source, commit, path, build_inputs,
+      file, problems}. Exit codes are unchanged; without the file and without a flag the output is unchanged,
+      byte for byte. index add and index check read the file at the entry's pin with or without a registry: a
+      committed true admits a tag on a docs-only descendant (and evidence committed in one) without a registry,
+      a record's docs_descendants: false vetoes it with one, and the refusal of a tag names the file, a file
+      added after the pin, or a false or invalid one.
+    action: >-
+      Nothing for a package without lean-pkg-binding.yaml: every result is as before. No package can have the
+      file at a commit its receipts bound before this release (the file is new in it), and the rule it applies
+      is the one gate and publish already apply for the author; that is why this is not marked breaking. A
+      referee or script that read a PASS of receipt check as "nothing but evidence changed after X" reads the
+      binding line's list of changed paths, or passes --evidence-only for the old strict rule (opt_in.source
+      in --json says who chose the docs-only rule).
+    breaking: false
+    changelog: Changed
+    split: true
+  - pr: 356
+    id: receipt-check-evidence-only
+    kind: command
+    area: receipt check
+    summary: >-
+      New flag receipt check --evidence-only (#319): accept only evidence-only descendants of X, ignoring the
+      author's committed lean-pkg-binding.yaml; the opt-in check is SKIP ('ignored: --evidence-only') and the
+      validators apply the same rule. --docs-descendants and --evidence-only together are a usage error (exit 2).
+    action: >-
+      Nothing required. Pass --evidence-only to keep the strict rule over a package that commits the opt-in.
+    breaking: false
+    changelog: Added
     split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).

@@ -1,5 +1,5 @@
-usage: lean-pkg receipt check [-h] --repo DIR --commit SHA [--at REF] [--docs-descendants]
-                              [--name NAME] [--json]
+usage: lean-pkg receipt check [-h] --repo DIR --commit SHA [--at REF] [--docs-descendants |
+                              --evidence-only] [--name NAME] [--json]
 
 options:
   -h, --help          show this help message and exit
@@ -8,10 +8,13 @@ options:
   --commit SHA        the commit the receipts bind (the page's `git checkout <commit>` line)
   --at REF            the published ref whose .lean-receipts/, coverage.yaml and README.md are
                       read (default HEAD of --repo); it must be the commit or an evidence-only
-                      descendant of it
-  --docs-descendants  also accept a docs-only descendant (no build input changed); the author's
-                      opt-in lives in a registry the referee cannot read, so this is the referee's
-                      choice, printed in the result
+                      descendant of it (or a docs-only one, when the docs-only rule applies)
+  --docs-descendants  for a package without lean-pkg-binding.yaml at the commit: also accept a
+                      docs-only descendant (no build input changed) as the referee's choice,
+                      printed in the result; a committed file that says false or does not validate
+                      overrides it
+  --evidence-only     accept only evidence-only descendants: ignore the author's committed opt-in
+                      (lean-pkg-binding.yaml at the commit, applied by default)
   --name NAME         the package name the claims must carry (default: `package` in coverage.yaml,
                       else claims.yaml, else the directory name)
   --json              machine-readable JSON on stdout: every check with its verdict
