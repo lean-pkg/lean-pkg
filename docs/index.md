@@ -133,6 +133,7 @@ will automate the registry bootstrap; it is not implemented yet.
 - [Decisions](decisions/README.md): dated records of the choices that shape the tool.
 - [LTS stacks](stacks/README.md): dated Lean + Mathlib + lean-pkg combinations that later releases keep working on (first: lts-2026.10).
 - [Design proposals](proposals/README.md): how a schema, command-removal or trust-model change is proposed, decided and implemented.
+- [Improvement plan, 2026-10](design/improvement-plan-2026-10.md): the next work, one row per issue, and the order it lands in.
 
 ## Citation
 

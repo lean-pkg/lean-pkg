@@ -1,0 +1,10 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.21.0. Same keys as 0.21.0.yaml; the human page is docs/upgrades/0.22.0.md.
+# The name 0.22.0 is provisional (RELEASING.md, "The record's provisional name"): make cut-release
+# renames both files to the version it cuts, which make release-version prints.
+schema: lean-pkg-upgrade-record/1
+version: 0.22.0
+changes: []
+# Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
+# proposals 0002 and 0003 marked accepted; no code changes (#321).
+no_author_change: [321]
