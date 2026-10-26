@@ -589,7 +589,7 @@ def test_report_does_not_rerun_receipt_systemd(lp):
 def test_help_names_the_sources_and_redactions(lp, capsys):
     with pytest.raises(SystemExit):
         lp.main(["receipt", "--help"])
-    assert "{slurm,systemd,comparator,check}" in capsys.readouterr().out
+    assert "{slurm,systemd,ci,comparator,check}" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         lp.main(["receipt", "local", "--help"])
     out = " ".join(capsys.readouterr().out.split())

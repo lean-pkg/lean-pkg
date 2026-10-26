@@ -47,9 +47,10 @@ registry adds [`lease claim`](lease-claim.md) before work. At any point
 | [`lean-pkg next`](next.md) | read-only: the single recommended next command for a package, with a one-line reason (exit 0 a command to run, 1 blocked) |
 | [`lean-pkg list`](list.md) | static table, pipe-friendly |
 | [`lean-pkg search`](search.md) | prior-art search over claims, the index and public sources |
-| [`lean-pkg receipt`](receipt.md) | produce receipts (slurm, systemd: the lower tier; comparator: the comparator run; each writes files in the package checkout, never the registry); check a published package's receipts from git alone (check) |
+| [`lean-pkg receipt`](receipt.md) | produce receipts (slurm, systemd, ci: the lower tier; comparator: the comparator run; each writes files in the package checkout, never the registry); check a published package's receipts from git alone (check) |
 | [`lean-pkg receipt slurm`](receipt-slurm.md) | a lower-tier receipt from a finished Slurm job, its verify log and its stdout seal (--template: an sbatch wrapper that meets it; --check: preflight the job's files) |
 | [`lean-pkg receipt systemd`](receipt-systemd.md) | a lower-tier receipt from a finished systemd --user service unit (run bounded with --run, or its saved properties), its verify log and its stdout seal |
+| [`lean-pkg receipt ci`](receipt-ci.md) | a lower-tier receipt written inside a GitHub Actions job (job_id gha-&lt;run&gt;-&lt;attempt&gt;, the ci block from the runner's variables); --collect RUN: fetch and check a run's receipt; --template: the caller workflow |
 | [`lean-pkg receipt comparator`](receipt-comparator.md) | run the comparator on a Lake project and write the comparator receipt (the `comparator-receipt` program: the same code and flags) |
 | [`lean-pkg receipt check`](receipt-check.md) | validate a published package's receipts from git alone: no registry, no network, never runs Lean (an outside referee's check; exit 0 only when every check passes) |
 | [`lean-pkg comparator`](comparator.md) | comparator receipts: attach one to a gated package, or check it; config (write a configuration from claims), coverage, migrate-signoff; host-check |

@@ -192,6 +192,13 @@ separates what has shipped from what the Lean FRO has announced.
   corroborated against GitHub's public record (level 2,
   [proposal 0008](proposals/0008-github-actions-compute-receipt.md), a
   later stage); until then a README carrying it fails `page --check`.
+  `lean-pkg receipt ci` writes the receipt in the job with no token;
+  lean-pkg's reusable `verify.yml` holds `contents: read` and
+  `id-token: write` (the OIDC token is read for its `job_workflow_ref` claim and never
+  kept), never `contents: write`, and CI never pushes: the author collects
+  the receipt with `receipt ci --collect`, under their own `gh` login. Build
+  code in the same job runs before `receipt ci` and could alter what it
+  reads, as on a cluster.
 - **A malicious package author.** The author controls the source, the
   Challenge, the configurations, the logs and the host. The comparator
   receipt binds the configuration bytes, so the list of compared theorems is

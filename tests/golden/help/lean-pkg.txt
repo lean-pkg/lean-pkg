@@ -32,9 +32,9 @@ PACKAGE AUTHOR: evidence, publication, the catalog
                  reason (exit 0 a command to run, 1 blocked)
   list           static table, pipe-friendly
   search         prior-art search over claims, the index and public sources
-  receipt        produce receipts (slurm, systemd: the lower tier; comparator: the comparator run;
-                 each writes files in the package checkout, never the registry); check a published
-                 package's receipts from git alone (check)
+  receipt        produce receipts (slurm, systemd, ci: the lower tier; comparator: the comparator
+                 run; each writes files in the package checkout, never the registry); check a
+                 published package's receipts from git alone (check)
   comparator     comparator receipts: attach one to a gated package, or check it; config (write a
                  configuration from claims), coverage, migrate-signoff; host-check
   claims         claims.yaml: sync | list | check | migrate | ledger | mark | rebase (named

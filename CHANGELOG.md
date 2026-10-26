@@ -71,6 +71,30 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   naming the `github-actions` scheduler, and an acknowledgement with the
   `{runs}` token outside a built-in level-2 profile, are refused
   ([compute sites](docs/sites.md#github-actions)).
+- `lean-pkg receipt ci` (#348; stage S2 of proposal 0008, #318): a
+  lower-tier receipt written inside a GitHub Actions job, `job_id`
+  `gha-<run_id>-<run_attempt>`, with the `ci` block built from the
+  runner's variables (`job_workflow` from the OIDC token's
+  `job_workflow_ref` claim when the job has `id-token: write`, else null;
+  the token is never written). It refuses, writing nothing, outside GitHub
+  Actions, on a self-hosted runner (naming `receipt local`), with a runner
+  variable missing, on an event other than `push` and `workflow_dispatch`,
+  on a server other than github.com, with `--receipt-commit` other than
+  `GITHUB_SHA` (its default; `--commit` is accepted as before), with the
+  workflow file missing at `GITHUB_WORKFLOW_SHA`, and on every refusal of
+  `receipt slurm`. Built-in redactions: the checkout, `GITHUB_WORKSPACE`,
+  `RUNNER_TEMP`, `RUNNER_TOOL_CACHE`, `$HOME` and `/home/runner`. It prints
+  one `::notice title=lean-pkg-receipt::receipt_sha256=... report_sha256=...`
+  line binding the written bytes and appends to the step summary.
+  `receipt ci --collect RUN [--attempt N]` downloads the run's receipt
+  artifact with `gh`, checks it as `gate --check` does and copies it into
+  `.lean-receipts/`, never committing or pushing; `receipt ci --template`
+  prints the caller workflow. lean-pkg ships the reusable workflow
+  `.github/workflows/verify.yml` (`on: workflow_call` only;
+  `contents: read`, `id-token: write`; every action pinned to a commit) that a
+  package calls pinned to a 40-hex lean-pkg commit
+  ([writing the receipt in CI](docs/sites.md#writing-the-receipt-in-ci),
+  [receipt ci](docs/commands/receipt-ci.md)).
 - `repo export --author 'NAME <EMAIL>'` and `--allow-author-email`
   (#344; #339): `--author` names the author and committer of the export
   commit; `--allow-author-email` accepts an address that is not a GitHub

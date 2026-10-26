@@ -6,9 +6,9 @@ title: "Design: compute sites and CI-runner receipts"
 
 *Status: section 1 (the site profile format) is implemented and stable; section 4 (CI-runner receipts) is
 being implemented in stages under [proposal 0008](../proposals/0008-github-actions-compute-receipt.md): stage
-S1 (the `github-actions` scheduler and profile, the `ci` block judged at level 1, `page --json` levels) is
-in; writing the receipt in CI (S2), corroboration (S3), attestation (S4) and the comparator tier (S5) are
-not yet. Roadmap wave 3, "Core apart from the lab": a package can be verified and
+S1 (the `github-actions` scheduler and profile, the `ci` block judged at level 1, `page --json` levels) and
+S2 (`lean-pkg receipt ci`, its `--collect` and `--template`, the reusable `verify.yml`) are in; corroboration
+(S3), attestation (S4) and the comparator tier (S5) are not yet. Roadmap wave 3, "Core apart from the lab": a package can be verified and
 published with no lab account. The four decisions of section 6 were taken on 2026-10-17, as recommended
 ([decision 0007](../decisions/0007-recommendations-accepted-2026-10-17.md)).*
 
@@ -120,7 +120,7 @@ institution or host name).
 
 ## 4. Design: a compute receipt from a CI runner (GitHub Actions first)
 
-Designed in [proposal 0008](../proposals/0008-github-actions-compute-receipt.md), accepted 2026-10-26; stage S1 (level 1) is implemented, stages S2 to S5 are not yet. The goal: a mathematician with a public GitHub repository and no cluster account gets a
+Designed in [proposal 0008](../proposals/0008-github-actions-compute-receipt.md), accepted 2026-10-26; stages S1 (level 1) and S2 (writing the receipt in CI) are implemented, stages S3 to S5 are not yet. The goal: a mathematician with a public GitHub repository and no cluster account gets a
 compute receipt that backs `coverage.yaml` `compute` the way `slurm-<J>` does, and that a third party can
 corroborate without trusting the author.
 
@@ -154,7 +154,7 @@ The lower-tier receipt keeps its nine fields (`commit`, `lean_toolchain`, `mathl
 | `attestation` | optional: the file name of a Sigstore bundle committed beside the receipt (4.3) |
 
 The job runs a pinned reusable workflow published by lean-pkg (`verify.yml@<sha>`), whose last step runs
-a future `lean-pkg receipt ci` that writes the receipt from these variables and the verify log, then
+`lean-pkg receipt ci` (stage S2), which writes the receipt from these variables and the verify log, then
 uploads receipt, redacted log and bundle as one artifact. The author commits them under `.lean-receipts/`
 as an evidence-only descendant, by hand or with `lean-pkg receipt ci --collect RUN`, which downloads the
 artifact and checks it first. CI never pushes to the package's repository.

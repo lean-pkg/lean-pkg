@@ -1797,6 +1797,102 @@ libraries, Python modules and anything a tool runs in turn are not
 checked. Keep the list in step with the scripts, and treat a run that
 still exits 127 as an incomplete list, not as a host fault.
 
+## A lower-tier receipt from GitHub Actions
+
+`lean-pkg receipt ci` writes the same lower-tier receipt inside a GitHub
+Actions job, for an author with a public repository and no cluster
+([proposal 0008](proposals/0008-github-actions-compute-receipt.md), stage
+S2). Its `job_id` is `gha-<run_id>-<run_attempt>` and it carries the
+additive [`ci` block](formats.md#the-ci-block) naming the run, built from
+the variables the runner sets, never from the workflow's inputs. Everything
+after the runner checks is the Slurm pipeline above: the seal, the fields,
+redaction, the public-safety scan, the files written. It reads and writes
+no registry and needs no token. Such a receipt backs a `github-actions`
+compute job ([Compute sites](sites.md#github-actions)) at level 1, which is
+as strong as a Slurm receipt and as forgeable; it puts no sentence on the
+page until a later stage corroborates the run against GitHub's record.
+
+You do not usually run it yourself: lean-pkg's reusable workflow
+`.github/workflows/verify.yml` runs it as its last step, and
+`lean-pkg receipt ci --template` prints the caller workflow a package commits
+([Writing the receipt in CI](sites.md#writing-the-receipt-in-ci)). In the
+job:
+
+```bash
+# the verify script's log, sealed in-log (verify.yml appends this line after the script)
+printf 'verify-log-sha256: %s\n' "$(sha256sum "$LOG" | cut -d' ' -f1)" >> "$LOG"
+lean-pkg receipt ci --log "$LOG" --repo .     # --receipt-commit defaults to GITHUB_SHA
+```
+
+**Refusals** (exit 1, nothing written), before the pipeline's own:
+
+| Refusal | Why |
+|---|---|
+| `not in GitHub Actions` | `GITHUB_ACTIONS` is not `true`. On your own machine use `receipt local`; to fetch a run's receipt, `--collect` |
+| `RUNNER_ENVIRONMENT is 'self-hosted', not github-hosted` | a self-hosted runner is the author's machine; its receipt is worth what `receipt local` writes, so use that |
+| `missing runner variable(s) ...` | every one of `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, `GITHUB_REPOSITORY_ID`, `GITHUB_RUN_ID`, `GITHUB_RUN_ATTEMPT`, `GITHUB_JOB`, `GITHUB_EVENT_NAME`, `GITHUB_SHA`, `GITHUB_WORKFLOW_REF`, `GITHUB_WORKFLOW_SHA`, `RUNNER_ENVIRONMENT`, `RUNNER_OS`, `RUNNER_ARCH` is required (`ImageOS` and `ImageVersion` are recorded when set, else null) |
+| `event '...' is not accepted` | only `push` and `workflow_dispatch`: a `pull_request` run is on a merge commit, `pull_request_target` runs the base's workflow with the pull request's code |
+| `GitHub Enterprise Server is not accepted` | `GITHUB_SERVER_URL` must be `https://github.com` |
+| `--receipt-commit X is not GITHUB_SHA` | the job ran on `GITHUB_SHA`; leave the flag out to use it (`--commit` is an old spelling, kept working) |
+| a malformed run id, attempt, repository id, SHA or workflow ref | the value the `ci` block would carry fails level 1 |
+| `the workflow file ... cannot be read: commit ... is not in this clone` | `workflow_file_sha256` hashes the workflow file at `GITHUB_WORKFLOW_SHA`; a shallow clone lacks that commit when it is not the pushed one (`verify.yml` fetches it; otherwise `fetch-depth: 0`) |
+| `the workflow file ... does not exist at ...` | `GITHUB_WORKFLOW_REF` names a file the commit does not have |
+| `ci.job_workflow: the OIDC token request failed` | the job has `id-token: write` (lean-pkg's `verify.yml` does) but the token could not be read; rerun the job |
+| `public-safety: a private string remains ...` | a path the built-in redactions do not cover (another `/home/<x>`, say); add a `--redact REGEX` |
+
+Then every refusal of `receipt slurm` without `--stdout`: the in-log seal,
+a `sorry`, an axiom the `axioms:` line omits, a `job-id:` line naming
+another job (it must be `gha-<run>-<attempt>`), a missing `commit:` line.
+
+**`job_workflow`** is the `job_workflow_ref` claim of the job's OIDC token,
+the reusable workflow the job ran (`lean-pkg/lean-pkg/.github/workflows/verify.yml@<sha>`
+under `verify.yml`). It is read only when the runner offers a token (the
+job has `id-token: write`), else it is null, which level 1 accepts and
+corroboration will not. The token is read to take that one claim and is
+never printed, logged or written.
+
+**Built-in redactions**, longest path first: the checkout to `<repo>`,
+`GITHUB_WORKSPACE` to `<GITHUB_WORKSPACE>`, `RUNNER_TEMP` to
+`<RUNNER_TEMP>`, `RUNNER_TOOL_CACHE` to `<RUNNER_TOOL_CACHE>`, `$HOME` and
+`/home/runner` to `<HOME>`, `/run/user/N/` to `/run/user/<UID>/`, then
+every `--redact`. A home directory left after them is blocked by the scan.
+
+**Output.** `.lean-receipts/<c12>-gha-<run>-<attempt>.json` and
+`<c12>-gha-<run>-<attempt>-verify.redacted.log` (with `--compress-log`, the
+`.gz`), the README entry (run, attempt, repository, event, job, runner,
+workflow), and then exactly one workflow notice binding the written bytes,
+which corroboration (the next stage) will read from the run:
+
+```text
+::notice title=lean-pkg-receipt::receipt_sha256=<64 hex> report_sha256=<64 hex>
+```
+
+It goes to stdout (to stderr under `--json`, where stdout is the one JSON
+document, which adds `ci` and `producer`), and a short entry is appended to
+the job's step summary (`GITHUB_STEP_SUMMARY`). The same log and the same
+runner variables write the same bytes again.
+
+### Collecting the receipt (`--collect`)
+
+```bash
+lean-pkg receipt ci --collect RUN [--attempt N] [--repo DIR] [--json]
+```
+
+On your machine, in the package checkout: downloads the artifact
+`lean-pkg-receipt-RUN-N` (without `--attempt`, the run's only
+`lean-pkg-receipt-RUN-*` artifact) with `gh run download`, using your own
+`gh` login; checks the receipt as `gate --check` does against the
+checkout's `HEAD` (the validator with the `ci` block's level 1, and the
+redacted log against `report_sha256`); and copies the receipt and its log
+into `.lean-receipts/`. It never commits or pushes: commit the two files as
+an evidence-only descendant. It refuses, copying nothing, when `gh` is not
+on `PATH`, the artifact cannot be downloaded, a run has several receipt
+artifacts and no `--attempt`, the artifact does not hold exactly one
+`<c12>-gha-R-A.json`, the receipt's `ci.run_id` is not RUN (or its
+`run_attempt` not `--attempt`), the receipt fails the gate's checks, a file
+already in `.lean-receipts/` has other bytes, or `.lean-receipts/` is a
+symlink. A file already there with the same bytes is left as it is.
+
 ## Comparator receipt schema (`comparator-receipt/2`; `/1` still validates)
 
 | Field | Rule |

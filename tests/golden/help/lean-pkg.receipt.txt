@@ -1,13 +1,16 @@
-usage: lean-pkg receipt [-h] {slurm,systemd,comparator,check} ...
+usage: lean-pkg receipt [-h] {slurm,systemd,ci,comparator,check} ...
 
 positional arguments:
-  {slurm,systemd,comparator,check}
+  {slurm,systemd,ci,comparator,check}
     slurm               a lower-tier receipt from a finished Slurm job, its verify log and its
                         stdout seal (--template: an sbatch wrapper that meets it; --check:
                         preflight the job's files)
     systemd             a lower-tier receipt from a finished systemd --user service unit (run
                         bounded with --run, or its saved properties), its verify log and its
                         stdout seal
+    ci                  a lower-tier receipt written inside a GitHub Actions job (job_id
+                        gha-<run>-<attempt>, the ci block from the runner's variables); --collect
+                        RUN: fetch and check a run's receipt; --template: the caller workflow
     comparator          run the comparator on a Lake project and write the comparator receipt (the
                         `comparator-receipt` program: the same code and flags)
     check               validate a published package's receipts from git alone: no registry, no

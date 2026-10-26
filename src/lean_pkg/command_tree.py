@@ -139,6 +139,7 @@ FLAG_ALIASES: tuple[FlagAlias, ...] = (
     # the receipt's commit, not the global --commit (commit the registry files)
     FlagAlias(("receipt", "slurm"), "--commit", "--receipt-commit"),
     FlagAlias(("receipt", "systemd"), "--commit", "--receipt-commit"),
+    FlagAlias(("receipt", "ci"), "--commit", "--receipt-commit"),
     # --repo is a checkout directory; a remote URL is --url, a GitHub slug --target-repo
     FlagAlias(("register",), "--repo", "--url"),
     FlagAlias(("update",), "--repo", "--url"),
