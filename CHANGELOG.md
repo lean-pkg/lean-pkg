@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-26
+
 ### Added
 
 - Receipt `producer` key (#297): `sources_sha256` covers the sources only (it
@@ -175,6 +177,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   fails on an old command spelling (`COMMAND_ALIASES`, `IMPLIED_VERBS`,
   `MODE_ALIASES`, all through `rewrite_argv`), and a test runs every alias in
   those tables through it.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.20.0] - 2026-10-20
 
