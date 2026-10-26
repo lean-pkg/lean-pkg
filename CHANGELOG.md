@@ -145,6 +145,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   lists none. Each example parses with the real parser; sample output is
   from a run on a throwaway fixture, and commands that need the network, a
   Lean build or an e-print show no output.
+- Old flag spellings (#307): the docs and skills show the canonical flags.
+  `receipt slurm|systemd --receipt-commit` (14 examples said `--commit`,
+  mostly in docs/receipts.md), `register --url` (two multi-line examples
+  #302 missed) and `comparator config --repo` (one said `--checkout`). The
+  new tests/test_docs_old_spellings.py keeps it so: every `lean-pkg ...`
+  command in the user-facing docs, the skills and
+  docs/_commands/examples.yaml goes through the CLI's own rewrite
+  (`command_tree.rewrite_argv`, `flag_hits`), and an old spelling from
+  `FLAG_ALIASES` fails it. History (CHANGELOG, docs/upgrades, proposals,
+  design, decisions) is not checked.
 
 ## [0.20.0] - 2026-10-20
 

@@ -124,7 +124,7 @@ When the step is proved, commit the source and produce a receipt bound to that
 commit, for example from a capped local run (or `receipt slurm` on a cluster):
 
 ```bash
-lean-pkg receipt systemd --unit tele-gate --commit "$(git rev-parse HEAD)" --log /tmp/tele/verify.log \
+lean-pkg receipt systemd --unit tele-gate --receipt-commit "$(git rev-parse HEAD)" --log /tmp/tele/verify.log \
   --stdout /tmp/tele/unit.out --stderr /tmp/tele/unit.err --checker "verify.sh" --run -- bash verify.sh /tmp/tele/verify.log
 lean-pkg claims sync telescoping-companion
 lean-pkg gate telescoping-companion --check --receipt .lean-receipts/<commit12>-<job>.json
@@ -429,7 +429,7 @@ share one environment. Check before the first verify run:
 
 ```bash
 lean-pkg register example-companion --like example-round-1 \
-  --repo git@github.com:you/example-companion.git --path src/example-companion
+  --url git@github.com:you/example-companion.git --path src/example-companion
 lean-pkg lease claim example-companion --workspace laptop --agent you
 lean-pkg claims sync example-companion
 ```

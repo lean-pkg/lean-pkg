@@ -86,7 +86,7 @@ Trial job, with lean-pkg's wrapper (node-local work directory, 3 threads,
 ```bash
 lean-pkg receipt slurm --template > verify.sbatch
 sbatch verify.sbatch
-lean-pkg receipt slurm --check --log verify-J.log --stdout verify-J.out --stderr verify-J.err --commit SHA
+lean-pkg receipt slurm --check --log verify-J.log --stdout verify-J.out --stderr verify-J.err --receipt-commit SHA
 ```
 
 Sizing from the pilot: effective cores are `TotalCPU / Elapsed`.

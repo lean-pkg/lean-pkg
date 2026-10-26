@@ -291,13 +291,13 @@ and the same `slurm_sacct` block (schema `slurm-sacct-seal/1`).
 
 ```bash
 # on the cluster, where sacct sees the job: sacct is run with a header and zoned times
-lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" \
+lean-pkg receipt slurm --job 123 --receipt-commit "$(git rev-parse HEAD)" \
   --log verify.log --stdout job-123.out --stderr job-123.err --seal-sacct
 
 # on a host without Slurm: save the record on the cluster first
 SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j 123 \
   --format=JobID,State,ExitCode,Start,End,Elapsed,TotalCPU,User,NodeList -P > job-123.sacct
-lean-pkg receipt slurm --job 123 --commit <sha> --log verify.log --stdout job-123.out \
+lean-pkg receipt slurm --job 123 --receipt-commit <sha> --log verify.log --stdout job-123.out \
   --stderr job-123.err --seal-sacct --sacct-file job-123.sacct --user <cluster account>
 ```
 
@@ -641,7 +641,7 @@ the top of the wrapper):
   login node:
 
   ```bash
-  lean-pkg receipt slurm --preflight-deps --deps-tar deps.tar.gz --commit SHA \
+  lean-pkg receipt slurm --preflight-deps --deps-tar deps.tar.gz --receipt-commit SHA \
     --entries 'Verify/**/*.lean' --entries 'Audit/**/*.lean'
   ```
 
@@ -706,7 +706,7 @@ and never touches the base cache, the donor or the package's
 `.lake/build`.
 
 ```bash
-lean-pkg receipt slurm --preflight-deps --deps-tar base.tar.gz --commit SHA \
+lean-pkg receipt slurm --preflight-deps --deps-tar base.tar.gz --receipt-commit SHA \
   --fill-plan "$DONOR" --plan-out add.list --json > plan.json
 ```
 
@@ -899,7 +899,7 @@ PY
    when it exits 0:
 
    ```bash
-   lean-pkg receipt slurm --preflight-deps --deps-tar filled.tar.gz --commit SHA
+   lean-pkg receipt slurm --preflight-deps --deps-tar filled.tar.gz --receipt-commit SHA
    ```
 
    Then submit with `DEPS_TAR=filled.tar.gz`. The log's
@@ -965,7 +965,7 @@ above that the job's own files decide, on the files of any finished job
 (a short trial run is enough), and names every problem at once:
 
 ```bash
-lean-pkg receipt slurm --check --commit "$(git rev-parse HEAD)" \
+lean-pkg receipt slurm --check --receipt-commit "$(git rev-parse HEAD)" \
   --log verify-123.log --stdout verify-123.out --stderr verify-123.err
 ```
 
@@ -1015,14 +1015,14 @@ sealed:
 2. Preflight the recollected files, which writes nothing:
 
    ```bash
-   lean-pkg receipt slurm --check --commit "$(git rev-parse HEAD)" --log attempt-2/verify-123.log \
+   lean-pkg receipt slurm --check --receipt-commit "$(git rev-parse HEAD)" --log attempt-2/verify-123.log \
      --stdout attempt-2/verify-123.out --stderr attempt-2/verify-123.err --artifacts attempt-2/artifacts-123
    ```
 
 3. Then write the receipt from the same files:
 
    ```bash
-   lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" --log attempt-2/verify-123.log \
+   lean-pkg receipt slurm --job 123 --receipt-commit "$(git rev-parse HEAD)" --log attempt-2/verify-123.log \
      --stdout attempt-2/verify-123.out --stderr attempt-2/verify-123.err --artifacts attempt-2/artifacts-123
    ```
 
@@ -1259,7 +1259,7 @@ proof is the seal chain, not the determinism.
    nothing when a check fails):
 
    ```bash
-   lean-pkg receipt slurm --job 123 --commit "$(git rev-parse HEAD)" --log attempt-2/verify-123.log \
+   lean-pkg receipt slurm --job 123 --receipt-commit "$(git rev-parse HEAD)" --log attempt-2/verify-123.log \
      --stdout attempt-2/verify-123.out --stderr attempt-2/verify-123.err --artifacts attempt-2/artifacts-123
    ```
 
@@ -2457,7 +2457,7 @@ for j in "${JOBDIRS[@]}"; do
     squeue -h -j "$J" -o '%i %T %M %R' > "$OUT/squeue-$J.txt" 2>/dev/null       # empty once the job left the queue
     sacct -j "$J" --format=JobID,State,ExitCode,Elapsed,TotalCPU -P -n > "$OUT/sacct-$J.txt" 2>/dev/null
     S=(); [ -s "$OUT/sacct-$J.txt" ] && S=(--sacct-file "$OUT/sacct-$J.txt")   # no Slurm here: state not checked
-    lean-pkg receipt slurm --check --repo "${d:-.}" --commit "$c" --job "$J" "${S[@]}" \
+    lean-pkg receipt slurm --check --repo "${d:-.}" --receipt-commit "$c" --job "$J" "${S[@]}" \
       --log "$log" --stdout "$j/verify-$J.out" --stderr "$j/verify-$J.err" --json > "$OUT/job-$J.json"
   done
 done
@@ -2570,7 +2570,7 @@ After a restoration, rerun step 2: the validators decide, not the script.
 |---|---|
 | `passes-now` | `lean-pkg gate NAME --check --repo DIR --receipt R` (author side, writes nothing), then `gate NAME --receipt R` when you decide to record it; `lean-pkg next NAME --repo DIR` |
 | `restore` | copy the named file back (the script in [Restoring preserved evidence](#restoring-preserved-evidence) for comparator logs), or `lean-pkg page NAME --write`; commit in a descendant; rerun step 2 |
-| `collect` | `lean-pkg receipt slurm --job J --commit C --repo DIR --log ... --stdout ... --stderr ...` (writes the receipt into the checkout), then `gate NAME --check --receipt R` |
+| `collect` | `lean-pkg receipt slurm --job J --receipt-commit C --repo DIR --log ... --stdout ... --stderr ...` (writes the receipt into the checkout), then `gate NAME --check --receipt R` |
 | `pending` | nothing yet: `squeue -j J`; collect after `sacct` says `COMPLETED` `0:0` |
 | `new-run` | read the detail; a new run is your decision (`lean-pkg receipt slurm --template`, or `lean-pkg verify NAME --dry-run` on a workstation) |
 
