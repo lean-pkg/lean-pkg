@@ -56,7 +56,8 @@ OTHER_AREAS = frozenset({
     "page", "cli", "--json", "new", "doctor", "status", "registry", "public-safety", "report", "extract",
     "lean-pkg-extract", "formalization", "formalization render", "formalization.yaml", "coverage.yaml",
     "index add", "index check", "index render", "index entries", "blueprint", "stacks", "comparator check",
-    "comparator config --coverage and --from-claims", "tests", "docs (receipts recipe)"})
+    "comparator config --coverage and --from-claims", "tests", "docs (receipts recipe)", "repo export",
+    "publish"})
 
 UNKNOWN_NOTE = ("the receipt records no `producer` (written before receipts recorded it, or by `receipt systemd` "
                 "without --run)")

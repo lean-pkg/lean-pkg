@@ -388,7 +388,8 @@ in a committed `.lean-pkg-public-allow` instead: `allow:` lines only (any
 other line there is ignored with a warning), read by every scan, and never
 able to exempt a private string written into the file itself (that is the
 blocking hit `public-allow-private`). `repo export` writes it from
-the patterns file's allow lines.
+the patterns file's allow lines that its own scan used (an unused one is
+dropped: an allow pattern names what it allows).
 
 ## Publish a package incubated beside a paper
 
@@ -400,6 +401,16 @@ lean-pkg repo export my-proof ~/src/my-proof-public --dry-run
 lean-pkg repo export my-proof ~/src/my-proof-public
 lean-pkg repo adopt my-proof ~/src/my-proof-public    # or: adopt one built by hand
 lean-pkg repo export my-proof ~/src/my-proof-public --from-tree ~/src/my-proof-cleaned   # or: a hand-cleaned tree
+```
+
+The export commit's author and committer come from `--author 'NAME <EMAIL>'`
+or the source repository's local git config, never your global identity, and
+must be a GitHub noreply address unless `--allow-author-email` is given:
+
+```bash
+git -C ~/src/my-proof config user.name "Ada"
+git -C ~/src/my-proof config user.email "12345+ada@users.noreply.github.com"
+lean-pkg repo export my-proof ~/src/my-proof-public --author 'Ada <12345+ada@users.noreply.github.com>'   # or explicitly
 ```
 
 Evidence is cleared (a receipt binds one commit), so gate and run the

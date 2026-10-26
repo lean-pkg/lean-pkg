@@ -260,6 +260,9 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
         from . import public_safety as ps_mod
         item, safety = ps_mod.checklist_item(pkg, repo)
         items.append(item)
+    from . import public_safety as ps_ident   # #339: the addresses the flip publishes
+    if (item := ps_ident.identity_item(repo)) is not None:
+        items.append(item)
     items.append(consent_item(pkg))
     items += license_items(pkg, repo)
     items += formalization_items(pkg, repo)

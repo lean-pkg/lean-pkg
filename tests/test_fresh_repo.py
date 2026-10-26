@@ -22,6 +22,15 @@ def git_identity(monkeypatch):
         monkeypatch.setenv(k, v)
 
 
+NOREPLY = "12345+exporter@users.noreply.github.com"
+
+
+def set_local_identity(repo, name="Exporter", email=NOREPLY):
+    """#339: the export commit's identity comes from the source repository's local git config."""
+    _git(repo, "config", "user.name", name)
+    _git(repo, "config", "user.email", email)
+
+
 class Pkg:
     pass
 
@@ -34,6 +43,7 @@ def gated(tmp_path):
     repo = make_repo(tmp_path / "src-pkg", extra_files={
         "Main.lean": "theorem t : True := trivial\n", "LICENSE": "MIT\n", "lake-manifest.json": "{}\n",
         "notes/plan.md": "ask the referee\n", ".lean-pkg-private-patterns": "Nightjar\n"})
+    set_local_identity(repo)
     (repo / "README.md").write_text(f"built from {SECRET_PATH}\n")
     _git(repo, "add", "README.md")
     _git(repo, "commit", "-q", "-m", "readme")
@@ -378,3 +388,110 @@ def test_adopt_repo_refusals(lp, gated, capsys):
     assert run(lp, g, "release", "pkg", "--adopt-repo", str(g.repo.parent / "missing")) == 1
     assert "is not a git repository with a commit" in capsys.readouterr().err
     assert g.registry.read_text() == before
+
+
+# #339: the export commit's identity is explicit (--author, else the source repository's local git config),
+# never git's ambient (global) one, and a non-noreply address needs --allow-author-email
+
+PERSONAL = "jane.doe" + "@university.edu"       # an ordinary address: declared by use, so public-safety is silent
+
+
+def exported_identity(g) -> str:
+    return _git(g.target, "log", "-1", "--format=%an <%ae>|%cn <%ce>").stdout.strip()
+
+
+@pytest.fixture()
+def global_identity(tmp_path, monkeypatch):
+    """A global git config holding a personal address, and no identity variables in the environment."""
+    cfg = tmp_path / "global.gitconfig"
+    cfg.write_text(f"[user]\n    name = Jane Doe\n    email = {PERSONAL}\n")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
+    for k in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(k, raising=False)
+    return cfg
+
+
+def test_no_author_and_no_source_local_identity_refuses(lp, gated, global_identity, capsys):
+    g = gated
+    _git(g.repo, "config", "--unset", "user.name")
+    _git(g.repo, "config", "--unset", "user.email")
+    before = g.registry.read_text()
+    for extra in ((), ("--dry-run",)):
+        assert run(lp, g, "repo", "export", "pkg", str(g.target), *extra) == 1
+        err = capsys.readouterr().err
+        assert "repo export: no identity for the export commit: pass --author 'NAME <ID+LOGIN@users.noreply." \
+               "github.com>'" in err and "the global git identity is never used" in err
+        assert PERSONAL not in err
+    _git(g.repo, "config", "user.email", NOREPLY)        # half an identity (no user.name) is none
+    assert run(lp, g, "repo", "export", "pkg", str(g.target)) == 1
+    assert "no identity for the export commit" in capsys.readouterr().err
+    assert not g.target.exists() and not list(g.target.parent.glob(".lean-pkg-export-*"))
+    assert g.registry.read_text() == before and read_events(g) == []
+
+
+def test_source_local_noreply_identity_is_used_never_the_global_one(lp, gated, global_identity, capsys):
+    g = gated
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert (f"commit identity: Exporter <{NOREPLY}> (author and committer; from the source repository's local "
+            f"git config (user.name, user.email))") in out
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["identity"] == {"author": f"Exporter <{NOREPLY}>", "committer": f"Exporter <{NOREPLY}>",
+                                "source": "the source repository's local git config (user.name, user.email)",
+                                "noreply": True}
+    assert exported_identity(g) == f"Exporter <{NOREPLY}>|Exporter <{NOREPLY}>"
+    assert PERSONAL not in _git(g.target, "log", "--format=%an %ae %cn %ce %B").stdout
+
+
+def test_author_flag_is_used_and_overrides_the_environment(lp, gated, capsys):
+    g = gated                                              # GIT_AUTHOR_*/GIT_COMMITTER_* set by the fixture
+    who = "Le Bot <41898282+le-bot[bot]@users.noreply.github.com>"
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--author", who) == 0
+    assert f"commit identity: {who} (author and committer; from --author)" in capsys.readouterr().out
+    assert exported_identity(g) == f"{who}|{who}"
+
+
+def test_a_non_noreply_email_is_refused_then_accepted_with_the_flag(lp, gated, global_identity, capsys):
+    g = gated
+    before = g.registry.read_text()
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--author", f"Jane Doe <{PERSONAL}>") == 1
+    err = capsys.readouterr().err
+    assert (f"the export commit's author and committer email {PERSONAL} (from --author) is not a GitHub noreply "
+            f"address, and the commit is public history: pass --author 'NAME <ID+LOGIN@users.noreply.github.com>', "
+            f"or --allow-author-email to publish this address; nothing written") in err
+    _git(g.repo, "config", "user.email", PERSONAL)         # the same from the source's local config
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--dry-run") == 1
+    assert "(from the source repository's local git config" in capsys.readouterr().err
+    assert not g.target.exists() and g.registry.read_text() == before and read_events(g) == []
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--allow-author-email") == 0
+    out = capsys.readouterr().out
+    assert "not a GitHub noreply address: published by --allow-author-email" in out
+    assert exported_identity(g) == f"Exporter <{PERSONAL}>|Exporter <{PERSONAL}>"
+
+
+def test_the_export_scan_checks_the_commit_identity(lp, gated, capsys):
+    g = gated
+    before = g.registry.read_text()
+    for who in ("Nightjar Lab <1+lab@users.noreply.github.com>", "Lab <1+Nightjar@users.noreply.github.com>"):
+        for extra in ((), ("--allow-author-email",)):         # the flag allows an address, never a hit
+            assert run(lp, g, "repo", "export", "pkg", str(g.target), "--author", who, *extra) == 1
+            err = capsys.readouterr().err
+            assert "public-safety hit(s); nothing written" in err and "export-commit-identity" in err
+            assert "Nightjar" not in err
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--author", "Lab <le@desk.lan>",
+               "--allow-author-email") == 1                   # a host-like address: identity-email
+    assert "identity-email" in capsys.readouterr().err
+    assert not g.target.exists() and g.registry.read_text() == before
+
+
+def test_author_flag_refusals(lp, gated, capsys):
+    g = gated
+    for bad in ("no address", "<1+x@users.noreply.github.com>", "Name <not-an-address>"):
+        assert run(lp, g, "repo", "export", "pkg", str(g.target), "--author", bad) == 2
+        assert "give a name and an address" in capsys.readouterr().err
+    assert run(lp, g, "repo", "adopt", "pkg", str(g.repo), "--author", "A <1+a@users.noreply.github.com>") == 2
+    assert "--author do(es) not go with `repo adopt NAME DIR`" in capsys.readouterr().err
+    assert run(lp, g, "lease", "release", "pkg", "--allow-author-email") == 2
+    assert "--allow-author-email go(es) with `repo export NAME DIR`" in capsys.readouterr().err
+    assert not g.target.exists()

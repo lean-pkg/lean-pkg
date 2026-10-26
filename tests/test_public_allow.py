@@ -36,10 +36,12 @@ class G:
     pass
 
 
-def gated(tmp_path, patterns: str = PATTERNS, extra=None):
+def gated(tmp_path, patterns: str = PATTERNS, extra=None, agent=None):
     files = {"Main.lean": "theorem t : True := trivial\n", "LICENSE": "MIT\n", "lake-manifest.json": "{}\n",
              "tests/fixture.txt": FIXTURE, "logs/ci.log": CI_LOG, **(extra or {})}
     repo = make_repo(tmp_path / "src-pkg", extra_files=files)
+    _git(repo, "config", "user.name", "Exporter")                       # #339: the export commit's identity
+    _git(repo, "config", "user.email", "12345+exporter@users.noreply.github.com")
     (repo / ps.PATTERNS_FILE).write_text(patterns)
     with open(repo / ".git" / "info" / "exclude", "a") as f:
         f.write(ps.PATTERNS_FILE + "\n")
@@ -50,7 +52,7 @@ def gated(tmp_path, patterns: str = PATTERNS, extra=None):
     g = G()
     g.repo, g.registry = repo, tmp_path / "lean-packages.yaml"
     g.events, g.target = tmp_path / "lean-package-events.jsonl", tmp_path / "public" / "pkg"
-    pkg = base_pkg("pkg", repo, "verified-private",
+    pkg = base_pkg("pkg", repo, "verified-private", agent=agent,
                    gate={"receipt": ".lean-receipts/seed.json", "comparator": None, "axioms_allowed": AXIOMS})
     g.registry.write_text(yaml.safe_dump({"version": 2, "packages": {"pkg": pkg}}, sort_keys=False))
     return g
@@ -92,13 +94,71 @@ def test_negative_control_without_the_public_allow_file_the_hits_return(lp, tmp_
 
 
 def test_an_allow_line_holding_a_private_string_refuses_the_export(lp, tmp_path, capsys):
-    g = gated(tmp_path, patterns="Nightjar\nallow: ^ci@runner\\.invalid$\nallow: Nightjar-mirror\\.org\n")
+    # #340: only a USED allow line is carried, so only a used one holding a private string refuses: here a
+    # homepage URL holding the registry-derived user name, exempted in the tree by line 4
+    g = gated(tmp_path, agent="vera",
+              patterns=f"Nightjar\nallow: ^ci@runner\\.invalid$\n{SCOPED}\nallow: https://example\\.org/~vera/\n",
+              extra={"docs/home.md": "https://example.org/~vera/\n"})
     before = g.registry.read_text()
     assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target)) == 1
     err = capsys.readouterr().err
-    assert "allow line(s) 3 of .lean-pkg-private-patterns hold a private string" in err
-    assert "line 3: .lean-pkg-private-patterns:1" in err and "Nightjar" not in err
+    assert "allow line(s) 4 of .lean-pkg-private-patterns hold a private string" in err
+    assert "line 4: registry agent" in err and "vera" not in err
     assert not g.target.exists() and g.registry.read_text() == before and read_events(g) == []
+
+
+# #340: carry only the allow lines the export's own scan used
+
+UNUSED = "allow: Nightjar-mirror\\.org/~starling"      # names private things, exempts nothing in the tree
+
+
+def test_an_unused_allow_line_is_dropped_and_never_printed(lp, tmp_path, capsys):
+    g = gated(tmp_path, patterns=f"Nightjar\nallow: ^ci@runner\\.invalid$\n{UNUSED}\n{SCOPED}\n")
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--dry-run") == 0
+    cap = capsys.readouterr()
+    assert (f"public allow: 2 allow line(s) of {ps.PATTERNS_FILE} (line(s) 2, 4) carried into "
+            f"{ps.PUBLIC_ALLOW_FILE}") in cap.out
+    assert "1 unused allow line(s) dropped" in cap.out
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--json") == 0
+    cap2 = capsys.readouterr()
+    data = json.loads(cap2.out)
+    assert data["public_allow"] == {"file": ps.PUBLIC_ALLOW_FILE, "carried": 2, "lines": [2, 4], "unused": 1,
+                                    "present": 0}
+    text = (g.target / ps.PUBLIC_ALLOW_FILE).read_text()
+    assert [ln for ln in text.splitlines() if not ln.startswith("#")] == ["allow: ^ci@runner\\.invalid$", SCOPED]
+    for blob in (cap.out, cap.err, cap2.out, cap2.err, text, _git(g.target, "log", "--format=%B").stdout):
+        assert "starling" not in blob and "Nightjar" not in blob
+    assert run(lp, g, "public-safety", "pkg") == 0                       # the carried lines still suffice
+
+
+def test_no_allow_line_used_writes_no_public_allow_file(lp, tmp_path, capsys):
+    g = gated(tmp_path, patterns=f"Nightjar\n{UNUSED}\n",
+              extra={"tests/fixture.txt": "plain\n", "logs/ci.log": "built\n"})
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--json") == 0
+    cap = capsys.readouterr()
+    data = json.loads(cap.out)
+    assert data["public_allow"] == {"file": None, "carried": 0, "lines": [], "unused": 1, "present": 0}
+    assert not (g.target / ps.PUBLIC_ALLOW_FILE).exists()
+    assert ps.PUBLIC_ALLOW_FILE not in _git(g.target, "ls-files").stdout
+    assert "starling" not in cap.out + cap.err
+    g2 = gated(tmp_path / "again", patterns=f"Nightjar\n{UNUSED}\n",
+               extra={"tests/fixture.txt": "plain\n", "logs/ci.log": "built\n"})
+    assert run(lp, g2, "repo", "export", "pkg", str(g2.target), "--dry-run") == 0
+    out = capsys.readouterr().out
+    assert (f"public allow: none of the 1 allow line(s) of {ps.PATTERNS_FILE} was used by the export's scan; "
+            f"none carried, no {ps.PUBLIC_ALLOW_FILE} written") in out and "starling" not in out
+
+
+def test_an_allow_line_used_only_by_the_commit_identity_is_carried(lp, tmp_path, capsys):
+    # the identity is history too: an allow line exempting its address is used, so it is carried
+    g = gated(tmp_path, patterns="Nightjar\nallow: ^ci@runner\\.invalid$\nallow: ^bot@ci-host\\.lan$\n",
+              extra={"logs/ci.log": "built\n"})
+    assert run(lp, g, "repo", "export", "pkg", str(g.target), "--author", "CI Bot <bot@ci-host.lan>",
+               "--allow-author-email", "--json") == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["public_allow"]["lines"] == [2, 3]
+    assert data["identity"] == {"author": "CI Bot <bot@ci-host.lan>", "committer": "CI Bot <bot@ci-host.lan>",
+                                "source": "--author", "noreply": False}
 
 
 def test_public_allow_lines_never_exempt_a_private_string_in_themselves(lp, tmp_path, capsys):
@@ -124,6 +184,7 @@ def test_existing_public_allow_file_is_merged_not_duplicated(lp, tmp_path, capsy
     g = gated(tmp_path, extra={ps.PUBLIC_ALLOW_FILE: "allow: ^ci@runner\\.invalid$\n"})
     assert run(lp, g, "release", "pkg", "--fresh-repo", str(g.target), "--json") == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["public_allow"] == {"file": ps.PUBLIC_ALLOW_FILE, "carried": 1, "lines": [3]}
+    assert data["public_allow"] == {"file": ps.PUBLIC_ALLOW_FILE, "carried": 1, "lines": [3], "unused": 0,
+                                    "present": 1}
     lines = (g.target / ps.PUBLIC_ALLOW_FILE).read_text().splitlines()
     assert lines.count("allow: ^ci@runner\\.invalid$") == 1 and SCOPED in lines

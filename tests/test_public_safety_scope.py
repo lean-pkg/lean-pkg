@@ -326,17 +326,13 @@ def test_boundary_history_identities_tags_binary(tmp_path, plant):
     assert {"identity": "commit-identity:", "tag": "tag-object@", "binary": ":binary:"}[plant] in p.stderr
 
 
-def test_fresh_repo_export_commit_identity_is_checked(tmp_path, monkeypatch):
+def test_fresh_repo_export_commit_identity_is_checked(tmp_path):
+    # #339: the identity checked is the one the export commit will carry, passed explicitly
     from lean_pkg import fresh_repo
     r = new_repo(tmp_path / "r")
     sc = ps.Scanner({"name": "x"}, r, r)
-    for k, v in (("GIT_AUTHOR_NAME", "Exporter"), ("GIT_AUTHOR_EMAIL", "exporter@example.com"),
-                 ("GIT_COMMITTER_NAME", "Exporter"), ("GIT_COMMITTER_EMAIL", "exporter@example.com")):
-        monkeypatch.setenv(k, v)
-    assert fresh_repo.export_identity_hits(sc) == []
-    monkeypatch.setenv("GIT_COMMITTER_EMAIL", f"someone{AT}uni.edu")      # ordinary: declared by use
-    assert fresh_repo.export_identity_hits(sc) == []
-    monkeypatch.setenv("GIT_COMMITTER_EMAIL", f"le@{TOKEN}.lan")
-    hits = fresh_repo.export_identity_hits(sc)
+    assert fresh_repo.export_identity_hits(sc, [("Exporter", f"exporter{AT}example.com")]) == []
+    assert fresh_repo.export_identity_hits(sc, [("Exporter", f"someone{AT}uni.edu")]) == []   # ordinary: declared
+    hits = fresh_repo.export_identity_hits(sc, [("Exporter", f"le@{TOKEN}.lan")] * 2)
     assert {h["path"] for h in hits} == {"export-commit-identity"} and len(hits) >= 1
     assert TOKEN not in json.dumps(hits)

@@ -223,6 +223,8 @@ lean-pkg lease release:
 lean-pkg repo export:
   - cmd: lean-pkg repo export my-proof ../my-proof-public --dry-run
     say: Plan a fresh single-commit public repository from the gated tree; nothing is written.
+  - cmd: "lean-pkg repo export my-proof ../my-proof-public --author 'Ada <12345+ada@users.noreply.github.com>'"
+    say: Name the export commit's author and committer (a GitHub noreply address); without it the source repository's local git config supplies them, never your global identity.
 
 lean-pkg repo adopt:
   - cmd: lean-pkg repo adopt my-proof ../my-proof-public
