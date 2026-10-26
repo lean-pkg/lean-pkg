@@ -180,6 +180,29 @@ def test_mechanical_delta_between_two_releases(lp, capsys, src):
                                "changed": ["templates/LICENSE.txt"]}
 
 
+def test_constants_moved_from_cli_to_core_are_no_change(lp, capsys, tmp_path):
+    """The core split (#317) moved REGISTRY_VERSION, PACKAGE_FIELDS, RECEIPT_FIELDS, ... from cli.py to
+    core.py: a range across the move reports the same values, not a removal (core falls back to cli)."""
+    repo = tmp_path / "split"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    git(repo, "config", "maintenance.auto", "false")
+    put(repo, {"pyproject.toml": pyproject("1.0.0", ">=3.11", ["pyyaml>=6"], ["lean-pkg"]),
+               "src/lean_pkg/cli.py": CLI_V1, "src/lean_pkg/formalization.py": FORMALIZATION_V1})
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "release: 1.0.0")
+    git(repo, "tag", "v1.0.0")
+    put(repo, {"src/lean_pkg/core.py": CLI_V1, "src/lean_pkg/cli.py": "from .core import *  # noqa\n"})
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "refactor: the shared core moves to core.py (#8)")
+    rc, out = preflight(lp, capsys, repo, "v1.0.0")
+    assert rc == 0 and out["ok"]
+    m = out["mechanical"]
+    assert m["named"]["registry_version"] == {"from": 3, "to": 3, "changed": False}
+    assert not any(v["changed"] for v in m["named"].values())
+    assert all(v == {"added": [], "removed": []} for v in m["keys"].values()), m["keys"]
+
+
 def test_curated_entries_apply_only_inside_the_range(lp, capsys, src):
     rc, out = preflight(lp, capsys, src, "1.0.0")
     assert [e["id"] for e in out["behavior"]] == ["receipts-stricter"]     # PR 99 is not in the range
