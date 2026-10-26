@@ -138,7 +138,7 @@ class Tex:
         try:
             self.text = raw.decode("utf-8")
         except UnicodeDecodeError as e:
-            raise core.Fail(f"{where}: not UTF-8 text ({e.reason} at byte {e.start}); refusing to compare it")
+            raise core.Fail(f"{where}: not UTF-8 text ({e.reason} at byte {e.start}); refusing to compare it") from e
         self.where = where
         self.sha256 = sha256_bytes(raw)
         self.masked = mask_comments(self.text)
@@ -188,8 +188,8 @@ class Tex:
         if getattr(self, "_defined", None) is not None:
             return self._defined
         out = {}
-        for lab, sites in self.labels.items():
-            keep = [s for s in sites if not any(e.name in IGNORED_ENVS for e in _ancestors(s[1]))]
+        for lab, lab_sites in self.labels.items():
+            keep = [s for s in lab_sites if not any(e.name in IGNORED_ENVS for e in _ancestors(s[1]))]
             if keep:
                 out[lab] = keep
         self._defined = out
@@ -747,7 +747,7 @@ def report_md(name: str, rep: dict, excerpts: list[dict]) -> str:
         out += ["", "## Warnings", ""] + [f"- {w}" for w in rep["warnings"]]
     if excerpts:
         out += ["", "## Excerpts", ""]
-        for i, x in enumerate(excerpts, 1):
+        for _i, x in enumerate(excerpts, 1):
             out += [f"### {x['label']} ({x['status']})", ""]
             for side in ("old", "new"):
                 body = x[side] if x[side] is not None else (x["new_context"] if side == "new" else None)
@@ -810,7 +810,7 @@ def _read(path: str, what: str) -> bytes:
     try:
         return p.read_bytes()
     except OSError as e:
-        raise core.Fail(f"{what} {path}: unreadable ({e.strerror})")
+        raise core.Fail(f"{what} {path}: unreadable ({e.strerror})") from e
 
 
 def _inputs(pkg: dict, repo: pathlib.Path, claims_file: str | None, coverage_file: str | None):
@@ -856,7 +856,7 @@ def baseline_record_at_head(repo: pathlib.Path, cov: dict | None) -> dict | None
     try:
         rec = json.loads(raw)
     except ValueError:
-        raise core.Fail(f"{rel} at HEAD is not JSON; refusing to guess what the baseline is")
+        raise core.Fail(f"{rel} at HEAD is not JSON; refusing to guess what the baseline is") from None
     if not isinstance(rec, dict):
         raise core.Fail(f"{rel} at HEAD is not a source-baseline record")
     return {**rec, "rel": rel}

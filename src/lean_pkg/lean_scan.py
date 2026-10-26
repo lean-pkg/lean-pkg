@@ -259,7 +259,7 @@ def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
             qual = ".".join(ns + parts)
         line = line_of(m.start())
         doc = None
-        for a, b, d in reversed(doc_by_end):
+        for _a, b, d in reversed(doc_by_end):
             if b <= c and not masked[b:c].strip():
                 doc = d
                 break

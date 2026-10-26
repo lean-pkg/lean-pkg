@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import importlib
 
-import pytest
 
 from .conftest import read_reg, run_search, write_reg
 from .test_prior_art import record_file, today

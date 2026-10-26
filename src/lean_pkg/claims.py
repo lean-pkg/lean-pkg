@@ -80,7 +80,7 @@ def load_claims_text(text: str, where: str) -> dict:
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as e:
-        raise core.Fail(f"{where}: not valid YAML: {e}")
+        raise core.Fail(f"{where}: not valid YAML: {e}") from e
     if not isinstance(data, dict):
         raise core.Fail(f"{where}: top level is not a mapping")
     return data
@@ -571,7 +571,7 @@ def do_claims_list(reg: dict, name: str | None) -> tuple[list[str], dict]:
     if not rows:
         if cov is not None:
             return coverage_lines(name, cov), {"ok": True, "claims": [], **cov}
-        return ([f"no cached claims for any package; run `lean-pkg claims sync NAME`"],
+        return (["no cached claims for any package; run `lean-pkg claims sync NAME`"],
                 {"ok": True, "claims": []})
     head = ("ID", "KIND", "STATUS", "TRUST", "PIN", "DECL")
     table = [head] + [(r["id"], r["kind"], r["status"], r["trust"], str(r["pin"] or "")[:12],
@@ -768,7 +768,7 @@ def do_claims_migrate(reg: dict, name: str, src: str, out: str | None, dry_run: 
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, UnicodeDecodeError) as e:
-        raise core.Fail(f"{name}: --from {src} is not JSON: {e}")
+        raise core.Fail(f"{name}: --from {src} is not JSON: {e}") from e
     doc, todos, unmapped, skipped = migrate_rows(name, legacy_rows(data))
     header = [f"# Migrated by `lean-pkg claims migrate {name}` from a legacy claims JSON. A skeleton:",
               f"# fix every TODO (sync refuses each {TODO} placeholder), delete these comments, commit, then run",

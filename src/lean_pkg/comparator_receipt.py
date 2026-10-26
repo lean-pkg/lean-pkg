@@ -79,7 +79,7 @@ from .holes import SIDECAR, check_definition_holes, parse_sidecar  # noqa: E402
 from .comparator_stage import redact, redact_bytes, redact_json, set_redactions  # noqa: E402
 from .receipt_systemd import host_label as hashed_host_label  # noqa: E402
 from .comparator_stage import (PARTIAL_FILE, SLOTS_DIR, UNITS_DIR, Interrupted, Judge,  # noqa: E402
-                               JOBS_ENV, UNIT_SIZE_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, chunks, list_slots, parse_slot_spec, ranges, run_pool, shards, stratified_sample, unit_id, weighted_sample)
+                               JOBS_ENV, UNIT_SIZE_ENV, Progress, SignalGuard, SlotCache, StageLog, Unit, chunks, list_slots, parse_slot_spec, ranges, run_pool, shards, unit_id, weighted_sample)
 MECHANISMS = ("auto", "toolchain", "legacy")
 TOOLCHAIN_FLOOR = "v4.35.0-rc2"          # Palomar's floor: the first toolchain shipping `lake comparator`
 TOOLCHAIN_TOOLS = ("lake", "leanexport", "leanchecker", "nanoda_bin", "con-ron")
@@ -143,9 +143,9 @@ def bwrap_preflight() -> None:
         p = subprocess.run(["bwrap", "--ro-bind", "/", "/", "true"], capture_output=True,
                            text=True, timeout=60, env=scrubbed_env())
     except FileNotFoundError:
-        raise RunnerError("bwrap is not installed; `lake comparator` needs it (package bubblewrap)")
+        raise RunnerError("bwrap is not installed; `lake comparator` needs it (package bubblewrap)") from None
     except subprocess.TimeoutExpired:
-        raise RunnerError("bwrap did not answer within 60 s; `lake comparator` needs a working bwrap")
+        raise RunnerError("bwrap did not answer within 60 s; `lake comparator` needs a working bwrap") from None
     if p.returncode != 0:
         detail = (p.stderr or p.stdout).strip().splitlines()[-1:] or ["no output"]
         raise RunnerError(
@@ -365,7 +365,7 @@ def probe_version(lake: str, project: pathlib.Path, env: dict) -> str:
         p = subprocess.run([lake, "--version"], cwd=project, capture_output=True, text=True,
                            timeout=900, env=env, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as e:
-        raise RunnerError(f"cannot run `{lake} --version` ({e}); nothing written")
+        raise RunnerError(f"cannot run `{lake} --version` ({e}); nothing written") from e
     out = (p.stdout or p.stderr).strip().splitlines()
     if p.returncode != 0 or not out:
         raise RunnerError(f"`{lake} --version` exited {p.returncode}; nothing written")
@@ -530,7 +530,7 @@ def lint_configs(project: pathlib.Path, configs: list[str], warn: bool = True) -
         try:
             cfg = json.loads(raw)
         except ValueError as e:
-            raise RunnerError(f"{cfg_rel}: not valid JSON ({e}); nothing written")
+            raise RunnerError(f"{cfg_rel}: not valid JSON ({e}); nothing written") from e
         if not isinstance(cfg, dict):
             raise RunnerError(f"{cfg_rel}: not a JSON object; nothing written")
         ax = cfg.get("permitted_axioms")
@@ -548,7 +548,7 @@ def lint_configs(project: pathlib.Path, configs: list[str], warn: bool = True) -
                                         warn=(lambda m: print(f"comparator-receipt: warning: {m}", file=sys.stderr))
                                         if warn else None)
         except ValueError as e:
-            raise RunnerError(f"{e}; nothing written")
+            raise RunnerError(f"{e}; nothing written") from e
         if so is not None:
             signoffs[cfg_rel] = so
     return signoffs
@@ -562,7 +562,7 @@ def read_sidecar(project: pathlib.Path) -> dict:
     try:
         return parse_sidecar(p.read_bytes() if p.is_file() else None)
     except ValueError as e:
-        raise RunnerError(f"{e}; nothing written")
+        raise RunnerError(f"{e}; nothing written") from e
 
 
 def list_configs(project: pathlib.Path) -> list[str]:
@@ -992,7 +992,7 @@ def run_logged(cmd: list[str], cwd: pathlib.Path, log: pathlib.Path) -> int:
             try:
                 run_pool([j], 1, lambda job: job, lambda job, jd: True)
             except Interrupted as e:
-                raise StageError(f"{e}; `{' '.join(cmd)}` killed; nothing written", 128 + e.signum)
+                raise StageError(f"{e}; `{' '.join(cmd)}` killed; nothing written", 128 + e.signum) from e
         return j.returncode if j.returncode is not None else 1
     finally:
         slog.close()
@@ -1644,7 +1644,7 @@ class Stage04:
                 msg = (f"{e}; judges killed; {self.progress.summary()}; nothing written; "
                        f"partial report {self.progress.path}; resume: {self.resume_command}")
                 self.say(f"comparator-receipt: {msg}")
-                raise PartialStage(msg, 128 + e.signum)
+                raise PartialStage(msg, 128 + e.signum) from e
             if self.failure is not None:
                 unit, rc, was_judged, last, reason = self.failure
                 self.progress.state = "failed"
@@ -1657,7 +1657,7 @@ class Stage04:
                     verdict = (f"{judge}: the judge tool failed before judging ({self.tag(unit)}, exit {rc}"
                                + (f"; {reason}" if reason else "")
                                + (f"; last line: {last}" if last else "") + "); this is a tool/environment "
-                               f"error, not a verdict on the proof; fix the tool or the project setup and rerun"
+                               "error, not a verdict on the proof; fix the tool or the project setup and rerun"
                                + (f" ({EXTERNAL_LINK_NOTE})" if reason and "resolving" in reason else ""))
                 raise StageError(f"{verdict}; {self.progress.summary()}; nothing written; partial report "
                                  f"{self.progress.path}", rc)
@@ -1941,7 +1941,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
             subset = parse_slot_spec(slot_spec, list_slots(
                 [(c, json.loads((project / c).read_bytes())) for c in configs]))
         except ValueError as e:
-            raise RunnerError(f"--slots {slot_spec!r}: {e}; nothing written")
+            raise RunnerError(f"--slots {slot_spec!r}: {e}; nothing written") from e
     forced = False
     if estimate is not None:    # the sample floor (#59), refused before any setup runs
         total = len(list_slots([(c, json.loads((project / c).read_bytes())) for c in configs]))
@@ -2004,7 +2004,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         stack_limit, stack_lines = plan_stack(os.environ.get(STACK_ENV))
         lean_threads, thread_lines = plan_lean_threads(os.environ.get(LEAN_THREADS_ENV))
     except ValueError as e:
-        raise RunnerError(f"{e}; nothing written")
+        raise RunnerError(f"{e}; nothing written") from e
     stack_lines += thread_lines
     stages = Stages(evidence, binding, prepare)
     stages.resolution = resolution
@@ -2241,7 +2241,7 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
             except OSError:
                 pass
         raise RunnerError(f"could not write evidence into .lean-receipts/ ({e}); "
-                          f"nothing written")
+                          f"nothing written") from None
     return {"receipt": str(rec_path)}
 
 

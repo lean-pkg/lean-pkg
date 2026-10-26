@@ -115,7 +115,7 @@ def test_receipt_binding_head_keeps_the_bound_page(lp, env, capsys, tmp_path):
 
 def test_page_and_formalization_render_agree_on_the_receipt(lp, env, capsys, tmp_path):
     """`formalization render --repo` and `page --repo` decide receipt facts by the same rule."""
-    bound = prepare(env)
+    prepare(env)
     clone, head = candidate(env, tmp_path)
     rc, a = page_json(lp, env, capsys, "--repo", str(clone))
     rc2, out, _err = run(lp, env, capsys, "--json", "formalization", "render", "beta", "--repo", str(clone))

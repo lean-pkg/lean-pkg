@@ -30,7 +30,7 @@ def test_parser_orders_the_table(lp):
     assert keys == sorted(keys) and len(set(keys)) == len(keys)
 
 
-@pytest.mark.parametrize("older,newer", list(zip(ORDER, ORDER[1:])))
+@pytest.mark.parametrize("older,newer", list(zip(ORDER, ORDER[1:], strict=False)))
 def test_parser_pairwise(lp, older, newer):
     assert lp.parse_lean_toolchain(older) < lp.parse_lean_toolchain(newer)
 

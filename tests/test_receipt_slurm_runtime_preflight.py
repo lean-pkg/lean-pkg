@@ -7,7 +7,6 @@ line for the job's own shell and an export before any tool runs), and probes eve
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from .test_receipt_slurm import CHECKER, check, fake_sacct, receipt_json, repo, template_text  # noqa: F401
 from .test_receipt_slurm_template_src import template_run, wrapper

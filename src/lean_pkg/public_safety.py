@@ -435,7 +435,7 @@ class Scanner:
         if not spans:
             return hits
         red, starts = _redact(line, spans)
-        for (_s, _e, pat), pos in zip(spans, starts):
+        for (_s, _e, pat), pos in zip(spans, starts, strict=False):
             if pat.label in seen:
                 continue
             seen.add(pat.label)
@@ -1178,7 +1178,7 @@ def scan_history(sc: Scanner, root: pathlib.Path, skipped: list[dict] | None = N
         if short and short != "HEAD":
             names.setdefault(short, None)
     for short in names:
-        for n, pat, excerpt in sc.scan_text(short):
+        for _n, pat, excerpt in sc.scan_text(short):
             hits.append(_hit(sc, "history", "ref-name", None, pat.label, pat.kind, excerpt, None, pat.severity))
     return hits
 

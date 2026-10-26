@@ -260,7 +260,7 @@ def headline_results(pkg: dict | None, repo: pathlib.Path, warnings: list[str], 
     try:
         sidecar = core.sidecar_at(repo)
     except ValueError as e:
-        raise core.Fail(str(e))
+        raise core.Fail(str(e)) from e
     if rel in holes_smoke(sidecar):          # before judging: the plain reason, not "not a subset"
         raise core.Fail(f"headline configuration {rel} ({source}) is marked as a smoke check in "
                         f"lean-pkg-signoff.json: a smoke check states no result, so it cannot be the headline; "
@@ -314,7 +314,7 @@ def main_results(repo: pathlib.Path, warnings: list[str], pkg: dict | None = Non
     try:                                     # lean-pkg-signoff.json at HEAD (holes.py)
         smoke = holes_smoke(core.sidecar_at(repo))
     except ValueError as e:
-        raise core.Fail(str(e))
+        raise core.Fail(str(e)) from e
     for rel in core.head_comparator_configs(repo):
         if rel in smoke:
             warnings.append(f"{rel}: marked as a smoke check in lean-pkg-signoff.json; its theorems state no "
@@ -324,7 +324,7 @@ def main_results(repo: pathlib.Path, warnings: list[str], pkg: dict | None = Non
         try:
             cfg = json.loads(raw or b"")
         except ValueError as e:
-            raise core.Fail(f"{rel} at HEAD is not valid JSON: {e}")
+            raise core.Fail(f"{rel} at HEAD is not valid JSON: {e}") from e
         if not isinstance(cfg, dict):
             raise core.Fail(f"{rel} at HEAD is not a JSON object")
         solution = module_path(cfg.get("solution_module"))
@@ -344,7 +344,7 @@ def main_results(repo: pathlib.Path, warnings: list[str], pkg: dict | None = Non
         try:                                 # lean-pkg-signoff.json at HEAD (holes.py)
             sidecar = core.sidecar_at(repo)
         except ValueError as e:
-            raise core.Fail(str(e))
+            raise core.Fail(str(e)) from e
         if holes:
             try:
                 so = check_definition_holes(cfg, rel, cfg_rel=rel, cfg_bytes=raw, sidecar=sidecar,
@@ -535,7 +535,7 @@ def load_existing(path: pathlib.Path) -> tuple[str | None, dict | None]:
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as e:
-        raise core.Fail(f"{path}: not valid YAML: {e}")
+        raise core.Fail(f"{path}: not valid YAML: {e}") from e
     if data is None:
         data = {}
     if not isinstance(data, dict):

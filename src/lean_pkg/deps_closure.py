@@ -226,7 +226,7 @@ def read_dir(root: pathlib.Path, headers: bool = False) -> Cache:
     base = root / ".lake" / "packages"
     if base.is_symlink() or (root / ".lake").is_symlink():
         return cache
-    for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
+    for dirpath, _dirnames, filenames in os.walk(base, followlinks=False):
         for fn in filenames:
             p = pathlib.Path(dirpath) / fn
             if p.is_symlink() or not p.is_file():

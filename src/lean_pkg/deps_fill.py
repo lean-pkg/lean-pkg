@@ -200,7 +200,7 @@ def cmd(args) -> int:
         try:
             raw = pathlib.Path(args.base_list).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
-            raise core.UsageError(f"--base-list {args.base_list}: cannot read it ({type(e).__name__})")
+            raise core.UsageError(f"--base-list {args.base_list}: cannot read it ({type(e).__name__})") from e
         base_list = [n for n in (dc._norm(ln.rstrip("\n")) for ln in raw.splitlines() if ln.strip()) if n]
 
     refusals: list[dict] = []

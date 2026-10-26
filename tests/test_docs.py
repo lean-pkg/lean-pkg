@@ -416,7 +416,7 @@ def test_the_sigint_test_passes_when_sigint_is_ignored_on_entry():
     """Regression: two suites launched as `( make test ) &` from a script ran with SIGINT ignored, and the
     test above then failed with "make test still running 15 s after SIGINT". Run it in a pytest that
     starts with SIGINT ignored, as such a launch does; it must pass."""
-    import shutil, signal, subprocess, sys
+    import shutil, subprocess, sys
     import pytest
     if shutil.which("make") is None:
         pytest.skip("make not installed")

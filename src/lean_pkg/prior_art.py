@@ -267,7 +267,7 @@ def write_record(payload: dict, *, reg_path: pathlib.Path, events_p: pathlib.Pat
         with open(dest, "x", encoding="utf-8") as f:     # atomic create; refuses a symlink or a race
             f.write(text)
     except FileExistsError:
-        raise core.Fail(f"{rel} appeared in {target} during the write; nothing overwritten")
+        raise core.Fail(f"{rel} appeared in {target} during the write; nothing overwritten") from None
     out = [f"record written: {dest} (decision: pending; edit it, then commit it in that repository)"]
     if has_mkdocs(target):
         out.append(f"note: {rel} is new; {NAV_REASON}")

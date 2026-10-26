@@ -97,7 +97,7 @@ def test_each_malformed_finding_is_refused(cl, mutate, needle):
 
 def test_fixed_in_accepts_new_and_old_style_arxiv_versions(cl):
     for fx in ("arXiv:2501.01234v2", "arXiv:1012.3456v11", "arXiv:math.PR/0601001v3"):
-        assert _errors(cl, lambda c: c["manuscript_findings"][0].update(fixed_in=fx)) == [], fx
+        assert _errors(cl, lambda c: c["manuscript_findings"][0].update(fixed_in=fx)) == [], fx  # noqa: B023  called synchronously, within this iteration
 
 
 def test_finding_ids_are_unique_in_the_package(cl):

@@ -132,7 +132,7 @@ def test_happy_path_receipt_passes_gate_check(lp, env, repo, tmp_path, capsys):
                    "✓ stdout: invocation-id = the unit's InvocationID", "✓ public-safety"):
         assert needle in out, needle
     assert f"## `{c12[:7]}`: lower-tier receipt, systemd unit {UNIT}" in out
-    assert (f"  Result success, exit `0`; runtime 00:12:05.00, CPU 01:10:22.00, memory peak 1.5 GiB; caps "
+    assert ("  Result success, exit `0`; runtime 00:12:05.00, CPU 01:10:22.00, memory peak 1.5 GiB; caps "
             "MemoryMax 8.0 GiB, MemorySwapMax 0 B, CPUQuota 400%, RuntimeMax 4h.") in out
     receipt = json.loads(rp.read_text())
     assert list(receipt) == ["schema", *lp.RECEIPT_FIELDS, "job_stdout_sha256", "manifest_sha256",
@@ -678,7 +678,6 @@ def interrupt_poll(monkeypatch, tmp_path, props: Path, *, then: str | None, how:
     import signal
     import tempfile
 
-    from lean_pkg import receipt_systemd as rs
     props.write_text(RUNNING)
     tdir = tmp_path / "tmpdir"
     tdir.mkdir()

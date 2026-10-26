@@ -391,7 +391,7 @@ def _tokens(command: str) -> list[str]:
     try:
         tokens = shlex.split(command)
     except ValueError as e:
-        raise core.UsageError(f"--command: cannot split it into arguments ({e})")
+        raise core.UsageError(f"--command: cannot split it into arguments ({e})") from e
     if tokens and tokens[0] == "lean-pkg":
         tokens = tokens[1:]
     if not tokens:
@@ -420,7 +420,7 @@ def _log_tail(p: pathlib.Path, n: int) -> list[str]:
     try:
         text = p.read_text(encoding="utf-8", errors="replace")
     except OSError as e:
-        raise core.UsageError(f"--from-log: cannot read {p} ({e.strerror or e})")
+        raise core.UsageError(f"--from-log: cannot read {p} ({e.strerror or e})") from e
     return text.rstrip("\n").splitlines()[-n:] if text.strip("\n") else []
 
 

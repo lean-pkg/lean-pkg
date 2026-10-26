@@ -112,7 +112,7 @@ def test_commands_without_examples_are_reported(gen):
     _, missing = gen.check_examples()
     if missing:
         warnings.warn(f"{len(missing)} command(s) have no example in docs/_commands/examples.yaml: "
-                      + ", ".join(missing))
+                      + ", ".join(missing), stacklevel=1)
     trees = gen.all_trees()
     runnable = [n.key for t in trees.values() for n in gen.all_nodes(t) if n.runnable]
     assert set(missing) <= set(runnable)

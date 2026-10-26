@@ -326,7 +326,7 @@ def expose_reviews(files: dict[str, str]) -> list[dict]:
                         if how:
                             found[k].append({"file": other, "line": i, "how": how})
     out = []
-    for (path, line, qual, comp), refs in zip(defs, found):
+    for (path, line, qual, comp), refs in zip(defs, found, strict=False):
         if refs:
             strong = any(r["how"] == "unfold" for r in refs)
             out.append({"code": "expose", "decl": qual, "file": path, "line": line, "likely": strong,

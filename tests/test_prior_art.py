@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from .conftest import read_events, read_reg, run_search, write_reg
 

@@ -98,7 +98,7 @@ def parse(raw: bytes | None, rel: str) -> dict:
     try:
         cfg = json.loads(raw.decode("utf-8"), object_pairs_hook=_strict)
     except (UnicodeDecodeError, ValueError) as e:
-        raise ValueError(f"headline configuration {rel}: not valid strict JSON ({e})")
+        raise ValueError(f"headline configuration {rel}: not valid strict JSON ({e})") from e
     if not isinstance(cfg, dict):
         raise ValueError(f"headline configuration {rel}: not a JSON object")
     extra = sorted(set(cfg) - set(PALOMAR_KEYS))

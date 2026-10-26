@@ -98,9 +98,9 @@ def load_rules(path: str | None) -> tuple[dict, dict]:
     try:
         data = json.loads(p.read_text())
     except OSError as e:
-        raise core.UsageError(f"--rules {path}: cannot read: {e.strerror or e}")
+        raise core.UsageError(f"--rules {path}: cannot read: {e.strerror or e}") from e
     except ValueError as e:
-        raise core.UsageError(f"--rules {path}: not JSON: {e}")
+        raise core.UsageError(f"--rules {path}: not JSON: {e}") from e
     if not isinstance(data, dict) or data.get("schema_version") != 1:
         raise core.UsageError(f"--rules {path}: not a browser-preflight-policy.json with schema_version 1")
     try:
@@ -114,7 +114,7 @@ def load_rules(path: str | None) -> tuple[dict, dict]:
         }
         re.compile(policy["toolchain"]["pattern"])
     except (KeyError, TypeError, ValueError, re.error) as e:
-        raise core.UsageError(f"--rules {path}: missing or malformed key ({e})")
+        raise core.UsageError(f"--rules {path}: missing or malformed key ({e})") from e
     return policy, {"kind": "file", "path": str(p), "retrieved": None, "commit": None}
 
 

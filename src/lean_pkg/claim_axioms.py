@@ -207,7 +207,7 @@ def judge(text: str, required: list[str] | None) -> tuple[dict | None, list[str]
         both = sorted(set(checked) & set(printed))
         agree = len(both) - len(narrower)
         lines.append(f"✓ claim axioms: {n} claim(s) read from the built environment (collectAxioms)"
-                     + (f", every claim in claims.yaml" if required else "")
+                     + (", every claim in claims.yaml" if required else "")
                      + (f"; {agree} agree with their #print axioms output" if agree else ""))
         for name in narrower:
             axs = checked[name]

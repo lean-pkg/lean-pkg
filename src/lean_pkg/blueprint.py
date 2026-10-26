@@ -82,7 +82,7 @@ def how_to_add(name: str) -> str:
             f"yourself (lean-pkg never edits it):\n"
             f"  lakefile.lean: {REQUIRE_LEAN}\n"
             f"  lakefile.toml: " + REQUIRE_TOML.replace("\n", "\n                 ") + "\n"
-            f"then run `lake update checkdecls`, commit the lakefile and lake-manifest.json, and rerun")
+            "then run `lake update checkdecls`, commit the lakefile and lake-manifest.json, and rerun")
 
 
 def tail(text: str) -> str:

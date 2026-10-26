@@ -41,7 +41,7 @@ def test_commit_flags_shown_exactly_where_some_invocation_writes(ap):
     a command shows --commit/--push/--no-commit iff one of its rows writes (verify: passes them on); a group
     shows them iff one of its subcommands does."""
     lp_writes: dict[str, bool] = {}
-    for argv, cmd, writes, _locks, _tty in ARGV_TABLE:
+    for _argv, cmd, writes, _locks, _tty in ARGV_TABLE:
         lp_writes[cmd] = lp_writes.get(cmd, False) or writes
     nodes = [n for n in command_tree(ap) if n.path and _commit_actions(n.parser)]
     assert nodes
