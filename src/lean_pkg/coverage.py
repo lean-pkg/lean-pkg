@@ -522,8 +522,34 @@ def bare_job_receipts(repo: pathlib.Path) -> dict[str, str]:
     return out
 
 
+def slurm_near_misses(repo: pathlib.Path, missing: list[str]) -> str:
+    """The refusal's hint for listed Slurm jobs no receipt backs: a bare job number (`receipt slurm` writes
+    `slurm-<J>`), or a comparator receipt whose Slurm claim no sacct seal corroborates."""
+    near = bare_job_receipts(repo)
+    hint = "".join(
+        f"; {near[j]} has job_id {j.removeprefix('slurm-')!r}, a bare number, which is not accepted as a "
+        f"Slurm job: write the receipt with `lean-pkg receipt slurm --job {j.removeprefix('slurm-')}` "
+        f"(it checks sacct and writes job_id {j})" for j in missing if j in near)
+    unsealed = unsealed_comparator_receipts(repo)
+    hint += "".join(f"; {unsealed[j][0]} claims Slurm job {j.removeprefix('slurm-')} but does not back "
+                    f"it: {unsealed[j][1]}" for j in missing if j in unsealed)
+    return hint
+
+
+def _gha_jobs_at_head(repo: pathlib.Path) -> dict[str, str]:
+    from . import ci_github
+    return ci_github.jobs_at_head(repo)
+
+
+def _gha_near_misses(repo: pathlib.Path, missing: list[str]) -> str:
+    from . import ci_github
+    return ci_github.near_misses(repo, missing)
+
+
 # scheduler name -> {job id: receipt path} for the receipts tracked at HEAD that show a run under it
-JOB_INDEX = {sites.SLURM.name: slurm_jobs_at_head}
+JOB_INDEX = {sites.SLURM.name: slurm_jobs_at_head, sites.GITHUB_ACTIONS.name: _gha_jobs_at_head}
+# scheduler name -> the hint naming near misses (a receipt with the job's id that does not back it)
+NEAR_MISSES = {sites.SLURM.name: slurm_near_misses, sites.GITHUB_ACTIONS.name: _gha_near_misses}
 
 
 def compute_backing(doc: dict, repo: pathlib.Path, profiles: dict | None = None
@@ -541,16 +567,7 @@ def compute_backing(doc: dict, repo: pathlib.Path, profiles: dict | None = None
         jobs = index[sched.name]
         missing = [j for j in c["jobs"] if j not in jobs]
         if missing:
-            # the near-miss hint is Slurm's (`receipt slurm`); a new scheduler brings its own with its reader
-            near = bare_job_receipts(repo) if sched is sites.SLURM else {}
-            hint = "".join(
-                f"; {near[j]} has job_id {j.removeprefix('slurm-')!r}, a bare number, which is not accepted as a "
-                f"Slurm job: write the receipt with `lean-pkg receipt slurm --job {j.removeprefix('slurm-')}` "
-                f"(it checks sacct and writes job_id {j})" for j in missing if j in near)
-            if sched is sites.SLURM:          # a comparator receipt's unsealed claim: its own hint
-                unsealed = unsealed_comparator_receipts(repo)
-                hint += "".join(f"; {unsealed[j][0]} claims Slurm job {j.removeprefix('slurm-')} but does not back "
-                                f"it: {unsealed[j][1]}" for j in missing if j in unsealed)
+            hint = NEAR_MISSES[sched.name](repo, missing)       # each scheduler names its own near misses
             problems.append(f"compute ({c['cluster']}): no {sched.label} receipt tracked at HEAD under .lean-receipts/ "
                             f"has job_id {', '.join(missing)} (commit the receipt, or drop the job){hint}")
         else:

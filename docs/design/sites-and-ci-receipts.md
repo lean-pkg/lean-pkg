@@ -5,7 +5,10 @@ title: "Design: compute sites and CI-runner receipts"
 [&larr; lean-pkg documentation](../index.md)
 
 *Status: section 1 (the site profile format) is implemented and stable; section 4 (CI-runner receipts) is
-a design, not yet implemented. Roadmap wave 3, "Core apart from the lab": a package can be verified and
+being implemented in stages under [proposal 0008](../proposals/0008-github-actions-compute-receipt.md): stage
+S1 (the `github-actions` scheduler and profile, the `ci` block judged at level 1, `page --json` levels) is
+in; writing the receipt in CI (S2), corroboration (S3), attestation (S4) and the comparator tier (S5) are
+not yet. Roadmap wave 3, "Core apart from the lab": a package can be verified and
 published with no lab account. The four decisions of section 6 were taken on 2026-10-17, as recommended
 ([decision 0007](../decisions/0007-recommendations-accepted-2026-10-17.md)).*
 
@@ -117,7 +120,7 @@ institution or host name).
 
 ## 4. Design: a compute receipt from a CI runner (GitHub Actions first)
 
-Not implemented; designed in [proposal 0008](../proposals/0008-github-actions-compute-receipt.md), accepted 2026-10-26. The goal: a mathematician with a public GitHub repository and no cluster account gets a
+Designed in [proposal 0008](../proposals/0008-github-actions-compute-receipt.md), accepted 2026-10-26; stage S1 (level 1) is implemented, stages S2 to S5 are not yet. The goal: a mathematician with a public GitHub repository and no cluster account gets a
 compute receipt that backs `coverage.yaml` `compute` the way `slurm-<J>` does, and that a third party can
 corroborate without trusting the author.
 

@@ -22,9 +22,15 @@ Where profiles come from, in this order (the order of the Acknowledgments senten
    page renders the same on every machine and in CI. A package profile may not reuse a built-in name.
 
 A *scheduler* is code, not data: it is how a committed receipt shows a job ran (`job_re`, the receipt
-`job_id` spelling; coverage.JOB_INDEX, its reader). Slurm is the only one: `slurm-<J>`, which `receipt
-slurm` writes only after sacct shows the job COMPLETED, or a comparator receipt whose Slurm claim (job_id J,
-host_policy `Slurm job J ...`) carries a valid sacct seal (`comparator-receipt --seal-sacct`).
+`job_id` spelling; coverage.JOB_INDEX, its reader), and from which corroboration level a site of it renders
+its sentence (`sentence_level`). Slurm: `slurm-<J>`, which `receipt slurm` writes only after sacct shows the
+job COMPLETED, or a comparator receipt whose Slurm claim (job_id J, host_policy `Slurm job J ...`) carries a
+valid sacct seal (`comparator-receipt --seal-sacct`); sentence level 1. GitHub Actions (proposal 0008):
+`gha-<run_id>-<run_attempt>`, a lower-tier receipt whose additive `ci` block passes level 1 (ci_github.py);
+sentence level 2, so the page carries its sentence only once the run is corroborated, never offline. A
+built-in-only scheduler (`builtin_only`) may be named by a built-in profile alone: no package writes its own
+wording for its evidence sentence. The acknowledgement token `{runs}` (filled with the corroborated runs'
+links) is allowed only in a built-in profile whose scheduler has sentence_level > 1.
 
 The rule every profile carries (unchanged from the Easley-only code it replaced): a site's sentence
 appears only when coverage.yaml lists the site with job ids and every listed id is the job of a receipt of
@@ -59,6 +65,8 @@ class Scheduler:
     job_re: re.Pattern
     example: str
     placeholder: str
+    sentence_level: int = 1             # the corroboration level from which a site of it renders its sentence
+    builtin_only: bool = False          # only a built-in profile may name it
 
 
 @dataclass(frozen=True)
@@ -75,7 +83,10 @@ class Site:
 
 SLURM = Scheduler(name="slurm", label="Slurm", job_re=re.compile(r"^slurm-\d+(?:_\d+)?$"),
                   example="slurm-12345", placeholder="slurm-J")
-SCHEDULERS: dict[str, Scheduler] = {SLURM.name: SLURM}
+GITHUB_ACTIONS = Scheduler(name="github-actions", label="GitHub Actions", job_re=re.compile(r"^gha-\d+-\d+$"),
+                           example="gha-123456789-1", placeholder="gha-R-A", sentence_level=2, builtin_only=True)
+SCHEDULERS: dict[str, Scheduler] = {SLURM.name: SLURM, GITHUB_ACTIONS.name: GITHUB_ACTIONS}
+RUNS_TOKEN = "{runs}"                   # in an acknowledgement: the corroborated runs' links (sentence_level > 1)
 
 
 class _StrictLoader(yaml.SafeLoader):
@@ -124,8 +135,16 @@ def parse(text: str, where: str, source: str) -> tuple[Site | None, list[str]]:
         errors.append(f"{where}: acknowledgement: may not contain < > ` or | (it is rendered as Markdown)")
     if f"[{doc['title']}]({doc['url']})" not in doc["acknowledgement"]:
         errors.append(f"{where}: acknowledgement: must contain the link [{doc['title']}]({doc['url']})")
-    if doc["scheduler"] not in SCHEDULERS:
+    sched = SCHEDULERS.get(doc["scheduler"])
+    if sched is None:
         errors.append(f"{where}: scheduler: must be one of {', '.join(SCHEDULERS)}, got {doc['scheduler']!r}")
+    elif sched.builtin_only and source != "built-in":
+        errors.append(f"{where}: scheduler: {sched.name} is built-in only (the built-in {sched.name} profile "
+                      f"words its evidence sentence; a package profile may not)")
+    if RUNS_TOKEN in doc["acknowledgement"] and not (
+            source == "built-in" and sched is not None and sched.sentence_level > 1):
+        errors.append(f"{where}: acknowledgement: the token {RUNS_TOKEN} is allowed only in a built-in profile "
+                      f"whose scheduler renders its sentence from a corroborated run (sentence level > 1)")
     try:
         mention_re = re.compile(doc["mention_pattern"], re.I)
     except re.error as e:

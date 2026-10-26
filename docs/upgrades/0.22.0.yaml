@@ -157,6 +157,30 @@ changes:
       body sees the placeholder.
     breaking: false
     changelog: Fixed
+  - pr: 338
+    id: ci-receipt-github-actions-level-1
+    kind: format
+    area: receipts, gate, receipt check, coverage check, page
+    summary: >-
+      Stage S1 of proposal 0008 (#318): a built-in-only scheduler github-actions (job id
+      gha-<run_id>-<run_attempt>) and built-in site profile of the same name, and an additive ci block of
+      lower-receipt/1 naming the GitHub Actions run (docs/formats.md, "The ci block"). gate, gate --check,
+      receipt check and every reader of a recorded receipt refuse a ci block that fails any level-1 rule, each
+      named; unknown keys inside it are ignored, and a receipt without it is judged as before. A receipt whose
+      block passes backs coverage.yaml compute [{cluster: github-actions, jobs: [gha-R-A]}]; a gha- receipt
+      without the block still gates and backs nothing. Level 1 is offline consistency, as forgeable as
+      slurm-<J>: the page never carries the GitHub Actions sentence at level 1, and a README carrying it fails
+      page --check and the publish --dry-run page line. page --json gains level, levels and sentence per site
+      under sites; the legacy top-level key stays easley only, in its old shape. Newly refused: a package
+      profile lean-pkg-sites/github-actions.yaml (a built-in name), a package profile with scheduler
+      github-actions, and an acknowledgement containing {runs} outside a built-in level-2 profile.
+    action: >-
+      Nothing for a package on Slurm or receipt local: its receipts, profiles and page are unchanged. The
+      compute[].cluster error now lists github-actions among the accepted names. A script reading page --json
+      sites sees three more keys per site. No package in the public index commits a profile that is now
+      refused.
+    breaking: false
+    changelog: Added
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

@@ -56,7 +56,9 @@ A new version of any lean-pkg format is a schema change: it starts as a
 Blocks and sidecars inside the receipt formats carry their own markers and
 follow the same rule: the sacct seal (`slurm-sacct-seal/1`, in
 `slurm_sacct.schema`), the olean manifest (`olean-manifest/1`) and the
-dependency fill provenance (`lean-pkg-fill-provenance/1`).
+dependency fill provenance (`lean-pkg-fill-provenance/1`). The `ci` block
+of a receipt from a GitHub Actions run has no marker of its own: it is an
+additive key of `lower-receipt/1` ([The `ci` block](#the-ci-block)).
 
 **Internal, not a public format.** The comparator runner's working files
 under `comparator-stages/` (`comparator-stages/1`, `comparator-attempt/1`,
@@ -104,6 +106,52 @@ optional key is the same ([lower-tier receipt schema](receipts.md#lower-tier-rec
 A receipt that lacks a required key is refused for that key first, as
 before, unless its marker names a newer version: then the upgrade message
 comes first, since a newer version may have changed the key set.
+
+## The `ci` block
+
+`ci` is an optional, additive key of `lower-receipt/1`
+([proposal 0008](proposals/0008-github-actions-compute-receipt.md)): the
+GitHub Actions run a receipt came from, every value from a variable the
+runner sets. The marker stays `lower-receipt/1`: a receipt without `ci`
+means what it meant before, and a lean-pkg that predates the key ignores it
+(it then reads the receipt as an ordinary lower-tier receipt and checks no
+`ci` rule). A receipt whose `job_id` is `gha-<run_id>-<run_attempt>` and
+whose `ci` block passes level 1 is the job of the built-in `github-actions`
+scheduler and can back `coverage.yaml` `compute`
+([Compute sites](sites.md#github-actions)).
+
+Level 1 is offline and is what `gate`, `gate --check`, `coverage check`,
+`page` and `receipt check` apply. A block that fails any rule below refuses
+the receipt (`ci block (a GitHub Actions run, level 1; ...): ...`, every
+failing rule named). Unknown keys inside `ci` (and inside `runner`) are
+ignored, as for `producer`.
+
+| Key | Type | Level 1 check |
+|---|---|---|
+| `provider` | string | equals `github-actions` |
+| `server_url` | string | equals `https://github.com` (GitHub Enterprise Server is not accepted) |
+| `repository` | `OWNER/REPO` | well formed, and the `OWNER/REPO` prefix of `workflow_ref` |
+| `repository_id` | integer > 0 | the type (level 2 compares it with the run) |
+| `run_id` | integer > 0 | `job_id` is `gha-<run_id>-<run_attempt>` |
+| `run_attempt` | integer >= 1 | as `run_id` |
+| `job` | one line of text | shown; not load-bearing |
+| `event` | string | `push` or `workflow_dispatch`; every other event is refused |
+| `head_sha` | 40 lowercase hex | equals the receipt's `commit` |
+| `workflow_ref` | `OWNER/REPO/.github/workflows/FILE.yml@REF` | well formed (the file directly under `.github/workflows/`, `.yml` or `.yaml`) |
+| `workflow_sha` | 40 lowercase hex | the commit the workflow file is read at |
+| `workflow_file_sha256` | 64 lowercase hex | the workflow file at `workflow_sha` hashes to it when that commit is in the clone; when it is not, a shown skip (`· ci: workflow file ... not rehashed`) |
+| `job_workflow` | `OWNER/REPO/.github/workflows/FILE.yml@REF` or `null` | well formed when not null |
+| `runner` | mapping `{environment, os, arch, image, image_version}` | `environment` is `github-hosted` (a self-hosted runner is refused, naming `receipt local`); `os`, `arch` one line of text; `image`, `image_version` one line of text or null |
+| `verify_log_sha256` | 64 lowercase hex | equals `report_sha256` (which the committed redacted log must hash to, as for every receipt) |
+| `attestation` | file name (no `/`), optional | the form only (the bundle is checked at level 3) |
+
+Level 1 is consistency with the receipt, the commit and the committed log:
+the strength of a `slurm-<J>` receipt, and as forgeable, since every value
+is text the author could write ([Trust model](trust-model.md#not-covered-lean-pkg-relies-on-honesty-here)).
+It backs a `compute` job but never puts the GitHub Actions sentence on the
+page: that needs a corroborated run (level 2, a later stage of the
+proposal). A receipt with a `gha-` job id and no `ci` block still passes
+`gate` and backs no `compute` job.
 
 ## Event log
 

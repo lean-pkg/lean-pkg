@@ -34,8 +34,8 @@ OTHER_SENTENCE = "Computations ran on the [Test Site Cluster](https://example.or
 
 def test_built_in_profiles_parse_and_ship():
     from lean_pkg import sites
-    assert list(sites.builtin()) == ["easley"]
-    assert sorted(p.stem for p in sites.BUILTIN_DIR.glob("*.yaml")) == ["easley"]
+    assert list(sites.builtin()) == ["easley", "github-actions"]
+    assert sorted(p.stem for p in sites.BUILTIN_DIR.glob("*.yaml")) == ["easley", "github-actions"]
     assert '"site_profiles/*.yaml"' in (ROOT / "pyproject.toml").read_text()      # in the wheel
     for name, sched in sites.SCHEDULERS.items():
         assert sched.name == name and sched.job_re.match(sched.example)
@@ -48,7 +48,7 @@ def test_easley_profile_is_the_pre_profile_behaviour():
     assert e.mention_re.pattern == r"Easley\s+Cluster" and e.mention_re.flags & re.I
     assert page.EASLEY_RE.search("the easley  cluster")
     assert e.mention == "the Easley Cluster" and sites.scheduler_of(e) is sites.SLURM
-    assert coverage.CLUSTERS == ("easley",) == sites.names()
+    assert coverage.CLUSTERS == ("easley", "github-actions") == sites.names()
     assert coverage.SLURM_JOB_RE.pattern == r"^slurm-\d+(?:_\d+)?$"
 
 
@@ -103,7 +103,7 @@ def test_unknown_cluster_message_lists_the_profiles(lp, env, capsys):
     doc["compute"] = [{"cluster": "testsite", "jobs": ["slurm-12345"]}]
     write_coverage(env, doc)
     rc, _out, err = run(lp, env, capsys, "page", "beta")
-    assert rc == 1 and "compute[0].cluster: must be one of easley, got 'testsite'" in err
+    assert rc == 1 and "compute[0].cluster: must be one of easley, github-actions, got 'testsite'" in err
 
 
 def test_a_package_profile_works_end_to_end(lp, env, capsys):
@@ -117,9 +117,13 @@ def test_a_package_profile_works_end_to_end(lp, env, capsys):
     md = a["markdown"]
     assert rc == 0 and EASLEY_SENTENCE_0_9_0 in md and OTHER_SENTENCE in md
     assert md.index(EASLEY_SENTENCE_0_9_0) < md.index(OTHER_SENTENCE)                 # built-in first
-    assert a["sites"] == {"easley": {"backed": True, "jobs": ["slurm-12345"]},
-                          "testsite": {"backed": True, "jobs": ["slurm-12345"]}}
-    assert a["easley"] == {"backed": True, "jobs": ["slurm-12345"]} and "testsite" not in a
+    slurm = {"backed": True, "jobs": ["slurm-12345"], "level": 1, "levels": {"slurm-12345": 1}, "sentence": True}
+    assert a["sites"] == {"easley": slurm, "testsite": slurm,
+                          "github-actions": {"backed": False, "jobs": [], "level": None, "levels": {},
+                                             "sentence": False}}
+    # the legacy top-level key: easley only, in its 0.7 shape; never one for another built-in profile
+    assert a["easley"] == {"backed": True, "jobs": ["slurm-12345"]}
+    assert "testsite" not in a and "github-actions" not in a
     assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
     assert check(lp, env, capsys) == (0, [])
     rc, out, _err = run(lp, env, capsys, "coverage", "check", "beta")

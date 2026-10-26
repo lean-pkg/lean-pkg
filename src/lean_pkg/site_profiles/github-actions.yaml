@@ -1,0 +1,12 @@
+# The built-in GitHub Actions site profile (site-profile/1; docs/sites.md; proposal 0008). Its scheduler,
+# github-actions, is built-in only and renders this sentence only from a corroborated run (sentence level 2,
+# `--corroborate`); offline (level 1) a receipt backs the compute job but the page carries no sentence.
+# mention_pattern is narrow on purpose: a CI badge or "tests run on GitHub Actions" is not a claim.
+schema: site-profile/1
+name: github-actions
+title: GitHub Actions
+url: https://docs.github.com/en/actions
+acknowledgement: "Verification ran on [GitHub Actions](https://docs.github.com/en/actions) hosted runners ({runs})."
+mention: GitHub Actions
+mention_pattern: 'Verification\s+ran\s+on\s+\[?GitHub\s+Actions'
+scheduler: github-actions

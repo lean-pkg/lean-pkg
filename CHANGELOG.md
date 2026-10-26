@@ -47,6 +47,30 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `--json` adds `offline`, `claims_file`, `comparator[]`, `checks[]` and
   `skipped[]` to the payload of the registered form, which is unchanged
   ([coverage check](docs/commands/coverage-check.md)).
+- A compute receipt from a GitHub Actions run, level 1 (#338; stage S1 of
+  proposal 0008, #318): a new built-in-only scheduler `github-actions`
+  (job id `gha-<run_id>-<run_attempt>`) and built-in site profile of the
+  same name, and an additive `ci` block of `lower-receipt/1` naming the run
+  ([on-disk formats](docs/formats.md#the-ci-block)). `gate`, `gate --check`,
+  `receipt check` and every reader of a recorded receipt refuse a block that
+  fails any level-1 rule, each named (provider, `server_url` github.com
+  only, `job_id` = `gha-<run_id>-<run_attempt>`, `head_sha` = `commit`,
+  `push` or `workflow_dispatch` only, a GitHub-hosted runner, naming
+  `receipt local` for a self-hosted one, `verify_log_sha256` =
+  `report_sha256`, `workflow_ref` of the same repository, the workflow
+  file rehashed when its commit is in the clone, else a shown skip); unknown
+  keys inside it are ignored. Such a receipt backs `coverage.yaml`
+  `compute: [{cluster: github-actions, jobs: [gha-R-A]}]`; a `gha-` receipt
+  without the block still gates and backs nothing, and the refusal names
+  it (the near-miss hints are now per scheduler). Level 1 is offline
+  consistency, as forgeable as `slurm-<J>`: the page never carries the
+  GitHub Actions sentence at level 1, and a README that does fails
+  `page --check` and the `publish --dry-run` page line. `page --json`
+  gains `level`, `levels`, `sentence` per site under `sites`; the legacy
+  top-level key stays `easley` only, in its old shape. A package profile
+  naming the `github-actions` scheduler, and an acknowledgement with the
+  `{runs}` token outside a built-in level-2 profile, are refused
+  ([compute sites](docs/sites.md#github-actions)).
 
 ### Changed
 
