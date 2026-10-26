@@ -96,7 +96,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   ([writing the receipt in CI](docs/sites.md#writing-the-receipt-in-ci),
   [receipt ci](docs/commands/receipt-ci.md)).
 - `--corroborate`: a GitHub Actions receipt corroborated against the
-  public run API, level 2 (#PR_S3; stage S3 of proposal 0008, #318).
+  public run API, level 2 (#355; stage S3 of proposal 0008, #318).
   `receipt check --corroborate [--github OWNER/REPO]`, `page --corroborate`
   and `publish --dry-run --corroborate` ask `api.github.com` (https only, a
   timeout, a redirect elsewhere refused) about the attempt each receipt

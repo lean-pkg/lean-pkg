@@ -429,7 +429,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 355
     id: ci-receipt-corroborate
     kind: command
     area: receipt check, page
