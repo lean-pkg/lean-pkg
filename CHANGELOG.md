@@ -129,7 +129,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
-- `report` (#PR_K, #330): a registry with a live lease no longer blocks
+- `report` (#336, #330): a registry with a live lease no longer blocks
   every report. The blocking guard scanned the whole body, the report's
   own fixed prose included, so a registry-derived name that is also an
   ordinary word (a workspace such as `/home/...` yields `home`, which the

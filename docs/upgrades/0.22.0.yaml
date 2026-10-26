@@ -137,7 +137,7 @@ changes:
     breaking: false
     changelog: Changed
     split: true
-  - pr: 0
+  - pr: 336
     id: report-redaction-of-attached-sections
     kind: behavior
     area: report
