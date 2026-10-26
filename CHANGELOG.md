@@ -207,7 +207,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   comparison methods `text/1` and later `types/1`, kept out of the exported
   tree and read by no gate; for the maintainer's decision (#329).
 - Comparator under the module system, and what `page --check` covers
-  (#PR_DOC): docs/comparator.md explains why a proved Reference copy is
+  (#343): docs/comparator.md explains why a proved Reference copy is
   refused when both sides are Lean modules (proof auxiliaries from
   `inferInstanceAs` and from `simp` with an `↔` lemma get module-private
   names), with the two workarounds, reproduced on Lean v4.35.0 fixtures;
