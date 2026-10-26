@@ -60,7 +60,7 @@ legacy mechanism's first run builds its tools once (about 25 minutes).
 
 ## 4. Pick up a workflow habit
 
-- **Claim before you work.** `lean-pkg claim` is how two people, or a person
+- **Claim before you work.** `lean-pkg lease claim` is how two people, or a person
   and an agent, never edit the same package at once.
 - **Commit evidence, never results.** `.lean-receipts/` is committed; the
   registry stores only paths. A receipt you cannot re-derive is not evidence.

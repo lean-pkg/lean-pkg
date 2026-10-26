@@ -52,7 +52,7 @@ lean-pkg next my-proof --agent vera --json             # the one recommended nex
 lean-pkg lease claim my-proof --workspace w3 --agent vera --reason "comparator evidence" --json
 cd ~/src/my-proof && git status --short                 # must be empty
 lake exe cache get && lean-pkg receipt comparator                 # inside Slurm, or on an allowed host
-lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.json --json
+lean-pkg comparator check my-proof --receipt .lean-receipts/<c12>-comparator.json --json
 git add .lean-receipts && git commit -m "evidence: comparator receipt for <c12>"
 lean-pkg comparator attach my-proof --receipt .lean-receipts/<c12>-comparator.json --json
 lean-pkg publish my-proof --yes --dry-run --json                        # dry run; hand the checklist to a human

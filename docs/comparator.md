@@ -1299,7 +1299,7 @@ while the comparator receipt and the gate still bind the full comparison.
 
 Which file, first match wins:
 
-1. `lean-pkg formalization NAME --headline-config PATH` for that call
+1. `lean-pkg formalization render NAME --headline-config PATH` for that call
    (`--write` also records it in the registry);
 2. the registry field `headline_config` (`lean-pkg update NAME --headline-config PATH`;
    `''` clears it);
@@ -2070,7 +2070,7 @@ First live run of the toolchain mechanism (2026-10-06, Lean v4.35.0-rc2, a
 one-theorem smoke configuration): `lake comparator` printed one acceptance
 line per kernel (con-ron, NanoDa, Lean's default kernel) and finally
 `Your solution is okay!`, and the runner wrote a schema-2 receipt that
-`lean-pkg comparator --check` accepted.
+`lean-pkg comparator check` accepted.
 
 The toolchain mechanism needs a Mathlib dependency: a `mathlib` package in
 `lake-manifest.json`. `verify-comparator.sh` runs `lake exe cache get`
@@ -2442,7 +2442,7 @@ miss is a named refusal. See [Receipts and trust](receipts.md).
 checkout's HEAD and has its logs there, so pass the checkout with `--repo`:
 
 ```bash
-lean-pkg comparator beta --check --receipt .lean-receipts/<c12>-comparator.json --repo .
+lean-pkg comparator check beta --receipt .lean-receipts/<c12>-comparator.json --repo .
 ```
 
 The rules are those of `gate --check --repo DIR`: this call only, never

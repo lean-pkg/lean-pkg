@@ -49,5 +49,5 @@ registry created: ~/.lean-pkg/registry/lean-packages.yaml (version 3); events: ~
 The same with the registry file named explicitly; the global --registry flag goes before the command.
 
 ```bash
-lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml init
+lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init
 ```

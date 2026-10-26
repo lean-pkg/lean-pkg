@@ -96,12 +96,13 @@ lean-pkg lease claim my-proof --workspace w9 --agent bob --force --reason "alice
 ```
 
 A refusal names the current holder and the expiry. Work that outlasts the
-TTL renews before the lease lapses; a lapsed lease is refused by `renew`
-(claim again). `audit` reports expired leases; `audit --fix` clears them.
-`status` ends with `lease: EXPIRED ...` once a lease has lapsed and with
-`lease: expires in ...` in its last two hours, and any other command on the
+TTL renews before the lease lapses; a lapsed lease is refused by `lease renew`
+(claim again). `registry audit` reports expired leases; `registry audit --write`
+clears them. `status` ends with `lease: EXPIRED ...` once a lease has lapsed and
+with `lease: expires in ...` in its last two hours, and any other command on the
 package says the same on stderr, so a holder that went idle hears it on its
-next command. `lean-pkg lease` is another name for `lean-pkg claim`.
+next command. The lease commands are `lean-pkg lease claim`, `lease renew`,
+`lease release` and `lease list`.
 
 ## Move a package through the lifecycle by hand
 
@@ -293,8 +294,8 @@ lean-pkg comparator check my-proof --receipt .lean-receipts/<c12>-comparator.jso
 ## Render formalization.yaml
 
 ```bash
-lean-pkg formalization my-proof            # print to stdout
-lean-pkg formalization my-proof --write    # write it and set the registry pointer
+lean-pkg formalization render my-proof            # print to stdout
+lean-pkg formalization render my-proof --write    # write it and set the registry pointer
 ```
 
 The mathlib-initiative v0.4 report Palomar reads, derived from the registry,
@@ -497,8 +498,8 @@ lean-pkg doctor      # registry: ... [source: user-default]
 ## Upgrade an old registry
 
 ```bash
-lean-pkg migrate --dry-run
-lean-pkg migrate                             # additive and idempotent
+lean-pkg registry migrate --dry-run
+lean-pkg registry migrate                             # additive and idempotent
 ```
 
 ## Render a status page

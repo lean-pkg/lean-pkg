@@ -136,7 +136,7 @@ run `claims sync`: only `sync` changes the cached claims.
 `claims sync` reads the committed file at `HEAD` (an uncommitted edit does not
 count) and refuses a file whose `package` is another name. The registry keeps
 the copy and the commit it was read at (registry version 3, keys
-`claims_file`, `claims`, `claims_synced_commit`; `lean-pkg migrate` adds
+`claims_file`, `claims`, `claims_synced_commit`; `lean-pkg registry migrate` adds
 them), so search works offline and from any machine that shares the registry.
 
 ### Move to a new manuscript version
@@ -477,7 +477,7 @@ built.
 
 ## Reminders, not gates
 
-`lean-pkg claim` prints a note when the package has no `prior-art-searched`
+`lean-pkg lease claim` prints a note when the package has no `prior-art-searched`
 event in the last 30 days and no claims, and `lean-pkg index add` prints a
 note for each headline that no record under `docs/prior-art/` at the pin names
 (by the last component of its declaration). Neither refuses anything.

@@ -164,7 +164,7 @@ lean-pkg lease renew my-proof --agent you            # past 24 h: renew before t
 cd ~/src/my-proof && lake exe cache get    # your checkout: the --path above, under $HOME
 # on your own machine, allow this host; without it the run refuses by design
 COMPARATOR_RECEIPT_ALLOWED_HOSTS="$(hostname)" comparator-receipt
-lean-pkg comparator my-proof --check --receipt .lean-receipts/<c12>-comparator.json
+lean-pkg comparator check my-proof --receipt .lean-receipts/<c12>-comparator.json
 lean-pkg publish my-proof --yes --dry-run                      # dry run: the checklist says what is missing
 ```
 
@@ -193,7 +193,7 @@ the [roadmap](ROADMAP.md); it is not implemented yet.
 | Step | Commands | What it gives you |
 |---|---|---|
 | register | `lean-pkg register`, `update` | one record per package; `register` is the only way in |
-| claim | `lean-pkg claim`, `renew`, `release`, `leases` | a lease (24 h by default; `--contact` names the session behind it), so two people or agents never work on one package unknowingly |
+| claim | `lean-pkg lease claim`, `lease renew`, `lease release`, `lease list` | a lease (24 h by default; `--contact` names the session behind it), so two people or agents never work on one package unknowingly |
 | gate | `lean-pkg gate` | the lower-tier receipt (build, no `sorry`, axioms) moves the package to `verified-private` |
 | comparator | `lean-pkg receipt comparator`, `lean-pkg comparator` | the comparator receipt: trusted statements against untrusted proofs, replayed in a second kernel |
 | publish | `lean-pkg publish --dry-run`, `promote` | one read-only checklist to listed, then the one-way flip to public |
@@ -220,7 +220,7 @@ pre-fills statements with typed numerals, such as
 `(3 / 2 : ℝ)`, so they elaborate back to the original. `lean-pkg receipt comparator`
 checks early that every configured module is a Lake target and that no
 dependency is a symlink its sandbox cannot see, and
-`lean-pkg comparator NAME --check --receipt R --repo DIR` pre-checks a
+`lean-pkg comparator check NAME --receipt R --repo DIR` pre-checks a
 receipt made in a worktree ([The comparator tier](docs/comparator.md#stages-and---prepare)).
 
 Something went wrong? `lean-pkg report --command "..."` drafts a bug report in this repository's issue format with every private path and address redacted; `--yes` files it.
@@ -254,7 +254,7 @@ with the index and public sources ([Prior-art search](docs/prior-art.md)):
 exits 1 when the search is incomplete (a source skipped, failed or capped),
 and `--cache-dir` keeps one search's cache apart ([Requiring a complete search](docs/prior-art.md#requiring-a-complete-search)).
 `formalization.yaml` is the mathlib-initiative self-report Palomar reads;
-`lean-pkg formalization NAME` renders it from the registry and the receipts
+`lean-pkg formalization render NAME` renders it from the registry and the receipts
 ([formalization.yaml](docs/formalization.md)). For a public companion,
 `lean-pkg page NAME --write` renders the README's verification section, mathematics
 first (what to compare, then each result with the paper's statement beside

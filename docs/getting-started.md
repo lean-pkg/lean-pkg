@@ -299,7 +299,7 @@ explains what goes in each file.
 | `enable_nanoda` | `true`: also replay in the nanoda kernel |
 
 Write `"definition_names": []` even when it is empty: the receipt records
-the list, and `lean-pkg comparator --check` compares it with the file.
+the list, and `lean-pkg comparator check` compares it with the file.
 
 Several configurations may be declared, as `comparator*.json` at the project
 root or as `comparator/config*.json`. Every one of them must pass. See the
@@ -424,7 +424,7 @@ descendant* of the certified commit, and both receipts stay valid. See
 ### 6. Re-check the comparator evidence
 
 ```bash
-lean-pkg comparator my-proof --check --receipt .lean-receipts/cb3d68a21454-comparator.json
+lean-pkg comparator check my-proof --receipt .lean-receipts/cb3d68a21454-comparator.json
 ```
 
 Expected output:

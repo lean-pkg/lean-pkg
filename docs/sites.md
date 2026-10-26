@@ -92,7 +92,7 @@ older top-level `easley` key is kept).
 
 Nothing above is required. A page without `compute` carries only the
 lean-pkg credit. The lower-tier receipt can come from any executor
-(`lean-pkg receipt local` runs the verify script in a capped local unit; see
+(`lean-pkg receipt systemd --run` runs the verify script in a capped local unit; see
 [Receipts and trust](receipts.md)). A receipt from a CI runner is designed
 in [the design note](design/sites-and-ci-receipts.md#4-design-a-compute-receipt-from-a-ci-runner-github-actions-first)
 and not yet implemented.
