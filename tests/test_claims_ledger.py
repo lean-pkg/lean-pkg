@@ -258,6 +258,11 @@ def _depends_on_unknown(lp, env, capsys):
     gated(env, claims=claims_list(zap=claim("zap", "Demo.zap", deps=["other-pkg/thing"])))
 
 
+def _hypotheses_unchecked(lp, env, capsys):     # proposal 0003, stage H2: fail closed until H3
+    gated(env, claims=claims_list(**{"foo-le-bar": dict(claim("foo-le-bar", "Demo.foo_le_bar"),
+                                                       hypotheses=["Hyp.A"])}))
+
+
 # code -> (scenario, the claim it lands on, that claim's status, the package status)
 SCENARIOS = {
     "no-checkout": (_no_checkout, "foo-le-bar", "unknown", "unknown"),
@@ -278,6 +283,7 @@ SCENARIOS = {
     "comparator-todo": (_comparator_todo, "baz", "open", "open"),
     "depends-on-open": (_depends_on_open, "zap", "blocked", "open"),
     "depends-on-unknown": (_depends_on_unknown, "zap", "unknown", "unknown"),
+    "hypotheses-unchecked": (_hypotheses_unchecked, "foo-le-bar", "open", "open"),
 }
 
 

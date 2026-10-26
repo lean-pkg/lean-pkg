@@ -559,11 +559,19 @@ def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, statement: str 
     return md, word, compared
 
 
+def _input_md(x) -> str:
+    """One coverage input: a string as before; a {hypothesis, text} entry (proposal 0003) as its text and the
+    assumption's Lean name."""
+    if isinstance(x, dict):
+        return f"{_md(x.get('text'))} (`{_code(x.get('hypothesis'))}`)"
+    return _md(x)
+
+
 def _hypotheses(r: dict) -> str:
     if r["class"] == "same-assumptions":
         return "**Hypotheses.** The paper's own: the Lean statement assumes nothing the paper does not."
     return ("**Hypotheses.** The paper's, plus these, which the Lean statement assumes and the paper proves or "
-            "assumes elsewhere: " + "; ".join(_md(x) for x in r["inputs"]) + ".")
+            "assumes elsewhere: " + "; ".join(_input_md(x) for x in r["inputs"]) + ".")
 
 
 TRUST_LINE = ("**How to read this page.** Lean has checked every step of the proofs listed here. It cannot check "
@@ -888,7 +896,7 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
                   f"{'<br>'.join(f'`{_code(c)}`' for c in ids) or '—'} | "
                   f"{'<br>'.join(_decl_ref(claims[c], c, ctx['link_base']) for c in ids) or '—'} | "
                   f"{'<br>'.join(_status_cells(r, by_id)) or '—'} | "
-                  f"{'<br>'.join(_md(x) for x in r.get('inputs') or []) or '—'} | "
+                  f"{'<br>'.join(_input_md(x) for x in r.get('inputs') or []) or '—'} | "
                   f"{_md(r['note']) if r.get('note') else '—'} |")
     md += ["", "One line per paper result of `coverage.yaml`. *Ledger*: the status `lean-pkg claims ledger` "
                "gives each claim, in the order of the claims; only *verified* means the "

@@ -126,6 +126,34 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   the section for a built checkout
   ([on-disk formats](docs/formats.md#the-hypotheses-section-of-the-verify-log-hyp-probe1),
   [receipts](docs/receipts.md#hypotheses-section-hyp-probe1)).
+- Conditional claims, stage H2 (#0; #320, proposal 0003): `claims/1`
+  accepts three optional keys, and the schema string stays `claims/1`.
+  `hypotheses` (theorem and lemma claims) lists the assumptions the
+  declaration takes as explicit binders: distinct fully qualified names,
+  never `TODO`; `[]` or absent normalizes exactly as before. `discharges
+  {claim, hypotheses, proofs}` (exact keys) says which hypotheses of another
+  claim of the file a corollary removes, with one proof claim each: the
+  target, after following `superseded_by`, is a theorem or lemma whose
+  hypotheses include every discharged name, and this claim's hypotheses
+  equal the rest; a `Q/slug` target or proof is refused with `cross-package
+  discharge is not implemented (proposal 0003, open question 2)`. `witness`
+  names a theorem or lemma claim showing the hypotheses can hold together,
+  only on a claim with hypotheses. Every refusal names the claim and the
+  key. Fail closed until the ledger evaluates discharge: a claim that sets
+  any of the keys gets the new ledger code `hypotheses-unchecked` (class
+  open), so it is never `verified` on the ledger, the page or in
+  `promote`. `claims list` marks a claim with hypotheses `(conditional)`
+  (`--json`: `conditional: true` on that row). A `coverage/1` `inputs`
+  entry may be `{hypothesis: Name, text: one line}`; `coverage check`, in
+  both forms, refuses a hypothesis named twice in a row or not in the
+  `hypotheses` of a claim the row names (the offline check adds the entry
+  `input hypotheses` only when a row has such an input). An older lean-pkg
+  refuses files that use the keys, so a package that uses them needs this
+  release in its CI pin. Packages without the keys: claims, ledger, digest,
+  page and JSON unchanged
+  ([conditional claims](docs/prior-art.md#conditional-claims),
+  [ledger codes](docs/lifecycle.md#claims-ledger),
+  [coverage.yaml](docs/page.md#coverageyaml)).
 
 - The committed docs-only opt-in, `lean-pkg-binding.yaml` (#349; #319,
   proposal 0002, stage G1): a package opts in to the docs-only descendant

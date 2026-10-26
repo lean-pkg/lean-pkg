@@ -22,7 +22,9 @@ formalized" list and the status capsule from it; this module only parses and val
           # paper.statement (optional): the result as the paper states it, in TeX, at most 2000 characters
         class: same-assumptions | inputs-supplied | outside
         claims: [NAME/claim-id, ...]             # ids in claims.yaml at HEAD; none for outside
-        inputs: [TEXT, ...]                      # required for inputs-supplied; none otherwise
+        inputs: [TEXT, ...]                      # required for inputs-supplied; none otherwise; an entry
+                                                 # may be {hypothesis: Name, text: TEXT} (proposal 0003): an
+                                                 # assumption in the hypotheses of a claim the row names
         note: TEXT                               # optional
     nothing_excluded: {reason: TEXT}             # only when no row is outside
     compute:                                     # optional: where the gates ran
@@ -88,6 +90,7 @@ LIBRARY_NO_PAPER = {
 LIBRARY_ROW_NO_PAPER = ("paper", "class", "inputs")
 ROW_REQUIRED = ("paper", "class")
 ROW_OPTIONAL = ("claims", "inputs", "note")
+INPUT_KEYS = ("hypothesis", "text")             # an inputs entry that names a hypothesis (proposal 0003, H2)
 PAPER_REQUIRED = ("number", "title")
 PAPER_OPTIONAL = ("label", "statement")
 CLASSES = ("same-assumptions", "inputs-supplied", "outside")
@@ -170,6 +173,62 @@ def _str_list(v, where: str, errors: list[str]) -> list[str]:
     if len(set(v)) != len(v):
         errors.append(f"{where}: repeats an entry")
     return list(v)
+
+
+def _inputs_list(v, where: str, errors: list[str]) -> list:
+    """A row's inputs: each a one-line string (as before) or {hypothesis: Name, text: one line} with exactly
+    those keys (proposal 0003); no string twice and no hypothesis twice."""
+    from . import lean_scan
+    if v is None:
+        return []
+    if not isinstance(v, list):
+        errors.append(f"{where}: must be a list of one-line strings (at most {TEXT_MAX} characters each) or "
+                      f"{{hypothesis, text}} mappings")
+        return []
+    ok = True
+    for j, x in enumerate(v):
+        w = f"{where}[{j}]"
+        if isinstance(x, dict):
+            if not _keys(x, INPUT_KEYS, (), w, errors):
+                ok = False
+                continue
+            h = x["hypothesis"]
+            if not (isinstance(h, str) and lean_scan.is_name(h)) or h == "TODO":
+                errors.append(f"{w}.hypothesis: must be the fully qualified Lean name of an assumption (a name "
+                              f"in the hypotheses of a claim the row names), got {h!r}")
+                ok = False
+            if not _text(x["text"]):
+                errors.append(f"{w}.text: must be one line of at most {TEXT_MAX} characters")
+                ok = False
+        elif not _text(x):
+            errors.append(f"{w}: must be a one-line string (at most {TEXT_MAX} characters) or a mapping "
+                          f"{{hypothesis, text}}")
+            ok = False
+    if not ok:
+        return []
+    texts = [x for x in v if isinstance(x, str)]
+    if len(set(texts)) != len(texts):
+        errors.append(f"{where}: repeats an entry")
+    hyps = [x["hypothesis"] for x in v if isinstance(x, dict)]
+    dups = sorted({h for h in hyps if hyps.count(h) > 1})
+    if dups:
+        errors.append(f"{where}: names hypothesis {', '.join(dups)} more than once")
+    return list(v)
+
+
+def input_hypothesis_problems(doc: dict, claims: dict[str, dict], where: str) -> list[str]:
+    """Each {hypothesis, text} input names a hypothesis of some claim its row names (claims.yaml `hypotheses`,
+    read from `where`)."""
+    errors: list[str] = []
+    for i, r in enumerate(doc.get("rows") or []):
+        ids = [cid for cid in r.get("claims") or [] if cid in claims]
+        have = {h for cid in ids for h in (claims[cid].get("hypotheses") or []) if isinstance(h, str)}
+        for j, x in enumerate(r.get("inputs") or []):
+            if isinstance(x, dict) and x.get("hypothesis") not in have:
+                errors.append(f"rows[{i}].inputs[{j}].hypothesis: {x.get('hypothesis')!r} is not in the hypotheses "
+                              f"of any claim the row names ({', '.join(ids) or 'none'}) in {where}; list it under "
+                              f"hypotheses of the claim whose declaration takes it, or write the input as text")
+    return errors
 
 
 def _strings(obj, where: str):
@@ -350,7 +409,7 @@ def _paper_rows_errors(doc: dict, errors: list[str]) -> None:
             errors.append(f"{w}.class: must be one of {', '.join(CLASSES)}, got {cls!r}")
             continue
         claims = _str_list(r.get("claims"), f"{w}.claims", errors)
-        inputs = _str_list(r.get("inputs"), f"{w}.inputs", errors)
+        inputs = _inputs_list(r.get("inputs"), f"{w}.inputs", errors)
         if "note" in r and not _text(r["note"]):
             errors.append(f"{w}.note: must be one line of at most {TEXT_MAX} characters")
         if cls == "outside":
@@ -635,6 +694,7 @@ def check_against(doc: dict, claims: dict[str, dict], claims_rel: str, repo: pat
                   ) -> tuple[list[str], list[str]]:
     """(errors, warnings) of a schema-valid document against the package: claim ids, receipts, versions."""
     errors = claim_id_problems(doc, claims, f"{claims_rel} at HEAD")
+    errors += input_hypothesis_problems(doc, claims, f"{claims_rel} at HEAD")
     warnings: list[str] = []
     if repo is not None:
         _backed, problems = compute_backing(doc, repo)
@@ -855,10 +915,16 @@ def offline_check(text: str, where: str, *, claims_text: str | None = None, clai
         why = why_not if not valid else ("no claims file given (--claims PATH)" if claims_text is None
                                          else f"{claims_where} is not a valid claims/1 file")
         _add("claim ids", "skipped", why)
+        if valid and any(isinstance(x, dict) for r in doc["rows"] for x in r.get("inputs") or []):
+            _add("input hypotheses", "skipped", why)
         _add("reusable claims", "skipped", why)
     else:
         p = claim_id_problems(doc, claims, claims_where)
         _add("claim ids", "fail" if p else "pass", f"each row's claim ids are claims of {claims_where}", p)
+        if any(isinstance(x, dict) for r in doc["rows"] for x in r.get("inputs") or []):
+            p = input_hypothesis_problems(doc, claims, claims_where)    # only when an input names a hypothesis
+            _add("input hypotheses", "fail" if p else "pass",
+                 "each {hypothesis, text} input is a hypothesis of a claim its row names", p)
         named = {cid for r in doc["rows"] for cid in r.get("claims") or []}
         unnamed = [cid for cid, c in claims.items() if c.get("status") == "reusable" and cid not in named]
         if unnamed:

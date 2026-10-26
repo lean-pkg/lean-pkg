@@ -299,6 +299,47 @@ changes:
       section is refused at write time; the only way to get one is a hand-edited script.
     breaking: false
     changelog: Added
+  - pr: 0
+    id: claims-hypotheses-keys
+    kind: format
+    area: claims
+    summary: >-
+      Stage H2 of proposal 0003 (#320): claims/1 accepts three optional keys (the schema string stays claims/1).
+      hypotheses (theorem and lemma claims only) lists the assumptions the declaration takes as explicit binders,
+      distinct fully qualified names, never TODO; [] or absent normalizes exactly as before. discharges {claim,
+      hypotheses, proofs} (exact keys) says which hypotheses of another claim of the file this corollary removes,
+      and the proof claim of each; the target, after following superseded_by, must be a theorem or lemma whose
+      hypotheses include every discharged name, this claim's hypotheses must equal the rest, and a Q/slug claim
+      or proof is refused ('cross-package discharge is not implemented (proposal 0003, open question 2)').
+      witness names a theorem or lemma claim showing the hypotheses can hold together, only on a claim with
+      hypotheses. Each refusal names the claim and the key. Fail closed until the ledger evaluates them: a claim
+      that sets any of the keys gets the new ledger code hypotheses-unchecked (class open), so it is never
+      verified on the ledger, the page or in promote. claims list marks a claim with hypotheses (conditional)
+      (--json conditional: true on that row only).
+    action: >-
+      Nothing for a package that does not use the keys: its claims, ledger, digest, page and JSON are unchanged.
+      A package that uses them needs this release in its CI pin: an older lean-pkg refuses its claims.yaml
+      (claims/1 refuses unknown keys), and its claims stay open (hypotheses-unchecked) until a later release
+      evaluates discharge.
+    breaking: false
+    changelog: Added
+    split: true
+  - pr: 0
+    id: coverage-input-hypotheses
+    kind: format
+    area: coverage check
+    summary: >-
+      Stage H2 of proposal 0003 (#320): an entry of a coverage/1 row's inputs may be {hypothesis: Name, text: one
+      line} (exact keys) as well as a string; a hypothesis named twice in a row is refused, and coverage check
+      (the registered form and the offline --file form with --claims) refuses a hypothesis that is not in the
+      hypotheses of some claim the row names. The offline check gains the entry 'input hypotheses' only when a
+      row has such an input. The page shows the text and the name.
+    action: >-
+      Nothing for a coverage.yaml with string inputs. One that uses the mapping needs this release in its CI pin:
+      an older lean-pkg refuses the file (coverage/1 is strict).
+    breaking: false
+    changelog: Added
+    split: true
   - pr: 349
     id: binding-file
     kind: format
