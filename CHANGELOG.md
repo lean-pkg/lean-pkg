@@ -127,8 +127,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (they were `v4.35.0-rc2`). The output says when the pins are a release
   candidate, and `--json` adds `release_candidate` (additive).
 
-### Fixed
-
 - `report` (#336, #330): a registry with a live lease no longer blocks
   every report. The blocking guard scanned the whole body, the report's
   own fixed prose included, so a registry-derived name that is also an
