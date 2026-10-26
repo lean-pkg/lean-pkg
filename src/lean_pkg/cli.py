@@ -150,6 +150,80 @@ EVIDENCE_EVENTS = {
     "mathlib-pr-merged":       ("url",),
 }
 RETRACT_EVENT = "retract"   # `record NAME retract`: append-only correction of an evidence entry
+
+# The event-line schema (1.0 command tree, section 6, item 2; docs/formats.md "Event log"). Every line
+# carries EVENT_LINE_KEYS; `v` is the line's version, EVENT_LINE_VERSION since 0.22.0, and a line without
+# it (written before) is version 0, read exactly as before. A reader that interprets events skips a line
+# of a newer (or unreadable) version and says so; it never guesses at it.
+EVENT_LINE_VERSION = 1
+EVENT_LINE_KEYS = ("ts", "event", "name", "v")
+# Events written only to the log (no history[] entry, no `actor` unless listed); every other event is a
+# package event written by record(), which may also carry `actor` (the --agent of the invocation, #21.3).
+LOG_ONLY_EVENTS = ("registry-created", "registry-migrated", "index-added", "prior-art-searched")
+# `updated` carries <field>_from (the old value) for each field it changed: these fields.
+UPDATED_FROM_FIELDS = ("lean_toolchain", "mathlib_pin", "status")   # plus every UPDATABLE field
+_GATE_EVENT_KEYS = ("commit", "job_id", "checker", "receipt", "descendant_of", "docs_paths", "comparator",
+                    "comparator_cleared", "status_unchanged", "pins")
+_LEASE_EVENT_KEYS = ("agent", "workspace", "ttl_hours", "reason", "contact")
+# Every event name lean-pkg writes, with the keys it may carry beyond EVENT_LINE_KEYS. docs/formats.md
+# documents the same table and tests/test_formats.py checks both against every emitting call in src/.
+EVENT_KEYS: dict[str, tuple[str, ...]] = {
+    "registry-created": ("registry", "version", "forced"),
+    "registry-migrated": ("from_version", "to_version", "changes"),
+    "registered": ("repo", "local_path", "status", "visibility", "lean_toolchain", "mathlib_pin", "workspace",
+                   "agent", "reason", "like", "license_spdx"),
+    "updated": ("fields", "reason", "forced", "notes_replaced", "<field>_from"),
+    "claimed": _LEASE_EVENT_KEYS,
+    "claim-forced": _LEASE_EVENT_KEYS,
+    "claim-refreshed": ("agent", "workspace", "ttl_hours", "reason", "contact", "contact_cleared"),
+    "released": ("agent", "workspace", "released_by", "reason"),
+    "release-forced": ("agent", "workspace", "released_by", "reason"),
+    "lease-expired": ("agent", "workspace", "claimed_at", "ttl_hours"),
+    "gate-passed": _GATE_EVENT_KEYS,
+    "regated": ("previous_commit", *_GATE_EVENT_KEYS, "reason", "non_descendant"),
+    "comparator-attached": ("commit", "comparator", "host", "job_id", "descendant_of", "docs_paths"),
+    "comparator-replaced": ("commit", "comparator", "host", "job_id", "replaced", "descendant_of", "docs_paths"),
+    "promoted": ("commit", "visibility"),
+    "publication-withdrawn": ("status_from", "status_to", "visibility_from", "visibility_to", "reason", "by",
+                              "github_visibility", "promoted_commit", "forced"),
+    "publication-hold-released": ("reason", "hold", "by", "forced"),
+    "audit-fix": ("field", "old", "new", "source"),
+    "relocated": ("old_path", "new_path", "reason", "cleared", "agent", "redetected"),
+    "status-changed": ("status_from", "status_to", "reason"),
+    "palomar-prepared": ("commit", "bundle", "bundle_sha256"),
+    "claims-synced": ("commit", "file", "claims"),
+    "index-added": ("repo", "commit", "trust", "index"),
+    "prior-art-searched": ("term", "sources", "hits", "record", "decision", "actor"),
+    "evidence-retracted": ("retracted_event", "retracted_ts", "retracted_entry", "reason"),
+    **{e: (*keys, "reason", *(("concept", "track") if e == "doi-minted" else ()))
+       for e, keys in EVIDENCE_EVENTS.items()},
+}
+
+
+def event_line_version(line: dict) -> int | None:
+    """The version of one parsed event line: 0 without `v` (written before 0.22.0), the integer `v`
+    otherwise; None when `v` is not a non-negative integer (unreadable, never guessed at)."""
+    if "v" not in line:
+        return 0
+    v = line["v"]
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+
+def event_line_problems(line: dict) -> list[str]:
+    """Why a line lean-pkg writes would not match the documented event-line schema (EVENT_KEYS): an
+    undocumented event name, or a key that event does not document. Empty when it matches."""
+    event = line.get("event")
+    if event not in EVENT_KEYS:
+        return [f"event {event!r} is not documented in EVENT_KEYS (docs/formats.md)"]
+    allowed = set(EVENT_LINE_KEYS) | set(EVENT_KEYS[event])
+    if event not in LOG_ONLY_EVENTS:
+        allowed.add("actor")
+    from_ok = ("<field>_from" in allowed and
+               {f"{f}_from" for f in (*UPDATED_FROM_FIELDS, *UPDATABLE)})
+    return [f"event {event!r} key {k!r} is not documented in EVENT_KEYS (docs/formats.md)"
+            for k in sorted(line) if k not in allowed and not (from_ok and k in from_ok)]
+
+
 _HEX40 = re.compile(r"[0-9a-f]{40}")
 RESERVOIR_URL_RE = re.compile(r"^https://reservoir\.lean-lang\.org/@([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/?$")
 RESERVOIR_API = "https://reservoir.lean-lang.org/api/v1/packages/{owner}/{name}"
@@ -255,6 +329,13 @@ LEASE_CONTACT_MAX = 200                 # characters
 RECEIPT_FIELDS = ["commit", "lean_toolchain", "mathlib_rev", "sorry_count",
                   "axioms", "report_sha256", "job_id", "checker",
                   "generated_at"]
+# The lower-tier receipt's schema marker (1.0 command tree, section 6, item 1): every writer (receipt slurm,
+# receipt systemd/local) puts `schema` first since 0.22.0. A receipt without the key is version 0 and is
+# judged exactly as before, forever: receipts are evidence bound to bytes and never rewritten. A newer
+# lower-receipt/N is refused (upgrade lean-pkg), as a newer registry version is.
+LOWER_RECEIPT_SCHEMAS = ("lower-receipt/1",)
+LOWER_RECEIPT_SCHEMA = LOWER_RECEIPT_SCHEMAS[-1]
+_LOWER_RECEIPT_SCHEMA_RE = re.compile(r"lower-receipt/([1-9][0-9]*)")
 COMPARATOR_SCHEMAS = ("comparator-receipt/1", "comparator-receipt/2")
 COMPARATOR_SCHEMA = COMPARATOR_SCHEMAS[-1]
 COMPARATOR_MECHANISMS = ("toolchain", "legacy")
@@ -1453,7 +1534,9 @@ def run_snapshot(args, commit: str) -> int:
 
 
 def _event_line(ts: str, name, event: str, **fields) -> str:
-    return json.dumps({"ts": ts, "event": event, "name": name, **fields}, sort_keys=True) + "\n"
+    """One event-log line: EVENT_LINE_KEYS (`v` last, so no field can replace it) and the event's fields."""
+    return json.dumps({"ts": ts, "event": event, "name": name, **fields, "v": EVENT_LINE_VERSION},
+                      sort_keys=True) + "\n"
 
 
 def _write_event_lines(events_p: pathlib.Path, lines: list[str]) -> None:
@@ -2036,14 +2119,25 @@ def recent_prior_art(events_p: pathlib.Path, name: str, now: dt.datetime,
     if not events_p.is_file():
         return False
     cutoff = now - dt.timedelta(days=days)
+    skipped = 0
     for line in events_p.read_text(errors="replace").splitlines():
         try:
             e = json.loads(line)
-            if isinstance(e, dict) and e.get("event") == "prior-art-searched" \
+            if not isinstance(e, dict):
+                continue
+            v = event_line_version(e)
+            if v is None or v > EVENT_LINE_VERSION:
+                skipped += 1        # a newer lean-pkg wrote it: not read, and said so below
+                continue
+            if e.get("event") == "prior-art-searched" \
                     and e.get("name") == name and parse_ts(e.get("ts")) >= cutoff:
                 return True
         except (ValueError, TypeError):
             continue
+    if skipped:
+        print(f"lean-pkg: warning: {events_p}: {skipped} event line(s) of a version newer than "
+              f"{EVENT_LINE_VERSION} (or an unreadable `v`) not read; upgrade lean-pkg to read them",
+              file=sys.stderr)
     return False
 
 
@@ -2811,10 +2905,32 @@ RL_REMINDER = ("results-ledger: lean-pkg recorded this outcome for {name} (`lean
 SACCT_SEAL_RESTORE = "sacct seal record missing or changed: "
 
 
+def check_lower_receipt_schema(receipt: dict, *, newer_only: bool = False) -> None:
+    """The lower-tier receipt's `schema` marker: absent is version 0 (a receipt written before 0.22.0, judged
+    as before); LOWER_RECEIPT_SCHEMAS pass. A newer lower-receipt/N is refused naming the upgrade; any other
+    value is refused as malformed (unless newer_only, the check that runs before the required fields, so a
+    newer receipt that dropped a field is still told to upgrade)."""
+    if "schema" not in receipt:
+        return
+    s = receipt["schema"]
+    if s in LOWER_RECEIPT_SCHEMAS:
+        return
+    m = _LOWER_RECEIPT_SCHEMA_RE.fullmatch(s) if isinstance(s, str) else None
+    if m and int(m.group(1)) > int(LOWER_RECEIPT_SCHEMA.rsplit("/", 1)[1]):
+        raise Fail(f"lower-tier receipt schema {s} is not supported (supported: "
+                   f"{', '.join(LOWER_RECEIPT_SCHEMAS)}, and a receipt without a schema key); this lean-pkg is "
+                   f"older than the receipt: upgrade lean-pkg")
+    if not newer_only:
+        raise Fail(f"receipt schema must be {LOWER_RECEIPT_SCHEMA!r} (or absent, in a receipt written before "
+                   f"0.22.0), got {s!r}")
+
+
 def validate_receipt(pkg: dict, repo: pathlib.Path, receipt: dict) -> None:
+    check_lower_receipt_schema(receipt, newer_only=True)
     for f in RECEIPT_FIELDS:
         if f not in receipt:
             raise Fail(f"receipt missing required field {f!r}")
+    check_lower_receipt_schema(receipt)
     commit = str(receipt["commit"])
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise Fail(f"receipt commit is not a full lowercase 40-hex sha: {commit!r}")
@@ -6749,7 +6865,8 @@ search    TERM [--package NAME] [--offline] [--sources a,b,c] [--loogle] [--loog
   --record: docs/prior-art/<date>-<slug>.md in the package checkout (or --repo; never the registry dir; never
   overwritten; "decision: pending" for a human) + event prior-art-searched; prints "note: <path> is new; a strict MkDocs build needs a nav entry (or a literate-nav glob) for it" when the repository has an mkdocs.yml (--json nav_hint {path, reason}, else null; mkdocs.yml is never edited). claim/index add print advisory notes on stderr (`notes` in --json).
 
-RECEIPT SCHEMA (JSON object; `gate` enforces every line)
+RECEIPT SCHEMA (JSON object; `gate` enforces every line; every on-disk format and its versions: docs/formats.md)
+schema         "lower-receipt/1", written first by receipt slurm/systemd since 0.22.0; absent (a receipt written before) = version 0, judged as before (receipts are never rewritten); a newer "lower-receipt/N" is refused ("... upgrade lean-pkg"), any other value is refused
 commit         40 lowercase hex; MUST equal HEAD, or HEAD must be an evidence-only descendant of it
                (only .lean-receipts/ paths differ between the two commits)
 lean_toolchain string; MUST equal the lean-toolchain file committed at `commit`, stripped (the working tree never counts)
@@ -6809,13 +6926,14 @@ terminal scheduler accounting; hosted reports bind run/attempt/job identity, ter
 conclusion, immutable workflow/control revision, runner identity, and resources. A pilot,
 partial manifest, pre-terminal marker, or prior-candidate receipt is not gate evidence.
 
-EVENT LINE SCHEMA (one JSON object per line; package events also go to history[]; index-added, prior-art-searched, registry-* are log-only)
+EVENT LINE SCHEMA (one JSON object per line, keys sorted; package events also go to history[]; index-added, prior-art-searched, registry-* are log-only; every event name and its keys: docs/formats.md "Event log")
+v       1 (the line's version, since 0.22.0); a line without v is version 0, read as before; a newer or unreadable v is not interpreted (the claim prior-art note skips it with a stderr warning naming the upgrade)
 ts      UTC ISO-8601 with offset, second precision (all written times; dates are UTC; same-second order = file order; naive = legacy UTC, doctor warns)
 event   one of: registry-created, registry-migrated, registered, updated, claimed, claim-refreshed, claim-forced,
-        released, release-forced, lease-expired, gate-passed, regated, promoted, audit-fix, relocated, status-changed,
+        released, release-forced, lease-expired, gate-passed, regated, promoted, publication-withdrawn, publication-hold-released, audit-fix, relocated, status-changed,
         comparator-attached, comparator-replaced, palomar-prepared, index-added, claims-synced, prior-art-searched, evidence-retracted, and the evidence events under `record`
 name    package name or null
-plus event-specific fields (agent, workspace, ttl_hours, reason, contact, commit, receipt, ...)
+plus event-specific fields (agent, workspace, ttl_hours, reason, contact, commit, receipt, ...); a package event may also carry actor (the --agent of a gate, comparator, record, publish, claims sync or verify run)
 
 EXIT CODES
 0  success, including dry-runs and the "already gated" no-op

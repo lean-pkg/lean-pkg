@@ -149,6 +149,22 @@ def lp():
     return load_module()
 
 
+@pytest.fixture(autouse=True)
+def documented_event_lines(monkeypatch):
+    """Every event line any test makes lean-pkg write must match the documented event-line schema
+    (EVENT_KEYS, docs/formats.md "Event log"): an undocumented event name or key fails the test that
+    wrote it, so the table cannot fall behind the code (1.0 command tree, section 6, item 2)."""
+    cli = load_module()
+    real = cli._event_line
+
+    def checked(ts, name, event, **fields):
+        line = real(ts, name, event, **fields)
+        problems = cli.event_line_problems(json.loads(line))
+        assert not problems, "undocumented event line: " + "; ".join(problems)
+        return line
+    monkeypatch.setattr(cli, "_event_line", checked)
+
+
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", "-C", str(repo),

@@ -135,8 +135,9 @@ def test_happy_path_receipt_passes_gate_check(lp, env, repo, tmp_path, capsys):
     assert (f"  Result success, exit `0`; runtime 00:12:05.00, CPU 01:10:22.00, memory peak 1.5 GiB; caps "
             "MemoryMax 8.0 GiB, MemorySwapMax 0 B, CPUQuota 400%, RuntimeMax 4h.") in out
     receipt = json.loads(rp.read_text())
-    assert list(receipt) == list(lp.RECEIPT_FIELDS) + ["job_stdout_sha256", "manifest_sha256",
+    assert list(receipt) == ["schema", *lp.RECEIPT_FIELDS, "job_stdout_sha256", "manifest_sha256",
                                                        "log_commit_bound", "unit_properties_sha256"]
+    assert receipt["schema"] == "lower-receipt/1"                # the marker, first (docs/formats.md)
     assert receipt["job_id"] == JOB_ID and lp.receipt_job_slug(JOB_ID) == SLUG
     assert receipt["report_sha256"] == sha(lg.read_bytes())
     assert receipt["unit_properties_sha256"] == sha(pf.read_bytes())

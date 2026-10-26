@@ -1741,6 +1741,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     log_bytes = redacted.encode("utf-8")
     report_sha = hashlib.sha256(log_bytes).hexdigest()
     receipt = {
+        "schema": core.LOWER_RECEIPT_SCHEMA,   # 0.22.0 (1.0 command tree, section 6): readers accept it absent
         "commit": commit,
         "lean_toolchain": toolchain,
         "mathlib_rev": mathlib,

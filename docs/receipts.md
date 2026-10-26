@@ -43,6 +43,7 @@ covered, and how a third party re-verifies a page, is the
 
 | Field | Rule |
 |---|---|
+| `schema` | `"lower-receipt/1"`, the first key of every receipt `receipt slurm` and `receipt systemd` write since 0.22.0. A receipt without it (every receipt written before) is version 0 and is judged exactly as before, forever: receipts are evidence and are never rewritten. A newer `lower-receipt/N` is refused, naming the upgrade (`... this lean-pkg is older than the receipt: upgrade lean-pkg`), and so is any other value. Every version of every format: [On-disk formats](formats.md) |
 | `commit` | 40 lowercase hex; HEAD, or HEAD is an evidence-only descendant of it (or, for a package that opted in, a [docs-only descendant](#docs-only-descendants-opt-in)) |
 | `lean_toolchain` | equals the `lean-toolchain` file committed at `commit`, stripped (an uncommitted edit never counts) |
 | `mathlib_rev` | nonempty; prefix-equal to the `mathlib` rev in `lake-manifest.json` committed at `commit`. A package without Mathlib (that file is readable and lists no `mathlib` package) has the explicit value `none`: `receipt slurm`/`systemd` write it from the manifest (a log `mathlib-rev:` line other than `none` is refused), `gate --check` prints `✓ mathlib_rev none: ...`, `none` beside a manifest that pins Mathlib is refused, and the package's `mathlib_pin` is null. A receipt written earlier with another value there is still read (`· mathlib_rev X not checked: ...`). With no readable manifest the rev is not checked |
