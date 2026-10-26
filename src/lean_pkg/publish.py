@@ -146,9 +146,7 @@ def formalization_items(pkg: dict, repo) -> list[tuple[str, str]]:
     if existing is None:
         return [("✗", f"{rel} is missing (`lean-pkg formalization {name} --write`)")]
     if existing != text:
-        return [("✗", f"{rel} is stale: a derived key (e.g. status.evidence) differs from the render "
-                      f"(`lean-pkg formalization {name} --write --force`, or "
-                      f"`lean-pkg gate {name} --receipt R --refresh-formalization` after a new receipt)")]
+        return [("✗", f"{rel} is stale: {fz.stale_hint(name, existing, text)}")]
     placeholders = fz.find_placeholders(doc)
     if placeholders:
         return [("WARN", f"{rel} is current and valid ({mode}) but has {len(placeholders)} placeholder(s): "

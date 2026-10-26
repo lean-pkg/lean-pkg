@@ -27,7 +27,7 @@ field only stored a path; nothing generated or validated the file.
 **Derived** keys are regenerated on every run and belong to the generator.
 Change them in the registry (`lean-pkg update NAME --license-spdx …`,
 `--automation …`), in the comparator configurations, or in `claims.yaml`;
-a hand edit is overwritten on the next `--write --force` and reported by
+a hand edit is overwritten on the next `--write` and reported by
 `audit` as `formalization-drift` until then.
 
 | Derived key | Source |
@@ -103,7 +103,7 @@ the schema but is not Palomar-ready; the warnings are the to-do list.
 lean-pkg formalization render my-lean                       # YAML on stdout
 lean-pkg formalization render my-lean --out /tmp/f.yaml     # write elsewhere; registry untouched
 lean-pkg formalization render my-lean --write               # <repo>/formalization.yaml + registry pointer
-lean-pkg formalization render my-lean --write --force       # overwrite a file that differs
+lean-pkg formalization render my-lean --write --force       # overwrite a file whose kept keys differ
 lean-pkg formalization render my-lean --write --no-registry # the file only; the registry is not written
 lean-pkg formalization render my-lean --write --author "Ada Lovelace" --json
 lean-pkg formalization render my-lean --repo ../candidate --out /tmp/f.yaml   # another checkout, read-only
@@ -131,7 +131,18 @@ registered checkout, or move the registration with
 `--write` targets `<repo>/<formalization_yaml>` when the registry already
 names a path (for example `lean/formalization.yaml`), else
 `<repo>/formalization.yaml`. It is a no-op when the file already equals the
-render, refuses a file that differs unless `--force`, writes atomically,
+render. When the file differs only in derived keys (the
+[kept view](#the-kept-view) of the file equals the render's, and the file
+carries no YAML comment below the header that the render would drop), it is
+rewritten without `--force`: this is the routine refresh after a re-gate moves
+the receipts, and the output says
+`refreshed derived keys: status.evidence, ...; every kept key unchanged`
+(`--json` `refreshed_derived`, the dotted
+paths). When a kept key or such a comment differs, `--write` refuses, naming
+the kept keys and comment lines, and `--force` writes the render over them
+(`--json` `kept_overwritten`); a kept key differs from the render when
+`--author` replaces `project.authors` or the renderer seeds a key the file
+lacks. It writes atomically,
 refuses a symlinked target, and then sets the registry's `formalization_yaml`
 through the same path as `lean-pkg update` (append-only history, event
 `updated`), skipping that step when the pointer is already set. A live lease
@@ -248,8 +259,9 @@ reports `formalization-missing` when the file is gone and
 `formalization-drift` when it no longer equals what the generator emits
 today (a new or changed comparator configuration, a receipt, a registry
 field, a hand edit of a derived key). `audit` never rewrites the file; the
-fix is `lean-pkg formalization render NAME --write --force` after reading the
-render.
+finding names the fix: `lean-pkg formalization render NAME --write` when only
+derived keys differ, `--write --force` after reading the render when a kept
+key differs. `publish NAME`'s formalization line gives the same command.
 
 ## What it is not
 
