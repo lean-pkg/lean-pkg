@@ -70,6 +70,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   are `if A; then ok; else bad; fi`, so ShellCheck (0.11.0) reports nothing
   at any severity. Before, a check whose `ok` line could not be written (a
   closed stdout) would also print `[FAIL]` and count as a failure (SC2015).
+- ShellCheck (#305): `scripts/*.sh`, `verify-comparator.sh` and
+  `tests/fixtures/lake-stub.sh` report nothing at any severity. Two
+  `# shellcheck disable` comments mark findings that are intended:
+  SC2016 file-wide in `verify-comparator.sh` (the shared `lake_shadow_check`
+  block's single-quoted backticks are literal, and the block must stay
+  identical in every copy; recorded as its vendored local change (5)), and
+  SC2086 in `lake-stub.sh` (the module list is split on purpose). The
+  vendored `comparator-check.sh` is unchanged.
 
 ### Fixed
 
