@@ -346,6 +346,7 @@
       "next_commands",
       "ok",
       "registry_touched",
+      "release_candidate",
       "stack",
       "stack_source",
       "warnings"

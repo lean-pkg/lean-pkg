@@ -83,6 +83,25 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (fixtures imported from a shared module and named as test parameters),
   and four `B023` lambdas called within their loop iteration.
 
+### Fixed
+
+- `new` globs the library's root module (#334, #326): `lakefile.toml`
+  writes `globs = ["MOD", "MOD.+"]`, as published lean-pkg packages do,
+  and the scaffold writes `MOD.lean`, an empty root module for the
+  library's imports, so a bare `lake build` still passes. With `MOD.+`
+  alone Lake never built `MOD.lean`, and a Solution that imported the
+  library through it failed with `object file ... MOD.olean of module MOD
+  does not exist`. The getting-started template changes with it.
+- `new` pins the newest stable Lean release, not a release candidate
+  (#334, #327): without `--stack` (the default of `--kind library`, and of
+  `--kind paper` when no stack is current) the pins come from a table
+  lean-pkg ships (no network, as before), and the newest release in Lean's
+  version order wins, so a stable release beats its own release
+  candidates; a release candidate is pinned only when no stable release is
+  newer. The pins are now `leanprover/lean4:v4.35.0` and Mathlib `v4.35.0`
+  (they were `v4.35.0-rc2`). The output says when the pins are a release
+  candidate, and `--json` adds `release_candidate` (additive).
+
 ### Documentation
 
 - Plan (#321): docs/design/improvement-plan-2026-10.md lists the next work,

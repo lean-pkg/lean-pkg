@@ -74,6 +74,36 @@ changes:
     breaking: false
     changelog: Added
     split: true
+  - pr: 334
+    id: new-root-module-glob
+    kind: behavior
+    area: new
+    summary: >-
+      lean-pkg new writes globs = ["MOD", "MOD.+"] in lakefile.toml (#326), as published lean-pkg packages do,
+      and an empty root module MOD.lean for the library's imports, so a bare lake build still passes. With
+      MOD.+ alone Lake never built MOD.lean, and a Solution importing the library through it failed with
+      'object file ... MOD.olean of module MOD does not exist'. The getting-started template changes with it.
+    action: >-
+      Nothing for a new scaffold. A package scaffolded before, whose Solution imports a root module MOD.lean,
+      adds "MOD" to the globs of its lean_lib.
+    breaking: false
+    changelog: Fixed
+    split: true
+  - pr: 334
+    id: new-stable-pins
+    kind: behavior
+    area: new
+    summary: >-
+      Without --stack, lean-pkg new pins the newest stable Lean release in the table it ships, with the
+      matching Mathlib tag, and a release candidate only when no stable release is newer (#327): the pins are
+      leanprover/lean4:v4.35.0 and Mathlib v4.35.0, where they were v4.35.0-rc2. No network is read, as
+      before. The output says when the pins are a release candidate, and --json adds release_candidate.
+    action: >-
+      Nothing. A package scaffolded on v4.35.0-rc2 may move to v4.35.0 (lean-toolchain, the Mathlib rev, then
+      lake update); a script reading new --json sees one more key.
+    breaking: false
+    changelog: Fixed
+    split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

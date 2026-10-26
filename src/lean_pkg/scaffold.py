@@ -7,10 +7,12 @@ docs/getting-started.md, "Start from scratch" (the same files, byte for byte, fo
 files the rest of the newcomer path reads, then runs `git init` there. Nothing is committed (lake update
 writes lake-manifest.json first), nothing is fetched or built, and no registry is read or written.
 
-    lean-toolchain          the stack's toolchain, else the newest one Palomar accepts (TOOLCHAIN)
+    lean-toolchain          the stack's toolchain, else the newest pins (TOOLCHAIN): the newest Lean release
+                            of RELEASES, a stable one unless a release candidate is newer
     .gitignore              /.lake
-    lakefile.toml           one library MOD (globs MOD.+), its defaultTargets (a bare `lake build` builds it);
-                            requires Mathlib (the stack's tag, else MATHLIB_REV) unless --no-mathlib
+    lakefile.toml           one library MOD (globs MOD and MOD.+), its defaultTargets (a bare `lake build`
+                            builds it); requires Mathlib (the stack's tag, else MATHLIB_REV) unless --no-mathlib
+    MOD.lean                the library's root module, empty: import the library's modules from it
     MOD/Challenge.lean      the trusted statement, proof `sorry` (module-headed, as Palomar requires)
     MOD/Solution.lean       the same theorem, proved
     MOD/Axioms.lean         `#print axioms` of the theorem: what the lower-tier receipt reads
@@ -58,8 +60,15 @@ from . import claim_axioms
 from . import cli as core
 from . import page as page_mod
 
-TOOLCHAIN = "leanprover/lean4:v4.35.0-rc2"
-MATHLIB_REV = "v4.35.0-rc2"
+# The newest pins (no --stack): the Lean releases lean-pkg knows, as (Lean tag, the Mathlib tag of that
+# release, or None while Mathlib has not tagged it). `new` reads no network: a lean-pkg release adds rows.
+# The newest by Lean's version order wins (newest_pins), so a stable release beats its own release
+# candidates and every older one; a release candidate is pinned only when no stable release is newer (#327).
+RELEASES = (
+    ("v4.35.0-rc2", "v4.35.0-rc2"),
+    ("v4.35.0", "v4.35.0"),
+)
+RELEASE_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?$")
 THEOREM = "two_mul_le"
 NAME_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 MODULE_RE = re.compile(r"^[A-Z][A-Za-z0-9]*$")
@@ -97,7 +106,14 @@ defaultTargets = ["{module}"]
 {require}
 [[lean_lib]]
 name = "{module}"
-globs = ["{module}.+"]
+globs = ["{module}", "{module}.+"]
+"""
+ROOT_FILE = """\
+module
+
+-- The root module of the library {module} (the lakefile.toml glob "{module}" includes it). Import the library's
+-- modules from here (`public import {module}.Basic`), and this module from Solution.lean (`public import
+-- {module}`); never Challenge or Solution, which declare the same theorem.
 """
 REQUIRE_MATHLIB = """
 [[require]]
@@ -285,20 +301,46 @@ def license_text(spdx: str, author: str, year: int) -> str:
     return (pathlib.Path(__file__).parent / "templates" / "Apache-2.0.txt").read_text(encoding="utf-8")
 
 
-def pins(stack: dict | None) -> tuple[str, str]:
-    """(lean-toolchain, Mathlib rev) the scaffold writes: the stack's, else the newest lean-pkg tracks."""
+def release_key(tag: str) -> tuple[int, int, int, int, int]:
+    """Lean's version order: `v4.35.0-rc2` < `v4.35.0` < `v4.36.0-rc1`."""
+    m = RELEASE_RE.match(tag)
+    if not m:
+        raise ValueError(f"not a Lean release tag: {tag!r}")
+    major, minor, patch, rc = m.groups()
+    return int(major), int(minor), int(patch), 0 if rc else 1, int(rc or 0)
+
+
+def is_release_candidate(toolchain: str) -> bool:
+    """`leanprover/lean4:v4.35.0-rc2` (or `v4.35.0-rc2`) is a release candidate."""
+    return "-rc" in toolchain.rsplit(":", 1)[-1]
+
+
+def newest_pins(releases=None, mathlib: bool = True) -> tuple[str, str | None]:
+    """(lean-toolchain, Mathlib tag) of the newest release; with mathlib, the newest that Mathlib has tagged."""
+    usable = [r for r in (RELEASES if releases is None else releases) if r[1] is not None or not mathlib]
+    if not usable:
+        raise ValueError("no Lean release with a Mathlib tag in the table")
+    tag, rev = max(usable, key=lambda r: release_key(r[0]))
+    return f"leanprover/lean4:{tag}", rev
+
+
+TOOLCHAIN, MATHLIB_REV = newest_pins()
+
+
+def pins(stack: dict | None, mathlib: bool = True) -> tuple[str, str | None]:
+    """(lean-toolchain, Mathlib rev) the scaffold writes: the stack's, else the newest pins."""
     if stack is None:
-        return TOOLCHAIN, MATHLIB_REV
+        return newest_pins(mathlib=mathlib)
     return stack["lean_toolchain"], stack["mathlib"]["rev"]
 
 
 def files(name: str, module: str, author: str, mathlib: bool = True, license_spdx: str = "Apache-2.0",
           year: int = 2026, kind: str = "paper", stack: dict | None = None) -> dict[str, str]:
     """The scaffold, relative path -> text. With mathlib and no stack, the files docs/getting-started.md
-    writes by hand (lean-toolchain, .gitignore, lakefile.toml, Challenge, Solution, comparator.json) are
+    writes by hand (lean-toolchain, .gitignore, lakefile.toml, MOD.lean, Challenge, Solution, comparator.json) are
     byte-identical to that template for NAME my-proof (tests/test_new.py holds them together). With a stack
     (proposal 0004): its lean-toolchain and Mathlib rev, and `stack: NAME` in coverage.yaml."""
-    toolchain, rev = pins(stack)
+    toolchain, rev = pins(stack, mathlib)
     stack_line = f"stack: {stack['name']}\n" if stack is not None else ""
     imports = "\npublic import Mathlib\n" if mathlib else ""
     nat = "ℕ" if mathlib else "Nat"
@@ -310,6 +352,7 @@ def files(name: str, module: str, author: str, mathlib: bool = True, license_spd
         ".gitignore": "/.lake\n",
         "lakefile.toml": LAKEFILE.format(name=name, module=module,
                                          require=REQUIRE_MATHLIB.format(rev=rev) if mathlib else ""),
+        f"{module}.lean": ROOT_FILE.format(module=module),
         f"{module}/Challenge.lean": lean["Challenge"],
         f"{module}/Solution.lean": lean["Solution"],
         f"{module}/Axioms.lean": AXIOMS_FILE.format(module=module, theorem=THEOREM),
@@ -404,7 +447,8 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
     if target.is_dir() and any(target.iterdir()):
         raise core.Fail(f"{dir_arg} exists and is not empty; nothing written (choose a new directory with --dir)")
     scaffold = files(name, module, author, mathlib, license_spdx, dt.date.today().year, kind, stack)
-    toolchain, rev = pins(stack)
+    toolchain, rev = pins(stack, mathlib)
+    rc_pin = is_release_candidate(toolchain)
     target.mkdir(parents=True, exist_ok=True)
     for rel, text in scaffold.items():
         f = target / rel
@@ -418,8 +462,11 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
     nxt = next_commands(dir_arg, module, mathlib)
     dep = f"Mathlib {rev}" if mathlib else "no Mathlib"
     on = f" (stack {stack['name']}, supported until {stack['supported_until']})" if stack else ""
-    out = [f"created {dir_arg}/: package {name} (kind {kind}), library {module}, {toolchain.split(':')[1]}, "
-           f"{dep}{on}; {len(scaffold)} files, git initialized, nothing committed, no registry read or written",
+    candidate = ((" (a release candidate: no stable Lean release is newer)" if stack is None
+                  else " (a release candidate)") if rc_pin else "")
+    out = [f"created {dir_arg}/: package {name} (kind {kind}), library {module}, {toolchain.split(':')[1]}"
+           f"{candidate}, {dep}{on}; {len(scaffold)} files, git initialized, nothing committed, no registry read "
+           f"or written",
            f"author: {author} (from {source}; CITATION.cff, REUSE.toml)",
            "next:"] + [f"  {c}" for c in nxt]
     if mathlib:
@@ -436,7 +483,7 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
     out.append("then verify and render the page: docs/quickstart.md "
                "(https://lean-pkg.github.io/lean-pkg/quickstart.html)")
     payload = {"ok": True, "name": name, "dir": str(target), "kind": kind, "module": module, "mathlib": mathlib,
-               "lean_toolchain": toolchain, "mathlib_rev": rev if mathlib else None,
+               "lean_toolchain": toolchain, "mathlib_rev": rev if mathlib else None, "release_candidate": rc_pin,
                "stack": stack["name"] if stack else None, "stack_source": stack_source,
                "license_spdx": license_spdx, "author": author, "author_source": source,
                "files": sorted(scaffold), "git_init": True, "committed": False, "registry_touched": False,
