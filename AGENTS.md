@@ -49,9 +49,11 @@ Layout:
   commands not yet in their own module.
 - `src/lean_pkg/core.py`: the shared core the command modules build on: `Fail` and
   `UsageError`, the registry constants, time policy, the git helpers, registry IO and the
-  event log. It never imports `cli` (only `build_scope`, a leaf). `cli.py` re-exports every name that
-  moved here (#317) for one release; a test that patches one of them patches it on both
-  modules (`patch_core` in `tests/conftest.py`).
+  event log. It never imports `cli` (only `build_scope`, a leaf). The command modules import it
+  directly (`from . import core`) and reach a name still defined in `cli.py` as `cli.X`, never
+  through a `cli as core` alias (`tests/test_core_split.py`). `cli.py` re-exports every name that
+  moved here (#317) for one release, for outside scripts; a test that patches one of them
+  patches it on both modules (`patch_core` in `tests/conftest.py`).
 - `src/lean_pkg/comparator_receipt.py`: the `comparator-receipt` runner (also `lean-pkg receipt comparator`)
   (`main(argv)`).
 - `src/lean_pkg/scripts/comparator-check.sh`: the vendored Palomar

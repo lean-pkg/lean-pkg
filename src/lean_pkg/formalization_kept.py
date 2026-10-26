@@ -32,7 +32,7 @@ import pathlib
 
 import yaml
 
-from . import cli as core
+from . import core
 from .formalization import DEFAULT_PATH, DERIVED_PATHS, changed_kept_keys, kept_view
 
 SCHEMA = "formalization-kept/1"

@@ -360,7 +360,7 @@ line
 `slurm_sacct.sha256`) and prints the block as `slurm_sacct`; its `sacct`
 object then leaves out the user and node names. Commit the record with the
 receipt: `gate`, `gate --check`, `receipt check` and every other place a
-lower-tier receipt is judged (`core.validate_receipt`) read it from git at
+lower-tier receipt is judged (`cli.validate_receipt`) read it from git at
 HEAD and refuse the receipt when it is missing or uncommitted, when it no
 longer hashes to the block (`sacct seal record missing or changed: ...`:
 restore the byte-exact file), or when the block names another job, a window

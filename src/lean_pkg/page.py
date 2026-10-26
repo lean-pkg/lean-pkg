@@ -58,7 +58,8 @@ from __future__ import annotations
 import json
 import re
 
-from . import cli as core
+from . import cli
+from . import core
 from . import coverage as cov
 from . import sites
 
@@ -248,10 +249,10 @@ def _evidence(repo, gate: dict) -> tuple[list[dict], dict, dict]:
 
 def _receipt_view(pkg: dict, repo, gate: dict, lower: dict) -> dict:
     """`page --repo DIR` (field report): whether the recorded gate receipt validates at DIR's committed HEAD
-    (core.validate_receipt: bound to HEAD or an evidence-only descendant, as `formalization render --repo`
+    (cli.validate_receipt: bound to HEAD or an evidence-only descendant, as `formalization render --repo`
     decides). {head, receipt, commit, included, binds_head, reason}. Two ways to fail, never confused:
     binds_head False (no receipt, or its commit is not HEAD nor an ancestor HEAD descends from by the binding
-    rule, core.package_descendant): a candidate commit between gate runs, rendered as a preview;
+    rule, cli.package_descendant): a candidate commit between gate runs, rendered as a preview;
     binds_head True with included False: the receipt binds HEAD but is invalid (axioms, sorry count,
     toolchain, Mathlib, a malformed field): a failed check, never called expected drift."""
     head = core.git_head(repo)
@@ -266,7 +267,7 @@ def _receipt_view(pkg: dict, repo, gate: dict, lower: dict) -> dict:
         return view
     if head is not None and isinstance(commit, str) and re.fullmatch(r"[0-9a-f]{40}", commit):
         try:
-            binds, note, _docs = core.package_descendant(repo, commit, head, pkg, checker=lower.get("checker"))
+            binds, note, _docs = cli.package_descendant(repo, commit, head, pkg, checker=lower.get("checker"))
         except core.Fail as e:
             binds, note = False, str(e)
         if not binds:
@@ -276,7 +277,7 @@ def _receipt_view(pkg: dict, repo, gate: dict, lower: dict) -> dict:
     # the receipt binds HEAD (or its commit is malformed, which is no binding to wait for either): validate it
     view["binds_head"] = True
     try:
-        core.validate_receipt(pkg, repo, lower)
+        cli.validate_receipt(pkg, repo, lower)
         view["included"] = True
     except core.Fail as e:
         view["reason"] = f"the recorded gate receipt {gate['receipt']} does not validate ({e})"
@@ -1154,8 +1155,8 @@ def do_page(reg: dict, name: str, *, write: bool, check: bool, out: str | None, 
                               "(drop one)")
     override = None
     if repo_arg is not None:
-        reg, override = core.repo_override(reg, name, repo_arg)
-        if note := core.repo_override_note(override):
+        reg, override = cli.repo_override(reg, name, repo_arg)
+        if note := cli.repo_override_note(override):
             print(note, file=core.sys.stderr)
     pkg, repo = cov.package_checkout(reg, name)
     targets = _site_targets(site, html)
@@ -1339,7 +1340,7 @@ def docs_only_opt_in(args, reg: dict, payload: dict) -> list[str]:
     gated = (pkg.get("gate") or {}).get("receipt")
     if not gated or pkg.get("docs_descendants") is not None:   # not gated, or opted in or out already
         return []
-    bound = core.recorded_json(core.repo_path(pkg), gated) or {}
+    bound = cli.recorded_json(core.repo_path(pkg), gated) or {}
     c12 = str(bound.get("commit") or "")[:12] or "the gated commit"
     argv = verify_mod.global_flags(args) + ["update", args.name, "--accept-docs-descendants", "--reason",
                                             f"page --write: the README verification page is committed after {c12}"]

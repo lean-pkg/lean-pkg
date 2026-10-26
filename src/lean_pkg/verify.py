@@ -58,7 +58,8 @@ import re
 import shlex
 import sys
 
-from . import cli as core
+from . import cli
+from . import core
 
 GATE_FROM = ("gate-pending", "active")              # a first gate
 REGATE_FROM = ("verified-private", "public")         # a re-gate on a new commit (public: evidence, status kept)
@@ -128,15 +129,15 @@ def invoke(argv: list[str], capture_json: bool = False, quiet_stdout: bool = Fal
     """Run one lean-pkg invocation in this process, exactly as `lean-pkg ARGV` would (its own parse, checks,
     registry lock and committed mode). capture_json: ARGV ends in --json and its stdout is parsed, not printed;
     quiet_stdout: its stdout goes to stderr (the caller's stdout carries one JSON object)."""
-    saved_json = core._Parser.json_requested
+    saved_json = cli._Parser.json_requested
     buf = io.StringIO()
     try:
         redirect = contextlib.redirect_stdout(buf) if capture_json else \
             contextlib.redirect_stdout(sys.stderr) if quiet_stdout else contextlib.nullcontext()
         with redirect:
-            rc = core.main(list(argv))
+            rc = cli.main(list(argv))
     finally:
-        core._Parser.json_requested = saved_json
+        cli._Parser.json_requested = saved_json
     payload = None
     if capture_json:
         try:
@@ -217,13 +218,13 @@ def plan(args) -> dict:
         raise core.Fail(f"{args.name}: {repo} is not a git checkout with a commit")
     c12 = head[:12]
     gate = pkg.get("gate") or {}
-    bound = core.recorded_json(repo, gate.get("receipt"))
+    bound = cli.recorded_json(repo, gate.get("receipt"))
     already = None   # the gated commit, when HEAD is it or an evidence-only descendant of it
     if isinstance(bound, dict) and gate.get("comparator") and isinstance(bound.get("commit"), str):
         if bound["commit"] == head:
             already = head
         else:
-            ok, _note, _docs = core.package_descendant(repo, bound["commit"], head, pkg, checker=bound.get("checker"))
+            ok, _note, _docs = cli.package_descendant(repo, bound["commit"], head, pkg, checker=bound.get("checker"))
             already = bound["commit"] if ok else None
     if already:
         return {"reg": reg, "pkg": pkg, "status": status, "repo": repo, "head": head, "c12": c12,

@@ -8,8 +8,8 @@ rewritten. See DESIGN.md for the lifecycle.
 
 This module is the command line: the parser, dispatch and the commands not yet in a module of their
 own. The shared core they build on (Fail, the registry constants, time policy, the git helpers,
-registry IO and the event log) is in core.py; this module re-exports every name that moved there
-(#317), for at least one release.
+registry IO and the event log) is in core.py, which the command modules import directly; this module
+re-exports every name that moved there (#317), for outside scripts, for at least one release.
 
 Registry resolution: --registry PATH, else env LEAN_PKG_REGISTRY, else the
 user-level default ~/.lean-pkg/registry (a directory holding lean-packages.yaml,
@@ -126,10 +126,12 @@ if __name__ == "__main__":
 
 
 # The shared core is core.py (#317). Every name that moved there is re-exported here as the same object,
-# so `from . import cli as core` callers, the tests and outside scripts keep working; the re-exports stay
-# for at least one release. `import lean_pkg` is not the supported interface (AGENTS.md), so removing them
-# later is not a deprecation under RELEASING.md. Code in core.py reads core's globals: rebinding or
-# monkeypatching one of these names here is not seen there (tests patch both: conftest.patch_core).
+# so outside scripts and `import lean_pkg.cli` keep working; the re-exports stay for at least one release.
+# Callers inside lean-pkg no longer use them: since stage 2 every module imports core.py directly
+# (`from . import core`) and reaches cli.py only for the names still defined here. `import lean_pkg` is not
+# the supported interface (AGENTS.md), so removing them later is not a deprecation under RELEASING.md.
+# Code in core.py and in the command modules reads core's globals: rebinding or monkeypatching one of these
+# names here is not seen there (tests patch both: conftest.patch_core).
 from .core import (  # noqa: F401  re-exports, one release (#317)
     _ACTOR, ancestor_attribute_changes, append_event, BOARD_HEADER, bound_tree, branch_notice, branch_state,
     BULK_FIELDS, check_event_logs_appendable, checker_paths, CLAIMS_COMMIT_FIRST, COMPARATOR_CONFIG_FIELDS,

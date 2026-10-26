@@ -79,7 +79,8 @@ import tempfile
 import threading
 import time
 
-from . import cli as core
+from . import cli
+from . import core
 from . import producer as pr
 from . import receipt as rc
 
@@ -764,7 +765,7 @@ def cmd_receipt_systemd(args) -> int:
     host = s.get("host") or "unknown-host"
     inv = s.get("invocation_id") or "unknown"
     job_id = f"systemd-user:{unit}:{inv}@{host}"
-    core.receipt_job_slug(job_id)
+    cli.receipt_job_slug(job_id)
     if summary is None or not paths["--log"].is_file():
         if "--log" in paths and not paths["--log"].is_file():
             refusals.append(f"--log {paths['--log'].name}: the unit wrote no verify log there")

@@ -8,14 +8,14 @@ import json
 
 import pytest
 
-from .conftest import _git, make_receipt, read_reg, repo_head, write_receipt, write_reg
+from .conftest import _git, make_receipt, read_reg, repo_head, write_receipt, write_reg, patch_core
 
 
 @pytest.fixture(autouse=True)
 def _no_gh(lp, monkeypatch):
     def refuse(*a):
         pytest.fail(f"called gh {a}")
-    monkeypatch.setattr(lp, "gh", refuse)
+    patch_core(monkeypatch, "gh", refuse)
 
 
 def on(repo, default="main", branch=None, detach=False):

@@ -81,7 +81,7 @@ Sacct seal (`--seal-sacct`, optional): the job's accounting record is sealed int
 with zoned times (or `--sacct-file`, saved with its header); Start..End must contain the log's `generated-at:`
 line (required) and the account must be this one (live) or `--user`. The normalized record
 `<c12>-slurm-<J>-sacct.txt` is written beside the receipt and the additive `slurm_sacct` block (slurm-sacct-seal/1)
-binds it; core.validate_receipt (gate, receipt check, ...) then checks a present block with sacct_seal_problem
+binds it; cli.validate_receipt (gate, receipt check, ...) then checks a present block with sacct_seal_problem
 against the record committed at HEAD. Without the flag nothing changes.
 Everything after the executor's own terminal-state check (2. to 5. and the output) is `produce`, shared with
 `receipt systemd` (receipt_systemd.py), which hands it an `Evidence` with its job identity, check lines, README
@@ -104,7 +104,8 @@ import subprocess
 import sys
 
 from . import claim_axioms as ca
-from . import cli as core
+from . import cli
+from . import core
 from . import container as ctr
 from . import hypotheses as hyp
 from . import lake_hygiene as lh
@@ -638,7 +639,7 @@ def check_job(job: str, text: str) -> tuple[dict | None, str | None]:
 # `receipt slurm --seal-sacct` seals a lower-tier receipt the same way while writing it: the same checks, the
 # same record format and the same `slurm_sacct` block (file .lean-receipts/<c12>-slurm-<J>-sacct.txt), with
 # job J taken from job_id `slurm-J` and the run time from the verify log's `generated-at:` line; gate
-# (core.validate_receipt) then checks a present block with sacct_seal_problem against the record committed at
+# (cli.validate_receipt) then checks a present block with sacct_seal_problem against the record committed at
 # HEAD (committed_sacct_seal_problem).
 
 SACCT_SEAL_SCHEMA = "slurm-sacct-seal/1"
@@ -1297,9 +1298,9 @@ def parse_axioms(value: str) -> list[str]:
 
 
 def manifest_mathlib_rev(manifest: bytes | None) -> str | None:
-    """The mathlib rev the manifest pins, `none` (core.NO_MATHLIB) when it is readable and lists no mathlib
+    """The mathlib rev the manifest pins, `none` (cli.NO_MATHLIB) when it is readable and lists no mathlib
     package, None when absent or unreadable."""
-    return core.manifest_mathlib(manifest)
+    return cli.manifest_mathlib(manifest)
 
 
 # --------------------------------------------------------------------------
@@ -1417,9 +1418,9 @@ def _other_form_problem(path: pathlib.Path, log_bytes: bytes, report_sha: str) -
         return f"{path.name}: a symlink is in the way; nothing written"
     if not path.exists():
         return None
-    if path.name.endswith(core.REPORT_GZ_SUFFIX):
+    if path.name.endswith(cli.REPORT_GZ_SUFFIX):
         try:
-            same = core.gunzip_digest(path, len(log_bytes), path.name) == (report_sha, len(log_bytes))
+            same = cli.gunzip_digest(path, len(log_bytes), path.name) == (report_sha, len(log_bytes))
         except core.Fail:
             same = False
     else:
@@ -1578,8 +1579,8 @@ def check_fields(fields: dict, *, commit: str | None, toolchain: str | None, man
     if mathlib and "mathlib-rev" in fields and fields["mathlib-rev"] != mathlib:
         refusals.append(f"mathlib mismatch: verify log says {fields['mathlib-rev']!r}, lake-manifest.json "
                         f"committed at {c12} " + (f"has no mathlib package (the log line is then "
-                                                  f"`mathlib-rev: {core.NO_MATHLIB}`, or none at all)"
-                                                  if mathlib == core.NO_MATHLIB else f"says {mathlib!r}"))
+                                                  f"`mathlib-rev: {cli.NO_MATHLIB}`, or none at all)"
+                                                  if mathlib == cli.NO_MATHLIB else f"says {mathlib!r}"))
     # a package without Mathlib: `none` is read from the manifest itself, so the log needs no line for it
     mathlib = mathlib or fields.get("mathlib-rev")
     if commit is not None and not mathlib:
@@ -1726,7 +1727,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     the public-safety scan, and (when nothing refused) the receipt, the redacted log, the executor's evidence
     files and the README entry. Every check runs before anything is written."""
     refusals, checks = ev.refusals, ev.checks
-    slug = core.receipt_job_slug(ev.job_id)
+    slug = cli.receipt_job_slug(ev.job_id)
     commit = resolve_commit(repo, args.commit_sha)
     c12 = commit[:12] if commit else None
     toolchain = manifest = None
@@ -1819,11 +1820,11 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
                     f"`slurm_sacct.sha256`, {SACCT_SEAL_SCHEMA}): job `{sblock['job']}` COMPLETED, exit `0:0`, "
                     f"{sblock['start']} .. {sblock['end']} (UTC) containing `generated_at`; user "
                     f"{sblock['checks']['user']}, node {sblock['checks']['node']}; from {sblock['source']}.")
-    gz_out = log_out.with_name(log_out.name + core.REPORT_GZ_SUFFIX)
+    gz_out = log_out.with_name(log_out.name + cli.REPORT_GZ_SUFFIX)
     compress = bool(getattr(args, "compress_log", False))
     gz_bytes = gz_sha = None
     if compress:   # report_sha256 stays the uncompressed log's hash; the .gz is bound by its own additive key
-        gz_bytes = core.gzip_deterministic(log_bytes)
+        gz_bytes = cli.gzip_deterministic(log_bytes)
         gz_sha = hashlib.sha256(gz_bytes).hexdigest()
         receipt["report_compressed"] = {"format": "gzip", "sha256": gz_sha, "bytes": len(log_bytes)}
         evidence_lines.append(f"- Stored compressed: `{gz_out.name}` (deterministic gzip, SHA-256 `{gz_sha}` = "
@@ -2131,7 +2132,7 @@ def cmd_receipt_slurm(args) -> int:
     if not job:
         raise core.UsageError("--job must not be empty")
     job_id = f"slurm-{job}"
-    core.receipt_job_slug(job_id)
+    cli.receipt_job_slug(job_id)
     repo = repo_dir(args)
     paths = _job_files(args)
     art = artifacts_args(args, paths)

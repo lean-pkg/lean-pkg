@@ -691,7 +691,7 @@ def test_paper_kind_is_validated_as_before(lp, env, capsys, tmp_path):
 def test_anchor_and_rebase_leave_a_library_coverage_alone(env):
     import pytest
     from lean_pkg import anchor, rebase
-    from lean_pkg import cli as core
+    from lean_pkg import core
     with pytest.raises(core.Fail, match="kind library: it names no manuscript"):
         anchor.coverage_edit(library(), ARXIV, "0" * 64)       # never binds a library to an e-print
     prepare(env, LIBRARY)

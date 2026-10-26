@@ -23,7 +23,7 @@ import json
 import pathlib
 import re
 
-from . import cli as core
+from . import core
 
 DEFAULT_DECLS = "blueprint/lean_decls"
 CHECKDECLS_URL = "https://github.com/PatrickMassot/checkdecls.git"

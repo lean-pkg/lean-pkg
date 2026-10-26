@@ -40,7 +40,7 @@ import re
 
 import yaml
 
-from . import cli as core
+from . import core
 from . import sites
 
 REPORT_SCHEMA = "claims-rebase/1"

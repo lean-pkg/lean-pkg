@@ -16,7 +16,8 @@ import argparse
 import re
 import subprocess
 
-from . import cli as core
+from . import cli
+from . import core
 
 LAKEFILE_PACKAGE_RE = re.compile(r"^\s*package\s+(«[^»\n]+»|[A-Za-z_][A-Za-z0-9_'!?.-]*)", re.MULTILINE)
 PROMOTABLE = ("verified-private",)
@@ -36,13 +37,13 @@ def evidence_paths(pkg: dict, repo) -> list[str]:
     (stages.json, stage logs) kept beside them."""
     gate = pkg.get("gate") or {}
     rels = [r for r in (gate.get("receipt"), gate.get("comparator")) if isinstance(r, str) and r]
-    comp = core.recorded_json(repo, gate.get("comparator"))
+    comp = cli.recorded_json(repo, gate.get("comparator"))
     if isinstance(comp, dict) and isinstance(comp.get("configs"), list):
         rels += [c["log"] for c in comp["configs"]
                  if isinstance(c, dict) and isinstance(c.get("log"), str) and c["log"]]
-    lower = core.recorded_json(repo, gate.get("receipt"))
+    lower = cli.recorded_json(repo, gate.get("receipt"))
     if isinstance(lower, dict):
-        rels += core.report_log_rels(repo, lower)
+        rels += cli.report_log_rels(repo, lower)
     dirs = {".lean-receipts"} | {r.rsplit("/", 1)[0] for r in rels if "/" in r}
     for d in sorted(dirs):
         base = repo / d
@@ -160,14 +161,14 @@ def claims_item(pkg: dict, repo, head: str | None) -> tuple[str, str]:
         return ("✓", f"no {rel} tracked at HEAD (nothing to sync)")
     synced = pkg.get("claims_synced_commit")
     if synced:
-        ok, _note, _docs = core.package_descendant(repo, synced, head, pkg)
+        ok, _note, _docs = cli.package_descendant(repo, synced, head, pkg)
         if ok:
             return ("✓", f"claims synced at {str(synced)[:12]}")
     return ("✗", f"{rel} not synced at HEAD {head[:12]} (`lean-pkg claims sync {pkg['name']}`)")
 
 
 def consent_item(pkg: dict) -> tuple[str, str]:
-    consent = core.consent_unique(pkg)        # one name per (who, role), however often recorded (#23.1)
+    consent = cli.consent_unique(pkg)        # one name per (who, role), however often recorded (#23.1)
     if consent:
         who = ", ".join(str(c.get("who")) for c in consent)
         return ("✓", f"consent recorded ({who})")
@@ -241,10 +242,10 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
     if status in PROMOTABLE:
         items.append(("✓", f"status {status}"))
         led = {}
-        items += core.promote_checklist(pkg, repo, ignored_sink=ignored, ledger_sink=led)
+        items += cli.promote_checklist(pkg, repo, ignored_sink=ignored, ledger_sink=led)
     elif status in ALREADY_PUBLIC:
         items.append(("✓", f"status {status} (promoted at {pkg.get('promoted_at') or '?'}); publish --yes not needed"))
-        items.append(core.head_pushed_item(repo))
+        items.append(cli.head_pushed_item(repo))
     else:
         items.append(("✗", f"status {status}: publishing starts from verified-private "
                            f"(`lean-pkg gate {name} --receipt R` first)"))
@@ -291,7 +292,7 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
     lines.append("next:")
     lines += [f"  {c}" for c in cmds]
     payload = {"ok": ready, "name": name, "dry_run": True, "ready": ready, "head": head,
-               "checklist": [dict({"status": core._MARK_TO_STATUS[i[0]], "label": i[1]},
+               "checklist": [dict({"status": cli._MARK_TO_STATUS[i[0]], "label": i[1]},
                                   **({"reason": i[2]} if len(i) > 2 else {})) for i in items],
                "next": cmds, "ignored_evidence": ignored, "claims_ledger": led, "manuscript_findings": findings,
                "palomar_check": palomar, "page": page_state}
@@ -305,7 +306,7 @@ def cmd_publish(args) -> int:
         if args.public_safety:
             raise core.UsageError("--public-safety adds the scan to the read-only checklist; --yes always runs it "
                                   "(unless --skip-public-safety)")
-        return core.cmd_promote(argparse.Namespace(**{**vars(args), "yes": not args.dry_run}))
+        return cli.cmd_promote(argparse.Namespace(**{**vars(args), "yes": not args.dry_run}))
     extra = [f for f, on in (("--skip-public-safety", args.skip_public_safety), ("--agent", args.agent is not None))
              if on]
     if extra:

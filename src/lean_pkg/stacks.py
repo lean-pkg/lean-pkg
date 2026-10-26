@@ -27,6 +27,8 @@ import re
 
 import yaml
 
+from . import core
+
 SCHEMA = "lean-pkg-stack/1"
 DATA_DIR = pathlib.Path(__file__).resolve().parent / "data" / "stacks"
 DOCS_URL = "https://github.com/lean-pkg/lean-pkg/blob/main/docs/stacks/{name}.md"
@@ -64,7 +66,6 @@ def version_key(v: str) -> tuple[int, int, int, int]:
 
 
 def digest_keys() -> set[str]:
-    from . import cli as core
     return {k.removesuffix("_sha256") for k in core.COMPARATOR_TOOLCHAIN_DIGESTS}
 
 
@@ -215,7 +216,6 @@ def declared_list(stacks: dict[str, dict] | None = None) -> str:
 
 def resolve(value: str, day: dt.date | None = None) -> dict | None:
     """`new --stack VALUE`: a declared stack's name, `current` or `none`. UsageError otherwise."""
-    from . import cli as core
     if value == "none":
         return None
     if value == "current":
@@ -270,7 +270,6 @@ def _manifest_mathlib(blob: bytes | None) -> dict | None:
 def declared_key(repo: pathlib.Path, rev: str = "HEAD") -> str | None:
     """The `stack:` value of coverage.yaml committed at rev (None: no file, no key, or unreadable YAML). Read
     loosely: the stack check never depends on the rest of the coverage file being valid."""
-    from . import cli as core
     blob = core.git_show_bytes(repo, "coverage.yaml", rev)
     if blob is None:
         return None
@@ -290,7 +289,6 @@ def check(repo: pathlib.Path, name: str, rev: str = "HEAD", comparator: dict | N
     mismatches[], warnings[]}. matches: the toolchain and the Mathlib commit both match (None when the stack
     is not declared here); comparator digests and the window only warn."""
     from . import __version__
-    from . import cli as core
     d = declared(stacks)
     out: dict = {"name": name, "declared": name in d, "matches": None, "supported_until": None, "window": None,
                  "toolchain": None, "mathlib": None, "comparator_tools": None, "lean_pkg": None,

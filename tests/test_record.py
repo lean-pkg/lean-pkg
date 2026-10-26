@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 
-from .conftest import read_events, read_reg, repo_head, write_reg
+from .conftest import read_events, read_reg, repo_head, write_reg, patch_core
 
 C = "0123456789abcdef0123456789abcdef01234567"
 
@@ -97,7 +97,7 @@ def test_audit_warns_preflight_missing_for_palomar_target(lp, env, fake_gh, caps
 
 
 def test_record_json_payload(lp, env, capsys, monkeypatch):
-    monkeypatch.setattr(lp, "reservoir_listing_status", lambda owner, name: 200)
+    patch_core(monkeypatch, "reservoir_listing_status", lambda owner, name: 200)
     assert lp.main(["--registry", str(env.registry), "--json", "record", "beta",
                     "reservoir-listed", "--field", "url=https://reservoir.lean-lang.org/@example/x"]) == 0
     p = json.loads(capsys.readouterr().out)
@@ -121,7 +121,7 @@ def _patch_reservoir(lp, monkeypatch, status):
         calls.append((owner, name))
         return status
 
-    monkeypatch.setattr(lp, "reservoir_listing_status", fake)
+    patch_core(monkeypatch, "reservoir_listing_status", fake)
     return calls
 
 

@@ -63,7 +63,8 @@ import re
 
 import yaml
 
-from . import cli as core
+from . import cli
+from . import core
 from . import sites
 from .holes import SIDECAR
 
@@ -991,7 +992,7 @@ def do_coverage_check_file(file: str, claims_path: str | None, comparator_paths:
             configs[key] = cp.read_bytes()
     side = root / SIDECAR
     try:
-        sidecar = core.parse_sidecar(side.read_bytes() if side.is_file() else None, str(side))
+        sidecar = cli.parse_sidecar(side.read_bytes() if side.is_file() else None, str(side))
     except ValueError as e:
         raise core.Fail(str(e)) from e
     rep = offline_check(p.read_text(encoding="utf-8", errors="replace"), str(p), claims_text=claims_text,
@@ -1038,7 +1039,7 @@ def preflight_at_head(name: str, pkg: dict, repo: pathlib.Path) -> dict:
         return res
     where = f"{DEFAULT_COVERAGE_FILE} at {c12}"
     try:
-        sidecar = core.sidecar_at(repo, "HEAD")
+        sidecar = cli.sidecar_at(repo, "HEAD")
         profiles = sites.for_repo(repo)
     except (ValueError, core.Fail) as e:
         res["ok"] = False

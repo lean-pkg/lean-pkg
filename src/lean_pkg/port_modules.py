@@ -38,7 +38,7 @@ import pathlib
 import re
 import tempfile
 
-from . import cli as core
+from . import core
 from . import lean_scan
 from .palomar_check import Tree, has_module_header
 

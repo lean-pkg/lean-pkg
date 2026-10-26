@@ -13,7 +13,8 @@ from __future__ import annotations
 import json
 import re
 
-from . import cli as core
+from . import cli
+from . import core
 from . import publish as publish_mod
 
 MIN_STARS = 2
@@ -173,7 +174,7 @@ def do_reservoir_check(reg: dict, name: str, offline: bool) -> tuple[list[str], 
     if cmd:
         lines.append(f"next: {cmd}")
     payload = {"ok": eligible, "name": name, "eligible": eligible,
-               "checklist": [{"status": core._MARK_TO_STATUS[m], "label": label} for m, label in items],
+               "checklist": [{"status": cli._MARK_TO_STATUS[m], "label": label} for m, label in items],
                "record": cmd, "pre_promote": pre_promote(pkg), "pending_promote": pending}
     return lines, 0 if eligible else 1, payload
 

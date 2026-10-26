@@ -24,6 +24,7 @@ import pathlib
 import re
 import subprocess
 
+from . import core
 from . import sites
 
 KEY = "ci"
@@ -57,13 +58,11 @@ def _line(v) -> bool:
 
 
 def _commit_in_clone(repo: pathlib.Path, sha: str) -> bool:
-    from . import cli as core
     return core.git(repo, "cat-file", "-e", f"{sha}^{{commit}}").returncode == 0
 
 
 def _root_file_at(repo: pathlib.Path, sha: str, path: str) -> bytes | None:
     """Bytes of <sha>:<path>, the path relative to the repository root (a workflow file), or None."""
-    from . import cli as core
     p = subprocess.run(["git", "-C", str(repo), "show", f"{sha}:{path}"], capture_output=True,
                        env=core.scrubbed_env())
     return p.stdout if p.returncode == 0 else None
@@ -214,7 +213,6 @@ def check_lines(rec: dict, repo: pathlib.Path | None) -> list[str]:
 # the github-actions scheduler's reader (coverage.JOB_INDEX) and its near misses
 
 def _is_lower(rec: dict) -> bool:
-    from . import cli as core
     return rec.get("schema") not in core.COMPARATOR_SCHEMAS
 
 

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from .conftest import FakeGh, publish_evidence, read_events, read_reg, repo_head
+from .conftest import FakeGh, publish_evidence, read_events, read_reg, repo_head, patch_core
 
 
 def test_promote_dry_run_refuses_wrong_status(lp, env, fake_gh, capsys):
@@ -69,8 +69,8 @@ def test_promote_refuses_on_checklist_failure(lp, env, fake_gh, capsys):
 
 def test_audit_reports_and_fix_visibility_mismatch(lp, env, monkeypatch, capsys):
     fake = FakeGh(visibility="PUBLIC")  # registry says private for both
-    monkeypatch.setattr(lp, "gh", fake)
-    monkeypatch.setattr(lp, "find_reuse", lambda: None)
+    patch_core(monkeypatch, "gh", fake)
+    patch_core(monkeypatch, "find_reuse", lambda: None)
     rc = lp.main(["--registry", str(env.registry), "audit"])
     assert rc == 0
     out = capsys.readouterr().out
@@ -119,7 +119,7 @@ def test_promote_reuse_lint_failure_keeps_the_whole_first_line(lp, env, fake_gh,
     fake = tmp_path / "fake-reuse"
     fake.write_text(f"#!/bin/sh\necho '{long}'\necho second line\nexit 1\n")
     fake.chmod(0o755)
-    monkeypatch.setattr(lp, "find_reuse", lambda: str(fake))
+    patch_core(monkeypatch, "find_reuse", lambda: str(fake))
     lp.main(["--registry", str(env.registry), "promote", "beta"])
     out = capsys.readouterr().out
     assert f"reuse lint failed: {long}" in out and "second line" not in out

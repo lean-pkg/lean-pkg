@@ -9,7 +9,7 @@ import subprocess
 import yaml
 
 from .conftest import (CLI, _git, index_add, make_index_package, repo_head,
-                       subprocess_env)
+                       subprocess_env, patch_core)
 
 PAL = {"id": "PALOMAR-2026-10-05-000008", "version": 1}
 
@@ -146,7 +146,7 @@ def test_check_network_unreachable_is_skipped_not_failed(lp, idx, tmp_path, monk
     edit_entry(root, "demo", lambda e: e.update(
         trust="palomar", palomar=[PAL], reservoir="https://reservoir.lean-lang.org/@example/demo"))
     monkeypatch.setattr(idx, "palomar_entry_fetch", lambda i, v: None)
-    monkeypatch.setattr(lp, "reservoir_listing_status", lambda o, n: None)
+    patch_core(monkeypatch, "reservoir_listing_status", lambda o, n: None)
     capsys.readouterr()
     assert check(lp, root, "demo", "--repo-dir", str(pkg.repo), "--json") == 0
     rep = json.loads(capsys.readouterr().out)["entries"][0]
@@ -161,7 +161,7 @@ def test_check_network_verified_and_failed(lp, idx, tmp_path, monkeypatch, capsy
     calls = []
     monkeypatch.setattr(idx, "palomar_entry_fetch", lambda i, v: calls.append((i, v)) or
                         {"source": {"commit": pkg.pin, "repository_url": pkg.url}})
-    monkeypatch.setattr(lp, "reservoir_listing_status", lambda o, n: 404)
+    patch_core(monkeypatch, "reservoir_listing_status", lambda o, n: 404)
     capsys.readouterr()
     assert check(lp, root, "demo", "--repo-dir", str(pkg.repo), "--json") == 1
     rep = json.loads(capsys.readouterr().out)["entries"][0]

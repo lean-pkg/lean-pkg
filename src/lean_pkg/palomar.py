@@ -31,7 +31,8 @@ import pathlib
 import shutil
 import tempfile
 
-from . import cli as core
+from . import cli
+from . import core
 
 PALOMAR_URL = "https://palomar-registry.org/"
 PALOMAR_SUBMISSION_URL = "https://github.com/PalomarRegistry/PalomarSubmission"
@@ -92,18 +93,18 @@ def build(pkg: dict, repo: pathlib.Path, stage: pathlib.Path) -> tuple[list[str]
         raise core.Fail(f"{name}: no gate receipt recorded (lean-pkg gate {name} --receipt R)")
     if not gate.get("comparator"):
         raise core.Fail(f"{name}: no comparator receipt recorded (lean-pkg comparator {name} --receipt R)")
-    receipt = core.recorded_json(repo, gate["receipt"])
+    receipt = cli.recorded_json(repo, gate["receipt"])
     if receipt is None:
         raise core.Fail(f"{name}: gate receipt {gate['receipt']} is missing or not JSON in {repo}")
-    comp = core.recorded_json(repo, gate["comparator"])
+    comp = cli.recorded_json(repo, gate["comparator"])
     if comp is None:
         raise core.Fail(f"{name}: comparator receipt {gate['comparator']} is missing or not JSON in {repo}")
     try:
-        core.validate_receipt(pkg, repo, receipt)
-        core.validate_comparator(pkg, repo, comp, str(receipt.get("commit") or ""))
+        cli.validate_receipt(pkg, repo, receipt)
+        cli.validate_comparator(pkg, repo, comp, str(receipt.get("commit") or ""))
     except core.Fail as e:
         raise core.Fail(f"{name}: receipts not bound to HEAD {head[:12]}: {e}") from None
-    why = core.recorded_report_log_problem(repo, receipt, gate["receipt"])
+    why = cli.recorded_report_log_problem(repo, receipt, gate["receipt"])
     if why:
         raise core.Fail(f"{name}: gate receipt {gate['receipt']}: {why}")
     mark, label = publish_mod.consent_item(pkg)
@@ -131,7 +132,7 @@ def build(pkg: dict, repo: pathlib.Path, stage: pathlib.Path) -> tuple[list[str]
     warnings = list(warnings) + [f"placeholder at {p} (formalization.yaml is not Palomar-ready)"
                                  for p in placeholders]
     _write(stage, "formalization.yaml", text.encode())
-    configs = core.head_comparator_configs(repo, "HEAD")
+    configs = cli.head_comparator_configs(repo, "HEAD")
     headline = (rep.get("headline") or {}).get("config")
     if headline and not (rep.get("headline") or {}).get("covered"):
         raise core.Fail(f"{name}: the headline configuration {headline} is not judged a subset of the comparison "

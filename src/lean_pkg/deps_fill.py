@@ -38,7 +38,7 @@ import pathlib
 import subprocess
 import tarfile
 
-from . import cli as core
+from . import core
 from . import deps_closure as dc
 
 BUILD_ROOTS = (".lake/build/", "build/")

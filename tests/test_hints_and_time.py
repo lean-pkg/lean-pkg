@@ -9,7 +9,7 @@ import re
 import pytest
 
 from .conftest import (drop_claims, make_receipt, read_reg, repo_head, set_lease, write_receipt,
-                       write_reg)
+                       write_reg, patch_core)
 
 
 # --- refusals that name the fix -------------------------------------------------------------
@@ -112,7 +112,7 @@ def test_leases_json_now_has_second_precision(lp, env, capsys):
 
 
 def test_wiki_updated_is_the_utc_date(lp, env, monkeypatch, capsys):
-    monkeypatch.setattr(lp, "utc_today", lambda: "2031-01-02")
+    patch_core(monkeypatch, "utc_today", lambda: "2031-01-02")
     assert lp.main(["--registry", str(env.registry), "wiki"]) == 0
     assert "updated: '2031-01-02'" in capsys.readouterr().out
 

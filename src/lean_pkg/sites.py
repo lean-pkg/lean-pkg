@@ -48,6 +48,8 @@ from dataclasses import dataclass
 
 import yaml
 
+from . import core
+
 SCHEMA = "site-profile/1"
 KEYS = ("schema", "name", "title", "url", "acknowledgement", "mention", "mention_pattern", "scheduler")
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
@@ -184,7 +186,6 @@ def names() -> tuple[str, ...]:
 
 def package_profiles(repo: pathlib.Path) -> tuple[dict[str, Site], list[str]]:
     """({name: profile}, errors) for the package's own profiles, `lean-pkg-sites/*.yaml` committed at HEAD."""
-    from . import cli as core
     p = core.git(repo, "ls-tree", "-z", "--name-only", "HEAD", "--", f"{PACKAGE_DIR}/")
     rels = sorted(x for x in (p.stdout.split("\0") if p.returncode == 0 else []) if x)
     out: dict[str, Site] = {}
@@ -215,7 +216,6 @@ def for_repo(repo: pathlib.Path | None) -> dict[str, Site]:
         return profiles
     own, errors = package_profiles(repo)
     if errors:
-        from . import cli as core
         raise core.Fail(f"{len(errors)} site profile problem(s) (docs/sites.md):\n  " + "\n  ".join(errors))
     return {**profiles, **own}
 
