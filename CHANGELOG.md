@@ -201,7 +201,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - Proposal 0008 accepted (#337): the CI-runner receipt, GitHub Actions
   first, accepted 2026-10-26 with the recommended answers; implementation
   in stages S1 to S5 (#318).
-- Proposal 0009 (#PR_P9, draft): declaration-level extraction with a
+- Proposal 0009 (#342, draft): declaration-level extraction with a
   rename map and an extraction ledger: `lean-pkg-extract ledger`, `decls`
   and `recheck`, the evidence format `lean-pkg-extract-ledger/1` with the
   comparison methods `text/1` and later `types/1`, kept out of the exported
