@@ -106,7 +106,7 @@ def test_opt_in_text_line(lp, env, tmp_path, capsys):
     assert gate_alpha(lp, env, tmp_path, r) == 0
     out = capsys.readouterr().out
     assert (f"✓ HEAD {head[:12]} is a docs-only descendant of {r['commit'][:12]} (3 non-build file(s): "
-            f"README.md, docs/x.md, evidence/notes.md; opted in)") in out
+            f"README.md, docs/x.md, evidence/notes.md; opted in by the registry record)") in out
 
 
 def test_opt_in_gate_check_reports_and_writes_nothing(lp, env, tmp_path, capsys):
@@ -193,7 +193,7 @@ def test_opt_in_refuses_build_input_change(lp, env, tmp_path, capsys, case):
     before = env.registry.read_text()
     assert gate_alpha(lp, env, tmp_path, r) == 1
     err = capsys.readouterr().err
-    assert "docs-only rule (opted in): build input(s) changed" in err, err
+    assert "docs-only rule (opted in by the registry record): build input(s) changed" in err, err
     assert needle in err, err
     assert "the receipt must be rebuilt at HEAD" in err
     assert "accept-docs-descendants" not in err
@@ -244,7 +244,7 @@ def test_opt_in_wide_build_inputs_still_refuse_a_matching_file_outside_evidence(
     before = env.registry.read_text()
     assert gate_alpha(lp, env, tmp_path, r) == 1
     err = capsys.readouterr().err
-    assert "docs-only rule (opted in): build input(s) changed" in err and f"{changed} (build_inputs " in err
+    assert "docs-only rule (opted in by the registry record): build input(s) changed" in err and f"{changed} (build_inputs " in err
     assert env.registry.read_text() == before and read_events(env) == []
 
 

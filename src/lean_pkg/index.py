@@ -540,6 +540,26 @@ def docs_record(reg: dict | None, name: str, repo: str) -> dict | None:
     return pkg
 
 
+REGISTRY_OPT_IN_NOTE = ("docs-only descendants accepted for the tag and the evidence: the registry record opts in "
+                        "(docs_descendants: true)")
+
+
+def opt_in_note(clone: pathlib.Path, pin: str, record: dict) -> str:
+    """The check note for an opted-in registry record (docs_record), from the opt-in the binding rule applies
+    at the pin (binding_file.resolve_opt_in, the registry precedence of proposal 0002): the record's true
+    applies only when the pin has no lean-pkg-binding.yaml; once the file exists there it decides."""
+    from .binding_file import FILE, resolve_opt_in
+    oi = resolve_opt_in(clone, pin, record)
+    if oi.source == "registry":
+        return REGISTRY_OPT_IN_NOTE
+    if oi.source == "committed":
+        return f"docs-only descendants accepted for the tag and the evidence: {FILE} at {pin[:12]} opts in"
+    why = "says docs_descendants: false" if oi.file_state == "false" else (
+        "does not opt in: " + (oi.problems[0].split(": ", 1)[-1] if oi.problems else "invalid"))
+    return (f"the registry record's docs_descendants: true is overridden by {FILE} at {pin[:12]} ({why}); "
+            f"the evidence-only rule binds the tag and the evidence")
+
+
 def receipt_checker(blob) -> str:
     """The `checker` text of a lower-tier receipt's bytes ('' when absent): the files it names are build
     inputs for the docs-only rule. Index passes it explicitly, so the rule never reads a working tree."""
@@ -1311,12 +1331,14 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
         rep["ok"] = not rep["failures"]
         return rep
     record = docs_record(reg, name, entry["repo"])
+    at = len(rep["notes"])
     if record is not None:
-        rep["notes"].append("docs-only descendants accepted for the tag and the evidence: the registry "
-                            "record opts in (docs_descendants: true)")
+        rep["notes"].append(REGISTRY_OPT_IN_NOTE)
     with tempfile.TemporaryDirectory(prefix="lean-pkg-index-") as tmp:
         try:
             clone = clone_at(source or entry["repo"], pathlib.Path(tmp) / "pkg")
+            if record is not None:   # what decides at the pin: the record, or lean-pkg-binding.yaml there
+                rep["notes"][at] = opt_in_note(clone, entry["pin"]["commit"], record)
             res = derive(clone, entry["pin"]["commit"], entry["receipts"]["lower"],
                          entry["receipts"]["comparator"], record)
         except core.Fail as e:

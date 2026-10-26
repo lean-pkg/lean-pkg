@@ -156,24 +156,32 @@ it is bound only through the `lake-manifest.json` seal of the job stdout, and
 
 ### Docs-only descendants (opt-in per package)
 
-A package whose record has `docs_descendants: true` (set with
-`lean-pkg update NAME --accept-docs-descendants --reason TEXT`) also accepts H
-when H descends from X and no build input under the package directory
-changed: `*.lean`, `lakefile.*`, `lake-manifest.json`, `lean-toolchain` at any
-depth, the record's `build_inputs` globs and the files the receipt's `checker`
-names. A symlink or gitlink change, a changed file that a committed symlink
-points to, `.gitattributes`, `.gitmodules`,
-`.lfsconfig` and `claims.yaml` are always refused, and for a package in a
+A package that opts in also accepts H when H descends from X and no build
+input under the package directory changed. The opt-in is
+`lean-pkg-binding.yaml` (`schema: lean-pkg-binding/1`,
+`docs_descendants: true`, optional `build_inputs`) committed in the package
+directory and read **at X only**, never at H, in the working tree or in a
+commit between, so a later commit cannot grant itself the rule (proposal
+0002). The older route, the record's `docs_descendants: true`
+(`lean-pkg update NAME --accept-docs-descendants --reason TEXT`), still opts
+in when X has no file; a record `false` vetoes a committed `true`; once the
+file exists at X it decides, and an invalid file does not opt in. Build inputs: `*.lean`,
+`lakefile.*`, `lake-manifest.json`, `lean-toolchain` at any depth, the
+`build_inputs` globs of the file and the record, and the files the receipt's
+`checker` names. A symlink or gitlink change, a changed file that a committed
+symlink points to, `.gitattributes`, `.gitmodules`, `.lfsconfig`,
+`claims.yaml` and `lean-pkg-binding.yaml` itself are always refused, and for a package in a
 subdirectory so is a `.gitattributes`, `.gitmodules` or `.lfsconfig` at the
 repository root or in any directory between it and the package (filters, eol
 and LFS change the bytes the build sees without changing a `.lean` blob); `formalization.yaml` keeps its derived-keys
 rule; the diff is read without rename detection, so a deleted or renamed
 build input is a change. The gated commit stays X; the events and JSON add
-`descendant_of` and `docs_paths`. It is opt-in because the receipt then binds
+`descendant_of`, `docs_paths` and `opt_in` (`source` `committed` or
+`registry`), and the text line names the source. It is opt-in because the receipt then binds
 X plus the assumption that the build reads nothing outside the listed inputs
 (`include_str` or a data file would break it), which lean-pkg cannot verify.
 Without the opt-in the rule above is unchanged; a refusal the docs-only rule
-would have admitted only gains a hint naming the flag. Details:
+would have admitted only gains a hint naming the file and the flag. Details:
 [docs/receipts.md](docs/receipts.md#docs-only-descendants-opt-in).
 
 ## Promotion
