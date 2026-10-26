@@ -62,7 +62,7 @@ export LEAN_PKG_REGISTRY=~/lean-registry/lean-packages.yaml
 lean-pkg registry init                                                 # once: creates the registry and its event log
 
 lean-pkg register markovprocess-pilot \
-    --repo git@github.com:you/markovprocess-pilot.git \
+    --url git@github.com:you/markovprocess-pilot.git \
     --path src/markovprocess-pilot --owner-project rmt-foundations
 # markovprocess-pilot: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.35.0-rc2, pin=065356127b)
 

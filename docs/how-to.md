@@ -203,7 +203,7 @@ runs the verify script bounded (`systemd-run --user`, `MemoryMax`,
 accounting before the unit is collected, and writes the same receipt:
 
 ```bash
-lean-pkg receipt systemd --unit audit-gate --commit "$(git rev-parse HEAD)" --log /tmp/gate/verify.log \
+lean-pkg receipt systemd --unit audit-gate --receipt-commit "$(git rev-parse HEAD)" --log /tmp/gate/verify.log \
   --stdout /tmp/gate/unit.out --stderr /tmp/gate/unit.err --checker "gate.sh" --run -- bash gate.sh /tmp/gate/verify.log
 lean-pkg receipt systemd --unit audit-gate ... --properties-file unit.properties   # a unit that already ran
 ```

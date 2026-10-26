@@ -518,7 +518,7 @@ under the lease to use it.
 
 ```bash
 lean-pkg comparator config --from-claims beta --from-output /scratch/beta-types.json \
-  --checkout ~/clones/beta --no-registry --out /scratch/beta-comparator.json --allow-partial
+  --repo ~/clones/beta --no-registry --out /scratch/beta-comparator.json --allow-partial
 ```
 
 **Jobs and file handles.** Every `lake env lean` process opens the `.olean`
