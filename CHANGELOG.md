@@ -126,7 +126,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   newer. The pins are now `leanprover/lean4:v4.35.0` and Mathlib `v4.35.0`
   (they were `v4.35.0-rc2`). The output says when the pins are a release
   candidate, and `--json` adds `release_candidate` (additive).
-
 - `report` (#336, #330): a registry with a live lease no longer blocks
   every report. The blocking guard scanned the whole body, the report's
   own fixed prose included, so a registry-derived name that is also an
