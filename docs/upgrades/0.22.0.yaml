@@ -104,6 +104,39 @@ changes:
     breaking: false
     changelog: Fixed
     split: true
+  - pr: 0
+    id: coverage-check-offline
+    kind: command
+    area: coverage check
+    summary: >-
+      lean-pkg coverage check --file coverage.yaml [--claims claims.yaml] [--comparator comparator.json ...],
+      without NAME, is an offline check (#328): no registry record and no receipt are read. It runs the coverage/1
+      schema and its length limits, the manuscript version, lean_pkg_version, the claims file's claims/1 schema,
+      each row's claim ids, a warning per reusable claim no row names, and each comparator theorem the
+      declaration of a claim a row names, and lists as skipped the checks that need the registry, the checkout
+      at HEAD or a receipt. With NAME the command is unchanged; --claims and --comparator with NAME exit 2.
+    action: >-
+      Nothing required. Validate coverage.yaml with the offline form before the commit you will gate.
+    breaking: false
+    changelog: Added
+    split: true
+  - pr: 0
+    id: verify-preflight
+    kind: behavior
+    area: verify
+    summary: >-
+      lean-pkg verify NAME runs a preflight as step 0, before any receipt work (#325): the claims/1 check of
+      claims check --file on the claims file committed at HEAD and, when coverage.yaml is committed, the offline
+      coverage check against the files and comparator configurations committed at HEAD. A refusal stops verify
+      with that message, nothing run and nothing written. Placeholder text and an unposted manuscript are
+      warnings there. It runs under --dry-run too; --json steps[] begins with a '0/3 preflight' entry.
+    action: >-
+      Nothing for a package whose committed claims.yaml and coverage.yaml are valid. One that is not now stops
+      verify before the receipts instead of at the gate or the page: fix the file in a new commit and run verify
+      again. A script that indexes verify's --json steps[] by position sees one more entry, first.
+    breaking: false
+    changelog: Changed
+    split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

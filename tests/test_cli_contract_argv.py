@@ -142,6 +142,9 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["publish", "demo", "--yes", "--agent", "a", "--skip-public-safety"], "publish", True, True, False),
     (["coverage", "check", "demo"], "coverage check", False, False, False),
     (["coverage", "check", "demo", "--file", "f", "--allow-private-manuscript"], "coverage check", False, False, False),
+    # the offline form (#328): no NAME, no registry
+    (["coverage", "check", "--file", "f", "--claims", "c", "--comparator", "x", "--comparator", "y"],
+     "coverage check", False, False, False),
     (["page", "demo"], "page", False, False, False),
     (["page", "demo", "--check"], "page", False, False, False),
     (["page", "demo", "--out", "o"], "page", False, False, False),

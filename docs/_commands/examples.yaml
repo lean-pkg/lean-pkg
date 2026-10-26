@@ -30,10 +30,13 @@ lean-pkg registry init:
 
 lean-pkg verify:
   - cmd: lean-pkg verify my-proof --dry-run
-    say: Print the three steps (the comparator receipt, the lower-tier receipt at the same commit, the gate) and their exact commands; nothing runs.
+    say: Run the read-only preflight (claims.yaml and coverage.yaml at HEAD), then print the three steps (the comparator receipt, the lower-tier receipt at the same commit, the gate) and their exact commands; nothing else runs.
   - cmd: lean-pkg verify my-proof
     say: Run them in that order at the checkout's HEAD; an active package first moves to gate-pending, a gated one is re-gated. Commit the receipts afterwards.
     output: |
+      verify: 0/3 preflight: claims and coverage files committed at a0a4fe68e46c
+        PASS claims.yaml at a0a4fe68e46c: schema ok (1 claim(s))
+        ...
       verify: 1/3 comparator receipt: lean-pkg receipt comparator --repo .../my-proof
       ...
       verify my-proof: verified-private at a0a4fe68e46c: lower-tier .lean-receipts/a0a4fe68e46c-systemd-user-my-proof-verify.service-<id>-h-<label>.json, comparator .lean-receipts/a0a4fe68e46c-comparator.json
@@ -358,6 +361,16 @@ lean-pkg coverage check:
     say: Validate coverage.yaml committed at HEAD (the paper-to-Lean map that page renders).
   - cmd: lean-pkg coverage check my-proof --file coverage.yaml
     say: Check the working copy before committing it.
+  - cmd: lean-pkg coverage check --file coverage.yaml --claims claims.yaml --comparator comparator.json
+    say: The offline form, before the package is registered or the files are committed; reads no registry and no receipt, and lists the checks it skipped.
+    output: |
+      coverage.yaml: coverage: OK; library; 1 main result(s); offline, 4 check(s) skipped
+        pass: schema: coverage/1 schema and length limits
+        ...
+        pass: comparator theorems: each of 1 theorem(s) in 1 configuration(s) is the declaration of a claim a row names (R11)
+        skipped: compute receipts: each compute job is a receipt committed under .lean-receipts/: needs the receipts at HEAD
+        ...
+      coverage.yaml: coverage: OK; library; 1 main result(s); offline, 4 check(s) skipped
 
 lean-pkg blueprint check:
   - cmd: lean-pkg blueprint check my-proof

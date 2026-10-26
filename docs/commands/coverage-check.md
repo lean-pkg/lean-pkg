@@ -8,12 +8,13 @@ title: lean-pkg coverage check
 
 # lean-pkg coverage check
 
-validate coverage.yaml against claims.yaml and the receipts at HEAD; exit 0/1; read-only.
+validate coverage.yaml against claims.yaml and the receipts at HEAD; exit 0/1; read-only (--file without NAME: offline, no registry).
 
 ## Usage
 
 ```text
-lean-pkg coverage check [--file PATH] [--allow-private-manuscript] [--json] NAME
+lean-pkg coverage check [--file PATH] [--claims PATH] [--comparator PATH]
+                        [--allow-private-manuscript] [--json] [NAME]
 ```
 
 ## Arguments and flags
@@ -21,7 +22,9 @@ lean-pkg coverage check [--file PATH] [--allow-private-manuscript] [--json] NAME
 | Argument or flag | Description |
 |---|---|
 | `NAME` |   |
-| `--file PATH` | check this working-copy file instead of coverage.yaml committed at HEAD (claim ids and receipts are still read at HEAD) |
+| `--file PATH` | check this working-copy file instead of coverage.yaml committed at HEAD (claim ids and receipts are still read at HEAD); without NAME: the offline check, which reads no registry and no receipt and says which checks it skipped |
+| `--claims PATH` | offline only (no NAME): the claims file the rows' claim ids are checked against |
+| `--comparator PATH` | offline only (no NAME): a comparator configuration whose theorems must each be the declaration of a claim a row names (repeat for each configuration) |
 | `--allow-private-manuscript` | accept manuscript.version 'unposted' (a private draft); the output says so |
 
 ## Details
@@ -29,12 +32,14 @@ lean-pkg coverage check [--file PATH] [--allow-private-manuscript] [--json] NAME
 | Form | What it does | Key flags |
 |---|---|---|
 | `coverage check NAME` | read-only: validate `coverage.yaml` (schema `coverage/1`, committed at `HEAD`; `--file PATH` checks a working copy) against `claims.yaml` and the receipts at `HEAD`: exact key sets, closed enums (`same-assumptions`, `inputs-supplied`, `outside`; cluster `easley`), duplicate keys refused, claim ids that exist and are not superseded, inputs for every `inputs-supplied` row, at least one `outside` row or `nothing_excluded: {reason}`, a posted manuscript version (`arXiv:IDvN` or `{repo, commit, sha256}`; `unposted` only with `--allow-private-manuscript`), every `compute` job a committed Slurm receipt; the lab's `lean-scope-page` rules that apply: no placeholder text (`FILL-ME`, `TODO`, `TBD`, `FIXME`, `XXX`), every named claim's `file` committed at `HEAD`, every theorem of the recorded comparator receipt the declaration of a claim some row names, every configuration there with `definition_names` carrying `judged_as.reviewer`; `kind: library` (no manuscript; rows `{title, claims, note?}`, the library's main results; `manuscript`, `nothing_excluded` and paper row keys refused); exit 0 or 1; `--json` `{ok, name, file, kind, rows, counts, manuscript, private_manuscript, errors[], warnings[]}` (`manuscript` and `counts` null for a library) ([The verification page](../page.md#coverageyaml)) | `[--file PATH]` `[--allow-private-manuscript]` |
+| `coverage check --file PATH` (no `NAME`) | the offline form (#328), before the package is registered or the files are committed: reads no registry record and no receipt. Runs every check above that needs neither: the `coverage/1` schema with its length limits and placeholder rule, the manuscript version (`--allow-private-manuscript` as above), `lean_pkg_version`; with `--claims PATH`, the claims file's `claims/1` schema (the coverage `package` must be its `package`), each row's claim ids (present, not superseded) and a warning for each `reusable` claim no row names; with `--comparator PATH` (repeatable: pass every configuration), each configuration theorem the declaration of a claim a row names (a configuration `lean-pkg-signoff.json` beside the coverage file marks `smoke` is exempt; skipped when a named claim's Lean file is not readable under the coverage file's directory). The checks that need the registry record, the checkout at `HEAD` or a receipt (compute receipts, claim files committed at `HEAD`, definition sign-off, the e-print baseline) are listed as `skipped`, as are those whose input was not given. `NAME` is optional only here: with `NAME`, `--file` keeps its meaning (claim ids and receipts read at `HEAD`), and `--claims`/`--comparator` are a usage error (exit 2); no `NAME` and no `--file` is a usage error too. The verdict is the first and the last line; exit 0 or 1; `--json` the payload above plus `offline: true`, `claims_file`, `comparator[]`, `checks[{check, status pass\|fail\|warn\|skipped, detail}]`, `skipped[]` (`name` is the file's `package`). [`verify`](verify.md) runs this check at `HEAD` as its preflight | `--file PATH` `[--claims PATH]` `[--comparator PATH ...]` `[--allow-private-manuscript]` |
 
 ## JSON output
 
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
 - `coverage-check` (exit 0): `counts`, `errors`, `file`, `kind`, `manuscript`, `name`, `ok`, `private_manuscript`, `rows`, `warnings`
+- `coverage-check-offline` (exit 0): `checks`, `claims_file`, `comparator`, `counts`, `errors`, `file`, `kind`, `manuscript`, `name`, `offline`, `ok`, `private_manuscript`, `rows`, `skipped`, `warnings`
 
 ## Examples
 
@@ -48,4 +53,22 @@ Check the working copy before committing it.
 
 ```bash
 lean-pkg coverage check my-proof --file coverage.yaml
+```
+
+The offline form, before the package is registered or the files are committed; reads no registry and no receipt, and lists the checks it skipped.
+
+```bash
+lean-pkg coverage check --file coverage.yaml --claims claims.yaml --comparator comparator.json
+```
+
+Sample output:
+
+```text
+coverage.yaml: coverage: OK; library; 1 main result(s); offline, 4 check(s) skipped
+  pass: schema: coverage/1 schema and length limits
+  ...
+  pass: comparator theorems: each of 1 theorem(s) in 1 configuration(s) is the declaration of a claim a row names (R11)
+  skipped: compute receipts: each compute job is a receipt committed under .lean-receipts/: needs the receipts at HEAD
+  ...
+coverage.yaml: coverage: OK; library; 1 main result(s); offline, 4 check(s) skipped
 ```

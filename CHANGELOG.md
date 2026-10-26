@@ -33,6 +33,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   test writes an event key, that the table does not list.
   `doctor --upgrade-from` reports `event_line_version` among its named
   constants.
+- Offline coverage check (#PR_J; #328): `lean-pkg coverage check --file
+  coverage.yaml [--claims claims.yaml] [--comparator comparator.json ...]`,
+  without `NAME`, validates `coverage.yaml` before the package is registered
+  or the file is committed, as `claims check --file` does for `claims.yaml`.
+  It reads no registry record and no receipt, and runs every check that needs
+  neither: the `coverage/1` schema and its length limits (the 400-character
+  summary among them), the manuscript version, `lean_pkg_version`, the claims
+  file's `claims/1` schema, each row's claim ids, a warning for each reusable
+  claim no row names, and each comparator theorem the declaration of a claim a
+  row names. The checks that need the registry, the checkout at `HEAD` or a
+  receipt are listed as skipped. Verdict first and last; exit 0 or 1;
+  `--json` adds `offline`, `claims_file`, `comparator[]`, `checks[]` and
+  `skipped[]` to the payload of the registered form, which is unchanged
+  ([coverage check](docs/commands/coverage-check.md)).
 
 ### Changed
 
@@ -82,6 +96,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `strict=False` on `zip()` (13). Kept with a reason: `F811` in `tests/`
   (fixtures imported from a shared module and named as test parameters),
   and four `B023` lambdas called within their loop iteration.
+- `lean-pkg verify NAME` runs a preflight as step 0 (#PR_J; #325): the
+  `claims/1` check of `claims check --file` on the claims file committed at
+  `HEAD` and, when `coverage.yaml` is committed, the offline coverage check
+  (#328) against the files and comparator configurations committed there.
+  A refusal stops verify with that message before any receipt work: no
+  receipt, no unit, nothing written. Files only in the working tree are not
+  read. Placeholder text and an unposted manuscript are warnings in the
+  preflight (`coverage check` and `page` still refuse them), so the paper
+  scaffold of `lean-pkg new` verifies as before. The preflight runs under
+  `--dry-run` too, and `--json` `steps[]` begins with `0/3 preflight`
+  ([verify](docs/commands/verify.md)).
 
 ### Fixed
 

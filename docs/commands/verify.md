@@ -19,7 +19,7 @@ lean-pkg verify [--work-dir DIR] [--unit UNIT] [--script FILE] [--judges N]
 
 `[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
-Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bash verify.sh` and `gate` (an active package first moves to gate-pending; a gated one is re-gated), each as its own lean-pkg invocation with its own checks. Writes only what those commands write; commits nothing in the checkout. A package whose committed coverage.yaml declares an LTS stack (`stack: NAME`, docs/stacks/) is checked against it (lean-toolchain, the Mathlib commit, the comparator receipt's tool digests): a warning per difference, never a refusal.
+Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bash verify.sh` and `gate` (an active package first moves to gate-pending; a gated one is re-gated), each as its own lean-pkg invocation with its own checks. First (step 0, read-only, also under --dry-run) the claims/1 check on the claims file committed at HEAD and, when coverage.yaml is committed, the offline `coverage check`: a refusal stops verify before any receipt. Writes only what those commands write; commits nothing in the checkout. A package whose committed coverage.yaml declares an LTS stack (`stack: NAME`, docs/stacks/) is checked against it (lean-toolchain, the Mathlib commit, the comparator receipt's tool digests): a warning per difference, never a refusal.
 
 ## Arguments and flags
 
@@ -34,13 +34,19 @@ Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bas
 | `--reason TEXT` | re-gate only: accept a commit that does not descend from the gated one (`gate --regate --reason`) |
 | `--dry-run` | print the steps and their commands; run nothing |
 
+## Details
+
+| Form | What it does | Key flags |
+|---|---|---|
+| `verify NAME` | the newcomer's one step from a committed package to `verified-private` on this machine, at the checkout's `HEAD` X: refused first (nothing run) for an unknown package, a checkout that is not a clean commit, no committed verify script, no comparator configuration, a status the gate cannot reach. Then **step 0, the preflight** (read-only, also under `--dry-run`): the claims/1 check [`claims check --file`](claims-check.md) runs, on the claims file committed at `HEAD`, and, when `coverage.yaml` is committed, the offline [`coverage check`](coverage-check.md) against the claims file and the comparator configurations committed at `HEAD` (schema and length limits, claim ids, every comparator theorem the declaration of a claim a row names); placeholder text and an unposted manuscript are warnings here, since `coverage check` and `page` refuse them later. A refusal stops verify with that message before any receipt work: no receipt, no unit, nothing written. Files present only in the working tree are never read. Then, each printed and run as its own invocation: (1) the comparator receipt, (2) the lower-tier receipt at the same commit, (3) for an `active` package the move to `gate-pending`, (4) the gate (`--regate` for a gated package). A receipt of X already present is reused; nothing is committed. `--json` `steps[]` begins with `{step: "0/3 preflight", rc, output {ok, claims, coverage}}` | `[--dry-run]` `[--work-dir DIR]` `[--unit U]` `[--script FILE]` `[--judges N]` `[--agent A]` `[--reason TEXT]` |
+
 ## Exit codes
 
 0 success (dry runs and no-ops included), 1 refused or failed, 2 usage error; see [Exit codes](../cli.md#exit-codes).
 
 ## Examples
 
-Print the three steps (the comparator receipt, the lower-tier receipt at the same commit, the gate) and their exact commands; nothing runs.
+Run the read-only preflight (claims.yaml and coverage.yaml at HEAD), then print the three steps (the comparator receipt, the lower-tier receipt at the same commit, the gate) and their exact commands; nothing else runs.
 
 ```bash
 lean-pkg verify my-proof --dry-run
@@ -55,6 +61,9 @@ lean-pkg verify my-proof
 Sample output:
 
 ```text
+verify: 0/3 preflight: claims and coverage files committed at a0a4fe68e46c
+  PASS claims.yaml at a0a4fe68e46c: schema ok (1 claim(s))
+  ...
 verify: 1/3 comparator receipt: lean-pkg receipt comparator --repo .../my-proof
 ...
 verify my-proof: verified-private at a0a4fe68e46c: lower-tier .lean-receipts/a0a4fe68e46c-systemd-user-my-proof-verify.service-<id>-h-<label>.json, comparator .lean-receipts/a0a4fe68e46c-comparator.json
