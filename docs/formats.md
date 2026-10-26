@@ -153,6 +153,74 @@ page: that needs a corroborated run (level 2, a later stage of the
 proposal). A receipt with a `gha-` job id and no `ci` block still passes
 `gate` and backs no `compute` job.
 
+## The hypotheses section of the verify log (`hyp-probe/1`, planned)
+
+**Planned with [proposal 0003](proposals/0003-conditional-claims-and-discharge.md)
+(conditional claims), stage H1 ([#320](https://github.com/lean-pkg/lean-pkg/issues/320)).
+No lean-pkg release writes or reads this section yet.** The line format
+below is the design; it is fixed when H1 ships, and this page then
+describes what the code does.
+
+The lower-tier verify log will gain a section written by a small core-Lean
+probe, `HypProbe.lean`, the way the
+[per-claim axioms](receipts.md#per-claim-axioms-claim_axioms) lines are
+written: into the log before the seal, so `report_sha256` covers it. The
+receipt schema does not change (no new receipt key, `lower-receipt/1`
+stays); `hyp-probe/1` is the marker in the section's header line. Lean
+prints facts and Python judges them: the probe never prints a verdict.
+Every line after the header is a tag, a colon, a space and one JSON object.
+
+```text
+== lean-pkg hypotheses (hyp-probe/1) ==
+hyp-decl: {"v":1,"theorem":"Paper.main","binders":[{"i":2,"head":"Hyp.A","kind":"def","module":"Paper.Statements","explicit":true}],"data_binders":2}
+hyp-challenge-build: {"module":"Paper.Challenge","ok":true}
+hyp-challenge: {"v":1,"theorem":"PaperAudit.main","binders":[{"i":2,"head":"Hyp.A","kind":"def","module":"Paper.Statements","explicit":true}],"data_binders":2,"config":"comparator.json"}
+hyp-challenge: {"v":1,"theorem":"PaperAudit.main_uncond","binders":[],"data_binders":2,"config":"comparator.json"}
+hyp-challenge: {"v":1,"theorem":"PaperAudit.hyp_a","binders":[],"data_binders":0,"config":"comparator.json"}
+hyp-corollary: {"corollary":"PaperAudit.main_uncond","of":"PaperAudit.main","drops":["Hyp.A"],"binders":[2]}
+hyp-proof: {"proof":"PaperAudit.hyp_a","proves":"Hyp.A"}
+hyp-done: {"v":1,"decls":1,"challenge":3,"configs":["comparator.json"]}
+```
+
+The probe has two parts. The **decl part** runs whenever the package has a
+`claims.yaml`, under the job's LEAN_PATH, on the modules the claims'
+`file`s name. The **Challenge part** runs only when `claims.yaml` uses
+`hypotheses`, `discharges` or `witness`, so other packages pay nothing. It
+builds each Challenge module with its output in a side log in the job's work
+directory (`hyp-challenge-build.log`), **outside the sealed log**, so the
+Challenge's `sorry` warnings never reach `sorry_count`; only the
+`hyp-challenge-build` status line enters the sealed log. It then imports
+every Challenge module in a separate run from the decl part.
+
+| Line | Printed by | When | JSON keys |
+|---|---|---|---|
+| `hyp-decl:` | decl part | once per claim `decl` found in the built environment | `v` (1); `theorem` (the claim's `decl`); `binders`: every binder of `Prop` type whose head is a constant, explicit or not, each `{i, head, kind, module, explicit}` (its position in the telescope, the head constant, the head's declaration kind such as `def`, `inductive`, `axiom`, `opaque` or `theorem`, the module that declares the head, and whether the binder is explicit); `data_binders` (the number of binders that are not `Prop`s) |
+| `hyp-missing:` | decl part | once per claim `decl` not in the built environment | `v`, `theorem` |
+| `hyp-challenge-build:` | Challenge part | once per Challenge module the configurations name | `module`, `ok` (whether `lake build` succeeded; its output is in the side log) |
+| `hyp-challenge:` | Challenge part | once per name in each configuration's `theorem_names` | the keys of `hyp-decl`, plus `config` (the configuration's path) |
+| `hyp-corollary:` | Challenge part | for each ordered pair where the corollary's type is the other theorem's type with every binder headed by some set of hypothesis constants removed | `corollary`, `of`, `drops` (the hypothesis constants whose binders were removed), `binders` (the removed positions in `of`'s telescope) |
+| `hyp-proof:` | Challenge part | when a theorem's type is exactly a hypothesis constant | `proof`, `proves` |
+| `hyp-witness:` | Challenge part | when a theorem's type is the expected witness type of a conditional theorem: `∃` over its non-`Prop` binders in order, of the right-nested `∧` of all its `Prop` binders in order | `witness`, `of` |
+| `hyp-skip:` | Challenge part | the corollary search was not run for a theorem (more than 12 distinct hypothesis constants) | `theorem`, `reason` |
+| `hyp-error:` | either part | the probe could not run (for example, it does not compile on the package's toolchain) | `phase` (`decl` or `challenge`), `message` |
+| `hyp-done:` | last line | always, once | `v` (1); `decls` (the number of `hyp-decl` and `hyp-missing` lines); `challenge` (the number of `hyp-challenge` lines); `configs` (the configuration paths read) |
+
+Only positive facts are printed: no line says that a corollary or a proof
+does not match. Types are compared with `Expr.eqv`, which ignores binder
+names, plus equal binder annotations on the kept binders and the
+corollary's universe parameters renamed positionally to the theorem's; there
+is no unfolding, `whnf` or `isDefEq`. Only non-dependent binders are
+dropped, and the search covers the subsets of at most 12 distinct
+hypothesis constants.
+
+Planned refusals, at write time (the receipt is not written): a section
+without `hyp-done`, counts that do not match it, a line printed twice, a
+malformed JSON object, a line after `hyp-done`, and a redaction that alters
+a line. A log without the section stays a valid receipt; a claim that uses
+`hypotheses`, `discharges` or `witness` is then `hypotheses-unchecked` in
+the claims ledger, as it is after `hyp-skip` or `hyp-error`. `hyp-error` is
+never a refusal for a package that does not use those keys.
+
 ## Event log
 
 `lean-package-events.jsonl` holds one JSON object per line, keys sorted,
