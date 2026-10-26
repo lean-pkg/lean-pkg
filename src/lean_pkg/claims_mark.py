@@ -85,9 +85,9 @@ def do_claims_mark(reg: dict, name: str, config: str, status: str, write: bool,
         cfg = json.loads(cpath.read_text(encoding="utf-8"))
     except FileNotFoundError:
         raise core.Fail(f"{name}: comparator config not found: {cpath} (a relative path is read from the "
-                        f"checkout {repo})")
+                        f"checkout {repo})") from None
     except ValueError as e:
-        raise core.Fail(f"{cpath}: not valid JSON ({e})")
+        raise core.Fail(f"{cpath}: not valid JSON ({e})") from e
     names = cfg.get("theorem_names") if isinstance(cfg, dict) else None
     if not isinstance(names, list) or not names or not all(isinstance(n, str) and n for n in names):
         raise core.Fail(f"{cpath}: theorem_names must be a non-empty list of strings")

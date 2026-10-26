@@ -210,8 +210,8 @@ def run(repo, configs: list[str] | None = None, exports: dict[str, pathlib.Path]
     exports = exports or {}
     rels = configs if configs else discover(repo)
     if not rels:
-        raise ContractsError(f"no comparator configuration in the checkout (comparator*.json or "
-                             f"comparator/config*.json)")
+        raise ContractsError("no comparator configuration in the checkout (comparator*.json or "
+                             "comparator/config*.json)")
     for rel in rels:
         p = (repo / rel).resolve()
         if not p.is_relative_to(repo) or not p.is_file():

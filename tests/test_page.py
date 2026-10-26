@@ -126,7 +126,7 @@ def test_render_is_deterministic_and_states_only_what_the_ledger_closes(lp, env,
     block = md.split("### Theorem 1: Main bound\n", 1)[1].split("\n## ", 1)[0]
     assert block.startswith("\n**Verified.**")
     assert "**In the paper.**\n\n```latex\nFor every integer $n > 0$,\n\\[ n \\le n^2 . \\]\n```" in block
-    assert f"**In Lean.** `BetaAudit.Demo.foo_le_bar` in [Challenge.lean]" in block
+    assert "**In Lean.** `BetaAudit.Demo.foo_le_bar` in [Challenge.lean]" in block
     assert f"```lean\n{CHALLENGE_STATEMENT}\n```" in block                 # the statement, without its proof
     assert "sorry\n```" not in block and "**Hypotheses.** The paper's own" in block
     assert "## Not formalized" in md and "- Theorem 2 (Sharpness): the lower-bound construction" in md

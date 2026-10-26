@@ -24,7 +24,7 @@ REASON = f"history\treason\nwith\x0bcontrols\x1b[0m {CONTROLS}"
 
 def _poison(env) -> None:
     reg = read_reg(env)
-    for name, pkg in reg["packages"].items():
+    for _name, pkg in reg["packages"].items():
         pkg["notes"] = NOTES
         pkg["history"] = [{"ts": "2026-10-18T00:00:00+00:00", "event": "updated", "agent": "ada",
                            "fields": ["notes"], "notes_from": NOTES, "reason": REASON}]

@@ -162,7 +162,7 @@ def scratch_list(tmp_path, monkeypatch, below: str = "v4.30.0") -> None:
 def assert_warns(text: str, want_ids: list[str]) -> None:
     lines = [x.strip() for x in text.splitlines() if x.strip().startswith("WARN: toolchain advisory ")]
     assert len(lines) == len(want_ids), text
-    for line, aid in zip(lines, want_ids):
+    for line, aid in zip(lines, want_ids, strict=False):
         entry = next(e for e in ta.load() if e["id"] == aid)
         assert line.startswith(f"WARN: toolchain advisory {aid}: ")
         assert f"fixed in {entry['fixed_in']}" in line and entry["links"][0] in line

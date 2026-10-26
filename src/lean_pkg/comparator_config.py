@@ -243,7 +243,7 @@ def _load_out(repo: pathlib.Path, rel: str) -> dict | None:
     try:
         cfg = json.loads(path.read_text(encoding="utf-8"))
     except ValueError as e:
-        raise core.Fail(f"{rel}: not valid JSON ({e}); nothing written")
+        raise core.Fail(f"{rel}: not valid JSON ({e}); nothing written") from e
     if not isinstance(cfg, dict):
         raise core.Fail(f"{rel}: not a JSON object; nothing written")
     tn = cfg.get("theorem_names", [])
@@ -263,7 +263,7 @@ def load_sidecar(repo: pathlib.Path) -> dict:
     try:
         return holes.parse_sidecar(path.read_bytes() if path.is_file() else None)
     except ValueError as e:
-        raise core.Fail(f"{e}; nothing written")
+        raise core.Fail(f"{e}; nothing written") from e
 
 
 def _atomic_write(path: pathlib.Path, text: str) -> None:
@@ -467,7 +467,7 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
         failed = ct.check_partial([by_decl.get(a["decl"]) for a in added], doc,
                                   "the local run" if types["mode"] == "local" else f"--from-output {source}",
                                   bool(types.get("allow_partial")))
-        for a, c in zip(added, sources):
+        for a, c in zip(added, sources, strict=False):
             ct.fill(a, by_decl.get(a["decl"]), str(c.get("summary") or f"what {a['claim']} claims"), source)
         ok = sum(1 for a in added if "type" in a)
         nr = sum(1 for a in added if a.get("needs_restatement"))
@@ -548,7 +548,7 @@ def _sidecar_at(repo: pathlib.Path, rev: str) -> dict:
     try:
         return core.sidecar_at(repo, rev)
     except ValueError as e:
-        raise core.Fail(str(e))
+        raise core.Fail(str(e)) from e
 
 
 def smoke_configs(repo: pathlib.Path, *revs: str | None) -> dict[str, str]:
@@ -769,7 +769,7 @@ def do_migrate_signoff(path: str, write: bool) -> tuple[list[str], dict, str | N
     try:
         cfg = json.loads(raw.decode("utf-8"), object_pairs_hook=holes._strict_pairs)
     except (UnicodeDecodeError, ValueError) as e:
-        raise core.Fail(f"{rel}: not valid strict JSON ({e}); nothing written")
+        raise core.Fail(f"{rel}: not valid strict JSON ({e}); nothing written") from e
     if not isinstance(cfg, dict):
         raise core.Fail(f"{rel}: not a JSON object; nothing written")
     before = holes.sha256_bytes(raw)
@@ -797,7 +797,7 @@ def do_migrate_signoff(path: str, write: bool) -> tuple[list[str], dict, str | N
                 defs = holes._inline_check(cfg, hole_names, rel)
             except ValueError as e:
                 raise core.Fail(f"{e}; fix the inline judged_as (or write the {holes.SIDECAR} entry by hand); "
-                                f"nothing written")
+                                f"nothing written") from e
             have = entry.get("definitions") or {}
             clash = sorted(h for h in defs if h in have and have[h] != defs[h])
             if clash:
@@ -845,7 +845,7 @@ def do_migrate_signoff(path: str, write: bool) -> tuple[list[str], dict, str | N
         doc = holes.parse_sidecar(side_text.encode("utf-8"))
         holes.check_definition_holes(new_cfg, rel, cfg_rel=rel, cfg_bytes=new_bytes, sidecar=doc)
     except ValueError as e:
-        raise core.Fail(f"{rel}: the migrated sign-off would not pass: {e}; nothing written")
+        raise core.Fail(f"{rel}: the migrated sign-off would not pass: {e}; nothing written") from e
     assert all(new_cfg.get(k) == cfg.get(k) for k in PALOMAR_KEYS)
     others = sorted(set(new_cfg) - set(PALOMAR_KEYS))
     impact = (f"the configuration's bytes change (sha256 {before[:12]} -> {after[:12]}): a comparator receipt binds "

@@ -134,7 +134,7 @@ def load_text(text: str, where: str) -> dict:
     try:
         data = yaml.load(text, Loader=_StrictLoader)
     except yaml.YAMLError as e:
-        raise core.Fail(f"{where}: not valid YAML: {' '.join(str(e).split())}")
+        raise core.Fail(f"{where}: not valid YAML: {' '.join(str(e).split())}") from e
     if not isinstance(data, dict):
         raise core.Fail(f"{where}: top level is not a mapping")
     return data
@@ -648,7 +648,7 @@ def scope_problems(pkg: dict, doc: dict, claims: dict[str, dict], repo: pathlib.
         where = c.get("path") or "?"
         if where in smoke:                                  # a declared smoke check: accounted for as such
             for t in c.get("theorem_names") or []:
-                hit = [cid for (_i, cid), rc in zip(named, row_claims)
+                hit = [cid for (_i, cid), rc in zip(named, row_claims, strict=False)
                        if isinstance(t, str) and cc.claim_covered({t}, rc, qualified, mapped)]
                 if hit:
                     errors.append(f"comparator theorem {t!r} ({where}) is in a configuration {SIDECAR} "

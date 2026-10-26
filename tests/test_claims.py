@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
-import copy
 import json
 
 import pytest
 import yaml
 
 from .conftest import (CLAIMS_YAML, ROOT, _git, commit_claims, drop_claims, read_events, read_reg,
-                       repo_head, write_reg)
+                       write_reg)
 
 FIXTURE = ROOT / "tests" / "fixtures" / "schemas" / "claims-1.yaml"
 

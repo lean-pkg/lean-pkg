@@ -77,7 +77,7 @@ def test_reference_branch_falls_back_to_head(lp, tmp_path):
 
 import yaml
 
-from .conftest import base_pkg, make_repo, read_events
+from .conftest import base_pkg, make_repo
 
 
 def _clone_pair(tmp_path):

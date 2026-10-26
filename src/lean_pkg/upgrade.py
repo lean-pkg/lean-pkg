@@ -135,7 +135,7 @@ def literal(node):
     if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
         return tuple(literal(e) for e in node.elts)
     if isinstance(node, ast.Dict):
-        return {literal(k): literal(v) for k, v in zip(node.keys, node.values) if k is not None}
+        return {literal(k): literal(v) for k, v in zip(node.keys, node.values, strict=False) if k is not None}
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         return {"__call__": node.func.id, "args": tuple(literal(a) for a in node.args),
                 **{k.arg: literal(k.value) for k in node.keywords if k.arg}}

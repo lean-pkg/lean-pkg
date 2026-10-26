@@ -112,7 +112,7 @@ def test_gzip_stream_equals_the_whole_text_scan(tmp_path, monkeypatch):
         blob = gz(data)
         sc = ps.Scanner({"name": "x"}, tmp_path, None, gzip_limit=1 << 20)
         hits: list[dict] = []
-        assert ps._scan_gzip(sc, lambda: io.BytesIO(blob), len(blob), "tree", "f.gz", hits, []) is None
+        assert ps._scan_gzip(sc, lambda: io.BytesIO(blob), len(blob), "tree", "f.gz", hits, []) is None  # noqa: B023  called synchronously, within this iteration
         text, binary = ps.decode_blob(gzip.decompress(blob))
         if data.startswith(b"\xef\xbb\xbf"):   # the gzip path drops the UTF-8 BOM's 3 bytes only, as before
             text = data[3:].decode("utf-8", errors="replace")

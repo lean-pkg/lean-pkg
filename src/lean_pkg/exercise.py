@@ -104,7 +104,7 @@ def read_lean(path: str, what: str) -> tuple[pathlib.Path, str]:
     try:
         return p, p.read_bytes().decode("utf-8")
     except UnicodeDecodeError:
-        raise Refusal(f"{what} {path}: not UTF-8")
+        raise Refusal(f"{what} {path}: not UTF-8") from None
 
 
 def check_imports(text: str, what: str, has_defs: bool, mathlib: bool = False) -> None:
@@ -570,7 +570,7 @@ def judge_solution(plan: dict, solution_p: pathlib.Path, solution: str, keep: st
         wrapper = write_wrapper(work, plan["project"]["binds"]) if plan["project"] and not plan["no_sandbox"] \
             else None
         stop = None
-        for i, (name, cfg) in enumerate(zip(theorems, cfgs), 1):
+        for i, (name, cfg) in enumerate(zip(theorems, cfgs, strict=False), 1):
             if stop is not None:
                 rows.append({"name": name, "verdict": stop, "detail": "not judged: the build failed above",
                              "kernels": [], "seconds": 0.0})
@@ -682,7 +682,7 @@ def batch(args) -> dict:
                        + [row["detail"]])
             fh.flush()
             (logs_dir / f"{sp.stem}.log").write_text("\n".join(log) + "\n", encoding="utf-8")
-            files_out.append({**row, "verdicts": dict(zip(names, verdicts))})
+            files_out.append({**row, "verdicts": dict(zip(names, verdicts, strict=False))})
     passed = sum(f["result"] == "pass" for f in files_out)
     return {"schema": BATCH_SCHEMA, "ok": passed == len(files_out), "trust": plan["trust"],
             "toolchain": plan["toolchain"], "theorems": names, "csv": str(out_csv), "logs": str(logs_dir),

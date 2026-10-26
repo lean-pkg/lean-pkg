@@ -630,7 +630,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
         check_binding(c, repo, x, ref, pkg, checker)
         for v in found["lower"]:
             rec, rel = v["data"], v["path"]
-            if c.run(f"lower {rel}", lambda: core.validate_receipt(pkg, repo, rec),
+            if c.run(f"lower {rel}", lambda: core.validate_receipt(pkg, repo, rec),  # noqa: B023  called synchronously, within this iteration
                      f"schema, binding, pins (lean-toolchain, lake-manifest.json at {x[:12]}), sorry_count 0, "
                      f"axioms {sorted(rec.get('axioms') or [])} within {list(DEFAULT_AXIOMS)}"):
                 try:
@@ -651,7 +651,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
         for v in found["comparator"]:
             rel = v["path"]
             n_cfg = len(v["data"].get("configs") or [])
-            c.run(f"comparator {rel}", lambda: core.validate_comparator(pkg, repo, v["data"], lower_commit),
+            c.run(f"comparator {rel}", lambda: core.validate_comparator(pkg, repo, v["data"], lower_commit),  # noqa: B023  called synchronously, within this iteration
                   f"{n_cfg} configuration(s) tracked at {x[:12]} re-derived from bytes (sha256, theorem names, "
                   f"sign-off), every log's sha256 and PASS line, same commit as the lower tier")
             olean_check(c, repo, v, x)

@@ -715,7 +715,7 @@ def read_output(path: pathlib.Path, name: str, head: str, shown: str) -> dict:
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
-        raise core.Fail(f"--from-output {shown}: cannot read JSON ({e}); nothing written")
+        raise core.Fail(f"--from-output {shown}: cannot read JSON ({e}); nothing written") from e
     if not isinstance(doc, dict) or doc.get("schema") != SCHEMA:
         got = doc.get("schema") if isinstance(doc, dict) else None
         raise core.Fail(f"--from-output {shown}: schema {got!r}, expected {SCHEMA!r}; nothing written")

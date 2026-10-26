@@ -431,7 +431,7 @@ def audit(repo: Path, since: str = "0.7.0") -> list[Audit]:
     tags = [t[1:] for t in git(repo, "tag", "-l", "v*").stdout.split() if VERSION_RE.fullmatch(t[1:])]
     tags.sort(key=vtuple)
     out = []
-    for prev, v in zip(tags, tags[1:]):
+    for prev, v in zip(tags, tags[1:], strict=False):
         if vtuple(v) < vtuple(since):
             continue
         chg = git(repo, "show", f"v{v}:CHANGELOG.md").stdout

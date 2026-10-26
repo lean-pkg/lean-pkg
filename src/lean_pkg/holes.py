@@ -113,7 +113,7 @@ def parse_sidecar(raw: bytes | None, label: str = SIDECAR) -> dict:
     try:
         doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_strict_pairs)
     except (UnicodeDecodeError, ValueError) as e:
-        raise ValueError(f"{label}: not valid strict JSON ({e})")
+        raise ValueError(f"{label}: not valid strict JSON ({e})") from e
     if not isinstance(doc, dict) or set(doc) != {"schema", "configs"}:
         raise ValueError(f"{label}: must be an object with exactly the keys schema and configs")
     if doc["schema"] != SIDECAR_SCHEMA:

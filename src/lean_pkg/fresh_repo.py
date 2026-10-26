@@ -88,7 +88,7 @@ def _extract(data: bytes, dest: pathlib.Path, drop) -> list[dict]:
             for m in keep:
                 if os.path.isabs(m.name) or ".." in pathlib.PurePosixPath(m.name).parts or m.issym() \
                         or m.islnk():
-                    raise core.Fail(f"refusing to unpack {m.name!r} (link or path outside the export)")
+                    raise core.Fail(f"refusing to unpack {m.name!r} (link or path outside the export)") from None
             tf.extractall(dest, members=keep)
     return dropped
 
@@ -528,7 +528,7 @@ def do_adopt_repo(reg_path, reg, events_p, name, *, target_arg, remote, allow_hi
     new_remote = remote if remote and not origin_url else None
     plan = [f"{name}: adopt {target} at {head[:12]} ({commits} commit(s) on all refs"
             + ("; --allow-history" if allow_history and commits != 1 else "") + ") as the public history; "
-            f"no export, no new commit",
+            "no export, no new commit",
             f"  previous gate-bound commit: {prov12}",
             "  public-safety on its tree and full history: 0 hit(s)" if not nw else
             f"  public-safety on its tree and full history: 0 blocking hit(s), {nw} warning(s) "

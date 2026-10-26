@@ -1258,7 +1258,7 @@ def load_registry(path: pathlib.Path, *, check_version: bool = True) -> dict:
     try:
         data = yaml.safe_load(path.read_text())
     except yaml.YAMLError as e:
-        raise Fail(f"registry is not valid YAML: {e}")
+        raise Fail(f"registry is not valid YAML: {e}") from e
     if not isinstance(data, dict) or not isinstance(data.get("packages"), dict):
         raise Fail(f"registry has no top-level 'packages' map: {path}")
     v = data.get("version")
@@ -1301,7 +1301,7 @@ def registry_lock(reg_path: pathlib.Path):
     try:
         fd = os.open(lp, os.O_RDWR | os.O_CREAT, 0o666)
     except OSError as e:
-        raise Fail(f"cannot open the registry lock {lp}: {e.strerror or e}")
+        raise Fail(f"cannot open the registry lock {lp}: {e.strerror or e}") from e
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         _LOCKS_HELD[key] = 1
@@ -1449,7 +1449,7 @@ def _git_show_bytes(top: pathlib.Path, rev: str, rel: str) -> bytes | None:
         p = subprocess.run(["git", "-C", str(top), "show", f"{rev}:{rel}"],
                            capture_output=True, check=False)
     except OSError as e:
-        raise Fail(f"--registry-snapshot: cannot run git: {e.strerror or e}")
+        raise Fail(f"--registry-snapshot: cannot run git: {e.strerror or e}") from e
     return p.stdout if p.returncode == 0 else None
 
 
@@ -1848,7 +1848,7 @@ def nonneg_hours(v: str) -> float:
     try:
         h = float(v)
     except ValueError:
-        raise argparse.ArgumentTypeError(f"not a number of hours: {v!r}")
+        raise argparse.ArgumentTypeError(f"not a number of hours: {v!r}") from None
     if h < 0 or h != h:
         raise argparse.ArgumentTypeError(f"hours must be >= 0, got {v}")
     return h
@@ -3574,7 +3574,7 @@ def load_json_object(path_arg, what: str) -> tuple[pathlib.Path, dict]:
     try:
         obj = json.loads(p.read_text())
     except ValueError as e:
-        raise Fail(f"{what} is not valid JSON: {e}")
+        raise Fail(f"{what} is not valid JSON: {e}") from e
     if not isinstance(obj, dict):
         raise Fail(f"{what} must be a JSON object")
     return p, obj
@@ -6340,7 +6340,7 @@ def parse_ttl_hours(text: str) -> int | None:
     try:
         ttl = int(t)
     except ValueError:
-        raise Fail(f"ttl must be a whole number of hours, got {t!r}")
+        raise Fail(f"ttl must be a whole number of hours, got {t!r}") from None
     if ttl <= 0:
         raise Fail(f"ttl must be a positive number of hours, got {t!r}")
     if ttl > MAX_TTL_HOURS:
@@ -6733,7 +6733,7 @@ def cmd_wiki(args) -> int:
             out_p.parent.mkdir(parents=True, exist_ok=True)
             out_p.write_text(text)
         except OSError as e:
-            raise Fail(f"cannot write {out_p}: {e.strerror or e}")
+            raise Fail(f"cannot write {out_p}: {e.strerror or e}") from e
         if args.json_out:
             adopted = sum(1 for c in (candidates or {}).get("candidates", {}).values()
                           if c.get("status") == "adopted")
@@ -7833,7 +7833,7 @@ def commit_preflight(args, mode: str) -> dict:
         try:
             files.append(str(f.resolve().relative_to(root.resolve())))
         except ValueError:
-            raise Fail(f"--commit needs {f} inside the registry's git work tree {root}")
+            raise Fail(f"--commit needs {f} inside the registry's git work tree {root}") from None
     br = registry_git(root, "symbolic-ref", "-q", "--short", "HEAD")
     branch = br.stdout.strip() if br.returncode == 0 else ""
     if not branch:
@@ -8596,9 +8596,9 @@ def cmd_validate(args) -> int:
     try:
         data = yaml.safe_load(reg_path.read_text())
     except FileNotFoundError:
-        raise Fail(registry_not_found(reg_path))
+        raise Fail(registry_not_found(reg_path)) from None
     except yaml.YAMLError as e:
-        raise Fail(f"registry is not valid YAML: {e}")
+        raise Fail(f"registry is not valid YAML: {e}") from e
     errors = validate_registry(data)
     if args.json_out:
         print_json({"ok": not errors, "valid": not errors, "errors": errors,

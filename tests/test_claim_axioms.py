@@ -24,7 +24,7 @@ from lean_pkg import claim_axioms as ca
 from lean_pkg import cli
 from lean_pkg import comparator_receipt as cr
 
-from .conftest import _git, repo_head
+from .conftest import _git
 from .test_receipt_slurm import (LOG, Job, _fixed_identity, fake_sacct, rdir, receipt_json, repo,  # noqa: F401
                                  run, sha)
 

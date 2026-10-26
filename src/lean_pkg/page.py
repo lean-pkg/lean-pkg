@@ -173,7 +173,7 @@ def citation(pkg: dict, repo) -> dict:
     try:
         cff = yaml.safe_load(text)
     except yaml.YAMLError as e:
-        raise core.Fail(f"{name}: CITATION.cff at HEAD is not valid YAML: {' '.join(str(e).split())}")
+        raise core.Fail(f"{name}: CITATION.cff at HEAD is not valid YAML: {' '.join(str(e).split())}") from e
     if not isinstance(cff, dict):
         raise core.Fail(f"{name}: CITATION.cff at HEAD is not a mapping")
     authors = []
@@ -354,7 +354,7 @@ def _status_cells(r: dict, by_id: dict) -> list[str]:
     internal: a step of the formalization, not a result offered for reuse; verified only when the comparator
     judged it, claims ledger)."""
     return [s + (" (internal)" if (by_id.get(cid) or {}).get("claim_status") == "internal" else "")
-            for cid, s in zip(r.get("claims") or [], _row_statuses(r, by_id))]
+            for cid, s in zip(r.get("claims") or [], _row_statuses(r, by_id), strict=False)]
 
 
 def _internal_line(r: dict, by_id: dict) -> list[str]:

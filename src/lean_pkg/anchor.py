@@ -113,7 +113,7 @@ def _http_get(url: str, cap: int, timeout: int = FETCH_TIMEOUT) -> tuple[bytes, 
     except core.Fail:
         raise
     except Exception as e:   # urllib.error.*, socket timeouts, TLS errors
-        raise core.Fail(f"{url}: fetch failed: {e}")
+        raise core.Fail(f"{url}: fetch failed: {e}") from e
 
 
 def fetch_eprint(vid: str) -> bytes:
@@ -162,7 +162,7 @@ def _gunzip(data: bytes, what: str) -> bytes:
             if d.eof:
                 break
     except zlib.error as e:
-        raise core.Fail(f"{what}: not a readable gzip stream: {e}")
+        raise core.Fail(f"{what}: not a readable gzip stream: {e}") from e
     if not d.eof:
         raise core.Fail(f"{what}: truncated gzip stream")
     return bytes(out)
@@ -231,7 +231,7 @@ def _tar_members(data: bytes) -> dict[str, bytes]:
                 f = t.extractfile(m)
                 files[name] = f.read() if f is not None else b""
     except tarfile.TarError as e:
-        raise core.Fail(f"e-print: not a readable tar archive: {e}")
+        raise core.Fail(f"e-print: not a readable tar archive: {e}") from e
     return files
 
 
@@ -580,7 +580,7 @@ def do_anchor(reg: dict, name: str, *, arxiv: str, from_file: str | None, fetch:
             old = json.loads(rpath.read_text(encoding="utf-8"))
             old_sha = old["eprint"]["sha256"]
         except (ValueError, KeyError, TypeError):
-            raise core.Fail(f"{rrel} exists and is not a {RECORD_SCHEMA} record; move it aside first")
+            raise core.Fail(f"{rrel} exists and is not a {RECORD_SCHEMA} record; move it aside first") from None
         if old_sha != record["eprint"]["sha256"]:
             raise core.Fail(f"{rrel} records e-print sha256 {old_sha[:12]}, these bytes are "
                             f"{record['eprint']['sha256'][:12]}: an arXiv version does not change, so one of the "
@@ -639,7 +639,7 @@ def do_anchor(reg: dict, name: str, *, arxiv: str, from_file: str | None, fetch:
             edits.append((frel, repo / frel, fe[1]))
     except core.Fail as e:
         if write:
-            raise core.Fail(f"{e}; nothing written")
+            raise core.Fail(f"{e}; nothing written") from e
         lines.append(f"  --write would refuse: {e}")
 
     changed = [(r, p, t) for r, p, t in edits if not (p.is_file() and p.read_text(encoding="utf-8") == t)]
@@ -653,7 +653,7 @@ def do_anchor(reg: dict, name: str, *, arxiv: str, from_file: str | None, fetch:
             if core.lease_live(lease, dt.datetime.now(dt.timezone.utc)) and agent != lease.get("agent"):
                 raise core.Fail(f"{name}: lease held by {lease.get('agent')}; pass --agent {lease.get('agent')}; "
                                 f"nothing written")
-        for r, p, t in changed:
+        for _r, p, t in changed:
             _atomic_write(p, t)
         payload["written"] = [r for r, _p, _t in changed]
         lines.append(f"  wrote {', '.join(payload['written'])} (not committed; commit it yourself)"

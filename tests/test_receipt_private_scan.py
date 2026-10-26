@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 
-from .conftest import (add_comparator_config, make_comparator_receipt, make_receipt, read_reg,
+from .conftest import (make_comparator_receipt, make_receipt, read_reg,
                        write_receipt)
 
 # A private local path, assembled at runtime so this file carries no private string.

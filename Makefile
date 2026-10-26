@@ -1,9 +1,9 @@
 # lean-pkg: local gates. No tab characters: recipes use '>' as the prefix.
 # `make check` is the release gate; hosted CI runs the same targets once the repository is public.
 .RECIPEPREFIX := >
-.PHONY: check test boundary tabs versions changelog reuse shellcheck history public-safety release release-version cut-release record-doi docs goldens
+.PHONY: check test boundary tabs versions changelog reuse shellcheck lint history public-safety release release-version cut-release record-doi docs goldens
 
-check: test boundary tabs versions changelog reuse shellcheck
+check: test boundary tabs versions changelog reuse shellcheck lint
 > @echo "check: all gates green"
 
 # A private bytecode cache per run: concurrent runs never share pytest's rewritten .pyc files.
@@ -48,6 +48,11 @@ reuse:
 SHELLCHECK_FILES := scripts/*.sh src/lean_pkg/scripts/verify-comparator.sh tests/fixtures/*.sh
 shellcheck:
 > @if command -v shellcheck >/dev/null 2>&1; then shellcheck $(SHELLCHECK_FILES) && echo "shellcheck: clean"; else echo "shellcheck: SKIPPED (pipx install shellcheck-py)"; fi
+
+# Ruff on lean-pkg's Python (src/, scripts/, tests/; the rules are pyproject.toml's [tool.ruff.lint]: pyflakes,
+# syntax errors, bugbear). No formatter. Skipped, not passed, when the tool is absent; CI installs a pinned version.
+lint:
+> @if command -v ruff >/dev/null 2>&1; then ruff check -q src scripts tests && echo "lint: clean"; else echo "lint: SKIPPED (pip install ruff==0.17.2)"; fi
 
 # Every blob and commit message reachable from any ref. Not part of `check`: a hit here is fixed
 # only by rewriting history, which is a maintainer decision before the public flip (RELEASING.md).

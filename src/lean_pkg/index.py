@@ -99,13 +99,13 @@ def load_entry(path: pathlib.Path) -> dict:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        raise core.Fail(f"index entry not found: {path}")
+        raise core.Fail(f"index entry not found: {path}") from None
     except UnicodeDecodeError as e:
-        raise core.Fail(f"{path}: not UTF-8 text ({e.reason} at byte {e.start})")
+        raise core.Fail(f"{path}: not UTF-8 text ({e.reason} at byte {e.start})") from e
     except OSError as e:
-        raise core.Fail(f"{path}: unreadable: {e.strerror or e}")
+        raise core.Fail(f"{path}: unreadable: {e.strerror or e}") from e
     except yaml.YAMLError as e:
-        raise core.Fail(f"{path}: not valid YAML: {e}")
+        raise core.Fail(f"{path}: not valid YAML: {e}") from e
     if not isinstance(data, dict):
         raise core.Fail(f"{path}: top level is not a mapping")
     return data
@@ -355,9 +355,9 @@ def load_built_on_file(path: str) -> list[dict]:
     try:
         data = yaml.safe_load(p.read_text(encoding="utf-8"))
     except OSError as e:
-        raise core.Fail(f"--built-on-file {path}: unreadable: {e.strerror or e}")
+        raise core.Fail(f"--built-on-file {path}: unreadable: {e.strerror or e}") from e
     except (UnicodeDecodeError, yaml.YAMLError) as e:
-        raise core.Fail(f"--built-on-file {path}: not valid YAML: {e}")
+        raise core.Fail(f"--built-on-file {path}: not valid YAML: {e}") from e
     if isinstance(data, dict) and set(data) == {"built_on"}:
         data = data["built_on"]
     if data is None:
@@ -717,7 +717,7 @@ def mathlib_rev_at(clone: pathlib.Path) -> str | None:
     try:
         data = json.loads(mf.read_text())
     except ValueError:
-        raise core.Fail("lake-manifest.json at the pin is not valid JSON")
+        raise core.Fail("lake-manifest.json at the pin is not valid JSON") from None
     for p in data.get("packages") or []:
         if str(p.get("name", "")).lower() in ("mathlib", "«mathlib»") and p.get("rev"):
             return str(p["rev"])
@@ -1446,7 +1446,7 @@ def render_index(root: pathlib.Path) -> str:
             try:
                 mech = comparator_mechanism(json.loads(f.read_text())) if f.is_file() else None
             except ValueError:
-                raise core.Fail(f"cannot render: receipt copy for {n!r} is not valid JSON")
+                raise core.Fail(f"cannot render: receipt copy for {n!r} is not valid JSON") from None
             if mech in ("legacy", "toolchain"):
                 trust = f"comparator ({mech})"
                 legacy = legacy or mech == "legacy"

@@ -1145,7 +1145,7 @@ def redact(text: str, extra: list[re.Pattern], defaults=DEFAULT_REDACTIONS) -> t
 
 def lines_differing(a: str, b: str) -> int:
     la, lb = a.splitlines(), b.splitlines()
-    return sum(1 for x, y in zip(la, lb) if x != y) + abs(len(la) - len(lb))
+    return sum(1 for x, y in zip(la, lb, strict=False) if x != y) + abs(len(la) - len(lb))
 
 
 def parse_log(text: str) -> tuple[dict, list[str]]:
@@ -1259,7 +1259,7 @@ def parse_raw_log(raw_text: str, redacted: str) -> tuple[dict, list[str]]:
                or _key_lines(raw_text, k) != _key_lines(redacted, k)]
     names = ("`declaration uses sorry` warnings", "`#print axioms` results", "`does not depend on any axioms` lines",
              "build-completion lines")
-    changed += [n for n, a, b in zip(names, _evidence_counts(raw_text), _evidence_counts(redacted)) if a != b]
+    changed += [n for n, a, b in zip(names, _evidence_counts(raw_text), _evidence_counts(redacted), strict=False) if a != b]
     if ca.claim_lines(raw_text) != ca.claim_lines(redacted):
         changed.append("claim-axioms lines")
     if changed:
