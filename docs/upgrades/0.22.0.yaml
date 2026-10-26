@@ -278,6 +278,27 @@ changes:
       receipt ci --collect RUN.
     breaking: false
     changelog: Added
+  - pr: 0
+    id: hyp-probe-log-section
+    kind: format
+    area: receipts
+    summary: >-
+      Stage H1 of proposal 0003 (#320): the lower-tier verify scripts (receipt slurm --template, the verify.sh of
+      lean-pkg new) append a hyp-probe/1 section to the verify log after the claim-axioms lines, before the seal:
+      the Prop hypotheses of every claim decl, read by a core-Lean program (HypProbe.lean), and, only when
+      claims.yaml uses hypotheses, discharges or witness, facts about the Challenge theorems (hyp-corollary,
+      hyp-proof, hyp-witness). The Challenge is built into a side log (hyp-challenge-build.log), outside the sealed
+      log, so its sorry warnings never reach sorry_count. receipt slurm, receipt systemd and --check refuse a
+      malformed section (no hyp-done, counts that do not match, a line twice, malformed JSON, a line after
+      hyp-done, a redaction that alters a line); hyp-error and hyp-skip are reported, never refused. No receipt
+      key (report_sha256 seals the section); a log without the section is accepted as before. No command reads the
+      facts yet. python3 -m lean_pkg.hypotheses --repo DIR prints the section for a built checkout.
+    action: >-
+      Nothing required. New logs gain the section; to get it, regenerate verify.sh (or copy its hypotheses block
+      from a new lean-pkg new scaffold) or the sbatch template (lean-pkg receipt slurm --template). A malformed
+      section is refused at write time; the only way to get one is a hand-edited script.
+    breaking: false
+    changelog: Added
   - pr: 349
     id: binding-file
     kind: format

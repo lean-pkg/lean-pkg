@@ -1,0 +1,13 @@
+{
+  "challenge_module": "Fx.Challenge",
+  "solution_module": "Fx.Solution",
+  "theorem_names": [
+    "Audit.main", "Audit.main_of_B", "Audit.main_of_A", "Audit.main_keep", "Audit.main_unfolded",
+    "Audit.main_implicit", "Audit.main_renamed", "Audit.three", "Audit.three_of", "Audit.three_reordered",
+    "Audit.param", "Audit.param_of", "Audit.poly", "Audit.poly_of", "Audit.proofA", "Audit.proofOther",
+    "Audit.proofCopy", "Audit.three2", "Audit.witness_ok", "Audit.witness_missing", "Audit.witness_reordered",
+    "Audit.witness_wrong_param", "Audit.many"
+  ],
+  "definition_names": [],
+  "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"]
+}

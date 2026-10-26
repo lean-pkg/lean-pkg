@@ -1,0 +1,7 @@
+# Fixture for tests/test_hypotheses_probe.py (proposal 0003, stage H1): core Lean only, no Mathlib.
+# The tests copy it to a temporary directory and build it there; nothing is built here.
+name = "fx"
+defaultTargets = ["Fx"]
+
+[[lean_lib]]
+name = "Fx"

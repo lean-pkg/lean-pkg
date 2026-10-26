@@ -57,6 +57,7 @@ import shutil
 import subprocess
 
 from . import claim_axioms
+from . import hypotheses
 from . import cli as core
 from . import page as page_mod
 
@@ -242,7 +243,9 @@ VERIFY = """\
 #   stderr: empty (every tool writes into the log)
 #   the log: checker:, commit:, lean-toolchain:, the build between lean-pkg-build: begin / end (a fresh
 #            build: Lake must compile the package's modules, not restore them), sorry-count:, axioms:, and
-#            the claim-axioms lines of every claim in claims.yaml, read from the built environment
+#            the claim-axioms lines of every claim in claims.yaml, read from the built environment, and
+#            the hyp-probe/1 section after them (the Challenge, when built for it, goes to a side log
+#            beside LOG, hyp-challenge-build.log, never into LOG)
 set -euo pipefail
 export LC_ALL=C LANG=C
 unset LANGUAGE
@@ -250,7 +253,7 @@ LOG=${{1:?usage: bash verify.sh LOG}}
 # The modules the receipt certifies: the proof and the axioms report (the Challenge's sorry is by design and
 # is judged by comparator-receipt, not here).
 MODULES="{module}.Solution {module}.Axioms"
-{claim_axioms_sh}echo "pre-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
+{claim_axioms_sh}{hypotheses_sh}echo "pre-manifest-sha256 $(sha256sum lake-manifest.json | cut -d' ' -f1)"
 rm -rf .lake/build
 {{
   echo "commit: $(git rev-parse HEAD)"
@@ -262,6 +265,7 @@ lake build $MODULES >>"$LOG" 2>&1
 echo "lean-pkg-build: end" >>"$LOG"
 ca_dir=$(mktemp -d)
 claim_axioms_run "$LOG" "$ca_dir" "$(lake env printenv LEAN_PATH)"
+hypotheses_run "$LOG" "$ca_dir/hyp-probe" "$(lake env printenv LEAN_PATH)" "$(dirname "$LOG")/hyp-challenge-build.log"
 rm -rf "$ca_dir"
 sorry=$(grep -c -E "declaration uses ['\\`]sorry['\\`]" "$LOG" || true)
 axioms=$(tr '\\n' ' ' <"$LOG" | grep -o 'depends on axioms: \\[[^]]*\\]' | sed -e 's/^[^[]*\\[//' -e 's/\\]$//' \\
@@ -368,7 +372,8 @@ def files(name: str, module: str, author: str, mathlib: bool = True, license_spd
         "README.md": README.format(name=name, module=module, credit=page_mod.CREDIT,
                                    paper=README_PAPER.format(name=name) if kind == "paper" else ""),
         "verify.sh": VERIFY.format(name=name, module=module, mathlib_line="" if mathlib else NO_MATHLIB_LINE,
-                                   claim_axioms_sh=claim_axioms.job_sh()),
+                                   claim_axioms_sh=claim_axioms.job_sh(),
+                                   hypotheses_sh=hypotheses.job_sh()),
     }
 
 

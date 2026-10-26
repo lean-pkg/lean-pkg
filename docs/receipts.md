@@ -126,6 +126,33 @@ unchanged, and is kept as the cross-check above. To run the same check yourself 
 checkout: `python3 -m lean_pkg.claim_axioms --repo .` (sandboxed with `bwrap` when installed,
 like the duplicate-constants check).
 
+### Hypotheses section (`hyp-probe/1`)
+
+Stage H1 of [proposal 0003](proposals/0003-conditional-claims-and-discharge.md) (conditional claims,
+[#320](https://github.com/lean-pkg/lean-pkg/issues/320)). After the claim-axioms lines, the same verify
+scripts run a second core-Lean program, `HypProbe.lean`, and append a section headed
+`== lean-pkg hypotheses (hyp-probe/1) ==`: for every claim `decl`, the `Prop` binders of its type with
+their head constants (`hyp-decl:`), and, only when `claims.yaml` uses `hypotheses`, `discharges` or
+`witness`, facts about the Challenge theorems of the package's comparator configurations (a corollary
+that drops hypotheses, a proof of a hypothesis, a witness). For that part the job builds each Challenge
+module into a side log, `hyp-challenge-build.log` (in the job's work directory; beside the log for
+`verify.sh`), **never into the sealed log**: the Challenge's `sorry` warnings do not reach `sorry_count`,
+and only a `hyp-challenge-build:` status line enters the log. The line format is
+[On-disk formats](formats.md#the-hypotheses-section-of-the-verify-log-hyp-probe1).
+
+The receipt has **no new key**: `report_sha256` seals the section with the rest of the log. At write time
+(`receipt slurm`, `receipt systemd` and `--check`) the section is checked for structure only, and the
+receipt is refused for a section without its final `hyp-done:` line, counts that do not match it, a line
+printed twice, a malformed line (not one JSON object with its tag's exact keys), a line after `hyp-done:`,
+a `hyp-*:` line before the header, or a redaction that alters a section line. A `hyp-error:` line (a part
+that could not run, say on a toolchain where the program does not compile) and a `hyp-skip:` line are
+reported, never refused. A log without the section (a verify script older than this release) gives the
+same receipt as before; when `claims.yaml` uses the keys, a `·` line says the section is missing.
+
+No command reads the facts yet: the claims ledger judges them in a later stage of the proposal, and until
+then nothing about a claim's status changes. To see the section a job would write, on a built checkout:
+`python3 -m lean_pkg.hypotheses --repo .` (it builds the Challenge modules, as the job does).
+
 ## A lower-tier receipt from a Slurm job
 
 `lean-pkg receipt slurm` writes the receipt above from a finished Slurm
@@ -206,6 +233,7 @@ package and is refused; the refusal names the path that was read and where the c
 | `report_sha256` | SHA-256 of the redacted log as written (below) |
 | `generated_at` | the log's `generated-at:` line when present (must parse), else the time of writing; a re-run whose receipt already exists and matches it in every other field (same keys, order and values) keeps the stored `generated_at`, so it is an identical no-op rather than a refusal |
 | `claim_axioms` (additive) | the log's `claim-axioms:` / `claim-missing:` / `claim-axioms-done:` lines, judged against `claims.yaml` committed at the commit ([Per-claim axioms](#per-claim-axioms-claim_axioms)); no such line: no key |
+| (no key) | the log's `hyp-probe/1` section, checked for structure and sealed by `report_sha256` ([Hypotheses section](#hypotheses-section-hyp-probe1)) |
 
 Log key lines are `key: value` with the key at the start of the line, each
 at most once. A log `lean-toolchain:` or `mathlib-rev:` line that disagrees
