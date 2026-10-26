@@ -47,7 +47,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `--json` adds `offline`, `claims_file`, `comparator[]`, `checks[]` and
   `skipped[]` to the payload of the registered form, which is unchanged
   ([coverage check](docs/commands/coverage-check.md)).
-- A compute receipt from a GitHub Actions run, level 1 (#PR_S1; stage S1 of
+- A compute receipt from a GitHub Actions run, level 1 (#338; stage S1 of
   proposal 0008, #318): a new built-in-only scheduler `github-actions`
   (job id `gha-<run_id>-<run_attempt>`) and built-in site profile of the
   same name, and an additive `ci` block of `lower-receipt/1` naming the run

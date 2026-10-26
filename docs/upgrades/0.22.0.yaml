@@ -157,7 +157,7 @@ changes:
       body sees the placeholder.
     breaking: false
     changelog: Fixed
-  - pr: 0
+  - pr: 338
     id: ci-receipt-github-actions-level-1
     kind: format
     area: receipts, gate, receipt check, coverage check, page
