@@ -181,7 +181,7 @@ changes:
       refused.
     breaking: false
     changelog: Added
-  - pr: 0
+  - pr: 344
     id: repo-export-explicit-identity
     kind: behavior
     area: repo export
@@ -201,7 +201,7 @@ changes:
     breaking: true
     changelog: Fixed
     split: true
-  - pr: 0
+  - pr: 344
     id: repo-export-author-flags
     kind: command
     area: repo export, publish
@@ -218,7 +218,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 344
     id: repo-export-carry-used-allow-lines
     kind: behavior
     area: repo export

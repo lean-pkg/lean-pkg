@@ -14,4 +14,4 @@ entries:
   - {version: "0.11.0", id: "new-kind-paper-default", pr: 215, kind: "command", area: "new"}
   - {version: "0.19.0", id: "fill-plan-donor-hidden-edits", pr: 285, kind: "behavior", area: "receipt slurm"}
   - {version: "0.20.0", id: "ledger-judged-internal-claims", pr: 292, kind: "behavior", area: "claims ledger"}
-  - {version: "0.22.0", id: "repo-export-explicit-identity", pr: 0, kind: "behavior", area: "repo export"}
+  - {version: "0.22.0", id: "repo-export-explicit-identity", pr: 344, kind: "behavior", area: "repo export"}

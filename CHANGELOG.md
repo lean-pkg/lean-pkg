@@ -72,7 +72,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `{runs}` token outside a built-in level-2 profile, are refused
   ([compute sites](docs/sites.md#github-actions)).
 - `repo export --author 'NAME <EMAIL>'` and `--allow-author-email`
-  (#PR_X; #339): `--author` names the author and committer of the export
+  (#344; #339): `--author` names the author and committer of the export
   commit; `--allow-author-email` accepts an address that is not a GitHub
   noreply one. `repo export --json` gains `identity` {author, committer,
   source, noreply} and `public_allow` gains `unused` and `present`
@@ -184,7 +184,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `<registry-repo>` (the git work tree holding the registry),
   `<index-dir>`, and `<events-path>` (an event log that is not the
   registry's sibling).
-- `repo export` sets the export commit's identity explicitly (#PR_X;
+- `repo export` sets the export commit's identity explicitly (#344;
   #339). The one root commit meant for public history took whatever
   identity git found, the global `user.email` included, so a personal
   address could enter public history, and public-safety did not flag it.
@@ -201,7 +201,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `--from-tree`), so a private pattern in either refuses, with the flag or
   without. Breaking for a script that relied on the global identity: see
   the upgrade record.
-- `repo export` carries only the `allow:` lines its own scan used (#PR_X;
+- `repo export` carries only the `allow:` lines its own scan used (#344;
   #340). Every `allow:` line of `.lean-pkg-private-patterns` was copied
   into the committed `.lean-pkg-public-allow`, unused ones included, and an
   allow pattern names what it allows (a homepage URL spelling a user id,
