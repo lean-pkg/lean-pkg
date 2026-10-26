@@ -206,6 +206,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   and `recheck`, the evidence format `lean-pkg-extract-ledger/1` with the
   comparison methods `text/1` and later `types/1`, kept out of the exported
   tree and read by no gate; for the maintainer's decision (#329).
+- Comparator under the module system, and what `page --check` covers
+  (#343): docs/comparator.md explains why a proved Reference copy is
+  refused when both sides are Lean modules (proof auxiliaries from
+  `inferInstanceAs` and from `simp` with an `↔` lemma get module-private
+  names), with the two workarounds, reproduced on Lean v4.35.0 fixtures;
+  docs/page.md lists what `page --check` compares and what it never reads
+  (prose outside the markers, other files), with an assumed-versus-derived
+  checklist for hand-written prose.
 
 ## [0.21.0] - 2026-10-26
 
