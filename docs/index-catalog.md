@@ -240,10 +240,21 @@ of the pin, or, when the package's registry record opts in
 descendant: one where no build input changed (see
 [Receipts](receipts.md)). `index add` and `index check --clone` /
 `--repo` read the opt-in from the registry they resolve (`--registry`, `$LEAN_PKG_REGISTRY` or the user default), and only
-from the record with the entry's name and repository, never from a file in
-the package repository. Without a registry, or without the opt-in, the
-evidence-only rule binds; a tag the docs-only rule would admit is then
-refused with a clause that names the opt-in.
+from the record with the entry's name and repository. When that record opts
+in, the `lean-pkg-binding.yaml` committed at the pin takes precedence, as for
+`gate` ([docs-only descendants](receipts.md#docs-only-descendants-opt-in)): a
+file there saying `false`, or one that does not validate, overrides the
+record's `true`, and the check note says so:
+
+```
+the registry record's docs_descendants: true is overridden by lean-pkg-binding.yaml at <pin12> (...)
+```
+
+The note says `the registry record opts in` only when the pin has no such
+file. Without a registry, or without the opt-in, the evidence-only rule
+binds and the file is not read (a later stage of #319 reads it there); a tag
+the docs-only rule would admit is then refused with a clause that names the
+opt-in.
 
 A repository whose HEAD has moved past the pin still passes: the pin is the
 claim. The rendered table shows the pin, not HEAD.

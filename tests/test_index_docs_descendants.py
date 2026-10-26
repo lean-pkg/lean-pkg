@@ -41,10 +41,10 @@ def commit_files(repo, files: dict, msg: str) -> str:
 DOCS = {"README.md": "# demo\n\nA trivial package.\n", "coverage.yaml": "schema: coverage/1\nitems: []\n"}
 
 
-def tagged_entry(lp, tmp_path, files=DOCS, tag="v1.0.0"):
+def tagged_entry(lp, tmp_path, files=DOCS, tag="v1.0.0", at_pin=None):
     """An entry added at the pin, then a later commit (files) on top of the evidence, tagged `tag`, and the
-    entry's pin.tag set to it (as `index add --tag` would write it)."""
-    pkg = make_index_package(tmp_path)
+    entry's pin.tag set to it (as `index add --tag` would write it). `at_pin`: files committed at the pin."""
+    pkg = make_index_package(tmp_path, extra_files=at_pin)
     root = tmp_path / "index"
     assert index_add(lp, root, pkg) == 0
     head = commit_files(pkg.repo, files, "docs after the release receipts")
@@ -126,3 +126,61 @@ def test_add_finds_evidence_committed_with_docs_when_the_record_opts_in(lp, tmp_
     capsys.readouterr()
     assert check(lp, root, pkg, yes) == 0
     assert check(lp, root, pkg, None) == 1
+
+
+# --- lean-pkg-binding.yaml at the pin (proposal 0002, stage G1): with a registry, the same precedence as gate --
+
+BINDING = "lean-pkg-binding.yaml"
+
+
+def test_registry_true_is_vetoed_by_a_committed_false_at_the_pin(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path, at_pin={BINDING: "schema: lean-pkg-binding/1\ndocs_descendants: false\n"})
+    reg = write_registry(tmp_path, pkg)
+    assert check(lp, root, pkg, reg) == 1
+    out = capsys.readouterr().out
+    assert "tag 'v1.0.0' is neither the pin nor an evidence-only descendant of it" in out, out
+    assert f"{BINDING} at {pkg.pin[:12]} says docs_descendants: false" in out, out
+    assert f"the registry record's docs_descendants: true is ignored once {BINDING} exists at {pkg.pin[:12]}" in out
+    assert (f"the registry record's docs_descendants: true is overridden by {BINDING} at {pkg.pin[:12]} (says "
+            f"docs_descendants: false); the evidence-only rule binds the tag and the evidence") in out, out
+    assert "the registry record opts in" not in out, out
+
+
+def test_registry_true_is_vetoed_by_an_invalid_file_at_the_pin(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path, at_pin={
+        BINDING: "schema: lean-pkg-binding/1\ndocs_descendants: true\ndocs_descendant: true\n"})
+    reg = write_registry(tmp_path, pkg)
+    assert check(lp, root, pkg, reg) == 1
+    out = capsys.readouterr().out
+    assert "neither the pin nor" in out, out
+    assert f"{BINDING} at {pkg.pin[:12]} does not opt in: unknown key 'docs_descendant'" in out, out
+    assert (f"the registry record's docs_descendants: true is overridden by {BINDING} at {pkg.pin[:12]} (does not "
+            f"opt in: unknown key 'docs_descendant' (keys: schema, docs_descendants, build_inputs)); the "
+            f"evidence-only rule binds the tag and the evidence") in out, out
+    assert "the registry record opts in" not in out, out
+
+
+def test_registry_true_without_the_file_still_admits_the_tag(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path)
+    assert check(lp, root, pkg, write_registry(tmp_path, pkg)) == 0, capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "PASS demo" in out and "the registry record opts in (docs_descendants: true)" in out
+    assert "overridden by" not in out
+
+
+def test_registry_true_and_a_committed_true_at_the_pin_name_the_file(lp, tmp_path, capsys):
+    pkg, root = tagged_entry(lp, tmp_path, at_pin={BINDING: "schema: lean-pkg-binding/1\ndocs_descendants: true\n"})
+    assert check(lp, root, pkg, write_registry(tmp_path, pkg)) == 0, capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert f"docs-only descendants accepted for the tag and the evidence: {BINDING} at {pkg.pin[:12]} opts in" in out
+    assert "the registry record opts in" not in out
+
+
+def test_public_index_check_does_not_read_the_file_in_g1(lp, tmp_path, capsys):
+    """Without a registry index check keeps the evidence-only rule: a committed opt-in at the pin is not read
+    yet (stage G2 adds it), so the tag on a docs-only descendant is refused exactly as before."""
+    pkg, root = tagged_entry(lp, tmp_path, at_pin={BINDING: "schema: lean-pkg-binding/1\ndocs_descendants: true\n"})
+    assert check(lp, root, pkg, None) == 1
+    out = capsys.readouterr().out
+    assert "tag 'v1.0.0' is neither the pin nor an evidence-only descendant of it" in out
+    assert "lean-pkg update demo --accept-docs-descendants" in out and f"{BINDING} at" not in out

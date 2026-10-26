@@ -687,7 +687,7 @@ lean-pkg publish pi-lambda
 publish checklist for pi-lambda (<home>/.../pi-lambda) — dry run, nothing written:
   ✓  status verified-private
   ✓  reuse lint passed
-  ✓  gate receipt bound to HEAD 7d1a2365638b (docs-only descendant of ff6e3c27425b (1 non-build file(s): README.md; opted in))
+  ✓  gate receipt bound to HEAD 7d1a2365638b (docs-only descendant of ff6e3c27425b (1 non-build file(s): README.md; opted in by the registry record))
   ✓  comparator PASS bound to HEAD 7d1a2365638b (1 config(s): config and log bytes match the receipt, PASS line present; not re-run)
   ✓  claims ledger ready: 2 required claim(s) verified (sha256:7b772a33c624…)
   ✗  no origin/main in local refs — push the branch first (local refs; nothing fetched)

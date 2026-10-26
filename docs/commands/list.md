@@ -61,8 +61,8 @@ package record (the "package" object of status --json, each entry of "packages" 
   source_paper          {title, authors[], arxiv, doi} of the formalized paper (credited in formalization.yaml acknowledgements, never as project.authors) [optional]
   ai_assistance         {tools[], roles[]}: AI tools used and for what (rendered into acknowledgements) [optional]
   track                 DOI track: palomar | doi-only (absent = palomar); doi-only lets a public package record doi-minted without a palomar-* event (update --track) [optional]
-  docs_descendants      true: a receipt bound to commit C is also accepted at a descendant of C where no build input under the package directory changed (docs-only rule, docs/receipts.md); absent = false (update --accept-docs-descendants) [optional]
-  build_inputs          [glob]: extra package-relative paths the docs-only rule treats as build inputs (fnmatch; a glob without / also matches a basename) (update --build-inputs) [optional]
+  docs_descendants      true: a receipt bound to commit C is also accepted at a descendant of C where no build input under the package directory changed (docs-only rule, docs/receipts.md), unless lean-pkg-binding.yaml committed at C decides; false vetoes the file's opt-in; absent = false (update --accept-docs-descendants) [optional]
+  build_inputs          [glob]: extra package-relative paths the docs-only rule treats as build inputs, added to those of lean-pkg-binding.yaml at C (fnmatch; a glob without / also matches a basename) (update --build-inputs) [optional]
   headline_config       repo-relative path of the headline comparator configuration (the paper's main results; formalization.yaml status.main_results lists its theorems); absent = comparator.headline.json when tracked (update --headline-config) [optional]
   publication_hold      {reason, at, by}: the owner withdrew publication (update --withdraw-publication); promote refuses while it is set; only update --release-publication-hold lifts it [optional]
 ```

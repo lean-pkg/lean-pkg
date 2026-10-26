@@ -225,8 +225,8 @@ stored in the registry, so `--fields lease.expires_at` reads a lease's expiry di
 | `source_paper` | optional | {title, authors[], arxiv, doi} of the formalized paper (credited in formalization.yaml acknowledgements, never as project.authors) |
 | `ai_assistance` | optional | {tools[], roles[]}: AI tools used and for what (rendered into acknowledgements) |
 | `track` | optional | DOI track: palomar \| doi-only (absent = palomar); doi-only lets a public package record doi-minted without a palomar-* event (update --track) |
-| `docs_descendants` | optional | true: a receipt bound to commit C is also accepted at a descendant of C where no build input under the package directory changed (docs-only rule, docs/receipts.md); absent = false (update --accept-docs-descendants) |
-| `build_inputs` | optional | [glob]: extra package-relative paths the docs-only rule treats as build inputs (fnmatch; a glob without / also matches a basename) (update --build-inputs) |
+| `docs_descendants` | optional | true: a receipt bound to commit C is also accepted at a descendant of C where no build input under the package directory changed (docs-only rule, docs/receipts.md), unless lean-pkg-binding.yaml committed at C decides; false vetoes the file's opt-in; absent = false (update --accept-docs-descendants) |
+| `build_inputs` | optional | [glob]: extra package-relative paths the docs-only rule treats as build inputs, added to those of lean-pkg-binding.yaml at C (fnmatch; a glob without / also matches a basename) (update --build-inputs) |
 | `headline_config` | optional | repo-relative path of the headline comparator configuration (the paper's main results; formalization.yaml status.main_results lists its theorems); absent = comparator.headline.json when tracked (update --headline-config) |
 | `publication_hold` | optional | {reason, at, by}: the owner withdrew publication (update --withdraw-publication); promote refuses while it is set; only update --release-publication-hold lifts it |
 

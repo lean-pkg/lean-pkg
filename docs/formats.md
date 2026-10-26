@@ -33,6 +33,15 @@ A format version names a set of keys and what each one means.
   accept the older versions until the next major release
   ([section 5](design/1.0-command-tree.md#5-migration-and-deprecation-policy)).
 
+**One exception: `lean-pkg-binding.yaml` refuses unknown keys.** The file
+grants a rule (the [docs-only descendant rule](receipts.md#docs-only-descendants-opt-in)),
+so a key this lean-pkg does not know is not ignored: the file does not opt
+in, and the output names the key. Repeated keys, anchors, aliases and
+explicit tags are refused the same way, and `docs_descendants` must be the
+literal `true` or `false`. A new optional key there still keeps
+`lean-pkg-binding/1`, but an older lean-pkg reading a file that uses it
+falls back to the evidence-only rule, which is the safe direction.
+
 A new version of any lean-pkg format is a schema change: it starts as a
 [design proposal](proposals/README.md).
 
@@ -49,6 +58,7 @@ A new version of any lean-pkg format is a schema change: it starts as a
 | Comparator estimate | printed JSON (`receipt comparator --estimate`) | `schema: comparator-estimate/2` | not read back as evidence (`receipt check` skips it) | none needed |
 | Sign-off sidecar | `lean-pkg-signoff.json` | `schema: lean-pkg-signoff/1` | `lean-pkg-signoff/1` | from inline `judged_as` keys: `lean-pkg comparator migrate-signoff PATH` |
 | Index entry | `index/<name>/entry.yaml` | `schema: index-entry/2` | `index-entry/1` and `/2` | `lean-pkg index migrate` (`--check` to list without writing) |
+| Binding opt-in | `lean-pkg-binding.yaml` (the package directory) | `schema: lean-pkg-binding/1` | `lean-pkg-binding/1`; a newer `lean-pkg-binding/N`, an unknown key or any other invalid file does not opt in (fail closed: the evidence-only rule binds, and the output names the file and the key) | none needed yet (written by hand; [docs-only descendants](receipts.md#docs-only-descendants-opt-in)) |
 | Site profile | `lean-pkg-sites/<name>.yaml` (and the built-in profiles) | `schema: site-profile/1` | `site-profile/1` | none needed yet |
 | Source baseline | `data/source-baselines/arXiv-<id>v<N>.json` | `schema: source-baseline/1` | `source-baseline/1` | none needed yet |
 | Upgrade record | `docs/upgrades/<version>.yaml` (this repository) | `schema: lean-pkg-upgrade-record/1` | `lean-pkg-upgrade-record/1` | none needed yet |
@@ -258,10 +268,10 @@ stands for one key per field `update` changed, holding its old value.
 | `released` | `lease release` | `agent`, `workspace`, `released_by`, `reason` |
 | `release-forced` | `lease release --force` | `agent`, `workspace`, `released_by`, `reason` |
 | `lease-expired` | `registry audit --write` | `agent`, `workspace`, `claimed_at`, `ttl_hours` |
-| `gate-passed` | `gate` | `commit`, `job_id`, `checker`, `receipt`, `descendant_of`, `docs_paths`, `comparator`, `comparator_cleared`, `status_unchanged`, `pins` |
-| `regated` | `gate --regate` | `previous_commit`, `commit`, `job_id`, `checker`, `receipt`, `descendant_of`, `docs_paths`, `comparator`, `comparator_cleared`, `status_unchanged`, `pins`, `reason`, `non_descendant` |
-| `comparator-attached` | `comparator attach` | `commit`, `comparator`, `host`, `job_id`, `descendant_of`, `docs_paths` |
-| `comparator-replaced` | `comparator attach --replace` | `commit`, `comparator`, `host`, `job_id`, `replaced`, `descendant_of`, `docs_paths` |
+| `gate-passed` | `gate` | `commit`, `job_id`, `checker`, `receipt`, `descendant_of`, `docs_paths`, `opt_in`, `comparator`, `comparator_cleared`, `status_unchanged`, `pins` |
+| `regated` | `gate --regate` | `previous_commit`, `commit`, `job_id`, `checker`, `receipt`, `descendant_of`, `docs_paths`, `opt_in`, `comparator`, `comparator_cleared`, `status_unchanged`, `pins`, `reason`, `non_descendant` |
+| `comparator-attached` | `comparator attach` | `commit`, `comparator`, `host`, `job_id`, `descendant_of`, `docs_paths`, `opt_in` |
+| `comparator-replaced` | `comparator attach --replace` | `commit`, `comparator`, `host`, `job_id`, `replaced`, `descendant_of`, `docs_paths`, `opt_in` |
 | `promoted` | `publish --yes` | `commit`, `visibility` |
 | `publication-withdrawn` | `update --withdraw-publication` | `status_from`, `status_to`, `visibility_from`, `visibility_to`, `reason`, `by`, `github_visibility`, `promoted_commit`, `forced` |
 | `publication-hold-released` | `update --release-publication-hold` | `reason`, `hold`, `by`, `forced` |

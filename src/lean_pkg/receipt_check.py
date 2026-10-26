@@ -72,6 +72,7 @@ import re
 import tempfile
 
 from . import claim_axioms as ca
+from .binding_file import referee_opt_in
 from . import cli as core
 from . import container as ctr
 from . import toolchain_advisories
@@ -257,7 +258,8 @@ class Checks:
 
 
 def check_binding(c: Checks, repo: pathlib.Path, x: str, ref: str, pkg: dict, checker) -> None:
-    ok, note, docs = core.package_descendant(repo, x, ref, pkg, checker=checker, nested=())
+    ok, note, docs = core.package_descendant(repo, x, ref, pkg, checker=checker, nested=(),
+                                             opt_in=referee_opt_in(x, pkg.get("docs_descendants") is True))
     if ok:
         what = ("the published ref is the bound commit" if x == ref
                 else f"{note} (accepted with --docs-descendants)" if docs is not None

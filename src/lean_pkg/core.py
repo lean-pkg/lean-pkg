@@ -81,8 +81,8 @@ EVENT_LINE_KEYS = ("ts", "event", "name", "v")
 LOG_ONLY_EVENTS = ("registry-created", "registry-migrated", "index-added", "prior-art-searched")
 # `updated` carries <field>_from (the old value) for each field it changed: these fields.
 UPDATED_FROM_FIELDS = ("lean_toolchain", "mathlib_pin", "status")   # plus every UPDATABLE field
-_GATE_EVENT_KEYS = ("commit", "job_id", "checker", "receipt", "descendant_of", "docs_paths", "comparator",
-                    "comparator_cleared", "status_unchanged", "pins")
+_GATE_EVENT_KEYS = ("commit", "job_id", "checker", "receipt", "descendant_of", "docs_paths", "opt_in",
+                    "comparator", "comparator_cleared", "status_unchanged", "pins")
 _LEASE_EVENT_KEYS = ("agent", "workspace", "ttl_hours", "reason", "contact")
 # Every event name lean-pkg writes, with the keys it may carry beyond EVENT_LINE_KEYS. docs/formats.md
 # documents the same table and tests/test_formats.py checks both against every emitting call in src/.
@@ -100,8 +100,9 @@ EVENT_KEYS: dict[str, tuple[str, ...]] = {
     "lease-expired": ("agent", "workspace", "claimed_at", "ttl_hours"),
     "gate-passed": _GATE_EVENT_KEYS,
     "regated": ("previous_commit", *_GATE_EVENT_KEYS, "reason", "non_descendant"),
-    "comparator-attached": ("commit", "comparator", "host", "job_id", "descendant_of", "docs_paths"),
-    "comparator-replaced": ("commit", "comparator", "host", "job_id", "replaced", "descendant_of", "docs_paths"),
+    "comparator-attached": ("commit", "comparator", "host", "job_id", "descendant_of", "docs_paths", "opt_in"),
+    "comparator-replaced": ("commit", "comparator", "host", "job_id", "replaced", "descendant_of", "docs_paths",
+                            "opt_in"),
     "promoted": ("commit", "visibility"),
     "publication-withdrawn": ("status_from", "status_to", "visibility_from", "visibility_to", "reason", "by",
                               "github_visibility", "promoted_commit", "forced"),
@@ -230,9 +231,11 @@ PACKAGE_FIELDS = (
                           "record doi-minted without a palomar-* event (update --track)"),
     ("docs_descendants", "optional", "true: a receipt bound to commit C is also accepted at a descendant of C where "
                                      "no build input under the package directory changed (docs-only rule, "
-                                     "docs/receipts.md); absent = false (update --accept-docs-descendants)"),
-    ("build_inputs", "optional", "[glob]: extra package-relative paths the docs-only rule treats as build inputs "
-                                 "(fnmatch; a glob without / also matches a basename) (update --build-inputs)"),
+                                     "docs/receipts.md), unless lean-pkg-binding.yaml committed at C decides; false "
+                                     "vetoes the file's opt-in; absent = false (update --accept-docs-descendants)"),
+    ("build_inputs", "optional", "[glob]: extra package-relative paths the docs-only rule treats as build inputs, "
+                                 "added to those of lean-pkg-binding.yaml at C (fnmatch; a glob without / also "
+                                 "matches a basename) (update --build-inputs)"),
     ("headline_config", "optional", "repo-relative path of the headline comparator configuration (the paper's "
                                     "main results; formalization.yaml status.main_results lists its theorems); "
                                     "absent = comparator.headline.json when tracked (update --headline-config)"),
@@ -604,11 +607,14 @@ def nested_exclusions(repo: pathlib.Path, bound: str, head: str,
     return tuple(excluded), kept
 
 
-# Docs-only descendants (opt-in per package: record field docs_descendants, `update NAME
-# --accept-docs-descendants`). Build inputs, matched on package-relative paths at any depth.
+# Docs-only descendants (opt-in per package: lean-pkg-binding.yaml committed at the bound commit, or the
+# record field docs_descendants, `update NAME --accept-docs-descendants`). Build inputs, matched on
+# package-relative paths at any depth.
 DOCS_BUILD_BASENAMES = ("lake-manifest.json", "lean-toolchain")
-# Changes the docs rule never admits, whatever the record's build_inputs say.
-DOCS_ALWAYS_REFUSED = (".gitattributes", ".gitmodules", ".lfsconfig", "claims.yaml")
+# Changes the docs rule never admits, whatever the record's build_inputs say. lean-pkg-binding.yaml is the
+# committed opt-in (binding_file, proposal 0002): read at the bound commit only, so a change to it after that
+# commit is refused here and a reader at HEAD sees the very bytes that bound it (or none).
+DOCS_ALWAYS_REFUSED = (".gitattributes", ".gitmodules", ".lfsconfig", "claims.yaml", "lean-pkg-binding.yaml")
 # Files outside a subdirectory package that still change the bytes its build sees (filters, eol, LFS):
 # checked at the repository root and in every directory between it and the package directory.
 DOCS_ANCESTOR_FILES = (".gitattributes", ".gitmodules", ".lfsconfig")

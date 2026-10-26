@@ -106,6 +106,30 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   noreply address, else a `WARN` naming the others; never a failure)
   ([repo export](docs/commands/repo-export.md)).
 
+- The committed docs-only opt-in, `lean-pkg-binding.yaml` (#PR_G1; #319,
+  proposal 0002, stage G1): a package opts in to the docs-only descendant
+  rule with a file committed in its own directory (`schema:
+  lean-pkg-binding/1`, `docs_descendants: true`, optional `build_inputs`).
+  Every command that binds a receipt to its commit X through the one binding
+  function (`gate`, `gate --regate`, `gate --check`, `comparator`, `publish`,
+  `audit`, `next`, `palomar prepare`, `update --path`, the claims ledger)
+  reads it at X and nowhere else: never the working tree, HEAD or a commit
+  between. The file is strict and fails closed (an unknown or repeated key,
+  an anchor, alias or explicit tag, a `docs_descendants` that is not the
+  literal `true`/`false`, a symlink, gitlink or directory at the path, more
+  than 64 KiB: it does not opt in, and the output names the file and the
+  key); a copy under `.lean-receipts/`, at the repository root above a
+  subdirectory package or in a nested package is not the package's. Write it
+  by hand for now ([docs-only descendants](docs/receipts.md#docs-only-descendants-opt-in),
+  [on-disk formats](docs/formats.md)); `receipt check` and a registry-less
+  `index check` read it in stage G2.
+- Additive `opt_in: {source, commit, path}` (#PR_G1; #319) in the
+  `gate-passed`, `regated`, `comparator-attached` and `comparator-replaced`
+  events and the `--json` of `gate`, `gate --check` and `comparator`
+  (attach and `--check`) when the docs-only rule admitted HEAD: `source` is
+  `committed` (the file at X, `path` `lean-pkg-binding.yaml`) or `registry`
+  (the record, `path` null). An evidence-only admission carries none.
+
 ### Changed
 
 - Command-line consistency (#322): `--commit`, `--push` and
@@ -165,6 +189,26 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   scaffold of `lean-pkg new` verifies as before. The preflight runs under
   `--dry-run` too, and `--json` `steps[]` begins with `0/3 preflight`
   ([verify](docs/commands/verify.md)).
+- The docs-only opt-in and its admission line name their source (#PR_G1;
+  #319): the text line reads `✓ HEAD <H12> is a docs-only descendant of
+  <X12> (N non-build file(s): ...; opted in at <X12> by
+  lean-pkg-binding.yaml)`, or `...; opted in by the registry record)` on the
+  registry route (it said `; opted in)`), and so does `publish --dry-run`'s
+  `gate receipt bound to HEAD` line; a refusal under the opt-in says
+  `docs-only rule (<source>)`. Precedence for commands that read a registry:
+  a record `docs_descendants: false` vetoes a committed `true`; a record
+  `true` still opts in when X has no file; once the file exists at X it
+  decides, and a record `true` is then ignored. `build_inputs` is the
+  union of the file's globs and the record's. `lean-pkg-binding.yaml` is
+  always a build input under the docs-only rule, so adding, editing or
+  removing it after X is refused, and a file added after X is named:
+  `lean-pkg-binding.yaml was added after <X12>; the opt-in is read at the
+  bound commit only`. The hint on a refusal the docs rule would have
+  admitted now names the file first. `index check` with a registry applies
+  the same precedence at the pin (stricter: a committed `false` or an
+  invalid file there vetoes the record's `true`), and its check note says
+  which decided (`overridden by lean-pkg-binding.yaml at <pin12>`, or
+  `the registry record opts in` only when the pin has no file).
 - Internal: the shared core moved from cli.py to core.py (#345, #317);
   cli.py re-exports every moved name for one release; no change to the
   CLI or its JSON.

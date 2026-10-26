@@ -1996,7 +1996,88 @@ An agent that commits only notes inside the package directory (a README, a
 `docs/` page, notes on the cluster run) after the source commit X moves HEAD
 away from X, and the evidence-only rule then refuses the receipt: the only
 ways forward were to rerun the check at the new HEAD or to rebind by hand. A
-package can opt in to a second rule:
+package can opt in to a second rule, by committing a small file in the
+package directory (proposal 0002, #319):
+
+```yaml
+# lean-pkg-binding.yaml: commit it before the verify run whose receipt it should cover
+schema: lean-pkg-binding/1
+docs_descendants: true
+build_inputs:            # optional: files the build reads that Lake does not declare
+  - data/*.csv
+  - Verify/strings.txt
+```
+
+> With the opt-in, a receipt bound to commit X is also accepted at HEAD H
+> when H descends from X and no build input under the package directory
+> changed between X and H.
+
+#### The file, read at the bound commit only
+
+`lean-pkg-binding.yaml` lives in the package directory: the repository
+root, or the package's subdirectory in a monorepo.
+
+| Key | Rule |
+|---|---|
+| `schema` | `lean-pkg-binding/1` |
+| `docs_descendants` | required, the literal `true` or `false`; only `true` opts in |
+| `build_inputs` | optional list of globs, the same rule as the registry field (package-relative, no leading `/`, no `..`) |
+
+The file is strict, and a file that does not validate does not opt in (the
+evidence-only rule binds, and the output names the file and the key): an
+unknown key, a repeated key, a value of the wrong type, an anchor, an alias
+or an explicit tag is refused, and `docs_descendants` must be the plain
+`true` or `false` (`yes`, `on`, `True`, `"true"` and `1` are refused, though
+YAML 1.1 reads some of them as true). It must be a regular file (git mode
+100644 or 100755) of at most 64 KiB; a symlink, a gitlink or a directory at
+that path does not opt in. A newer `lean-pkg-binding/N` does not opt in
+either, and says to upgrade lean-pkg ([on-disk formats](formats.md)).
+
+Every command that binds a receipt to its commit X reads the file **at X and
+nowhere else**:
+
+1. The opt-in is the file in X's tree. The working tree, the index, HEAD and
+   every commit between X and HEAD are never read for it, so an untracked or
+   staged copy changes nothing, and neither does a copy added after X and
+   removed again.
+2. A file that exists at HEAD but not at X has no effect. The refusal adds
+   the clause
+
+   ```
+   lean-pkg-binding.yaml was added after <X12>; the opt-in is read at the bound commit only
+   ```
+
+   To use the file, commit it first and run the verify step again: the new
+   receipt binds a commit that contains it.
+3. The file is itself a build input under the docs-only rule: adding,
+   editing (even whitespace) or removing it between X and HEAD is refused,
+   at any depth, as `claims.yaml` is. A reader at HEAD therefore sees either
+   no file or the very bytes that bound X.
+4. A file at X that does not validate does not opt in, whatever the
+   registry says.
+5. Only the package's own directory counts: a copy under `.lean-receipts/`,
+   at the repository root above a subdirectory package, or in a nested
+   registered package's directory is never this package's opt-in. The nested
+   package reads its own.
+
+#### Writing the file by hand
+
+Until `lean-pkg update NAME --write-binding-file` arrives (a later stage of
+#319), write the file yourself, in the package directory, and commit it:
+
+```
+printf 'schema: lean-pkg-binding/1\ndocs_descendants: true\n' > lean-pkg-binding.yaml
+git add lean-pkg-binding.yaml && git commit -m "Opt in to docs-only descendants"
+lean-pkg verify NAME     # or the receipt step and gate: the new receipt binds a commit with the file
+```
+
+Commit it on its own, right before the verify run, not together with a
+README edit made after the gate: a file committed after X is rule 2's case
+and unbinds the current receipts until the next verify run.
+
+#### The registry record (the older route)
+
+The registry fields set the same opt-in for commands that read a registry:
 
 ```
 lean-pkg update NAME --accept-docs-descendants --reason "notes are committed beside the code"
@@ -2007,11 +2088,25 @@ lean-pkg update NAME --build-inputs 'data/*.csv,*.json' --reason "read at elabor
 The record field is `docs_descendants` (boolean; absent means false) and the
 optional `build_inputs` is a list of globs. Each flag needs `--reason`,
 records an `updated` event (the field in `fields`, its old value as
-`<field>_from`), follows the lease rule and accepts `--dry-run`.
+`<field>_from`), follows the lease rule and accepts `--dry-run`. The
+committed file and the record combine as follows:
 
-> With `docs_descendants: true`, a receipt bound to commit X is also accepted
-> at HEAD H when H descends from X and no build input under the package
-> directory changed between X and H.
+| File at X | Record `docs_descendants` | Rule applied | Output |
+|---|---|---|---|
+| absent | absent or `false` | evidence-only | unchanged |
+| absent | `true` | docs-only | `opted in by the registry record` |
+| `true` | absent or `true` | docs-only | `opted in at <X12> by lean-pkg-binding.yaml` |
+| `true` | `false` (set with `--no-accept-docs-descendants`) | evidence-only | the record's refusal is named |
+| `false` or invalid | any | evidence-only (a record `true` is ignored once the file exists at X) | the file is named |
+
+A registry operator can therefore still refuse the rule for a package it
+coordinates (`docs_descendants: false`), but it cannot grant it where the
+committed file says `false`. `build_inputs` is the union of the file's globs
+at X and the record's, so the record can only add inputs. The registry
+route stays during a deprecation period (from a later stage of #319, with a
+warning naming the file). `receipt check`, which reads no registry and
+applies only the referee's `--docs-descendants`, and an `index check` run
+without a registry do not read the file yet: a later stage of #319 adds it.
 
 Build inputs, matched on paths relative to the package directory:
 
@@ -2034,7 +2129,7 @@ Build inputs, matched on paths relative to the package directory:
   `require` path dependency's directory;
 - `lakefile.*` (`lakefile.lean`, `lakefile.toml`), `lake-manifest.json` and
   `lean-toolchain`, at any depth;
-- every path matching a glob in the record's `build_inputs` (`fnmatch`, so
+- every path matching a glob in `build_inputs`, the file's and the record's (`fnmatch`, so
   `*` also crosses `/`; a glob without `/` also matches a file name at any
   depth), except a path under `.lean-receipts/`: that directory is never a
   build input whatever `build_inputs` says. It holds the evidence the gate
@@ -2071,6 +2166,7 @@ Always refused under the opt-in, whatever `build_inputs` says:
   package at `lean/contrib/`): smudge/clean filters, eol conversion and LFS
   change the bytes the build sees without changing a `.lean` blob. The refusal
   names the file;
+- any change to `lean-pkg-binding.yaml`, at any depth (rule 3 above);
 - any change to `claims.yaml` (and to the recorded `claims_file`): `gate`
   reads the claims at the receipt commit, so they stay part of what it binds.
   When it is the only change, the refusal says
@@ -2099,20 +2195,28 @@ the event records `commit: X`. When the docs-only rule admitted H, the text
 output says
 
 ```
-✓ HEAD <H12> is a docs-only descendant of <X12> (3 non-build file(s): README.md, docs/x.md, evidence/notes.md; opted in)
+✓ HEAD <H12> is a docs-only descendant of <X12> (3 non-build file(s): README.md, docs/x.md, evidence/notes.md; opted in at <X12> by lean-pkg-binding.yaml)
 ```
 
-and the `gate-passed`, `regated`, `comparator-attached` (or
-`comparator-replaced`) event and the `--json` payloads (also of
-`gate --check` and `comparator --check`, which write nothing) carry the
-additive fields `descendant_of: X` and `docs_paths` (the changed non-build
-paths, at most 50). The same rule decides `promote`'s binding line, `audit`'s
-`receipt-drift`/`comparator-drift`, `next`, `palomar prepare`, `update --path`
-and the claims-synced checks. A refusal under the opt-in names the first
-changed build input(s) and says the receipt must be rebuilt at HEAD. Without
-the opt-in nothing changes, except that a refusal the docs-only rule would have
-admitted ends with the hint that the package can opt in with
-`lean-pkg update NAME --accept-docs-descendants`.
+(`opted in by the registry record` on the registry route), and the
+`gate-passed`, `regated`, `comparator-attached` (or `comparator-replaced`)
+event and the `--json` payloads (also of `gate --check` and
+`comparator --check`, which write nothing) carry the additive fields
+`descendant_of: X`, `docs_paths` (the changed non-build paths, at most 50)
+and `opt_in: {source, commit, path}`, with `source` `committed` (the file at
+X; `path` is `lean-pkg-binding.yaml`, package-relative) or `registry` (`path`
+null). An admission by the evidence-only rule carries none of the three. The
+same rule decides `promote`'s binding line (and so `publish --dry-run`'s
+`gate receipt bound to HEAD` line, which names the source), `audit`'s
+`receipt-drift`/`comparator-drift`, `next`, `palomar prepare`,
+`update --path` and the claims-synced checks. A refusal under the opt-in
+says `docs-only rule (<source>)`, names the first changed build input(s)
+and says the receipt must be rebuilt at HEAD. Without the opt-in nothing
+changes, except that a refusal the docs-only rule would have admitted ends
+with the hint that the package can opt in (commit `lean-pkg-binding.yaml`,
+or `lean-pkg update NAME --accept-docs-descendants`), and that a refusal
+names a file at X that does not opt in, a file added after X, and a
+record's veto.
 
 Why it is opt-in: the receipt then no longer certifies that HEAD's package
 directory is byte-identical to X. It certifies X; what H adds is limited to
