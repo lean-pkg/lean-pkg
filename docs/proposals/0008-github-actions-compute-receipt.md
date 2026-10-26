@@ -1,7 +1,8 @@
 # 0008: A compute receipt from a CI runner (GitHub Actions first)
 
-Status: draft. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
+Decided: accepted 2026-10-26 by Le Chen, with the recommended answers to open questions 1 to 11. Implemented in:
+(release); tracked in [#318](https://github.com/lean-pkg/lean-pkg/issues/318).
 
 ## Summary
 

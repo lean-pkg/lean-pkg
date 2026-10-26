@@ -167,4 +167,5 @@ changes:
 # Python lint (#333, #314): make lint runs ruff check (rules F, E9, B) in make check and in CI, pinned; the
 # first pass fixed every finding without a behavior change; nothing a package author sees.
 # Docs: improvement plan rows 10 to 15 for issues #325 to #330, and wave 2b (#332).
-no_author_change: [321, 323, 331, 332, 333]
+# Docs: proposal 0008 accepted 2026-10-26 (status line, table row, design note); no code changes (#337).
+no_author_change: [321, 323, 331, 332, 333, 337]
