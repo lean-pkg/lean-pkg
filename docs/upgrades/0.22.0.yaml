@@ -361,6 +361,6 @@ changes:
 # Internal (#345, #317): the shared core moved from cli.py to core.py, cli.py re-exports every moved
 # name; no change to the CLI or its JSON (doctor --upgrade-from reads the moved constants in core.py).
 # Docs: proposal 0003 stage H0, the planned statements-module rule and hyp-probe/1 format (#346).
-# Internal (#PR_E2, #317): lean-pkg's modules import core.py directly instead of `cli` under the name core;
+# Internal (#351, #317): lean-pkg's modules import core.py directly instead of `cli` under the name core;
 # cli.py keeps its re-exports for one release; no change to the CLI or its JSON.
-no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346]
+no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346, 351]

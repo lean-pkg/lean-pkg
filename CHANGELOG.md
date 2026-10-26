@@ -234,7 +234,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   cli.py re-exports every moved name for one release; no change to the
   CLI or its JSON.
 - Internal: lean-pkg's modules import the shared core from core.py
-  directly (#PR_E2, #317); cli.py keeps its re-exports for one release; no
+  directly (#351, #317); cli.py keeps its re-exports for one release; no
   change to the CLI or its JSON.
 
 - `formalization render NAME --write` refreshes derived keys without
