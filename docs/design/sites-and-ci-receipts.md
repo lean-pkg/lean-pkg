@@ -120,7 +120,7 @@ institution or host name).
 
 ## 4. Design: a compute receipt from a CI runner (GitHub Actions first)
 
-Not implemented; designed in [proposal 0008](../proposals/0008-github-actions-compute-receipt.md), accepted 2026-10-26. The goal: a mathematician with a public GitHub repository and no cluster account gets a
+Designed in [proposal 0008](../proposals/0008-github-actions-compute-receipt.md), accepted 2026-10-26; stage S1 (level 1) is implemented, stages S2 to S5 are not yet. The goal: a mathematician with a public GitHub repository and no cluster account gets a
 compute receipt that backs `coverage.yaml` `compute` the way `slurm-<J>` does, and that a third party can
 corroborate without trusting the author.
 
