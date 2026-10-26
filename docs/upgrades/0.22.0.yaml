@@ -299,7 +299,7 @@ changes:
       section is refused at write time; the only way to get one is a hand-edited script.
     breaking: false
     changelog: Added
-  - pr: 0
+  - pr: 354
     id: claims-hypotheses-keys
     kind: format
     area: claims
@@ -324,7 +324,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 354
     id: coverage-input-hypotheses
     kind: format
     area: coverage check

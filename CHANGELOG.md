@@ -126,7 +126,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   the section for a built checkout
   ([on-disk formats](docs/formats.md#the-hypotheses-section-of-the-verify-log-hyp-probe1),
   [receipts](docs/receipts.md#hypotheses-section-hyp-probe1)).
-- Conditional claims, stage H2 (#0; #320, proposal 0003): `claims/1`
+- Conditional claims, stage H2 (#354; #320, proposal 0003): `claims/1`
   accepts three optional keys, and the schema string stays `claims/1`.
   `hypotheses` (theorem and lemma claims) lists the assumptions the
   declaration takes as explicit binders: distinct fully qualified names,
