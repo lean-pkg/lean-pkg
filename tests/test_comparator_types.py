@@ -829,6 +829,7 @@ def _have_toolchain():
 
 
 @pytest.mark.skipif(not _have_toolchain(), reason=f"real Lean test: elan with {REAL_TOOLCHAIN} not installed")
+@pytest.mark.timeout(3600)  # real Lean: a real `lake build` (600 s) and two judge runs (1200 s each)
 def test_real_lean_printed_types_re_elaborate_to_the_original(tmp_path):
     """Slow (real `lake env lean`, core only, no network): the emitted driver's printed statements
     re-elaborate to the declarations' own types, syntactically. Negative controls: without

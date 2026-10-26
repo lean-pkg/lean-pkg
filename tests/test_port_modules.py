@@ -277,6 +277,7 @@ def _build(tc_bin, repo, tmp_path):
 
 
 @pytest.mark.skipif(_toolchain_bin() is None, reason=f"{TC} is not installed")
+@pytest.mark.timeout(2400)  # real Lean: three real `lake build`s, 600 s each
 def test_the_port_builds_on_the_real_toolchain(lp, tmp_path, capsys):
     """Before: the legacy project builds. After --write: the build fails exactly where the plan said
     (`unfold double` across modules); with the flagged `@[expose]` applied it builds, and palomar check

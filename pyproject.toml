@@ -19,7 +19,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-xdist>=3"]
+test = ["pytest>=7", "pytest-xdist>=3", "pytest-timeout>=2", "jsonschema>=4", "setuptools>=77"]
 
 [project.scripts]
 lean-pkg = "lean_pkg.cli:main"
@@ -39,3 +39,7 @@ lean_pkg = ["scripts/*.sh", "scripts/*.lean", "schemas/*.json", "schemas/*.txt",
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# pytest-timeout: a hung subprocess fails its test instead of holding the runner. The slowest test takes
+# about 45 s; 300 s leaves room for a loaded runner under xdist. A test that runs the real Lean toolchain
+# carries its own @pytest.mark.timeout, sized to the limits of the builds and judges it runs.
+timeout = 300

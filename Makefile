@@ -8,12 +8,13 @@ check: test boundary tabs versions changelog reuse shellcheck
 
 # A private bytecode cache per run: concurrent runs never share pytest's rewritten .pyc files.
 # The EXIT trap removes it on every exit, including Ctrl-C (INT/TERM/HUP exit through it).
-# In parallel (pytest-xdist, `-n $(TEST_JOBS)`) when xdist is importable, else serially; the cache is
-# exported first, so the workers inherit it. `make test TEST_JOBS=` runs serially.
+# In parallel (pytest-xdist, `-n $(TEST_JOBS)`) when xdist is importable, else serially with a one-line note
+# on stderr; the cache is exported first, so the workers inherit it. `make test TEST_JOBS=` runs serially, silently.
 TEST_JOBS ?= auto
 test:
 > @d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && trap 'exit 130' INT TERM HUP && export PYTHONPYCACHEPREFIX="$$d" && \
->  n=$$( [ -n "$(TEST_JOBS)" ] && python3 -c 'import xdist' 2>/dev/null && echo "-n $(TEST_JOBS)" || true) && \
+>  n= && if [ -n "$(TEST_JOBS)" ]; then if python3 -c 'import xdist' 2>/dev/null; then n="-n $(TEST_JOBS)"; \
+>  else echo "make test: pytest-xdist not importable, running serially (pip install -e '.[test]')" >&2; fi; fi && \
 >  python3 -m pytest -q -p no:cacheprovider $$n
 
 # Re-record the golden CLI contract (help texts, --json key sets) after an intended change; review
@@ -63,7 +64,7 @@ public-safety:
 >  cp .lean-pkg-private-patterns "$$d/lean-pkg/" && \
 >  export LEAN_PKG_REGISTRY="$$d/lean-packages.yaml" PYTHONPATH="$$PWD/src" && \
 >  unset LEAN_PKG_COMMIT LEAN_PKG_PUSH LEAN_PKG_EVENTS LEAN_PKG_INDEX LEAN_PKG_HOME LEAN_PKG_REGISTRY_SNAPSHOT && \
->  python3 -m lean_pkg.cli init >/dev/null && \
+>  python3 -m lean_pkg.cli registry init >/dev/null && \
 >  python3 -m lean_pkg.cli register lean-pkg-self --url https://github.com/lean-pkg/lean-pkg --path "$$d/lean-pkg" --owner-project lean-pkg --status scratch >/dev/null && \
 >  python3 -m lean_pkg.cli public-safety lean-pkg-self --history --strict
 

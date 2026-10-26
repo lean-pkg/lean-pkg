@@ -323,6 +323,7 @@ FORBID = ["--forbid", "MeasurableSpace.DynkinSystem.", "--forbid-exact", "Measur
 
 
 @pytest.mark.skipif(_mathlib_ready() is not None, reason=str(_mathlib_ready()))
+@pytest.mark.timeout(0)     # a batch of Mathlib solutions: each one is bounded by the judge's own --timeout
 def test_real_mathlib_batch_with_forbidden_constants(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     proj = os.environ["LEAN_EXERCISE_MATHLIB_PROJECT"]

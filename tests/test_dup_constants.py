@@ -219,6 +219,7 @@ def built(tmp_path_factory):
     return d
 
 
+@pytest.mark.timeout(1200)  # real Lean: the module's real `lake build` (900 s) plus the probe
 def test_real_equal_duplicates_are_accepted_and_the_unequal_one_refused(built):
     res = dc.duplicate_constants(built, ["Top"], sandboxed=False)
     got = by_name(res)
@@ -234,11 +235,13 @@ def test_real_equal_duplicates_are_accepted_and_the_unequal_one_refused(built):
 
 
 @pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap is not installed")
+@pytest.mark.timeout(1200)  # real Lean: the module's real `lake build` (900 s) plus the probe
 def test_real_probe_runs_in_the_sandbox(built):
     res = dc.duplicate_constants(built, ["A"], sandboxed=True)
     assert res["ok"] and res["duplicates"] == [], res["detail"]
 
 
+@pytest.mark.timeout(1200)  # real Lean: the module's real `lake build` (900 s) plus the probe
 def test_real_unbuilt_module_and_lean_refused_import(built):
     res = dc.duplicate_constants(built, ["Nope"], sandboxed=False)
     assert not res["ok"] and "ownership cannot be determined" in res["detail"]
@@ -246,6 +249,7 @@ def test_real_unbuilt_module_and_lean_refused_import(built):
     assert not res["ok"] and "Lean refused the import itself" in res["detail"], res["detail"]
 
 
+@pytest.mark.timeout(1200)  # real Lean: the module's real `lake build` (900 s) plus the probe
 def test_real_command_line_exit_codes(built, capsys):
     assert dc.main(["--repo", str(built), "A", "--no-sandbox"]) == 0
     assert dc.main(["--repo", str(built), "Top", "--no-sandbox"]) == 1
@@ -365,6 +369,7 @@ def built_deps(tmp_path_factory):
     return proj
 
 
+@pytest.mark.timeout(1200)  # real Lean: the module's real `lake build` (900 s) plus the probe
 def test_real_audit_runs_over_path_and_subdir_packages(built_deps):
     res = dc.duplicate_constants(built_deps, ["Top"], sandboxed=False, scope="packages")
     e = by_name(res)["Dup.pkg"]
@@ -376,6 +381,7 @@ def test_real_audit_runs_over_path_and_subdir_packages(built_deps):
 
 
 @pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap is not installed")
+@pytest.mark.timeout(1200)  # real Lean: the module's real `lake build` (900 s) plus the probe
 def test_real_audit_over_packages_in_the_sandbox(built_deps):
     res = dc.duplicate_constants(built_deps, ["Top"], sandboxed=True, scope="packages")
     assert res["ok"] and by_name(res)["Dup.pkg"]["verdict"] == "accepted", res["detail"]

@@ -334,6 +334,7 @@ def _tree(d: Path) -> dict:
             for p in sorted(d.rglob("*")) if p.is_file() or p.is_symlink()}
 
 
+@pytest.mark.timeout(2400)  # real Lean: the module's two real builds (900 s each) plus the comparison
 def test_lake_comparator_ground_truth_is_as_documented(built):
     """The fixtures behave as docs/comparator.md's table says (refused, refused, accepted, accepted), plus the
     statement mismatch and the missing theorem."""
@@ -342,6 +343,7 @@ def test_lake_comparator_ground_truth_is_as_documented(built):
     assert rc == {"private": 1, "omega": 1, "public": 0, "shared": 0, "statement": 1, "missing": 1, "axiom": 1}, lake
 
 
+@pytest.mark.timeout(2400)  # real Lean: the module's two real builds (900 s each) plus the comparison
 def test_real_verdicts_agree_with_lake_comparator(built):
     d, lake = built
     res = cc.run(d, sandboxed=False)
@@ -364,6 +366,7 @@ def test_real_verdicts_agree_with_lake_comparator(built):
     assert got["comparator/config-missing.json"]["missing"] == ["solution: audit_missing"]
 
 
+@pytest.mark.timeout(2400)  # real Lean: the module's two real builds (900 s each) plus the comparison
 def test_real_failing_fixtures_report_the_first_field_and_the_breadcrumb(built):
     d, _ = built
     got = {e["config"].removeprefix("comparator/config-").removesuffix(".json"): e
@@ -389,6 +392,7 @@ def test_real_failing_fixtures_report_the_first_field_and_the_breadcrumb(built):
     assert e["breadcrumb"] == ["audit_axiom", "Heat.cheat"] and e["reason"] == "illegal axiom"
 
 
+@pytest.mark.timeout(2400)  # real Lean: the module's two real builds (900 s each) plus the comparison
 def test_real_run_writes_nothing_a_receipt_or_gate_reads(built, lp, tmp_path, capsys, monkeypatch):
     d, _ = built
     reg = _registry(tmp_path, d)
@@ -405,6 +409,7 @@ def test_real_run_writes_nothing_a_receipt_or_gate_reads(built, lp, tmp_path, ca
     assert len(made) == 1 and not Path(made[0]).exists()                 # the exports are gone
 
 
+@pytest.mark.timeout(2400)  # real Lean: the module's two real builds (900 s each) plus the comparison
 def test_real_supplied_export_gives_the_same_verdicts(built, tmp_path):
     d, _ = built
     roots, prefix = cc.dc.project_roots(d)
@@ -423,6 +428,7 @@ def test_real_supplied_export_gives_the_same_verdicts(built, tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap is not installed")
+@pytest.mark.timeout(2400)  # real Lean: the module's two real builds (900 s each) plus the comparison
 def test_real_sandboxed_run_agrees_with_the_unsandboxed_one(built):
     d, _ = built
     strip = lambda r: [{k: v for k, v in e.items()} for e in r["configs"]]   # noqa: E731

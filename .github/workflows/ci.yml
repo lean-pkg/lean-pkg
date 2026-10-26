@@ -8,26 +8,40 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels its superseded run. Every other run (a push to main) has a group of
+# its own, its commit: a shared group would still drop a queued run when a third arrived, even without
+# cancel-in-progress, so every commit on main keeps a complete result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A run takes about 5 minutes; a hung step fails at 20 instead of holding the runner for 6 hours.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Install
         run: python -m pip install -e '.[test]'
       - name: Console scripts start
         run: |
           lean-pkg --help >/dev/null
           comparator-receipt --help >/dev/null
-      # In parallel (pytest-xdist from the test extra): about 5x faster than serial on 16 cores.
+      # In parallel (pytest-xdist from the test extra): about 5x faster than serial on 16 cores. The bytecode
+      # cache goes outside the checkout, so the suite's end-of-run check catches a test that writes src/__pycache__.
       - name: Test
+        env:
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}/pycache
         run: python -m pytest -q -n auto
       - name: Generated files are current
         run: |
@@ -36,6 +50,7 @@ jobs:
 
   private-boundary:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,6 +58,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
       - name: Forbidden-string scan
         run: bash scripts/private-boundary-check.sh
       # Commit messages and old blobs escape the tree scan: #94's squash message named a private

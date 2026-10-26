@@ -328,6 +328,7 @@ def _toolchain_bin():
 
 
 @pytest.mark.skipif(_toolchain_bin() is None, reason=f"{TC} is not installed")
+@pytest.mark.timeout(1500)  # real Lean: a real `lake build` and verify.sh, 600 s each
 def test_the_core_scaffold_builds_and_verify_sh_writes_the_receipt_lines(lp, capsys, tmp_path):
     """The Mathlib-free scaffold: lake update (no dependency, no network), then verify.sh as the systemd unit
     would run it; the receipt's own log parser reads every line it needs (no systemd needed here)."""

@@ -36,7 +36,7 @@ The `make` targets:
 | Target | What it runs |
 |---|---|
 | `make check` | `test`, `boundary`, `tabs`, `versions`, `changelog`, `reuse`, `shellcheck`: the release gate, and what hosted CI runs |
-| `make test` | the full pytest suite (works without installing: `pythonpath = src`), in parallel with pytest-xdist (`-n auto`) when it is installed (the `test` extra), else serially; `make test TEST_JOBS=` runs it serially, `TEST_JOBS=4` with four workers |
+| `make test` | the full pytest suite (works without installing: `pythonpath = src`), in parallel with pytest-xdist (`-n auto`) when it is installed (the `test` extra), else serially with a one-line note on stderr; `make test TEST_JOBS=` runs it serially (without the note), `TEST_JOBS=4` with four workers |
 | `make boundary` | `scripts/private-boundary-check.sh`: no private host, user or path in what git would ship |
 | `make tabs` | no tab characters in source or documentation (use spaces) |
 | `make versions` | `pyproject.toml`, `CITATION.cff`, `CHANGELOG.md` and the package agree on the version |

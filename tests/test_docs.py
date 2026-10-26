@@ -304,6 +304,32 @@ def test_make_test_uses_a_private_bytecode_cache():
     assert "safe to run concurrently" in (ROOT / "RELEASING.md").read_text()
 
 
+def test_make_test_says_when_it_runs_serially_for_lack_of_xdist(tmp_path):
+    """Without pytest-xdist `make test` runs serially (several times slower) and says so in one line on stderr
+    (#313); `make test TEST_JOBS=` asks for a serial run, so it stays silent."""
+    import os, shutil, subprocess
+    import pytest
+    make = shutil.which("make")
+    if make is None:
+        pytest.skip("make not installed")
+    fakebin = tmp_path / "bin"
+    fakebin.mkdir()
+    argv_log = tmp_path / "argv.txt"
+    # A python3 without xdist: `-c 'import xdist'` fails, `-m pytest ...` logs its arguments and passes.
+    (fakebin / "python3").write_text(f'#!/bin/sh\n[ "$1" = -c ] && exit 1\necho "$*" > "{argv_log}"\nexit 0\n')
+    (fakebin / "python3").chmod(0o755)
+    env = dict(os.environ, PATH=f"{fakebin}{os.pathsep}{os.environ['PATH']}")
+    for k in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "TEST_JOBS"):   # an enclosing `make test TEST_JOBS=` passes it down
+        env.pop(k, None)
+    for jobs, noted in ((None, True), ("", False)):
+        p = subprocess.run([make, "-s", "-C", str(ROOT), "test", *([f"TEST_JOBS={jobs}"] if jobs is not None else [])],
+                           env=env, capture_output=True, text=True, timeout=60)
+        assert p.returncode == 0, p.stderr
+        assert argv_log.read_text().split() == ["-m", "pytest", "-q", "-p", "no:cacheprovider"]
+        note = "make test: pytest-xdist not importable, running serially (pip install -e '.[test]')"
+        assert (p.stderr.strip() == note) if noted else (p.stderr == ""), p.stderr
+
+
 def test_make_test_removes_its_bytecode_cache_on_sigint(tmp_path):
     """Interrupting `make test` (Ctrl-C reaches the whole process group) must not leak the temp dir.
 
