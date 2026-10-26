@@ -182,6 +182,16 @@ separates what has shipped from what the Lean FRO has announced.
   same bar as the lower tier. The Easley sentence on a page therefore means
   "the author declares these jobs ran on Easley and kept receipts and
   accounting records for them".
+- **A fabricated GitHub Actions run, at level 1.** A receipt's `ci` block
+  ([The `ci` block](formats.md#the-ci-block)) is checked offline for
+  consistency only: with itself, the commit and the committed log. Every
+  value in it (run id, repository, event, runner) is text the author could
+  write, so a level-1 receipt is as forgeable as a hand-written `slurm-<J>`
+  one, and gets exactly what that gets: a `compute` job backed, and no
+  sentence on the page. The GitHub Actions sentence renders only from a run
+  corroborated against GitHub's public record (level 2,
+  [proposal 0008](proposals/0008-github-actions-compute-receipt.md), a
+  later stage); until then a README carrying it fails `page --check`.
 - **A malicious package author.** The author controls the source, the
   Challenge, the configurations, the logs and the host. The comparator
   receipt binds the configuration bytes, so the list of compared theorems is

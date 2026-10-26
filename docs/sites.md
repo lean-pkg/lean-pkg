@@ -45,6 +45,15 @@ first, then the package's own, each by name).
   name a cluster), so the declaration names the site and the receipt shows a
   job of that scheduler ran. When your jobs ran on a site, declare them: that
   is what puts the site's required acknowledgment on the page.
+- A scheduler also says from which corroboration level its sentence is
+  rendered. Slurm's is level 1, what an offline check reaches: a backed
+  Easley job puts the Easley sentence on the page. GitHub Actions' is level
+  2 (below).
+
+| Scheduler | Job id | Backed by | Sentence from |
+|---|---|---|---|
+| `slurm` | `slurm-<J>` | a lower-tier receipt with that `job_id` (`receipt slurm`), or a comparator receipt with a sacct seal | level 1 (offline) |
+| `github-actions` | `gha-<run_id>-<run_attempt>` | a lower-tier receipt with that `job_id` and a `ci` block that passes level 1 ([The `ci` block](formats.md#the-ci-block)) | level 2 (a corroborated run) |
 
 ## Add a site of your own
 
@@ -69,7 +78,7 @@ scheduler: slurm
 | `acknowledgement` | the sentence, verbatim, as your site requires it: one line, at most 400 characters, containing the Markdown link from `title` to `url`; no `<`, `>`, backtick or pipe character |
 | `mention` | how a refusal names the site |
 | `mention_pattern` | a case-insensitive regular expression for README text that claims the site; it must match the acknowledgement |
-| `scheduler` | `slurm` (the only one today) |
+| `scheduler` | `slurm` (`github-actions` is built-in only: a package profile naming it is refused) |
 | `x-NAME` | optional: your own data (any value) under an `x-` key; lean-pkg ignores it |
 
 A site that wants to pin the container image its jobs run in can keep the
@@ -86,13 +95,53 @@ the same on your machine, in CI and for a referee. A profile may not reuse a
 built-in name, and a malformed one refuses `coverage check` and `page`,
 naming the file and the key. `lean-pkg page NAME --json` reports every
 profile the package can name under `sites: {NAME: {backed, jobs}}` (the
-older top-level `easley` key is kept).
+older top-level `easley` key is kept, in that shape, for Easley only). Each
+site there also has `level`, the lowest corroboration level its listed jobs
+reached (null when none is listed), `levels` (`{job: level}`) and
+`sentence` (whether the page carries its acknowledgement).
+
+## GitHub Actions
+
+`github-actions` is a built-in profile and a built-in-only scheduler
+([proposal 0008](proposals/0008-github-actions-compute-receipt.md)). A
+GitHub Actions run of the package's public repository can back `compute`:
+
+```yaml
+compute:
+  - cluster: github-actions
+    jobs: [gha-11622958301-1]     # gha-<run_id>-<run_attempt>
+```
+
+The job must be the `job_id` of a lower-tier receipt committed at `HEAD`
+whose additive [`ci` block](formats.md#the-ci-block) names the run and
+passes level 1: consistent with itself, the commit and the committed log,
+a GitHub-hosted runner, a `push` or `workflow_dispatch` event. A `gha-`
+receipt without the block, or with a failing one, backs nothing, and the
+refusal names it with the reason. A `slurm-` id under `github-actions`, and
+a `gha-` id under a Slurm site, are refused.
+
+**Level 1 backs the job, but puts no sentence on the page.** Level 1 is as
+strong as a `slurm-<J>` receipt and as forgeable: every value in the block
+is text the author could write. The GitHub Actions acknowledgement ("Verification
+ran on [GitHub Actions](https://docs.github.com/en/actions) hosted runners
+(...)") states that the runs happened, so it renders only from a run
+corroborated against GitHub's public record (level 2, `--corroborate`, a
+later stage of the proposal, not in this release). Until then a README
+that carries that sentence fails `page --check` and the page line of
+`publish --dry-run`. The profile's `mention_pattern` is narrow on purpose
+(`Verification ran on [GitHub Actions`): a CI badge or "tests run on GitHub
+Actions" is not a claim and is never refused.
+
+Writing the receipt in the job (`lean-pkg receipt ci`) and lean-pkg's
+reusable `verify.yml` are the next stages of the proposal; this release
+judges a `ci` block, it does not write one.
 
 ## No cluster at all
 
 Nothing above is required. A page without `compute` carries only the
 lean-pkg credit. The lower-tier receipt can come from any executor
 (`lean-pkg receipt systemd --run` runs the verify script in a capped local unit; see
-[Receipts and trust](receipts.md)). A receipt from a CI runner is designed
-in [the design note](design/sites-and-ci-receipts.md#4-design-a-compute-receipt-from-a-ci-runner-github-actions-first)
-and not yet implemented.
+[Receipts and trust](receipts.md)). A receipt from a GitHub Actions run is
+judged at level 1 ([GitHub Actions](#github-actions)); writing one in the
+job, and corroborating it against the run, are the next stages of
+[proposal 0008](proposals/0008-github-actions-compute-receipt.md).

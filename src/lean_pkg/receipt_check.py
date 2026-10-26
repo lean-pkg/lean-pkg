@@ -34,7 +34,11 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   a malformed one fails; the digest itself is not re-derivable, the image is not published); the
   `slurm_sacct` block when present (`receipt slurm --seal-sacct`): the validator refuses it unless the sealed
   sacct record is committed at REF and still hashes and parses to the block (receipt.sacct_seal_problem, the
-  check of a comparator receipt's seal), and a row names the job, the window and the record.
+  check of a comparator receipt's seal), and a row names the job, the window and the record; the `ci` block
+  when present (a GitHub Actions run, proposal 0008): the validator refuses it unless it passes level 1
+  (ci_github.level1: offline consistency with the receipt, the commit and the committed log), and a row names
+  the run, with a second row for the workflow-file rehash (a skip when ci.workflow_sha is not in the clone).
+  A receipt with a gha- job_id and no `ci` block gets a skip row: it gates, but backs no compute job.
 - per lower-tier receipt with the additive `claim_axioms` key (AX1): re-derived from the sealed log's
   claim-axioms lines against claims.yaml at X (every claim checked, none missing, no sorryAx,
   agreeing with the log's `#print axioms` output) and compared with the key.
@@ -335,6 +339,28 @@ def sacct_seal_check(c: Checks, view: dict) -> None:
     if "slurm_sacct" not in rec:
         return
     c.add(f"lower {rel}: sacct seal", PASS, core.sacct_seal_lines(rec)[0][2:].replace("at HEAD", "at the ref"))
+
+
+def ci_check(c: Checks, repo: pathlib.Path, view: dict) -> None:
+    """The additive `ci` block (a GitHub Actions run, proposal 0008), at level 1: shown. The validator
+    (core.validate_receipt, run first) already refused a block that fails level 1; this row names the run, and
+    the workflow-file row says whether the file was rehashed or why not. A gha- receipt without the block: a
+    skip row (it backs no GitHub Actions compute job)."""
+    from . import ci_github
+    rec, rel = view["data"], view["path"]
+    if ci_github.KEY not in rec:
+        job = rec.get("job_id")
+        if isinstance(job, str) and ci_github.JOB_RE.match(job):
+            c.add(f"lower {rel}: ci", SKIP, f"job_id {job} has no ci block: the receipt is a lower-tier receipt "
+                  f"like any other, but backs no GitHub Actions compute job")
+        return
+    problems, row = ci_github.level1(rec, repo)
+    if problems:        # unreachable after the validator; kept so a row never claims a pass it did not check
+        c.add(f"lower {rel}: ci", FAIL, "; ".join(problems))
+        return
+    c.add(f"lower {rel}: ci", PASS, ci_github.summary(rec))
+    if row is not None:
+        c.add(f"lower {rel}: ci workflow file", PASS if row[0] == "pass" else SKIP, row[1])
 
 
 def container_check(c: Checks, view: dict, tier: str = "lower") -> None:
@@ -640,6 +666,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                     c.add(f"lower {rel}: report log", FAIL, str(e))
                 evidence_file_checks(c, repo, v, x)
                 sacct_seal_check(c, v)
+                ci_check(c, repo, v)
                 container_check(c, v)
                 claim_axioms_check(c, repo, v, x)
         cs = core.claims_schema_at(pkg_name, pkg, repo, x)
