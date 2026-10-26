@@ -406,4 +406,5 @@ changes:
 # cli.py keeps its re-exports for one release; no change to the CLI or its JSON.
 # Internal: gate, audit/validate and the argument parser move out of cli.py into gate.py, audit.py and
 # cli_parser.py; cli.py keeps re-exports for one release; no change to the CLI or its JSON (#353, #317).
-no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346, 351, 353]
+# Build: make docs runs its python3 steps with a private bytecode cache, so it writes no __pycache__ into the tree (#352).
+no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346, 351, 352, 353]

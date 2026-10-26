@@ -81,12 +81,15 @@ public-safety:
 # tests/test_index_render.py, tests/test_command_docs.py, tests/test_stacks.py and tests/test_producer_skew.py
 # compare the committed files to the same output; CI runs `make docs`
 # then `git diff --exit-code` (#81).
+# One shell, with a private bytecode cache as in `make test`: every python3 step below inherits it, so the
+# regeneration writes no __pycache__ into src/, tests/ or scripts/ (the EXIT trap removes the cache).
 docs:
-> PYTHONPATH=src python3 -c 'import pathlib; from lean_pkg.cli import llms_txt; t = llms_txt(); [pathlib.Path(p).write_text(t) for p in ("llms.txt", "docs/llms.txt")]'
-> PYTHONPATH=src python3 -m lean_pkg.cli index render --index index
-> python3 scripts/command_docs.py
-> @if [ -d docs/stacks ]; then rm -f src/lean_pkg/data/stacks/lts-*.yaml && cp docs/stacks/lts-*.yaml src/lean_pkg/data/stacks/; fi
-> @if [ -d docs/upgrades ]; then python3 scripts/upgrade-breaking.py; fi
+> @d=$$(mktemp -d) && trap 'rm -rf "$$d"' EXIT && trap 'exit 130' INT TERM HUP && export PYTHONPYCACHEPREFIX="$$d" && \
+>  PYTHONPATH=src python3 -c 'import pathlib; from lean_pkg.cli import llms_txt; t = llms_txt(); [pathlib.Path(p).write_text(t) for p in ("llms.txt", "docs/llms.txt")]' && \
+>  PYTHONPATH=src python3 -m lean_pkg.cli index render --index index && \
+>  python3 scripts/command_docs.py && \
+>  if [ -d docs/stacks ]; then rm -f src/lean_pkg/data/stacks/lts-*.yaml && cp docs/stacks/lts-*.yaml src/lean_pkg/data/stacks/; fi && \
+>  if [ -d docs/upgrades ]; then python3 scripts/upgrade-breaking.py; fi
 
 # make release VERSION=0.1.0  (runs scripts/release.sh; see RELEASING.md)
 release:
