@@ -248,6 +248,6 @@ changes:
 # Docs: proposal 0008 accepted 2026-10-26 (status line, table row, design note); no code changes (#337).
 # Docs: proposal 0009 (draft), declaration-level extraction with an extraction ledger; no code (#342).
 # Docs: comparator under the Lean module system, and what page --check covers (#343).
-# Internal (#PR_E, #317): the shared core moved from cli.py to core.py, cli.py re-exports every moved
+# Internal (#345, #317): the shared core moved from cli.py to core.py, cli.py re-exports every moved
 # name; no change to the CLI or its JSON (doctor --upgrade-from reads the moved constants in core.py).
-no_author_change: [321, 323, 331, 332, 333, 337, 342, 343]
+no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345]
