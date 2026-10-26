@@ -20,12 +20,14 @@ import pytest
 
 from lean_pkg import cli
 from lean_pkg import comparator_receipt as cr
+from lean_pkg import scaffold
 from lean_pkg.palomar_check import has_module_header
 
 from .conftest import ROOT
 from .test_palomar_check import FORMALIZATION, MIT, codes, make_pkg, run
 
-TC = "leanprover/lean4:v4.35.0-rc2"
+TC = "leanprover/lean4:v4.35.0-rc2"            # the toolchain the real-Lean tests run (installed or skipped)
+TC_TEMPLATE = "leanprover/lean4:v4.35.0"        # the one the template pins: a stable release (#327)
 TC_DIR = "leanprover--lean4---v4.35.0-rc2"
 HEREDOC = re.compile(r"^cat > (\S+) <<'EOF'\n(.*?)^EOF\n", re.S | re.M)
 
@@ -44,13 +46,16 @@ def template() -> dict[str, str]:
 def test_the_template_writes_module_headed_lean_files():
     files = template()
     lean = {p: t for p, t in files.items() if p.endswith(".lean")}
-    assert sorted(lean) == ["MyProof/Challenge.lean", "MyProof/Solution.lean"]
+    assert sorted(lean) == ["MyProof.lean", "MyProof/Challenge.lean", "MyProof/Solution.lean"]
+    root = lean.pop("MyProof.lean")             # the library's root module (#326): a header, no declaration
+    assert root.startswith("module\n") and has_module_header(root) and "import" not in root.split("--")[0]
     for path, text in lean.items():
         assert text.startswith("module\n"), path
         assert has_module_header(text), path
         assert "public import Mathlib\n" in text and "\nimport Mathlib" not in text, path
         assert "\npublic section\n" in text and text.rstrip().endswith("\nend"), path
-    assert files["lean-toolchain"] == TC + "\n"
+    assert files["lean-toolchain"] == TC_TEMPLATE + "\n" == scaffold.TOOLCHAIN + "\n"
+    assert 'globs = ["MyProof", "MyProof.+"]' in files["lakefile.toml"]
 
 
 def _project(files: dict[str, str]) -> dict[str, str | None]:
@@ -60,7 +65,7 @@ def _project(files: dict[str, str]) -> dict[str, str | None]:
 def test_palomar_check_on_the_template_reports_no_source_gap(lp, tmp_path, capsys):
     repo, reg = make_pkg(tmp_path, _project(template()))
     rc, data = run(lp, reg, capsys)
-    assert data["lean_files"] == 2 and data["missing_module"] == 0
+    assert data["lean_files"] == 3 and data["missing_module"] == 0
     assert not [c for c in codes(data) if c.startswith(("source.", "toolchain."))], data["gaps"]
     assert rc == 0 and data["counts"]["error"] == 0, data["gaps"]
 
@@ -89,7 +94,7 @@ def _core_projection(tmp_path):
     files = template()
     for p in ("MyProof/Challenge.lean", "MyProof/Solution.lean"):
         files[p] = files[p].replace("public import Mathlib\n\n", "").replace("ℕ", "Nat")
-    files["lakefile.toml"] = 'name = "my-proof"\n\n[[lean_lib]]\nname = "MyProof"\nglobs = ["MyProof.+"]\n'
+    files["lakefile.toml"] = 'name = "my-proof"\n\n[[lean_lib]]\nname = "MyProof"\nglobs = ["MyProof", "MyProof.+"]\n'
     for rel, text in files.items():
         f = tmp_path / rel
         f.parent.mkdir(parents=True, exist_ok=True)

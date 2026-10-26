@@ -19,7 +19,7 @@ from lean_pkg import page as page_mod
 from lean_pkg import scaffold
 
 from .conftest import _git
-from .test_template_module_headers import TC, TC_DIR, template
+from .test_template_module_headers import TC, TC_DIR, TC_TEMPLATE, template
 
 MANIFEST_MATHLIB = json.dumps({"version": "1.2.0", "packagesDir": ".lake/packages", "packages": [
     {"name": "mathlib", "scope": "leanprover-community", "type": "git",
@@ -46,11 +46,11 @@ def test_the_scaffold_is_the_getting_started_template():
     """One template, two spellings: the files docs/getting-started.md writes by hand are what `new` writes."""
     made = scaffold.files("my-proof", "MyProof", "A. Author")
     doc = template()
-    assert sorted(doc) == ["MyProof/Challenge.lean", "MyProof/Solution.lean", "comparator.json", "lakefile.toml",
-                           "lean-toolchain"]
+    assert sorted(doc) == ["MyProof.lean", "MyProof/Challenge.lean", "MyProof/Solution.lean", "comparator.json",
+                           "lakefile.toml", "lean-toolchain"]
     for rel, text in doc.items():
         assert made[rel] == text, rel
-    assert made[".gitignore"] == "/.lake\n" and scaffold.TOOLCHAIN == TC
+    assert made[".gitignore"] == "/.lake\n" and scaffold.TOOLCHAIN == TC_TEMPLATE
 
 
 def test_new_writes_the_package_and_touches_no_registry(lp, capsys, tmp_path):
@@ -115,7 +115,7 @@ def test_the_scaffold_passes_the_static_checks(lp, capsys, tmp_path, mathlib):
     capsys.readouterr()
     lp.main([*R, "palomar", "check", "my-proof", "--json"])
     data = json.loads(capsys.readouterr().out)
-    assert data["lean_files"] == 3 and data["missing_module"] == 0
+    assert data["lean_files"] == 4 and data["missing_module"] == 0
     blocking = [g for g in data["gaps"] if g["severity"] == "error"
                 and g["code"].startswith(("source.", "toolchain.", "comparator.", "license"))]
     assert blocking == [], blocking
@@ -360,3 +360,130 @@ def test_the_core_scaffold_builds_and_verify_sh_writes_the_receipt_lines(lp, cap
     assert refusals == [] and summary == {"checked": 1, "nonstandard": [], "missing": []}
     assert shutil.which("sha256sum") is None or seal["verify-log-sha256"] == subprocess.run(
         ["sha256sum", str(log)], capture_output=True, text=True).stdout.split()[0]
+
+
+@pytest.mark.skipif(_toolchain_bin() is None, reason=f"{TC} is not installed")
+@pytest.mark.timeout(2000)  # real Lean: three `lake build`s, 600 s each
+def test_a_generated_library_with_an_umbrella_that_solution_imports_builds(lp, capsys, tmp_path):
+    """#326: the globs name the root module, so Lake builds MOD.lean, and a Solution that imports the library
+    through it builds (a bare `lake build` too). The control: with the old `MOD.+` alone the same Solution
+    fails, because MOD.olean is never built."""
+    rc, _, _ = new(lp, capsys, tmp_path, "my-proof", "--kind", "library", "--author", "A", "--no-mathlib")
+    assert rc == 0
+    root = tmp_path / "my-proof"
+    (root / "MyProof/Basic.lean").write_text("module\n\npublic section\n\ndef MyProof.two : Nat := 2\n\nend\n")
+    (root / "MyProof.lean").write_text((root / "MyProof.lean").read_text() + "\npublic import MyProof.Basic\n")
+    sol = root / "MyProof/Solution.lean"
+    sol.write_text(sol.read_text().replace("module\n", "module\n\npublic import MyProof\n", 1))
+    env = lp.scrubbed_env()
+    env.update({"PATH": os.pathsep.join([str(_toolchain_bin()), env.get("PATH", "")]), "ELAN_TOOLCHAIN": TC,
+                "LAKE_ARTIFACT_CACHE": "false", "LAKE_CACHE_DIR": str(tmp_path / "lake-cache")})
+
+    def lake(*argv):
+        p = subprocess.run([str(_toolchain_bin() / "lake"), *argv], cwd=root, env=env, capture_output=True,
+                           text=True, timeout=600, stdin=subprocess.DEVNULL)
+        return p.returncode, p.stdout + p.stderr
+
+    code, out = lake("build")                       # the default target, the library: MyProof itself included
+    assert code == 0 and "Built MyProof (" in out and "Built MyProof.Solution (" in out, out[-2000:]
+    shutil.rmtree(root / ".lake")
+    code, out = lake("build", "MyProof.Solution")
+    assert code == 0 and "Build completed successfully" in out, out[-2000:]
+    lakefile = root / "lakefile.toml"
+    lakefile.write_text(lakefile.read_text().replace('globs = ["MyProof", "MyProof.+"]', 'globs = ["MyProof.+"]'))
+    shutil.rmtree(root / ".lake")
+    code, out = lake("build", "MyProof.Solution")
+    assert code != 0 and "MyProof.olean" in out, out[-2000:]
+
+
+# ------------------------------------------------------------------------------- the root module (#326)
+
+@pytest.mark.parametrize("argv", [["--kind", "library"], ["--kind", "paper"], ["--no-mathlib"],
+                                  ["--stack", "lts-2026.10"], ["--stack", "none", "--module", "Tele"]])
+def test_every_scaffold_globs_its_root_module_and_writes_it(lp, capsys, tmp_path, argv):
+    rc, data, err = new(lp, capsys, tmp_path, "my-proof", "--author", "A B", *argv)
+    assert rc == 0, err
+    root, mod = tmp_path / "my-proof", data["module"]
+    assert f'[[lean_lib]]\nname = "{mod}"\nglobs = ["{mod}", "{mod}.+"]\n' in (root / "lakefile.toml").read_text()
+    assert f"{mod}.lean" in data["files"]
+    text = (root / f"{mod}.lean").read_text()
+    assert text.startswith("module\n") and not [line for line in text.splitlines()
+                                                 if line.strip() and not line.startswith(("module", "--"))]
+
+
+# ------------------------------------------------------------------------------- the newest pins (#327)
+
+@pytest.mark.parametrize("releases, mathlib, expected", [
+    ((("v4.35.0-rc2", "v4.35.0-rc2"), ("v4.35.0", "v4.35.0")), True, ("leanprover/lean4:v4.35.0", "v4.35.0")),
+    ((("v4.35.0", "v4.35.0"), ("v4.35.0-rc2", "v4.35.0-rc2")), True, ("leanprover/lean4:v4.35.0", "v4.35.0")),
+    ((("v4.35.0", "v4.35.0"), ("v4.34.0-rc9", "v4.34.0-rc9")), True, ("leanprover/lean4:v4.35.0", "v4.35.0")),
+    ((("v4.34.1", "v4.34.1"), ("v4.35.0-rc1", "v4.35.0-rc1"), ("v4.35.0-rc2", "v4.35.0-rc2")), True,
+     ("leanprover/lean4:v4.35.0-rc2", "v4.35.0-rc2")),
+    ((("v4.35.0", "v4.35.0"), ("v4.36.0-rc1", None)), True, ("leanprover/lean4:v4.35.0", "v4.35.0")),
+    ((("v4.35.0", "v4.35.0"), ("v4.36.0-rc1", None)), False, ("leanprover/lean4:v4.36.0-rc1", None)),
+    ((("v4.9.0", "v4.9.0"), ("v4.10.0", "v4.10.0")), True, ("leanprover/lean4:v4.10.0", "v4.10.0")),
+], ids=["stable-over-same-version-rc", "order-independent", "stable-over-older-rc", "rc-only-when-newest",
+        "mathlib-not-tagged-yet", "no-mathlib-takes-it", "numeric-not-lexical"])
+def test_newest_pins_prefer_a_stable_release(releases, mathlib, expected):
+    assert scaffold.newest_pins(releases, mathlib) == expected
+    assert scaffold.is_release_candidate(expected[0]) is ("-rc" in expected[0])
+
+
+def test_the_shipped_release_table():
+    """Every row is a Lean release tag at or above Palomar's floor whose Mathlib tag, when there is one, is the
+    same tag; today's newest pins are a stable release."""
+    floor = scaffold.release_key(cr.TOOLCHAIN_FLOOR)
+    for tag, rev in scaffold.RELEASES:
+        assert scaffold.release_key(tag) >= floor and rev in (None, tag), tag
+    assert (scaffold.TOOLCHAIN, scaffold.MATHLIB_REV) == scaffold.newest_pins()
+    assert not scaffold.is_release_candidate(scaffold.TOOLCHAIN)
+    with pytest.raises(ValueError):
+        scaffold.release_key("v4.35")
+
+
+def test_new_prints_the_pins_it_chose(lp, capsys, tmp_path):
+    rc, data, _ = new(lp, capsys, tmp_path, "my-lib", "--kind", "library", "--author", "A B")
+    assert rc == 0 and data["lean_toolchain"] == scaffold.TOOLCHAIN and data["mathlib_rev"] == scaffold.MATHLIB_REV
+    assert data["release_candidate"] is False and data["stack"] is None
+    assert (tmp_path / "my-lib" / "lean-toolchain").read_text() == scaffold.TOOLCHAIN + "\n"
+    rc, out, _ = new(lp, capsys, tmp_path, "my-other", "--kind", "library", "--author", "A B", json_out=False)
+    tag = scaffold.TOOLCHAIN.split(":")[1]
+    assert rc == 0 and f"library MyOther, {tag}, Mathlib {scaffold.MATHLIB_REV};" in out
+    assert "release candidate" not in out
+
+
+def test_new_says_when_it_pins_a_release_candidate(lp, capsys, tmp_path, monkeypatch):
+    """An rc is pinned only when no stable release is newer, and then the text and --json say so."""
+    monkeypatch.setattr(scaffold, "RELEASES", scaffold.RELEASES + (("v4.99.0-rc1", "v4.99.0-rc1"),))
+    rc, data, _ = new(lp, capsys, tmp_path, "my-lib", "--kind", "library", "--author", "A B")
+    assert rc == 0 and data["release_candidate"] is True
+    assert data["lean_toolchain"] == "leanprover/lean4:v4.99.0-rc1" and data["mathlib_rev"] == "v4.99.0-rc1"
+    root = tmp_path / "my-lib"
+    assert (root / "lean-toolchain").read_text() == "leanprover/lean4:v4.99.0-rc1\n"
+    assert 'rev = "v4.99.0-rc1"' in (root / "lakefile.toml").read_text()
+    rc, out, _ = new(lp, capsys, tmp_path, "my-other", "--kind", "library", "--author", "A B", json_out=False)
+    assert rc == 0 and ("v4.99.0-rc1 (a release candidate: no stable Lean release is newer), Mathlib v4.99.0-rc1"
+                        in out.splitlines()[0])
+    monkeypatch.setattr(scaffold, "RELEASES", scaffold.RELEASES + (("v4.99.0", "v4.99.0"),))
+    rc, data, _ = new(lp, capsys, tmp_path, "my-third", "--kind", "library", "--author", "A B")
+    assert rc == 0 and data["release_candidate"] is False and data["lean_toolchain"] == "leanprover/lean4:v4.99.0"
+
+
+def test_a_stack_pin_is_reported_too(lp, capsys, tmp_path):
+    rc, data, _ = new(lp, capsys, tmp_path, "my-proof", "--stack", "lts-2026.10", "--author", "A B")
+    assert rc == 0 and data["stack"] == "lts-2026.10" and data["release_candidate"] is False
+
+
+def test_new_reads_no_network(lp, capsys, tmp_path, monkeypatch):
+    """The newest pins come from the shipped table: with every socket refused, `new` writes the same pins."""
+    import socket
+
+    def refuse(*a, **k):
+        raise OSError("network disabled by the test")
+
+    monkeypatch.setattr(socket, "socket", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    rc, data, err = new(lp, capsys, tmp_path, "my-lib", "--kind", "library", "--author", "A B")
+    assert rc == 0, err
+    assert data["lean_toolchain"] == scaffold.TOOLCHAIN and data["warnings"] == []

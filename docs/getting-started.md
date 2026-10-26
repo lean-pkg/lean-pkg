@@ -119,11 +119,12 @@ The finished project looks like this:
 
 ```
 ~/src/my-proof/
-  lean-toolchain        leanprover/lean4:v4.35.0-rc2
+  lean-toolchain        leanprover/lean4:v4.35.0
   lakefile.toml         requires Mathlib; one library, MyProof
   lake-manifest.json    tracked; pins Mathlib
   .gitignore            ignores .lake/
   LICENSE               an OSI license GitHub can detect (needed by promote, not by the receipt)
+  MyProof.lean          module MyProof: the library's root module, empty to begin with
   MyProof/Challenge.lean  module MyProof.Challenge: trusted, Mathlib-only statements, proofs replaced by `sorry`
   MyProof/Solution.lean   module MyProof.Solution: the same theorem names and statements, with proofs
   comparator.json
@@ -157,7 +158,7 @@ pinned to the current [LTS stack](stacks/README.md) when one is current).
 ```bash
 mkdir -p ~/src/my-proof && cd ~/src/my-proof
 git init
-echo 'leanprover/lean4:v4.35.0-rc2' > lean-toolchain
+echo 'leanprover/lean4:v4.35.0' > lean-toolchain
 printf '/.lake\n' > .gitignore
 
 cat > lakefile.toml <<'EOF'
@@ -167,11 +168,19 @@ defaultTargets = ["MyProof"]
 [[require]]
 name = "mathlib"
 scope = "leanprover-community"
-rev = "v4.35.0-rc2"
+rev = "v4.35.0"
 
 [[lean_lib]]
 name = "MyProof"
-globs = ["MyProof.+"]
+globs = ["MyProof", "MyProof.+"]
+EOF
+
+cat > MyProof.lean <<'EOF'
+module
+
+-- The root module of the library MyProof (lakefile.toml globs it with MyProof.+). Import the library's
+-- modules from here (`public import MyProof.Basic`), and this module from Solution.lean (`public import
+-- MyProof`); never Challenge or Solution, which declare the same theorem.
 EOF
 
 mkdir -p MyProof
@@ -220,7 +229,13 @@ git add -A && git commit -m "minimal Challenge/Solution project"
 
 `defaultTargets` makes a bare `lake build` build the library (on Lean
 v4.35.0, Lake otherwise builds nothing and says "no targets specified and
-no default targets configured").
+no default targets configured"). The `globs` name the root module
+`MyProof` as well as `MyProof.+` (its submodules): without it Lake never
+builds `MyProof.lean`, and a Solution that imports the library through it
+fails with `object file ... MyProof.olean of module MyProof does not exist`.
+The pins are a released Lean and its Mathlib tag, not a release candidate:
+`lean-pkg new` picks the newest stable release it knows, and a release
+candidate only when no stable release is newer, and says so when it does.
 
 `lake update` writes `lake-manifest.json` and downloads Mathlib (several
 GB with its cache); the build ends with `Build completed successfully` and
@@ -321,7 +336,7 @@ lean-pkg update my-proof --agent alice --status gate-pending --reason "lower-tie
 `register` prints:
 
 ```text
-my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.35.0-rc2, pin=065356127b)
+my-proof: registered (status=active, visibility=private, toolchain=leanprover/lean4:v4.35.0, pin=065356127b)
 ```
 
 After this bootstrap, change the registry only through `lean-pkg`. Never
@@ -337,7 +352,7 @@ produce it:
 ```json
 {
   "commit": "<40-hex HEAD of ~/src/my-proof>",
-  "lean_toolchain": "leanprover/lean4:v4.35.0-rc2",
+  "lean_toolchain": "leanprover/lean4:v4.35.0",
   "mathlib_rev": "<full Mathlib rev from lake-manifest.json>",
   "sorry_count": 0,
   "axioms": ["propext", "Quot.sound", "Classical.choice"],
