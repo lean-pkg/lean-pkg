@@ -13,10 +13,8 @@ rewrite index-entry/1 entries as index-entry/2 (claims derived).
 ## Usage
 
 ```text
-lean-pkg index migrate [--check] [--index INDEX] [common flags]
+lean-pkg index migrate [--check] [--index INDEX] [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

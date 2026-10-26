@@ -1,6 +1,4 @@
-usage: lean-pkg claims ledger [-h] [--stage {gate,promote}] [--json] [--commit] [--push]
-                              [--no-commit]
-                              name
+usage: lean-pkg claims ledger [-h] [--stage {gate,promote}] [--json] name
 
 positional arguments:
   name
@@ -11,7 +9,3 @@ options:
                         the authority required: gate (lower tier) or promote (also the comparator
                         tier for every reusable theorem and lemma; the default)
   --json                machine-readable JSON on stdout
-  --commit              write commands: pull --ff-only, then commit the registry files (default:
-                        $LEAN_PKG_COMMIT=1)
-  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit           never commit or push (overrides the env)

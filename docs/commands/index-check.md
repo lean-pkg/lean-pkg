@@ -13,10 +13,8 @@ static check, or re-derive entries from bytes at the pin; exit 0/1/2.
 ## Usage
 
 ```text
-lean-pkg index check [--clone] [--repo DIR] [--index INDEX] [common flags] [NAME ...]
+lean-pkg index check [--clone] [--repo DIR] [--index INDEX] [--json] [NAME ...]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

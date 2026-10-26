@@ -266,8 +266,8 @@ def next_commands(name: str, target: pathlib.Path, new12: str, remote: str | Non
         cmds.append(f"lean-pkg update {name} --status gate-pending --reason 'check job submitted'   "
                     f"# gate needs gate-pending")
     cmds += [f"lean-pkg gate {name} --receipt R   # R: a lower-tier receipt bound to {new12}",
-             f"comparator-receipt --project {target} --prepare",
-             f"comparator-receipt --project {target}   # on a host its policy allows",
+             f"comparator-receipt --repo {target} --prepare",
+             f"comparator-receipt --repo {target}   # on a host its policy allows",
              f"lean-pkg comparator {name} --receipt .lean-receipts/{new12}-comparator.json",
              f"lean-pkg publish {name} --dry-run --public-safety",
              f"lean-pkg publish {name} --yes --dry-run"]

@@ -29,7 +29,7 @@ the whole package: see the
 
 ```bash
 lake build
-python3 -m lean_pkg.dup_constants --project . MyLib
+python3 -m lean_pkg.dup_constants --repo . MyLib
 ```
 
 ```text

@@ -13,10 +13,8 @@ per-claim closure from the recorded evidence: verified only with zero diagnostic
 ## Usage
 
 ```text
-lean-pkg claims ledger [--stage {gate,promote}] [common flags] NAME
+lean-pkg claims ledger [--stage {gate,promote}] [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

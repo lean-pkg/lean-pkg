@@ -1,6 +1,5 @@
 usage: lean-pkg page [-h] [--write] [--check] [--out PATH] [--site DIR] [--html PATH] [--repo DIR]
                      [--strict-preview] [--allow-private-manuscript] [--agent AGENT] [--json]
-                     [--commit] [--push] [--no-commit]
                      name
 
 positional arguments:
@@ -36,7 +35,3 @@ options:
                         render against manuscript.version 'unposted'; the page then says so
   --agent AGENT         with --write: the lease holder, when the package is leased
   --json                machine-readable JSON on stdout
-  --commit              write commands: pull --ff-only, then commit the registry files (default:
-                        $LEAN_PKG_COMMIT=1)
-  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit           never commit or push (overrides the env)

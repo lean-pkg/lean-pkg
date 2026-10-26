@@ -13,11 +13,9 @@ legacy claims.json -&gt; a claims/1 skeleton in the checkout (never the registry
 ## Usage
 
 ```text
-lean-pkg claims migrate --from PATH [--out OUT] [--dry-run] [--agent AGENT]
-                        [common flags] NAME
+lean-pkg claims migrate --from PATH [--out OUT] [--dry-run] [--agent AGENT] [--json]
+                        NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

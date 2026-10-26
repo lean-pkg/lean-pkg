@@ -1,11 +1,7 @@
-usage: lean-pkg llms [-h] [--short] [--json] [--commit] [--push] [--no-commit]
+usage: lean-pkg llms [-h] [--short] [--json]
 
 options:
-  -h, --help   show this help message and exit
-  --short      a compact contract (~40 lines) cut from the full one: PURPOSE, STANDING RULES and
-               the first line of each subcommand; no flag details, schemas or examples
-  --json       machine-readable JSON on stdout
-  --commit     write commands: pull --ff-only, then commit the registry files (default:
-               $LEAN_PKG_COMMIT=1)
-  --push       --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit  never commit or push (overrides the env)
+  -h, --help  show this help message and exit
+  --short     a compact contract (~40 lines) cut from the full one: PURPOSE, STANDING RULES and
+              the first line of each subcommand; no flag details, schemas or examples
+  --json      machine-readable JSON on stdout

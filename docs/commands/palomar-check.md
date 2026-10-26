@@ -13,11 +13,9 @@ read-only, offline: every gap to Palomar's mechanical rules at one commit (modul
 ## Usage
 
 ```text
-lean-pkg palomar check [--rev REV] [--config PATH] [--rules FILE] [--repo DIR]
-                       [common flags] NAME
+lean-pkg palomar check [--rev REV] [--config PATH] [--rules FILE] [--repo DIR] [--json]
+                       NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

@@ -368,6 +368,11 @@ def _is_common(a, node: Node) -> bool:
         a.option_strings[0] in COMMON_FLAGS and a.default is argparse.SUPPRESS
 
 
+def _has_commit_flags(node: Node) -> bool:
+    """The commit flags are in the command's help: lean-pkg shows them on write commands only (#316)."""
+    return any(_is_common(a, node) and a.option_strings[0] != "--json" for a in _visible(node.parser))
+
+
 def usage(node: Node) -> str:
     words = [node.program, *node.path]
     opts, pos = [], []
@@ -386,7 +391,7 @@ def usage(node: Node) -> str:
     if subs:
         tail.append("COMMAND" if subs[0].required else "[COMMAND]")
     common = ["[--json]"] if node.program == "lean-pkg" and node.path else []
-    if node.program == "lean-pkg" and node.path and any(_is_common(a, node) for a in _visible(node.parser)):
+    if _has_commit_flags(node):
         common = ["[common flags]"]
     items = words + opts + common + pos + tail
     lines, cur = [], ""
@@ -525,7 +530,7 @@ def section(node: Node, level: int, ex, trees, all_paths, parent_epilog=None, al
     if progs:
         out += ["Also run as the program " + ", ".join(f"`{p}`" for p in progs) + ": the same code and flags.", ""]
     out += [heading(level + 1, "Usage"), "", *fence(usage(node)), ""]
-    if node.program == "lean-pkg" and node.path and any(_is_common(a, node) for a in _visible(node.parser)):
+    if _has_commit_flags(node):
         out += ["`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before "
                 "the command name; see the [CLI overview](../cli.md).", ""]
     desc = node.parser.description

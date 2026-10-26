@@ -23,7 +23,10 @@ as `doctor`'s `install` line, local only, never a fetch; with `--json`:
 `install` is `editable`, `installed` or `unknown` and `commit`/`dirty` are null
 outside an editable checkout).
 Every subcommand also accepts `--json`, `--commit`, `--push` and `--no-commit`
-after its name.
+after its name. The commit flags appear in the help of the commands that can
+write the registry (and of `verify`, which passes them on); a read-only command
+still accepts them, so a script may pass them everywhere, and notes
+`--commit ignored: read-only command` on stderr.
 `--registry-snapshot COMMIT` (env `LEAN_PKG_REGISTRY_SNAPSHOT`; the flag wins)
 runs a read-only command against the registry as it was at `COMMIT` of the git
 repository that holds the registry file: `lean-pkg` reads `lean-packages.yaml`
@@ -147,8 +150,8 @@ sections. The other console scripts have pages there too:
 
 Since the 1.0 command tree (stage 1), coordination and maintenance commands
 sit under the `lease`, `registry` and `repo` nouns. Every older spelling
-(`claim`, `init`, `audit --fix`, `--track`, `receipt slurm --commit`, ...)
-is a permanent alias with the same output and exit code; text mode adds one
+(`claim`, `init`, `audit --fix`, `--track`, `receipt slurm --commit`,
+`receipt comparator --project`, ...) is a permanent alias with the same output and exit code; text mode adds one
 stderr note after the command (`LEAN_PKG_NO_ALIAS_NOTE=1` silences it).
 `lean-pkg help aliases` lists them all.
 

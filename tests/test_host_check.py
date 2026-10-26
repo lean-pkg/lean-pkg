@@ -94,7 +94,7 @@ def test_comparator_receipt_reports_the_host_check_first(cr, monkeypatch, capsys
     monkeypatch.delenv(cr.FAKE_LAKE_ENV, raising=False)
     monkeypatch.setenv(cr.ALLOW_HOST_ENV, "1")
     monkeypatch.setattr(cr, "host_checks", lambda: {"verdict": "this host cannot produce comparator receipts: x"})
-    assert cr.main(["--project", str(tmp_path)]) == 1          # not a Lake project: refused after the report
+    assert cr.main(["--repo", str(tmp_path)]) == 1          # not a Lake project: refused after the report
     err = capsys.readouterr().err
     assert err.splitlines()[0] == "comparator-receipt: host-check: this host cannot produce comparator receipts: x"
 

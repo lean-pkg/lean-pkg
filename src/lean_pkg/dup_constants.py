@@ -41,7 +41,7 @@ change the exit code.
 
 Python API: `probe(project, modules, ...) -> (records, done)`, `judge(records, done, roots, scope=,
 allow=) -> report`, `duplicate_constants(project, modules, ...) -> report`.
-Command line: `python3 -m lean_pkg.dup_constants --project DIR MOD [MOD ...] [--scope S]
+Command line: `python3 -m lean_pkg.dup_constants --repo DIR MOD [MOD ...] [--scope S]
 [--allow-owners NAME=M1,M2] [--no-sandbox] [--json]`. Exit 0 every in-scope duplicate accepted, 1 any
 refused (or the probe failed), 2 usage. Documented in docs/duplicate-constants.md.
 """
@@ -370,20 +370,24 @@ def duplicate_constants(project, modules: list[str], toolchain: str | None = Non
 # ---------------------------------------------------------------------------------------------------------
 # command line
 
+PROGRAM = "python3 -m lean_pkg.dup_constants"
+
+
 def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="python3 -m lean_pkg.dup_constants", formatter_class=argparse.RawDescriptionHelpFormatter,
+        prog=PROGRAM, formatter_class=argparse.RawDescriptionHelpFormatter,
         description="Report every constant that more than one module of a built project's environment "
                     "declares, with its owners and the env.find? winner, and refuse any duplicate that is "
                     "not exactly equal (type, proof/value, universe parameters, `all`, safety, kind).",
         epilog="examples:\n"
-               "  python3 -m lean_pkg.dup_constants --project . MyLib\n"
-               "  python3 -m lean_pkg.dup_constants --project . MyLib --allow-owners 'f.congr_simp=A,B,C'\n"
-               "  python3 -m lean_pkg.dup_constants --project . MyLib --scope all --json\n"
+               "  python3 -m lean_pkg.dup_constants --repo . MyLib\n"
+               "  python3 -m lean_pkg.dup_constants --repo . MyLib --allow-owners 'f.congr_simp=A,B,C'\n"
+               "  python3 -m lean_pkg.dup_constants --repo . MyLib --scope all --json\n"
                "exit codes: 0 every in-scope duplicate accepted, 1 any refused or the probe failed, 2 usage.\n"
                "docs: https://lean-pkg.github.io/lean-pkg/duplicate-constants.html")
     ap.add_argument("modules", nargs="+", metavar="MOD", help="the modules to import (e.g. the library root)")
-    ap.add_argument("--project", required=True, metavar="DIR", help="the built Lake project")
+    ap.add_argument("--repo", dest="project", required=True, metavar="DIR",
+                    help="the package checkout, a built Lake project")
     ap.add_argument("--toolchain", metavar="TC", help="default: the project's lean-toolchain")
     ap.add_argument("--scope", choices=SCOPES, default="project",
                     help="which duplicates are judged: those with an owner in the project (default), also in "
@@ -393,6 +397,8 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-sandbox", action="store_true", help="read the .olean files without the bwrap sandbox")
     ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, metavar="SECONDS")
     ap.add_argument("--json", dest="json_out", action="store_true", help=f"JSON on stdout (schema {SCHEMA})")
+    from . import command_tree
+    command_tree.apply_program_flag_aliases(ap, PROGRAM)
     return ap
 
 
@@ -402,7 +408,17 @@ def _line(e: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from . import command_tree
+    argv = sys.argv[1:] if argv is None else list(argv)
     args = parser().parse_args(argv)
+    try:
+        return _run(args)
+    finally:   # the old-spelling note (--project), after the output
+        for line in command_tree.program_notes(argv, PROGRAM, args.json_out):
+            print(line, file=sys.stderr)
+
+
+def _run(args) -> int:
     try:
         allow = parse_allow(args.allow_owners)
     except ValueError as e:

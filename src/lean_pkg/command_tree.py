@@ -20,6 +20,9 @@ This module is pure data plus argv rewriting: nothing here reads the registry or
   last positional (`lease release NAME --fresh-repo DIR` -> `repo export NAME DIR`).
 - FLAG_ALIASES: tuple[FlagAlias, ...]. On the canonical command `command`, the option `old` is another
   option string of `new` (same dest, same namespace); `apply_flag_aliases(root)` wires them.
+- PROGRAM_FLAG_ALIASES: tuple[FlagAlias, ...]. The same for the programs beside lean-pkg (`comparator-receipt`,
+  `python3 -m lean_pkg.claim_axioms`, `python3 -m lean_pkg.dup_constants`), keyed on the program as typed;
+  `apply_program_flag_aliases(parser, program)` wires them, `program_notes(argv, program)` are their notes.
 - TIERS: {top-level command: tier}; `apply_tiers(root)` stores each tier on its parser (`parser.tier`), where
   the tiered root --help and the command reference read it. TIER_TITLES names the tiers.
 - aliases_of(path) / flag_aliases_of(path): the alias spellings of one canonical command, for its page.
@@ -142,8 +145,19 @@ FLAG_ALIASES: tuple[FlagAlias, ...] = (
     FlagAlias(("search",), "--repo-dir", "--repo"),
     FlagAlias(("comparator", "config"), "--checkout", "--repo"),
     FlagAlias(("report",), "--repo", "--target-repo"),
+    # --repo is the package checkout on every command; the comparator receipt said --project
+    FlagAlias(("receipt", "comparator"), "--project", "--repo"),
     # a command that changes the registry and previews without the flag says --write
     FlagAlias(("registry", "audit"), "--fix", "--write"),
+)
+
+# The same for the programs beside lean-pkg (their own parsers): `command` is the program as typed.
+# `comparator-receipt` is `lean-pkg receipt comparator`; the two python3 -m checkers name the package
+# checkout --repo, as every lean-pkg command does.
+PROGRAM_FLAG_ALIASES: tuple[FlagAlias, ...] = (
+    FlagAlias(("comparator-receipt",), "--project", "--repo"),
+    FlagAlias(("python3 -m lean_pkg.claim_axioms",), "--project", "--repo"),
+    FlagAlias(("python3 -m lean_pkg.dup_constants",), "--project", "--repo"),
 )
 
 # The pre-1.0 `cmd` a moved command keeps in its namespace -> its canonical path.
@@ -303,8 +317,23 @@ def flag_hits(argv: list[str], path: str) -> list[Hit]:
     return out
 
 
-def note_lines(hits: list[Hit]) -> list[str]:
-    return [f"note: 'lean-pkg {h.old}' is now 'lean-pkg {h.new}' (the old spelling keeps working)" for h in hits]
+def note_lines(hits: list[Hit], program: str = "lean-pkg") -> list[str]:
+    return [f"note: '{program} {h.old}' is now '{program} {h.new}' (the old spelling keeps working)" for h in hits]
+
+
+def program_flag_hits(argv: list[str], program: str) -> list[Hit]:
+    """The old flag spellings (PROGRAM_FLAG_ALIASES) used in argv, the arguments after `program`."""
+    tokens = argv[:argv.index("--")] if "--" in argv else list(argv)
+    return [Hit(fa.old, fa.new) for fa in PROGRAM_FLAG_ALIASES if fa.command == (program,)
+            and any(t == fa.old or t.startswith(fa.old + "=") for t in tokens)]
+
+
+def program_notes(argv: list[str], program: str, json_out: bool = False) -> list[str]:
+    """The stderr notes of a program beside lean-pkg for the old flag spellings in argv: text mode only,
+    silenced by LEAN_PKG_NO_ALIAS_NOTE=1, as lean-pkg's own."""
+    if json_out or not notes_enabled():
+        return []
+    return note_lines(program_flag_hits(argv, program), program)
 
 
 def notes_enabled() -> bool:
@@ -329,23 +358,34 @@ def find_parser(root: argparse.ArgumentParser, path: tuple[str, ...]) -> argpars
     return p
 
 
+def _alias_option(p: argparse.ArgumentParser, fa: FlagAlias, table: str) -> None:
+    action = p._option_string_actions.get(fa.new)
+    if action is None:
+        raise AssertionError(f"{table}: {' '.join(fa.command)} has no {fa.new}")
+    if fa.old in p._option_string_actions:
+        raise AssertionError(f"{table}: {' '.join(fa.command)} already has {fa.old}")
+    # Parsed exactly like the canonical option, but named in its help text rather than added to
+    # option_strings: argparse lays out a multi-spelling option differently across Python versions,
+    # and the help goldens are compared word by word.
+    p._option_string_actions[fa.old] = action
+    if action.help and action.help is not argparse.SUPPRESS:
+        action.help = f"{action.help} (old spelling {fa.old}, kept working)"
+
+
 def apply_flag_aliases(root: argparse.ArgumentParser) -> None:
     """Make each FLAG_ALIASES old spelling parse as its canonical option (same action, same dest)."""
     for fa in FLAG_ALIASES:
         p = find_parser(root, fa.command)
         if p is None:
             raise AssertionError(f"FLAG_ALIASES: no command {' '.join(fa.command)!r}")
-        action = p._option_string_actions.get(fa.new)
-        if action is None:
-            raise AssertionError(f"FLAG_ALIASES: {' '.join(fa.command)} has no {fa.new}")
-        if fa.old in p._option_string_actions:
-            raise AssertionError(f"FLAG_ALIASES: {' '.join(fa.command)} already has {fa.old}")
-        # Parsed exactly like the canonical option, but named in its help text rather than added to
-        # option_strings: argparse lays out a multi-spelling option differently across Python versions,
-        # and the help goldens are compared word by word.
-        p._option_string_actions[fa.old] = action
-        if action.help and action.help is not argparse.SUPPRESS:
-            action.help = f"{action.help} (old spelling {fa.old}, kept working)"
+        _alias_option(p, fa, "FLAG_ALIASES")
+
+
+def apply_program_flag_aliases(parser: argparse.ArgumentParser, program: str) -> None:
+    """The same for a program beside lean-pkg: each PROGRAM_FLAG_ALIASES row of `program` on its parser."""
+    for fa in PROGRAM_FLAG_ALIASES:
+        if fa.command == (program,):
+            _alias_option(parser, fa, "PROGRAM_FLAG_ALIASES")
 
 
 def apply_tiers(root: argparse.ArgumentParser) -> None:
@@ -556,6 +596,7 @@ def aliases_text() -> str:
     out += [f"  lean-pkg {o.ljust(width)}lean-pkg {n}" for o, n in rows]
     out += ["", "FLAGS"]
     rows = [(f"{' '.join(fa.command)} {fa.old}", fa.new) for fa in FLAG_ALIASES]
+    rows += [(f"{fa.command[0]} {fa.old}", fa.new) for fa in PROGRAM_FLAG_ALIASES]
     width = max(len(o) for o, _ in rows) + 4
     out += [f"  {o.ljust(width)}{n}" for o, n in rows]
     out += ["", "PROGRAMS",

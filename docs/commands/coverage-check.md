@@ -13,10 +13,8 @@ validate coverage.yaml against claims.yaml and the receipts at HEAD; exit 0/1; r
 ## Usage
 
 ```text
-lean-pkg coverage check [--file PATH] [--allow-private-manuscript] [common flags] NAME
+lean-pkg coverage check [--file PATH] [--allow-private-manuscript] [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

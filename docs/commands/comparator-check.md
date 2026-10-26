@@ -17,10 +17,8 @@ Also spelled: `lean-pkg comparator NAME --receipt R --check`, `lean-pkg comparat
 ```text
 lean-pkg comparator check [--receipt RECEIPT] [--refuse-private] [--refuse-dirty]
                           [--repo DIR] [--contracts-only] [--config PATH]
-                          [--export MODULE=FILE] [--no-sandbox] [common flags] NAME
+                          [--export MODULE=FILE] [--no-sandbox] [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

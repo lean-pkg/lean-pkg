@@ -21,10 +21,8 @@ lean-pkg receipt slurm [--job J] [--log PATH] [--receipt-commit SHA] [--template
                        [--artifacts DIR] [--artifacts-manifest NAME] [--checker TEXT]
                        [--repo DIR] [--out PATH] [--compress-log] [--append-readme]
                        [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
-                       [common flags]
+                       [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

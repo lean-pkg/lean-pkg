@@ -1,5 +1,4 @@
-usage: lean-pkg list [-h] [--only NAME[,NAME]] [--fields a,b,c] [--no-claims] [--json] [--commit]
-                     [--push] [--no-commit]
+usage: lean-pkg list [-h] [--only NAME[,NAME]] [--fields a,b,c] [--no-claims] [--json]
 
 options:
   -h, --help          show this help message and exit
@@ -16,10 +15,6 @@ options:
   --no-claims         drop the bulk cached arrays (claims; the [bulk] keys below) from each
                       package record; every other key unchanged; --json adds an `omitted` list
   --json              machine-readable JSON on stdout
-  --commit            write commands: pull --ff-only, then commit the registry files (default:
-                      $LEAN_PKG_COMMIT=1)
-  --push              --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit         never commit or push (overrides the env)
 
 package record (the "package" object of status --json, each entry of "packages" in list/board --json; [v2]/[v3]: added by that schema version, [optional]: absent unless set):
   name                  package name; equals its key under packages

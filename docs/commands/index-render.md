@@ -13,10 +13,8 @@ write the Markdown table (default &lt;index&gt;/README.md).
 ## Usage
 
 ```text
-lean-pkg index render [--out OUT] [--check] [--index INDEX] [common flags]
+lean-pkg index render [--out OUT] [--check] [--index INDEX] [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

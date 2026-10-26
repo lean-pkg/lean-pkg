@@ -110,7 +110,7 @@ def test_fresh_repo_dry_run_writes_nothing(lp, gated, capsys):
     assert g.registry.read_text() == before and read_events(g) == []
     assert "DRY RUN — nothing written" in out and "dropped: notes/plan.md" in out
     assert f"fresh-history export of {g.bound[:12]}; receipts and gate must be re-run" in out
-    assert f"comparator-receipt --project {g.target} --prepare" in out
+    assert f"comparator-receipt --repo {g.target} --prepare" in out
     assert "lean-pkg publish pkg --dry-run --public-safety" in out
     assert f"git -C {g.target} push -u origin main" in out
     assert "status verified-private -> gate-pending" in out

@@ -22,11 +22,8 @@ lean-pkg receipt systemd --unit U --log PATH --receipt-commit SHA [--stdout PATH
                          [--require-tools A,B,...] [--properties-out PATH]
                          [--redact REGEX] [--checker TEXT] [--repo DIR] [--out PATH]
                          [--compress-log] [--append-readme] [--readme-heading TEXT]
-                         [--readme-line TEXT] [--tar-sha256 HEX] [common flags]
-                         [-- CMD ...]
+                         [--readme-line TEXT] [--tar-sha256 HEX] [--json] [-- CMD ...]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

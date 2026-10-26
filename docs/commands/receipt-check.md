@@ -16,10 +16,8 @@ Also spelled: `lean-pkg verify-receipts` ([all aliases](aliases.md)).
 
 ```text
 lean-pkg receipt check --repo DIR --commit SHA [--at REF] [--docs-descendants]
-                       [--name NAME] [common flags]
+                       [--name NAME] [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

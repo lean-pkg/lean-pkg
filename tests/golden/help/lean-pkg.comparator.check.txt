@@ -1,7 +1,6 @@
 usage: lean-pkg comparator check [-h] [--receipt RECEIPT] [--refuse-private] [--refuse-dirty]
                                  [--repo DIR] [--contracts-only] [--config PATH]
-                                 [--export MODULE=FILE] [--no-sandbox] [--json] [--commit]
-                                 [--push] [--no-commit]
+                                 [--export MODULE=FILE] [--no-sandbox] [--json]
                                  name
 
 positional arguments:
@@ -28,7 +27,3 @@ options:
                         instead of exporting it (repeatable; you answer for its freshness)
   --no-sandbox          with --contracts-only: run leanexport and the compare helper without bwrap
   --json                machine-readable JSON on stdout
-  --commit              write commands: pull --ff-only, then commit the registry files (default:
-                        $LEAN_PKG_COMMIT=1)
-  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit           never commit or push (overrides the env)

@@ -34,7 +34,7 @@ lean-pkg verify:
   - cmd: lean-pkg verify my-proof
     say: Run them in that order at the checkout's HEAD; an active package first moves to gate-pending, a gated one is re-gated. Commit the receipts afterwards.
     output: |
-      verify: 1/3 comparator receipt: lean-pkg receipt comparator --project .../my-proof
+      verify: 1/3 comparator receipt: lean-pkg receipt comparator --repo .../my-proof
       ...
       verify my-proof: verified-private at a0a4fe68e46c: lower-tier .lean-receipts/a0a4fe68e46c-systemd-user-my-proof-verify.service-<id>-h-<label>.json, comparator .lean-receipts/a0a4fe68e46c-comparator.json
       next:
@@ -301,7 +301,7 @@ lean-pkg receipt comparator:
     say: In the package checkout, time a sample of the comparator slots first; no receipt is written.
   - cmd: lean-pkg receipt comparator
     say: In the package checkout, run the comparator over every configuration and write .lean-receipts/<commit12>-comparator.json (the `comparator-receipt` program does the same).
-  - cmd: lean-pkg receipt comparator --project src/my-proof --judges 4
+  - cmd: lean-pkg receipt comparator --repo src/my-proof --judges 4
     say: The same for another directory, with up to four judges at once.
   - cmd: lean-pkg receipt comparator --seal-sacct .lean-receipts/cb3d68a21454-comparator.json
     say: After the Slurm job finished, seal its sacct record into the receipt so its job can back a compute site.

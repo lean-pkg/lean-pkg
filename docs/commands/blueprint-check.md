@@ -13,10 +13,8 @@ run checkdecls on the blueprint's declaration list at HEAD and check claims.yaml
 ## Usage
 
 ```text
-lean-pkg blueprint check [--decls PATH] [common flags] NAME
+lean-pkg blueprint check [--decls PATH] [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

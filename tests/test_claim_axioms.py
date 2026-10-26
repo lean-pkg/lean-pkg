@@ -355,9 +355,9 @@ def test_real_probe_refuses_an_unbuilt_module_and_the_command_line(built, capsys
     d, _ = built
     with pytest.raises(Exception, match="not built"):
         ca.probe(d, ["Fx.clean"], ["Nope"], sandboxed=False)
-    assert ca.main(["--project", str(d), "Fx.clean", "--module", "Fx", "--no-sandbox"]) == 0
+    assert ca.main(["--repo", str(d), "Fx.clean", "--module", "Fx", "--no-sandbox"]) == 0
     assert capsys.readouterr().out == "claim-axioms: Fx.clean none\nclaim-axioms-done: 1\n"
-    assert ca.main(["--project", str(d), "Fx.sorried", "--module", "Fx", "--no-sandbox", "--json"]) == 1
+    assert ca.main(["--repo", str(d), "Fx.sorried", "--module", "Fx", "--no-sandbox", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["claim_axioms"]["nonstandard"][0]["decl"] == "Fx.sorried"
 
 

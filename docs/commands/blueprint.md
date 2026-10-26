@@ -13,10 +13,8 @@ blueprint: check (\\lean{} names with checkdecls).
 ## Usage
 
 ```text
-lean-pkg blueprint [common flags] [COMMAND]
+lean-pkg blueprint [--json] [COMMAND]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Subcommands
 

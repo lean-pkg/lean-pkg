@@ -13,10 +13,8 @@ plan (dry run, default) or --write the mechanical port of the package's tracked 
 ## Usage
 
 ```text
-lean-pkg palomar port-modules [--dry-run] [--write] [--agent AGENT] [common flags] NAME
+lean-pkg palomar port-modules [--dry-run] [--write] [--agent AGENT] [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

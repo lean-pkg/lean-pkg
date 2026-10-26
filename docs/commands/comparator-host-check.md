@@ -13,10 +13,8 @@ can this host run the comparator; read-only.
 ## Usage
 
 ```text
-lean-pkg comparator host-check [--routes] [common flags]
+lean-pkg comparator host-check [--routes] [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

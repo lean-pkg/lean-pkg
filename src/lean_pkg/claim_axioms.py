@@ -32,7 +32,7 @@ gate.axioms_allowed lists it, exactly as for the receipt's `axioms`. A log with 
 
 Python API: `parse(text)`, `printed_axioms(text)`, `required_claims(claims_bytes)`, `judge(text, required)`,
 `summary_problems(summary, allowed)`, `probe(project, names, modules=None, ...)`.
-Command line: `python3 -m lean_pkg.claim_axioms --project DIR [NAME ...] [--module M ...] [--no-sandbox]
+Command line: `python3 -m lean_pkg.claim_axioms --repo DIR [NAME ...] [--module M ...] [--no-sandbox]
 [--json]` (no NAME: every claim of DIR/claims.yaml) prints the probe's lines (or the judgement with --json).
 Exit 0 every claim passes, 1 any refused or the probe failed, 2 usage. Documented in docs/receipts.md.
 """
@@ -358,27 +358,42 @@ def probe(project, names: list[str], modules: list[str], toolchain: str | None =
     return out
 
 
+PROGRAM = "python3 -m lean_pkg.claim_axioms"
+
+
 def main(argv: list[str] | None = None) -> int:
-    from . import dup_constants as dc
     ap = argparse.ArgumentParser(
-        prog="python3 -m lean_pkg.claim_axioms", formatter_class=argparse.RawDescriptionHelpFormatter,
+        prog=PROGRAM, formatter_class=argparse.RawDescriptionHelpFormatter,
         description="Read the axioms of every claim from a built project's environment (core Lean's "
                     "collectAxioms) and judge them as the lower-tier receipt does: a missing claim, sorryAx or an "
                     "unchecked claim refuses; an axiom beyond propext, Quot.sound, Classical.choice is listed.",
         epilog="examples:\n"
-               "  python3 -m lean_pkg.claim_axioms --project .\n"
-               "  python3 -m lean_pkg.claim_axioms --project . MyLib.main_thm --module MyLib --json\n"
+               "  python3 -m lean_pkg.claim_axioms --repo .\n"
+               "  python3 -m lean_pkg.claim_axioms --repo . MyLib.main_thm --module MyLib --json\n"
                "exit codes: 0 every claim passes, 1 any refused or the probe failed, 2 usage.\n"
                "docs: https://lean-pkg.github.io/lean-pkg/receipts.html")
     ap.add_argument("names", nargs="*", metavar="NAME", help="default: every claim of DIR/claims.yaml")
-    ap.add_argument("--project", required=True, metavar="DIR", help="the built Lake project")
+    ap.add_argument("--repo", dest="project", required=True, metavar="DIR",
+                    help="the package checkout, a built Lake project")
     ap.add_argument("--module", action="append", default=[], metavar="MOD",
                     help="a module to import (default: the claims' files); repeatable")
     ap.add_argument("--toolchain", metavar="TC", help="default: the project's lean-toolchain")
     ap.add_argument("--no-sandbox", action="store_true", help="read the .olean files without the bwrap sandbox")
     ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, metavar="SECONDS")
     ap.add_argument("--json", dest="json_out", action="store_true", help="the judgement as JSON on stdout")
+    from . import command_tree
+    command_tree.apply_program_flag_aliases(ap, PROGRAM)
+    argv = sys.argv[1:] if argv is None else list(argv)
     args = ap.parse_args(argv)
+    try:
+        return _run(args)
+    finally:   # the old-spelling note (--project), after the output
+        for line in command_tree.program_notes(argv, PROGRAM, args.json_out):
+            print(line, file=sys.stderr)
+
+
+def _run(args) -> int:
+    from . import dup_constants as dc
     claims_path = pathlib.Path(args.project) / "claims.yaml"
     blob = claims_path.read_bytes() if claims_path.is_file() else None
     required, problems = required_claims(blob)

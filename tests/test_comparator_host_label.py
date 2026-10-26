@@ -75,7 +75,7 @@ def test_receipt_on_a_distinctive_host_names_only_its_label(cr, on_host, project
     label = cr.hashed_host_label(HOST)
     monkeypatch.setenv(cr.ALLOWED_HOSTS_ENV, f"other, {HOST}")          # the raw name is still accepted
     monkeypatch.setenv("COMPARATOR_RECEIPT_BUILD_SOURCE", "prebuilt on kq7box")
-    assert cr.main(["--project", str(project)]) == 0
+    assert cr.main(["--repo", str(project)]) == 0
     text = receipt_text(project)
     out = capsys.readouterr()
     assert "kq7box" not in text.lower() and "kq7box" not in (out.out + out.err).lower()
@@ -88,13 +88,13 @@ def test_receipt_on_a_distinctive_host_names_only_its_label(cr, on_host, project
 
 def test_host_policy_accepts_the_label_too(cr, on_host, project, monkeypatch):
     monkeypatch.setenv(cr.ALLOWED_HOSTS_ENV, cr.hashed_host_label(HOST))
-    assert cr.main(["--project", str(project)]) == 0
+    assert cr.main(["--repo", str(project)]) == 0
     assert json.loads(receipt_text(project))["host"] == cr.hashed_host_label(HOST)
 
 
 def test_another_hosts_label_is_refused(cr, on_host, project, monkeypatch, capsys):
     monkeypatch.setenv(cr.ALLOWED_HOSTS_ENV, cr.hashed_host_label("otherbox.lab.example.org"))
-    assert cr.main(["--project", str(project)]) == 1
+    assert cr.main(["--repo", str(project)]) == 1
     err = capsys.readouterr().err
     assert "refusing" in err and cr.hashed_host_label(HOST) in err and "kq7box" not in err
     assert not (project / ".lean-receipts").exists()
@@ -102,7 +102,7 @@ def test_another_hosts_label_is_refused(cr, on_host, project, monkeypatch, capsy
 
 def test_slurm_receipt_names_the_node_by_its_label(cr, on_host, project, monkeypatch):
     monkeypatch.setenv("SLURM_JOB_ID", "4242")
-    assert cr.main(["--project", str(project)]) == 0
+    assert cr.main(["--repo", str(project)]) == 0
     rec = json.loads(receipt_text(project))
     assert rec["job_id"] == "4242" and rec["host_policy"] == f"Slurm job 4242 on {cr.hashed_host_label(HOST)}"
     assert "kq7box" not in json.dumps(rec)
@@ -111,7 +111,7 @@ def test_slurm_receipt_names_the_node_by_its_label(cr, on_host, project, monkeyp
 def test_operator_label_wins_and_the_raw_name_still_passes_policy(cr, on_host, project, monkeypatch):
     monkeypatch.setenv(cr.ALLOWED_HOSTS_ENV, HOST.upper())                  # any case
     monkeypatch.setenv(cr.HOST_LABEL_ENV, "unset-by-teardown")   # main() sets it from --host-label
-    assert cr.main(["--project", str(project), "--host-label", "lab-node"]) == 0
+    assert cr.main(["--repo", str(project), "--host-label", "lab-node"]) == 0
     rec = json.loads(receipt_text(project))
     assert rec["host"] == rec["host_label"] == "lab-node" and "kq7box" not in json.dumps(rec)
     assert rec["host_policy"] == f"host lab-node listed in {cr.ALLOWED_HOSTS_ENV}"

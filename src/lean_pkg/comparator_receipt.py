@@ -4,7 +4,7 @@
 # passed, so a failed run can never be mistaken for evidence.
 """Usage (from a Lake project directory):
 
-    comparator-receipt [--project DIR] [--check SCRIPT] [--mechanism M]
+    comparator-receipt [--repo DIR] [--check SCRIPT] [--mechanism M]
                        [--evidence-dir DIR] [--prepare | --from-prepared DIR]
 
 Stages (#26.1): checkout, cache-get, build (the setup stages), comparator, receipt; each logs to
@@ -2422,8 +2422,8 @@ def seal_sacct_main(args) -> int:
 
 def add_arguments(ap: argparse.ArgumentParser) -> None:
     """The flags of `comparator-receipt`, also `lean-pkg receipt comparator` (the same code, the same flags)."""
-    ap.add_argument("--project", default=".",
-                    help="Lake project directory (default: cwd)")
+    ap.add_argument("--repo", dest="project", default=".", metavar="DIR",
+                    help="the package checkout, a Lake project directory (default: cwd)")
     ap.add_argument("--check",
                     default=os.environ.get("COMPARATOR_CHECK") or None,
                     help="comparator-check.sh to run (env COMPARATOR_CHECK; "
@@ -2518,13 +2518,23 @@ def add_arguments(ap: argparse.ArgumentParser) -> None:
                          f"is never written")
 
 
+PROGRAM = "comparator-receipt"
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        prog="comparator-receipt",
+        prog=PROGRAM,
         description="run comparator-check.sh and write a comparator receipt (also `lean-pkg receipt comparator`)")
     add_arguments(ap)
+    from . import command_tree
+    command_tree.apply_program_flag_aliases(ap, PROGRAM)
     args = ap.parse_args(argv)
-    return run_main(args, argv if argv is not None else sys.argv[1:])
+    argv = argv if argv is not None else sys.argv[1:]
+    try:
+        return run_main(args, argv)
+    finally:   # after the run: its own first stderr line (a refusal) stays first, as lean-pkg's notes
+        for line in command_tree.program_notes(argv, PROGRAM, args.json):
+            print(line, file=sys.stderr)
 
 
 def run_main(args, argv: list[str], prog: str = "comparator-receipt") -> int:

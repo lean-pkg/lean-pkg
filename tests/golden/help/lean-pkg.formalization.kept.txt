@@ -1,5 +1,5 @@
 usage: lean-pkg formalization kept [-h] [--repo DIR] [--file REL] [--at REV] [--against REV2]
-                                   [--json] [--commit] [--push] [--no-commit]
+                                   [--json]
 
 `lean-pkg formalization kept [--repo DIR] [--file REL] [--at REV] [--against REV2] [--json]`:
 print formalization.yaml without the keys `formalization render` derives
@@ -15,7 +15,3 @@ options:
   --at REV        read the file committed at REV (git objects) instead of the working tree
   --against REV2  compare with the file committed at REV2: changed_kept_keys, exit 1 when any
   --json          machine-readable JSON on stdout
-  --commit        write commands: pull --ff-only, then commit the registry files (default:
-                  $LEAN_PKG_COMMIT=1)
-  --push          --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit     never commit or push (overrides the env)

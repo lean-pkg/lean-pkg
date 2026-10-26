@@ -146,7 +146,7 @@ order, printing each one before it runs:
    after moving the package from `active` to `gate-pending`.
 
 ```text
-verify: 1/3 comparator receipt: lean-pkg receipt comparator --project .../my-proof
+verify: 1/3 comparator receipt: lean-pkg receipt comparator --repo .../my-proof
 ...
 Your solution is okay!
 comparator-receipt: stage 04-comparator: ok (1 config(s) accepted (toolchain; 1 slot(s)))

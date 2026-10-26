@@ -3,7 +3,7 @@ usage: lean-pkg comparator config [-h] [--from-claims NAME] [--out OUT] [--dry-r
                                   [--challenge-from-type] [--emit-script F] [--from-output F]
                                   [--repo DIR] [--claims-file PATH] [--no-registry]
                                   [--allow-partial] [--lake-env DIR] [--jobs JOBS]
-                                  [--timeout TIMEOUT] [--json] [--commit] [--push] [--no-commit]
+                                  [--timeout TIMEOUT] [--json]
 
 options:
   -h, --help            show this help message and exit
@@ -38,7 +38,3 @@ options:
                         halved and retried on too many open files)
   --timeout TIMEOUT     with the type flags: seconds per declaration (default 120)
   --json                machine-readable JSON on stdout
-  --commit              write commands: pull --ff-only, then commit the registry files (default:
-                        $LEAN_PKG_COMMIT=1)
-  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit           never commit or push (overrides the env)

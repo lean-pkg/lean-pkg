@@ -14,11 +14,9 @@ render the README verification section from coverage.yaml, claims, the ledger an
 
 ```text
 lean-pkg page [--write] [--check] [--out PATH] [--site DIR] [--html PATH] [--repo DIR]
-              [--strict-preview] [--allow-private-manuscript] [--agent AGENT]
-              [common flags] NAME
+              [--strict-preview] [--allow-private-manuscript] [--agent AGENT] [--json]
+              NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

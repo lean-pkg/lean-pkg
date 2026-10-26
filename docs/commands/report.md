@@ -15,10 +15,8 @@ read-only: a redacted bug report in the repository's issue format; dry run unles
 ```text
 lean-pkg report [--command ARGS] [--body TEXT] [--from-log FILE[:N]] [--package NAME]
                 [--title TITLE] [--enhancement] [--target-repo OWNER/NAME] [--dry-run]
-                [--yes] [common flags]
+                [--yes] [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 
