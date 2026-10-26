@@ -1,9 +1,9 @@
 # lean-pkg: local gates. No tab characters: recipes use '>' as the prefix.
 # `make check` is the release gate; hosted CI runs the same targets once the repository is public.
 .RECIPEPREFIX := >
-.PHONY: check test boundary tabs versions changelog reuse history public-safety release release-version cut-release record-doi docs goldens
+.PHONY: check test boundary tabs versions changelog reuse shellcheck history public-safety release release-version cut-release record-doi docs goldens
 
-check: test boundary tabs versions changelog reuse
+check: test boundary tabs versions changelog reuse shellcheck
 > @echo "check: all gates green"
 
 # A private bytecode cache per run: concurrent runs never share pytest's rewritten .pyc files.
@@ -36,6 +36,12 @@ changelog:
 # REUSE 3.3 compliance (gate G3 of the public-flip checklist); skipped, not passed, when the tool is absent.
 reuse:
 > @if command -v reuse >/dev/null 2>&1; then reuse lint -q && echo "reuse: compliant"; else echo "reuse: SKIPPED (pipx install reuse)"; fi
+
+# ShellCheck, every severity, on lean-pkg's own shell scripts; the vendored comparator-check.sh is left as
+# upstream wrote it. Skipped, not passed, when the tool is absent; CI installs a pinned version.
+SHELLCHECK_FILES := scripts/*.sh src/lean_pkg/scripts/verify-comparator.sh tests/fixtures/*.sh
+shellcheck:
+> @if command -v shellcheck >/dev/null 2>&1; then shellcheck $(SHELLCHECK_FILES) && echo "shellcheck: clean"; else echo "shellcheck: SKIPPED (pipx install shellcheck-py)"; fi
 
 # Every blob and commit message reachable from any ref. Not part of `check`: a hit here is fixed
 # only by rewriting history, which is a maintainer decision before the public flip (RELEASING.md).

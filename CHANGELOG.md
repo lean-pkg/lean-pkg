@@ -78,6 +78,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   identical in every copy; recorded as its vendored local change (5)), and
   SC2086 in `lake-stub.sh` (the module list is split on purpose). The
   vendored `comparator-check.sh` is unchanged.
+- `make shellcheck` (#306), part of `make check`: ShellCheck at every
+  severity on `scripts/*.sh`, `verify-comparator.sh` and
+  `tests/fixtures/*.sh`; the vendored `comparator-check.sh` is left as
+  upstream wrote it. Skipped, not passed, when ShellCheck is absent, like
+  `make reuse`. CI's `private-boundary` job installs a pinned ShellCheck
+  (`shellcheck-py==0.11.0.1`) and runs it on every pull request and push to
+  main.
 
 ### Fixed
 
