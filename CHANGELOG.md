@@ -289,6 +289,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `make docs` writes no `__pycache__` into the tree (#352): its python3 steps
+  now share a private bytecode cache, as `make test` and `make goldens` do.
 - `new` globs the library's root module (#334, #326): `lakefile.toml`
   writes `globs = ["MOD", "MOD.+"]`, as published lean-pkg packages do,
   and the scaffold writes `MOD.lean`, an empty root module for the
