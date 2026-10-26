@@ -169,6 +169,75 @@ def changed_kept_keys(old, new) -> list[str]:
     return out
 
 
+_ABSENT = object()
+
+
+def _at(doc, path: tuple[str, ...]):
+    node = doc
+    for k in path:
+        if not isinstance(node, dict) or k not in node:
+            return _ABSENT
+        node = node[k]
+    return node
+
+
+def _own_ack_lines(doc) -> list[str]:
+    ack = doc.get("acknowledgements") if isinstance(doc, dict) else None
+    return [x for x in ack.split("\n") if x.startswith(ACK_MARKERS)] if isinstance(ack, str) else []
+
+
+def compare_with_file(existing_text: str, text: str) -> dict:
+    """How the file on disk differs from the render (#341): {"kept": dotted kept keys that differ (the kept
+    view of `formalization kept`, compared by its canonical SHA-256; named by changed_kept_keys, "(kept
+    view)" when only the bytes show it), "derived": dotted DERIVED_PATHS that differ (plus the renderer's
+    acknowledgements lines), "comments": line numbers of YAML comments below the header that the render
+    would drop}. Empty "kept" and "comments" mean a rewrite loses no hand-written content."""
+    from .formalization_kept import kept_digest, load_text   # imports this module: resolve at call time
+    try:
+        old, new = load_text(existing_text), load_text(text)
+        same = kept_digest(old)[2] == kept_digest(new)[2]
+    except (core.Fail, yaml.YAMLError) as e:
+        return {"kept": [f"(kept view: {str(e).splitlines()[0]})"], "derived": [], "comments": []}
+    kept = [] if same else (changed_kept_keys(old, new) or ["(kept view)"])
+    derived = [".".join(p) for p in DERIVED_PATHS if _at(old, p) != _at(new, p)]
+    if _own_ack_lines(old) != _own_ack_lines(new):
+        derived.append("acknowledgements (the renderer's lines)")
+    rendered = set(text.splitlines())
+    comments, body = [], False
+    for i, line in enumerate(existing_text.splitlines(), 1):
+        bare = line.strip()
+        if bare and not bare.startswith("#"):
+            body = True                    # the leading comment block is the renderer's header
+        elif body and bare.startswith("#") and line not in rendered:
+            comments.append(i)
+    return {"kept": kept, "derived": derived, "comments": comments}
+
+
+def hand_written_changes(cmp: dict) -> str:
+    """The hand-written content a rewrite would replace, as one phrase ('' when none)."""
+    parts = []
+    if cmp["kept"]:
+        parts.append("kept key(s) " + ", ".join(cmp["kept"]))
+    if cmp["comments"]:
+        parts.append("YAML comment(s) at line(s) " + ", ".join(map(str, cmp["comments"]))
+                     + " (comments are not kept)")
+    return " and ".join(parts)
+
+
+def stale_hint(name: str, existing_text: str, text: str) -> str:
+    """What differs and the complete repair command (#341): `render NAME --write` when only derived keys
+    differ; --force, named with what it replaces, only when hand-written content differs."""
+    cmp = compare_with_file(existing_text, text)
+    hand = hand_written_changes(cmp)
+    if hand:
+        return (f"it differs from the render in {hand}; read `lean-pkg formalization render {name}`, then "
+                f"`lean-pkg formalization render {name} --write --force` writes the render, these included")
+    what = ", ".join(cmp["derived"]) or "the generator's layout"
+    return (f"only derived keys differ ({what}); `lean-pkg formalization render {name} --write` refreshes "
+            f"them and keeps every kept key (or `lean-pkg gate {name} --receipt R --refresh-formalization` "
+            f"after a new receipt)")
+
+
 TOP_ORDER = ("version", "project", "repository", "sources", "related_formalizations",
              "classification", "status", "automation", "fidelity", "review", "alignment",
              "acknowledgements")
@@ -772,7 +841,8 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
 
     --write checks before it writes: the lease (a live lease held by another agent refuses unless
     --force --reason) and a dry run of the registry update, so a refusal leaves formalization.yaml
-    untouched. --force alone overwrites a differing file; with --reason it also overrides the lease.
+    untouched. A file whose kept view equals the render's is rewritten (derived keys refreshed, #341);
+    --force alone overwrites a file whose kept keys differ; with --reason it also overrides the lease.
     no_registry (--write --no-registry, #22.8): write the file only; the registry is read, never written
     (no pointer update, no event), so the invocation is not a registry write. headline (--headline-config PATH):
     the headline configuration for this render (headline.py); --write also records it in the registry
@@ -824,17 +894,27 @@ def do_formalization(reg_path, reg, events_p, name: str, *, write: bool, out: st
         payload["registry_skipped"] = True
     if needs_update and not no_registry:   # every registry check first, on a copy: a refusal writes nothing
         core.do_update(reg_path, reg, events_p, name, dry_run=True, **update_kw)
+    payload.update(refreshed_derived=[], kept_overwritten=[])
     if existing_text is not None and existing_text == text:
         payload["unchanged"] = True
         lines = [f"{name}: {rel} is already what the generator emits; nothing written ({summary})"]
     else:
-        if existing_text is not None and not force:
-            raise core.Fail(f"{name}: {rel} exists and differs from the render; inspect "
-                            f"`lean-pkg formalization {name}` and pass --force to overwrite "
-                            f"(kept keys survive; derived keys are regenerated)")
+        # #341: a file that differs from the render only in derived keys (a re-gate moved the receipts) is
+        # refreshed without --force; --force is needed only to replace hand-written content.
+        cmp = compare_with_file(existing_text, text) if existing_text is not None else None
+        hand = hand_written_changes(cmp) if cmp else ""
+        if hand and not force:
+            raise core.Fail(f"{name}: {rel} differs from the render in {hand}; inspect "
+                            f"`lean-pkg formalization render {name}` and pass --force to write the render "
+                            f"(--force replaces the whole file, these included); nothing written")
         _atomic_write(target, text)
         payload["written"] = True
         lines = [f"{name}: wrote {target} ({summary}) — not committed; commit it yourself"]
+        if cmp:
+            payload.update(refreshed_derived=cmp["derived"], kept_overwritten=cmp["kept"])
+            derived = ", ".join(cmp["derived"]) or "none (only the generator's layout changed)"
+            lines.append(f"{name}: refreshed derived keys: {derived}; "
+                         + (f"--force replaced {hand}" if hand else "every kept key unchanged"))
     if needs_update and no_registry:
         unset = {k: v for k, v in sets.items() if pkg.get(k) != v}
         lines.append(f"{name}: registry untouched (--no-registry); "
@@ -861,9 +941,8 @@ def audit_findings(pkg: dict, repo: pathlib.Path) -> list[tuple[str, str]]:
     except (core.Fail, core.UsageError) as e:
         return [("warn", f"formalization.yaml cannot be re-rendered: {e}")]
     if existing_text != text:
-        return [("formalization-drift", f"{rel} differs from `lean-pkg formalization "
-                                        f"{pkg['name']}` (a derived key changed); re-run with "
-                                        f"--write --force")]
+        return [("formalization-drift", f"{rel} differs from `lean-pkg formalization render "
+                                        f"{pkg['name']}`: {stale_hint(pkg['name'], existing_text, text)}")]
     return []
 
 
@@ -931,14 +1010,15 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("name", help="the package")
     s.add_argument("--write", action="store_true",
                    help="write <repo>/<formalization_yaml or formalization.yaml> and set the "
-                        "registry pointer (event updated); refuses a differing file without --force")
+                        "registry pointer (event updated); a file differing only in derived keys is "
+                        "refreshed, one whose kept keys differ is refused without --force")
     s.add_argument("--no-registry", action="store_true",
                    help="with --write: write the file only; the registry is not updated (no pointer, no "
                         "event), so this is not a registry write (no lock, no --commit)")
     s.add_argument("--out", default=None, metavar="PATH",
                    help="write the render here instead; the registry is untouched")
     s.add_argument("--force", action="store_true",
-                   help="with --write: overwrite a file that differs from the render; with --reason "
+                   help="with --write: overwrite a file whose kept keys differ from the render; with --reason "
                         "also override a live lease held by another agent")
     s.add_argument("--reason", default="",
                    help="with --write --force: why another agent's lease is overridden (recorded in "

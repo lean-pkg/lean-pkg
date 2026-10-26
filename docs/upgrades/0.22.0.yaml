@@ -235,6 +235,26 @@ changes:
     breaking: false
     changelog: Fixed
     split: true
+  - pr: 0
+    id: formalization-write-refreshes-derived-keys
+    kind: behavior
+    area: formalization
+    summary: >-
+      formalization render NAME --write (#341) rewrites a formalization.yaml that differs from the render only
+      in derived keys (status.evidence and the rest of DERIVED_PATHS, the renderer's acknowledgements lines):
+      the file's kept view (the canonical view formalization kept hashes) equals the render's and no YAML
+      comment below the header would be dropped. It prints 'refreshed derived keys: ...; every kept key
+      unchanged' and --json adds refreshed_derived and kept_overwritten. A file whose kept keys (or such
+      comments) differ is refused as before, naming them; --force keeps its meaning. publish's stale
+      formalization line and audit's formalization-drift detail name 'lean-pkg formalization render NAME
+      --write' for derived-only staleness and --force only when a kept key differs.
+    action: >-
+      Nothing: a refusal becoming a success breaks no script, and every file the plain --write now rewrites
+      is one --write --force rewrote to the same bytes. A script that ran --write --force after each re-gate
+      may drop --force; one that relied on the refusal to detect derived-key drift should use audit or
+      publish --dry-run, which still report it.
+    breaking: false
+    changelog: Changed
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

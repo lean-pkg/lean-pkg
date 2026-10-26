@@ -462,7 +462,7 @@ lean-pkg formalization render:
   - cmd: lean-pkg formalization render my-proof
     say: Print formalization.yaml (v0.4) rendered from the registry and the repository at HEAD to stdout, with a warning for each placeholder the registry cannot fill.
   - cmd: lean-pkg formalization render my-proof --write
-    say: Write it into the checkout (a no-op when equal, refused when the file differs unless --force) and set the registry's formalization_yaml pointer when it is not already set (a registry write); the file is not committed.
+    say: Write it into the checkout (a no-op when equal; a file differing only in derived keys, as after a re-gate, is refreshed and the paths are named; one whose kept keys differ is refused unless --force) and set the registry's formalization_yaml pointer when it is not already set (a registry write); the file is not committed.
   - cmd: lean-pkg formalization render my-proof --write --no-registry
     say: Write the file only and leave the registry untouched (no pointer, no event, no lock).
 

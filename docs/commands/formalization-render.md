@@ -27,10 +27,10 @@ lean-pkg formalization render [--write] [--no-registry] [--out PATH] [--force]
 | Argument or flag | Description |
 |---|---|
 | `NAME` | the package |
-| `--write` | write &lt;repo&gt;/&lt;formalization_yaml or formalization.yaml&gt; and set the registry pointer (event updated); refuses a differing file without --force |
+| `--write` | write &lt;repo&gt;/&lt;formalization_yaml or formalization.yaml&gt; and set the registry pointer (event updated); a file differing only in derived keys is refreshed, one whose kept keys differ is refused without --force |
 | `--no-registry` | with --write: write the file only; the registry is not updated (no pointer, no event), so this is not a registry write (no lock, no --commit) |
 | `--out PATH` | write the render here instead; the registry is untouched |
-| `--force` | with --write: overwrite a file that differs from the render; with --reason also override a live lease held by another agent |
+| `--force` | with --write: overwrite a file whose kept keys differ from the render; with --reason also override a live lease held by another agent |
 | `--reason REASON` | with --write --force: why another agent's lease is overridden (recorded in the updated event) |
 | `--author NAME` | project.authors entry (repeatable); otherwise kept from the file, else consent\[] owners/authors, else a placeholder |
 | `--headline-config PATH` | the headline comparator configuration (the paper's main results) for this render; --write also records it (registry headline_config). Default: the registry field, else comparator.headline.json when tracked. status.main_results then lists its theorems only, each covered by the gate-bound comparator receipt (else refused) |
@@ -41,7 +41,7 @@ lean-pkg formalization render [--write] [--no-registry] [--out PATH] [--force]
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `formalization render NAME` (or `formalization NAME`) | render `formalization.yaml` (mathlib-initiative v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout by default; `--write` writes `<repo>/<formalization_yaml or formalization.yaml>`, is a no-op when equal, refuses a differing file without `--force`, then sets the registry pointer (event `updated`), so `--write` is a registry write; `--write --no-registry` writes the file only and leaves the registry untouched (no pointer, no event, no lock, `--commit` ignored; `"registry_skipped": true`); the lease (another agent's live lease refuses unless `--force --reason`) and a dry run of the registry update are checked before the file is written; validated against the vendored schema; `--headline-config PATH` (else the registry's `headline_config`, else `comparator.headline.json` when tracked) makes `status.main_results` list that [headline configuration](../comparator.md#headline-configuration-the-papers-main-results)'s theorems only, refused unless the gate-bound comparator receipt covers every name and signs every hole, not applied (warning) when no receipt validates at HEAD; `--write` records it; `--json` `headline` {config, source, applied, reason, receipt, theorems} or null; see [formalization.yaml](../formalization.md) | `[--write [--no-registry]]` `[--out PATH]` `[--force [--reason TEXT]]` `[--author NAME]…` `[--headline-config PATH]` `[--agent A]` |
+| `formalization render NAME` (or `formalization NAME`) | render `formalization.yaml` (mathlib-initiative v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout by default; `--write` writes `<repo>/<formalization_yaml or formalization.yaml>`, is a no-op when equal, refreshes a file that differs only in derived keys (its [kept view](../formalization.md#the-kept-view) equals the render's; `refreshed derived keys: ...; every kept key unchanged`, `--json` `refreshed_derived`), refuses one whose kept keys (or comments below the header) differ without `--force`, naming them (`--json` `kept_overwritten` with `--force`), then sets the registry pointer (event `updated`), so `--write` is a registry write; `--write --no-registry` writes the file only and leaves the registry untouched (no pointer, no event, no lock, `--commit` ignored; `"registry_skipped": true`); the lease (another agent's live lease refuses unless `--force --reason`) and a dry run of the registry update are checked before the file is written; validated against the vendored schema; `--headline-config PATH` (else the registry's `headline_config`, else `comparator.headline.json` when tracked) makes `status.main_results` list that [headline configuration](../comparator.md#headline-configuration-the-papers-main-results)'s theorems only, refused unless the gate-bound comparator receipt covers every name and signs every hole, not applied (warning) when no receipt validates at HEAD; `--write` records it; `--json` `headline` {config, source, applied, reason, receipt, theorems} or null; see [formalization.yaml](../formalization.md) | `[--write [--no-registry]]` `[--out PATH]` `[--force [--reason TEXT]]` `[--author NAME]…` `[--headline-config PATH]` `[--agent A]` |
 
 ## Examples
 
@@ -51,7 +51,7 @@ Print formalization.yaml (v0.4) rendered from the registry and the repository at
 lean-pkg formalization render my-proof
 ```
 
-Write it into the checkout (a no-op when equal, refused when the file differs unless --force) and set the registry's formalization_yaml pointer when it is not already set (a registry write); the file is not committed.
+Write it into the checkout (a no-op when equal; a file differing only in derived keys, as after a re-gate, is refreshed and the paths are named; one whose kept keys differ is refused unless --force) and set the registry's formalization_yaml pointer when it is not already set (a registry write); the file is not committed.
 
 ```bash
 lean-pkg formalization render my-proof --write

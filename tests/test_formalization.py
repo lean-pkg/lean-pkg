@@ -246,19 +246,22 @@ def test_no_registry_still_respects_a_live_lease(lp, env, capsys):
     assert not (env.repo_b / "formalization.yaml").exists()
 
 
-def test_write_refuses_a_differing_file_without_force(lp, env, capsys):
+def test_write_refuses_a_kept_key_difference_without_force(lp, env, capsys):
     assert run(lp, env, "beta", "--write") == 0
     capsys.readouterr()
     target = env.repo_b / "formalization.yaml"
     doc = yaml.safe_load(target.read_text())
     doc["status"]["main_results"][0]["declaration"] = "hand_edited"   # a derived key
     target.write_text(yaml.safe_dump(doc, sort_keys=False))
-    assert run(lp, env, "beta", "--write") == 1
+    assert run(lp, env, "beta", "--write", "--author", "Someone Else") == 1   # project.authors is kept
     err = capsys.readouterr().err
-    assert "differs" in err and "--force" in err
+    assert "differs from the render in kept key(s) project.authors" in err and "--force" in err
     assert yaml.safe_load(target.read_text())["status"]["main_results"][0]["declaration"] == "hand_edited"
-    assert run(lp, env, "beta", "--write", "--force") == 0
+    assert run(lp, env, "beta", "--write") == 0     # #341: a derived-only difference is refreshed
+    assert "refreshed derived keys: status.main_results" in capsys.readouterr().out
     assert yaml.safe_load(target.read_text())["status"]["main_results"][0]["declaration"] == "BetaAudit.Demo.foo_le_bar"
+    assert run(lp, env, "beta", "--write", "--author", "Someone Else", "--force") == 0
+    assert yaml.safe_load(target.read_text())["project"]["authors"] == ["Someone Else"]
 
 
 def test_kept_keys_survive_regeneration_and_derived_keys_do_not(lp, env, capsys):
@@ -273,8 +276,7 @@ def test_kept_keys_survive_regeneration_and_derived_keys_do_not(lp, env, capsys)
     doc["review"] = {"status": "self-assessed", "reviewers": ["Ada Lovelace"]}
     doc["project"]["license"] = "MIT"              # derived: the registry (null) wins
     target.write_text(yaml.safe_dump(doc, sort_keys=False))
-    assert run(lp, env, "beta", "--write") == 1    # derived key differs -> refusal
-    assert run(lp, env, "beta", "--write", "--force") == 0
+    assert run(lp, env, "beta", "--write") == 0    # only a derived key differs: refreshed (#341)
     doc = yaml.safe_load(target.read_text())
     assert doc["project"]["description"] == "Sharp bounds, by hand."
     assert doc["project"]["authors"] == ["Ada Lovelace"]
@@ -374,10 +376,12 @@ def test_audit_reports_formalization_drift_and_missing(lp, env, fake_gh, capsys)
     assert lp.main(["--registry", str(env.registry), "audit", "--json"]) == 0
     findings = json.loads(capsys.readouterr().out)["findings"]
     drift = [f for f in findings if f["check"] == "formalization-drift"]
-    assert len(drift) == 1 and drift[0]["name"] == "beta" and "--write --force" in drift[0]["detail"]
+    assert len(drift) == 1 and drift[0]["name"] == "beta"
+    assert "only derived keys differ (status.main_results)" in drift[0]["detail"]
+    assert "`lean-pkg formalization render beta --write`" in drift[0]["detail"] and "--force" not in drift[0]["detail"]
     assert (env.repo_b / "formalization.yaml").read_text()   # audit never rewrites the file
 
-    assert run(lp, env, "beta", "--write", "--force") == 0
+    assert run(lp, env, "beta", "--write") == 0
     capsys.readouterr()
     assert lp.main(["--registry", str(env.registry), "audit"]) == 0
     assert "formalization-drift" not in capsys.readouterr().out

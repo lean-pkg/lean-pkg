@@ -145,6 +145,25 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   cli.py re-exports every moved name for one release; no change to the
   CLI or its JSON.
 
+- `formalization render NAME --write` refreshes derived keys without
+  `--force` (#PR_F341; #341). After a re-gate moves the receipts,
+  `formalization.yaml`'s derived keys (`status.evidence` and the rest) are
+  stale; `--write` used to refuse any differing file without `--force`, so
+  the routine refresh needed the flag that otherwise overrides a safety
+  check. It now rewrites the file when its
+  [kept view](docs/formalization.md#the-kept-view) equals the render's (the
+  same canonical view `formalization kept` hashes) and no YAML comment below
+  the header would be dropped, and says so: `refreshed derived keys:
+  status.evidence, ...; every kept key unchanged` (`--json`
+  `refreshed_derived`, additive). When a kept key or such a comment differs
+  it refuses as before, now naming them, and `--force` writes the render
+  over them (`--json` `kept_overwritten`). `publish NAME`'s stale line and
+  `audit`'s `formalization-drift` detail give the complete repair command:
+  `lean-pkg formalization render NAME --write` for derived-only staleness
+  (or `gate NAME --receipt R --refresh-formalization` after a new
+  receipt), `--force` only when a kept key differs. `verify` still does not
+  refresh the file (the issue's option (b)).
+
 ### Fixed
 
 - `new` globs the library's root module (#334, #326): `lakefile.toml`
