@@ -193,4 +193,5 @@ changes:
 # Docs: improvement plan rows 10 to 15 for issues #325 to #330, and wave 2b (#332).
 # Docs: proposal 0008 accepted 2026-10-26 (status line, table row, design note); no code changes (#337).
 # Docs: proposal 0009 (draft), declaration-level extraction with an extraction ledger; no code (#342).
+# Docs: comparator under the Lean module system, and what page --check covers (#PR_DOC).
 no_author_change: [321, 323, 331, 332, 333, 337, 342]

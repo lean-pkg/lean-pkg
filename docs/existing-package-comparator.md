@@ -220,6 +220,12 @@ first. Then:
 5. Build the new modules: `lake build Audit`. You should see no errors and
    exactly one `sorry` warning per Challenge theorem, none in a Solution.
 
+A Challenge states and the Solution proves: keep proofs out of the Challenge.
+When a package uses the Lean module system and a Challenge copies proved
+declarations from it, read
+[Proofs in a copied reference under the module system](comparator.md#proofs-in-a-copied-reference-under-the-module-system)
+before the first run.
+
 Start with one claim, take it through steps 6 to 8, and only then do the
 rest.
 

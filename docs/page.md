@@ -286,6 +286,44 @@ same check as one checklist line (JSON `page {status, adopted, problems}`). For
 a package with no `coverage.yaml` and no block, the line is a WARN, except for
 an unbacked Easley sentence, which is a failure.
 
+### What `--check` covers, and what it does not
+
+`--check` renders the page afresh (which runs the `coverage check` rules and
+the public-safety scan on the rendered text) and then compares:
+
+- **The marked block**, byte for byte against the fresh render (the
+  toolchain advisory lines aside). This is the only text whose content it
+  checks.
+- **The lean-pkg credit**: the repository link and the concept DOI must
+  appear somewhere in `README.md`.
+- **Site acknowledgments**: a sentence naming the cluster anywhere in
+  `README.md` fails without backing receipts.
+- **`--site` and `--html` files**, each compared whole.
+
+It does not read any prose outside the markers (beyond those two searches),
+and no other file: not `docs/index.md`, `llms.txt`, the abstract or message
+in `CITATION.cff`, release notes or the manuscript. The public-safety scan
+also covers only the rendered text; run
+[`lean-pkg public-safety`](how-to.md#scan-for-private-strings-before-publishing)
+on the tree for the rest. Hand-written summaries can therefore drift from the
+block while `--check` passes. A field report found exactly that: the README,
+the docs index, `llms.txt` and `CITATION.cff` said a premise was derived.
+
+**The generated block is the single source of truth for statements.** Prose
+elsewhere should point to it rather than restate it. When you do restate a
+result outside the markers, check each sentence:
+
+1. Name every hypothesis as an assumption ("assuming ...", "under ..."); the
+   block's **Hypotheses** line lists them.
+2. Never state an input, a named hypothesis or a definition hole as proved or
+   derived. Only the conclusion of a verified result is proved.
+3. Quote the paper's theorem number, as the block does, rather than
+   paraphrase which result it is.
+4. Match the quantifier domains of the Lean statement (`∀ n ≥ 1`, `p ∈ (1, ∞)`),
+   no wider.
+5. Re-read every such sentence after each new gate and `page --write`: the
+   block changes with the data, the prose does not.
+
 ## The Easley acknowledgment
 
 Easley is the first built-in [site profile](sites.md); every profile,

@@ -940,8 +940,86 @@ the environment only and writes nothing in the package. A reported
 difference says where to look, not that Lake will refuse; a clean result is
 not a pass either: the digest is a 64-bit hash that does not cover every
 field Lake compares. Only `lake comparator` judges, and neither result is
-ever acceptance. The command below runs Lake's own comparison instead of a
-digest.
+ever acceptance. The [contracts-only diagnostic](#a-contracts-only-diagnostic)
+runs Lake's own comparison instead of a digest.
+
+### Proofs in a copied reference under the module system
+
+A copy with no `private` declaration can still fail once both sides are Lean
+modules (a `module` header). A field report from a statement-preserving
+module port of two libraries (RoughHeatKernel v0.9.0 and WalshIntegral
+v0.7.0) met it in proved Challenge/Reference copies. In a module, some
+auxiliary declarations Lean generates while elaborating a *proof body* are
+private, so their names carry the module name, as above: the production
+theorem's proof refers to `_private.<Module>.0.<theorem>._aux_1_1`, the
+copy's to `_private.Challenge.Reference.<Module>.0.<theorem>._aux_1_1`. When
+the compare walk reaches such a theorem (it is not listed, but a definition
+the statement mentions uses it), it compares the whole declaration, proof
+included, and refuses at the theorem whose proof differs:
+
+```text
+error: Const does not match between challenge and target 'Fix.helper'
+```
+
+The check is lines 54 and 55 of `Comparator/Compare.lean` at the pinned
+`COMPARATOR_COMMIT` (5756749): a constant that is neither a listed theorem
+nor a definition hole must have equal `ConstantInfo`s on both sides. Lake's
+copy (`Lake/Check/Compare.lean`, Lean v4.35.0) throws the same message at
+line 55. Outside the module system the same auxiliaries are public
+(`helper._simp_1_1`, `bar._aux_1_1`), so the names agree.
+
+Two generators, each with the workaround the report used:
+
+- **`inferInstanceAs` inside a proof.** It wraps the instance in auxiliary
+  declarations (option `backward.inferInstanceAs.wrap`, default `true` in
+  v4.35.0). Inside a proof they are private (`._aux_1_1`). Turn the wrapping
+  off for that proof:
+
+  ```lean
+  @[expose] def D := Nat
+
+  theorem ne : Nonempty D := by
+    set_option backward.inferInstanceAs.wrap false in
+    haveI : Inhabited D := inferInstanceAs (Inhabited Nat)
+    exact ⟨default⟩
+  ```
+
+- **`simp` with an `↔` lemma.** `simp only [P_iff]` makes a private
+  `._simp_1_1` for the rewrite. Pass the lemma as a term instead:
+
+  ```lean
+  def P (n : Nat) : Prop := 0 < n
+  theorem P_iff (n : Nat) : P n ↔ n ≠ 0 := Nat.pos_iff_ne_zero
+
+  theorem helper (n : Nat) (h : n ≠ 0) : P n := by
+    simp only [(P_iff n).mpr h]      -- not: simp only [P_iff]; exact h
+  ```
+
+  Not every `↔` lemma does this: `Nat.not_le`, a core `@[simp]` lemma, reuses
+  its own public `Nat.not_le._simp_1` from `Init`, and `rw [P_iff]` made no
+  auxiliary.
+
+Checked with `lake comparator` on Lean v4.35.0, on core-only fixtures (the
+Reference copy under `Fix.Ref`, the Solution importing the production module,
+a definition in the statement whose body uses the theorem):
+
+| The copied theorem's proof | Result |
+|---|---|
+| `simp only [P_iff]; exact h` | refused at `Fix.helper` |
+| `simp only [(P_iff n).mpr h]` | accepted |
+| `haveI : Inhabited D := inferInstanceAs (Inhabited Nat)` | refused at `Fix.ne` |
+| the same, after `set_option backward.inferInstanceAs.wrap false in` | accepted |
+
+These are the two generators the report found, not a complete list: Lean may
+make other private auxiliaries in a proof. The
+[contracts-only diagnostic](#a-contracts-only-diagnostic) and the closure
+digest above both show the `_private.<Module>.0.` names on each side.
+
+**Rule of thumb: the Challenge states, the Solution proves.** Keep proofs
+out of the Challenge and its Reference copies wherever you can. When a
+definition the statement uses needs a lemma (a subtype or a bound), prefer a
+shared definitions module (pattern 1 above), where every private name
+agrees; apply the two workarounds only to a proof that must be copied.
 
 ### A contracts-only diagnostic
 
