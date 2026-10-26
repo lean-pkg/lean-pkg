@@ -106,7 +106,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   noreply address, else a `WARN` naming the others; never a failure)
   ([repo export](docs/commands/repo-export.md)).
 
-- The committed docs-only opt-in, `lean-pkg-binding.yaml` (#PR_G1; #319,
+- The committed docs-only opt-in, `lean-pkg-binding.yaml` (#349; #319,
   proposal 0002, stage G1): a package opts in to the docs-only descendant
   rule with a file committed in its own directory (`schema:
   lean-pkg-binding/1`, `docs_descendants: true`, optional `build_inputs`).
@@ -123,7 +123,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   by hand for now ([docs-only descendants](docs/receipts.md#docs-only-descendants-opt-in),
   [on-disk formats](docs/formats.md)); `receipt check` and a registry-less
   `index check` read it in stage G2.
-- Additive `opt_in: {source, commit, path}` (#PR_G1; #319) in the
+- Additive `opt_in: {source, commit, path}` (#349; #319) in the
   `gate-passed`, `regated`, `comparator-attached` and `comparator-replaced`
   events and the `--json` of `gate`, `gate --check` and `comparator`
   (attach and `--check`) when the docs-only rule admitted HEAD: `source` is
@@ -189,7 +189,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   scaffold of `lean-pkg new` verifies as before. The preflight runs under
   `--dry-run` too, and `--json` `steps[]` begins with `0/3 preflight`
   ([verify](docs/commands/verify.md)).
-- The docs-only opt-in and its admission line name their source (#PR_G1;
+- The docs-only opt-in and its admission line name their source (#349;
   #319): the text line reads `✓ HEAD <H12> is a docs-only descendant of
   <X12> (N non-build file(s): ...; opted in at <X12> by
   lean-pkg-binding.yaml)`, or `...; opted in by the registry record)` on the

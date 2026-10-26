@@ -278,7 +278,7 @@ changes:
       receipt ci --collect RUN.
     breaking: false
     changelog: Added
-  - pr: 0
+  - pr: 349
     id: binding-file
     kind: format
     area: gate, receipts
@@ -301,7 +301,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 349
     id: binding-file-precedence
     kind: behavior
     area: gate
