@@ -491,6 +491,7 @@ REAL_MODULE = [  # (case, challenge, solution, verdict, detail fragment): Lean's
 
 
 @pytest.mark.skipif(_real_host_ready() is not None, reason=str(_real_host_ready()))
+@pytest.mark.timeout(1500)  # export and judge each have their own 600 s limit (DEFAULT_TIMEOUT)
 @pytest.mark.parametrize("case,solution,verdict,axiom", REAL, ids=[r[0] for r in REAL])
 def test_real_lake_comparator(tmp_path, monkeypatch, capsys, case, solution, verdict, axiom):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
@@ -508,6 +509,7 @@ def test_real_lake_comparator(tmp_path, monkeypatch, capsys, case, solution, ver
 
 
 @pytest.mark.skipif(_real_host_ready() is not None, reason=str(_real_host_ready()))
+@pytest.mark.timeout(1500)  # export and judge each have their own 600 s limit (DEFAULT_TIMEOUT)
 @pytest.mark.parametrize("case,challenge,solution,verdict,fragment", REAL_MODULE, ids=[r[0] for r in REAL_MODULE])
 def test_real_module_headed_exercise(tmp_path, monkeypatch, capsys, case, challenge, solution, verdict, fragment):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
@@ -518,6 +520,7 @@ def test_real_module_headed_exercise(tmp_path, monkeypatch, capsys, case, challe
 
 
 @pytest.mark.skipif(_real_host_ready() is not None, reason=str(_real_host_ready()))
+@pytest.mark.timeout(1500)  # export and judge each have their own 600 s limit (DEFAULT_TIMEOUT)
 def test_real_native_decide_in_the_judged_theorem(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     argv = files(tmp_path, challenge="theorem t : 2 + 2 = 4 := by sorry\n",

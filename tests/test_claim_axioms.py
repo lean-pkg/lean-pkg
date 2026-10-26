@@ -333,6 +333,7 @@ def _judge_real(text: str, build_log: str):
     assert len(refusals) == 2, refusals
 
 
+@pytest.mark.timeout(1500)  # real Lean: the module's real `lake build` (900 s) plus the probe's own limits
 def test_real_probe_reads_every_claim(built):
     d, build_log = built
     text = ca.probe(d, NAMES, ["Fx"], sandboxed=False)
@@ -344,6 +345,7 @@ def test_real_probe_reads_every_claim(built):
 
 
 @pytest.mark.skipif(shutil.which("bwrap") is None, reason="bwrap is not installed")
+@pytest.mark.timeout(1500)  # real Lean: the module's real `lake build` (900 s) plus the probe's own limits
 def test_real_probe_runs_in_the_sandbox(built):
     d, build_log = built
     text = ca.probe(d, NAMES, ["Fx"], sandboxed=True)
@@ -351,6 +353,7 @@ def test_real_probe_runs_in_the_sandbox(built):
     _judge_real(text, build_log)
 
 
+@pytest.mark.timeout(1500)  # real Lean: the module's real `lake build` (900 s) plus the probe's own limits
 def test_real_probe_refuses_an_unbuilt_module_and_the_command_line(built, capsys):
     d, _ = built
     with pytest.raises(Exception, match="not built"):
@@ -361,6 +364,7 @@ def test_real_probe_refuses_an_unbuilt_module_and_the_command_line(built, capsys
     assert json.loads(capsys.readouterr().out)["claim_axioms"]["nonstandard"][0]["decl"] == "Fx.sorried"
 
 
+@pytest.mark.timeout(1500)  # real Lean: the module's real `lake build` (900 s) plus the probe's own limits
 def test_real_job_shell_reads_the_claims_file(built, tmp_path):
     """The verify scripts' claim_axioms_run on the built fixture (no sandbox: it runs inside the job)."""
     d, _ = built

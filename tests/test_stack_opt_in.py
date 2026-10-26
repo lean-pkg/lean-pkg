@@ -169,6 +169,7 @@ def _toolchain_bin():
 
 
 @pytest.mark.skipif(_toolchain_bin() is None, reason=f"{TC} is not installed")
+@pytest.mark.timeout(900)  # real Lean: a real `lake build` (600 s)
 def test_a_bare_lake_build_builds_the_stack_scaffold(lp, capsys, tmp_path):
     """The stage 0 finding on v4.35.0: without defaultTargets a bare `lake build` built nothing. The core-Lean
     scaffold on the stack's toolchain: `lake build` with no target compiles the library."""

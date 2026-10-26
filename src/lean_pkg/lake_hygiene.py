@@ -32,11 +32,7 @@ import os
 import pathlib
 import re
 import subprocess
-
-try:
-    import tomllib
-except ImportError:          # pragma: no cover - Python 3.11+ is required (pyproject)
-    tomllib = None
+import tomllib
 
 CACHE_VERBS = ("Reused", "Replayed", "Unpacked")
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -106,12 +102,10 @@ def lakefile_roots(toml_text: str | None = None, lean_text: str | None = None) -
     it): a namespace listed here is only ever a reason to look closer."""
     names: list[str] = []
     if toml_text is not None:
-        data = None
-        if tomllib is not None:
-            try:
-                data = tomllib.loads(toml_text)
-            except (ValueError, TypeError):
-                data = None
+        try:
+            data = tomllib.loads(toml_text)
+        except (ValueError, TypeError):
+            data = None
         libs = data.get("lean_lib") if isinstance(data, dict) else None
         for lib in libs if isinstance(libs, list) else []:
             if not isinstance(lib, dict):

@@ -72,6 +72,9 @@ def _world(tmp_path: Path) -> dict:
         "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
         "PYTHONPATH": str(ROOT / "src"),
     }
+    # The lean-pkg stub imports src/lean_pkg: without the caller's bytecode settings (`make test` exports a
+    # cache prefix) it writes src/lean_pkg/__pycache__ into the checkout (#310).
+    env.update({k: os.environ[k] for k in ("PYTHONPYCACHEPREFIX", "PYTHONDONTWRITEBYTECODE") if k in os.environ})
     _git("init", "-q", cwd=toy)
     _git("add", "-A", cwd=toy)
     subprocess.run(["git", "commit", "-qm", "toy"], cwd=toy, check=True, capture_output=True, env={**os.environ, **env})

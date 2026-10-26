@@ -112,6 +112,7 @@ def _build(tc_bin, tmp_path):
 
 
 @pytest.mark.skipif(_toolchain_bin() is None, reason=f"{TC} is not installed")
+@pytest.mark.timeout(900)   # the build's own limit is 600 s; the suite default (300 s) would cut it short
 def test_the_template_headers_build_on_the_real_toolchain(tmp_path):
     tc_bin = _toolchain_bin()
     _core_projection(tmp_path)
@@ -131,6 +132,7 @@ def _comparator_ready() -> str | None:
 
 
 @pytest.mark.skipif(_comparator_ready() is not None, reason=str(_comparator_ready()))
+@pytest.mark.timeout(1800)  # build (600 s) and lake comparator (900 s), each with its own limit
 def test_lake_comparator_accepts_the_template_headers(tmp_path):
     tc_bin = _toolchain_bin()
     files = _core_projection(tmp_path)

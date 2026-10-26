@@ -30,6 +30,22 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   comparator step, `next`, `repo export`) say `--repo`. `lean-exercise
   --project`, a prebuilt Mathlib project and not the package checkout, is
   unchanged.
+- Tests and CI hygiene (#PR_A): the suite no longer writes
+  `src/lean_pkg/__pycache__` (the bootstrap test's `lean-pkg` stub now
+  inherits `PYTHONPYCACHEPREFIX` and `PYTHONDONTWRITEBYTECODE`), and a
+  session-end check fails a run in which bytecode appears under `src/`
+  while the run itself writes none there (#310). CI: `timeout-minutes` on
+  both jobs, a pip cache keyed on `pyproject.toml`, superseded pull
+  request runs cancelled (never a run on main), and Python 3.13 and 3.14
+  in the matrix; the `test` extra adds `pytest-timeout` with a 300 s
+  suite default, and the tests that run the real Lean toolchain carry
+  longer limits sized to their own (#311). The `test` extra adds
+  `jsonschema` and `setuptools`, so the five tests that skipped without
+  them run (#312). `make public-safety` uses `lean-pkg registry init`;
+  the unreachable `tomllib` fallbacks in `build_scope.py` and
+  `lake_hygiene.py` are gone (`requires-python >= 3.11`); `make test`
+  says on stderr when it runs serially because pytest-xdist is missing
+  (#313).
 
 ### Documentation
 

@@ -19,12 +19,8 @@ from __future__ import annotations
 import json
 import posixpath
 import re
+import tomllib
 from dataclasses import dataclass, field
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - requires-python >= 3.11
-    tomllib = None
 
 # The array-of-tables keys of a lakefile.toml that declare targets or dependencies (Lake.Load.Toml).
 # Any other array of tables is a declaration this reader does not know: the scope is then unknown.
@@ -106,8 +102,6 @@ def _str_list(value) -> list | None:
 
 def scope_from_toml(text: str) -> tuple[LakeScope | None, str]:
     """(scope, "") from lakefile.toml text, or (None, why) when it cannot be read precisely."""
-    if tomllib is None:
-        return None, "no TOML reader"
     try:
         data = tomllib.loads(text)
     except (ValueError, TypeError) as e:

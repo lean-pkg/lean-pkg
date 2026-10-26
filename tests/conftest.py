@@ -65,6 +65,40 @@ def cli_reference_text() -> str:
     return "\n".join(p.read_text() for p in pages)
 
 
+# No bytecode in the checkout (#310): when the session itself writes none under src/ (PYTHONPYCACHEPREFIX or
+# PYTHONDONTWRITEBYTECODE, as `make test` and CI set), a __pycache__ that appears there came from a test's
+# subprocess whose environment dropped the setting, and the run fails. Checked in the xdist controller only.
+_PYCACHE_BEFORE = pytest.StashKey[set]()
+
+
+def _src_pycache() -> set[Path]:
+    return set(SRC.rglob("__pycache__"))
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_sessionstart(session):
+    if not hasattr(session.config, "workerinput"):
+        session.config.stash[_PYCACHE_BEFORE] = _src_pycache()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    before = session.config.stash.get(_PYCACHE_BEFORE, None)
+    if before is None or not (sys.pycache_prefix or sys.dont_write_bytecode):
+        return
+    new = sorted(_src_pycache() - before)
+    if new:
+        tr = session.config.pluginmanager.get_plugin("terminalreporter")
+        msg = (f"bytecode written into the checkout during the run (#310): {', '.join(str(p.relative_to(ROOT)) for p in new)}"
+               "; a test's subprocess environment dropped PYTHONPYCACHEPREFIX / PYTHONDONTWRITEBYTECODE")
+        if tr is not None:
+            tr.ensure_newline()
+            tr.write_line(msg, red=True)
+        else:
+            print(msg, file=sys.stderr)
+        if session.exitstatus == pytest.ExitCode.OK:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
 def subprocess_env(extra: dict | None = None) -> dict:
     """os.environ with src/ importable, so `python -m lean_pkg...` works from
     a plain checkout as well as from an installed package."""
