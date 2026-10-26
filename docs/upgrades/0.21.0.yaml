@@ -92,4 +92,5 @@ changes:
 # Collaborator setup script: register --url, or --repo for a lean-pkg older than 0.11.0 (#303); its
 # checks written as if/then/else, so ShellCheck reports nothing (#304).
 # ShellCheck disable comments for two intended findings in verify-comparator.sh and a test stub (#305).
-no_author_change: [296, 298, 301, 302, 303, 304, 305]
+# make shellcheck in make check, and a pinned ShellCheck step in CI (#306).
+no_author_change: [296, 298, 301, 302, 303, 304, 305, 306]
