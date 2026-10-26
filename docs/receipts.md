@@ -1837,8 +1837,9 @@ after the runner checks is the Slurm pipeline above: the seal, the fields,
 redaction, the public-safety scan, the files written. It reads and writes
 no registry and needs no token. Such a receipt backs a `github-actions`
 compute job ([Compute sites](sites.md#github-actions)) at level 1, which is
-as strong as a Slurm receipt and as forgeable; it puts no sentence on the
-page until a later stage corroborates the run against GitHub's record.
+as strong as a Slurm receipt and as forgeable; it puts the GitHub Actions
+sentence on the page only once the run is corroborated against GitHub's
+record ([level 2, `--corroborate`](#corroborating-the-run-level-2---corroborate)).
 
 You do not usually run it yourself: lean-pkg's reusable workflow
 `.github/workflows/verify.yml` runs it as its last step, and
@@ -1876,7 +1877,7 @@ another job (it must be `gha-<run>-<attempt>`), a missing `commit:` line.
 the reusable workflow the job ran (`lean-pkg/lean-pkg/.github/workflows/verify.yml@<sha>`
 under `verify.yml`). It is read only when the runner offers a token (the
 job has `id-token: write`), else it is null, which level 1 accepts and
-corroboration will not. The token is read to take that one claim and is
+corroboration (level 2) does not. The token is read to take that one claim and is
 never printed, logged or written.
 
 **Built-in redactions**, longest path first: the checkout to `<repo>`,
@@ -1889,7 +1890,7 @@ every `--redact`. A home directory left after them is blocked by the scan.
 `<c12>-gha-<run>-<attempt>-verify.redacted.log` (with `--compress-log`, the
 `.gz`), the README entry (run, attempt, repository, event, job, runner,
 workflow), and then exactly one workflow notice binding the written bytes,
-which corroboration (the next stage) will read from the run:
+which corroboration ([level 2](#corroborating-the-run-level-2---corroborate)) reads from the run:
 
 ```text
 ::notice title=lean-pkg-receipt::receipt_sha256=<64 hex> report_sha256=<64 hex>
@@ -1920,6 +1921,67 @@ artifacts and no `--attempt`, the artifact does not hold exactly one
 `run_attempt` not `--attempt`), the receipt fails the gate's checks, a file
 already in `.lean-receipts/` has other bytes, or `.lean-receipts/` is a
 symlink. A file already there with the same bytes is left as it is.
+
+### Corroborating the run (level 2, `--corroborate`)
+
+Level 1 shows that a receipt is consistent with itself; every `ci` value is
+still text the author could write. Level 2 asks GitHub's public record of
+the run, so a reader who trusts GitHub need not trust the author:
+
+```bash
+lean-pkg receipt check --repo . --commit <X> --corroborate --github OWNER/REPO
+GH_TOKEN=... lean-pkg page NAME --check --corroborate     # in CI: GITHUB_TOKEN
+```
+
+`receipt check --corroborate`, `page --corroborate` and
+`publish NAME --dry-run --corroborate` read, for each receipt with a `ci`
+block that passes level 1, these endpoints of `https://api.github.com`
+(unauthenticated for a public repository), and nothing else:
+
+| Row | What passes |
+|---|---|
+| `run` | `GET /repos/{ci.repository}/actions/runs/{run_id}/attempts/{run_attempt}` answers for that run and that attempt: the attempt the receipt names, never the run's latest state, so `gha-R-1` is refused when attempt 1 failed even though attempt 2 passed, and `gha-R-2` passes |
+| `run status`, `run conclusion` | `completed` and `success` |
+| `run commit` | `head_sha` is the receipt's `commit` |
+| `run workflow` | `path` is the workflow file of `ci.workflow_ref` |
+| `run event` | `event` is `ci.event` |
+| `run repository` | `repository.id` is `ci.repository_id` (a fork's run has the fork's id) |
+| `package repository` | that id is also the package's own repository's: `--github OWNER/REPO` (`receipt check`), the registry's repository URL (`page`, `publish`); without `--github`, `receipt check` takes `ci.repository` and prints that it did |
+| `annotation` | exactly one `lean-pkg-receipt` annotation among the attempt's jobs (`GET .../attempts/{n}/jobs`, then each job's check-run annotations), whose `receipt_sha256` is the SHA-256 of the committed receipt bytes and whose `report_sha256` is the receipt's (the committed log's); a second one (build code imitating it) refuses, and so does a receipt edited after download |
+| `job`, `runner` | the job that wrote it completed with `success`, in the `GitHub Actions` runner group and not labelled `self-hosted` |
+| `workflow file` | the workflow file at `ci.workflow_sha` (contents API) hashes to `ci.workflow_file_sha256` |
+| `verify.yml call` | that file calls `lean-pkg/lean-pkg/.github/workflows/verify.yml@<40-hex>` at the job level, never a tag or branch (a ref that can move), and `ci.job_workflow` is that same reference (null, a job without `id-token: write`, refuses) |
+| `verify.yml pin` | lean-pkg's `verify.yml` at that commit hashes to an entry of the shipped pin list [`verify-workflow-pins.yaml`](../src/lean_pkg/data/verify-workflow-pins.yaml), the content SHA-256 of every released `verify.yml`: a commit SHA alone is not enough, because GitHub serves a fork's commits through the parent repository's path |
+
+Every request that fails stops there with one `api` row naming why, and
+fails closed: HTTP 404 (the run deleted, its records expired, 90 days by
+default, or the repository not public), 403 or 429 (the rate limit: set
+`GH_TOKEN` or `GITHUB_TOKEN`), a network error, and a redirect off
+`api.github.com` (refused before anything is sent there; a redirect within
+it, a renamed repository, is followed). None is ever a pass, and none
+lowers the receipt below level 1: it still backs its `compute` job. The
+level is computed each time and never stored, so the page never claims
+level 2 from memory.
+
+A token, when `GH_TOKEN` (else `GITHUB_TOKEN`) is set, only raises the
+rate limit: it is sent only in the `Authorization` header of requests to
+`api.github.com`, and never printed, logged, written to a file or put in
+`--json`. `--corroborate` downloads no logs or artifacts.
+
+`receipt check --corroborate` adds one `... ci level 2 CHECK` row per check
+and a `... ci level` row, exits 1 when a receipt does not reach level 2, and
+its `--json` gains `ci: {level, rows[]}` (each row with its `receipt`),
+`github` and `network: true`. `page --corroborate` renders the GitHub
+Actions sentence only when every listed job reaches level 2, with `{runs}`
+filled by the runs' links; its `--json` site `github-actions` gains
+`corroboration` (`{job: rows}`) and `runs`. A job that does not reach level 2
+is a warning naming why, and the sentence is left out.
+
+Level 2 proves a real, successful run of lean-pkg's pinned verify workflow,
+in that repository, on that commit, on a GitHub-hosted runner, which wrote
+exactly the committed receipt and log bytes. It does not prove the
+mathematics (build code runs in the same job), and it says nothing once
+the run's records are gone ([Trust model](trust-model.md#not-covered-lean-pkg-relies-on-honesty-here)).
 
 ## Comparator receipt schema (`comparator-receipt/2`; `/1` still validates)
 
@@ -2423,8 +2485,8 @@ lists every tracked comparator configuration under `status.main_results`; see
 
 `gate`, `comparator` and `promote` read the author's registry record. A
 reader who has only the public repository runs the same validators with
-`receipt check`, which reads no registry, opens no network connection and never
-runs Lean:
+`receipt check`, which reads no registry, opens no network connection (unless
+`--corroborate` asks GitHub about a GitHub Actions run) and never runs Lean:
 
 ```bash
 git clone https://github.com/OWNER/REPO && cd REPO
@@ -2446,7 +2508,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `... report log` | `report_sha256` is the SHA-256 of the committed redacted log (or of its `.gz`, decompressed); a missing log fails |
 | `... evidence files` | `manifest_sha256`, `artifacts_manifest_sha256`, `unit_properties_sha256` against the files they name, when present; `job_stdout_sha256` is not checkable (the job's stdout is not published) |
 | `... sacct seal` | only when the receipt has a `slurm_sacct` block ([`--seal-sacct`](#sealing-the-sacct-record---seal-sacct)): shown (job, window, record); the validator of `lower <receipt>` already failed it unless the sealed record is committed at REF and still hashes and parses to the block |
-| `... ci` | only when the receipt has a `ci` block (a GitHub Actions run): shown (the run, its attempt, repository, event and job, at level 1); the validator of `lower <receipt>` already failed it unless every level-1 rule holds. `... ci workflow file`: the workflow file at `ci.workflow_sha` rehashed (`skip` when that commit is not in the clone). A receipt with a `gha-` job id and no block: `skip` (it backs no compute job) |
+| `... ci` | only when the receipt has a `ci` block (a GitHub Actions run): shown (the run, its attempt, repository, event and job, at level 1); the validator of `lower <receipt>` already failed it unless every level-1 rule holds. `... ci workflow file`: the workflow file at `ci.workflow_sha` rehashed (`skip` when that commit is not in the clone). A receipt with a `gha-` job id and no block: `skip` (it backs no compute job). With `--corroborate`: `... ci level 2 CHECK`, one row per level-2 check, and `... ci level` ([level 2](#corroborating-the-run-level-2---corroborate)) |
 | `... container` | only when the receipt has a `container` key: shown (engine, digest, image ref); a malformed one fails; the digest is not re-derivable (the image is not published) |
 | `... claim axioms` | only when the receipt has a `claim_axioms` key: re-derived from the committed sealed log against `claims.yaml` at X (every claim checked, none missing, no `sorryAx`, no axiom in the log's `#print axioms` output that the walk did not find) and equal to the key |
 | `claims` | `claims.yaml` at X passes the claims/1 schema and the declaration check `gate` runs |

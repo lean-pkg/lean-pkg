@@ -1,6 +1,6 @@
 # lean-pkg receipt check -- validate a published package's receipts from git alone
 """`lean-pkg receipt check --repo DIR --commit X [--at REF] [--docs-descendants | --evidence-only] [--name NAME]
-[--json]`:
+[--corroborate [--github OWNER/REPO]] [--json]`:
 the registry-free receipt verifier an outside referee runs on a clone of a published package. It needs no
 lean-pkg registry, no lab account and no network, and it never runs Lean: everything is read from git, at the
 bound commit X and at the published ref REF (default: the checkout's HEAD), in a private clone of DIR (the
@@ -66,8 +66,17 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   commit, the toolchain and Mathlib pins, every Evidence row (path, commit, SHA-256 of the committed file), the
   lower-tier sorry count and axioms, the comparator's configuration and theorem counts.
 
+--corroborate (proposal 0008, level 2) is the one networked check: every lower-tier receipt with a `ci` block
+that passes level 1 is corroborated against the public GitHub REST API (ci_github.corroborate), one row per
+level-2 check, and fails when it does not reach level 2 (a 404, a 403 or 429 naming GH_TOKEN, a network error
+and a redirect off api.github.com each fail closed, named). The package's own repository is --github
+OWNER/REPO; without it, the receipt's ci.repository, and the output says so. A token from GH_TOKEN or
+GITHUB_TOKEN only raises the rate limit; it is never printed or written. The JSON gains `ci: {level, rows}`
+(level: the lowest a corroborated receipt reached; null when none has a `ci` block), `github` and
+`network: true`.
+
 Exit 0 only when no check fails; 1 otherwise; 2 on a usage error (DIR is not a git checkout, X or REF does
-not resolve).
+not resolve, --github without --corroborate or not OWNER/REPO).
 """
 
 from __future__ import annotations
@@ -93,6 +102,12 @@ RERUN_NOTE = ("this command never runs Lean and never uses the network: rebuildi
 EVIDENCE_FILE_KEYS = {"artifacts_manifest_sha256": "artifacts.sha256",
                       "unit_properties_sha256": "unit.properties"}
 PASS, FAIL, SKIP = "pass", "fail", "skip"
+CORROBORATE_NOTE = ("this command never runs Lean; with --corroborate it asks the public GitHub REST API (level 2) "
+                    "and nothing else on the network: rebuilding at the commit and re-running the comparator are "
+                    "steps 4 and 5 of docs/trust-model.md#re-verify-a-page-yourself")
+REPO_DEFAULT = ("no --github: the package repository is taken to be each receipt's ci.repository (pass --github "
+                "OWNER/REPO to name it; a run in another repository, a fork included, then does not back)")
+REPO_NOTE = "the package repository is {where}; a run in another repository (by numeric id) does not back"
 # The one formalization.yaml path the evidence-only rule exempts without a registry: the renderer's default
 # (formalization.DEFAULT_PATH), package-relative. A package whose registry records another path keeps the
 # strict reading here (or the referee's --docs-descendants).
@@ -399,6 +414,23 @@ def ci_check(c: Checks, repo: pathlib.Path, view: dict) -> None:
         c.add(f"lower {rel}: ci workflow file", PASS if row[0] == "pass" else SKIP, row[1])
 
 
+def corroborate_check(c: Checks, repo: pathlib.Path, view: dict, fetch, github: str | None) -> dict | None:
+    """--corroborate: level 2 of a receipt whose `ci` block passed level 1 (ci_github.corroborate), one row per
+    check, failed when one fails. {path, level, rows}, or None for a receipt without a valid block."""
+    from . import ci_github
+    rec, rel = view["data"], view["path"]
+    if ci_github.KEY not in rec or ci_github.level1(rec, repo)[0]:
+        return None
+    level, rows = ci_github.corroborate(rec, repo, fetch=fetch, receipt_sha256=view["sha256"], expect_repo=github)
+    for r in rows:
+        c.add(f"lower {rel}: ci level 2 {r['check']}", PASS if r["verdict"] == "pass" else FAIL, r["detail"])
+    c.add(f"lower {rel}: ci level", PASS if level >= 2 else FAIL,
+          ci_github.LEVEL2_NOTE if level >= 2 else
+          f"level {level}: not corroborated, so the GitHub Actions sentence is not earned (the receipt stays a "
+          f"valid level-1 receipt and still backs its compute job)")
+    return {"path": rel, "level": level, "rows": rows}
+
+
 def container_check(c: Checks, view: dict, tier: str = "lower") -> None:
     """The additive `container` key (#236), when present: shown, and failed when malformed. The digest is what
     the job measured; the image is not published, so it is not re-derived here."""
@@ -686,12 +718,21 @@ def opt_in_view(oi) -> dict | None:
 
 
 def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants: bool = False,
-             name: str | None = None, evidence_only: bool = False) -> tuple[list[str], dict, int]:
+             name: str | None = None, evidence_only: bool = False, corroborate: bool = False,
+             github: str | None = None, fetch=None) -> tuple[list[str], dict, int]:
     from . import index as index_mod
     if docs_descendants and evidence_only:
         raise core.UsageError("--docs-descendants and --evidence-only are mutually exclusive: --docs-descendants "
                               f"accepts docs-only descendants for a package without {BINDING_FILE}, "
                               "--evidence-only refuses them whatever the package committed")
+    from . import ci_github
+    if github is not None and not corroborate:
+        raise core.UsageError("--github names the package's repository for --corroborate; pass both")
+    if github is not None and not ci_github.REPOSITORY_RE.match(github):
+        raise core.UsageError(f"--github {github!r}: must be OWNER/REPO")
+    corroborated: list[dict] = []
+    if corroborate and fetch is None:
+        fetch = ci_github.api_fetch()
     with tempfile.TemporaryDirectory(prefix="lean-pkg-receipt-check-") as tmp:
         src = open_source(repo_dir, commit, at, pathlib.Path(tmp))
         repo, x, ref = src["clone"], src["commit"], src["at"]
@@ -737,6 +778,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                 evidence_file_checks(c, repo, v, x)
                 sacct_seal_check(c, v)
                 ci_check(c, repo, v)
+                if corroborate and (got := corroborate_check(c, repo, v, fetch, github)) is not None:
+                    corroborated.append(got)
                 container_check(c, v)
                 claim_axioms_check(c, repo, v, x)
         cs = gate_mod.claims_schema_at(pkg_name, pkg, repo, x)
@@ -776,7 +819,9 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
              f"  commit {x} (published ref {ref[:12]}{', the same commit' if ref == x else ''})",
              f"  rule: {rule}",
              *[f"  exemption: {e}" for e in c.exemptions],
-             f"  note: {RERUN_NOTE}",
+             f"  note: {CORROBORATE_NOTE if corroborate else RERUN_NOTE}",
+             *([f"  repository: {REPO_NOTE.format(where='--github ' + github) if github else REPO_DEFAULT}"]
+               if corroborate else []),
              *[f"  {w}" for w in advisory_lines]]
     lines += [f"  {i['verdict'].upper():4} {i['id']}: {i['detail']}" for i in c.items]
     lines.append(summary)
@@ -786,16 +831,22 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
     payload = {"ok": ok, "name": pkg_name, "commit": x, "at": ref, "prefix": src["prefix"] or None,
                "docs_descendants": oi.rule == "docs-only", "evidence_only": bool(evidence_only),
                "opt_in": opt_in_view(oi), "rule": rule, "tier": tier, "runs_lean": False,
-               "network": False, "note": RERUN_NOTE, "receipts": receipts, "bound_receipts": bound,
+               "network": bool(corroborate),
+               "note": CORROBORATE_NOTE if corroborate else RERUN_NOTE, "receipts": receipts, "bound_receipts": bound,
                "counts": counts, "exemptions": c.exemptions,
                "skipped_records": [v["path"] for v in found["sidecar"]], "checks": c.items,
                "toolchain_advisories": advisories}
+    if corroborate:
+        payload["github"] = github
+        payload["ci"] = {"level": min((g["level"] for g in corroborated), default=None),
+                         "rows": [{"receipt": g["path"], **r} for g in corroborated for r in g["rows"]]}
     return lines, payload, 0 if ok else 1
 
 
 def cmd_receipt_check(args) -> int:
     lines, payload, rc = do_check(args.repo, args.commit_sha, args.at, args.docs_descendants, args.name,
-                                  getattr(args, "evidence_only", False))
+                                  getattr(args, "evidence_only", False),
+                                  corroborate=args.corroborate, github=args.github)
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:
@@ -827,6 +878,14 @@ def add_parser(rsub) -> None:
     s.add_argument("--name", default=None,
                    help="the package name the claims must carry (default: `package` in coverage.yaml, else "
                         "claims.yaml, else the directory name)")
+    s.add_argument("--corroborate", action="store_true",
+                   help="also corroborate every receipt with a ci block (a GitHub Actions run) against the public "
+                        "GitHub REST API, level 2, and fail when one does not reach it (404, rate limit, network "
+                        "error and a redirect off api.github.com fail closed). GH_TOKEN or GITHUB_TOKEN, when set, "
+                        "only raises the rate limit and is never printed. The one networked check")
+    s.add_argument("--github", default=None, metavar="OWNER/REPO",
+                   help="with --corroborate: the package's own GitHub repository, whose numeric id the run's must "
+                        "equal (default: the receipt's ci.repository, and the output says so)")
     s.add_argument("--json", dest="json_out", action="store_true", default=argparse.SUPPRESS,
                    help="machine-readable JSON on stdout: every check with its verdict")
     s.set_defaults(fn=cmd_receipt_check)

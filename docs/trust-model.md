@@ -196,9 +196,28 @@ separates what has shipped from what the Lean FRO has announced.
   write, so a level-1 receipt is as forgeable as a hand-written `slurm-<J>`
   one, and gets exactly what that gets: a `compute` job backed, and no
   sentence on the page. The GitHub Actions sentence renders only from a run
-  corroborated against GitHub's public record (level 2,
-  [proposal 0008](proposals/0008-github-actions-compute-receipt.md), a
-  later stage); until then a README carrying it fails `page --check`.
+  corroborated against GitHub's public record (level 2, `--corroborate`;
+  without it a README carrying the sentence fails `page --check`).
+- **What level 2 proves, and what it does not.** `--corroborate` asks
+  GitHub's public REST API, not the author: the attempt the receipt names
+  completed with success, on the receipt's commit, in the package's own
+  repository by numeric id (a fork's run, or another repository's, does
+  not back), in a job on a GitHub-hosted runner, running lean-pkg's
+  `verify.yml` at a 40-hex commit whose content is a released one (the
+  shipped pin list), and that job wrote exactly one `lean-pkg-receipt`
+  annotation whose hashes are the committed receipt and log bytes. So a
+  level-2 receipt needs a real run, and a fabricated log beside a real run
+  is refused. It does not prove the mathematics: build code
+  (`lakefile`, dependencies) runs in the same job before `receipt ci` and
+  could alter what it reads or emit a second annotation (a second one is
+  refused; the alteration is not prevented). It trusts GitHub (the runner,
+  the API). And it decays: once the run is deleted or its records expire
+  (90 days by default) level 2 fails with the reason named, and the next
+  `--corroborate` render drops the sentence; nothing records the level.
+  Every failed request (404, 403 or 429, a network error, a redirect off
+  `api.github.com`) fails closed. A token, when set, only raises the rate
+  limit and is never printed or written
+  ([Corroborating the run](receipts.md#corroborating-the-run-level-2---corroborate)).
   `lean-pkg receipt ci` writes the receipt in the job with no token;
   lean-pkg's reusable `verify.yml` holds `contents: read` and
   `id-token: write` (the OIDC token is read for its `job_workflow_ref` claim and never

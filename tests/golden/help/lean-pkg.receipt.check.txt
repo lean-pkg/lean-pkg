@@ -1,20 +1,29 @@
 usage: lean-pkg receipt check [-h] --repo DIR --commit SHA [--at REF] [--docs-descendants |
-                              --evidence-only] [--name NAME] [--json]
+                              --evidence-only] [--name NAME] [--corroborate] [--github OWNER/REPO]
+                              [--json]
 
 options:
-  -h, --help          show this help message and exit
-  --repo DIR          a local clone of the package (the package directory; cloned privately, never
-                      modified)
-  --commit SHA        the commit the receipts bind (the page's `git checkout <commit>` line)
-  --at REF            the published ref whose .lean-receipts/, coverage.yaml and README.md are
-                      read (default HEAD of --repo); it must be the commit or an evidence-only
-                      descendant of it (or a docs-only one, when the docs-only rule applies)
-  --docs-descendants  for a package without lean-pkg-binding.yaml at the commit: also accept a
-                      docs-only descendant (no build input changed) as the referee's choice,
-                      printed in the result; a committed file that says false or does not validate
-                      overrides it
-  --evidence-only     accept only evidence-only descendants: ignore the author's committed opt-in
-                      (lean-pkg-binding.yaml at the commit, applied by default)
-  --name NAME         the package name the claims must carry (default: `package` in coverage.yaml,
-                      else claims.yaml, else the directory name)
-  --json              machine-readable JSON on stdout: every check with its verdict
+  -h, --help           show this help message and exit
+  --repo DIR           a local clone of the package (the package directory; cloned privately,
+                       never modified)
+  --commit SHA         the commit the receipts bind (the page's `git checkout <commit>` line)
+  --at REF             the published ref whose .lean-receipts/, coverage.yaml and README.md are
+                       read (default HEAD of --repo); it must be the commit or an evidence-only
+                       descendant of it (or a docs-only one, when the docs-only rule applies)
+  --docs-descendants   for a package without lean-pkg-binding.yaml at the commit: also accept a
+                       docs-only descendant (no build input changed) as the referee's choice,
+                       printed in the result; a committed file that says false or does not
+                       validate overrides it
+  --evidence-only      accept only evidence-only descendants: ignore the author's committed opt-in
+                       (lean-pkg-binding.yaml at the commit, applied by default)
+  --name NAME          the package name the claims must carry (default: `package` in
+                       coverage.yaml, else claims.yaml, else the directory name)
+  --corroborate        also corroborate every receipt with a ci block (a GitHub Actions run)
+                       against the public GitHub REST API, level 2, and fail when one does not
+                       reach it (404, rate limit, network error and a redirect off api.github.com
+                       fail closed). GH_TOKEN or GITHUB_TOKEN, when set, only raises the rate
+                       limit and is never printed. The one networked check
+  --github OWNER/REPO  with --corroborate: the package's own GitHub repository, whose numeric id
+                       the run's must equal (default: the receipt's ci.repository, and the output
+                       says so)
+  --json               machine-readable JSON on stdout: every check with its verdict

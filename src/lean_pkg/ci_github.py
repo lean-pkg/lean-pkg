@@ -14,15 +14,31 @@ when that commit is in the clone (else a shown skip). Unknown keys inside the bl
 
 That is consistency only, the strength of a `slurm-<J>` receipt and as forgeable: every value is text the
 author could write. Level 1 backs a compute job but never renders the GitHub Actions sentence on the page
-(the scheduler's sentence_level is 2: a corroborated run, proposal 0008 stage S3).
+(the scheduler's sentence_level is 2: a corroborated run).
+
+Level 2 (`corroborate`; `receipt check --corroborate`, `page --corroborate`, `publish --dry-run --corroborate`;
+stage S3) asks the public REST API of github.com: the attempt the receipt names (never the run's latest) is
+completed and successful, on the receipt's commit, of the workflow file `ci.workflow_ref` names, of `ci.event`,
+in the repository whose numeric id is `ci.repository_id` and the package's own; exactly one `lean-pkg-receipt`
+annotation in its jobs, whose two hashes are the committed receipt and log bytes, written by a successful job
+in the GitHub-hosted runner group; the workflow file at `ci.workflow_sha` hashes to `ci.workflow_file_sha256`
+and calls lean-pkg's verify.yml at a 40-hex commit equal to `ci.job_workflow`, whose content SHA-256 is in the
+shipped pin list (data/verify-workflow-pins.yaml). Every failed request fails closed and is named. The level is
+computed at check time and never stored.
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import json
+import os
 import pathlib
 import re
 import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from . import core
 from . import sites
@@ -254,3 +270,397 @@ def near_misses(repo: pathlib.Path, missing: list[str]) -> str:
             problems = level1(rec, repo)[0]
             hints[job] = f"; {rel} has job_id {job} but its ci block fails: {'; '.join(problems)}"
     return "".join(hints[j] for j in missing if j in hints)
+
+
+# --------------------------------------------------------------------------
+# level 2: corroboration against the public run API (proposal 0008, stage S3)
+#
+# The REST API fields read here (an assumption until a live run; the tests use recorded, scrubbed shapes):
+#   GET /repos/{repository}/actions/runs/{run_id}/attempts/{run_attempt}: id, run_attempt, status, conclusion,
+#       head_sha, path (".github/workflows/F.yml", "@ref" appended in some answers), event, repository.id
+#   GET /repos/{owner}/{repo}: id (only for a package repository named apart from ci.repository)
+#   GET /repos/{repository}/actions/runs/{run_id}/attempts/{run_attempt}/jobs?per_page=100&page=N:
+#       total_count, jobs[].id, name, status, conclusion, runner_group_name, labels
+#   GET /repos/{repository}/check-runs/{job id}/annotations?per_page=100&page=N: [].title, [].message
+#       (an Actions job's id is its check run's id)
+#   GET /repos/{owner}/{repo}/contents/{path}?ref={sha}: type, encoding ("base64"), content
+
+API_URL = "https://api.github.com"
+API_HOST = "api.github.com"
+API_TIMEOUT = 30
+API_MAX_BYTES = 8 << 20
+API_MAX_REDIRECTS = 3
+API_MAX_PAGES = 10
+PER_PAGE = 100
+TOKEN_ENVS = ("GH_TOKEN", "GITHUB_TOKEN")
+VERIFY_REPOSITORY = "lean-pkg/lean-pkg"
+VERIFY_PATH = ".github/workflows/verify.yml"
+VERIFY_WORKFLOW = f"{VERIFY_REPOSITORY}/{VERIFY_PATH}"
+ANNOTATION_TITLE = "lean-pkg-receipt"
+ANNOTATION_RE = re.compile(r"^receipt_sha256=([0-9a-f]{64}) report_sha256=([0-9a-f]{64})$")
+HOSTED_GROUP = "GitHub Actions"          # the runner group of a job on a GitHub-hosted runner
+PINS_FILE = "verify-workflow-pins.yaml"
+PINS_SCHEMA = "lean-pkg-verify-workflow-pins/1"
+LEVEL2_NOTE = ("level 2, corroborated by the public run API: a successful run of lean-pkg's pinned verify "
+               "workflow, in that repository (by numeric id), on that commit, on a GitHub-hosted runner, which "
+               "wrote exactly the committed receipt and log bytes; it says nothing once the run's records expire, "
+               "nor that build code in the same job did not lie")
+RATE_HINT = ("set GH_TOKEN (or GITHUB_TOKEN) to a GitHub token to raise the API rate limit; it is sent only to "
+             "api.github.com and never printed or written")
+
+
+class FetchError(Exception):
+    """A request that got no HTTP answer to judge: `kind` is "network" or "redirect"."""
+
+    def __init__(self, kind: str, detail: str) -> None:
+        super().__init__(detail)
+        self.kind = kind
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None          # urllib raises the 3xx as an HTTPError; api_fetch decides where it may go
+
+
+def _token(env) -> str | None:
+    for k in TOKEN_ENVS:
+        v = (env.get(k) or "").strip()
+        if v:
+            return v
+    return None
+
+
+def _on_api(url: str) -> bool:
+    try:
+        u = urllib.parse.urlsplit(url)
+        port = u.port
+    except ValueError:
+        return False
+    return u.scheme == "https" and u.hostname == API_HOST and port in (None, 443) and not u.username
+
+
+def _read_capped(stream) -> bytes:
+    buf = bytearray()
+    while True:
+        chunk = stream.read(min(1 << 16, API_MAX_BYTES + 1 - len(buf)))
+        if not chunk:
+            return bytes(buf)
+        buf += chunk
+        if len(buf) > API_MAX_BYTES:
+            raise FetchError("network", f"an answer larger than {API_MAX_BYTES} bytes; refused")
+
+
+def api_fetch(env=None, opener=None):
+    """The real fetch: fetch(path) -> (HTTP status, body bytes) of GET https://api.github.com<path>. https and
+    api.github.com only: a redirect (a renamed repository) is followed only while it stays there; one elsewhere
+    raises FetchError("redirect") before anything is sent to it, so the token cannot follow. A timeout and a
+    body cap; anything without an HTTP answer raises FetchError("network"). The token (GH_TOKEN, else
+    GITHUB_TOKEN) only raises the rate limit: it is sent only in the Authorization header and never printed,
+    logged or written (no message here names its value). opener: for tests (urllib's OpenerDirector shape)."""
+    from . import __version__
+    token = _token(os.environ if env is None else env)
+    op = opener or urllib.request.build_opener(_NoRedirect)
+
+    def fetch(path: str) -> tuple[int, bytes]:
+        url = API_URL + path
+        for _hop in range(API_MAX_REDIRECTS + 1):
+            if not _on_api(url):
+                host = urllib.parse.urlsplit(url).hostname or "?"
+                raise FetchError("redirect", f"the API redirected to {host}, not {API_HOST}; refused before "
+                                             f"anything was sent there")
+            req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
+                                                       "X-GitHub-Api-Version": "2022-11-28",
+                                                       "User-Agent": f"lean-pkg/{__version__} (corroborate)"})
+            if token:
+                req.add_unredirected_header("Authorization", f"Bearer {token}")
+            try:
+                with op.open(req, timeout=API_TIMEOUT) as resp:
+                    return int(resp.status), _read_capped(resp)
+            except urllib.error.HTTPError as e:
+                if e.code in (301, 302, 303, 307, 308):
+                    loc = e.headers.get("Location") if e.headers is not None else None
+                    if not loc:
+                        raise FetchError("redirect", f"HTTP {e.code} without a Location; refused") from None
+                    url = urllib.parse.urljoin(url, loc)
+                    continue
+                try:
+                    body = _read_capped(e)
+                except (OSError, FetchError):
+                    body = b""
+                return int(e.code), body
+            except FetchError:
+                raise
+            except Exception as e:   # URLError, socket timeouts, TLS and http.client errors
+                reason = getattr(e, "reason", None)
+                why = e.__class__.__name__ + (f": {reason.__class__.__name__}" if reason is not None else "")
+                raise FetchError("network", f"no answer from {API_HOST} ({why})") from None
+        raise FetchError("redirect", f"more than {API_MAX_REDIRECTS} redirects; refused")
+    return fetch
+
+
+def pins() -> frozenset[str]:
+    """The content SHA-256 of every released verify.yml (data/verify-workflow-pins.yaml)."""
+    import yaml
+    path = pathlib.Path(__file__).resolve().parent / "data" / PINS_FILE
+    doc = yaml.safe_load(path.read_text())
+    if not (isinstance(doc, dict) and doc.get("schema") == PINS_SCHEMA and isinstance(doc.get("sha256"), list)):
+        raise core.Fail(f"{path}: not a {PINS_SCHEMA} list")
+    return frozenset(x for x in doc["sha256"] if isinstance(x, str) and HEX64.match(x))
+
+
+class _Stop(Exception):
+    """A request failed and corroboration cannot go on; its failure row is already added."""
+
+
+class _Rows:
+    def __init__(self, fetch) -> None:
+        self.items: list[dict] = []
+        self.fetch = fetch
+
+    def add(self, check: str, ok: bool, detail: str) -> bool:
+        self.items.append({"check": check, "verdict": "pass" if ok else "fail", "detail": detail})
+        return ok
+
+    def get(self, path: str, what: str):
+        """GET path as JSON, or add the failure row named for `what` and raise _Stop (fails closed)."""
+        try:
+            status, body = self.fetch(path)
+        except FetchError as e:
+            self.add("api", False, f"{what}: {e}: not corroborated" if e.kind == "redirect" else
+                     f"{what}: network error, {e}: not corroborated (fails closed; nothing is assumed)")
+            raise _Stop() from None
+        if status == 404:
+            self.add("api", False, f"{what}: HTTP 404: deleted, expired or never there, or not public (a run's "
+                                   f"records are kept 90 days by default; level 2 is never claimed from memory)")
+            raise _Stop()
+        if status in (403, 429):
+            self.add("api", False, f"{what}: HTTP {status}: rate limited or forbidden; {RATE_HINT}")
+            raise _Stop()
+        if status != 200:
+            self.add("api", False, f"{what}: HTTP {status}: not corroborated")
+            raise _Stop()
+        try:
+            return json.loads(body)
+        except ValueError:
+            self.add("api", False, f"{what}: the API answer is not JSON; not corroborated")
+            raise _Stop() from None
+
+    def pages(self, path: str, key: str | None, what: str) -> list:
+        """Every item of a paged list (`key`: the list inside the answer; None: the answer is the list)."""
+        out: list = []
+        for page in range(1, API_MAX_PAGES + 1):
+            doc = self.get(f"{path}{'&' if '?' in path else '?'}per_page={PER_PAGE}&page={page}", what)
+            items = doc.get(key) if key is not None and isinstance(doc, dict) else doc
+            if not isinstance(items, list):
+                self.add("api", False, f"{what}: the API answer has no {key or 'list'}; not corroborated")
+                raise _Stop()
+            out += items
+            total = doc.get("total_count") if key is not None and isinstance(doc, dict) else None
+            if len(items) < PER_PAGE or (isinstance(total, int) and len(out) >= total):
+                return out
+        self.add("api", False, f"{what}: more than {API_MAX_PAGES} pages; not corroborated")
+        raise _Stop()
+
+    def content(self, repository: str, path: str, ref: str, what: str) -> bytes:
+        """The bytes of path at ref (contents API), or a failure row and _Stop."""
+        doc = self.get(f"/repos/{_q(repository)}/contents/{_q(path)}?ref={ref}", what)
+        if not (isinstance(doc, dict) and doc.get("type") == "file" and doc.get("encoding") == "base64"
+                and isinstance(doc.get("content"), str)):
+            self.add("api", False, f"{what}: not a file with base64 content in the API answer; not corroborated")
+            raise _Stop()
+        try:
+            return base64.b64decode(doc["content"])
+        except ValueError:
+            self.add("api", False, f"{what}: the content is not base64; not corroborated")
+            raise _Stop() from None
+
+
+def _q(s: str) -> str:
+    return urllib.parse.quote(s, safe="/")
+
+
+def verify_refs(text: bytes) -> tuple[list[str], str | None]:
+    """(the REF of every job-level `uses: lean-pkg/lean-pkg/.github/workflows/verify.yml@REF` of a caller
+    workflow, None), or ([], why the file cannot be read)."""
+    import yaml
+    try:
+        doc = yaml.safe_load(text.decode("utf-8"))
+    except (UnicodeDecodeError, yaml.YAMLError) as e:
+        return [], f"the workflow file is not YAML ({e.__class__.__name__})"
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    if not isinstance(jobs, dict):
+        return [], "the workflow file has no jobs mapping"
+    refs = []
+    for job in jobs.values():
+        uses = job.get("uses") if isinstance(job, dict) else None
+        if isinstance(uses, str) and uses.strip().startswith(VERIFY_WORKFLOW + "@"):
+            refs.append(uses.strip().split("@", 1)[1])
+    return refs, None
+
+
+def _run_rows(rows: _Rows, run, rec: dict, wpath: str) -> int | None:
+    """The rows of the attempt's own fields; the run's repository id (None when absent)."""
+    ci = rec[KEY]
+    run_id, attempt, commit = ci["run_id"], ci["run_attempt"], rec["commit"]
+    if not isinstance(run, dict):
+        rows.add("run", False, "the API answer for the run is not an object")
+        raise _Stop()
+    same = run.get("id") == run_id and run.get("run_attempt") == attempt
+    rows.add("run", same, f"run {run_id} attempt {attempt} of {ci['repository']}" if same else
+             f"the API answered for run {run.get('id')!r} attempt {run.get('run_attempt')!r}, not run {run_id} "
+             f"attempt {attempt}")
+    st, cn, hs, ev = run.get("status"), run.get("conclusion"), run.get("head_sha"), run.get("event")
+    rows.add("run status", st == "completed", f"status {st!r}" + ("" if st == "completed" else
+                                                                  ", not completed: the attempt is not finished"))
+    rows.add("run conclusion", cn == "success",
+             f"conclusion {cn!r}" + ("" if cn == "success" else
+                                     " in this attempt, not success (a receipt names one attempt; another attempt "
+                                     "is another receipt)"))
+    rows.add("run commit", hs == commit, f"head_sha {str(hs)[:12]}" + (" = the receipt commit" if hs == commit else
+                                                                       f", not the receipt commit {commit[:12]}"))
+    rpath = str(run.get("path") or "").split("@", 1)[0]
+    rows.add("run workflow", rpath == wpath, f"path {rpath!r}" + (" = the file of ci.workflow_ref" if rpath == wpath
+                                                                   else f", not {wpath!r} (ci.workflow_ref)"))
+    rows.add("run event", ev == ci["event"], f"event {ev!r}" + (" = ci.event" if ev == ci["event"] else
+                                                                 f", not ci.event {ci['event']!r}"))
+    repo_obj = run.get("repository")
+    got = repo_obj.get("id") if isinstance(repo_obj, dict) else None
+    rows.add("run repository", got == ci["repository_id"],
+             f"repository id {got!r}" + (" = ci.repository_id" if got == ci["repository_id"] else
+                                         f", not ci.repository_id {ci['repository_id']} (another repository's "
+                                         f"run, a fork's included)"))
+    return got if isinstance(got, int) else None
+
+
+def _package_row(rows: _Rows, ci: dict, got: int | None, expect_repo: str | None) -> None:
+    repository, rid = ci["repository"], ci["repository_id"]
+    if expect_repo is None or expect_repo.lower() == repository.lower():
+        how = "ci.repository" + ("" if expect_repo else ", no other named")
+        rows.add("package repository", got == rid, f"the package repository is {repository} ({how}), id {rid}"
+                 + ("" if got == rid else f"; the run is in id {got!r}"))
+        return
+    doc = rows.get(f"/repos/{_q(expect_repo)}", f"repository {expect_repo}")
+    want = doc.get("id") if isinstance(doc, dict) else None
+    ok = isinstance(want, int) and got == want == rid
+    rows.add("package repository", ok,
+             f"the package repository {expect_repo} is id {want!r}" + (", the run's" if ok else
+                                                                     f"; the run is in id {got!r} ({repository}): "
+                                                                     f"a fork's or another repository's run does "
+                                                                     f"not back the package"))
+
+
+def _annotation_rows(rows: _Rows, rec: dict, base: str, receipt_sha256: str) -> None:
+    ci = rec[KEY]
+    jobs = rows.pages(f"{base}/jobs", "jobs", f"the jobs of run {ci['run_id']} attempt {ci['run_attempt']}")
+    found: list[tuple[dict, dict]] = []
+    for job in jobs:
+        if not (isinstance(job, dict) and isinstance(job.get("id"), int) and not isinstance(job.get("id"), bool)):
+            continue
+        notes = rows.pages(f"/repos/{_q(ci['repository'])}/check-runs/{job['id']}/annotations", None,
+                           f"the annotations of job {job['id']}")
+        found += [(job, a) for a in notes if isinstance(a, dict) and a.get("title") == ANNOTATION_TITLE]
+    if len(found) != 1:
+        rows.add("annotation", False,
+                 f"no {ANNOTATION_TITLE} annotation in the attempt's jobs (`receipt ci` writes exactly one)"
+                 if not found else
+                 f"{len(found)} {ANNOTATION_TITLE} annotations (job(s) "
+                 f"{', '.join(dict.fromkeys(str(j['id']) for j, _a in found))}); `receipt ci` writes exactly one, "
+                 f"so another is build code imitating it")
+        rows.add("job", False, "no single job of the attempt carries the receipt annotation")
+        return
+    job, note = found[0]
+    m = ANNOTATION_RE.match(str(note.get("message") or "").strip())
+    if m is None:
+        rows.add("annotation", False, f"the {ANNOTATION_TITLE} annotation's message is not "
+                                      f"'receipt_sha256=<64 hex> report_sha256=<64 hex>'")
+    else:
+        want_log = str(rec.get("report_sha256", "")).lower()
+        bad = [x for x, b in ((f"the committed receipt hashes to {receipt_sha256[:12]} (its bytes changed after "
+                               f"the run, or it is another receipt)", m[1] != receipt_sha256),
+                              (f"the receipt's report_sha256 (the committed log) is {want_log[:12]}",
+                               m[2] != want_log)) if b]
+        rows.add("annotation", not bad, f"job {job['id']} wrote receipt_sha256 {m[1][:12]} and report_sha256 "
+                                        f"{m[2][:12]}" + ("; ".join([""] + bad) if bad else
+                                                          ": the committed receipt and log bytes"))
+    ok = job.get("status") == "completed" and job.get("conclusion") == "success"
+    rows.add("job", ok, f"job {job['id']} ({job.get('name')!r}): status {job.get('status')!r}, conclusion "
+                        f"{job.get('conclusion')!r}" + ("" if ok else ", not a completed success"))
+    labels = job.get("labels") if isinstance(job.get("labels"), list) else []
+    hosted = job.get("runner_group_name") == HOSTED_GROUP and "self-hosted" not in labels
+    rows.add("runner", hosted, f"runner group {job.get('runner_group_name')!r}" + (
+        ": GitHub-hosted" if hosted else f", not {HOSTED_GROUP!r} or labelled self-hosted (a self-hosted runner "
+                                         f"is the author's own machine; its receipt is worth `receipt local`)"))
+
+
+def _workflow_rows(rows: _Rows, ci: dict, wpath: str) -> None:
+    wsha, want = ci["workflow_sha"], ci["workflow_file_sha256"]
+    raw = rows.content(ci["repository"], wpath, wsha, f"{wpath} at {wsha[:12]}")
+    got = hashlib.sha256(raw).hexdigest()
+    rows.add("workflow file", got == want, f"{wpath} at {wsha[:12]} hashes to {got[:12]}" + (
+        " = ci.workflow_file_sha256" if got == want else f", not ci.workflow_file_sha256 {want[:12]}"))
+    refs, why = verify_refs(raw)
+    jw = ci.get("job_workflow")
+    jw_ref = jw.split("@", 1)[1] if isinstance(jw, str) and jw.startswith(VERIFY_WORKFLOW + "@") else None
+    if why or not refs:
+        rows.add("verify.yml call", False, why or f"{wpath} does not call {VERIFY_WORKFLOW}@<40-hex> (no job's "
+                                                  f"uses: names it)")
+        return
+    if bad := [r for r in refs if not HEX40.match(r)]:
+        rows.add("verify.yml call", False, f"{wpath} calls {VERIFY_WORKFLOW}@{bad[0]}: a tag or branch can move; "
+                                           f"pin it to a full 40-hex commit")
+        return
+    if jw_ref is None or jw_ref not in refs:
+        rows.add("verify.yml call", False, f"ci.job_workflow {jw!r} is not {VERIFY_WORKFLOW}@<the commit {wpath} "
+                                           f"calls> (null: the job had no id-token: write)")
+        return
+    rows.add("verify.yml call", True, f"{wpath} calls {VERIFY_WORKFLOW}@{jw_ref[:12]} = ci.job_workflow")
+    vraw = rows.content(VERIFY_REPOSITORY, VERIFY_PATH, jw_ref, f"{VERIFY_WORKFLOW} at {jw_ref[:12]}")
+    vsha = hashlib.sha256(vraw).hexdigest()
+    listed = vsha in pins()
+    rows.add("verify.yml pin", listed, f"{VERIFY_PATH} at {jw_ref[:12]} hashes to {vsha[:12]}" + (
+        ", a released lean-pkg verify.yml (the shipped pin list)" if listed else
+        ", not in the shipped pin list (data/verify-workflow-pins.yaml): not a released lean-pkg verify.yml (a "
+        "fork's commit is served through the parent repository's path)"))
+
+
+def corroborate(rec: dict, repo: pathlib.Path | None, *, fetch, receipt_sha256: str,
+                expect_repo: str | None = None) -> tuple[int, list[dict]]:
+    """(level, rows) of a receipt with a `ci` block: 2 when every check against the public run API holds, else 1
+    (a failure never lowers a receipt below level 1; 0 only when the block fails level 1 itself, which the
+    commands refuse before asking). rows: one {check, verdict pass|fail, detail} per level-2 check, in order. A
+    request that fails stops there with an `api` row naming why (404, 403/429 naming GH_TOKEN, a network error,
+    a redirect off api.github.com): it fails closed, never a pass.
+
+    receipt_sha256: SHA-256 of the committed receipt bytes (the annotation binds them). expect_repo: the
+    package's own repository OWNER/REPO (the registry's repository URL; `receipt check --github`); None takes
+    ci.repository. fetch(path) -> (status, body): api_fetch() or a test's recorded answers."""
+    rows = _Rows(fetch)
+    problems, _row = level1(rec, repo)
+    if problems:
+        rows.add("level 1", False, "; ".join(problems))
+        return 0, rows.items
+    ci = rec[KEY]
+    wpath = WORKFLOW_REF_RE.match(ci["workflow_ref"])["path"]
+    base = f"/repos/{_q(ci['repository'])}/actions/runs/{ci['run_id']}/attempts/{ci['run_attempt']}"
+    try:
+        run = rows.get(base, f"run {ci['run_id']} attempt {ci['run_attempt']} of {ci['repository']}")
+        got = _run_rows(rows, run, rec, wpath)
+        _package_row(rows, ci, got, expect_repo)
+        _annotation_rows(rows, rec, base, receipt_sha256)
+        _workflow_rows(rows, ci, wpath)
+    except _Stop:
+        pass
+    ok = bool(rows.items) and all(r["verdict"] == "pass" for r in rows.items)
+    return (2 if ok else 1), rows.items
+
+
+def failures(rows: list[dict]) -> str:
+    """The failed rows, one clause each."""
+    return "; ".join(f"{r['check']}: {r['detail']}" for r in rows if r["verdict"] != "pass")
+
+
+def run_link(ci: dict) -> str:
+    """A corroborated run as a Markdown link: [run R attempt A](https://github.com/OWNER/REPO/actions/runs/R/
+    attempts/A)."""
+    return (f"[run {ci['run_id']} attempt {ci['run_attempt']}]({SERVER_URL}/{ci['repository']}/actions/runs/"
+            f"{ci['run_id']}/attempts/{ci['run_attempt']})")

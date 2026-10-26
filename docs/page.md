@@ -279,6 +279,9 @@ no `--commit`). A live lease held by another agent refuses it unless you pass
 - `README.md` is missing, or has no block, or its block differs from a fresh render;
 - the README lacks the lean-pkg credit (the repository link and the concept DOI);
 - the README mentions the Easley Cluster anywhere, inside the markers or not, without a backing receipt;
+- the README carries the GitHub Actions sentence without a corroborated run: it needs `--corroborate`
+  ([GitHub Actions](sites.md#github-actions)), which asks GitHub's public run API about each listed job and
+  renders the sentence, with the runs' links, only when every one reaches level 2;
 - with `--site DIR` or `--html PATH`, a file there is missing or differs from a fresh render.
 
 Run it in the companion's CI. `lean-pkg publish NAME --dry-run` carries the
@@ -485,7 +488,28 @@ jobs:
 On a commit between gate runs the job passes with a warning per difference
 (the preview above); add `--strict-preview` to make it fail there instead.
 Drop `--site docs` when the package has no docs pages; add `--html PATH`
-when it ships the HTML file. Pin the lean-pkg version you render with: a newer
+when it ships the HTML file.
+
+A package that backs `compute` with GitHub Actions runs
+([GitHub Actions](sites.md#github-actions)) renders and checks its page with
+`--corroborate`, so the GitHub Actions sentence is earned from GitHub's
+record of each run; the job's own `GITHUB_TOKEN` raises the API rate limit
+and is never printed:
+
+```yaml
+      - name: lean-pkg page --check --corroborate
+        env:
+          LEAN_PKG_REGISTRY_YAML: ${{ secrets.LEAN_PKG_REGISTRY_YAML }}
+          GITHUB_TOKEN: ${{ github.token }}     # read-only use: the public run API's rate limit
+        run: |
+          printf '%s\n' "$LEAN_PKG_REGISTRY_YAML" > "$RUNNER_TEMP/lean-packages.yaml"
+          lean-pkg --registry "$RUNNER_TEMP/lean-packages.yaml" page my-companion --check --corroborate --repo "$GITHUB_WORKSPACE"
+```
+
+Render the committed block the same way (`page NAME --write --corroborate`).
+Once a run's records expire (90 days by default) its corroboration fails, the
+sentence is dropped from a fresh render and the check fails until the README
+is rendered again from a newer, corroborated run. Pin the lean-pkg version you render with: a newer
 version may word a section differently, and the check then reports the
 committed files as stale until you render them again.
 
