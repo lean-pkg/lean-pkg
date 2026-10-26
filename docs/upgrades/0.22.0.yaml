@@ -181,6 +181,60 @@ changes:
       refused.
     breaking: false
     changelog: Added
+  - pr: 344
+    id: repo-export-explicit-identity
+    kind: behavior
+    area: repo export
+    summary: >-
+      repo export sets the author and committer of the export commit explicitly (#339): --author 'NAME <EMAIL>',
+      else user.name and user.email of the source repository's local git config (git config --local); the global
+      identity, which put a personal address into public history, is never used. With neither the export refuses
+      ('no identity for the export commit: pass --author ...', exit 1, nothing written), and an address that is not
+      a GitHub noreply one (ID+LOGIN@users.noreply.github.com or LOGIN@users.noreply.github.com) refuses unless
+      --allow-author-email is given; --dry-run refuses the same way. The export's own public-safety scan checks
+      that identity and the commit message (with --from-tree or not), so a private pattern in either refuses
+      whatever the flags.
+    action: >-
+      Before repo export, set a noreply identity in the source repository (git -C SRC config user.name NAME; git
+      -C SRC config user.email ID+LOGIN@users.noreply.github.com) or pass --author 'NAME
+      <ID+LOGIN@users.noreply.github.com>'. To publish another address on purpose, add --allow-author-email.
+    breaking: true
+    changelog: Fixed
+    split: true
+  - pr: 344
+    id: repo-export-author-flags
+    kind: command
+    area: repo export, publish
+    summary: >-
+      New flags repo export --author 'NAME <EMAIL>' (author and committer of the export commit) and
+      --allow-author-email (accept an address that is not a GitHub noreply one) (#339). repo export --json gains
+      identity {author, committer, source, noreply} and the plan a 'commit identity:' line. publish --dry-run gains
+      the checklist line 'commit identities going public: ...', the distinct author and committer addresses of
+      every ref the flip publishes: a pass when each is a GitHub noreply address, else a warning naming the others,
+      never a failure.
+    action: >-
+      Nothing required. Read the new publish line before the flip; a script reading publish --json checklist[]
+      sees one more entry.
+    breaking: false
+    changelog: Added
+    split: true
+  - pr: 344
+    id: repo-export-carry-used-allow-lines
+    kind: behavior
+    area: repo export
+    summary: >-
+      repo export carries into the committed .lean-pkg-public-allow only the allow: lines of
+      .lean-pkg-private-patterns that its own scan used (they exempted something in the staged tree, the commit
+      message or the identity) (#340); it carried every allow line, and an unused one, whose pattern names what it
+      allows, leaked into the public repository and allowed nothing. Unused lines are dropped and counted, never
+      printed (JSON public_allow gains unused and present); with none used no .lean-pkg-public-allow is written.
+      Only a carried line holding a private string refuses the export now.
+    action: >-
+      Nothing. If a later commit of the exported repository needs an allow line that was dropped, add it to
+      .lean-pkg-public-allow by hand (it is public).
+    breaking: false
+    changelog: Fixed
+    split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

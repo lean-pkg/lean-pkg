@@ -1,27 +1,33 @@
 usage: lean-pkg repo export [-h] [--remote URL] [--keep-receipts] [--source-commit SHA]
-                            [--from-tree SRCDIR] [--agent AGENT] [--reason REASON] [--dry-run]
-                            [--json] [--commit] [--push] [--no-commit]
+                            [--from-tree SRCDIR] [--author IDENTITY] [--allow-author-email]
+                            [--agent AGENT] [--reason REASON] [--dry-run] [--json] [--commit]
+                            [--push] [--no-commit]
                             name DIR
 
 positional arguments:
   name
-  DIR                  the new repository (must not exist, or be empty): internal files and the
-                       patterns file dropped, public-safety scanned; then the package is relocated
-                       there (repo move): evidence cleared, provenance note added
+  DIR                   the new repository (must not exist, or be empty): internal files and the
+                        patterns file dropped, public-safety scanned; then the package is
+                        relocated there (repo move): evidence cleared, provenance note added
 
 options:
-  -h, --help           show this help message and exit
-  --remote URL         git remote add origin URL, and set the record's repo
-  --keep-receipts      copy .lean-receipts/ from the source HEAD (they do not bind to the new
-                       commit)
-  --source-commit SHA  export this commit instead of the gate-bound one
-  --from-tree SRCDIR   export the working tree at SRCDIR (a hand-cleaned tree, not a commit;
-                       .gitignore honoured in a checkout) instead of the gate-bound commit
-  --agent AGENT        lease holder, if one is live
-  --reason REASON      free-text reason stored with the event
-  --dry-run            stage and scan, print the plan; nothing written
-  --json               machine-readable JSON on stdout
-  --commit             write commands: pull --ff-only, then commit the registry files (default:
-                       $LEAN_PKG_COMMIT=1)
-  --push               --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit          never commit or push (overrides the env)
+  -h, --help            show this help message and exit
+  --remote URL          git remote add origin URL, and set the record's repo
+  --keep-receipts       copy .lean-receipts/ from the source HEAD (they do not bind to the new
+                        commit)
+  --source-commit SHA   export this commit instead of the gate-bound one
+  --from-tree SRCDIR    export the working tree at SRCDIR (a hand-cleaned tree, not a commit;
+                        .gitignore honoured in a checkout) instead of the gate-bound commit
+  --author IDENTITY     'NAME <EMAIL>': author and committer of the export commit (default:
+                        user.name and user.email of the source repository's local git config; the
+                        global identity is never used)
+  --allow-author-email  accept an identity email that is not a GitHub noreply address (it enters
+                        public history)
+  --agent AGENT         lease holder, if one is live
+  --reason REASON       free-text reason stored with the event
+  --dry-run             stage and scan, print the plan; nothing written
+  --json                machine-readable JSON on stdout
+  --commit              write commands: pull --ff-only, then commit the registry files (default:
+                        $LEAN_PKG_COMMIT=1)
+  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
+  --no-commit           never commit or push (overrides the env)

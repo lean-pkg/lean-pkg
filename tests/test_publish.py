@@ -54,6 +54,20 @@ def test_a_ready_package_passes_and_prints_the_next_commands(lp, env, fake_gh, c
     assert env.registry.read_text() == before_reg and read_events(env) == before_ev
 
 
+def test_checklist_lists_the_commit_addresses_that_go_public(lp, env, fake_gh, capsys):
+    # #339: every author and committer address of every ref is published by the flip
+    rc, cap = pub(lp, env, capsys, "--dry-run", "--json")
+    item = [c for c in json.loads(cap.out)["checklist"] if c["label"].startswith("commit identities going public")]
+    assert [c["status"] for c in item] == ["warn"], item
+    assert "not a GitHub noreply address: test@example.com" in item[0]["label"]
+    noreply = "7+ada@users.noreply.github.com"
+    _git(env.repo_b, "-c", f"user.email={noreply}", "commit", "-q", "--allow-empty", "--author",
+         f"Ada <{noreply}>", "-m", "x")
+    rc, cap = pub(lp, env, capsys, "--dry-run")
+    line = next(ln for ln in cap.out.splitlines() if "commit identities going public" in ln)
+    assert noreply in line and "test@example.com" in line and line.lstrip().startswith("WARN")
+
+
 def test_gaps_are_failures_with_their_fix(lp, env, fake_gh, capsys):
     rc, cap = pub(lp, env, capsys, "--dry-run")
     assert rc == 1

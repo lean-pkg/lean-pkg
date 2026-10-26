@@ -28,7 +28,7 @@ keeps the hits of the part decoded so far, falls back to the compressed bytes an
   fixture address, a generic CI path); any other line is ignored with a warning. Inside that file every
   allow line applies whatever its path scope, and a line that a private block pattern (the patterns file's
   or a registry-derived name) matches is the blocking `public-allow-private` hit, which no allow line
-  exempts. `release --fresh-repo` writes it from the patterns file's allow lines.
+  exempts. `repo export` writes it from the patterns file's allow lines its own scan used (#340).
 - built-in defaults: absolute home paths, a cloud-sync folder path, `approvals/`, `notes/`,
   `*.private`, `TODO-private`, and email addresses other than the declared ones (the repository's
   commit and tag identities that are ordinary mail addresses, `consent[]` entries, `allow:` lines,
@@ -278,6 +278,26 @@ def allow_lines(root: pathlib.Path) -> list[tuple[int, str]]:
             if raw.strip().partition(":")[0] == "allow"]
 
 
+def allow_line_numbers(root: pathlib.Path) -> list[int]:
+    """The line number of each allow entry read_patterns_file returns for <root>, in its order (the
+    `allow:` lines whose regular expression compiles): what Scanner.used_allow_lines reports."""
+    p = root / PATTERNS_FILE
+    if not p.is_file():
+        return []
+    out = []
+    for n, raw in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+        line = raw.strip()
+        tag, _, rest = line.partition(":")
+        if not line or line.startswith("#") or tag != "allow":
+            continue
+        try:
+            re.compile(split_scope(rest.strip())[1])
+        except re.error:
+            continue
+        out.append(n)
+    return out
+
+
 def private_matches(sc: "Scanner", text: str) -> list[str]:
     """Labels of the blocking private patterns (the patterns file's, the registry-derived names) that match
     `text` anywhere, no allow line applied: what may never be published inside an allow line."""
@@ -382,6 +402,34 @@ class Scanner:
         self.n_allow_scoped = sum(1 for _a, g in self.allow[:self.n_private_allow] if g is not None)
         self.emails = declared_emails(pkg, repo_for_emails)
         self._active: dict = {}
+        # #340: which allow entries exempted something (indexes into self.allow), so `repo export` carries
+        # only the lines its own scan used. re.compile caches, so one regex object can stand for several
+        # entries with the same text: each of them is marked used.
+        ns = allow_line_numbers(patterns_root)
+        self._allow_ns = ns if len(ns) == self.n_private_allow else [None] * self.n_private_allow
+        self._allow_idx: dict[int, list[int]] = {}
+        for i, (rx, _g) in enumerate(self.allow):
+            self._allow_idx.setdefault(id(rx), []).append(i)
+        self.used_allow: set[int] = set()
+        self._recording = True
+
+    def _used(self, rx: re.Pattern) -> None:
+        if self._recording:
+            self.used_allow.update(self._allow_idx.get(id(rx), ()))
+
+    def _first_allow(self, text: str, allow: list[re.Pattern]) -> bool:
+        """Whether an allow regex in `allow` matches anywhere in `text`; the first that does is marked used."""
+        for a in allow:
+            if a.search(text):
+                self._used(a)
+                return True
+        return False
+
+    def used_allow_lines(self) -> list[int]:
+        """#340: the line numbers of the patterns file's `allow:` lines that exempted something in what
+        this scanner scanned (redacting a hit's location for the report does not count)."""
+        return sorted({self._allow_ns[i] for i in self.used_allow
+                       if i < self.n_private_allow and self._allow_ns[i] is not None})
 
     def active(self, path: str | None) -> tuple[list[Pattern], list[re.Pattern]]:
         """(patterns, allow regexes) that apply to a file at `path` (None: a commit message or a
@@ -399,7 +447,7 @@ class Scanner:
         return self._active[path]
 
     def allowed(self, pat: Pattern, text: str, allow: list[re.Pattern] | None = None) -> bool:
-        if any(a.search(text) for a in (self.active(None)[1] if allow is None else allow)):
+        if self._first_allow(text, self.active(None)[1] if allow is None else allow):
             return True
         if pat.label == "email":
             return text.casefold() in self.emails or bool(ALWAYS_ALLOWED_EMAIL.search(text))
@@ -410,7 +458,11 @@ class Scanner:
     def unscanned_allowed(self, path: str | None) -> bool:
         """An unscanned portion of `path` is exempt only where an `allow:` line applying to it matches
         the word `unscanned` in full (`allow: GLOB: ^unscanned$`)."""
-        return any(a.fullmatch(UNSCANNED) for a in self.active(path)[1])
+        for a in self.active(path)[1]:
+            if a.fullmatch(UNSCANNED):
+                self._used(a)
+                return True
+        return False
 
     def identity_hits(self, name: str, email: str) -> list[tuple[int, Pattern, str]]:
         """Hits in a commit or tag identity `name <email>`: every pattern, as for any text, and
@@ -424,8 +476,8 @@ class Scanner:
         if public_identity_email(e):       # an ordinary address is declared by being used
             spans = [x for x in spans if not (x[2].label == "email" and x[0] >= at)]
         elif e and not (
-                any(a.search(e) for a in self.active(None)[1]) or e.casefold() in self.emails
-                or ALWAYS_ALLOWED_EMAIL.search(e)):
+                e.casefold() in self.emails or ALWAYS_ALLOWED_EMAIL.search(e)
+                or self._first_allow(e, self.active(None)[1])):
             spans = [x for x in spans if not (x[2].label == "email" and x[0] >= at)]
             spans = sorted(spans + [(at, at + len(email), IDENTITY_EMAIL)], key=lambda x: (x[0], -x[1]))
         return self._line_hits(1, text, spans, set())
@@ -455,8 +507,7 @@ class Scanner:
                     out.append((m.start(), m.end(), pat))
         return sorted(out, key=lambda s: (s[0], -s[1]))
 
-    @staticmethod
-    def _derived_spans(pat: Pattern, line: str, allow: list[re.Pattern]) -> list[tuple[int, int, Pattern]]:
+    def _derived_spans(self, pat: Pattern, line: str, allow: list[re.Pattern]) -> list[tuple[int, int, Pattern]]:
         """#38: a derived token is judged inside its surrounding non-space run: an allow line exempts
         an occurrence only when one of its matches in the run covers it (a public URL holding the
         token), never the bare token everywhere. The reported span stays the token itself."""
@@ -468,10 +519,13 @@ class Scanner:
             toks = [(m.start(), m.end()) for m in pat.rx.finditer(text) if m.end() > m.start()]
             if not toks:
                 continue
-            cover = [(a.start(), a.end()) for rx in allow for a in rx.finditer(text) if a.end() > a.start()]
+            cover = [(a.start(), a.end(), rx) for rx in allow for a in rx.finditer(text) if a.end() > a.start()]
             for s, e in toks:
-                if not any(a <= s and e <= b for a, b in cover):
+                by = next((rx for a, b, rx in cover if a <= s and e <= b), None)
+                if by is None:
                     out.append((run.start() + s, run.start() + e, pat))
+                else:
+                    self._used(by)
         return out
 
     def redact(self, text: str) -> str:
@@ -481,7 +535,11 @@ class Scanner:
     def redact_path(self, path: str) -> str:
         """A location with private names replaced by […]; the directory-name rules (notes/, ...) are
         kept readable, since they are reported as internal files by path."""
-        spans = [s for s in self.spans(path) if s[2].label not in PATH_READABLE]
+        recording, self._recording = self._recording, False   # redacting a location uses no allow line
+        try:
+            spans = [s for s in self.spans(path) if s[2].label not in PATH_READABLE]
+        finally:
+            self._recording = recording
         return _redact(path, spans)[0]
 
     def scan_text(self, text: str, path: str | None = None, first_line: int = 1) -> list[tuple[int, Pattern, str]]:
@@ -1209,7 +1267,8 @@ def repository_scope(root: pathlib.Path) -> tuple[pathlib.Path, str] | None:
 def scan(pkg: dict, root: pathlib.Path, history: bool = True,
          patterns_root: pathlib.Path | None = None, source_repo: pathlib.Path | None = None,
          export: bool = False, strict: bool = False, whole_repo: bool = False,
-         gzip_limit: int | None = None, public_allow_root: pathlib.Path | None = None) -> dict:
+         gzip_limit: int | None = None, public_allow_root: pathlib.Path | None = None,
+         used_allow: set[int] | None = None) -> dict:
     """The scan result as the --json payload body: ok, hits[], tree_hits, history_hits, block_hits,
     warn_hits, strict, scope, skipped[], decoded[] (gzip files and blobs decoded, #8), gzip_limit,
     patterns_source, warnings[]. ok: no blocking hit (strict: no
@@ -1217,7 +1276,8 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
     patterns_root/source_repo then name the package checkout whose patterns file and consent apply
     (default: root). whole_repo=True (promotion): when root is a subdirectory of its git repository,
     the whole repository is scanned (tree, every blob, every commit), since making the GitHub
-    repository public publishes all of it; the package's patterns file still applies."""
+    repository public publishes all of it; the package's patterns file still applies. used_allow (#340):
+    a set that receives the line numbers of the patterns file's `allow:` lines the scan used."""
     scope, prefix = "package", ""
     if whole_repo and not export:
         rs = repository_scope(root)
@@ -1232,6 +1292,8 @@ def scan(pkg: dict, root: pathlib.Path, history: bool = True,
     history = bool(history and not export and core.git_head(root) is not None)
     hist = scan_history(sc, root, skipped) if history else []
     hits = tree + hist
+    if used_allow is not None:
+        used_allow.update(sc.used_allow_lines())
     source = {"file": PATTERNS_FILE if sc.file_present else None, "file_patterns": sc.n_file,
               "public_allow_file": PUBLIC_ALLOW_FILE if sc.public_allow_present else None,
               "public_allow": sc.n_public_allow,
@@ -1362,6 +1424,28 @@ def checklist_item(pkg: dict, repo: pathlib.Path) -> tuple[tuple[str, str], dict
                         f"— review with `lean-pkg public-safety {pkg['name']}`"), counts
     return ("✓", f"public-safety{where}: no private pattern in the tree or the history"
                  + skipped_note(result)), counts
+
+
+NOREPLY_EMAIL_RE = re.compile(r"(?:[0-9]+\+)?[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\[bot\])?"
+                              r"@users\.noreply\.github\.com", re.I)
+
+
+def identity_item(repo: pathlib.Path) -> tuple[str, str] | None:
+    """#339: the publish checklist line listing the distinct author and committer addresses of the commits
+    the flip makes public (every ref of the repository): `✓` when each is a GitHub noreply address, else a
+    `WARN` (an address in public history is cheapest to fix before the first push). None without commits."""
+    if core.git_head(repo) is None:
+        return None
+    p = core.git(repo, "log", "--all", "--format=%ae%n%ce")
+    emails = sorted({x.strip() for x in p.stdout.splitlines() if x.strip()}, key=str.casefold)
+    if p.returncode != 0 or not emails:
+        return None
+    other = [e for e in emails if not NOREPLY_EMAIL_RE.fullmatch(e)]
+    if not other:
+        return ("✓", f"commit identities going public: {', '.join(emails)} (GitHub noreply)")
+    return ("WARN", f"commit identities going public: {', '.join(emails)}; not a GitHub noreply address: "
+                    f"{', '.join(other)} (every commit's author and committer address is published; a fresh "
+                    f"history: `repo export NAME DIR --author 'NAME <ID+LOGIN@users.noreply.github.com>'`)")
 
 
 def cmd_public_safety(args) -> int:

@@ -71,6 +71,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   naming the `github-actions` scheduler, and an acknowledgement with the
   `{runs}` token outside a built-in level-2 profile, are refused
   ([compute sites](docs/sites.md#github-actions)).
+- `repo export --author 'NAME <EMAIL>'` and `--allow-author-email`
+  (#344; #339): `--author` names the author and committer of the export
+  commit; `--allow-author-email` accepts an address that is not a GitHub
+  noreply one. `repo export --json` gains `identity` {author, committer,
+  source, noreply} and `public_allow` gains `unused` and `present`
+  (additive). `publish --dry-run` gains the checklist line `commit
+  identities going public: ...`, listing the distinct author and committer
+  addresses of every ref the flip publishes (`✓` when each is a GitHub
+  noreply address, else a `WARN` naming the others; never a failure)
+  ([repo export](docs/commands/repo-export.md)).
 
 ### Changed
 
@@ -174,6 +184,35 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `<registry-repo>` (the git work tree holding the registry),
   `<index-dir>`, and `<events-path>` (an event log that is not the
   registry's sibling).
+- `repo export` sets the export commit's identity explicitly (#344;
+  #339). The one root commit meant for public history took whatever
+  identity git found, the global `user.email` included, so a personal
+  address could enter public history, and public-safety did not flag it.
+  The author and committer are now `--author 'NAME <EMAIL>'`, else
+  `user.name` and `user.email` of the source repository's local git config
+  (`git config --local`); the global identity is never used. With neither,
+  the export refuses ("no identity for the export commit: pass --author
+  ...", exit 1, nothing written), and an address that is not a GitHub
+  noreply one (`ID+LOGIN@users.noreply.github.com` or
+  `LOGIN@users.noreply.github.com`) refuses unless `--allow-author-email`
+  is given; the dry run refuses the same way. The export's own
+  public-safety scan now checks that identity and the commit message (it
+  checked git's ambient identity, and the message only with
+  `--from-tree`), so a private pattern in either refuses, with the flag or
+  without. Breaking for a script that relied on the global identity: see
+  the upgrade record.
+- `repo export` carries only the `allow:` lines its own scan used (#344;
+  #340). Every `allow:` line of `.lean-pkg-private-patterns` was copied
+  into the committed `.lean-pkg-public-allow`, unused ones included, and an
+  allow pattern names what it allows (a homepage URL spelling a user id,
+  test fixtures), so the public repository gained a file that leaked them
+  and allowed nothing. The scan now records which allow lines exempted
+  something in the staged tree, the commit message or the identity, and
+  only those are carried; an unused line is dropped and counted (`N unused
+  allow line(s) dropped`, JSON `public_allow.unused`), never printed, and
+  when none was used no `.lean-pkg-public-allow` is written. Only a carried
+  line holding a private string refuses the export now; an unused one is
+  dropped.
 
 ### Documentation
 

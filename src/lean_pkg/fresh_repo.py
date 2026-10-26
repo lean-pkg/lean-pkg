@@ -9,10 +9,14 @@ registry entry there.
    beside DIR, dropping the `.lean-pkg-private-patterns` file, the internal-file paths of
    `public-safety` (approvals/, notes/, drafts/, scratch/, *.priv, *.private) and `.lean-receipts/`
    (copied from the source checkout's HEAD only with --keep-receipts). Every dropped path is listed.
-3. The staged tree is scanned with the package's public-safety patterns; any hit refuses, and
-   nothing is written.
+3. The staged tree, the commit message and the commit identity are scanned with the package's
+   public-safety patterns; any blocking hit refuses, and nothing is written. The patterns file's
+   `allow:` lines that scan used, and only those, are carried into a committed
+   `.lean-pkg-public-allow` (#340); none used, no file.
 4. The staging directory becomes DIR: `git init`, one commit whose message records the source
-   commit and the export date, an optional `origin` remote.
+   commit and the export date, an optional `origin` remote. Its author and committer are explicit
+   (#339): --author 'NAME <EMAIL>', else the source repository's local user.name/user.email, never
+   the global identity; an address that is not a GitHub noreply one needs --allow-author-email.
 5. The registry entry is relocated with the `update NAME --path DIR` machinery (reason
    "fresh-history release"): the gate and comparator evidence, bound to the source commit, is
    cleared (verified-private becomes gate-pending), and a dated note keeps the old receipt paths and
@@ -187,38 +191,89 @@ def source_commit(pkg: dict, repo: pathlib.Path, given: str | None) -> tuple[str
     return sha, f"gate receipt {rel}"
 
 
-def export_identity_hits(sc: "ps.Scanner") -> list[dict]:
+# #339: the export commit is public history, so its identity is set explicitly, never git's ambient one.
+NOREPLY_RE = ps.NOREPLY_EMAIL_RE
+_IDENT_RE = re.compile(r"\s*([^<>]*?)\s*<([^<>\s]+@[^<>\s]+)>\s*")
+AUTHOR_HINT = "--author 'NAME <ID+LOGIN@users.noreply.github.com>'"
+
+
+def noreply_email(email: str) -> bool:
+    """A GitHub noreply address: `ID+LOGIN@users.noreply.github.com` or `LOGIN@users.noreply.github.com`."""
+    return NOREPLY_RE.fullmatch(email.strip()) is not None
+
+
+def parse_identity(text: str) -> tuple[str, str]:
+    m = _IDENT_RE.fullmatch(text or "")
+    if not m or not m.group(1):
+        raise core.UsageError(f"--author {text!r}: give a name and an address, {AUTHOR_HINT}")
+    return m.group(1), m.group(2)
+
+
+def local_identity(repo: pathlib.Path) -> tuple[str, str] | None:
+    """(user.name, user.email) of the repository's own (`--local`) git config when both are set; the
+    global and system identities are never read."""
+    got = []
+    for key in ("user.name", "user.email"):
+        p = core.git(repo, "config", "--local", "--get", key)
+        if p.returncode != 0 or not p.stdout.strip():
+            return None
+        got.append(p.stdout.strip())
+    return got[0], got[1]
+
+
+def export_identity(name: str, given: str | None, sources: list[pathlib.Path], allow_email: bool) -> dict:
+    """#339: the author and committer of the export commit: --author, else the source repository's local
+    git config (user.name, user.email); never the global identity. Refused when there is none, and when
+    the address is not a GitHub noreply one unless --allow-author-email: the commit is public history."""
+    if given is not None:
+        ident, how = parse_identity(given), "--author"
+    else:
+        ident = how = None
+        for src in sources:
+            if src is not None and src.is_dir():
+                ident = local_identity(src)
+                if ident:
+                    how = "the source repository's local git config (user.name, user.email)"
+                    break
+        if ident is None:
+            raise core.Fail(f"{name}: repo export: no identity for the export commit: pass {AUTHOR_HINT}, or set "
+                            f"user.name and user.email in the source repository's local git config (git -C SRC "
+                            f"config user.email ...); the global git identity is never used, since this commit "
+                            f"is public history; nothing written")
+    full = f"{ident[0]} <{ident[1]}>"
+    nr = noreply_email(ident[1])
+    if not nr and not allow_email:
+        raise core.Fail(f"{name}: repo export: the export commit's author and committer email {ident[1]} (from "
+                        f"{how}) is not a GitHub noreply address, and the commit is public history: pass "
+                        f"{AUTHOR_HINT}, or --allow-author-email to publish this address; nothing written")
+    return {"author": full, "committer": full, "name": ident[0], "email": ident[1], "source": how, "noreply": nr}
+
+
+def export_identity_hits(sc: "ps.Scanner", identities: list[tuple[str, str]]) -> list[dict]:
     """The blocking public-safety hits in the author and committer identity the export commit will
-    carry (published with it): git's identity for a new repository, read in an empty scratch one.
-    As for any commit identity: an ordinary mail address is declared by being used; a host-like one
-    (`user@hostname`, a local TLD such as `.lan`) is a hit unless consent or an `allow:` line names it."""
+    carry (published with it). As for any commit identity: an ordinary mail address is declared by being
+    used; a host-like one (`user@hostname`, a local TLD such as `.lan`) is a hit unless consent or an
+    `allow:` line names it; every pattern applies to the name and the address."""
     out: list[dict] = []
-    seen: set = set()
-    with tempfile.TemporaryDirectory(prefix="lean-pkg-ident-") as d:
-        scratch = pathlib.Path(d)
-        if core.git(scratch, "init", "-q").returncode != 0:
-            return out
-        for var in ("GIT_AUTHOR_IDENT", "GIT_COMMITTER_IDENT"):
-            p = core.git(scratch, "var", var)
-            m = re.match(r"(.*?) <([^>]*)>", p.stdout.strip()) if p.returncode == 0 else None
-            if not m or m.groups() in seen:
-                continue
-            seen.add(m.groups())
-            out += [ps._hit(sc, "tree", "export-commit-identity", None, pat.label, pat.kind, ex,
-                            severity=pat.severity)
-                    for _n, pat, ex in sc.identity_hits(m.group(1), m.group(2)) if pat.severity == ps.BLOCK]
+    for nm, email in dict.fromkeys(identities):
+        out += [ps._hit(sc, "tree", "export-commit-identity", None, pat.label, pat.kind, ex, severity=pat.severity)
+                for _n, pat, ex in sc.identity_hits(nm, email) if pat.severity == ps.BLOCK]
     return out
 
 
 def carry_public_allow(name: str, pkg: dict, pat_root: pathlib.Path, email_repo: pathlib.Path,
-                       stage: pathlib.Path, today: str) -> dict:
-    """#6: the patterns file is dropped (it lists private strings), so its benign `allow:` lines would be lost
-    and the new repository's own public-safety would report what the export scan allowed. Carry ONLY those
-    lines into the committed `.lean-pkg-public-allow` (merged with one the tree already has); never a
-    block/warn line. A line a private block pattern (the patterns file's, a registry-derived name) matches
-    refuses the export: publishing it would publish the private string."""
-    lines = ps.allow_lines(pat_root)
-    view = {"file": None, "carried": 0, "lines": []}
+                       stage: pathlib.Path, today: str, used: set[int]) -> dict:
+    """#6, #340: the patterns file is dropped (it lists private strings), so the `allow:` lines the export's
+    own scan used would be lost and the new repository's own public-safety would report what the export
+    scan allowed. Carry ONLY the allow lines that scan used (`used`: line numbers) into the committed
+    `.lean-pkg-public-allow` (merged with one the tree already has); never a block/warn line, never an
+    unused allow line (an allow pattern names what it allows, so an unused one can still leak, and it
+    allows nothing). None used: no file is written. A carried line a private block pattern (the patterns
+    file's, a registry-derived name) matches refuses the export: publishing it would publish the private
+    string."""
+    every = ps.allow_lines(pat_root)
+    lines = [(n, t) for n, t in every if n in used]
+    view = {"file": None, "carried": 0, "lines": [], "unused": len(every) - len(lines), "present": 0}
     if not lines:
         return view
     sc = ps.Scanner(pkg, pat_root, email_repo)
@@ -235,15 +290,28 @@ def carry_public_allow(name: str, pkg: dict, pat_root: pathlib.Path, email_repo:
                         f"through it; nothing written")
     existing = dest.read_text(encoding="utf-8").splitlines() if dest.is_file() else []
     have = {x.strip() for x in existing}
-    new = [(n, t) for n, t in lines if t not in have]
+    new = []
+    for n, t in lines:
+        if t not in have:
+            have.add(t)
+            new.append((n, t))
+    view["present"] = len(lines) - len(new)
     if not new:
-        return {"file": ps.PUBLIC_ALLOW_FILE, "carried": 0, "lines": []}
+        return dict(view, file=ps.PUBLIC_ALLOW_FILE)
     head = [] if existing else [
         "# lean-pkg public allow list: `allow:` lines only (public-safety reads them; block and warn lines",
         f"# belong in the untracked {ps.PATTERNS_FILE}). Committed on purpose: nothing here is private."]
     body = existing + head + [f"# carried from {ps.PATTERNS_FILE} by `lean-pkg repo export` ({today})"]
     dest.write_text("\n".join(body + [t for _n, t in new]) + "\n", encoding="utf-8")
-    return {"file": ps.PUBLIC_ALLOW_FILE, "carried": len(new), "lines": [n for n, _t in new]}
+    return dict(view, file=ps.PUBLIC_ALLOW_FILE, carried=len(new), lines=[n for n, _t in new])
+
+
+def _commit_as(target: pathlib.Path, ident: dict, args: tuple) -> subprocess.CompletedProcess:
+    """git commit in target with the export identity as author and committer (#339): the environment
+    variables take precedence over every git config, so no ambient identity can reach the commit."""
+    env = dict(core.scrubbed_env(), GIT_AUTHOR_NAME=ident["name"], GIT_AUTHOR_EMAIL=ident["email"],
+               GIT_COMMITTER_NAME=ident["name"], GIT_COMMITTER_EMAIL=ident["email"])
+    return subprocess.run(["git", "-C", str(target), *args], capture_output=True, text=True, check=False, env=env)
 
 
 def commit_message(src: str, today: str) -> str:
@@ -275,7 +343,8 @@ def next_commands(name: str, target: pathlib.Path, new12: str, remote: str | Non
 
 
 def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_receipts, given_commit,
-                  agent, reason, dry_run, from_tree=None) -> tuple[list[str], int, dict]:
+                  agent, reason, dry_run, from_tree=None, author=None,
+                  allow_author_email=False) -> tuple[list[str], int, dict]:
     pkg = core.get_pkg(reg, name)
     status = pkg.get("status")
     if status in NOT_FROM:
@@ -313,9 +382,8 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
         if top and (os.path.realpath(target) == top or pathlib.Path(top) in pathlib.Path(os.path.realpath(target)).parents):
             raise core.Fail(f"{name}: repo export: DIR {target} lies inside {what} {top}; choose a "
                             f"directory outside it")
-    if not dry_run and core.git(repo if repo.is_dir() else srcdir, "var", "GIT_COMMITTER_IDENT").returncode != 0:
-        raise core.Fail(f"{name}: git has no committer identity here (git config user.name / user.email); "
-                        f"the export commit needs one")
+    # #339: an explicit identity, checked before anything is staged (a dry run predicts the refusal too)
+    ident = export_identity(name, author, [srcdir, repo] if srcdir is not None else [repo], allow_author_email)
     # the relocation's own refusals (lease, another package's path), before anything is written
     _o, preview = core.do_relocate(reg_path, reg, events_p, name, new_path=stored, reason=reason,
                                    agent=agent, redetect=False, dry_run=True)
@@ -356,17 +424,25 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
             raise core.Fail(f"{name}: nothing to export from {srcdir or src[:12]} (every file is excluded or "
                             f"ignored); nothing written")
         today = core.utc_today()
-        carried = carry_public_allow(name, pkg, pat_root, email_repo, stage, today)
-        files = sum(1 for _ in (p for p in stage.rglob("*") if p.is_file() or p.is_symlink()))
+        # the export's own scan: the staged tree, the commit message and the commit identity (all of it is
+        # published); it also records which allow lines of the patterns file it used (#340)
+        used: set[int] = set()
         result = ps.scan(pkg, stage, export=True, patterns_root=pat_root, source_repo=email_repo,
-                         public_allow_root=stage)
+                         public_allow_root=stage, used_allow=used)
         blocking = ps.blocking(result["hits"])   # #36: warn-only hits are reported, not refused
         msg = commit_message(src, today) if srcdir is None else tree_commit_message(srcdir, provenance, today)
-        if srcdir is not None:   # the message names SRCDIR's basename: it is published too
-            sc = ps.Scanner(pkg, pat_root, email_repo)
-            blocking += [ps._hit(sc, "tree", "commit-message", n, pat.label, pat.kind, ex, severity=pat.severity)
-                         for n, pat, ex in sc.scan_text(msg) if pat.severity == ps.BLOCK]
-        blocking += export_identity_hits(ps.Scanner(pkg, pat_root, email_repo))
+        sc = ps.Scanner(pkg, pat_root, email_repo, public_allow_root=stage)
+        blocking += [ps._hit(sc, "tree", "commit-message", n, pat.label, pat.kind, ex, severity=pat.severity)
+                     for n, pat, ex in sc.scan_text(msg) if pat.severity == ps.BLOCK]
+        blocking += export_identity_hits(sc, [(ident["name"], ident["email"])])
+        used.update(sc.used_allow_lines())
+        if not blocking:
+            carried = carry_public_allow(name, pkg, pat_root, email_repo, stage, today, used)
+            if carried["carried"]:   # the carried file is published too: scan the tree again with it
+                result = ps.scan(pkg, stage, export=True, patterns_root=pat_root, source_repo=email_repo,
+                                 public_allow_root=stage)
+                blocking = ps.blocking(result["hits"])
+            files = sum(1 for _ in (p for p in stage.rglob("*") if p.is_file() or p.is_symlink()))
         if blocking:
             lines = [ps.hit_line(h) for h in blocking[:20]]
             if srcdir is None:
@@ -387,10 +463,21 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
         plan += [f"  dropped: {d['path']}  ({d['reason']})" for d in dropped]
         if receipts_note:
             plan.append(f"  note: {receipts_note}")
+        plan.append(f"  commit identity: {ident['author']} (author and committer; from {ident['source']})"
+                    + ("" if ident["noreply"] else "; not a GitHub noreply address: published by --allow-author-email"))
+        unused = (f"; {carried['unused']} unused allow line(s) dropped (an allow line names what it allows)"
+                  if carried["unused"] else "")
         if carried["carried"]:
             plan.append(f"  public allow: {carried['carried']} allow line(s) of {ps.PATTERNS_FILE} (line(s) "
                         f"{', '.join(map(str, carried['lines']))}) carried into {ps.PUBLIC_ALLOW_FILE} (committed; "
-                        f"the new repository's public-safety reads it; block and warn lines are never carried)")
+                        f"the new repository's public-safety reads it; only the lines the export's scan used, "
+                        f"never a block or warn line){unused}")
+        elif carried["present"]:
+            plan.append(f"  public allow: the {carried['present']} allow line(s) of {ps.PATTERNS_FILE} the export's "
+                        f"scan used are already in the tree's {ps.PUBLIC_ALLOW_FILE}; none carried{unused}")
+        elif carried["unused"]:
+            plan.append(f"  public allow: none of the {carried['unused']} allow line(s) of {ps.PATTERNS_FILE} was "
+                        f"used by the export's scan; none carried, no {ps.PUBLIC_ALLOW_FILE} written")
         nw = result["warn_hits"]
         plan.append("  public-safety on the exported tree: 0 hit(s)" if not nw else
                     f"  public-safety on the exported tree: 0 blocking hit(s), {nw} warning(s) "
@@ -400,6 +487,7 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
                    "source": chosen, "export_path": stored, "files": files, "excluded": dropped,
                    "kept_receipts": bool(keep_receipts), "commit_message": msg, "remote": remote,
                    "public_allow": carried,
+                   "identity": {k: ident[k] for k in ("author", "committer", "source", "noreply")},
                    "public_safety": {"hits": nw, "tree_hits": nw, "block_hits": 0, "warn_hits": nw}}
         if srcdir is not None:
             payload.update(from_tree=src_stored, provenance_commit=provenance)
@@ -428,7 +516,7 @@ def do_fresh_repo(reg_path, reg, events_p, name, *, target_arg, remote, keep_rec
 
     for args in (("init", "-q"), ("symbolic-ref", "HEAD", f"refs/heads/{BRANCH}"), ("add", "-A", "-f", "."),
                  ("commit", "-q", "--no-verify", "-m", msg)):
-        p = core.git(target, *args)
+        p = core.git(target, *args) if args[0] != "commit" else _commit_as(target, ident, args)
         if p.returncode != 0:
             raise core.Fail(f"{name}: git {args[0]} in {target} failed: {(p.stderr or p.stdout).strip()[:200]} "
                             f"(the exported files are in {target}; the registry is unchanged)")
@@ -580,6 +668,8 @@ def do_adopt_repo(reg_path, reg, events_p, name, *, target_arg, remote, allow_hi
 
 def cmd_release_adopt(args) -> int:
     extra = [f for f, on in (("--force", args.force), ("--fresh-repo", args.fresh_repo is not None),
+                             ("--author", getattr(args, "author", None) is not None),
+                             ("--allow-author-email", getattr(args, "allow_author_email", False)),
                              ("--from-tree", args.from_tree is not None), ("--keep-receipts", args.keep_receipts),
                              ("--source-commit", args.source_commit is not None)) if on]
     if extra:
@@ -609,7 +699,8 @@ def cmd_release_fresh(args) -> int:
                                        target_arg=args.fresh_repo, remote=args.remote,
                                        keep_receipts=args.keep_receipts, given_commit=args.source_commit,
                                        agent=args.agent, reason=args.reason, dry_run=args.dry_run,
-                                       from_tree=args.from_tree)
+                                       from_tree=args.from_tree, author=getattr(args, "author", None),
+                                       allow_author_email=getattr(args, "allow_author_email", False))
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:
