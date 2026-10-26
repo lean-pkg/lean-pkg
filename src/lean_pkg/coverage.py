@@ -888,7 +888,7 @@ def _offline_comparator(_add, doc, claims, configs, sidecar, read_file, invalid:
                     if cid in claims})
     unreadable = [f for f in files if not f or read_file is None or read_file(f) is None]
     if unreadable:
-        _add(check, "skipped", f"the Lean file(s) of the named claims are not readable here ("
+        _add(check, "skipped", "the Lean file(s) of the named claims are not readable here ("
                + ", ".join(unreadable[:5]) + "): a decl counts only when its file declares it")
         return
     p = theorem_mapping_problems(doc, claims, parsed, holes.smoke_paths(sidecar), read_file,
@@ -976,7 +976,7 @@ def do_coverage_check_file(file: str, claims_path: str | None, comparator_paths:
     try:
         sidecar = core.parse_sidecar(side.read_bytes() if side.is_file() else None, str(side))
     except ValueError as e:
-        raise core.Fail(str(e))
+        raise core.Fail(str(e)) from e
     rep = offline_check(p.read_text(encoding="utf-8", errors="replace"), str(p), claims_text=claims_text,
                         claims_where=str(claims_path) if claims_path else "claims.yaml", configs=configs,
                         sidecar=sidecar, read_file=_offline_reader(root), profiles=sites.for_repo(root),
