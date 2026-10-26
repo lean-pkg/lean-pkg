@@ -657,6 +657,20 @@ RUNNING = props_text(host=None, ActiveState="active", SubState="running")
 GONE = props_text(host=None, LoadState="not-found", ActiveState="inactive", SubState="dead")
 
 
+def patch_rs_sleep(monkeypatch, sleep) -> None:
+    """Replace time.sleep for receipt_systemd only: it gets its own copy of the time module. Patching
+    rs.time.sleep would replace the process-wide time.sleep, and under pytest-xdist the worker's own calls to
+    it then hit the fake (a KeyboardInterrupt there took the whole session down)."""
+    import time
+    import types
+
+    from lean_pkg import receipt_systemd as rs
+    shim = types.ModuleType("time")
+    shim.__dict__.update(vars(time))
+    shim.sleep = sleep
+    monkeypatch.setattr(rs, "time", shim)
+
+
 def interrupt_poll(monkeypatch, tmp_path, props: Path, *, then: str | None, how: str = "int"):
     """The unit reads as running; the first poll sleep is interrupted (Ctrl-C, or a real SIGTERM to this
     process), after the unit's state is set to `then` (None: unchanged). The cache's temp dir is under tmp_path."""
@@ -676,7 +690,7 @@ def interrupt_poll(monkeypatch, tmp_path, props: Path, *, then: str | None, how:
             raise KeyboardInterrupt
         os.kill(os.getpid(), signal.SIGTERM)
         raise AssertionError("SIGTERM was not turned into an interruption")
-    monkeypatch.setattr(rs.time, "sleep", sleep)
+    patch_rs_sleep(monkeypatch, sleep)
     return tdir
 
 
