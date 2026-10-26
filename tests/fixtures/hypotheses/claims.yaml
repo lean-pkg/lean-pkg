@@ -1,0 +1,46 @@
+schema: claims/1
+package: fx
+claims:
+- id: fx/main
+  decl: Paper.main
+  kind: theorem
+  summary: C under A and B.
+  file: Fx/Paper.lean
+  status: reusable
+  hypotheses: [Hyp.A, Hyp.B]
+- id: fx/implicit-a
+  decl: Paper.implicitA
+  kind: theorem
+  summary: A as an implicit binder.
+  file: Fx/Paper.lean
+  status: internal
+- id: fx/param
+  decl: Paper.param
+  kind: theorem
+  summary: A parameterized hypothesis.
+  file: Fx/Paper.lean
+  status: internal
+- id: fx/use-ax
+  decl: Paper.useAx
+  kind: lemma
+  summary: An axiom head.
+  file: Fx/Paper.lean
+  status: internal
+- id: fx/use-op
+  decl: Paper.useOp
+  kind: lemma
+  summary: An opaque head.
+  file: Fx/Paper.lean
+  status: internal
+- id: fx/use-ind
+  decl: Paper.useInd
+  kind: lemma
+  summary: An inductive head.
+  file: Fx/Paper.lean
+  status: internal
+- id: fx/gone
+  decl: Paper.gone
+  kind: lemma
+  summary: Not in the build.
+  file: Fx/Paper.lean
+  status: internal

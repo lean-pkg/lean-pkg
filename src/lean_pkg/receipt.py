@@ -71,6 +71,11 @@ gains the additive `claim_axioms` {checked, nonstandard [{decl, axioms}], missin
 sorryAx, a claim of claims.yaml at the commit without a line, an incomplete probe, or a name whose `#print axioms`
 output in the same log disagrees refuses; a redaction that alters one of those lines refuses. A log without them
 gives a receipt without the key, as before.
+Hypotheses section (proposal 0003 stage H1, hypotheses.py): the template's `hyp-probe/1` section (HypProbe.lean,
+after the claim-axioms lines; the Challenge built into a side log, never into this log) is checked for structure
+only: a section without `hyp-done`, counts that do not match it, a line printed twice, a malformed line, a line
+after `hyp-done`, or a redaction that alters a section line refuses. No receipt key: `report_sha256` seals it. A
+log without the section is accepted unchanged.
 Sacct seal (`--seal-sacct`, optional): the job's accounting record is sealed into the receipt exactly as
 `receipt comparator --seal-sacct` seals a comparator receipt (sacct_seal_record): live sacct runs SLURM_SEAL_QUERY
 with zoned times (or `--sacct-file`, saved with its header); Start..End must contain the log's `generated-at:`
@@ -101,6 +106,7 @@ import sys
 from . import claim_axioms as ca
 from . import cli as core
 from . import container as ctr
+from . import hypotheses as hyp
 from . import lake_hygiene as lh
 from . import public_safety as ps
 
@@ -150,8 +156,9 @@ SBATCH_TEMPLATE = r"""#!/bin/bash
 #   stderr (.err): empty, so every tool writes into the log, never to the job's stderr
 #   the log: one line each of checker:, sorry-count:, axioms: (and lean-toolchain:, commit:, job-id:,
 #            generated-at:, which must agree with the commit and the job), the claim-axioms lines of
-#            every claim in claims.yaml (read from the built environment after the build), the build between the
-#            lean-pkg-build: begin / end lines, and no root-package module Lake restored instead of
+#            every claim in claims.yaml (read from the built environment after the build), the hyp-probe/1
+#            section after them (the Challenge is built into $WORK/hyp-challenge-build.log, not this
+#            log), the build between the lean-pkg-build: begin / end lines, and no root-package module Lake restored instead of
 #            compiling (`Reused`, `Replayed`, `Unpacked`): its sorry warning need not be in the log
 #   the job: sacct State COMPLETED, ExitCode 0:0 (any failed step fails the job: set -e)
 #SBATCH --job-name=lean-verify
@@ -237,7 +244,7 @@ export LAKE_CACHE_DIR="$WORK/lake-cache"
 export LAKE_ARTIFACT_CACHE=false
 rm -rf "$STAGE" "$DEPS_STAGE" "$LAKE_CACHE_DIR"
 mkdir -p "$STAGE" "$LAKE_CACHE_DIR"
-trap 'rm -rf "$STAGE" "$DEPS_STAGE" "$LAKE_CACHE_DIR" "$WORK/claim-axioms"' EXIT
+trap 'rm -rf "$STAGE" "$DEPS_STAGE" "$LAKE_CACHE_DIR" "$WORK/claim-axioms" "$WORK/hyp-probe"' EXIT
 # Stage the Lean runtime (the elan toolchain) and the Mathlib cache node-local before the build, e.g.
 # copy the toolchain under "$WORK/elan" and export ELAN_HOME="$WORK/elan" PATH="$WORK/elan/bin:$PATH";
 # a shared filesystem under many parallel readers is slow and can fail the build.
@@ -379,7 +386,7 @@ if [ "$SRC_MODE" = clone ]; then
     exit 1
   fi
 fi
-""" + lh.SHADOW_CHECK_SH + ca.job_sh() + r"""# The dependency restore may change .lake/packages and nothing else: a listing and the content hashes of the
+""" + lh.SHADOW_CHECK_SH + ca.job_sh() + hyp.job_sh() + r"""# The dependency restore may change .lake/packages and nothing else: a listing and the content hashes of the
 # rest of the tree (.lake itself aside, which it may create) are compared before and after. (No directory
 # sizes or times: creating .lake changes those of the package directory on some filesystems.)
 deps_snapshot() {
@@ -456,6 +463,9 @@ fi
 $RUN bash -c "$AXIOMS_CMD" >>"$LOG" 2>&1
 # Every claim's axioms, read from the built environment (claim_axioms_run above; not only the printed ones).
 claim_axioms_run "$LOG" "$WORK/claim-axioms" "$lean_path"
+# The hyp-probe/1 section (proposal 0003): every claim's Prop hypotheses, and with conditional claims the
+# Challenge facts. The Challenge is built into the side log $WORK/hyp-challenge-build.log, never into $LOG.
+hypotheses_run "$LOG" "$WORK/hyp-probe" "$lean_path" "$WORK/hyp-challenge-build.log"
 echo "fs-file-nr-after: $(cat /proc/sys/fs/file-nr 2>/dev/null || echo unavailable)" >>"$LOG"
 
 # The artifact seal (ARTIFACTS_DIR above). artifacts_list DIR: the manifest lines of the regular files under DIR,
@@ -1699,6 +1709,18 @@ def claim_axioms_evidence(repo: pathlib.Path, commit: str | None, raw_text: str,
     return summary
 
 
+def hypotheses_evidence(repo: pathlib.Path, commit: str | None, raw_text: str, redacted: str,
+                        refusals: list[str], checks: list[str]) -> None:
+    """The `hyp-probe/1` section's write-time structure check (hypotheses.judge_structure) on the RAW log, with
+    the redacted log's section lines required equal. No receipt key (report_sha256 seals the section); a log
+    without the section adds nothing, unless claims.yaml at the commit uses the conditional-claim keys (a `·`
+    line)."""
+    blob = core.git_show_bytes(repo, "./claims.yaml", commit) if commit else None
+    _summary, found, lines = hyp.judge_structure(raw_text, blob, redacted)
+    refusals += found
+    checks += lines
+
+
 def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.Pattern]) -> int:
     """The shared second half of every `receipt` form: commit facts, the seal, the verify log's fields, redaction,
     the public-safety scan, and (when nothing refused) the receipt, the redacted log, the executor's evidence
@@ -1730,6 +1752,7 @@ def produce(args, ev: Evidence, repo: pathlib.Path, paths: dict, extra: list[re.
     log_commit_bound = commit_line_binding(fields, commit, "--stdout" in paths, refusals, checks)
     container = container_evidence(fields, paths, refusals, checks)
     claim_axioms = claim_axioms_evidence(repo, commit, raw_text, refusals, checks)
+    hypotheses_evidence(repo, commit, raw_text, redacted, refusals, checks)
     why = evidence_symlink_problem(repo, commit)
     if why:
         refusals.append(why)
@@ -2048,6 +2071,7 @@ def preflight(args) -> int:
                         "is refused (print `commit: <sha>` in the log, or pass --stdout)")
     container_evidence(fields, paths, problems, checks)
     claim_axioms_evidence(repo, commit, raw_text, problems, checks)
+    hypotheses_evidence(repo, commit, raw_text, redacted, problems, checks)
     fams = blocking_families(_scanner(repo), redacted)
     if fams:
         problems.append(f"public-safety: a private string remains in the redacted verify log ({', '.join(fams)}); "

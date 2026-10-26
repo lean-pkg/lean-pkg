@@ -105,6 +105,27 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   addresses of every ref the flip publishes (`✓` when each is a GitHub
   noreply address, else a `WARN` naming the others; never a failure)
   ([repo export](docs/commands/repo-export.md)).
+- Conditional claims, stage H1 (#350; #320, proposal 0003): the
+  lower-tier verify scripts (`receipt slurm --template` and the `verify.sh`
+  of `lean-pkg new`) append a `hyp-probe/1` section to the verify log after
+  the claim-axioms lines, before the seal. A core-Lean program,
+  `HypProbe.lean`, prints facts only: the `Prop` hypotheses of every claim
+  `decl` (head, kind, module, explicitness) and, only when `claims.yaml`
+  uses `hypotheses`, `discharges` or `witness`, the Challenge facts
+  (`hyp-corollary`, `hyp-proof`, `hyp-witness`), compared by `Expr.eqv`
+  with equal binder annotations and universe parameters renamed
+  positionally, never unfolded. The Challenge is built into a side log,
+  `hyp-challenge-build.log`, outside the sealed log, so its `sorry`
+  warnings never reach `sorry_count`. `receipt slurm`, `receipt systemd`
+  and `--check` refuse a malformed section (no `hyp-done`, counts that do
+  not match, a line twice, malformed JSON, a line after `hyp-done`, a
+  redaction that alters a line); `hyp-error` and `hyp-skip` are reported,
+  never refused. No receipt key (`report_sha256` seals the section), and a
+  log without the section is accepted as before; no command reads the
+  facts yet. `python3 -m lean_pkg.hypotheses --repo DIR [--json]` prints
+  the section for a built checkout
+  ([on-disk formats](docs/formats.md#the-hypotheses-section-of-the-verify-log-hyp-probe1),
+  [receipts](docs/receipts.md#hypotheses-section-hyp-probe1)).
 
 - The committed docs-only opt-in, `lean-pkg-binding.yaml` (#349; #319,
   proposal 0002, stage G1): a package opts in to the docs-only descendant
