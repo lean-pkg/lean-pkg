@@ -341,7 +341,7 @@ This checklist is step 3 of the [cheap-first gate order](receipts.md#cheap-check
 
    ```bash
    lake build MyPkg.Aggregate
-   python3 -m lean_pkg.dup_constants --project . MyPkg.Aggregate
+   python3 -m lean_pkg.dup_constants --repo . MyPkg.Aggregate
    ```
 
    The two catch different cases. When two modules declare one name with

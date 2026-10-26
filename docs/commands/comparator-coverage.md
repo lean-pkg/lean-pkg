@@ -15,10 +15,8 @@ Also spelled: `lean-pkg comparator config --coverage NAME` ([all aliases](aliase
 ## Usage
 
 ```text
-lean-pkg comparator coverage [common flags] NAME
+lean-pkg comparator coverage [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

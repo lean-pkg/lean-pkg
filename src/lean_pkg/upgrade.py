@@ -221,7 +221,7 @@ def alias_surface(consts: dict) -> dict:
         if isinstance(a, dict) and len(a.get("args", ())) == 2:
             old, new = a["args"]
             cmds.append(f"{' '.join(old)} -> {' '.join(new)}")
-    for a in consts.get("FLAG_ALIASES") or ():
+    for a in (consts.get("FLAG_ALIASES") or ()) + (consts.get("PROGRAM_FLAG_ALIASES") or ()):
         if isinstance(a, dict) and len(a.get("args", ())) == 3:
             cmd, old, new = a["args"]
             flags.append(f"{' '.join(cmd)} {old} -> {new}")
@@ -254,14 +254,17 @@ def alias_map(consts: dict) -> dict:
             cmd, flag, new = a["args"][:3]
             if isinstance(cmd, tuple) and isinstance(new, tuple) and isinstance(flag, str):
                 modes.setdefault(" ".join(cmd), {})[flag] = " ".join(new)
-    return {"commands": cmds, "implied": implied, "flags": flags, "modes": modes}
+    hidden = consts.get("HELP_HIDDEN_FLAGS")
+    hidden = sorted(h for h in hidden if isinstance(h, str)) if isinstance(hidden, (tuple, list)) else []
+    return {"commands": cmds, "implied": implied, "flags": flags, "modes": modes, "hidden": hidden}
 
 
 def command_delta(old: dict, new: dict, amap: dict) -> dict:
     """Command paths and their options, old -> new, read through the NEW tree's alias tables: a path the
     new tree spells differently is `renamed` (its old spelling keeps working), not removed; a path that
     became a noun with verbs keeps every option one of its verbs has; a flag spelled differently is
-    `renamed` too."""
+    `renamed` too. An option of the new tree's HELP_HIDDEN_FLAGS (accepted, help shown only where it acts)
+    is never removed."""
     def target(path: str) -> str | None:
         if path in new:
             return path
@@ -300,7 +303,7 @@ def command_delta(old: dict, new: dict, amap: dict) -> dict:
                 hit = next((m for m in sorted(set(modes.values())) if o in new.get(m, ())), None)
                 if hit:
                     moved[o] = hit
-        lost = [o for o in gone if o not in fl and o not in moved]
+        lost = [o for o in gone if o not in fl and o not in moved and o not in amap.get("hidden", ())]
         added = sorted(set(new[t]) - set(old[path]) - set(ren.values()))
         if lost or ren or added or moved:
             options[path if t == path else f"{path} -> {t}"] = {"added": added, "removed": lost, "renamed": ren,

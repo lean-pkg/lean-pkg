@@ -1,4 +1,4 @@
-usage: lean-pkg help [-h] [--json] [--commit] [--push] [--no-commit] [TOPIC|COMMAND ...]
+usage: lean-pkg help [-h] [--json] [TOPIC|COMMAND ...]
 
 Without an argument: the commands and help topics. With a topic (exit-codes, environment,
 formatting): that topic. With a command (`help status`, `help index add`): exactly its --help.
@@ -10,7 +10,3 @@ positional arguments:
 options:
   -h, --help     show this help message and exit
   --json         machine-readable JSON on stdout
-  --commit       write commands: pull --ff-only, then commit the registry files (default:
-                 $LEAN_PKG_COMMIT=1)
-  --push         --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit    never commit or push (overrides the env)

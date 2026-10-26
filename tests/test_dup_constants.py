@@ -158,11 +158,11 @@ def test_allow_owners_syntax():
     for bad in (["f"], ["f=A"], ["=A,B"], ["f=A,B", "f=A,C"]):
         with pytest.raises(ValueError):
             dc.parse_allow(bad)
-    assert dc.main(["--project", ".", "M", "--allow-owners", "f=A"]) == 2
+    assert dc.main(["--repo", ".", "M", "--allow-owners", "f=A"]) == 2
 
 
 def test_a_missing_project_or_module_is_refused(tmp_path, capsys):
-    assert dc.main(["--project", str(tmp_path / "nope"), "M"]) == 1
+    assert dc.main(["--repo", str(tmp_path / "nope"), "M"]) == 1
     assert "refused" in capsys.readouterr().out
 
 
@@ -247,8 +247,8 @@ def test_real_unbuilt_module_and_lean_refused_import(built):
 
 
 def test_real_command_line_exit_codes(built, capsys):
-    assert dc.main(["--project", str(built), "A", "--no-sandbox"]) == 0
-    assert dc.main(["--project", str(built), "Top", "--no-sandbox"]) == 1
+    assert dc.main(["--repo", str(built), "A", "--no-sandbox"]) == 0
+    assert dc.main(["--repo", str(built), "Top", "--no-sandbox"]) == 1
     out = capsys.readouterr().out
     assert "refused: Dup.unequal [A, B" in out and "accepted: g.congr_simp [A, B" in out
 
@@ -322,7 +322,7 @@ def test_an_escaping_path_package_refuses_the_whole_run(tmp_path, capsys):
         pytest.skip(f"{TC} is not installed")
     (tmp_path / "lean-toolchain").write_text(TC + "\n")
     _manifest(tmp_path, [{"type": "path", "name": "X", "dir": "../X"}])
-    assert dc.main(["--project", str(tmp_path), "Top", "--no-sandbox"]) == 1
+    assert dc.main(["--repo", str(tmp_path), "Top", "--no-sandbox"]) == 1
     assert "leaves" in capsys.readouterr().out
 
 

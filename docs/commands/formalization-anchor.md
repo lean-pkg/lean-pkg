@@ -15,11 +15,9 @@ bind the companion to one posted arXiv version (writes package files, never the 
 ```text
 lean-pkg formalization anchor [--arxiv ID] [--from-file E-PRINT] [--fetch]
                               [--compare-tex LOCAL.tex] [--accept-diff REASON]
-                              [--main-tex PATH] [--write] [--agent AGENT] [common flags]
+                              [--main-tex PATH] [--write] [--agent AGENT] [--json]
                               [PACKAGE]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 `lean-pkg formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT \| --fetch) [--compare-tex LOCAL.tex [--accept-diff REASON]] [--main-tex PATH] [--write]`: bind the companion to one posted arXiv version. Reads the e-print (gzip'd tar, gzip'd .tex or tar; PDF-only is refused) in memory, hashes it and its .tex/.bib/.bbl/.sty files, finds the main .tex (\\documentclass), compares it with LOCAL.tex and records it all in data/source-baselines/arXiv-&lt;id&gt;v&lt;N&gt;.json. Without --write: a dry run. --write refuses unless the e-print is tied to the manuscript coverage.yaml is bound to (same version, a matching bound sha256, or --compare-tex identical / --accept-diff); a move to another version prints the `claims rebase` command. Never writes the registry; never commits
 

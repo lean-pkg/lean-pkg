@@ -183,8 +183,10 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["receipt", "check", "--repo", "d", "--commit", "c"], "receipt check", False, False, False),   # no registry
     (["verify-receipts", "--repo", "d", "--commit", "c"], "receipt check", False, False, False),     # alias
     (["receipt", "comparator"], "receipt comparator", False, False, False),        # writes .lean-receipts only
-    (["receipt", "comparator", "--project", "d", "--judges", "2", "--json"], "receipt comparator", False, False,
+    (["receipt", "comparator", "--repo", "d", "--judges", "2", "--json"], "receipt comparator", False, False,
      False),
+    (["receipt", "comparator", "--project", "d", "--judges", "2", "--json"], "receipt comparator", False, False,
+     False),                                                                       # flag alias
     (["receipt", "comparator", "--estimate", "--sample", "3"], "receipt comparator", False, False, False),
     # verify: its registry steps (the status move, the gate) are invocations of their own (own lock, own commit)
     (["verify", "demo"], "verify", False, False, False),
@@ -366,6 +368,8 @@ ALIAS_PAIRS: list[tuple[list[str], list[str]]] = [
     (["comparator", "config", "--from-claims", "demo", "--checkout", "d"],
      ["comparator", "config", "--from-claims", "demo", "--repo", "d"]),
     (["report", "--command", "x", "--repo", "o/n"], ["report", "--command", "x", "--target-repo", "o/n"]),
+    (["receipt", "comparator", "--project", "d", "--judges", "2"],
+     ["receipt", "comparator", "--repo", "d", "--judges", "2"]),
     (["registry", "audit", "--fix"], ["registry", "audit", "--write"]),
     # the 1.0 command tree, stage 2: split modes and folded commands
     (["release", "demo", "--fresh-repo", "d", "--remote", "u", "--dry-run"],

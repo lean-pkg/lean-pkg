@@ -15,10 +15,8 @@ Also spelled: `lean-pkg validate` ([all aliases](aliases.md)).
 ## Usage
 
 ```text
-lean-pkg registry validate [common flags]
+lean-pkg registry validate [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Details
 

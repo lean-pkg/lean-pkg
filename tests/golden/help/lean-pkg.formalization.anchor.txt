@@ -1,7 +1,6 @@
 usage: lean-pkg formalization anchor [-h] [--arxiv ID] [--from-file E-PRINT] [--fetch]
                                      [--compare-tex LOCAL.tex] [--accept-diff REASON]
                                      [--main-tex PATH] [--write] [--agent AGENT] [--json]
-                                     [--commit] [--push] [--no-commit]
                                      [package]
 
 `lean-pkg formalization anchor NAME --arxiv <id>v<N> (--from-file E-PRINT | --fetch) [--compare-
@@ -36,7 +35,3 @@ options:
                         it a dry run
   --agent AGENT         lease holder, if one is live
   --json                machine-readable JSON on stdout
-  --commit              write commands: pull --ff-only, then commit the registry files (default:
-                        $LEAN_PKG_COMMIT=1)
-  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit           never commit or push (overrides the env)

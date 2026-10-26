@@ -17,10 +17,8 @@ lean-pkg claims rebase --from-tex OLD.tex --to-tex NEW.tex --to-aux NEW.aux
                        [--from-aux OLD.aux] [--from-sha256 HEX]
                        [--to-version arXiv:IDvN] [--to-commit HEX] [--to-repo URL]
                        [--unwrap-macro NAME] [--claims-file PATH] [--coverage-file PATH]
-                       [--out-dir DIR] [common flags] NAME
+                       [--out-dir DIR] [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

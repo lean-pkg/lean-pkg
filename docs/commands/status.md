@@ -13,10 +13,8 @@ full record + last 5 history entries + scope (gated commit, privacy, the exact c
 ## Usage
 
 ```text
-lean-pkg status [--fields a,b,c] [--no-claims] [common flags] NAME
+lean-pkg status [--fields a,b,c] [--no-claims] [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

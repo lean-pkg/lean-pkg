@@ -13,10 +13,8 @@ coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main results) 
 ## Usage
 
 ```text
-lean-pkg coverage [common flags] [COMMAND]
+lean-pkg coverage [--json] [COMMAND]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Subcommands
 

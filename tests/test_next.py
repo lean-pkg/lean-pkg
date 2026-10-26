@@ -203,7 +203,7 @@ def test_verified_private_without_comparator_receipt_runs_comparator_receipt(lp,
     write_reg(env, reg)
     (env.repo_b / comp_rel).unlink()
     rc, data = nxt(lp, env, capsys, "beta")
-    assert rc == 0 and data["command"] == f"comparator-receipt --project {env.repo_b}"
+    assert rc == 0 and data["command"] == f"comparator-receipt --repo {env.repo_b}"
     assert data["state"]["comparator_configs"] == ["comparator.json"]
 
 
@@ -221,7 +221,7 @@ def test_comparator_receipt_below_the_toolchain_floor_names_the_floor_first(lp, 
     [b] = data["blockers"]
     assert b["kind"] == "below-toolchain-floor" and b["floor"] == floor
     assert b["lean_toolchain"] == "leanprover/lean4:v4.32.0"
-    assert b["deferred_command"] == f"comparator-receipt --project {env.repo_b}"
+    assert b["deferred_command"] == f"comparator-receipt --repo {env.repo_b}"
     assert data["reason"].startswith(f"toolchain leanprover/lean4:v4.32.0 is below the comparator floor {floor}: "
                                      f"bump lean-toolchain")
 

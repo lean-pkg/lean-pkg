@@ -15,10 +15,8 @@ Also spelled: `lean-pkg comparator config --migrate-signoff PATH` ([all aliases]
 ## Usage
 
 ```text
-lean-pkg comparator migrate-signoff [--write] [common flags] PATH
+lean-pkg comparator migrate-signoff [--write] [--json] PATH
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

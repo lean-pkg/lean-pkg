@@ -13,10 +13,8 @@ print the agent-oriented usage contract.
 ## Usage
 
 ```text
-lean-pkg llms [--short] [common flags]
+lean-pkg llms [--short] [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

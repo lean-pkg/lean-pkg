@@ -294,7 +294,7 @@ The build must finish with no `declaration uses 'sorry'` warning, and every
 **5. Re-run the comparator** at X, in the same clean clone:
 
 ```bash
-COMPARATOR_RECEIPT_ALLOW_HOST=1 comparator-receipt --project .
+COMPARATOR_RECEIPT_ALLOW_HOST=1 comparator-receipt --repo .
 ```
 
 `COMPARATOR_RECEIPT_ALLOW_HOST=1` is the explicit authorization for a run

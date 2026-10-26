@@ -1,6 +1,5 @@
 usage: lean-pkg public-safety [-h] [--history | --no-history] [--strict] [--package-only]
-                              [--gzip-limit BYTES] [--quiet] [--json] [--commit] [--push]
-                              [--no-commit]
+                              [--gzip-limit BYTES] [--quiet] [--json]
                               name
 
 positional arguments:
@@ -23,7 +22,3 @@ options:
   --quiet               only the summary, patterns, warn-only count and verdict lines; no per-hit
                         line (--json is unchanged)
   --json                machine-readable JSON on stdout
-  --commit              write commands: pull --ff-only, then commit the registry files (default:
-                        $LEAN_PKG_COMMIT=1)
-  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit           never commit or push (overrides the env)

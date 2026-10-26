@@ -288,7 +288,7 @@ def decide(reg: dict, name: str, agent: str | None = None) -> dict:
         if crel and cerr:
             notes.append(f"comparator receipt {crel} not usable: {cerr}")
         if state["comparator_configs"]:
-            return _comparator_step(pkg, repo, head, out, f"comparator-receipt --project {_q(repo)}",
+            return _comparator_step(pkg, repo, head, out, f"comparator-receipt --repo {_q(repo)}",
                        f"no comparator evidence; {len(state['comparator_configs'])} comparator config(s) "
                        f"tracked at HEAD: run comparator-receipt on a host its policy allows (`lean-pkg "
                        f"comparator host-check`), then attach the receipt with `lean-pkg comparator {name} "

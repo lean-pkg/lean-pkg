@@ -320,7 +320,7 @@ def test_verify_runs_both_receipts_at_one_commit_then_the_gate(lp, vpkg, capsys,
     assert rc == 0, _err
     assert steps_of(calls) == ["receipt comparator", "receipt systemd", "update v", "gate v"]
     comp, lower, update, gate = calls
-    assert comp[:4] == ["receipt", "comparator", "--project", str(repo)]
+    assert comp[:4] == ["receipt", "comparator", "--repo", str(repo)]
     assert lower[lower.index("--receipt-commit") + 1] == head and lower[-3:] == ["bash", "verify.sh",
                                                                                 str(tmp_path / "w" / "verify.log")]
     assert update[:2] == ["--registry", str(reg)] and "--status" in update and "gate-pending" in update

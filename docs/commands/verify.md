@@ -55,7 +55,7 @@ lean-pkg verify my-proof
 Sample output:
 
 ```text
-verify: 1/3 comparator receipt: lean-pkg receipt comparator --project .../my-proof
+verify: 1/3 comparator receipt: lean-pkg receipt comparator --repo .../my-proof
 ...
 verify my-proof: verified-private at a0a4fe68e46c: lower-tier .lean-receipts/a0a4fe68e46c-systemd-user-my-proof-verify.service-<id>-h-<label>.json, comparator .lean-receipts/a0a4fe68e46c-comparator.json
 next:

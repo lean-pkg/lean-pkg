@@ -121,7 +121,7 @@ A verify log without claim-axioms lines (a script older than 0.14, or a package 
 `claims.yaml`) gives a receipt without the key. Such a receipt stays valid: its axioms rest on the
 `#print axioms` output, for the theorems that output covers. The `#print axioms` parsing is
 unchanged, and is kept as the cross-check above. To run the same check yourself on a built
-checkout: `python3 -m lean_pkg.claim_axioms --project .` (sandboxed with `bwrap` when installed,
+checkout: `python3 -m lean_pkg.claim_axioms --repo .` (sandboxed with `bwrap` when installed,
 like the duplicate-constants check).
 
 ## A lower-tier receipt from a Slurm job
@@ -2738,7 +2738,7 @@ current tree is clean. The sequence:
    are provenance only, because a receipt binds one exact commit and the
    export commit is not a descendant of the old one.
 4. Run the comparator on the new commit:
-   `lean-pkg receipt comparator --project DIR --prepare`, then the run, then
+   `lean-pkg receipt comparator --repo DIR --prepare`, then the run, then
    `lean-pkg comparator attach NAME --receipt ...`.
 5. `lean-pkg publish NAME --dry-run --public-safety`, push the new
    repository, and `lean-pkg publish NAME --yes --dry-run` (dry run first, then `--yes`).

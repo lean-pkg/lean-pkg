@@ -13,10 +13,8 @@ re-validate cached claims; exit 0/1 (--file: a working-copy file).
 ## Usage
 
 ```text
-lean-pkg claims check [--file PATH] [common flags] [NAME]
+lean-pkg claims check [--file PATH] [--json] [NAME]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

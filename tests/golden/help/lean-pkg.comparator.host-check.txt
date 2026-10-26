@@ -1,13 +1,9 @@
-usage: lean-pkg comparator host-check [-h] [--routes] [--json] [--commit] [--push] [--no-commit]
+usage: lean-pkg comparator host-check [-h] [--routes] [--json]
 
 options:
-  -h, --help   show this help message and exit
-  --routes     per route (judge = `lake comparator` in bwrap, prepare = setup stages, transfer =
-               build here, judge elsewhere) supported yes/no with the reason, executables (type
-               -P), locale, open-file limits, CPUs, cgroup memory and a command line per supported
-               route; read-only; exit 0 when any route is supported
-  --json       machine-readable JSON on stdout
-  --commit     write commands: pull --ff-only, then commit the registry files (default:
-               $LEAN_PKG_COMMIT=1)
-  --push       --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit  never commit or push (overrides the env)
+  -h, --help  show this help message and exit
+  --routes    per route (judge = `lake comparator` in bwrap, prepare = setup stages, transfer =
+              build here, judge elsewhere) supported yes/no with the reason, executables (type
+              -P), locale, open-file limits, CPUs, cgroup memory and a command line per supported
+              route; read-only; exit 0 when any route is supported
+  --json      machine-readable JSON on stdout

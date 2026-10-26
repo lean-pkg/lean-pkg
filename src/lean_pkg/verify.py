@@ -6,7 +6,7 @@ docs/design/1.0-command-tree.md, decision 4).
 A pure orchestrator. Each step is the lean-pkg command a person would type, run as its own invocation (its own
 checks, refusals, registry lock and committed mode), and printed before it runs:
 
-1. the comparator receipt: `lean-pkg receipt comparator --project CHECKOUT` (the `comparator-receipt` program);
+1. the comparator receipt: `lean-pkg receipt comparator --repo CHECKOUT` (the `comparator-receipt` program);
 2. the lower-tier receipt on this workstation: `lean-pkg receipt systemd --unit U --receipt-commit X --log
    W/verify.log --stdout W/unit.out --stderr W/unit.err --repo CHECKOUT --run -- bash verify.sh W/verify.log`,
    W a work directory outside the checkout;
@@ -307,7 +307,7 @@ def cmd_verify(args) -> int:
         payload.update(ok=True, already=p["already"], status=p["status"])
         return _finish(args, payload, 0)
     work, unit, script = p["work"], p["unit"], p["script"]
-    comp_argv = ["receipt", "comparator", "--project", str(repo)] + (["--judges", str(args.judges)] if args.judges else [])
+    comp_argv = ["receipt", "comparator", "--repo", str(repo)] + (["--judges", str(args.judges)] if args.judges else [])
     comp_env = {"COMPARATOR_RECEIPT_NO_MATHLIB": "1"} if p["no_mathlib"] else None
     log = work / "verify.log"
     lower_argv = ["receipt", "systemd", "--unit", unit, "--receipt-commit", head, "--log", str(log),

@@ -14,10 +14,8 @@ read-only: scan the package's tree and git history for private patterns (exit 1 
 
 ```text
 lean-pkg public-safety [--history] [--strict] [--package-only] [--gzip-limit BYTES]
-                       [--quiet] [common flags] NAME
+                       [--quiet] [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

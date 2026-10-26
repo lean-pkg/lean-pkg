@@ -1,5 +1,5 @@
 usage: lean-pkg palomar check [-h] [--rev REV] [--config PATH] [--rules FILE] [--repo DIR]
-                              [--json] [--commit] [--push] [--no-commit]
+                              [--json]
                               name
 
 positional arguments:
@@ -15,7 +15,3 @@ options:
                  2026-10-16)
   --repo DIR     judge the checkout DIR instead of the registered local_path (never saved)
   --json         machine-readable JSON on stdout
-  --commit       write commands: pull --ff-only, then commit the registry files (default:
-                 $LEAN_PKG_COMMIT=1)
-  --push         --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit    never commit or push (overrides the env)

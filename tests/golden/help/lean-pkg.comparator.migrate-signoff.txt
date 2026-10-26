@@ -1,16 +1,10 @@
-usage: lean-pkg comparator migrate-signoff [-h] [--write] [--json] [--commit] [--push]
-                                           [--no-commit]
-                                           PATH
+usage: lean-pkg comparator migrate-signoff [-h] [--write] [--json] PATH
 
 positional arguments:
-  PATH         the configuration; its Palomar keys are unchanged, its bytes (and so its receipt
-               hash) change
+  PATH        the configuration; its Palomar keys are unchanged, its bytes (and so its receipt
+              hash) change
 
 options:
-  -h, --help   show this help message and exit
-  --write      write both files
-  --json       machine-readable JSON on stdout
-  --commit     write commands: pull --ff-only, then commit the registry files (default:
-               $LEAN_PKG_COMMIT=1)
-  --push       --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit  never commit or push (overrides the env)
+  -h, --help  show this help message and exit
+  --write     write both files
+  --json      machine-readable JSON on stdout

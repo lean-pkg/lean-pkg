@@ -15,7 +15,7 @@ Also run as the program `comparator-receipt`: the same code and flags.
 ## Usage
 
 ```text
-lean-pkg receipt comparator [--project PROJECT] [--check CHECK]
+lean-pkg receipt comparator [--repo DIR] [--check CHECK]
                             [--mechanism {auto,toolchain,legacy}] [--verify VERIFY]
                             [--evidence-dir DIR] [--prepare] [--from-prepared DIR]
                             [--no-resume] [--judges N] [--unit-size K] [--slots SPEC]
@@ -31,7 +31,7 @@ Run comparator-check.sh and write a comparator receipt. The same code and flags 
 
 | Argument or flag | Description |
 |---|---|
-| `--project PROJECT` | Lake project directory (default: cwd). Default: `.`. |
+| `--repo DIR` | the package checkout, a Lake project directory (default: cwd) (old spelling --project, kept working). Default: `.`. |
 | `--check CHECK` | comparator-check.sh to run (env COMPARATOR_CHECK; default: the copy shipped with lean-pkg) |
 | `--mechanism {auto,toolchain,legacy}` | toolchain: `lake comparator` with the toolchain's bundled kernels (Lean v4.35.0-rc2+, what Palomar runs); legacy: the pinned comparator/lean4export/nanoda/landrun stack; auto (default): toolchain when available, else legacy. Choices: `auto`, `toolchain`, `legacy`. |
 | `--verify VERIFY` | verify-comparator.sh for the toolchain mechanism (env COMPARATOR_VERIFY; default: the vendored PalomarTemplate copy) |
@@ -55,7 +55,7 @@ Run comparator-check.sh and write a comparator receipt. The same code and flags 
 
 ## Details
 
-`lean-pkg receipt comparator [--project DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
+`lean-pkg receipt comparator [--repo DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
 script that produces comparator receipts; see
 [The comparator tier](../comparator.md). `COMPARATOR_RECEIPT_STACK=unlimited|<kB>`
 raises the soft stack limit of its `lake`/`lean` children (never above the hard
@@ -124,7 +124,7 @@ lean-pkg receipt comparator
 The same for another directory, with up to four judges at once.
 
 ```bash
-lean-pkg receipt comparator --project src/my-proof --judges 4
+lean-pkg receipt comparator --repo src/my-proof --judges 4
 ```
 
 After the Slurm job finished, seal its sacct record into the receipt so its job can back a compute site.

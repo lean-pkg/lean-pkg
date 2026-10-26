@@ -2647,7 +2647,7 @@ def relocate_binding(name: str, pkg: dict, repo: pathlib.Path, head: str | None,
             nxt.append(f"lean-pkg gate {name} --receipt R" + (" --refresh-formalization" if fz_tracked else "")
                        + f"   # R: a lower-tier receipt bound to HEAD {h12}")
     if comparator and not comparator["kept"] and not (nxt and nxt[0].startswith(f"lean-pkg update {name} --formalization")):
-        nxt += [f"comparator-receipt --project {repo}   # at HEAD {h12}",
+        nxt += [f"comparator-receipt --repo {repo}   # at HEAD {h12}",
                 f"lean-pkg comparator {name} --receipt .lean-receipts/{h12}-comparator.json"]
     if claims_cleared:
         nxt.append(f"lean-pkg claims sync {name}")
@@ -6702,7 +6702,7 @@ gate      validate receipt; gate-pending -> verified-private; --receipt/--compar
   flags: --receipt PATH (required), --comparator PATH (optional), --refuse-private (private paths in a receipt: refuse, exit 1,
   nothing copied; default a stderr WARN "receipt field F contains a ... (kept: ...; --refuse-private refuses such a receipt)" + JSON private_strings[{field, kind}]), --refuse-dirty (modified tracked files; default WARN + JSON dirty[]), --refresh-formalization [--agent A] (then regenerate formalization.yaml + pointer in one step, JSON "formalization": {...}; lease + schema checked BEFORE the gate; identical re-gate with a current file: refused, nothing written; no pointer recorded yet: the derived-only formalization.yaml exception applies to the path it will own), --check (read-only, any status: every gate validation vs HEAD, both tiers with --comparator; ✓ lines or gate's refusal; claims.yaml at the receipt commit: ✓ schema ok / ✗ first error (exit 1) / · not tracked; no write, no event; exit 0/1; JSON event gate-checked, checks[], claims_schema; comparator --check prints the same binding ✓ lines), --check --repo DIR (validate against the checkout DIR, not the registered local_path, this call only: never saved; stderr note; JSON repo_override {path, registered_path, remote_match}, null without it; DIR must be a git work tree and, when it has remotes, one must be the package's repo (a local-path repo /p also matches Host:/p, ssh://Host/p, file:///p; DIR = the registered local_path needs no remote), else the caller vouches; a writing gate refuses --repo, exit 2: it binds the registered checkout, move that with update --path). Success (and promote --yes) ends with a results-ledger: line (JSON rl_reminder, rl_hint): lean-pkg keeps no results ledger, the outcome is in `status NAME` and `claims ledger NAME`; add it to the project's own results ledger if it keeps one (docs/lifecycle.md#results-ledger)
   ex: lean-pkg gate my-lean --receipt /tmp/receipt.json --comparator /tmp/comparator.json   |   receipt slurm --job J --log PATH --receipt-commit SHA [--stdout JOB.out] [--stderr JOB.err] [--checker TEXT] [--repo DIR] [--redact REGEX]... [--sacct-file F] [--out PATH] [--append-readme] (no registry): writes the lower-tier receipt from a finished Slurm job; refuses (exit 1, nothing written) unless sacct's main job line is COMPLETED 0:0, the stdout's verify-log-sha256 = sha256(raw log) and pre-manifest-sha256 = post-manifest-sha256 = sha256(lake-manifest.json at SHA) (no --stdout: the log's own `verify-log-sha256:` line = sha256 of the log minus that line), stderr is empty, lean_toolchain/mathlib_rev from SHA agree with any log line, sorry 0 and axioms from the log (sorry-count:/axioms: lines, else 'sorry' warnings/#print axioms output; a sorry-count: below the log's own 'sorry' warnings, or an axioms: line omitting an axiom its #print axioms output reports, is refused; universe suffixes .{u} ignored), a checker (--checker or checker:), a log commit: line equal to SHA (none: refused without --stdout; with --stdout a WARN "the verify log has no commit: line; it is bound to the commit only through lake-manifest.json", JSON log_commit_bound false, also in the written receipt, and a `- WARN:` line in the README entry), fields read from the RAW log (a redaction that removes or alters a sorry warning, #print axioms output, a build-completion line or a key: line other than checker: is refused; checker is published redacted), no committed symlink at SHA into .lean-receipts/, and no public-safety blocking hit is left after redacting /tmp/<account>-job, /scratch/<user>/ and --redact (blocking also this machine's user and host names and a bare /home/<x>, /Users/<x>); --append-readme: a symlinked or non-UTF-8 README.md refuses before writing; job_id slurm-<J>; writes .lean-receipts/<c12>-slurm-<J>.json + <c12>-slurm-<J>-verify.redacted.log (report_sha256; --compress-log: <...>.log.gz instead, deterministic gzip, report_sha256 still of the uncompressed log, additive report_compressed {format gzip, sha256 of .gz, bytes}, restore gzip -dc X.log.gz > X.log; without it a log over 90 MiB WARNs naming the flag; log_commit_bound true/false; with --stdout also job_stdout_sha256 + manifest_sha256; additive keys gate ignores: it never reads log_commit_bound), prints the README entry (with --stdout a `- Seal:` line naming both; --append-readme: appended to .lean-receipts/README.md) and `gate NAME --check --receipt PATH`; --json {ok, receipt, log, report_sha256, job_id, sealed[] {role, path, sha256, receipt_key} (the exact files bound; systemd's `properties` is the raw unsealed capture), checks[], refusals[], ...}; --template (no other flag, no registry): print a minimal sbatch wrapper emitting every line the receipt reads (stdout seal lines, empty stderr, checker:/sorry-count:/axioms: in the log; exact-runtime preflight before any tool runs: LC_ALL=C LANG=C PYTHONUTF8=1 (#SBATCH --export line + export; stderr stays strict, never filtered) and a `type -P` probe of the host tools (+EXTRA_TOOLS) and, under $RUN, the first word of VERIFY_CMD/AXIOMS_CMD/LEAN_PATH_CMD (+lean beside lake, +RUN_TOOLS): a missing one fails the job before the work, log line runtime-preflight: ok (...); optional artifact seal ARTIFACTS_DIR=<dir relative to the job's tree, or to $WORK with ARTIFACTS_BASE=work>: after the audit the job copies every regular file under it to ARTIFACTS_OUT (default $OUT_DIR/artifacts-<J>, never overwritten) with artifacts.sha256, sorted `<path> <size> <sha256>` lines (a symlink, special file or newline name fails the job), and prints `artifacts-manifest-sha256 <hex>` on stdout before post-manifest-sha256); --check --log PATH [--stdout] [--stderr] [--receipt-commit SHA] [--job J --sacct-file F]: preflight a job's files, every problem named, no sacct, nothing written, exit 0/1, --json {ok, log_commit_bound (true/false; null without --receipt-commit), checks[], problems[]}; --preflight-deps (--deps-tar T | --deps-dir D) [--receipt-commit SHA, default HEAD] [--entries GLOB]... (before sbatch, reads only, builds and writes nothing, exit 0/1): the import closure of the entry files committed at SHA (default Verify/**/*.lean, Audit/**/*.lean, OwnedAudit/**/*.lean, **/AxiomCheck*.lean, **/TypeCheck*.lean, **/Examples*.lean, **/OwnedAudit*.lean), followed through the package's modules and the dependency sources in the cache, must have every external module's .olean and .ilean (regular files) in exactly one manifest package (import Mathlib = Mathlib.olean and everything Mathlib.lean imports, transitively; toolchain roots Init/Std/Lean/Lake aside), every manifest git package present at its rev (.git/HEAD); --json {ok, preflight_deps, commit, entries[], required_external_modules, missing_count, missing[] {module, package, files, required_by}, checks[], problems[]}; + --fill-plan DONOR [--plan-out FILE] [--base-list FILE] (read-only; steps 1-4 of docs/receipts.md "Filling missing dependency artifacts from a pinned donor"): every missing module (no 500 cap), each with every regular file DONOR holds under its path in the package's .lake/build or build (lib/lean, lib, ir: <path>.<any extension>) with size and sha256; refuses (exit 1, refusals[] {code, reason}) on base-problem (a preflight problem other than missing files: not fillable), donor-cache, donor-toolchain (DONOR/lean-toolchain not the commit's byte for byte), donor-manifest (a manifest package not at its rev, the preflight's pin check), donor-source-edits (git status --porcelain --untracked-files=no non-empty, an index entry marked assume-unchanged or skip-worktree, an untracked or ignored *.lean/lakefile/lean-toolchain/lake-manifest.json outside .lake/, no .git directory or unreadable; GIT_OPTIONAL_LOCKS=0, the checkout's core.fsmonitor off), olean-header (a candidate .olean's first 80 bytes (46 for format 1) differ from the base's, which must agree), donor-lacks-module (no .olean/.ilean in DONOR either), base-overlap (an addition is a base member, a --base-list name, or under a non-directory member), package-build (under the package's own .lake/build or a root namespace), plan-out (exists, inside DONOR/the base/.lake, unwritable); --plan-out FILE, only when ok: FILE = additions one per line (relative to the directory holding .lake, for tar -T) + FILE.provenance.json (schema lean-pkg-fill-provenance/1: commit, lean_toolchain, manifest_revs, base, donor, donor_checks, plan, additions, created_utc; collector provenance, never a job seal), never overwritten; the archive is written by the user and the preflight rerun on it confirms the fill; --json {ok, preflight_deps, fill_plan, commit, entries[], required_external_modules, missing_count, missing[], base, donor, donor_checks[] {check, ok, detail}, plan[] {module, package, lacking, required_by, fillable, files[] {path, size, sha256}, bytes}, not_fillable[], refusals[], totals {missing_modules, fillable_modules, files, bytes}, plan_out, checks[], problems[]}; --artifacts DIR [--artifacts-manifest NAME] (needs --stdout; also with --check): sha256(DIR/NAME, default artifacts.sha256) must equal the stdout's one artifacts-manifest-sha256 line, and every file under DIR is rehashed in 1 MiB chunks against it (missing, extra, changed files, symlinks, special files, path traversal, duplicate or unsorted entries refuse; previously copied files are adopted only by this rehash, never by another attempt's hashes); the receipt gains artifacts_manifest_sha256 (additive, gate ignores it) and the manifest is written beside it as <c12>-slurm-<J>-artifacts.sha256 (sealed[] role artifacts.sha256), JSON artifacts {ok, dir, files, bytes, manifest, manifest_sha256}; without --artifacts nothing changes; --seal-sacct [--user NAME] (optional, additive; not with --check/--template/--preflight-deps; --job a number J or J_T; --out only inside <repo>/.lean-receipts/): seal the job's sacct record as `receipt comparator --seal-sacct` does: live sacct runs `SLURM_TIME_FORMAT=%Y-%m-%dT%H:%M:%S%z sacct -j J --format=JobID,State,ExitCode,Start,End,Elapsed,TotalCPU,User,NodeList -P` (or --sacct-file F, that output with its header); refuses unless Start..End (zoned) contain the log's generated-at: line (none: refused) and User = this account (live) or --user (not checked otherwise; node: not checked, the receipt names none); writes <c12>-slurm-<J>-sacct.txt (JobID|State|ExitCode|Start|End|Elapsed, UTC; no user or node names) and the additive slurm_sacct {schema slurm-sacct-seal/1, job, file, sha256, state, exit_code, start, end, elapsed, checks, source} into the receipt, a `- Seal: sacct record ...` README line, sealed[] role sacct.txt (receipt_key slurm_sacct.sha256), JSON slurm_sacct (its sacct object without user/node names); gate, gate --check, receipt check and every core.validate_receipt caller then refuse the receipt unless that record is committed at HEAD and still hashes and parses to the block ("sacct seal record missing or changed: ..." / "sacct seal: ..."); a receipt without the block is judged as before   |   receipt systemd (alias local) --unit U --log PATH --receipt-commit SHA [--properties-file F | --run [--memory-max 8G] [--memory-swap-max 0] [--cpu-quota 400%] [--runtime-max 4h] [--setenv K=V]... [--require-tools A,B,...]... [--properties-out PATH] -- CMD...] + the same --stdout/--stderr/--checker/--repo/--redact/--out/--append-readme/--json: the same receipt from a finished systemd --user service unit; the unit state comes from --run (lean-pkg runs CMD bounded via systemd-run --user -p RemainAfterExit=yes, WorkingDirectory=--repo, so the finished unit stays loaded: properties are captured to <log>.unit.properties before it is stopped and reset; --require-tools: each named executable resolved with type -P in the unit's PATH before the unit is created (paths and sha256 to stderr and --json run_tools; a missing one refuses, nothing run); the checkout must be at SHA with no tracked change and no untracked file (less .lean-receipts/, .lake/ and the run's own files; ignored files are not bound) under the package dir before and after), --properties-file (saved `systemctl --user show U -p ...` + a Hostname= line) or live `systemctl --user show U`; refuses unless LoadState=loaded, Id=U, terminal (failed/inactive or active+exited), Result=success (oom-kill, timeout, signal named), ExecMainCode exited with ExecMainStatus 0, NRestarts 0, plus every receipt slurm seal/field/redaction check (optional stdout invocation-id = InvocationID); job_id systemd-user:<U>:<InvocationID>@<host label> (label h-<12 hex of sha256(lower-cased host name)>; the name itself is never written); also writes <c12>-<slug>-unit.properties (additive unit_properties_sha256); built-in redaction <repo>, <HOME>, /run/user/<UID>/; --run interrupted (SIGINT/SIGTERM/SIGHUP) while waiting: the unit is not stopped, its temporary LAKE_CACHE_DIR is kept while the unit may still run (removed when it is gone or finished), exit 128+N, and the recovery command `lean-pkg receipt systemd --unit U --log ... --receipt-commit ...` (no --run) is printed with a WARN that recovery skips the source-unchanged-during-the-run check
-verify    NAME [--work-dir DIR] [--unit U] [--script verify.sh] [--judges N] [--agent A] [--reason T] [--dry-run]: the newcomer's one step to verified-private on this machine. Refuses first (nothing run) an unknown package, a checkout that is not a clean commit (untracked files other than this commit's receipts), no committed verify script, no comparator config, status scratch/archived/upstreamed, --registry-snapshot. Then, each printed and run as its own invocation, at HEAD X: (1) `receipt comparator --project CHECKOUT` (COMPARATOR_RECEIPT_NO_MATHLIB=1 when verify.sh declares `mathlib-rev: none` and the manifest has no Mathlib), (2) `receipt systemd --unit NAME-verify --receipt-commit X --log W/verify.log ... --run -- bash verify.sh W/verify.log` (W outside the checkout: $XDG_STATE_HOME/lean-pkg/verify/NAME/<c12>-<stamp>), (3) an active package: `update NAME --status gate-pending --reason ...`, (4) `gate NAME --receipt LOWER --comparator COMP` (--regate for verified-private/public). Comparator first: it refuses untracked files, the lower tier allows .lean-receipts/; nothing is committed between them, so both bind X. A receipt of X already present is reused. Writes only what those commands write, commits nothing in the checkout; HEAD an evidence-only descendant of the gated commit: `already verified`, nothing run. coverage.yaml at HEAD with `stack: S`: lean-toolchain and the lake-manifest.json Mathlib commit checked against stack S, then the comparator receipt's tool digests; `on stack S (supported until D)` or a warning per difference, a stack past its window or undeclared here warns too; never refuses (proposal 0004). --json {ok, name, commit, checkout, dry_run, status_before, status, work_dir, steps[{step, command, rc, skipped?, output?}], receipts{lower, comparator}, gate, next[], stack (null without the key: {name, declared, matches, supported_until, window, toolchain, mathlib, comparator_tools, lean_pkg, mismatches[], warnings[]}), already?, error?}
+verify    NAME [--work-dir DIR] [--unit U] [--script verify.sh] [--judges N] [--agent A] [--reason T] [--dry-run]: the newcomer's one step to verified-private on this machine. Refuses first (nothing run) an unknown package, a checkout that is not a clean commit (untracked files other than this commit's receipts), no committed verify script, no comparator config, status scratch/archived/upstreamed, --registry-snapshot. Then, each printed and run as its own invocation, at HEAD X: (1) `receipt comparator --repo CHECKOUT` (COMPARATOR_RECEIPT_NO_MATHLIB=1 when verify.sh declares `mathlib-rev: none` and the manifest has no Mathlib), (2) `receipt systemd --unit NAME-verify --receipt-commit X --log W/verify.log ... --run -- bash verify.sh W/verify.log` (W outside the checkout: $XDG_STATE_HOME/lean-pkg/verify/NAME/<c12>-<stamp>), (3) an active package: `update NAME --status gate-pending --reason ...`, (4) `gate NAME --receipt LOWER --comparator COMP` (--regate for verified-private/public). Comparator first: it refuses untracked files, the lower tier allows .lean-receipts/; nothing is committed between them, so both bind X. A receipt of X already present is reused. Writes only what those commands write, commits nothing in the checkout; HEAD an evidence-only descendant of the gated commit: `already verified`, nothing run. coverage.yaml at HEAD with `stack: S`: lean-toolchain and the lake-manifest.json Mathlib commit checked against stack S, then the comparator receipt's tool digests; `on stack S (supported until D)` or a warning per difference, a stack past its window or undeclared here warns too; never refuses (proposal 0004). --json {ok, name, commit, checkout, dry_run, status_before, status, work_dir, steps[{step, command, rc, skipped?, output?}], receipts{lower, comparator}, gate, next[], stack (null without the key: {name, declared, matches, supported_until, window, toolchain, mathlib, comparator_tools, lean_pkg, mismatches[], warnings[]}), already?, error?}
 comparator attach NAME --receipt PATH   (old spelling: comparator NAME --receipt PATH) attach comparator evidence to a verified-private/public package;
   no status change; event comparator-attached; identical re-attach = no-op; another receipt for the same commit: --replace keeps the old one as <c12>-comparator.replaced-<stamp>.json, event comparator-replaced {replaced}. It is required by promote.
   The receipt is written by `lean-pkg receipt comparator` (the comparator-receipt program: the same code and flags) on a host its policy allows (a Slurm job, a host in
@@ -7575,7 +7575,7 @@ def commit_mode_source(args) -> str:
 def note_ignored_commit_flags(args) -> None:
     """--commit/--push given on an invocation that writes nothing: a stderr note, not an error."""
     flags = [f for f in ("commit", "push") if getattr(args, f, False)]
-    if getattr(args, "cmd", None) == "verify":   # passed on to its registry steps (the status move, the gate)
+    if getattr(args, "cmd", None) in COMMIT_FLAGS_PASSED_ON:   # verify: to its registry steps (status move, gate)
         return
     if flags and not getattr(args, "no_commit", False) and not is_write_invocation(args):
         print(f"lean-pkg: {' and '.join('--' + f for f in flags)} ignored: read-only command", file=sys.stderr)
@@ -8543,6 +8543,89 @@ def _hidden_copies(target, *sources) -> None:
         target.set_defaults(**{k: v for k, v in _defaults_except(src, target).items()})
 
 
+# Commands that write nothing themselves but pass the commit flags on to the invocations they run
+# (`verify`: the status move and the gate); their help shows the flags, and they are never "ignored".
+COMMIT_FLAGS_PASSED_ON = ("verify",)
+
+
+def add_commit_flags(s) -> None:
+    """--commit, --push and --no-commit on subparser s (after the command name, as well as before it). Every
+    command accepts them, so a script may pass them to any command; show_commit_flags_on_writes hides them
+    from the help of a command that never writes (is_write_invocation), where they do nothing."""
+    acts = [
+        s.add_argument("--commit", action="store_true", default=argparse.SUPPRESS,
+                       help=f"write commands: pull --ff-only, then commit the registry files (default: "
+                            f"${COMMIT_ENV}=1{'; set now: writes commit unless --no-commit' if _env_on(COMMIT_ENV) else ''})"),
+        s.add_argument("--push", action="store_true", default=argparse.SUPPRESS,
+                       help=f"--commit, then push to origin (default: ${PUSH_ENV}=1"
+                            f"{'; set now: writes commit and push unless --no-commit' if _env_on(PUSH_ENV) else ''})"),
+        s.add_argument("--no-commit", dest="no_commit", action="store_true", default=argparse.SUPPRESS,
+                       help="never commit or push (overrides the env)"),
+    ]
+    for a in acts:
+        a.commit_flag = True
+
+
+def _subparser_items(parser):
+    """(name, subparser) of parser's subcommands, each parser once (an alias name shares its parser)."""
+    seen = set()
+    for a in parser._actions:
+        if isinstance(a, argparse._SubParsersAction):
+            for name, sp in a.choices.items():
+                if id(sp) not in seen:
+                    seen.add(id(sp))
+                    yield a.dest, name, sp
+
+
+def _probe_defaults(parser, ns: dict) -> dict:
+    """ns updated as argparse updates the namespace when parser is entered: its options' defaults, then its
+    set_defaults (a subparser's values overwrite its parent's)."""
+    ns = dict(ns)
+    for a in parser._actions:
+        if a.dest is not argparse.SUPPRESS and a.default is not argparse.SUPPRESS \
+                and not isinstance(a, argparse._SubParsersAction):
+            ns[a.dest] = a.default
+    ns.update(parser._defaults)
+    return ns
+
+
+def may_write(parser, ns: dict) -> bool:
+    """Can an invocation of the command `parser` write, by is_write_invocation itself? Probed on the namespace
+    the command parses to with no flag given, then with each of its on/off flags given alone (`gate` writes
+    unless --check; `publish` with --yes; `search` with --record; the board as if on a tty). A command with
+    subcommands may write when one of them may; COMMIT_FLAGS_PASSED_ON count as writes."""
+    ns = _probe_defaults(parser, ns)
+    subs = list(_subparser_items(parser))
+    if subs:
+        return any(may_write(sp, {**ns, dest: name}) for dest, name, sp in subs)
+    if ns.get("cmd") in COMMIT_FLAGS_PASSED_ON:
+        return True
+    flags = [a.dest for a in parser._actions if isinstance(a, argparse._StoreTrueAction)
+             and not getattr(a, "commit_flag", False) and a.dest != "json_out"]
+    for flag in [None] + flags:
+        probe = argparse.Namespace(**ns)
+        if flag is not None:
+            setattr(probe, flag, True)
+        if is_write_invocation(probe, interactive=True):
+            return True
+    return False
+
+
+def show_commit_flags_on_writes(root) -> None:
+    """Hide the commit flags (add_commit_flags) from the help of every command that never writes. They stay
+    accepted there: `lean-pkg list --commit` parses as before and prints its `ignored: read-only command`
+    note. The split is derived from is_write_invocation (may_write), never kept by hand."""
+    def walk(parser, ns):
+        ns = _probe_defaults(parser, ns)
+        acts = [a for a in parser._actions if getattr(a, "commit_flag", False)]
+        if acts and not may_write(parser, ns):
+            for a in acts:
+                a.help = argparse.SUPPRESS
+        for dest, name, sp in _subparser_items(parser):
+            walk(sp, {**ns, dest: name})
+    walk(root, {})
+
+
 def _defaults_except(source, target) -> dict:
     """source's argument defaults for every dest target does not define: a form split out of a command parses
     to the namespace that command produced (`repo move` = `update --path`, `comparator config` = the old
@@ -8600,14 +8683,7 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument("--json", dest="json_out", action="store_true",
                        default=argparse.SUPPRESS,
                        help="machine-readable JSON on stdout")
-        s.add_argument("--commit", action="store_true", default=argparse.SUPPRESS,
-                       help=f"write commands: pull --ff-only, then commit the registry files (default: "
-                            f"${COMMIT_ENV}=1{'; set now: writes commit unless --no-commit' if _env_on(COMMIT_ENV) else ''})")
-        s.add_argument("--push", action="store_true", default=argparse.SUPPRESS,
-                       help=f"--commit, then push to origin (default: ${PUSH_ENV}=1"
-                            f"{'; set now: writes commit and push unless --no-commit' if _env_on(PUSH_ENV) else ''})")
-        s.add_argument("--no-commit", dest="no_commit", action="store_true", default=argparse.SUPPRESS,
-                       help="never commit or push (overrides the env)")
+        add_commit_flags(s)
 
     only_help = ("filters PACKAGES, never fields: only these packages (comma-separated names), each with its "
                  "full record (cached claims included: --no-claims or --fields shrink it); the same table or --json shape, restricted; an unknown "
@@ -9208,6 +9284,7 @@ def main(argv: list[str] | None = None) -> int:
     verify_mod.add_parsers(sub, add_json)
 
     from . import command_tree
+    show_commit_flags_on_writes(ap)   # before the flag aliases: they annotate the help texts left shown
     command_tree.apply_flag_aliases(ap)
     command_tree.apply_tiers(ap)
     command_tree.register_root(ap)
@@ -9245,7 +9322,8 @@ def alias_notes(args, raw: list[str], hits: list) -> list[str]:
     """The stderr lines main prints after the command, one per old spelling used (text mode only; LEAN_PKG_NO_ALIAS_NOTE=1 silences it). Old
     spellings are permanent aliases: the note never changes output, JSON or the exit code."""
     from . import command_tree
-    if getattr(args, "json_out", False) or not command_tree.notes_enabled():
+    if getattr(args, "json_out", False) or getattr(args, "json", None) is True \
+            or not command_tree.notes_enabled():   # json: `receipt comparator`'s own --json
         return []
     hits = list(hits) + command_tree.flag_hits(raw, command_tree.canonical_command(args))
     return command_tree.note_lines(hits)
@@ -9286,14 +9364,15 @@ def board_interactive() -> bool:
 UNLOCKED_WRITES = ("index", "search", "board", None)
 
 
-def is_write_invocation(args) -> bool:
+def is_write_invocation(args, interactive: bool | None = None) -> bool:
     """Does this invocation, as parsed, write the registry or its event log? The one predicate behind the
     registry lock (locks_registry) and committed mode (commit_mode). Dry runs and read-only forms are not
     writes: register/update/migrate --dry-run, publish without --yes (or with --yes --dry-run), audit without --fix, gate --check, comparator
     --check, formalization without --write or with --no-registry (and `formalization anchor`), claims list/check, index check/render/migrate, search without
     --record, board off a tty, with --json or with --only. `page` (even --write: README.md only) and `coverage check`
     never write the registry. `verify` is not a write itself: its registry steps (the status move, the gate) are
-    invocations of their own, each with its own lock and committed mode."""
+    invocations of their own, each with its own lock and committed mode. `interactive` stands in for
+    board_interactive() (the help's commit-flag split, may_write, asks as if on a tty)."""
     cmd = getattr(args, "cmd", None)
     if cmd == "gate":
         return not getattr(args, "check", False)
@@ -9318,7 +9397,8 @@ def is_write_invocation(args) -> bool:
     if cmd == "palomar":   # prepare records palomar-prepared (#22.3); --dry-run writes nothing
         return getattr(args, "palomar_fn", None) == "prepare" and not getattr(args, "dry_run", False)
     if cmd in ("board", None):
-        return getattr(args, "fn", None) is cmd_board and not static_view(args) and board_interactive()
+        return getattr(args, "fn", None) is cmd_board and not static_view(args) \
+            and (board_interactive() if interactive is None else interactive)
     return False
 
 

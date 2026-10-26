@@ -18,10 +18,8 @@ lean-pkg comparator config [--from-claims NAME] [--out OUT] [--dry-run]
                            [--challenge-from-type] [--emit-script F] [--from-output F]
                            [--repo DIR] [--claims-file PATH] [--no-registry]
                            [--allow-partial] [--lake-env DIR] [--jobs JOBS]
-                           [--timeout TIMEOUT] [common flags]
+                           [--timeout TIMEOUT] [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

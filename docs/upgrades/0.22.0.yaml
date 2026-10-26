@@ -4,7 +4,40 @@
 # renames both files to the version it cuts, which make release-version prints.
 schema: lean-pkg-upgrade-record/1
 version: 0.22.0
-changes: []
+changes:
+  - pr: 322
+    id: commit-flags-on-write-commands
+    kind: command
+    area: cli
+    summary: >-
+      --commit, --push and --no-commit appear in the help of the commands that can write the registry (and of
+      verify, which passes them on) only. A read-only command (list, next, status, public-safety, claims check,
+      ...) still accepts them after its name, as before, and notes '--commit ignored: read-only command' on
+      stderr; the split is derived from the predicate behind committed mode (is_write_invocation). The command
+      reference shows [common flags] only on those commands, and no longer on new, receipt slurm, receipt
+      systemd and receipt check, which never accepted the commit flags.
+      doctor --upgrade-from does not list the hidden flags as removed options.
+    action: >-
+      Nothing: every invocation parses and behaves as before; only --help texts change.
+    breaking: false
+    changelog: Changed
+    split: true
+  - pr: 322
+    id: repo-for-the-checkout
+    kind: command
+    area: cli, comparator receipts
+    summary: >-
+      The package checkout is --repo DIR on every command: lean-pkg receipt comparator and the comparator-receipt
+      program, python3 -m lean_pkg.claim_axioms and python3 -m lean_pkg.dup_constants said --project. --project
+      stays a permanent alias (the same value, output and exit code), with a stderr note in text mode
+      (LEAN_PKG_NO_ALIAS_NOTE=1 silences it); lean-pkg help aliases lists them. The commands lean-pkg prints
+      (verify's comparator step, next, repo export) now say --repo. lean-exercise --project, a prebuilt Mathlib
+      project rather than the package checkout, is unchanged.
+    action: >-
+      Nothing required. Scripts may keep --project; write --repo in new ones to drop the note.
+    breaking: false
+    changelog: Changed
+    split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 no_author_change: [321]

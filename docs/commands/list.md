@@ -13,10 +13,8 @@ static table, pipe-friendly.
 ## Usage
 
 ```text
-lean-pkg list [--only NAME[,NAME]] [--fields a,b,c] [--no-claims] [common flags]
+lean-pkg list [--only NAME[,NAME]] [--fields a,b,c] [--no-claims] [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

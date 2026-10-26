@@ -15,10 +15,8 @@ set the status of the claims a comparator config's theorem_names cover (exact fu
 ```text
 lean-pkg claims mark --from-comparator CONFIG.json
                      --status {reusable,internal,experimental} [--write] [--dry-run]
-                     [--agent AGENT] [common flags] NAME
+                     [--agent AGENT] [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

@@ -14,10 +14,8 @@ the canonical kept view of formalization.yaml (derived keys removed) and its SHA
 
 ```text
 lean-pkg formalization kept [--repo DIR] [--file REL] [--at REV] [--against REV2]
-                            [common flags]
+                            [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 `lean-pkg formalization kept [--repo DIR] [--file REL] [--at REV] [--against REV2] [--json]`: print formalization.yaml without the keys `formalization render` derives (formalization.DERIVED_PATHS and the renderer's acknowledgements lines), as canonical JSON (sort_keys, separators ',' ':', UTF-8, no trailing newline) and the SHA-256 of those bytes; the recipe is in docs/formalization.md, "The kept view". --against REV2 lists the kept keys that differ from REV2 and exits 1 when any does. Reads no registry; writes nothing
 

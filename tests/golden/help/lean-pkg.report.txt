@@ -1,6 +1,6 @@
 usage: lean-pkg report [-h] [--command ARGS] [--body TEXT] [--from-log FILE[:N]] [--package NAME]
                        [--title TITLE] [--enhancement] [--target-repo OWNER/NAME] [--dry-run |
-                       --yes] [--json] [--commit] [--push] [--no-commit]
+                       --yes] [--json]
 
 options:
   -h, --help            show this help message and exit
@@ -22,7 +22,3 @@ options:
   --dry-run             print title, labels and body; file nothing (default)
   --yes                 file it with `gh issue create` and print the URL (needs `gh auth login`)
   --json                machine-readable JSON on stdout
-  --commit              write commands: pull --ff-only, then commit the registry files (default:
-                        $LEAN_PKG_COMMIT=1)
-  --push                --commit, then push to origin (default: $LEAN_PKG_PUSH=1)
-  --no-commit           never commit or push (overrides the env)

@@ -15,10 +15,8 @@ Also spelled: `lean-pkg leases` ([all aliases](aliases.md)).
 ## Usage
 
 ```text
-lean-pkg lease list [--agent AGENT] [--expiring HOURS] [common flags]
+lean-pkg lease list [--agent AGENT] [--expiring HOURS] [--json]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 ## Arguments and flags
 

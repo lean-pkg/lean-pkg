@@ -1,5 +1,5 @@
 
-`lean-pkg receipt comparator [--project DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
+`lean-pkg receipt comparator [--repo DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
 script that produces comparator receipts; see
 [The comparator tier](../comparator.md). `COMPARATOR_RECEIPT_STACK=unlimited|<kB>`
 raises the soft stack limit of its `lake`/`lean` children (never above the hard

@@ -15,10 +15,8 @@ scaffold a new Lean package (Challenge/Solution, comparator.json, claims, covera
 ```text
 lean-pkg new [--kind {paper,library}] [--stack NAME|current|none] [--dir DIR]
              [--module MOD] [--no-mathlib] [--author TEXT] [--license {Apache-2.0,MIT}]
-             [common flags] NAME
+             [--json] NAME
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate and reuse lint accept unchanged (and page, for --kind library; a paper's coverage.yaml waits for the paper), then `git init` it. Nothing is committed, fetched or built; no registry is read or written. Next steps: docs/quickstart.md.
 

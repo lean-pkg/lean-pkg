@@ -1,4 +1,4 @@
-usage: lean-pkg receipt comparator [-h] [--project PROJECT] [--check CHECK]
+usage: lean-pkg receipt comparator [-h] [--repo DIR] [--check CHECK]
                                    [--mechanism {auto,toolchain,legacy}] [--verify VERIFY]
                                    [--evidence-dir DIR] [--prepare] [--from-prepared DIR]
                                    [--no-resume] [--judges N] [--unit-size K] [--slots SPEC]
@@ -12,7 +12,8 @@ Run comparator-check.sh and write a comparator receipt. The same code and flags 
 
 options:
   -h, --help            show this help message and exit
-  --project PROJECT     Lake project directory (default: cwd)
+  --repo DIR            the package checkout, a Lake project directory (default: cwd) (old
+                        spelling --project, kept working)
   --check CHECK         comparator-check.sh to run (env COMPARATOR_CHECK; default: the copy
                         shipped with lean-pkg)
   --mechanism {auto,toolchain,legacy}

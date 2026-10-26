@@ -13,10 +13,8 @@ help topics (exit-codes, environment, formatting) or a command's --help.
 ## Usage
 
 ```text
-lean-pkg help [common flags] [TOPIC|COMMAND ...]
+lean-pkg help [--json] [TOPIC|COMMAND ...]
 ```
-
-`[common flags]`: `--json`, `--commit`, `--push`, `--no-commit`, also accepted before the command name; see the [CLI overview](../cli.md).
 
 Without an argument: the commands and help topics. With a topic (exit-codes, environment, formatting): that topic. With a command (`help status`, `help index add`): exactly its --help. Reads no registry.
 
