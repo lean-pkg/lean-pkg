@@ -40,7 +40,7 @@ changes:
     split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
-# Tests and CI (PR_A): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,
+# Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,
 # Python 3.13 and 3.14, pytest-timeout, jsonschema and setuptools in the test extra, Makefile and
 # tomllib loose ends (#310 to #313); nothing a package author sees.
-no_author_change: [321]
+no_author_change: [321, 323]

@@ -30,7 +30,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   comparator step, `next`, `repo export`) say `--repo`. `lean-exercise
   --project`, a prebuilt Mathlib project and not the package checkout, is
   unchanged.
-- Tests and CI hygiene (#PR_A): the suite no longer writes
+- Tests and CI hygiene (#323): the suite no longer writes
   `src/lean_pkg/__pycache__` (the bootstrap test's `lean-pkg` stub now
   inherits `PYTHONPYCACHEPREFIX` and `PYTHONDONTWRITEBYTECODE`), and a
   session-end check fails a run in which bytecode appears under `src/`
