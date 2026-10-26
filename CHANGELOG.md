@@ -146,7 +146,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   CLI or its JSON.
 
 - `formalization render NAME --write` refreshes derived keys without
-  `--force` (#PR_F341; #341). After a re-gate moves the receipts,
+  `--force` (#347; #341). After a re-gate moves the receipts,
   `formalization.yaml`'s derived keys (`status.evidence` and the rest) are
   stale; `--write` used to refuse any differing file without `--force`, so
   the routine refresh needed the flag that otherwise overrides a safety
