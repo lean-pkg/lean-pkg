@@ -105,9 +105,9 @@ scheduler; **(c)** hard-coded, must change.
 | Comparator `job_id` = `SLURM_JOB_ID`, else `local-<host>-<pid>-<stamp>` | `comparator_receipt.py` | (b) | Ask the scheduler for the job identity (section 4.5) |
 | Slurm template (`receipt slurm --template`) | `receipt.py` `SBATCH_TEMPLATE` | (a) | No partition, account or site names; "add the lines your site requires" |
 | Local executor (`receipt systemd`, alias `receipt local`) | `receipt_systemd.py` | (a) | Already a non-cluster route for the lower tier |
-| Registry location | `cli.py` `registry_path`: `--registry`, `LEAN_PKG_REGISTRY`, `~/.lean-pkg/registry` (`LEAN_PKG_HOME`), `./lean-packages.yaml` | (a) | Nothing lab-specific; the lab sets the variables in its own wrapper |
+| Registry location | `core.py` `registry_path`: `--registry`, `LEAN_PKG_REGISTRY`, `~/.lean-pkg/registry` (`LEAN_PKG_HOME`), `./lean-packages.yaml` | (a) | Nothing lab-specific; the lab sets the variables in its own wrapper |
 | Committed-mode and push (`LEAN_PKG_COMMIT`, `LEAN_PKG_PUSH`) | `cli.py` | (a) | Off by default |
-| Notification | `cli.py` `LEAN_PKG_NOTIFY_CMD` | (a) | An optional hook; no messaging system is built in |
+| Notification | `core.py` `LEAN_PKG_NOTIFY_CMD` | (a) | An optional hook; no messaging system is built in |
 | Lease holder help text gives a lab-style session address as its example | `cli.py` `--holder` help, `docs/cli.md` | (a) | Example text only; a neutral example is a wave-2 docs item |
 | Private-string boundary | `scripts/private-boundary-check.sh`, `.lean-pkg-private-patterns` | (a) | Lab names are forbidden in the tree, never built in |
 | Easley paragraphs in the guides | `docs/page.md` (the Easley acknowledgment), `docs/paper-companion.md` (Acknowledge the compute), `docs/receipts.md`, `docs/comparator.md` | (b) | Point to [Compute sites](../sites.md) (done for `page.md` and `paper-companion.md`); the "one story" rewrite belongs to wave 2 |

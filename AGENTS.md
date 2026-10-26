@@ -45,7 +45,13 @@ bash scripts/private-boundary-check.sh    # must exit 0
 
 Layout:
 
-- `src/lean_pkg/cli.py`: the `lean-pkg` CLI (`main(argv)`).
+- `src/lean_pkg/cli.py`: the `lean-pkg` CLI (`main(argv)`): the parser, dispatch and the
+  commands not yet in their own module.
+- `src/lean_pkg/core.py`: the shared core the command modules build on: `Fail` and
+  `UsageError`, the registry constants, time policy, the git helpers, registry IO and the
+  event log. It never imports `cli` (only `build_scope`, a leaf). `cli.py` re-exports every name that
+  moved here (#317) for one release; a test that patches one of them patches it on both
+  modules (`patch_core` in `tests/conftest.py`).
 - `src/lean_pkg/comparator_receipt.py`: the `comparator-receipt` runner (also `lean-pkg receipt comparator`)
   (`main(argv)`).
 - `src/lean_pkg/scripts/comparator-check.sh`: the vendored Palomar

@@ -9,13 +9,13 @@ import json
 
 import pytest
 
-from .conftest import make_repo, read_events, read_reg, set_lease, write_reg
+from .conftest import make_repo, patch_core, read_events, read_reg, set_lease, write_reg
 
 
 @pytest.fixture()
 def home(lp, monkeypatch, tmp_path):
     """$HOME is tmp_path, so env's checkouts (tmp_path/alpha-repo, ...) lie under it."""
-    monkeypatch.setattr(lp, "HOME", tmp_path)
+    patch_core(monkeypatch, "HOME", tmp_path)
     return tmp_path
 
 

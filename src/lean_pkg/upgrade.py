@@ -43,21 +43,22 @@ HELP_DIR = "tests/golden/help"
 JSON_KEYS = "tests/golden/json-keys.json"
 DATA_DIRS = ("schemas", "templates", "scripts", "site_profiles")
 FORMAT_RE = re.compile(r"^([a-z][a-z0-9-]*)/(\d+)$")
-# Named constants whose value is a version or a key list of an on-disk format (module, name).
+# Named constants whose value is a version or a key list of an on-disk format (module, name). A `core`
+# constant is read from cli.py in a tree that has no core.py yet (before the core split, #317): _const.
 NAMED = {
-    "registry_version": ("cli", "REGISTRY_VERSION"),
-    "registry_versions_read": ("cli", "SUPPORTED_REGISTRY_VERSIONS"),
-    "event_line_version": ("cli", "EVENT_LINE_VERSION"),
+    "registry_version": ("core", "REGISTRY_VERSION"),
+    "registry_versions_read": ("core", "SUPPORTED_REGISTRY_VERSIONS"),
+    "event_line_version": ("core", "EVENT_LINE_VERSION"),
     "formalization_yaml_version": ("formalization", "SCHEMA_VERSION"),
 }
 KEY_LISTS = {   # format label -> (module, constant in lower case: an upper-case COMPARATOR_* literal reads as an
     # environment variable to the suite's env scan); a tuple of tuples counts by its first items
-    "registry package": ("cli", "package_fields"),
-    "registry lease": ("cli", "lease_fields"),
-    "lower-tier receipt": ("cli", "receipt_fields"),
-    "comparator receipt": ("cli", "comparator_fields"),
-    "comparator receipt config": ("cli", "comparator_config_fields"),
-    "comparator receipt digests": ("cli", "comparator_toolchain_digests"),
+    "registry package": ("core", "package_fields"),
+    "registry lease": ("core", "lease_fields"),
+    "lower-tier receipt": ("core", "receipt_fields"),
+    "comparator receipt": ("core", "comparator_fields"),
+    "comparator receipt config": ("core", "comparator_config_fields"),
+    "comparator receipt digests": ("core", "comparator_toolchain_digests"),
     "formalization.yaml derived": ("formalization", "derived_paths"),
 }
 RECORD_KINDS = ("behavior", "format", "command", "requirement")
@@ -314,8 +315,13 @@ def command_delta(old: dict, new: dict, amap: dict) -> dict:
 
 
 def _const(consts: dict, mod: str, name: str):
-    """The parsed value of constant `name` (any case) of module `mod`, None when absent."""
-    return consts.get(mod, {}).get(name.upper())
+    """The parsed value of constant `name` (any case) of module `mod`, None when absent. Module `core` falls
+    back to `cli`: the shared constants lived in cli.py until the core split (#317), so an older tree
+    reads the same as a newer one."""
+    found = consts.get(mod, {})
+    if mod == "core" and name.upper() not in found:
+        found = consts.get("cli", {})
+    return found.get(name.upper())
 
 
 def surface(tree: Tree) -> dict:

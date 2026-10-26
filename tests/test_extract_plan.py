@@ -16,7 +16,7 @@ import tomllib
 
 import pytest
 
-from lean_pkg import cli
+from lean_pkg import cli, core
 from lean_pkg import extract as ex
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -283,8 +283,9 @@ def test_source_workspace_is_unchanged_and_no_registry_is_opened(src, tmp_path, 
     def boom(*a, **k):
         raise AssertionError("the registry must not be opened")
     for name in ("load_registry", "registry_path", "save_registry"):
-        if hasattr(cli, name):
-            monkeypatch.setattr(cli, name, boom)
+        for mod in (cli, core):   # defined in core.py, re-exported by cli.py (#317): both bindings
+            if hasattr(mod, name):
+                monkeypatch.setattr(mod, name, boom)
     reg = tmp_path / "never" / "lean-packages.yaml"
     monkeypatch.setenv("LEAN_PKG_REGISTRY", str(reg))
     # `git status` itself may refresh the index stat cache, so the git state is read before the file

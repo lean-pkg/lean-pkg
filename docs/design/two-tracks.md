@@ -56,7 +56,7 @@ used by the other; the column says whose final product needs it.
 
 | Feature | Module | Role in both tracks |
 |---|---|---|
-| Registry, lifecycle, leases, history | `cli.py` | `scratch → active → gate-pending → verified-private → public → upstreamed` |
+| Registry, lifecycle, leases, history | `core.py` (registry IO, history, event log), `cli.py` (the commands) | `scratch → active → gate-pending → verified-private → public → upstreamed` |
 | Lower-tier receipt (build, sorry 0, axioms) | `receipt.py`, `receipt_systemd.py` | evidence bound to one commit |
 | Comparator receipt (Challenge vs Solution, kernel replay) | `comparator_receipt.py`, `comparator_stage.py`, `comparator_config.py`, `comparator_types.py`, `holes.py` | statement checking |
 | Gate and docs-only descendants | `cli.py` (`gate`), `build_scope.py`, `lake_hygiene.py` | which commit is verified |

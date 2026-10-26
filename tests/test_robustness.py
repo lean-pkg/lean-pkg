@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from .conftest import (_git, commit_claims, index_add, make_index_package, read_events, read_reg,
-                       set_lease, write_reg)
+from .conftest import (_git, commit_claims, index_add, make_index_package, patch_core,
+                       read_events, read_reg, set_lease, write_reg)
 from .test_commit import CLAIM, _clone, _count, _head, _subject, shared  # noqa: F401 -- fixture
 
 REG = "lean-packages.yaml"
@@ -267,7 +267,7 @@ def test_dry_runs_skip_the_preflight(lp, env, shared, fake_gh, monkeypatch, caps
     a = shared.a
     calls = []
     real_git = lp.registry_git                           # registry-repository git (#27)
-    monkeypatch.setattr(lp, "registry_git", lambda r, *g: (calls.append(g), real_git(r, *g))[1])
+    patch_core(monkeypatch, "registry_git", lambda r, *g: (calls.append(g), real_git(r, *g))[1])
     monkeypatch.setenv("LEAN_PKG_COMMIT", "1")
     lp.main(["--registry", str(a.registry), *argv])
     cap = capsys.readouterr()

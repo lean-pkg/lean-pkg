@@ -17,7 +17,7 @@ import tomllib
 
 import pytest
 
-from lean_pkg import cli
+from lean_pkg import cli, core
 from lean_pkg import comparator_receipt as cr
 from lean_pkg import exercise as ex
 
@@ -99,7 +99,8 @@ def fake(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise AssertionError("lean-exercise touched the registry")
     for fn in ("registry_path", "events_path", "load_registry", "registry_lock"):
-        monkeypatch.setattr(cli, fn, boom)
+        for mod in (cli, core):   # defined in core.py, re-exported by cli.py (#317): both bindings
+            monkeypatch.setattr(mod, fn, boom)
     host(monkeypatch)
     ns = type("Fake", (), {})()
     ns.root, ns.tmp, ns.log, ns.registry, ns.home = tmp_path, tmp, log, registry, home
