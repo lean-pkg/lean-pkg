@@ -41,10 +41,9 @@ into a decision; no code changes until it is accepted.
 
 ## Design
 
-This proposal is written on top of the `lower-receipt/1` marker and the event-line `v` key of pull request
-[#324](https://github.com/lean-pkg/lean-pkg/pull/324) (`docs/formats.md`), which is not yet in the base
-this file was drafted on. If #324 changed before merging, the `ci` block is additive to whatever the
-lower-tier receipt's current version is; nothing here depends on the marker's spelling.
+This proposal builds on the `lower-receipt/1` marker and the event-line `v` key of pull request
+[#324](https://github.com/lean-pkg/lean-pkg/pull/324) ([on-disk formats](../formats.md)). The `ci` block
+is an additive key within `lower-receipt/1`, under the additive-change rule stated there.
 
 ### Scheduler and job id
 
