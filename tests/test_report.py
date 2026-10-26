@@ -94,7 +94,7 @@ def test_captured_stdout_is_redacted(lp, env, capsys, monkeypatch):
     rc, out = _report(lp, env, capsys, "--command", "status alpha")
     assert rc == 0
     body = out["body"]
-    assert '"agent": "[…]"' in body                    # the stdout was captured, then redacted
+    assert '"agent": "<agent>"' in body                # the stdout was captured, then redacted (#330)
     assert p["home_file"] not in body and "~/proj/file.txt" in body            # home directory -> ~
     assert "someoneelse" not in body and "/home/[…]" not in body and "[…]x.lean" in body
     assert "a.person@uni.edu" not in body and "uni.edu" not in body
@@ -251,12 +251,19 @@ def test_json_is_not_appended_twice_and_unknown_commands_run_as_given(lp, env, c
     assert rc == 0 and "exit code 2" in out["body"] and "invalid choice" in out["body"]
 
 
+def _redaction_misses(rp, monkeypatch, marker: str = "leak", hit: str = "x.y@uni.edu") -> None:
+    """Every redacted text with `marker` replaced by `hit` afterwards: a redaction that missed a string."""
+    real = rp.Redactor.__call__
+    monkeypatch.setattr(rp.Redactor, "__call__", lambda self, text: real(self, text).replace(marker, hit))
+
+
 def test_a_blocking_hit_left_in_the_body_refuses(lp, env, capsys, rp, monkeypatch, tmp_path):
-    real = rp.render_body
-    monkeypatch.setattr(rp, "render_body", lambda f: real(f) + "\nleaked: x.y@uni.edu\n")
-    rc, out = _report(lp, env, capsys, "--yes", "--body", "x")
+    _redaction_misses(rp, monkeypatch)
+    rc, out = _report(lp, env, capsys, "--yes", "--body", "leak")
     assert rc == 1
     assert out["ok"] is False and out["filed"] is False and out["families"] == ["email"]
+    assert out["sections"] == [{"section": "--body", "origin": "user", "families": ["email"]}]
+    assert "in your text (--body); nothing filed" in out["error"]
     assert out["body"] is None and "x.y@uni.edu" not in json.dumps(out)
     assert not (tmp_path / "gh-argv.txt").exists()
 
@@ -363,8 +370,112 @@ def test_yes_files_the_log_excerpt_with_gh(lp, env, capsys, tmp_path, monkeypatc
 
 def test_a_blocking_hit_left_after_the_log_excerpt_refuses(lp, env, capsys, rp, monkeypatch, tmp_path):
     log = _log(tmp_path, 1, extra="leak\n")
-    real = rp.render_body
-    monkeypatch.setattr(rp, "render_body", lambda f: real(f).replace("leak", "x.y@uni.edu"))
+    _redaction_misses(rp, monkeypatch)
     rc, out = _report(lp, env, capsys, "--from-log", str(log), "--yes")
     assert rc == 1 and out["families"] == ["email"] and out["body"] is None
+    assert [(s["section"], s["origin"]) for s in out["sections"]] == [("--from-log", "user")]
     assert not (tmp_path / "gh-argv.txt").exists()
+
+
+# --------------------------------------------------------------------------
+# #330: registry names in the attached sections, the guard's sections, the index directory
+
+WORKSPACE, AGENT = "/home/zanzibar-desk/round-4", "quillfeather-9"
+
+
+def _live_lease(lp, env, monkeypatch) -> None:
+    """alpha leased live by AGENT in WORKSPACE, whose derived tokens include `home`, a word the report's
+    own prose uses ("home directory")."""
+    monkeypatch.setattr(lp, "HOME", pathlib.Path("/srv/report-test-home/u1"))
+    set_lease(env, "alpha", agent=AGENT, workspace=WORKSPACE)
+
+
+def test_a_live_lease_does_not_block_the_report(lp, env, capsys, monkeypatch):
+    _live_lease(lp, env, monkeypatch)
+    rc, out = _report(lp, env, capsys, "--dry-run", "--title", "probe", "--body", "plain text")
+    assert rc == 0, out.get("error")
+    assert "families" not in out and "sections" not in out
+    rc, out = _report(lp, env, capsys, "--dry-run", "--body", "plain text", "--command", "status alpha",
+                      "--package", "alpha")
+    assert rc == 0, out.get("error")
+    body = out["body"]
+    for private in (WORKSPACE, "zanzibar-desk", "round-4", AGENT):
+        assert private not in body
+    assert '"agent": "<agent>"' in body and '"workspace": "<workspace>"' in body     # the re-run's stdout
+    assert "lease: agent=<agent>, workspace=<workspace>, " in body                    # the record section
+    assert "captured text is redacted (paths, home directory, " in body               # the fixed prose stays
+
+
+def test_a_registry_name_in_the_users_own_text_is_redacted_not_filed(lp, env, capsys, monkeypatch):
+    _live_lease(lp, env, monkeypatch)
+    rc, out = _report(lp, env, capsys, "--dry-run", "--body", f"claimed from {WORKSPACE} by {AGENT}")
+    assert rc == 0
+    what = _what(out["body"])
+    for private in ("zanzibar-desk", "round-4", AGENT):
+        assert private not in what
+    assert "claimed from […]" in what and " by […]" in what
+
+
+def _anchored_pattern(rp, env, monkeypatch) -> None:
+    """The registry directory's patterns file blocks ^CODENAME: a line-anchored pattern, which the
+    redaction of a multi-line text (matched as one string) misses on any line but the first, and the
+    guard (line by line) still finds."""
+    real = rp.ps.read_patterns_file
+
+    def fake(root):
+        if root == env.registry.parent:
+            return [rp.ps.Pattern("p:1", "file", re.compile("^CODENAME"))], [], [], True
+        return real(root)
+    monkeypatch.setattr(rp.ps, "read_patterns_file", fake)
+
+
+def test_a_private_string_left_in_the_users_text_refuses_naming_the_section(lp, env, capsys, rp, monkeypatch,
+                                                                             tmp_path):
+    _live_lease(lp, env, monkeypatch)
+    _anchored_pattern(rp, env, monkeypatch)
+    rc, out = _report(lp, env, capsys, "--yes", "--body", "first line\nCODENAME left here")
+    assert rc == 1 and out["ok"] is False and out["body"] is None
+    assert out["families"] == [rp.ps.PATTERNS_FILE]
+    assert out["sections"] == [{"section": "--body", "origin": "user", "families": [rp.ps.PATTERNS_FILE]}]
+    assert "CODENAME" not in json.dumps(out) and not (tmp_path / "gh-argv.txt").exists()
+    assert lp.main(["--registry", str(env.registry), "report", "--body", "x\nCODENAME"]) == 1
+    err = capsys.readouterr().err
+    assert f"remains after redaction ({rp.ps.PATTERNS_FILE}) in your text (--body); nothing filed" in err
+
+
+def test_a_hit_left_in_an_attached_section_is_named_as_attached(lp, env, capsys, rp, monkeypatch):
+    _anchored_pattern(rp, env, monkeypatch)
+    monkeypatch.setattr(rp, "host_verdict", lambda: "verdict: fine\nCODENAME from the probe")
+    rc, out = _report(lp, env, capsys, "--body", "plain text")
+    assert rc == 1
+    assert out["sections"] == [{"section": "host-check", "origin": "attached",
+                                "families": [rp.ps.PATTERNS_FILE]}]
+    assert "in an attached section (host-check); nothing filed" in out["error"]
+    rc, out = _report(lp, env, capsys, "--body", "x\nCODENAME")
+    assert rc == 1 and "in your text (--body) and an attached section (host-check)" in out["error"]
+
+
+def test_the_index_directory_becomes_a_placeholder(lp, env, capsys, monkeypatch, tmp_path_factory):
+    home = tmp_path_factory.mktemp("homes") / "u7"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(lp, "HOME", home)
+    for root in (home / "Dropbox" / "workspace" / "svn" / "Project-idx" / "index",       # under the home
+                 tmp_path_factory.mktemp("elsewhere") / "srv-lean" / "index"):         # any other path
+        root.mkdir(parents=True)
+        monkeypatch.setenv("LEAN_PKG_INDEX", str(root))
+        rc, out = _report(lp, env, capsys, "--body", f"index at {root}")
+        assert rc == 0, out.get("error")
+        lines = [x for x in out["body"].splitlines() if x.startswith("ok index: ") or x.startswith("index at ")]
+        assert lines == ["ok index: <index-dir> (0 entries) [source: env]", "index at <index-dir>"]
+        for part in ("Project-idx", "srv-lean"):
+            assert part not in out["body"]
+
+
+def test_the_index_placeholder_covers_a_relative_index_and_its_resolved_form(rp, env, tmp_path, monkeypatch):
+    import argparse
+    real = tmp_path / "real-index"
+    real.mkdir()
+    (tmp_path / "linked-index").symlink_to(real)
+    monkeypatch.chdir(tmp_path)
+    red = rp.build_redactor(env.registry, {}, None, argparse.Namespace(index="linked-index"))
+    assert red(f"{tmp_path}/linked-index and {real}") == "<index-dir> and <index-dir>"
