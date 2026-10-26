@@ -23,6 +23,8 @@ This module is pure data plus argv rewriting: nothing here reads the registry or
 - PROGRAM_FLAG_ALIASES: tuple[FlagAlias, ...]. The same for the programs beside lean-pkg (`comparator-receipt`,
   `python3 -m lean_pkg.claim_axioms`, `python3 -m lean_pkg.dup_constants`), keyed on the program as typed;
   `apply_program_flag_aliases(parser, program)` wires them, `program_notes(argv, program)` are their notes.
+- HELP_HIDDEN_FLAGS: the options accepted by every command with --json but shown only where they act (the
+  commit flags, on write commands); the upgrade diff never counts them as removed.
 - TIERS: {top-level command: tier}; `apply_tiers(root)` stores each tier on its parser (`parser.tier`), where
   the tiered root --help and the command reference read it. TIER_TITLES names the tiers.
 - aliases_of(path) / flag_aliases_of(path): the alias spellings of one canonical command, for its page.
@@ -159,6 +161,12 @@ PROGRAM_FLAG_ALIASES: tuple[FlagAlias, ...] = (
     FlagAlias(("python3 -m lean_pkg.claim_axioms",), "--project", "--repo"),
     FlagAlias(("python3 -m lean_pkg.dup_constants",), "--project", "--repo"),
 )
+
+# Options every lean-pkg command with --json accepts, but whose help shows them only where they act: the
+# commit flags, on the commands that can write the registry (cli.show_commit_flags_on_writes). Hidden is
+# not removed: the upgrade diff (upgrade.command_delta), which reads the help goldens, never reports them
+# as lost by a command.
+HELP_HIDDEN_FLAGS: tuple[str, ...] = ("--commit", "--push", "--no-commit")
 
 # The pre-1.0 `cmd` a moved command keeps in its namespace -> its canonical path.
 LEGACY_CMD: dict[str, str] = {

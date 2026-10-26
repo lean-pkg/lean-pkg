@@ -142,3 +142,24 @@ def test_program_aliases_listed_in_help_aliases():
     text = ct.aliases_text()
     for fa in ct.PROGRAM_FLAG_ALIASES:
         assert f"{fa.command[0]} {fa.old}" in text
+
+
+def test_hidden_commit_flags_are_the_help_hidden_flags(ap):
+    """The flags the help hides are command_tree.HELP_HIDDEN_FLAGS, which the upgrade diff reads."""
+    for n in command_tree(ap):
+        acts = _commit_actions(n.parser)
+        if acts:
+            assert tuple(a.option_strings[0] for a in acts) == ct.HELP_HIDDEN_FLAGS, n.path
+
+
+def test_upgrade_diff_never_reports_a_hidden_flag_removed():
+    """doctor --upgrade-from reads options from the help goldens: a flag hidden there is not removed."""
+    import pathlib
+
+    from lean_pkg import upgrade as up
+    amap = up.alias_map(up.module_constants(pathlib.Path(ct.__file__).read_text(encoding="utf-8")))
+    new = {"list": ["--fields", "--json"]}
+    old = {"list": ["--commit", "--fields", "--json", "--no-commit", "--push"]}
+    assert up.command_delta(old, new, amap)["options"] == {}
+    gone = up.command_delta({"list": ["--fields", "--json", "--only"]}, new, amap)["options"]
+    assert gone["list"]["removed"] == ["--only"]   # any other option still counts

@@ -16,6 +16,7 @@ changes:
       stderr; the split is derived from the predicate behind committed mode (is_write_invocation). The command
       reference shows [common flags] only on those commands, and no longer on new, receipt slurm, receipt
       systemd and receipt check, which never accepted the commit flags.
+      doctor --upgrade-from does not list the hidden flags as removed options.
     action: >-
       Nothing: every invocation parses and behaves as before; only --help texts change.
     breaking: false

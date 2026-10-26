@@ -19,7 +19,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   derived from `is_write_invocation`, the predicate behind committed mode.
   The command reference shows `[common flags]` only on those commands (it
   also listed them on `new` and the `receipt` commands, which never
-  accepted them).
+  accepted them). `doctor --upgrade-from` does not list the hidden flags
+  as removed (`command_tree.HELP_HIDDEN_FLAGS`).
 - The package checkout is `--repo DIR` on every command (#PR_C, #316):
   `lean-pkg receipt comparator` (and the `comparator-receipt` program),
   `python3 -m lean_pkg.claim_axioms` and `python3 -m lean_pkg.dup_constants`

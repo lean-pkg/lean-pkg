@@ -8543,7 +8543,6 @@ def _hidden_copies(target, *sources) -> None:
         target.set_defaults(**{k: v for k, v in _defaults_except(src, target).items()})
 
 
-COMMIT_FLAGS = ("--commit", "--push", "--no-commit")
 # Commands that write nothing themselves but pass the commit flags on to the invocations they run
 # (`verify`: the status move and the gate); their help shows the flags, and they are never "ignored".
 COMMIT_FLAGS_PASSED_ON = ("verify",)
