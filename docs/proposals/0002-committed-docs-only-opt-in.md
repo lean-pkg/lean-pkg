@@ -1,7 +1,9 @@
 # 0002: A committed docs-only opt-in, read at the bound commit
 
-Status: draft. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
+Decided: accepted 2026-10-26 by Le Chen, as written: the file is `lean-pkg-binding.yaml` (open question 1, the
+draft's own choice) and questions 2 to 5 take the recommended answers. Implemented in: (release); tracked in
+[#319](https://github.com/lean-pkg/lean-pkg/issues/319).
 
 ## Summary
 

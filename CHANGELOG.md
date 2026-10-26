@@ -9,6 +9,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Documentation
+
+- Plan (#321): docs/design/improvement-plan-2026-10.md lists the next work,
+  each row with its evidence and issue (#310 to #320): test and CI hygiene,
+  a Python linter, the format freeze (1.0 command tree, section 6), command
+  line consistency, the cli.py split, the CI-runner receipt and proposals
+  0002 and 0003, both accepted 2026-10-26 as written.
+
 ## [0.21.0] - 2026-10-26
 
 ### Added
