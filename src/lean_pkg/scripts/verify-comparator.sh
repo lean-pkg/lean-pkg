@@ -12,8 +12,13 @@
 # rejected proof; (4) before `lake comparator`, lake_shadow_check refuses a
 # LEAN_PATH entry other than the project's own .lake/build/lib/lean that holds
 # one of the project's root namespaces (Lake lists the root package last and
-# Lean loads <R>/ from the first entry holding it; lean_pkg/lake_hygiene.py).
+# Lean loads <R>/ from the first entry holding it; lean_pkg/lake_hygiene.py);
+# (5) a file-wide `# shellcheck disable=SC2016` below: the shared
+# lake_shadow_check block's single-quoted backticks are literal (Lean name
+# literals in roots/globs), and a line-level directive would have to go into
+# every copy of that block.
 # Everything else is upstream.
+# shellcheck disable=SC2016
 set -euo pipefail
 
 # Judge Solution against Challenge the way Palomar does: with the `lake

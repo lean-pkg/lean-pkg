@@ -31,6 +31,7 @@ if [ -n "${LAKE_STUB_FAIL:-}" ] && [[ " $* " == *" ${LAKE_STUB_FAIL} "* ]]; then
   exit 3
 fi
 if [ "${1:-}" = "build" ] && [ -n "${LAKE_STUB_OLEANS:-}" ]; then
+  # shellcheck disable=SC2086  # split on purpose: LAKE_STUB_OLEANS is a space-separated module list
   set -- ${LAKE_STUB_OLEANS}
   i=0
   for m in "$@"; do
