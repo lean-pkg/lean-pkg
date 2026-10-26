@@ -86,6 +86,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   optional key keeps the version; a new required key, a removed key or a
   changed meaning bumps it). Linked from docs/index.md, docs/receipts.md
   and the 1.0 command tree.
+- Proposal 0008 (#331, draft): a compute receipt from a CI runner, GitHub
+  Actions first: the `github-actions` scheduler and `gha-<run>-<attempt>`
+  job ids, an additive `ci` block in `lower-receipt/1`, and three
+  corroboration levels (offline, `--corroborate` against the GitHub API,
+  a Sigstore attestation); for the maintainer's decision (#318).
 
 ## [0.21.0] - 2026-10-26
 
