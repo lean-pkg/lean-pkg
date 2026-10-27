@@ -632,6 +632,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `verify.yml` uploads the receipts from `.lean-receipts/` (#375; #318):
+  `actions/upload-artifact` skips hidden directories unless
+  `include-hidden-files: true`, so both uploads failed after the receipts,
+  the redacted log and the Sigstore bundle were written (found by the second
+  live run). A caller pinned before this fix must pin a commit at or after it.
 - `verify.yml` installs the lean-pkg commit named by the job's OIDC token
   (#374; #318): it read `github.job_workflow_sha`, which is empty inside a
   called workflow's jobs on GitHub-hosted runners, so both jobs failed at
