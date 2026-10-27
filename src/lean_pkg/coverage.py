@@ -231,6 +231,59 @@ def input_hypothesis_problems(doc: dict, claims: dict[str, dict], where: str) ->
     return errors
 
 
+UNLISTED_ASSUMPTION_KINDS = ("def",)            # open question 7: a binder headed by a `Prop` def of the package
+UNLISTED_ASSUMPTION_CLASSES = ("same-assumptions", "inputs-supplied")
+
+
+def unlisted_assumption_warnings(doc: dict, claims: dict[str, dict], repo: pathlib.Path, receipt, rel
+                                 ) -> list[str]:
+    """Proposal 0003, open question 7: a warning, never an error, for each assumption a mapped theorem takes
+    that is not listed: an explicit-or-not binder of the claim's declaration, as the hyp-decl lines of the
+    hyp-probe/1 section of the lower-tier receipt's sealed verify log (`receipt`, at `rel`; hash-checked by
+    gate.sealed_log_text) show it, whose head is a `Prop` def declared in a module of the package (its file is
+    committed at HEAD), and that neither the claim's `hypotheses` nor a {hypothesis, text} input of the row
+    names. Paper rows of class same-assumptions or inputs-supplied only (a library row is its Lean statement).
+    [] when there is no receipt, no readable log or no complete section: no data, no warning."""
+    from . import hypotheses as hyp
+    from . import lean_scan
+    rows = [(i, r) for i, r in enumerate(doc.get("rows") or [])
+            if isinstance(r, dict) and r.get("class") in UNLISTED_ASSUMPTION_CLASSES and r.get("claims")]
+    if doc_kind(doc) != "paper" or not rows or not isinstance(receipt, dict) or not rel:
+        return []
+    fx = hyp.facts(gate_mod.sealed_log_text(repo, receipt, rel))
+    if not fx.get("ok"):
+        return []
+    in_package: dict[str, bool] = {}
+
+    def _ours(module: str) -> bool:
+        if module not in in_package:
+            f = lean_scan.module_file(module) if module else None
+            in_package[module] = bool(f) and core.tracked_at(repo, f)
+        return in_package[module]
+
+    out: list[str] = []
+    for i, r in rows:
+        named = {x.get("hypothesis") for x in r.get("inputs") or [] if isinstance(x, dict)}
+        for cid in r["claims"]:
+            c = claims.get(cid)
+            obj = fx["decls"].get(str((c or {}).get("decl") or ""))
+            if obj is None:
+                continue
+            listed = named | {h for h in c.get("hypotheses") or [] if isinstance(h, str)}
+            heads = list(dict.fromkeys(b["head"] for b in obj["binders"]
+                                       if b["kind"] in UNLISTED_ASSUMPTION_KINDS and b["head"] not in listed
+                                       and _ours(b["module"])))
+            for h in heads:
+                module = next(b["module"] for b in obj["binders"] if b["head"] == h)
+                out.append(f"rows[{i}] ({r['paper'].get('number')}, {r['class']}): claim {cid} ({obj['theorem']}) "
+                           f"takes the assumption {h}, a Prop def of the package ({module}), that neither the "
+                           f"claim's hypotheses nor the row's inputs name (the gate receipt's sealed verify log): "
+                           f"the claims ledger calls it verified without it. List it under hypotheses of {cid} "
+                           f"and name it in the row's inputs (class inputs-supplied), or make it part of the "
+                           f"statement (proposal 0003, open question 7)")
+    return out
+
+
 def _strings(obj, where: str):
     """(path, string) for every string value of a document, in document order."""
     if isinstance(obj, str):
@@ -1145,7 +1198,7 @@ def package_checkout(reg: dict, name: str) -> tuple[dict, pathlib.Path]:
 def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: bool) -> tuple[list[str], dict, int]:
     pkg, repo = package_checkout(reg, name)
     try:
-        doc, _claims, warnings = load_checked(pkg, repo, file, allow_private)
+        doc, claims, warnings = load_checked(pkg, repo, file, allow_private)
     except core.Fail as e:
         lines = str(e).split("\n")
         problems = [x.strip() for x in lines[1:]] or [lines[0]]
@@ -1154,6 +1207,9 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
                    "errors": problems, "warnings": []}
         return [f"{name}: coverage: INVALID ({len(problems)} problem(s))", f"  {lines[0]}"] + \
             [f"  {x}" for x in problems if x != lines[0]], payload, 1
+    rel = (pkg.get("gate") or {}).get("receipt")
+    warnings = warnings + unlisted_assumption_warnings(doc, claims, repo, receipt_at_head(repo, rel)[0] if rel
+                                                       else None, rel)
     if doc_kind(doc) == "library":
         payload = {"ok": True, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": "library",
                    "rows": len(doc["rows"]), "counts": None, "manuscript": None, "private_manuscript": False,

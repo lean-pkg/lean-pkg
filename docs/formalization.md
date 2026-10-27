@@ -271,4 +271,10 @@ they passed. `review.status` and `fidelity` stay human statements. A
 `judged_as` entry records who signed off on a definition hole, not that the
 bodies were compared.
 
+Conditional claims ([proposal 0003](proposals/0003-conditional-claims-and-discharge.md)) add no
+field to this file: `alignment` carries each claim's `claims/1` status, never the ledger's
+`conditional`, and the hypotheses are named on the [page](page.md#conditional-results) and in the
+[index](index-catalog.md#conditional-claims). Whether Palomar has, or will have, a notion of a
+conditional result is not known; this page will say when a field is added.
+
 Next: [The index](index-catalog.md).

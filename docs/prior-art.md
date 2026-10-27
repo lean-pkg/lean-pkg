@@ -87,14 +87,21 @@ unknown keys, so a package that uses them needs that release in its CI pin:
 | `discharges.proofs` | claim ids of this file, one per discharged hypothesis and in the same order, each a theorem or lemma claim other than this one |
 | `witness` | optional, only on a claim with non-empty `hypotheses`: the id of a theorem or lemma claim of this file, other than this one, that shows the hypotheses can hold together |
 
-`claims list` marks a claim with `hypotheses` `(conditional)` (`--json`:
-`conditional: true`). The [claims ledger](lifecycle.md#conditional-claims)
-judges the keys from the facts Lean printed in the gate receipt's sealed
-verify log: a claim with `hypotheses` is `conditional`, never `verified`,
-and a hypothesis is discharged only through a corollary compared in the same
-comparator build. The page, `status`, `receipt check` and the index do not
-render conditional results yet; until they do, a conditional row of the page
-reads "Not yet verified".
+`claims list` and `search` mark a claim with `hypotheses` `(conditional)`
+(`--json`: `conditional: true`; `search` marks an index claim whose derived
+`status` is `conditional` the same way). The
+[claims ledger](lifecycle.md#conditional-claims) judges the keys from the
+facts Lean printed in the gate receipt's sealed verify log: a claim with
+`hypotheses` is `conditional`, never `verified`, and a hypothesis is
+discharged only through a corollary compared in the same comparator build.
+The page ([conditional results](page.md#conditional-results)), `status`,
+`receipt check` ([the hypotheses check](receipts.md#the-hypotheses-check-of-receipt-check))
+and the index ([conditional claims](index-catalog.md#conditional-claims))
+say what the ledger judged, and never call a result with an outstanding
+hypothesis verified without saying under what. An assumption the
+declaration takes that no one lists is the author's choice; `coverage check`
+warns about one that is a `Prop` `def` of the package
+([unlisted assumptions](page.md#unlisted-assumptions)).
 
 ### Manuscript findings
 

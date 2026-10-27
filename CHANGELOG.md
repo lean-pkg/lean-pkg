@@ -305,6 +305,22 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   output of a package whose claims use none of the keys is byte for byte as
   before (`tests/test_outputs_golden.py`, a golden written by the pre-H4
   code).
+- Conditional claims, stage H5 (#PR_H5; #320, proposal 0003, open
+  question 7): `coverage check NAME` warns, and never refuses, for each
+  assumption a theorem mapped by a `same-assumptions` or `inputs-supplied`
+  row takes that is not listed: a binder of the claim's declaration headed
+  by a `Prop` `def` of the package, per the `hyp-decl` lines of the gate
+  receipt's sealed verify log (hash-checked), that neither the claim's
+  `hypotheses` nor a `{hypothesis, text}` input of the row names; `--json`
+  lists it in `warnings`. `receipt check` appends the first one to its
+  `coverage` check, which still passes. No log, no `hyp-probe/1` section, a
+  head from Mathlib or another dependency, an inductive `Prop` or a library
+  coverage: no warning, and the output is byte for byte as before
+  ([unlisted assumptions](docs/page.md#unlisted-assumptions)).
+- `search` marks a conditional claim (#PR_H5; #320): a registry claim that
+  lists `hypotheses`, or an index claim whose derived `status` is
+  `conditional`, reads `(theorem, reusable (conditional), trust ...)`, and its
+  `--json` hit gains `conditional: true`; other hits are unchanged.
 
 - The committed docs-only opt-in, `lean-pkg-binding.yaml` (#349; #319,
   proposal 0002, stage G1): a package opts in to the docs-only descendant
@@ -699,6 +715,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - Proposal 0009 accepted (#357): declaration-level extraction with a
   rename map and an extraction ledger, accepted 2026-10-26 as written,
   with the recommended answers; implementation in stages S1 to S5 (#329).
+- Conditional claims, close-out (#PR_H5; #320, proposal 0003): the
+  "planned" and "not implemented yet" sentences are replaced by what
+  lean-pkg does. docs/comparator.md states the statements-module rule as a
+  convention lean-pkg reads but neither declares nor enforces (no key names
+  the module; `palomar check` does not read Challenge imports);
+  docs/faq.md, docs/motivation.md and docs/prior-art.md describe
+  conditional claims, discharge and their outputs; docs/trust-model.md gains
+  a row for the hypotheses section of the verify log and the threats it
+  covers and leaves (what a hypothesis says; an unlisted assumption);
+  docs/formalization.md says conditional claims add no Palomar field.
+  Proposal 0003 names its stage pull requests (status `accepted` until the
+  release), and plan row 9c is implemented.
 
 ## [0.21.0] - 2026-10-26
 

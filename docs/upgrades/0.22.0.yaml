@@ -721,6 +721,45 @@ changes:
     breaking: false
     changelog: Added
     split: true
+  - pr: 0
+    id: coverage-unlisted-assumption-warning
+    kind: behavior
+    area: coverage check, receipt check
+    summary: >-
+      Stage H5 of proposal 0003 (#320), open question 7: coverage check NAME warns, never refuses, for each assumption
+      a theorem mapped by a same-assumptions or inputs-supplied row takes that is not listed: a binder of the claim's
+      declaration headed by a Prop def of the package (its module's file committed at HEAD), per the hyp-decl lines of
+      the gate receipt's sealed verify log (hash-checked), that neither the claim's hypotheses nor a {hypothesis, text}
+      input of the row names ('warning: rows[0] (Theorem 1, same-assumptions): claim demo/main (Demo.main) takes the
+      assumption Hyp.A, a Prop def of the package (Demo.Statements), that neither the claim's hypotheses nor the row's
+      inputs name ...'); --json lists it in warnings. receipt check's coverage check appends the first one (and how
+      many more) to its detail, from the sealed log of the lower-tier receipt that binds X, and still passes. No
+      warning without a gate receipt, a readable sealed log or a complete hyp-probe/1 section, for a head from Mathlib
+      or another dependency, an inductive Prop, or a library coverage; the exit code never changes.
+    action: >-
+      Nothing required: a warning never changes an exit code, and a package whose sealed log has no hyp-probe/1 section
+      sees no change. If it fires, list the assumption under hypotheses of the claim and name it in the row's inputs
+      (class inputs-supplied), so the page says the result is conditional; or leave it, knowing the ledger calls the
+      claim verified. A script that expects an empty warnings list from coverage check --json, or an exact coverage
+      detail from receipt check, sees the new text only when the warning fires.
+    breaking: false
+    changelog: Added
+    split: true
+  - pr: 0
+    id: search-conditional-marker
+    kind: format
+    area: search
+    summary: >-
+      Stage H5 of proposal 0003 (#320): search marks a conditional claim as claims list does. A registry claim that
+      lists hypotheses, or an index claim whose derived status is conditional, reads '(theorem, reusable (conditional),
+      trust comparator, pin ...)', and its --json hit gains conditional: true (the hit's status is unchanged). A hit
+      without hypotheses carries no new key and reads as before.
+    action: >-
+      Nothing: a search whose hits use no hypotheses prints and returns what it did. A script reading search --json
+      hits by exact key set accepts the optional key conditional.
+    breaking: false
+    changelog: Added
+    split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,
