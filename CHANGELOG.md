@@ -356,7 +356,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   new receipts once the file is committed with the package; `new
   --evidence-only` leaves it out. `--json` gains `binding_file` (the file,
   or null).
-- Declaration-level extraction ledger (#PR_EX2; #329, proposal 0009, stage
+- Declaration-level extraction ledger (#367; #329, proposal 0009, stage
   S2): `lean-pkg-extract ledger --repo SRC --commit C --target TDIR
   [--target-commit T] --from-module SRC/Path.lean:New.Module ...
   [--namespace OLD=NEW] [--rename OLD=NEW] [--drop NAME:REASON]

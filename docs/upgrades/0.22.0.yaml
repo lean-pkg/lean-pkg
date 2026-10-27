@@ -680,7 +680,7 @@ changes:
       whose CI pins an older lean-pkg refuses an entry carrying them (index-entry/2 is strict).
     breaking: false
     changelog: Added
-  - pr: 0
+  - pr: 367
     id: extract-ledger-commands
     kind: command
     area: lean-pkg-extract
@@ -703,7 +703,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 367
     id: extract-ledger-format
     kind: format
     area: lean-pkg-extract
