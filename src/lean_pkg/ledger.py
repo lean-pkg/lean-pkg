@@ -8,8 +8,9 @@ re-derived from the registry record, the checkout and the receipts on every call
 validators `gate` and `promote` use, so it can never accept less than they do.
 
 Claim status, first match wins: `out-of-scope` (claims.yaml status superseded, or internal and not
-judged), `blocked` (a depends_on claim in this package is not verified), `unknown` (evidence that cannot
-be read), `verified` (no diagnostics), else `open`.
+judged), `blocked` (a depends_on claim in this package is not closed), `unknown` (evidence that cannot
+be read), `open` (an open or failed diagnostic), `conditional` (proposal 0003: the claim lists hypotheses, or
+inherits outstanding ones through depends_on), `verified` (no diagnostics), else `open`.
 
 An internal theorem or lemma is judged (`judged_internal`, promote stage) when the comparator tier is
 clean for the package (a valid comparator receipt, bound to the gate-bound commit, every configuration
@@ -28,13 +29,21 @@ package-level `manuscript_findings` summary (what the formalization found: open 
 version) is what `publish --dry-run` and `palomar prepare` print. Only a lean_evidence declaration missing at
 the gate-bound commit is a diagnostic (`finding-evidence-missing`, like `decl-missing`).
 
-Conditional claims (proposal 0003, stage H2): a claim that sets `hypotheses`, `discharges` or `witness` gets
-`hypotheses-unchecked` (open) whatever else its evidence says, so it is never verified until the ledger evaluates
-hypotheses and discharge (stage H3). A claim without the keys gets exactly the rows, codes and digest it had.
+Conditional claims (proposal 0003, stage H3): when a claim sets `hypotheses`, `discharges` or `witness`, the
+ledger reads the hyp-probe/1 section of the gate receipt's sealed verify log at the gate-bound commit X
+(`hypotheses.evaluate`): each listed hypothesis must be an explicit binder of the declaration (and of its
+Challenge theorem at the promote stage) headed by a def or an inductive Prop; a hypothesis is discharged only at
+the promote stage, through a corollary claim and its proof claims compared in the same comparator build at X.
+Discharge is recomputed on every call and never stored. A claim with hypotheses is `conditional`, never
+`verified`, even when all are discharged; a claim that depends_on a conditional claim inherits its outstanding
+hypotheses (`depends-on-conditional`). Facts that are missing (no section, a part that did not run, ambiguous
+credit) give `hypotheses-unchecked` (open). A claims file without the keys gets exactly the rows, codes, keys
+and digest it had.
 
 Package status fails closed: `unknown` with no claims, no required claim, or a limitation (no
 checkout, unreadable evidence); `failed` when recorded evidence contradicts a required claim;
-`ready` only when every required claim is verified; else `open`.
+`ready` only when every required claim is verified or conditional (open question 1: the qualifier
+`conditional_required` and the `outstanding_hypotheses` are then reported); else `open`.
 """
 
 from __future__ import annotations
@@ -54,7 +63,8 @@ JUDGED_STATUSES = ("internal",)                 # out of scope unless a passing 
 
 # code -> (class, meaning). The class decides the claim status: "open" (evidence missing or stale),
 # "unknown" (evidence that cannot be read), "failed" (recorded evidence contradicts the claim),
-# "blocked" (a dependency is not closed). Documented in docs/lifecycle.md (#80).
+# "blocked" (a dependency is not closed), "conditional" (proposal 0003: closed under outstanding hypotheses).
+# Documented in docs/lifecycle.md (#80).
 CODES = {
     "no-checkout": ("unknown", "the package has no checkout at local_path on this host"),
     "no-gate-receipt": ("open", "no lower-tier gate receipt is recorded"),
@@ -77,10 +87,25 @@ CODES = {
     "comparator-todo": ("open", "the declaration is listed only as a scaffold TODO entry"),
     "depends-on-open": ("blocked", "a depends_on claim in this package is not verified"),
     "depends-on-unknown": ("unknown", "a depends_on claim is in another package or not in this claims file"),
-    # proposal 0003, stage H2: fail closed until the ledger evaluates hypotheses and discharge (stage H3)
-    "hypotheses-unchecked": ("open", "the claim uses hypotheses, discharges or witness, which this lean-pkg does "
-                                     "not evaluate yet: it is never verified"),
+    # proposal 0003 (conditional claims), judged from the hyp-probe/1 section of the sealed verify log
+    "hypotheses-unchecked": ("open", "the claim uses hypotheses, discharges or witness, but the sealed verify "
+                                     "log at the gate-bound commit lacks the facts to judge them (no hyp-probe/1 "
+                                     "section, a part of the probe that did not run, ambiguous credit): re-gate"),
+    "hypothesis-not-in-type": ("failed", "a listed hypothesis is not an explicit binder of the declaration's type "
+                                         "(or of its Challenge theorem) at the gate-bound commit"),
+    "hypothesis-inadmissible": ("failed", "a listed hypothesis is an axiom, opaque or theorem constant, not a def "
+                                          "or an inductive Prop"),
+    "hypothesis-open": ("conditional", "a listed hypothesis has no discharge at the gate-bound commit"),
+    "discharge-type-mismatch": ("failed", "the corollary's Challenge type is not the discharged claim's type minus "
+                                          "the discharged binders, or a proof's type is not the hypothesis"),
+    "discharge-not-compared": ("open", "promote stage: the corollary, the claim it discharges or a proof claim is "
+                                       "in no comparator configuration at the gate-bound commit"),
+    "witness-type-mismatch": ("failed", "the witness claim's Challenge type is not the expected witness of the "
+                                        "claim's hypotheses, or the claim takes no parameters"),
+    "depends-on-conditional": ("conditional", "a depends_on claim in this package is conditional: its outstanding "
+                                              "hypotheses are inherited"),
 }
+CONDITIONAL_CODES = tuple(c for c, (cls, _) in CODES.items() if cls == "conditional")
 
 
 def _diag(code: str, detail: str) -> dict:
@@ -258,20 +283,29 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
         for d in c.get("depends_on") or []:
             if d not in ids:
                 diags.append(_diag("depends-on-unknown", f"{d} is not a claim of {name}'s claims file"))
-        keys = claims_mod.uses_conditional_keys(c)
-        if keys:                                    # fail closed: nothing evaluates them before stage H3
-            diags.append(_diag("hypotheses-unchecked", f"{cid} sets {', '.join(keys)}; this lean-pkg does not "
-                                                       f"evaluate hypotheses or discharge yet (proposal 0003), so "
-                                                       f"the claim stays open"))
         rows.append({"id": cid, "decl": decl, "kind": c.get("kind"), "claim_status": c.get("status"),
                      "required": required, "judged_internal": judged_internal,
                      "depends_on": list(c.get("depends_on") or []),
                      "statement_basis": c.get("statement_basis"), "manuscript_findings": claim_findings(c),
                      "diagnostics": diags})
 
+    keyed = any(claims_mod.uses_conditional_keys(c) for c in claims)
+    if keyed:                                       # proposal 0003: judge the keys from the sealed facts at X
+        _conditional(claims, rows, pkg, repo if bound else None, bound, stage, comp_diags,
+                     (real, qualified, mapped) if bound and stage == "promote" else None)
+
     def own_class(row) -> str:
         classes = {CODES[d["code"]][0] for d in row["diagnostics"] if d["code"] != "depends-on-open"}
-        return "unknown" if "unknown" in classes else ("verified" if not row["diagnostics"] else "open")
+        if "unknown" in classes:
+            return "unknown"
+        if classes - {"conditional"}:
+            return "open"
+        if row.get("conditional_own") or any(d["code"] == "depends-on-conditional" for d in row["diagnostics"]):
+            return "conditional"
+        return "verified" if not row["diagnostics"] else "open"
+
+    def closes(dep) -> bool:                        # a conditional-class code never blocks a dependent
+        return not any(CODES[x["code"]][0] != "conditional" for x in dep["diagnostics"])
 
     by_id = {r["id"]: r for r in rows}
     changed = True
@@ -280,10 +314,12 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
         for r in rows:
             for d in r["depends_on"]:
                 dep = by_id.get(d)
-                if dep is not None and dep["diagnostics"] and not any(
+                if dep is not None and not closes(dep) and not any(
                         x["code"] == "depends-on-open" and x["detail"].startswith(d + " ") for x in r["diagnostics"]):
                     r["diagnostics"].append(_diag("depends-on-open", f"{d} is not verified"))
                     changed = True
+    if keyed:
+        _inherit(rows, by_id, closes)
     for r in rows:
         if r["claim_status"] in OUT_OF_SCOPE_STATUSES and not r["judged_internal"]:
             r["status"] = "out-of-scope"
@@ -292,6 +328,8 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
         else:
             r["status"] = own_class(r)
         r["diagnostics"].sort(key=lambda d: (list(CODES).index(d["code"]), d["detail"]))
+        r.pop("conditional_own", None)
+        r.pop("stale_edge", None)
 
     required_rows = [r for r in rows if r["required"]]
     failed = [r["id"] for r in required_rows
@@ -312,23 +350,106 @@ def ledger_for(pkg: dict, stage: str = "promote") -> dict:
     elif any(r["status"] == "unknown" for r in required_rows):
         pstatus = "unknown"
         reasons.append("the evidence for a required claim cannot be read")
-    elif all(r["status"] == "verified" for r in required_rows):
-        pstatus = "ready"
+    elif all(r["status"] in CLOSED for r in required_rows):
+        pstatus = "ready"                           # open question 1: a conditional required claim is closed
     else:
         pstatus = "open"
-        n = sum(r["status"] != "verified" for r in required_rows)
-        reasons.append(f"{n} of {len(required_rows)} required claim(s) not verified")
+        n = sum(r["status"] not in CLOSED for r in required_rows)
+        reasons.append(f"{n} of {len(required_rows)} required claim(s) not verified"
+                       + (" or conditional" if keyed else ""))
 
     canonical = {"schema": LEDGER_SCHEMA, "package": name, "stage": stage, "bound_commit": bound,
                  **hashes, "package_status": pstatus,
                  "claims": [_canonical_row(r) for r in rows]}
     digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     counts = {s: sum(r["status"] == s for r in rows)
-              for s in ("verified", "open", "blocked", "unknown", "out-of-scope")}
+              for s in ("verified", *(("conditional",) if keyed else ()), "open", "blocked", "unknown",
+                        "out-of-scope")}
+    cond: dict = {}
+    if keyed:                                       # only when a claim uses the keys: other ledgers keep their keys
+        creq = [r for r in required_rows if r["status"] == "conditional"]
+        cond = {"conditional_required": [r["id"] for r in creq],
+                "outstanding_hypotheses": sorted({h["decl"] for r in creq for h in r.get("hypotheses") or []
+                                                  if h["state"] == "open"})}
     return {"ok": pstatus == "ready", "schema": LEDGER_SCHEMA, "name": name, "stage": stage,
             "package_status": pstatus, "reasons": reasons, "bound_commit": bound, "claims_source": source,
-            **hashes, "counts": counts, "required": len(required_rows), "claims": rows,
+            **hashes, "counts": counts, "required": len(required_rows), **cond, "claims": rows,
             "manuscript_findings": {**findings_summary(rows), "source": source}, "ledger_digest": f"sha256:{digest}"}
+
+
+CLOSED = ("verified", "conditional")                # the statuses that close a required claim (open question 1)
+
+
+def _conditional(claims: list[dict], rows: list[dict], pkg: dict, repo, bound, stage: str, comp_diags: list,
+                 cred) -> None:
+    """Proposal 0003: add the hypotheses diagnostics and the `hypotheses`, `discharges` and `witness` row keys,
+    from the hyp-probe/1 facts of the gate receipt's sealed log at X (`hypotheses.evaluate`). `cred`: (the
+    non-smoke configured names, the qualified decls, the judged_as names) at the promote stage, else None."""
+    from . import claims as claims_mod
+    from . import comparator_config as cc
+    from . import hypotheses as hyp
+    text = None
+    if repo is not None and bound:
+        rel = (pkg.get("gate") or {}).get("receipt")
+        rec = gate_mod.recorded_json(repo, rel) if rel else None
+        text = gate_mod.sealed_log_text(repo, rec, rel) if isinstance(rec, dict) else None
+    fx = hyp.facts(text)
+    by_row = {r["id"]: r for r in rows}
+    credited = ({str(c.get("id")): cc.credited_names(cred[0], c, cred[1], cred[2]) for c in claims}
+                if cred else {})
+    clean = {r["id"]: not any(CODES[d["code"]][0] in ("open", "failed", "unknown") for d in r["diagnostics"])
+             for r in rows}
+    res = hyp.evaluate(claims, fx, stage=stage, bound=bound, comparator_ok=stage == "promote" and not comp_diags,
+                       credited=credited, clean=clean)
+    for c in claims:
+        r = by_row[str(c.get("id"))]
+        own = [h for h in c.get("hypotheses") or [] if isinstance(h, str)]
+        r["conditional_own"] = bool(own)
+        e = res.get(r["id"]) or {}
+        r["diagnostics"] += [_diag(code, detail) for code, detail in e.get("diags") or []]
+        if e.get("hypotheses") is not None:
+            r["hypotheses"] = e["hypotheses"]
+        d = c.get("discharges")
+        if isinstance(d, dict):
+            r["discharges"] = {k: d.get(k) for k in claims_mod.DISCHARGE_KEYS}
+        if e.get("witness") is not None:
+            r["witness"] = e["witness"]
+        # proposal 0003: an edge to a conditional claim is stale when Lean proved this claim unconditionally
+        decl = fx["decls"].get(r["decl"]) if fx.get("ok") else None
+        r["stale_edge"] = bool(not own and decl is not None and not decl["binders"]
+                               and stage == "promote" and not comp_diags and credited.get(r["id"]))
+
+
+def _inherit(rows: list[dict], by_id: dict, closes) -> None:
+    """depends-on-conditional (proposal 0003): a claim inherits, to a fixed point, the outstanding hypotheses of
+    each depends_on claim that is closed but conditional, marked via that claim; only outstanding hypotheses
+    pass on (an all-discharged dependency passes on none)."""
+    def outstanding(r) -> set[str]:
+        return {h["decl"] for h in r.get("hypotheses") or [] if h["state"] == "open"}
+
+    changed = True
+    while changed:
+        changed = False
+        for r in rows:
+            for d in r["depends_on"]:
+                dep = by_id.get(d)
+                if dep is None or not closes(dep):
+                    continue
+                have = {h["decl"] for h in r.get("hypotheses") or [] if h.get("via") == d}
+                new = sorted(outstanding(dep) - have)
+                if new:
+                    r.setdefault("hypotheses", [])
+                    r["hypotheses"] += [{"decl": h, "state": "open", "by": None, "via": d} for h in new]
+                    changed = True
+    for r in rows:
+        for d in dict.fromkeys(r["depends_on"]):
+            hs = sorted({h["decl"] for h in r.get("hypotheses") or [] if h.get("via") == d})
+            if hs:
+                stale = (f"; {r['id']}'s own type takes no hypothesis and the comparator checked it, so this "
+                         f"depends_on edge looks stale: remove it" if r.get("stale_edge") else "")
+                r["diagnostics"].append(_diag("depends-on-conditional",
+                                              f"{d} is conditional: inherits outstanding {', '.join(hs)} via {d}"
+                                              + stale))
 
 
 def _canonical_row(r: dict) -> dict:
@@ -341,6 +462,9 @@ def _canonical_row(r: dict) -> dict:
     if r.get("manuscript_findings"):
         out["manuscript_findings"] = [{k: f.get(k) for k in ("id", "kind", "location", "lean_evidence", "fixed_in")}
                                       for f in r["manuscript_findings"]]
+    for k in ("hypotheses", "discharges", "witness"):   # proposal 0003: only when set
+        if r.get(k) is not None:
+            out[k] = r[k]
     return out
 
 
@@ -419,6 +543,12 @@ def ledger_lines(led: dict) -> list[str]:
                                         else f" [{r['claim_status']}]")
         out.append(f"  {r['status']:<12} {r['id']} ({r['decl']})" + tag + basis)
         out += [f"      {d['code']}: {d['detail']}" for d in r["diagnostics"]]
+        for h in r.get("hypotheses") or []:
+            how = (f"discharged (proof {h['by']['proof']}, corollary {h['by']['corollary']})"
+                   if h["state"] == "discharged" else "outstanding" + (f" via {h['via']}" if h.get("via") else ""))
+            out.append(f"      hypothesis {h['decl']}: {how}")
+        if r.get("witness"):
+            out.append(f"      witness {r['witness']['claim']}: {r['witness']['state']}")
         for f in r.get("manuscript_findings") or []:
             loc = f.get("location") or {}
             where = ", ".join([str(loc.get("label"))] + [f"{k.replace('_', ' ')} {loc[k]}"
@@ -434,13 +564,17 @@ def ledger_lines(led: dict) -> list[str]:
 def first_open(led: dict) -> str | None:
     """`<claim id>: <code>` of the first required claim that is not verified, for a one-line reason."""
     for r in led["claims"]:
-        if r["required"] and r["status"] != "verified":
+        if r["required"] and r["status"] not in CLOSED:
             return f"{r['id']}: {r['diagnostics'][0]['code']}" if r["diagnostics"] else r["id"]
     return None
 
 
 def summary(led: dict) -> str:
     """One line: the package status and why (the first reason, else the first open claim)."""
+    if led["package_status"] == "ready" and led.get("conditional_required"):
+        hs = ", ".join(led.get("outstanding_hypotheses") or []) or "none (all discharged)"
+        return (f"claims ledger ready: {led['required']} required claim(s) verified or conditional (conditional: "
+                f"{len(led['conditional_required'])}; outstanding hypotheses: {hs}) ({led['ledger_digest'][:19]}…)")
     if led["package_status"] == "ready":
         return f"claims ledger ready: {led['required']} required claim(s) verified ({led['ledger_digest'][:19]}…)"
     why = led["reasons"][0] if led["reasons"] else "not ready"

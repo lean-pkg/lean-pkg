@@ -149,8 +149,9 @@ that could not run, say on a toolchain where the program does not compile) and a
 reported, never refused. A log without the section (a verify script older than this release) gives the
 same receipt as before; when `claims.yaml` uses the keys, a `·` line says the section is missing.
 
-No command reads the facts yet: the claims ledger judges them in a later stage of the proposal, and until
-then nothing about a claim's status changes. To see the section a job would write, on a built checkout:
+The [claims ledger](lifecycle.md#conditional-claims) reads the facts from the sealed log the gate receipt
+binds (stage H3), at the gate-bound commit, on every call; the receipt stays unchanged. To see the section a
+job would write, on a built checkout:
 `python3 -m lean_pkg.hypotheses --repo .` (it builds the Challenge modules, as the job does).
 
 ## A lower-tier receipt from a Slurm job

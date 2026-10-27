@@ -1,7 +1,7 @@
-# hypotheses -- the hyp-probe/1 section of the lower-tier verify log (proposal 0003, stage H1)
+# hypotheses -- the hyp-probe/1 section of the lower-tier verify log (proposal 0003, stages H1 and H3)
 """Facts for conditional claims (proposal 0003, issue #320), read from the BUILT environment into the sealed
-verify log. Stage H1: the probe, the log section and its write-time structure check; no consumer reads the facts
-yet (the claims ledger judges them from stage H3 on).
+verify log. Stage H1: the probe, the log section and its write-time structure check. Stage H3: `facts` and
+`evaluate`, which the claims ledger calls to judge hypotheses, discharge and witnesses from the section.
 
 How: `scripts/HypProbe.lean` (core Lean only; data-only import, `loadExts := false`, as ClaimAxioms.lean) prints
 facts and never a verdict. The verify scripts (`receipt slurm --template`, the `verify.sh` that `lean-pkg new`
@@ -198,7 +198,7 @@ def judge_structure(text: str, claims_bytes: bytes | None = None,
                     redacted: str | None = None) -> tuple[dict | None, list[str], list[str]]:
     """(summary or None when the log has no section, refusals, check lines): the write-time structure check.
     `redacted`: the published log text, whose section lines must equal the raw log's. Nothing here judges a
-    claim (stage H3); `hyp-error` and `hyp-skip` are reported, never refused."""
+    claim (the ledger does, `evaluate`); `hyp-error` and `hyp-skip` are reported, never refused."""
     sec = parse(text)
     keyed = uses_keys(claims_bytes)
     if not sec["present"]:
@@ -252,7 +252,291 @@ def judge_structure(text: str, claims_bytes: bytes | None = None,
 
 
 # ---------------------------------------------------------------------------------------------------------
-# The job side: a shell block for the verify scripts (the template and verify.sh embed the Lean program)
+# The ledger side (stage H3): the sealed facts, judged per claim. Lean printed the facts; this decides.
+
+ADMISSIBLE_KINDS = ("def", "inductive")         # an assumption is a def or an inductive Prop (never an axiom)
+GATE_STAGE_OPEN = "at the gate stage nothing is discharged (discharge needs the comparator tier: --stage promote)"
+
+
+def facts(text: str | None) -> dict:
+    """The section of a sealed verify log as the facts the ledger reads: {ok, why} and, when ok, `decls`
+    {theorem: hyp-decl object}, `missing` (decls not in the build), `challenge` {theorem: [hyp-challenge
+    objects]}, `corollaries` {(corollary, of): [drops as a frozenset, ...]}, `proofs` {(proof, proves)},
+    `witnesses` {(witness, of)}, `skips` {theorem: reason}, `decl_error` and `challenge_error` (the first
+    hyp-error message of each part, else None), `builds_failed` [module] and `configs` (hyp-done's list: empty
+    when the Challenge part did not run). Not ok (`why` says which): no log, no section, or a section the
+    write-time check would refuse."""
+    if text is None:
+        return {"ok": False, "why": "no sealed verify log of the gate receipt is readable here"}
+    sec = parse(text)
+    if not sec["present"]:
+        return {"ok": False, "why": f"the sealed verify log has no {FORMAT} section (a verify script without the "
+                                    f"probe): regenerate verify.sh or the sbatch template and re-gate"}
+    if sec["problems"] or sec["done"] is None:
+        first = sec["problems"][0] if sec["problems"] else "no final `hyp-done:` line"
+        return {"ok": False, "why": f"the {FORMAT} section of the sealed verify log is incomplete ({first})"}
+    fx: dict = {"ok": True, "why": None, "decls": {}, "missing": set(), "challenge": {}, "corollaries": {},
+                "proofs": set(), "witnesses": set(), "skips": {}, "decl_error": None, "challenge_error": None,
+                "builds_failed": [], "configs": list(sec["done"]["configs"])}
+    for tag, o in sec["records"]:
+        if tag == "hyp-decl":
+            fx["decls"][o["theorem"]] = o
+        elif tag == "hyp-missing":
+            fx["missing"].add(o["theorem"])
+        elif tag == "hyp-challenge":
+            fx["challenge"].setdefault(o["theorem"], []).append(o)
+        elif tag == "hyp-corollary":
+            fx["corollaries"].setdefault((o["corollary"], o["of"]), []).append(frozenset(o["drops"]))
+        elif tag == "hyp-proof":
+            fx["proofs"].add((o["proof"], o["proves"]))
+        elif tag == "hyp-witness":
+            fx["witnesses"].add((o["witness"], o["of"]))
+        elif tag == "hyp-skip":
+            fx["skips"].setdefault(o["theorem"], o["reason"])
+        elif tag == "hyp-error":
+            fx[f"{o['phase']}_error"] = fx[f"{o['phase']}_error"] or o["message"]
+        elif tag == "hyp-challenge-build" and not o["ok"]:
+            fx["builds_failed"].append(o["module"])
+    return fx
+
+
+def _challenge_problem(fx: dict) -> str | None:
+    """Why the Challenge part's facts cannot be used (None when they can)."""
+    if fx["challenge_error"]:
+        return f"the Challenge part of the probe did not run ({fx['challenge_error'][:160]})"
+    if fx["builds_failed"]:
+        return f"the Challenge module(s) {', '.join(fx['builds_failed'])} did not build"
+    if not fx["configs"]:
+        return "the Challenge part of the probe did not run (hyp-done lists no configuration)"
+    return None
+
+
+def _binder_problems(obj: dict, hyps: list[str], where: str) -> tuple[list[str], list[str]]:
+    """(not-in-type, inadmissible) details for the listed hypotheses against one hyp-decl/hyp-challenge object:
+    every binder headed by a listed name must be explicit, at least one must exist, and its head must be a def
+    or an inductive Prop."""
+    absent, bad = [], []
+    for h in hyps:
+        bs = [b for b in obj["binders"] if b["head"] == h]
+        if not bs:
+            absent.append(f"{h} is not the head of a hypothesis binder of {where}")
+        elif not all(b["explicit"] for b in bs):
+            absent.append(f"{h} is a binder of {where}, but not an explicit one (positions "
+                          f"{[b['i'] for b in bs if not b['explicit']]})")
+        elif bs[0]["kind"] not in ADMISSIBLE_KINDS:
+            bad.append(f"{h} is a{'n' if bs[0]['kind'][:1] in 'aeiou' else ''} {bs[0]['kind']}, not a def or an "
+                       f"inductive Prop (in {where})")
+    return absent, bad
+
+
+def resolve(cid: str, by_id: dict) -> str:
+    """A claim id after following superseded_by (as the claims schema does), cycle-safe."""
+    seen = [cid]
+    while isinstance((by_id.get(seen[-1]) or {}).get("superseded_by"), str) \
+            and by_id[seen[-1]]["superseded_by"] in by_id and by_id[seen[-1]]["superseded_by"] not in seen:
+        seen.append(by_id[seen[-1]]["superseded_by"])
+    return seen[-1]
+
+
+def evaluate(claims: list[dict], fx: dict, *, stage: str, bound: str | None, comparator_ok: bool,
+             credited: dict[str, set[str]], clean: dict[str, bool]) -> dict[str, dict]:
+    """Proposal 0003, stage H3: judge every claim that uses `hypotheses`, `discharges` or `witness` (and every
+    claim whose hypotheses a corollary discharges) from the sealed facts `fx` (`facts`). Recomputed on every
+    call, never stored. `credited` {claim id: the non-smoke comparator names at the gate-bound commit that judge
+    it} (empty at the gate stage); `clean` {claim id: no open, failed or unknown diagnostic so far}.
+
+    {claim id: {"diags": [(code, detail)], "hypotheses": [{decl, state, by, via}] or None, "witness": {claim,
+    state} or None}}. A hypothesis A of T is discharged only at the promote stage with a clean comparator tier,
+    by a clean claim T' whose `discharges` names T (superseded_by followed) and A, when T, T' and each proof claim
+    have exactly one credited Challenge name, the facts hold `hyp-corollary` T' of T dropping exactly the
+    discharged names, and, for each proof P, `hyp-proof` P proves A, unless P's Challenge type quantifies over
+    data (a parameterized assumption, open question 3: the corollary alone is the evidence and P is attribution).
+    Anything the facts cannot settle is `hypotheses-unchecked`, never discharged."""
+    from . import claims as claims_mod
+    by_id = {str(c.get("id")): c for c in claims}
+    out: dict[str, dict] = {}
+    c12 = (bound or "")[:12] or "(no gate-bound commit)"
+
+    def slot(cid):
+        return out.setdefault(cid, {"diags": [], "hypotheses": None, "witness": None, "unchecked": []})
+
+    def name_of(cid) -> tuple[str | None, str | None]:
+        """(the one credited name, None) or (None, why not)."""
+        ns = credited.get(cid) or set()
+        if len(ns) == 1:
+            return next(iter(ns)), None
+        if not ns:
+            return None, "not-compared"
+        return None, f"{cid} is judged by more than one comparator name ({', '.join(sorted(ns))}): ambiguous"
+
+    promote = stage == "promote"
+    chal_why = _challenge_problem(fx) if fx.get("ok") and promote else None
+    discharge_ok: dict[str, dict] = {}              # corollary id -> {target, hyps, proofs}
+    witness_state: dict[str, str] = {}
+    for c in claims:
+        cid = str(c.get("id"))
+        keys = claims_mod.uses_conditional_keys(c)
+        if not keys:
+            continue
+        s = slot(cid)
+        hyps = [h for h in c.get("hypotheses") or [] if isinstance(h, str)]
+        if not fx.get("ok"):
+            s["unchecked"].append(fx.get("why") or "no facts")
+            continue
+        decl = str(c.get("decl") or "")
+        if hyps or c.get("witness") is not None:
+            if fx["decl_error"]:
+                s["unchecked"].append(f"the decl part of the probe did not run ({fx['decl_error'][:160]})")
+            elif decl not in fx["decls"]:
+                s["unchecked"].append(f"{decl} is not in the probe's decl facts"
+                                      + (" (not in the built environment)" if decl in fx["missing"] else ""))
+            else:
+                absent, bad = _binder_problems(fx["decls"][decl], hyps, decl)
+                s["diags"] += [("hypothesis-not-in-type", d) for d in absent]
+                s["diags"] += [("hypothesis-inadmissible", d) for d in bad]
+                if c.get("witness") is not None and fx["decls"][decl]["data_binders"] == 0:
+                    s["diags"].append(("witness-type-mismatch", f"{decl} takes no parameters, so a witness shows "
+                                                                f"nothing: prove its hypotheses instead"))
+                    witness_state[cid] = "mismatch"
+        if not promote:
+            continue
+        if chal_why:
+            s["unchecked"].append(chal_why)
+            continue
+        if hyps:
+            n, why = name_of(cid)
+            if why and why != "not-compared":
+                s["unchecked"].append(why)
+            elif n and n not in fx["challenge"]:
+                s["unchecked"].append(f"the Challenge theorem {n} is not in the probe's Challenge facts")
+            elif n:
+                for obj in fx["challenge"][n]:
+                    absent, _bad = _binder_problems(obj, hyps, f"the Challenge theorem {n} ({obj['config']})")
+                    s["diags"] += [("hypothesis-not-in-type", d) for d in absent if
+                                   ("hypothesis-not-in-type", d) not in s["diags"]]
+        d = c.get("discharges")
+        if isinstance(d, dict) and isinstance(d.get("claim"), str):
+            tid = resolve(d["claim"], by_id)
+            dh = [h for h in d.get("hypotheses") or [] if isinstance(h, str)]
+            ps = [p for p in d.get("proofs") or [] if isinstance(p, str)]
+            names, missing, ambiguous = {}, [], []
+            for who in [cid, tid, *ps]:
+                n, why = name_of(who)
+                if n:
+                    names[who] = n
+                elif why == "not-compared":
+                    missing.append(who)
+                else:
+                    ambiguous.append(why)
+            if ambiguous:
+                s["unchecked"] += ambiguous
+            elif missing:
+                s["diags"].append(("discharge-not-compared",
+                                   f"{', '.join(dict.fromkeys(missing))}: in no comparator configuration at {c12} "
+                                   f"(not smoke); the corollary {cid}, the claim it discharges ({tid}) and each "
+                                   f"proof claim must be compared in one build"))
+            elif names[tid] in fx["skips"]:
+                s["unchecked"].append(f"the corollary search was skipped for {names[tid]} "
+                                      f"({fx['skips'][names[tid]][:160]})")
+            else:
+                ok = True
+                got = fx["corollaries"].get((names[cid], names[tid]), [])
+                if frozenset(dh) not in got:
+                    ok = False
+                    other = sorted(sorted(g) for g in got)
+                    s["diags"].append(("discharge-type-mismatch",
+                                       f"the Challenge theorem {names[cid]} is not {names[tid]}'s type with exactly "
+                                       f"the binders of {dh} removed (compared strictly: no unfolding, binder order "
+                                       f"and annotations kept)" + (f"; it drops {other} instead" if other else "")))
+                params = {}
+                for h, p in zip(dh, ps, strict=False):
+                    pn = names[p]
+                    if (pn, h) in fx["proofs"]:
+                        params[h] = False
+                    elif pn not in fx["challenge"]:
+                        ok = False
+                        s["unchecked"].append(f"the Challenge theorem {pn} ({p}) is not in the probe's Challenge "
+                                              f"facts")
+                    elif all(o["data_binders"] == 0 for o in fx["challenge"][pn]):
+                        ok = False
+                        s["diags"].append(("discharge-type-mismatch",
+                                           f"the Challenge theorem {pn} ({p}) does not have exactly the type {h} "
+                                           f"(compared strictly, no unfolding)"))
+                    else:
+                        params[h] = True            # quantified: a parameterized assumption, attribution only
+                if ok and comparator_ok:
+                    discharge_ok[cid] = {"target": tid, "hyps": dh, "proofs": dict(zip(dh, ps, strict=False))}
+        w = c.get("witness")
+        if isinstance(w, str) and cid not in witness_state:
+            n, _why = name_of(cid)
+            wn, _wwhy = name_of(w)
+            if not (n and wn and comparator_ok):
+                witness_state[cid] = "unchecked"
+            elif any(o["data_binders"] == 0 for o in fx["challenge"].get(n, [])):
+                s["diags"].append(("witness-type-mismatch", f"the Challenge theorem {n} takes no parameters, so a "
+                                                            f"witness shows nothing: prove its hypotheses instead"))
+                witness_state[cid] = "mismatch"
+            elif (wn, n) in fx["witnesses"]:
+                witness_state[cid] = "checked"
+            elif wn not in fx["challenge"] or n not in fx["challenge"]:
+                witness_state[cid] = "unchecked"
+                s["unchecked"].append(f"the Challenge theorem {wn if wn not in fx['challenge'] else n} is not in "
+                                      f"the probe's Challenge facts")
+            else:
+                s["diags"].append(("witness-type-mismatch",
+                                   f"the Challenge theorem {wn} ({w}) is not the expected witness of {n}: ∃ over its "
+                                   f"parameters, in order, of the ∧ of all its hypotheses, in order"))
+                witness_state[cid] = "mismatch"
+
+    def is_clean(cid) -> bool:
+        s = out.get(cid)
+        bad = s and (s["unchecked"] or any(code not in ("hypothesis-open",) for code, _ in s["diags"]))
+        return bool(clean.get(cid)) and not bad
+
+    for c in claims:                                # the hypotheses rows and hypothesis-open, from the discharges
+        cid = str(c.get("id"))
+        hyps = [h for h in c.get("hypotheses") or [] if isinstance(h, str)]
+        if cid not in out and not hyps:
+            continue
+        s = slot(cid)
+        if c.get("witness") is not None:
+            s["witness"] = {"claim": c.get("witness"), "state": witness_state.get(cid, "unchecked")}
+        if not hyps:
+            continue
+        rows = []
+        for h in hyps:
+            cands = [k for k, v in discharge_ok.items() if v["target"] == cid and h in v["hyps"]]
+            good = [k for k in cands if is_clean(k) and is_clean(discharge_ok[k]["proofs"][h])]
+            if good:
+                k = good[0]
+                rows.append({"decl": h, "state": "discharged",
+                             "by": {"proof": discharge_ok[k]["proofs"][h], "corollary": k}, "via": None})
+                continue
+            rows.append({"decl": h, "state": "open", "by": None, "via": None})
+            if s["unchecked"]:
+                continue                            # unchecked says why; hypothesis-open would only repeat it
+            claimed = [str(x.get("id")) for x in claims if isinstance(x.get("discharges"), dict)
+                       and isinstance(x["discharges"].get("claim"), str)
+                       and resolve(x["discharges"]["claim"], by_id) == cid
+                       and h in (x["discharges"].get("hypotheses") or [])]
+            if not promote:
+                why = GATE_STAGE_OPEN
+            elif not comparator_ok:
+                why = f"the comparator tier is not clean at {c12}, so no discharge counts"
+            elif claimed:
+                why = (f"{', '.join(claimed)} claim{'s' if len(claimed) == 1 else ''} to discharge it, but the "
+                       f"evidence does not establish it (see {'their' if len(claimed) > 1 else 'its'} diagnostics)")
+            else:
+                why = "no claim discharges it"
+            s["diags"].append(("hypothesis-open", f"{h}: outstanding at {c12}; {why}"))
+        s["hypotheses"] = rows
+    for cid, s in out.items():
+        if s["unchecked"]:
+            s["diags"].append(("hypotheses-unchecked",
+                               f"{cid} sets {', '.join(claims_mod.uses_conditional_keys(by_id[cid])) or 'hypotheses'}"
+                               f", but the facts to judge them are missing (proposal 0003): "
+                               + "; ".join(dict.fromkeys(s["unchecked"]))))
+    return out
 
 def job_sh() -> str:
     """Shell functions for a verify script: `hypotheses_run LOG DIR LEAN_PATH [SIDE_LOG]` appends the hyp-probe/1

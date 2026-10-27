@@ -175,9 +175,9 @@ the run](receipts.md#corroborating-the-run-level-2---corroborate)). A receipt wi
 ## The hypotheses section of the verify log (`hyp-probe/1`)
 
 **Written since stage H1 of [proposal 0003](proposals/0003-conditional-claims-and-discharge.md)
-(conditional claims, [#320](https://github.com/lean-pkg/lean-pkg/issues/320)); no command reads
-the facts yet.** The claims ledger judges them in a later stage. Until then the section is
-evidence in the sealed log and nothing about a claim's status changes.
+(conditional claims, [#320](https://github.com/lean-pkg/lean-pkg/issues/320)); read by the claims
+ledger since stage H3** ([Conditional claims](lifecycle.md#conditional-claims)), which judges the
+facts from the sealed log the gate receipt binds, at the gate-bound commit, on every call.
 
 The lower-tier verify scripts (`receipt slurm --template` and the `verify.sh` that `lean-pkg new`
 writes) append this section after the
@@ -248,8 +248,10 @@ same `decl`, Challenge theorem and configuration, or Challenge module), a malfor
 JSON object, or not exactly its tag's keys and types, or `v` not 1), a line after `hyp-done`, a
 `hyp-*:` line before the header or with an unknown tag, a second header, and a redaction that
 alters a section line. A log without the section stays a valid receipt, as before. `hyp-error`
-and `hyp-skip` are never refusals; from the ledger stage on, a claim that uses `hypotheses`,
-`discharges` or `witness` with such a line, or with no section, is `hypotheses-unchecked`.
+and `hyp-skip` are never refusals. The claims ledger reads a section the write-time check would refuse,
+no section, a `hyp-error` of the part it needs, a failed Challenge build or a `hyp-skip` of the theorem
+it needs as missing facts: the claims that use `hypotheses`, `discharges` or `witness` are then
+`hypotheses-unchecked`, never discharged. Only the decl part is needed at the gate stage.
 
 ## Event log
 

@@ -138,6 +138,18 @@ def claim_covered(names, claim: dict, qualified: set[str], mapped: set[str] | No
     return covers(set(names) - set(mapped or ()), decl, decl in qualified)
 
 
+def credited_names(names, claim: dict, qualified: set[str], mapped: set[str] | None = None) -> set[str]:
+    """The configured `names` that judge `claim`, by the rule of `claim_covered` (each name alone): its
+    `judged_as` when configured, else every name the naming rule credits to it. The claims ledger reads a
+    conditional claim's Challenge facts under exactly one such name (proposal 0003); more than one is
+    ambiguous."""
+    decl = str(claim.get("decl") or "")
+    j = judged_name(claim)
+    if j is not None:
+        return {j} if decl in qualified and j in set(names) else set()
+    return {n for n in set(names) - set(mapped or ()) if covers({n}, decl, decl in qualified)}
+
+
 def judged_as_problems(claims: list[dict], configured: set[str], qualified: set[str],
                        smoke: set[str] | None = None) -> list[str]:
     """What is wrong with the explicit mappings against the configurations at a commit: a `judged_as` that names

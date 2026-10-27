@@ -88,9 +88,13 @@ unknown keys, so a package that uses them needs that release in its CI pin:
 | `witness` | optional, only on a claim with non-empty `hypotheses`: the id of a theorem or lemma claim of this file, other than this one, that shows the hypotheses can hold together |
 
 `claims list` marks a claim with `hypotheses` `(conditional)` (`--json`:
-`conditional: true`). No release evaluates the keys yet: the
-[claims ledger](lifecycle.md#claims-ledger) gives every claim that uses
-them `hypotheses-unchecked`, so it is never `verified`.
+`conditional: true`). The [claims ledger](lifecycle.md#conditional-claims)
+judges the keys from the facts Lean printed in the gate receipt's sealed
+verify log: a claim with `hypotheses` is `conditional`, never `verified`,
+and a hypothesis is discharged only through a corollary compared in the same
+comparator build. The page, `status`, `receipt check` and the index do not
+render conditional results yet; until they do, a conditional row of the page
+reads "Not yet verified".
 
 ### Manuscript findings
 
