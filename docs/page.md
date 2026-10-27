@@ -171,6 +171,19 @@ and the link is made when that module is a file of the package that declares the
 hypothesis whose name is not a plain Lean name is counted ("1 more not shown here"), never dropped.
 A row with a claim that is also open still reads "Not yet verified".
 
+When `claims.yaml` declares the statements module (`statements_module`,
+[A statements module for conditional claims](comparator.md#a-statements-module-for-conditional-claims)),
+read at the commit the page reads, "Verification at a glance" gains one paragraph after the fixed one:
+
+> **Assumptions module.** The assumptions the results below name are Lean definitions in
+> `Demo.Statements`, the one module beyond Mathlib that the Lean statements may use. It is part of
+> the statement: read what each assumption says, because an assumption that is trivially true or
+> false changes what a result means.
+
+The module name links to its source, and a hypothesis whose module the sealed log does not name
+links into the statements module when the module declares it. A page without the key has no such
+paragraph.
+
 Only when a claim uses the keys: the fixed paragraph gains "A conditional result says nothing when
 an outstanding assumption is false.", the counts line gains "conditional (proved under the
 assumptions each names): K" (the verified count never includes them), the *Ledger* gloss of

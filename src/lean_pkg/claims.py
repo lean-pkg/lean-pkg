@@ -19,11 +19,15 @@ import yaml
 from . import core
 from . import index as idx
 from . import lean_scan
+from . import statements_module as stm
 
 CLAIMS_SCHEMA = "claims/1"
 SUPPORTED_CLAIMS_SCHEMAS = (CLAIMS_SCHEMA,)
 DEFAULT_CLAIMS_FILE = "claims.yaml"
 CLAIMS_TOP_KEYS = ("schema", "package", "claims")
+# `statements_module` (proposal 0003, #369): the one module of Prop definitions a Challenge may import, so a
+# hypothesis can be named in the Challenge type (statements_module.py). Optional; absent means none.
+OPTIONAL_TOP_KEYS = ("statements_module",)
 CLAIM_KEYS = ("id", "decl", "kind", "summary", "aliases", "keywords", "file", "status",
               "superseded_by", "citation", "depends_on")
 REQUIRED_CLAIM_KEYS = ("id", "decl", "kind", "summary", "file", "status")
@@ -474,13 +478,16 @@ def validate_claims(doc, package: str | None = None) -> list[str]:
     if not isinstance(doc, dict):
         return ["claims file is not a mapping"]
     errors: list[str] = []
-    extra = sorted(set(doc) - set(CLAIMS_TOP_KEYS))
+    extra = sorted(set(doc) - set(CLAIMS_TOP_KEYS) - set(OPTIONAL_TOP_KEYS))
     missing = [k for k in CLAIMS_TOP_KEYS if k not in doc]
     if extra:
-        errors.append(f"unknown key(s) {extra} (schema {CLAIMS_SCHEMA} allows {list(CLAIMS_TOP_KEYS)})")
+        errors.append(f"unknown key(s) {extra} (schema {CLAIMS_SCHEMA} allows "
+                      f"{list(CLAIMS_TOP_KEYS) + list(OPTIONAL_TOP_KEYS)})")
     if missing:
         errors.append(f"missing key(s) {missing}")
         return errors
+    if stm.KEY in doc:
+        errors += stm.key_errors(doc[stm.KEY])
     if doc["schema"] not in SUPPORTED_CLAIMS_SCHEMAS:
         errors.append(f"schema must be one of {SUPPORTED_CLAIMS_SCHEMAS}, got {doc['schema']!r}")
     pkg_name = doc["package"]
@@ -690,11 +697,15 @@ def do_claims_sync(reg_path, reg, events_p, name: str) -> tuple[list[str], dict]
     if isinstance(doc.get("package"), str) and doc["package"] != name:
         raise core.Fail(f"{name}: {rel} declares package {doc['package']!r}, not {name!r}")
     errors = validate_claims(doc, name)
+    statements = stm.declared(doc)
     if not errors:
         read = _reader(repo, head)
         errors = decl_problems(read, doc["claims"]) + evidence_problems(read, doc["claims"])
+        if statements is not None:
+            errors += stm.problems(read, statements, head)
     if errors:
         raise core.Fail(f"{name}: {rel} refused: " + "; ".join(errors))
+    extra = {stm.KEY: statements} if statements is not None else {}
     claims = [normalize_claim(c) for c in doc["claims"]]
     published = pin_published(repo, head)
     if published is False:
@@ -702,15 +713,17 @@ def do_claims_sync(reg_path, reg, events_p, name: str) -> tuple[list[str], dict]
     if pkg.get("claims") == claims and pkg.get("claims_synced_commit") == head:
         return ([f"{name}: claims already synced at {head[:12]}; nothing written"],
                 {"ok": True, "name": name, "event": "claims-noop", "commit": head,
-                 "claims": len(claims), "pin_published": published})
+                 "claims": len(claims), "pin_published": published, **extra})
     pkg["claims_file"] = rel
     pkg["claims"] = claims
     pkg["claims_synced_commit"] = head
     core.record(reg, events_p, pkg, "claims-synced", commit=head, file=rel, claims=len(claims))
     core.save_registry(reg_path, reg)
-    return ([f"{name}: {len(claims)} claim(s) synced from {rel} at {head[:12]}"],
+    return ([f"{name}: {len(claims)} claim(s) synced from {rel} at {head[:12]}"]
+            + ([f"{name}: statements module {statements} ({lean_scan.module_file(statements)}): the one module a "
+                f"Challenge may import beyond Mathlib; trusted by declaration, read it"] if statements else []),
             {"ok": True, "name": name, "event": "claims-synced", "commit": head,
-             "claims": len(claims), "pin_published": published})
+             "claims": len(claims), "pin_published": published, **extra})
 
 
 def _targets(reg: dict, name: str | None) -> list[str]:
@@ -773,6 +786,10 @@ def do_claims_check(reg: dict, name: str | None) -> tuple[list[str], dict, int]:
                 read = _reader(repo, commit)
                 rep["failures"] += decl_problems(read, claims) + evidence_problems(read, claims)
                 rel = pkg.get("claims_file") or DEFAULT_CLAIMS_FILE
+                statements, sproblems = stm.at_commit(repo, rel, commit)
+                if statements is not None:
+                    rep[stm.KEY] = statements
+                    rep["failures"] += sproblems
                 if core.git_show_bytes(repo, rel, "HEAD") != core.git_show_bytes(repo, rel, commit):
                     rep["notes"].append(f"{rel} changed since {commit[:12]}; run `lean-pkg claims sync {n}`")
         rep["ok"] = not rep["failures"]

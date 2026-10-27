@@ -654,6 +654,39 @@ def _hyp_modules(ctx: dict) -> dict[str, str]:
     return ctx["hyp_modules"]
 
 
+def _statements(ctx: dict) -> str | None:
+    """The statements module the claims file declares at the commit the page reads (#369), read once; None
+    when none is declared."""
+    if "statements" not in ctx:
+        from . import statements_module as stm
+        rel = ctx["pkg"].get("claims_file") or "claims.yaml"
+        ctx["statements"] = stm.at_commit(ctx["repo"], rel, ctx["anchor"] or "HEAD")[0]
+    return ctx["statements"]
+
+
+def _module_link(ctx: dict, rel: str | None, line: int | None = None) -> str | None:
+    """The source link of a package file at the commit the page reads, when the page can form one."""
+    if not (ctx["link_base"] and rel and re.fullmatch(r"[A-Za-z0-9_./«»'-]+\.lean", rel) and ".." not in rel):
+        return None
+    return f"{ctx['link_base']}/{rel}" + (f"#L{line}" if line else "")
+
+
+def _statements_line(ctx: dict) -> list[str]:
+    """The paragraph naming the declared statements module (#369); [] when none is declared."""
+    from . import lean_scan
+    mod = _statements(ctx)
+    safe = _safe(mod) if mod else None
+    if safe is None:
+        return []
+    rel = lean_scan.module_file(safe)
+    url = _module_link(ctx, rel)
+    ref = f"[`{safe}`]({url})" if url else f"`{safe}`"
+    return [f"**Assumptions module.** The assumptions the results below name are Lean definitions in {ref}, the "
+            f"one module beyond Mathlib that the Lean statements may use. It is part of the statement: read what "
+            f"each assumption says, because an assumption that is trivially true or false changes what a result "
+            f"means.", ""]
+
+
 def _hyp_ref(ctx: dict, name: str) -> str | None:
     """A hypothesis as a code span, linked to its declaration's source at the commit the page reads when the
     page can form the link (its module's file is in the package and declares it); None when the name is not
@@ -662,8 +695,8 @@ def _hyp_ref(ctx: dict, name: str) -> str | None:
     safe = _safe(name)
     if safe is None:
         return None
-    rel = lean_scan.module_file(_hyp_modules(ctx).get(safe) or "")
-    if not (ctx["link_base"] and rel and re.fullmatch(r"[A-Za-z0-9_./«»'-]+\.lean", rel) and ".." not in rel):
+    rel = lean_scan.module_file(_hyp_modules(ctx).get(safe) or _statements(ctx) or "")
+    if _module_link(ctx, rel) is None:
         return f"`{safe}`"
     raw = core.git_show_bytes(ctx["repo"], rel, ctx["anchor"] or "HEAD")
     line = next((d[0] for d in lean_scan.declarations(raw.decode("utf-8", "replace")) if d[2] == safe),
@@ -767,6 +800,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     trust = LIBRARY_TRUST_LINE if ctx["library"] else TRUST_LINE
     md: list[str] = ["## Verification at a glance", "",
                      trust + (f" {CONDITIONAL_SENTENCE}" if keyed and led["counts"]["conditional"] else ""), ""]
+    md += _statements_line(ctx)
     if ctx["preview"]:
         pv = ctx["preview"]
         binds = (f"the recorded build check binds commit `{_c12(pv['commit'])}`" if _c12(pv.get("commit"))

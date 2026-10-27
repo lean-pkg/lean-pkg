@@ -321,6 +321,33 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   lists `hypotheses`, or an index claim whose derived `status` is
   `conditional`, reads `(theorem, reusable (conditional), trust ...)`, and its
   `--json` hit gains `conditional: true`; other hits are unchanged.
+- The statements module of conditional claims is declared (#371; #369,
+  #320, proposal 0003): `claims.yaml` takes an optional top-level key
+  `statements_module: Demo.Statements` (`claims/1`, additive), the one
+  module of `Prop` definitions a Challenge may import so that a hypothesis
+  is named in the Challenge type. The schema refuses a list, a path, a
+  module of Mathlib or Lean core and a malformed name; `claims sync`,
+  `claims check NAME` and the claims check of `gate`, `gate --check` and
+  `receipt check` refuse, at the commit they read, a module whose file is
+  not committed there or whose text (lean-pkg's scanner, not Lean's
+  elaborator) holds anything but `def`, `abbrev`, `inductive` or
+  `structure` declarations typed `Prop` (or `... → Prop`), or imports
+  beyond Mathlib's vocabulary: a theorem, lemma, axiom, opaque, instance,
+  example, `sorry` or other command is refused, each naming its line.
+  `claims sync` prints the module and its `--json` gains
+  `statements_module`; the page adds an **Assumptions module.** paragraph
+  linking the module and links a hypothesis into it when the sealed log
+  names no module; `comparator config --challenge-from-type` treats the
+  module's constants as Mathlib vocabulary. A package without the key is
+  byte for byte as before
+  ([A statements module for conditional claims](docs/comparator.md#a-statements-module-for-conditional-claims)).
+- `palomar check` warns about a Challenge's imports (#371; #369): each
+  module a Challenge imports beyond Mathlib's vocabulary is a `warn` gap,
+  never an error: `challenge.statements_module` for the declared statements
+  module ("trusted by declaration, read it", with lean-pkg's refusal when
+  the module fails its check) and `challenge.import` for any other module.
+  A Challenge that imports Mathlib only gets neither; whether Palomar
+  accepts a Challenge that imports a statements module is not confirmed.
 
 - The committed docs-only opt-in, `lean-pkg-binding.yaml` (#349; #319,
   proposal 0002, stage G1): a package opts in to the docs-only descendant
