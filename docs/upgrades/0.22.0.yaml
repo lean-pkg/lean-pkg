@@ -783,7 +783,7 @@ changes:
       refusal, hence breaking.
     breaking: true
     changelog: Fixed
-  - pr: 0
+  - pr: 371
     id: statements-module-key
     kind: format
     area: claims, gate, receipt check, page, comparator config
@@ -806,7 +806,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 371
     id: palomar-check-import-warning
     kind: behavior
     area: palomar check

@@ -321,7 +321,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   lists `hypotheses`, or an index claim whose derived `status` is
   `conditional`, reads `(theorem, reusable (conditional), trust ...)`, and its
   `--json` hit gains `conditional: true`; other hits are unchanged.
-- The statements module of conditional claims is declared (#PR_SM; #369,
+- The statements module of conditional claims is declared (#371; #369,
   #320, proposal 0003): `claims.yaml` takes an optional top-level key
   `statements_module: Demo.Statements` (`claims/1`, additive), the one
   module of `Prop` definitions a Challenge may import so that a hypothesis
@@ -341,7 +341,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   module's constants as Mathlib vocabulary. A package without the key is
   byte for byte as before
   ([A statements module for conditional claims](docs/comparator.md#a-statements-module-for-conditional-claims)).
-- `palomar check` warns about a Challenge's imports (#PR_SM; #369): each
+- `palomar check` warns about a Challenge's imports (#371; #369): each
   module a Challenge imports beyond Mathlib's vocabulary is a `warn` gap,
   never an error: `challenge.statements_module` for the declared statements
   module ("trusted by declaration, read it", with lean-pkg's refusal when
