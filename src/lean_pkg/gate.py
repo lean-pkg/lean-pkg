@@ -923,7 +923,8 @@ def claims_schema_at(name: str, pkg: dict, repo: pathlib.Path, commit: str) -> d
     """#58: the claims/1 schema check (claims.schema_check_text, the validator `claims sync` uses) on
     the package's claims file as tracked at the gated commit, never the working tree, then
     `claims sync`'s declaration check (claims.decl_problems) with each claim's file read at that same
-    commit. {checked, commit, file, ok, claims, errors, declarations: {checked, ok, problems}}; `ok` is
+    commit, and the declared statements module's check (statements_module.problems, #369) at that commit.
+    {checked, commit, file, ok, claims, errors, declarations: {checked, ok, problems}}; `ok` is
     False on either kind of problem; checked False (ok null) when no file is tracked there."""
     from . import claims as claims_mod
     from . import index as idx
@@ -949,6 +950,11 @@ def claims_schema_at(name: str, pkg: dict, repo: pathlib.Path, commit: str) -> d
         read = claims_mod._reader(repo, commit)
         problems = claims_mod.decl_problems(read, usable) + claims_mod.evidence_problems(read, usable)
         decls = {"checked": True, "ok": not problems, "problems": problems}
+    from . import statements_module as stm       # #369: the declared statements module, at the same commit
+    statements, sproblems = stm.at_commit(repo, rel, commit)
+    if statements is not None and sproblems:
+        problems = list(decls["problems"]) + sproblems
+        decls = {"checked": True, "ok": False, "problems": problems}
     return {"checked": True, "commit": commit, "file": rel, "ok": not errors and decls["ok"] is not False,
             "claims": n, "errors": errors, "declarations": decls}
 

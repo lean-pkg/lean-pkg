@@ -40,7 +40,7 @@ CONFIG = {"challenge_module": "Challenge", "solution_module": "Solution",
           "theorem_names": ["Gamma.foo"], "definition_names": [],
           "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"], "enable_nanoda": True}
 HEADED = {
-    "Challenge.lean": "module\n\npublic import Gamma.Main\n\ntheorem Gamma.foo : True := sorry\n",
+    "Challenge.lean": "module\n\npublic import Mathlib\n\ntheorem Gamma.foo : True := sorry\n",
     "Solution.lean": "/- Copyright 2026. -/\n-- SPDX-License-Identifier: MIT\nmodule\n\npublic import Gamma.Main\n",
     "Gamma/Main.lean": "/-\nCopyright 2026.\n-/\n\nmodule\n\n/-! # Main -/\n\npublic theorem Gamma.foo : True := trivial\n",
     "lakefile.lean": "import Lake\nopen Lake DSL\npackage gamma\n",       # exempt from the header rule

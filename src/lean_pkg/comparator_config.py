@@ -331,6 +331,20 @@ def file_claims(name: str, path: str) -> tuple[list[dict], dict]:
                     "synced_commit": None, "claims": len(claims)}
 
 
+def _declared_statements(pkg: dict, repo: pathlib.Path, claims_file: str | None) -> str | None:
+    """The statements module the claims declare (#369), when lean-pkg accepts it: from --claims-file, else
+    from the claims file committed at HEAD; None when none is declared or the module is refused."""
+    from . import statements_module as stm
+    from .claims import _reader, load_claims_text
+    head = core.git_head(repo) or "HEAD"
+    if claims_file is None:
+        mod, problems = stm.at_commit(repo, pkg.get("claims_file") or "claims.yaml", head)
+        return mod if not problems else None
+    p = pathlib.Path(str(claims_file)).expanduser()
+    mod = stm.declared(load_claims_text(p.read_text(encoding="utf-8", errors="replace"), str(p)))
+    return mod if mod is not None and not stm.problems(_reader(repo, head), mod, head) else None
+
+
 def source_line(src: dict) -> str:
     if src["kind"] == "file":
         return (f"claims source: --claims-file {src['path']} (sha256 {src['sha256']}; schema-checked like "
@@ -480,8 +494,10 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
         failed = ct.check_partial([by_decl.get(a["decl"]) for a in added], doc,
                                   "the local run" if types["mode"] == "local" else f"--from-output {source}",
                                   bool(types.get("allow_partial")))
+        statements = _declared_statements(pkg, repo, claims_file)
         for a, c in zip(added, sources, strict=False):
-            ct.fill(a, by_decl.get(a["decl"]), str(c.get("summary") or f"what {a['claim']} claims"), source)
+            ct.fill(a, by_decl.get(a["decl"]), str(c.get("summary") or f"what {a['claim']} claims"), source,
+                    statements)
         ok = sum(1 for a in added if "type" in a)
         nr = sum(1 for a in added if a.get("needs_restatement"))
         rtf = sum(1 for a in added if a.get("restatement_reason") == "round_trip_failed")

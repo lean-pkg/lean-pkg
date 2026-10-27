@@ -37,6 +37,8 @@ import subprocess
 
 from . import gate as gate_mod
 from . import core
+from . import lean_scan
+from . import statements_module as stm
 from .holes import INLINE_KEYS, SIDECAR, check_definition_holes, migrate_command, parse_sidecar
 from .holes import summary as signoff_summary
 
@@ -165,8 +167,9 @@ def physical_lines(text: str) -> int:
 class Tree:
     """The git tree of one commit, read from the object store (the working tree is never read)."""
 
-    def __init__(self, repo: pathlib.Path, commit: str):
-        self.repo, self.commit = repo, commit
+    def __init__(self, repo: pathlib.Path, commit: str, claims_file: str = "claims.yaml"):
+        self.repo, self.commit, self.claims_file = repo, commit, claims_file
+        self._statements: tuple[str | None, list[str]] | None = None
         p = core.git(repo, "rev-parse", "--show-prefix")
         self.prefix = p.stdout.strip() if p.returncode == 0 else ""
         p = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", "--full-tree", commit],
@@ -192,6 +195,13 @@ class Tree:
         p = subprocess.run(["git", "-C", str(self.repo), "cat-file", "blob", e[2]],
                            capture_output=True, env=core.scrubbed_env())
         return p.stdout if p.returncode == 0 else None
+
+    def statements(self) -> tuple[str | None, list[str]]:
+        """(the statements module the claims file at this commit declares, or None; its refusals), read once
+        (#369)."""
+        if self._statements is None:
+            self._statements = stm.at_commit(self.repo, self.claims_file, self.commit)
+        return self._statements
 
     def blobs(self, paths: list[str]) -> dict[str, bytes]:
         """Many blobs in one `git cat-file --batch` (a package can have thousands of files)."""
@@ -382,6 +392,8 @@ def config_gaps(tree: Tree, policy: dict, rel: str) -> list[dict]:
         gaps.append(_gap("challenge.too_large", "error",
                          f"{csrc} exceeds the Challenge limits ({CHALLENGE_MAX_LINES:,} lines, 100 KiB)",
                          "state fewer or shorter declarations in the Challenge", [tree.project(csrc)]))
+    if blob is not None:
+        gaps += challenge_import_gaps(tree, rel, ch, csrc, blob)
     holes = cfg.get("definition_names") or []
     if isinstance(holes, list) and holes:
         try:
@@ -395,6 +407,41 @@ def config_gaps(tree: Tree, policy: dict, rel: str) -> list[dict]:
                          f"and type, never by body, so reviewers must judge the bodies{signed}",
                          "keep definition_names empty where you can; otherwise justify each in the submission",
                          [path]))
+    return gaps
+
+
+def challenge_import_gaps(tree: Tree, rel: str, ch: str, csrc: str, blob: bytes) -> list[dict]:
+    """A warning for each module the Challenge imports beyond Mathlib's vocabulary (#369): the declared
+    statements module (trusted by declaration: a reader must read it), and, more strongly, any other module.
+    Never an error: Palomar's verifier is what checks Challenge imports against the trusted dependencies."""
+    imports = [m for m in dict.fromkeys(lean_scan.header_imports(blob.decode("utf-8", "replace")))
+               if not stm.is_vocabulary(m)]
+    if not imports:
+        return []
+    declared, problems = tree.statements()
+    path = tree.project(csrc)
+    gaps = []
+    for m in imports:
+        mrel = lean_scan.module_file(m) or m
+        if m == declared:
+            refused = (f"; lean-pkg refuses the declaration at {tree.commit[:12]}: {problems[0]}"
+                       + (f" (+{len(problems) - 1} more)" if len(problems) > 1 else "")) if problems else ""
+            gaps.append(_gap("challenge.statements_module", "warn",
+                             f"{rel}: challenge_module {ch} imports {m}, the declared statements module "
+                             f"({tree.claims_file} {stm.KEY}): trusted by declaration, read it{refused}",
+                             f"read {mrel} with the Challenge: each hypothesis there is part of what the "
+                             f"theorems state" + ("; fix the module, commit, re-gate" if problems else ""),
+                             [path, tree.project(mrel)]))
+        else:
+            other = (f"the declared statements module is {declared}" if declared
+                     else f"no statements module is declared ({tree.claims_file} {stm.KEY})")
+            gaps.append(_gap("challenge.import", "warn",
+                             f"{rel}: challenge_module {ch} imports {m}, which is neither Mathlib's vocabulary nor "
+                             f"the declared statements module ({other}): the statement then rests on {m}, which "
+                             f"no check here reads",
+                             "state the Challenge in Mathlib's vocabulary and drop the import; the hypotheses of "
+                             f"conditional claims go in the one declared statements module ({stm.KEY} in "
+                             f"{tree.claims_file}); commit, re-gate", [path]))
     return gaps
 
 
@@ -625,7 +672,7 @@ def resolve_commit(pkg: dict, repo: pathlib.Path, rev: str | None) -> tuple[str,
 
 def check(pkg: dict, repo: pathlib.Path, commit: str, policy: dict, source: dict,
           config: str | None = None) -> dict:
-    tree = Tree(repo, commit)
+    tree = Tree(repo, commit, pkg.get("claims_file") or "claims.yaml")
     gaps, facts = source_gaps(tree, policy, pkg["name"])
     tc_gaps, tc = toolchain_gaps(tree, policy)
     gaps += tc_gaps + layout_gaps(tree)

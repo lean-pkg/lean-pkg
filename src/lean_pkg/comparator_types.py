@@ -51,13 +51,13 @@ import tempfile
 
 from . import cli, gate as gate_mod
 from . import core
+from . import statements_module as stm
 
 SCHEMA = "comparator-types/1"
 DEFAULT_JOBS = 2
 DEFAULT_TIMEOUT = 120
-# Module roots a Challenge may use: it imports Mathlib, which brings these in.
-VOCAB_ROOTS = ("Init", "Std", "Lean", "Mathlib", "Batteries", "Aesop", "Qq", "ProofWidgets", "Plausible",
-               "ImportGraph", "LeanSearchClient")
+# Module roots a Challenge may use: it imports Mathlib, which brings these in (one list, statements_module's).
+VOCAB_ROOTS = stm.VOCAB_ROOTS
 UNPARSEABLE = ("✝", "⋯")             # inaccessible-name dagger, elided-proof ellipsis
 DECL_RE = re.compile(r"^[^\s«».]+(\.[^\s«».]+)*$")
 LAKEFILES = ("lakefile.lean", "lakefile.toml")
@@ -774,8 +774,9 @@ def first_line(s: object) -> str:
     return lines[0] if lines else "no error text"
 
 
-def fill(entry: dict, result: dict | None, summary: str, source: str) -> dict:
-    """Turn a TODO scaffold entry into a pre-filled one, or record why it stays TODO."""
+def fill(entry: dict, result: dict | None, summary: str, source: str, statements: str | None = None) -> dict:
+    """Turn a TODO scaffold entry into a pre-filled one, or record why it stays TODO. `statements`: the
+    package's declared statements module (#369), whose constants a Challenge may name like Mathlib's."""
     tname, decl = entry["theorem_name"], entry["decl"]
     failure = failure_of(result)
     if result is None:
@@ -798,7 +799,8 @@ def fill(entry: dict, result: dict | None, summary: str, source: str) -> dict:
     if not isinstance(modules, list):
         reason = "the output does not list the modules the type uses"
     else:
-        foreign = sorted({str(m) for m in modules if str(m).split(".", 1)[0] not in VOCAB_ROOTS})
+        foreign = sorted({str(m) for m in modules if str(m).split(".", 1)[0] not in VOCAB_ROOTS
+                          and str(m) != statements})
         if foreign:
             reason = "the type uses project definitions (" + ", ".join(foreign[:5]) + \
                      (", ..." if len(foreign) > 5 else "") + ")"
