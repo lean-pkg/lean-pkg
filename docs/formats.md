@@ -74,7 +74,7 @@ A new version of any lean-pkg format is a schema change: it starts as a
 | Binding opt-in | `lean-pkg-binding.yaml` (the package directory) | `schema: lean-pkg-binding/1` | `lean-pkg-binding/1`; a newer `lean-pkg-binding/N`, an unknown key or any other invalid file does not opt in (fail closed: the evidence-only rule binds, and the output names the file and the key) | none needed yet (written by hand; [docs-only descendants](receipts.md#docs-only-descendants-opt-in)) |
 | Site profile | `lean-pkg-sites/<name>.yaml` (and the built-in profiles) | `schema: site-profile/1` | `site-profile/1` | none needed yet |
 | Source baseline | `data/source-baselines/arXiv-<id>v<N>.json` | `schema: source-baseline/1` | `source-baseline/1` | none needed yet |
-| Extraction ledger | `--ledger PATH` of `lean-pkg-extract ledger` and `decls` (private; outside the source and the target; `decls` records `target.commit: null`, nothing being committed) | `schema: lean-pkg-extract-ledger/1`, with the comparison method in `method` (`text/1`; a later `types/1`) | `lean-pkg-extract-ledger/1` with method `text/1`, strictly (exact keys, closed verdicts, duplicate keys refused); a newer `lean-pkg-extract-ledger/N` or an unknown method is refused ("upgrade lean-pkg"); read back by `lean-pkg-extract recheck` only, never by a gate, page or index | none: evidence is never rewritten ([extraction ledger](extract.md#declaration-level-extraction-ledger)) |
+| Extraction ledger | `--ledger PATH` of `lean-pkg-extract ledger` and `decls` (private; outside the source and the target; `decls` records `target.commit: null`, nothing being committed) | `schema: lean-pkg-extract-ledger/1`, with the comparison method in `method` (`text/1`, or `types/1` with its optional keys `source_type_sha256`, `target_type_sha256` and `types_cleared` per entry and `types` per ledger) | `lean-pkg-extract-ledger/1` with method `text/1` or `types/1`, strictly (exact keys for the method, closed verdicts, duplicate keys refused); a newer `lean-pkg-extract-ledger/N` or an unknown method is refused ("upgrade lean-pkg"); read back by `lean-pkg-extract recheck` only, never by a gate, page or index | none: evidence is never rewritten ([extraction ledger](extract.md#declaration-level-extraction-ledger)) |
 | Upgrade record | `docs/upgrades/<version>.yaml` (this repository) | `schema: lean-pkg-upgrade-record/1` | `lean-pkg-upgrade-record/1` | none needed yet |
 
 Blocks and sidecars inside the receipt formats carry their own markers and
@@ -89,7 +89,9 @@ additive key of `lower-receipt/1` ([The `ci` block](#the-ci-block)).
 **Internal, not a public format.** The comparator runner's working files
 under `comparator-stages/` (`comparator-stages/1`, `comparator-attempt/1`,
 `comparator-partial/1`, `comparator-slot/1`), the comparator types
-checkpoint, and the search cache (`lean-pkg-palomar-cache/1`) belong to
+checkpoint, the output of the extraction ledger's `types/1` programs
+(`lean-pkg-extract-types/1`, read back by `--from-output` only when this
+release's program wrote it: its hash is in the output), and the search cache (`lean-pkg-palomar-cache/1`) belong to
 the run that wrote them and may change in any release. So do the data
 files lean-pkg ships (`lean-pkg-toolchain-advisories/1`,
 `lean-pkg-stack/1`, `lean-pkg-upgrade-breaking/1`,

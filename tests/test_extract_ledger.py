@@ -569,7 +569,8 @@ def test_recheck_refuses_a_tampered_verdict_with_consistent_totals(repos, record
 @pytest.mark.parametrize("edit, needle", [
     (lambda d: d.update(schema="lean-pkg-extract-ledger/2"), "newer than this lean-pkg reads"),
     (lambda d: d.update(schema="claims-ledger/1"), "unknown schema"),
-    (lambda d: d.update(method="types/1"), "method types/1 is not known to this lean-pkg"),
+    (lambda d: d.update(method="types/2"), "method types/2 is not known to this lean-pkg"),
+    (lambda d: d.update(method="types/1"), "missing key(s) ['types']"),
     (lambda d: d.update(method="tokens"), "unknown method"),
     (lambda d: d.update(extra=1), "unknown key(s) ['extra']"),
     (lambda d: d.pop("context"), "missing key(s) ['context']"),

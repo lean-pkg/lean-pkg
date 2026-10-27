@@ -447,6 +447,34 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   staged write is the shared helper the file-level `write` (two-tracks gap
   17) will use ([writing the target
   modules](docs/extract.md#writing-the-target-modules-decls)).
+- The elaborated-type method `types/1` of the extraction ledger
+  (#PR_EX4; #329, proposal 0009, stage S4): `lean-pkg-extract ledger
+  --method types` compares the elaborated types of the declarations both
+  sides have, besides their text, in two steps, since lean-pkg never runs
+  Lean. `--emit-script DIR` writes two Lean programs (`source.lean`,
+  `target.lean`; core Lean, deterministic, naming only the compared
+  declarations, no `--ledger` needed); each runs in its own checkout with
+  `lake env lean --run` and prints, per declaration, a canonical
+  serialization of its elaborated type (constants renamed by the map on the
+  source side, generated names included; binder names left out; universe
+  parameters by position; an inductive type with its constructors), never a
+  pretty-printed one. `--from-output SOURCE.out TARGET.out` reads both
+  outputs (`lean-pkg-extract-types/1`) strictly: an output of another
+  program (its hash), at another commit, of a dirty or non-git checkout,
+  truncated, duplicated, out of order, with a declaration missing or a
+  declaration list that does not match, or of a different Lean build than
+  the other side is refused. A text DIFFERS whose types are equal is shown
+  as `DIFFERS (types equal)` and clears the failure for a statement (a
+  theorem, axiom, opaque constant or inductive type; the text difference
+  stays in the ledger), not for a definition, whose value is not compared;
+  an IDENTICAL text whose types differ fails unless allowed. The ledger
+  stays `lean-pkg-extract-ledger/1` with `method: types/1` and the optional
+  keys `source_type_sha256`, `target_type_sha256`, `types_cleared` and
+  `types`; a `text/1` ledger is unchanged, byte for byte. `recheck` reads
+  the method the ledger records: a `types/1` ledger needs `--from-output`
+  (and takes `--emit-script`), a `text/1` ledger refuses both
+  ([the comparison `types/1`](docs/extract.md#the-comparison-types1),
+  [on-disk formats](docs/formats.md)).
 
 ### Changed
 

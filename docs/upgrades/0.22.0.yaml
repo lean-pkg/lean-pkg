@@ -876,6 +876,47 @@ changes:
       (lean-pkg receipt ci --template prints the caller with the release commit).
     breaking: false
     changelog: Fixed
+  - pr: 0
+    id: extract-method-types
+    kind: command
+    area: lean-pkg-extract
+    summary: >-
+      Stage S4 of proposal 0009 (#329): lean-pkg-extract ledger --method types compares the elaborated types of the
+      declarations both sides have, besides their text (method types/1), in two steps, since lean-pkg runs no Lean:
+      --emit-script DIR writes two Lean programs (DIR/source.lean, DIR/target.lean; core Lean, deterministic, naming
+      only the compared declarations; no --ledger needed), the author runs each in its checkout with lake env lean
+      --run, and --from-output SOURCE.out TARGET.out reads their outputs back strictly (bound to the ledger's commits
+      and to the programs' hashes; a dirty or non-git checkout, two Lean builds, a truncated, duplicated or edited
+      output refused) and writes the ledger. A text DIFFERS whose types are equal is shown as DIFFERS (types equal)
+      and no longer fails for a theorem, axiom, opaque constant or inductive type (the text difference stays in the
+      ledger); for a definition it still fails, since its value is not compared. An IDENTICAL text whose types
+      differ fails unless allowed. recheck reads the method the ledger records: a types/1 ledger needs --from-output
+      (and takes --emit-script); a text/1 ledger refuses both. text/1 is unchanged, byte for byte.
+    action: >-
+      Nothing required. To show that the statements, not only the texts, are the source's, run ledger --method types
+      --emit-script DIR, run the two programs in clean checkouts at the compared commits, and pass both outputs to
+      --method types --from-output.
+    breaking: false
+    changelog: Added
+    split: true
+  - pr: 0
+    id: extract-ledger-types-keys
+    kind: format
+    area: lean-pkg-extract
+    summary: >-
+      lean-pkg-extract-ledger/1 gains optional keys for the method types/1 (proposal 0009, stage S4): per entry
+      source_type_sha256 and target_type_sha256 (the SHA-256 of each side's elaborated-type serialization, null when
+      the entry is not compared) and types_cleared (a text DIFFERS the equal types clear), and per ledger types
+      {lean, lean_githash, source_script_sha256, target_script_sha256}. A types/1 ledger carries exactly these keys
+      besides those of text/1, read strictly (coherent with each verdict); a text/1 ledger carries none and is
+      unchanged. The programs' output, lean-pkg-extract-types/1, is read back only by --from-output of the release
+      that emitted the programs.
+    action: >-
+      Nothing: text/1 ledgers are written and read as before. A release before this one refuses a types/1 ledger,
+      naming the upgrade.
+    breaking: false
+    changelog: Added
+    split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

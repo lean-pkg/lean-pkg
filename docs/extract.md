@@ -451,8 +451,9 @@ sides, the map you applied and a verdict with SHA-256 hashes for each
 declaration. `lean-pkg-extract recheck` re-verifies that ledger later, by
 anyone who holds the source. It is the record proposal
 [0009](proposals/0009-extraction-ledger.md) specifies. `decls` writes the
-target modules for you ([below](#writing-the-target-modules-decls)); comparing
-elaborated types (`types/1`) is a later stage.
+target modules for you ([below](#writing-the-target-modules-decls)), and
+`--method types` compares the elaborated types too
+([`types/1`](#the-comparison-types1)).
 
 ```bash
 lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib \
@@ -499,7 +500,10 @@ is not used.
 | `--drop OLD.qual:REASON` | a source declaration left out on purpose, with a one-line reason |
 | `--new NEW.qual:REASON` | a target declaration with no source counterpart, declared, with a reason |
 | `--allow-differs OLD.qual:REASON` | a difference you disclose (counted as `weakened`); `context@<source module>` for a module's context row |
-| `--ledger PATH` | where to write the ledger (required, see below) |
+| `--ledger PATH` | where to write the ledger (required, see below; not with `--emit-script`) |
+| `--method text\|types` | the comparison method: `text` (`text/1`, the default) or `types` (`types/1`, [below](#the-comparison-types1)) |
+| `--emit-script DIR` | `types/1`, step 1: write the two Lean programs into the new directory DIR, nothing else |
+| `--from-output OUT ...` | `types/1`, step 2: the two programs' outputs (source and target, any order) |
 
 Both sides are read from git objects at their commit, never from a working
 tree, and neither repository is written. The target module `New.A` is the
@@ -545,6 +549,102 @@ lean-toolchain and the `lake-manifest.json` of both sides are recorded, and
 a toolchain or dependency revision that differs is a warning, never a
 refusal. That the proofs still check is shown by building the target, not by
 the ledger.
+
+### The comparison: `types/1`
+
+*The texts differ only in the proof, or the texts are equal but a short
+name may now resolve to another constant: are the statements the
+source's?*
+
+`--method types` adds the elaborated type of every declaration both sides
+have to the text comparison. lean-pkg never runs Lean, so it takes two
+steps, with the same map flags (an `@ARGSFILE` serves both):
+
+```bash
+# 1. write the two Lean programs (nothing else; no --ledger needed)
+lean-pkg-extract ledger @newlib-args.txt --method types --emit-script ~/ledgers/newlib-types
+
+# 2. run each in its own checkout, clean and at the commit the ledger compares, after building its modules
+cd ~/paper  && lake build Src.A Src.B && lake env lean --run ~/ledgers/newlib-types/source.lean > ~/ledgers/source.out
+cd ~/newlib && lake build New.A New.B && lake env lean --run ~/ledgers/newlib-types/target.lean > ~/ledgers/target.out
+
+# 3. read both outputs back and write the ledger
+lean-pkg-extract ledger @newlib-args.txt --method types \
+    --from-output ~/ledgers/source.out ~/ledgers/target.out --ledger ~/ledgers/newlib-2.json
+```
+
+```text
+ledger: OK (types/1): 4 identical, 1 dropped, 1 differs, 0 new, 0 missing, 0 weakened; 2 context row(s) (0 differ); 0 warning(s); types: 4 compared, 0 differ, 1 cleared a text difference; source 0034dfa7..., target 5b1e7c02...; written to ~/ledgers/newlib-2.json
+entries (PRIVATE: source names and paths; keep this list out of anything published):
+  DIFFERS (types equal) theorem   Old.A.foo -> New.A.bar  (cleared: the statement's elaborated type is the source's)
+  IDENTICAL theorem   Old.A.uses_foo -> New.A.uses_foo
+  ...
+```
+
+Each program (`source.lean`, `target.lean`; core Lean only, run with
+`lake env lean --run`) imports its side's mapped modules and prints, for each
+declaration the text comparison pairs (both sides present and named, so not
+an anonymous instance or example), a canonical serialization of its
+elaborated type: the `Expr` walked structurally, every constant renamed by
+the map on the source side (a renamed name and every name under it, so
+generated names such as `foo.match_1` and a structure's fields follow; else
+the longest namespace prefix), binder names left out, binder annotations
+kept, universe parameters numbered by position, private names compared by
+their user names. An inductive type, `structure` or `class` brings its
+constructors' types. Nothing is pretty-printed: that output is neither
+canonical nor round-trip safe. The ledger records each serialization's
+SHA-256 as `source_type_sha256` and `target_type_sha256`.
+
+| Text | Types | Verdict shown | Failure? |
+|---|---|---|---|
+| equal | equal | IDENTICAL | no |
+| differs | equal, a theorem, axiom, opaque constant or inductive type | DIFFERS (types equal) | no: the statement is the source's (`types_cleared`); the text difference stays in the ledger and the counts |
+| differs | equal, a `def`, `abbrev` or `instance` | DIFFERS (types equal) | yes, unless allowed: the value is not compared |
+| differs | differ | DIFFERS (types differ) | yes, unless allowed |
+| equal | differ | IDENTICAL (types differ) | yes, unless allowed (`--allow-differs`, then `weakened`): the false negative `text/1` cannot see |
+
+An entry with no constant name (an anonymous instance or example) keeps its
+text verdict. MISSING, NEW, DROPPED and the context rows are as under
+`text/1`. An `--allow-differs` the types settle (equal types that clear the
+difference, or an IDENTICAL text whose types are equal too) is stale.
+
+Each output is one JSON object per line (`lean-pkg-extract-types/1`): a
+header with `side`, `script_sha256`, the checkout's `commit`
+(`git rev-parse HEAD` where it ran) and `dirty` (`git status`, tracked
+files), the Lean build
+(`lean`, `lean_githash`) and the declaration count; one line per
+declaration, in order; and a final `done` line. `--from-output` reads it
+strictly and refuses, with nothing written:
+
+- a file that is missing, not UTF-8, empty, truncated (no final newline or
+  no `done` line), or holds any line the program does not write (send only
+  its stdout to the file); unknown or missing keys, duplicate JSON keys, a
+  newer `lean-pkg-extract-types/N`;
+- a declaration line duplicated or out of order, counts that disagree, a
+  declaration missing from the environment (build the modules first), kinds
+  that do not match its names;
+- two outputs of one side, or no output of a side;
+- an output written by another program: `script_sha256` is the SHA-256 of
+  the program with its own hash left as a placeholder, and lean-pkg
+  regenerates the program for the ledger it computes, so an edited program,
+  an older map or other commits are refused (emit again and rerun);
+- an output run at another commit than the ledger compares, outside a git
+  checkout, or in a checkout with uncommitted changes to tracked files;
+- a declaration list that does not match the ledger's;
+- two different Lean builds (version or githash): an elaborated type is only
+  comparable under one toolchain. A Lean that differs from a side's
+  `lean-toolchain` pin is a warning.
+
+The ledger stays `lean-pkg-extract-ledger/1` with `method: types/1` and the
+optional keys of that method ([formats](formats.md#formats-lean-pkg-owns)):
+per entry `source_type_sha256`, `target_type_sha256` (null when the entry is
+not compared) and `types_cleared`; per ledger `types` {`lean`,
+`lean_githash`, `source_script_sha256`, `target_script_sha256`}. A `text/1`
+ledger has none of them and is byte for byte what it was before `types/1`.
+`--emit-script DIR` is refused inside SRC or the target (the source program
+names private source declarations), when DIR exists, and when its parent does
+not; the programs read the compiled environment and run `git rev-parse` and
+`git status`, and write only to stdout.
 
 ### Where the ledger may live
 
@@ -600,8 +700,9 @@ lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --targe
 `recheck` reads the ledger strictly: exact keys at every level, closed
 verdicts, duplicate JSON keys refused, totals that count the entries. A
 newer `lean-pkg-extract-ledger/N`, or a method this release does not know
-(`types/1` before stage S4), is refused with "upgrade lean-pkg". It then
-recomputes the ledger from its own recorded map:
+(anything but `text/1` and `types/1`; a release before `types/1` refuses a
+`types/1` ledger), is refused with "upgrade lean-pkg". It then recomputes the
+ledger from its own recorded map:
 
 - at the recorded commits (the defaults: `--commit` is the ledger's source
   commit, `--target-commit` its target commit), every field must match, so
@@ -613,6 +714,14 @@ recomputes the ledger from its own recorded map:
 
 A ledger whose `target.commit` is null needs `--target-commit`. `recheck`
 writes nothing. Exit 0 the ledger holds, 1 refused or failing, 2 usage.
+
+A `types/1` ledger cannot be recomputed without Lean, so `recheck` refuses it
+without `--from-output`. `recheck --emit-script DIR` writes the programs for
+the commits it rechecks (the recorded ones by default), and
+`recheck --from-output source.out target.out` reads their outputs back exactly as
+`ledger` does and then compares every field, the type hashes and the `types`
+block included (so another Lean build at the recorded commits is drift). A
+`text/1` ledger refuses both flags.
 
 ### Writing the target modules: `decls`
 
@@ -726,7 +835,9 @@ existing Lake package; a write that fails part way. `--author` or
 Text output prints the verdict first and again last; the entries and modules
 lists carry "PRIVATE: source names and paths". `--json` prints the ledger
 object (sorted keys) plus `refusals`, `failures` and `written` (and, for
-`recheck`, `drift`; for `decls`, `output` {files, scaffold, dry_run,
+`recheck`, `drift`; with `--emit-script`, `programs` {dir, files, count,
+written, source_script_sha256, target_script_sha256}, where `failures`
+lists the text failures the types may still settle; for `decls`, `output` {files, scaffold, dry_run,
 written, git_init, committed, object_format} and `public_safety` {ok,
 block_hits, warn_hits}, null when no scan ran); the file at `--ledger`
 holds the ledger object alone.

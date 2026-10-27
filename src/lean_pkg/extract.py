@@ -5,7 +5,7 @@ repository, with exact provenance. This release has the dry run only: `plan` wri
 `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH [--json] [--report PATH]`
 
 The declaration-level extraction ledger, `ledger` and `recheck` (proposal 0009), lives in
-extract_ledger.py, and `decls`, which writes the target modules and records their ledger, in
+extract_ledger.py (its elaborated-type method `types/1` in extract_types.py), and `decls`, which writes the target modules and records their ledger, in
 extract_decls.py (its write step, shared with the file-level write mode to come, in extract_write.py);
 this module parses and dispatches them.
 

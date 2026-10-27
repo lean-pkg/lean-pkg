@@ -46,7 +46,7 @@ docs: https://lean-pkg.github.io/lean-pkg/extract.html
 
 See also `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH`, a separate console script that plans a public Lean-verification repository from a mixed working repository, read-only and registry-free: [Extracting a public Lean repository](../extract.md).
 
-`lean-pkg-extract ledger` and `lean-pkg-extract recheck` record and re-verify a declaration-level extraction ledger (`lean-pkg-extract-ledger/1`) for a library ported by hand from private modules: [Declaration-level extraction ledger](../extract.md#declaration-level-extraction-ledger).
+`lean-pkg-extract ledger` and `lean-pkg-extract recheck` record and re-verify a declaration-level extraction ledger (`lean-pkg-extract-ledger/1`) for a library ported by hand from private modules: [Declaration-level extraction ledger](../extract.md#declaration-level-extraction-ledger). With `--method types` they compare the elaborated types too (`types/1`): `--emit-script DIR` writes two Lean programs to run in the source and target checkouts, and `--from-output` reads their outputs back ([The comparison `types/1`](../extract.md#the-comparison-types1)).
 
 `lean-pkg-extract decls` writes the target modules from the same map into a new directory (with `--scaffold NAME`, a whole package: pins copied from the source commit, `git init`, nothing committed), staged beside it and scanned with public-safety before it is moved into place, and records the ledger of what it wrote: [Writing the target modules](../extract.md#writing-the-target-modules-decls).
 
@@ -112,10 +112,12 @@ lean-pkg-extract ledger --repo SRC --commit COMMIT --target TDIR [--target-commi
                         --from-module SRC/Path.lean:New.Module
                         [--namespace OLD.Ns=NEW.Ns] [--rename OLD.qual=NEW.qual]
                         [--drop OLD.qual:REASON] [--new NEW.qual:REASON]
-                        [--allow-differs OLD.qual:REASON] --ledger PATH [--json]
+                        [--allow-differs OLD.qual:REASON] [--ledger PATH]
+                        [--method {text,types}] [--emit-script DIR]
+                        [--from-output OUT [OUT ...]] [--json]
 ```
 
-Compare the target modules at TARGET_COMMIT with the source modules at COMMIT, declaration by declaration (method text/1: comments stripped, the namespace and rename maps applied, normalized text hashed), and, when nothing fails, write the ledger (lean-pkg-extract-ledger/1) to --ledger PATH, once. Reads git objects only; writes nothing else.
+Compare the target modules at TARGET_COMMIT with the source modules at COMMIT, declaration by declaration (method text/1: comments stripped, the namespace and rename maps applied, normalized text hashed), and, when nothing fails, write the ledger (lean-pkg-extract-ledger/1) to --ledger PATH, once. Reads git objects only; writes nothing else. --method types adds the elaborated types (types/1) in two steps, since lean-pkg runs no Lean: --emit-script writes two Lean programs, and --from-output reads what they printed.
 
 ### Arguments and flags
 
@@ -131,8 +133,11 @@ Compare the target modules at TARGET_COMMIT with the source modules at COMMIT, d
 | `--drop OLD.qual:REASON` | a source declaration left out of the target on purpose, with a one-line reason |
 | `--new NEW.qual:REASON` | a target declaration with no source counterpart, declared, with a one-line reason |
 | `--allow-differs OLD.qual:REASON` | a disclosed difference, counted as weakened (context@&lt;source module&gt; for a module's context rows) |
-| `--ledger PATH` | where to write the ledger: a new file outside SRC and outside the target. Required. |
-| `--json` | JSON on stdout: the ledger plus refusals, failures and written |
+| `--ledger PATH` | where to write the ledger: a new file outside SRC and outside the target (required, except with --emit-script) |
+| `--method {text,types}` | the comparison method: text (text/1, the default) or types (types/1: also the elaborated types, through --emit-script and --from-output). Choices: `text`, `types`. |
+| `--emit-script DIR` | method types/1, step 1: write the Lean programs DIR/source.lean and DIR/target.lean (DIR new, outside SRC and the target) and nothing else; run each in its checkout with `lake env lean --run` and keep its stdout (--ledger is not needed) |
+| `--from-output OUT [OUT ...]` | method types/1, step 2: the two programs' outputs (source and target, any order), read strictly and bound to this ledger's commits and programs |
+| `--json` | JSON on stdout: the ledger plus refusals, failures and written (and programs, with --emit-script) |
 
 ### More from --help
 
@@ -143,10 +148,13 @@ examples:
       --rename Paper.Bounds.main=NewLib.Bounds.main_bound --drop 'Paper.Bounds.scratch:exploration only' \
       --ledger ~/ledgers/newlib-1.json
   lean-pkg-extract ledger @ledger-args.txt --json
+  lean-pkg-extract ledger @ledger-args.txt --method types --emit-script ~/ledgers/newlib-types
+  lean-pkg-extract ledger @ledger-args.txt --method types --from-output source.out target.out
 
 @ARGSFILE: one argument per line; a line `--flag value` is the flag and the rest of the line (so a reason
 may hold spaces); blank lines and lines starting with # are skipped.
-exit codes: 0 every declaration accounted for (ledger written), 1 refused or failing (nothing written), 2 usage.
+exit codes: 0 every declaration accounted for (ledger written; with --emit-script: the programs written),
+1 refused or failing (nothing written), 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html#declaration-level-extraction-ledger
 ```
 
@@ -169,6 +177,18 @@ entries (PRIVATE: source names and paths; keep this list out of anything publish
 ledger: OK (text/1): 4 identical, 1 dropped, 0 differs, 0 new, 0 missing, 0 weakened; 1 context row(s) (0 differ); 0 warning(s); source 0034dfa7d81c09810ac5fce559088d62d0f84b3d, target 395069d8463ef9217daa068b9908d5972692afcc; written to ~/ledgers/newlib-1.json
 ```
 
+Method types/1, step 1 - write the two Lean programs (source.lean, target.lean) that print the elaborated types of the compared declarations; nothing else is written and lean-pkg runs no Lean. Run each in its checkout at the compared commit with lake env lean --run, after lake build.
+
+```bash
+lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --method types --emit-script ~/ledgers/newlib-types
+```
+
+Step 2 - read both outputs back (bound to the commits and the programs' hashes) and write the ledger with method types/1; a text DIFFERS whose types are equal shows as DIFFERS (types equal) and no longer fails for a statement.
+
+```bash
+lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --method types --from-output source.out target.out --ledger ~/ledgers/newlib-2.json
+```
+
 ## lean-pkg-extract recheck
 
 re-verify an extraction ledger against the source and the target.
@@ -177,10 +197,11 @@ re-verify an extraction ledger against the source and the target.
 
 ```text
 lean-pkg-extract recheck --ledger PATH --repo SRC --target TDIR [--commit COMMIT]
-                         [--target-commit T] [--json]
+                         [--target-commit T] [--emit-script DIR]
+                         [--from-output OUT [OUT ...]] [--json]
 ```
 
-Read a ledger strictly and recompute it from its own recorded map. At the recorded commits every field must match; at a newer --commit or --target-commit nothing may fail, and what changed is listed as drift. Writes nothing.
+Read a ledger strictly and recompute it from its own recorded map. At the recorded commits every field must match; at a newer --commit or --target-commit nothing may fail, and what changed is listed as drift. Writes nothing. A types/1 ledger needs --from-output (its programs' outputs at the commits rechecked; --emit-script writes the programs).
 
 ### Arguments and flags
 
@@ -191,6 +212,8 @@ Read a ledger strictly and recompute it from its own recorded map. At the record
 | `--target TDIR` | the target git repository (its top directory). Required. |
 | `--commit COMMIT` | the source commit (default: the ledger's source.commit) |
 | `--target-commit T` | the target commit (default: the ledger's target.commit; required when it is null) |
+| `--emit-script DIR` | method types/1, step 1: write the Lean programs DIR/source.lean and DIR/target.lean (DIR new, outside SRC and the target) and nothing else; run each in its checkout with `lake env lean --run` and keep its stdout |
+| `--from-output OUT [OUT ...]` | method types/1, step 2: the two programs' outputs (source and target, any order), read strictly and bound to this ledger's commits and programs |
 | `--json` | JSON on stdout: the recomputed ledger plus refusals, failures, drift and written |
 
 ### More from --help
@@ -199,9 +222,11 @@ Read a ledger strictly and recompute it from its own recorded map. At the record
 examples:
   lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib
   lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main
+  lean-pkg-extract recheck --ledger ~/ledgers/newlib-types.json --repo ~/paper --target ~/newlib \
+      --from-output source.out target.out
 
-exit codes: 0 the ledger holds (at its commits: recomputed byte for byte; at other commits: nothing fails),
-1 refused or failing, 2 usage.
+exit codes: 0 the ledger holds (at its commits: recomputed byte for byte; at other commits: nothing fails;
+with --emit-script: the programs written), 1 refused or failing, 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html#rechecking-a-ledger
 ```
 
@@ -217,6 +242,12 @@ Is the library still faithful to the source at the newer commits? Nothing may fa
 
 ```bash
 lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main --target-commit main
+```
+
+Recheck a types/1 ledger with the outputs of its two programs, run again at the recorded commits; without --from-output a types/1 ledger is refused, since lean-pkg runs no Lean.
+
+```bash
+lean-pkg-extract recheck --ledger ~/ledgers/newlib-2.json --repo ~/paper --target ~/newlib --from-output source.out target.out
 ```
 
 ## lean-pkg-extract decls
