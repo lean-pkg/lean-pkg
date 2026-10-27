@@ -510,6 +510,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- The Lean declaration scanner follows Lean's scopes one name component at
+  a time (#362): after `namespace A.B`, `end B` closes `B` only, so the
+  declarations after it are `A.x` (they lost the `A.` prefix; 125 of 8487
+  Mathlib files had such an `end`), and `end A.B` closes both. A `theorem`,
+  `def` or `namespace` line inside a syntax quotation (`` `(...) ``,
+  `` `(command| ...) ``) is no longer read as a declaration, and
+  `class abbrev` is read (keyword `class`). The qualified names change in
+  `search`'s declaration fallback, in which claim `decl`s count as fully
+  qualified (`claims ledger`, `coverage check`, `comparator config`,
+  `claims mark`) and in the page's statement lookup. A claim `decl` written
+  as the old misread name is no longer credited to a comparator name: write
+  Lean's fully qualified name.
 - `make docs` writes no `__pycache__` into the tree (#352): its python3 steps
   now share a private bytecode cache, as `make test` and `make goldens` do.
 - `new` globs the library's root module (#334, #326): `lakefile.toml`

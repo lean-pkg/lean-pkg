@@ -6,9 +6,11 @@ whole (`Demo.«a.b»` is two components). `declarations(text)` lists the declara
 with their fully qualified names: it skips nested `/- ... -/` block comments, `--` line comments and
 string literals, attaches a `/-- ... -/` docstring to the declaration after it (on the same line or
 across attribute lines), reads attributes with strings and nested brackets, modifiers
-(`private`, `public`, `noncomputable`, `local`, ...), `instance (priority := n)`, `class inductive` and «» names,
-and tracks `namespace` / `section` / `mutual` ... `end`. It is a scanner for search, not a parser:
-a declaration it cannot read is missed, never invented from a comment.
+(`private`, `public`, `noncomputable`, `local`, ...), `instance (priority := n)`, `class inductive`,
+`class abbrev` and «» names, and tracks `namespace` / `section` / `mutual` ... `end` as Lean does, one
+scope per name component (`end B` after `namespace A.B` leaves `A` open). A line inside a syntax quotation
+`` `(...) `` is syntax being built, not a command. It is a scanner for search, not a parser: a
+declaration it cannot read is missed, never invented from a comment.
 """
 
 from __future__ import annotations
@@ -176,10 +178,39 @@ def _scope_name(s: str, i: int) -> tuple[str | None, int]:
     return None, i
 
 
+def _quotations(masked: str) -> list[tuple[int, int]]:
+    """[(start, end)] of the syntax quotations `` `(...) `` and `` `(cat| ...) `` of the masked text,
+    outermost only (an antiquotation `$(...)` and a nested quotation lie inside one). The text between
+    is syntax being built, not commands: a `theorem` or `namespace` line there declares nothing. An
+    unclosed quotation is left out, so a malformed file reads as it did before."""
+    out: list[tuple[int, int]] = []
+    i = masked.find("`(")
+    while i >= 0:
+        stack, j = [")"], i + 2
+        pairs = {"[": "]", "(": ")", "{": "}", "⦃": "⦄"}
+        while j < len(masked) and stack:
+            ch = masked[j]
+            if ch == "«":                                # a quoted name is literal text
+                k = masked.find("»", j + 1)
+                j = len(masked) if k < 0 else k + 1
+                continue
+            if ch in pairs:
+                stack.append(pairs[ch])
+            elif ch == stack[-1]:
+                stack.pop()
+            j += 1
+        if stack:
+            break
+        out.append((i, j))
+        i = masked.find("`(", j)
+    return out
+
+
 def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
     """(line, keyword, qualified name, docstring or None, stripped source line, name as written) for every
-    declaration. `class inductive` reports keyword `class`; an anonymous instance is left out; a
-    `_root_.` name is not prefixed with the namespace."""
+    declaration. `class inductive` and `class abbrev` report keyword `class`; an anonymous instance is left
+    out; a `_root_.` name is not prefixed with the namespace. Scopes are kept one name component at a
+    time, as Lean keeps them; a keyword on a line inside a syntax quotation declares nothing."""
     masked, docs = _mask(text)
     lines = text.splitlines()
     starts, off = [], 0
@@ -187,16 +218,22 @@ def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
         starts.append(off)
         off += len(ln) + 1
     doc_by_end = sorted(docs, key=lambda d: d[1])
-    scopes: list[tuple[str, list[str]]] = []          # (kind, name components)
+    scopes: list[tuple[str, str | None]] = []         # (kind, one name component or None), as Lean keeps them
     out = []
     consumed = 0
     line_of = _line_index(starts)
+    quotes = _quotations(masked)
+    qi = 0
     for st in starts:
         if st < consumed:
             continue
         c = st
         while c < len(masked) and masked[c] in " \t":
             c += 1
+        while qi < len(quotes) and quotes[qi][1] <= c:
+            qi += 1
+        if qi < len(quotes) and quotes[qi][0] < c:      # inside a syntax quotation
+            continue
         i = c
         while masked.startswith("@[", i):                      # attributes, across lines
             i = _skip_ws(masked, _balanced(masked, i + 1))
@@ -222,19 +259,22 @@ def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
         if w == "namespace" and not words_seen:
             name, consumed = _scope_name(masked, after)
             if name:
-                scopes.append(("namespace", split_name(name) or [name]))
+                scopes.extend(("namespace", comp) for comp in (split_name(name) or [name]))
             continue
         if w == "section":
-            _, consumed = _scope_name(masked, after)
-            scopes.append(("section", []))
+            name, consumed = _scope_name(masked, after)
+            scopes.extend(("section", comp) for comp in ((split_name(name) or [name]) if name else [None]))
             continue
         if w == "mutual" and not words_seen:
-            scopes.append(("mutual", []))
+            scopes.append(("mutual", None))
             continue
         if w == "end" and not words_seen:
-            _, consumed = _scope_name(masked, after)
-            if scopes:
-                scopes.pop()
+            name, consumed = _scope_name(masked, after)
+            # Lean keeps one scope per name component: `end B` after `namespace A.B` closes `B` only,
+            # `end A.B` closes both, a bare `end` closes one anonymous scope. A mismatched `end` (an
+            # error in Lean) still closes as many scopes as it names, never more than are open.
+            count = len(split_name(name) or [name]) if name else 1
+            del scopes[max(0, len(scopes) - count):]
             continue
         if w not in KEYWORDS:
             continue
@@ -242,7 +282,7 @@ def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
         j = _skip_ws(masked, after)
         if kw == "class":
             m2 = _WORD.match(masked, j)
-            if m2 and m2.group(0) == "inductive":
+            if m2 and m2.group(0) in ("inductive", "abbrev"):
                 j = _skip_ws(masked, m2.end())
         if kw == "instance" and _PRIORITY.match(masked, j):
             j = _skip_ws(masked, _balanced(masked, j))
@@ -256,7 +296,7 @@ def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
         if parts[0] == "_root_":
             qual = ".".join(parts[1:]) or written
         else:
-            ns = [p for kind, comps in scopes if kind == "namespace" for p in comps]
+            ns = [comp for kind, comp in scopes if kind == "namespace"]
             qual = ".".join(ns + parts)
         line = line_of(m.start())
         doc = None

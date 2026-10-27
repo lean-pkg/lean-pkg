@@ -635,6 +635,27 @@ changes:
       release with publish NAME --dry-run --attested instead of --corroborate (gh installed).
     breaking: false
     changelog: Added
+  - pr: 362
+    id: declarations-follow-lean-scopes
+    kind: behavior
+    area: search, claims ledger, coverage check, comparator config, claims mark, page
+    summary: >-
+      lean-pkg's Lean scanner (lean_scan.declarations) keeps scopes as Lean does, one per name component:
+      namespace A.B opens A then B, end B closes B only and leaves A open, end A.B closes both, a bare end closes
+      one anonymous section. It popped the whole A.B on end B, so every declaration after it lost the A. prefix
+      (125 of 8487 Mathlib files). A theorem, def or namespace line inside a syntax quotation (`(...) or
+      `(command| ...), antiquotations $(...) included) is no longer read as a declaration, and class abbrev
+      is read (keyword class). The fully qualified names change in the search declaration fallback, in which
+      claim decls count as qualified (the claims ledger's comparator coverage, coverage check's comparator
+      theorem mapping, comparator config, claims mark) and in the verification page's statement lookup.
+    action: >-
+      Nothing for a package whose claim decls are the names Lean gives. In a file with a partial end (end B after
+      namespace A.B) a claim decl written as the name the old scanner gave (t for A.t) is no longer credited to a
+      comparator name, so claims ledger (stage promote) reports no-comparator-config and coverage check names the
+      comparator theorem as the declaration of no claim: write the decl as Lean's fully qualified name (A.t).
+      A decl already written that way, refused before, is now credited.
+    breaking: true
+    changelog: Fixed
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,
