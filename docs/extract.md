@@ -21,7 +21,9 @@ modules (new namespaces, a few renames, some declarations left out),
 `lean-pkg-extract ledger` records an [extraction
 ledger](#declaration-level-extraction-ledger): each source declaration
 compared with its port at two named commits, and `lean-pkg-extract recheck`
-re-verifies it later.
+re-verifies it later. `lean-pkg-extract decls` [writes those target modules
+for you](#writing-the-target-modules-decls) from the same map, optionally as a
+whole new package, and records the ledger of what it wrote.
 
 ```bash
 lean-pkg-extract plan --repo . --commit HEAD --manifest extract.json
@@ -448,9 +450,9 @@ the source it came from, declaration by declaration, and writes a ledger
 sides, the map you applied and a verdict with SHA-256 hashes for each
 declaration. `lean-pkg-extract recheck` re-verifies that ledger later, by
 anyone who holds the source. It is the record proposal
-[0009](proposals/0009-extraction-ledger.md) specifies; the verbs that write
-the target modules for you (`decls`) and compare elaborated types
-(`types/1`) are later stages.
+[0009](proposals/0009-extraction-ledger.md) specifies. `decls` writes the
+target modules for you ([below](#writing-the-target-modules-decls)); comparing
+elaborated types (`types/1`) is a later stage.
 
 ```bash
 lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib \
@@ -549,8 +551,8 @@ the ledger.
 The ledger names source paths, the source commit, source names and drop
 reasons: it is private. `--ledger PATH` is refused inside SRC (its work tree
 or git directory; `lean-pkg-extract` leaves SRC unchanged), inside the
-target repository (the ledger never enters the exported tree), when it is a
-symlink, when its directory does not exist, and when it already exists. To
+target repository (for `decls`, inside `--output DIR`: the ledger never
+enters the exported tree), when it is a symlink, when its directory does not exist, and when it already exists. To
 keep it beside the source, copy it into SRC's `notes/` by hand, a directory
 an export drops.
 
@@ -612,12 +614,122 @@ recomputes the ledger from its own recorded map:
 A ledger whose `target.commit` is null needs `--target-commit`. `recheck`
 writes nothing. Exit 0 the ledger holds, 1 refused or failing, 2 usage.
 
+### Writing the target modules: `decls`
+
+*I have not ported anything yet. Can lean-pkg write the new library from the
+source, with the namespaces and renames applied, and give me the ledger?*
+
+```bash
+lean-pkg-extract decls --repo ~/paper --commit HEAD --output ~/newlib \
+    --from-module Src/A.lean:New.A --from-module Src/B.lean:New.B \
+    --namespace Old.A=New.A --namespace Old.B=New.B \
+    --rename Old.A.foo=New.A.bar \
+    --drop 'Old.A.aux:exploration only, never used' \
+    --scaffold newlib --author 'Ada Lovelace' \
+    --ledger ~/ledgers/newlib-1.json
+```
+
+```text
+decls: OK (text/1): 5 identical, 1 dropped, 0 differs, 0 new, 0 missing, 0 weakened; 2 context row(s) (0 differ); 0 warning(s); source 0034dfa7..., target not committed; 11 file(s) written to ~/newlib, git initialized, nothing committed; ledger written to ~/ledgers/newlib-1.json
+entries (PRIVATE: source names and paths; keep this list out of anything published):
+  IDENTICAL theorem   Old.A.foo -> New.A.bar
+  ...
+files written under ~/newlib (11):
+  .gitignore
+  CITATION.cff
+  LICENSE
+  LICENSES/Apache-2.0.txt
+  New/A.lean
+  New/B.lean
+  README.md
+  REUSE.toml
+  lake-manifest.json
+  lakefile.toml
+  lean-toolchain
+public-safety of the staged tree: 0 blocking, 0 warn-only
+next (nothing is committed):
+  cd ~/newlib
+  git add -A && git commit -m 'extracted library'
+  lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo SRC --target ~/newlib --target-commit HEAD
+decls: OK (text/1): ...
+```
+
+`decls` takes the flags of `ledger` except `--target`, `--target-commit`,
+`--new` and `--allow-differs` (a written target has no NEW declaration and
+nothing that differs), plus:
+
+| Flag | Meaning |
+|---|---|
+| `--output DIR` | where to write: absent or an empty directory, not a symbolic link, its parent existing, and (resolved) outside SRC |
+| `--scaffold NAME` | also write the package around the modules, then `git init` (nothing committed) |
+| `--author TEXT`, `--license Apache-2.0\|MIT` | with `--scaffold`: the CITATION.cff author (default `git config user.name`) and the license, as for `lean-pkg new` |
+| `--dry-run` | read and compare in memory, report what would be written, write nothing (the public-safety scan runs only when writing) |
+
+**What a target module holds.** Each mapped source module, read at the
+commit from git objects, becomes the file of its target module (`New.A` is
+`DIR/New/A.lean`): every top-level command in source order, with the
+namespace and rename maps applied exactly as `ledger` applies them to the
+source side (so the ledger is IDENTICAL by construction); the declarations
+named in `--drop` left out, with their docstrings; header imports of mapped
+modules rewritten to the target module; and every comment except docstrings
+removed, so no source path or provenance note is carried. An import of a
+module of the source that is not extracted is refused: map it too, or
+remove the import in the source.
+
+**`--scaffold NAME`.** The pins come from the source commit, from the Lake
+package that holds the modules: `lean-toolchain` byte for byte (refused when
+there is none), and `lake-manifest.json` with every dependency pin as it is
+and only its root package name set to NAME (the source's own name may be
+private). `lakefile.toml` names one library per target root and requires
+each direct dependency of the manifest at its pinned input revision (a
+dependency that is not a git dependency is a warning: add it by hand).
+README.md is a skeleton with the lean-pkg credit line; .gitignore,
+CITATION.cff, LICENSE, LICENSES/ and REUSE.toml are the package files of
+`lean-pkg new`, without its example theorem. Then `git init`, as `new` does;
+nothing is committed, so you review first. Without `--scaffold`, DIR holds
+the modules only and is not a repository.
+
+**How it is written.** First everything is computed in memory, the ledger
+with it: any refusal or failure stops here, and nothing is written. Then
+the tree is written into a staging directory beside DIR,
+`.<DIR name>.lean-pkg-stage`, and scanned with
+[public-safety](commands/public-safety.md) as `repo export` scans its staged tree
+(every file; the source repository's patterns file and declared addresses
+apply); a blocking hit refuses, with the staging directory removed. Then
+(with `--scaffold`) `git init` runs in the staging directory, the ledger is
+written (`target.commit: null`: nothing is committed yet), and one
+`os.replace` moves the tree into place. A failure on the way removes the
+staging directory and the ledger: DIR is left as it was. A staging
+directory that already exists (an interrupted run) is refused and left
+alone; remove it yourself.
+
+**Rechecking.** Commit DIR as written (`git add -A && git commit`); then
+`recheck` with `--target DIR --target-commit HEAD` (and the ledger and
+SRC) recomputes the ledger byte for byte. Without
+`--scaffold`, `git init` DIR first; if you move the modules into another
+package instead, record a new ledger there with `ledger`. That the target
+builds is shown by `lake build`, not by the ledger.
+
+**Refusals** (exit 1, nothing written, every reason listed): every refusal
+of `ledger` that applies (the map, the commit, the ledger location, a file
+that cannot be split, a dropped declaration still referenced by a kept
+one); `--output` non-empty, a file, a symbolic link, inside SRC (also
+through a symbolic link), or with no parent directory; the staging
+directory already present; a public-safety blocking hit; an import of an
+unextracted module of the source; with `--scaffold`, a NAME `lean-pkg new`
+refuses, no author, no `lean-toolchain` in the source, or DIR inside an
+existing Lake package; a write that fails part way. `--author` or
+`--license` without `--scaffold` is a usage error (exit 2).
+
 ### Output
 
 Text output prints the verdict first and again last; the entries and modules
 lists carry "PRIVATE: source names and paths". `--json` prints the ledger
 object (sorted keys) plus `refusals`, `failures` and `written` (and, for
-`recheck`, `drift`); the file at `--ledger` holds the ledger object alone.
+`recheck`, `drift`; for `decls`, `output` {files, scaffold, dry_run,
+written, git_init, committed, object_format} and `public_safety` {ok,
+block_hits, warn_hits}, null when no scan ran); the file at `--ledger`
+holds the ledger object alone.
 The ledger's keys are documented in proposal
 [0009](proposals/0009-extraction-ledger.md#the-ledger-format-lean-pkg-extract-ledger1);
 each context row also carries `reason` (the allowed difference, or null).
@@ -625,7 +737,8 @@ each context row also carries `reason` (the allowed difference, or null).
 ## What comes next
 
 `write --output DIR` will materialize the plan into a new directory and verify
-every file against its recorded blob. `lean-pkg extract ...` as a subcommand of
+every file against its recorded blob, through the same staged, scanned,
+one-step write that `decls` uses (`src/lean_pkg/extract_write.py`). `lean-pkg extract ...` as a subcommand of
 `lean-pkg` is left to the extension-dispatch work; use the `lean-pkg-extract`
 script. For excluded `*.lean.*` files (disabled controls the import check
 does not read) the plan warns; see

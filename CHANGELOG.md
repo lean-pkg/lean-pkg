@@ -423,6 +423,30 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   Verdict first and last, `--json`
   ([extraction ledger](docs/extract.md#declaration-level-extraction-ledger),
   [on-disk formats](docs/formats.md)).
+- `lean-pkg-extract decls` writes the target modules of a
+  declaration-level extraction and records their ledger (#373; #329,
+  proposal 0009, stage S3): with the flags of `ledger` (no `--target`,
+  `--new` or `--allow-differs`) plus `--output DIR`, each mapped source
+  module is read at the commit and written as its target module, the
+  namespace and rename maps applied as `ledger` applies them, `--drop`
+  declarations left out with their docstrings, imports of mapped modules
+  rewritten and every comment but docstrings removed; an import of an
+  unextracted module of the source is refused. `--scaffold NAME [--author
+  TEXT] [--license SPDX]` also writes the package (`lean-toolchain` copied
+  from the source commit, its `lake-manifest.json` with only the root name
+  changed, a `lakefile.toml` requiring the direct dependencies, a README
+  skeleton and the package files of `lean-pkg new`, now
+  `scaffold.package_files()`; `new` writes the same bytes) and runs
+  `git init`, nothing committed. The tree is compared with the source
+  (text/1, IDENTICAL by construction) before anything is written, then
+  staged beside DIR, scanned with public-safety, the ledger written
+  (`target.commit: null`) and the tree moved into place with one
+  `os.replace`; any refusal or failure leaves nothing behind. DIR must be
+  absent or empty, not a symbolic link and (resolved) outside SRC; a
+  leftover staging directory is refused. `--dry-run` writes nothing. The
+  staged write is the shared helper the file-level `write` (two-tracks gap
+  17) will use ([writing the target
+  modules](docs/extract.md#writing-the-target-modules-decls)).
 
 ### Changed
 

@@ -192,11 +192,41 @@ def _module_name(path: str, root: str) -> str:
     return rel[:-len(".lean")].replace("/", ".")
 
 
-def _pins(repo, tree: dict, root: str, role: str, warnings: list[str]) -> tuple[str | None, str | None, dict]:
+class Tree:
+    """One side's files: `tree` maps a path to {"mode", "type", "oid", "size"} as `ex.ls_tree` does,
+    `read(oids)` returns {oid: bytes} as `ex.read_blobs` does, and `label` names the side in messages."""
+
+    def __init__(self, tree: dict, read, label: str):
+        self.tree, self.read, self.label = tree, read, label
+
+
+def git_tree(repo, commit: str) -> Tree:
+    """A side read from git objects at commit."""
+    return Tree(ex.ls_tree(repo, commit), lambda oids: ex.read_blobs(repo, oids), commit[:12])
+
+
+def blob_oid(data: bytes, object_format: str = "sha1") -> str:
+    """The git blob id of data, as `git hash-object` computes it in a repository of object_format."""
+    h = hashlib.sha256() if object_format == "sha256" else hashlib.sha1()
+    h.update(b"blob %d\0" % len(data))
+    h.update(data)
+    return h.hexdigest()
+
+
+def files_tree(files: dict[str, bytes], label: str, object_format: str = "sha1") -> Tree:
+    """A side held in memory (`decls` before anything is committed): every file a regular blob."""
+    tree = {p: {"mode": "100644", "type": "blob", "oid": blob_oid(b, object_format), "size": len(b)}
+            for p, b in files.items()}
+    by_oid = {tree[p]["oid"]: b for p, b in files.items()}
+    return Tree(tree, lambda oids: {o: by_oid[o] for o in oids if o in by_oid}, label)
+
+
+def _pins(t: Tree, root: str, role: str, warnings: list[str]) -> tuple[str | None, str | None, dict]:
     """(lean-toolchain text, lake-manifest.json sha256, {package: rev}) of the Lake package at root."""
     where = f"{root}/" if root else ""
+    tree = t.tree
     tc_ent, lm_ent = tree.get(where + "lean-toolchain"), tree.get(where + "lake-manifest.json")
-    blobs = ex.read_blobs(repo, [e["oid"] for e in (tc_ent, lm_ent) if e])
+    blobs = t.read([e["oid"] for e in (tc_ent, lm_ent) if e])
     tc = blobs.get(tc_ent["oid"]) if tc_ent else None
     lm = blobs.get(lm_ent["oid"]) if lm_ent else None
     toolchain = tc.decode("utf-8", "replace").strip() if tc is not None else None
@@ -213,20 +243,20 @@ def _pins(repo, tree: dict, root: str, role: str, warnings: list[str]) -> tuple[
     return toolchain, hashlib.sha256(lm).hexdigest(), revs
 
 
-def _side(repo, commit: str, paths: list[str], role: str, refusals: list[str], warnings: list[str]):
-    """{path: text} of the modules at commit (refusals for missing, non-file, unreadable ones), the module
-    records, and the pins."""
-    tree = ex.ls_tree(repo, commit)
+def _side(t: Tree, paths: list[str], role: str, refusals: list[str], warnings: list[str]):
+    """{path: text} of the modules of one side (refusals for missing, non-file, unreadable ones), the
+    module records, and the pins."""
+    tree = t.tree
     ok_paths = []
     for path in paths:
         ent = tree.get(path)
         if ent is None:
-            refusals.append(f"{role} {path}: missing at {commit[:12]}")
+            refusals.append(f"{role} {path}: missing at {t.label}")
         elif ent["mode"] in (ex.SYMLINK, ex.GIT_LINK) or ent["type"] != "blob":
-            refusals.append(f"{role} {path}: not a regular file at {commit[:12]}")
+            refusals.append(f"{role} {path}: not a regular file at {t.label}")
         else:
             ok_paths.append(path)
-    blobs = ex.read_blobs(repo, [tree[p]["oid"] for p in ok_paths])
+    blobs = t.read([tree[p]["oid"] for p in ok_paths])
     texts, records = {}, []
     roots = sorted({_lake_root(p, tree) for p in ok_paths})
     for path in ok_paths:
@@ -245,7 +275,7 @@ def _side(repo, commit: str, paths: list[str], role: str, refusals: list[str], w
     if len(roots) > 1:
         warnings.append(f"{role}: the modules lie in {len(roots)} Lake packages; the pins are read from "
                         f"{roots[0] or 'the repository top'}")
-    pins = _pins(repo, tree, root, role, warnings)
+    pins = _pins(t, root, role, warnings)
     return tree, texts, records, pins
 
 
@@ -295,28 +325,29 @@ def skeleton(spec: dict) -> dict:
             "totals": _zero_totals()}
 
 
-def compute(src_repo, src_commit: str, tgt_repo, tgt_commit: str, spec: dict,
-            refusals: list[str]) -> tuple[dict, list[str]]:
+def compute(src_repo, src_commit: str, tgt_repo, tgt_commit: str | None, spec: dict,
+            refusals: list[str], target: Tree | None = None) -> tuple[dict, list[str]]:
     """(ledger, failures): the text/1 comparison of the mapped source modules at src_commit with the
-    target modules at tgt_commit. Input problems are appended to refusals."""
+    target modules at tgt_commit (or, for `decls`, with the in-memory `target`, tgt_commit None). Input
+    problems are appended to refusals."""
     led = skeleton(spec)
     led["source"]["commit"], led["target"]["commit"] = src_commit, tgt_commit
     warnings: list[str] = []
     check_spec(spec, refusals)
     modules = sorted(spec["modules"])
-    src_tree, src_texts, src_recs, src_pins = _side(src_repo, src_commit, [p for p, _ in modules if not
-                                                                          xp.bad_rel_path(p)],
+    src_tree, src_texts, src_recs, src_pins = _side(git_tree(src_repo, src_commit),
+                                                    [p for p, _ in modules if not xp.bad_rel_path(p)],
                                                     "source", refusals, warnings)
-    tgt_tree = ex.ls_tree(tgt_repo, tgt_commit)
+    tgt = target if target is not None else git_tree(tgt_repo, tgt_commit)
+    tgt_tree = tgt.tree
     tgt_paths: dict[str, str] = {}
     for path, mod in modules:
         tp, why = _target_path(mod, tgt_tree)
         if tp is None:
-            refusals.append(f"target module {mod} (from {path}): {why} at {tgt_commit[:12]}")
+            refusals.append(f"target module {mod} (from {path}): {why} at {tgt.label}")
         else:
             tgt_paths[mod] = tp
-    _t, tgt_texts, tgt_recs, tgt_pins = _side(tgt_repo, tgt_commit, sorted(set(tgt_paths.values())), "target",
-                                              refusals, warnings)
+    _t, tgt_texts, tgt_recs, tgt_pins = _side(tgt, sorted(set(tgt_paths.values())), "target", refusals, warnings)
     src_root = {p: _lake_root(p, src_tree) for p in src_texts}
     src_mod = {p: _module_name(p, src_root[p]) for p in src_texts}
     tgt_mod_of_path = {tp: m for m, tp in tgt_paths.items()}
@@ -740,6 +771,17 @@ def verdict(verb: str, out: dict) -> str:
     tail = ""
     if verb == "ledger":
         tail = f"; written to {out['ledger_path']}" if out["written"] else "; nothing written"
+    elif verb == "decls":
+        o = out["output"]
+        if o["written"]:
+            init = ", git initialized" if o["git_init"] else ""
+            tail = (f"; {len(o['files'])} file(s) written to {o['dir']}{init}, nothing committed; ledger written "
+                    f"to {out['ledger_path']}")
+        elif o["dry_run"] and out["ok"]:
+            tail = f"; dry run: {len(o['files'])} file(s) would be written to {o['dir']}, nothing written"
+        else:
+            tail = "; nothing written"
+        tgt = "not committed" if out["ok"] else tgt
     return f"{head} ({METHOD_TEXT}): {_counts(led)}; source {src}, target {tgt}{tail}"
 
 
@@ -783,7 +825,8 @@ def render(verb: str, out: dict) -> str:
         for role in ("source", "target"):
             side = out[role]
             pin = f"; lean-toolchain {side['lean_toolchain']}" if side["lean_toolchain"] else ""
-            lines.append(f"  {role} at {side['commit'] or 'unresolved'}{pin}")
+            at = side["commit"] or ("not committed" if verb == "decls" and role == "target" else "unresolved")
+            lines.append(f"  {role} at {at}{pin}")
             lines += [f"    {r['path']} ({r['module']})  blob {r['blob']}  sha256 {r['sha256']}" for r in side["modules"]]
     lines.append("totals: " + ", ".join(f"{k} {v}" for k, v in out["totals"].items()))
     lines.append(verdict(verb, out))
@@ -806,6 +849,29 @@ def _inside(p: pathlib.Path, roots) -> bool:
     return any(r is not None and (p == r or r in p.parents) for r in roots)
 
 
+def ledger_path_refusals(arg: str, src_roots, target_roots, target_where: str) -> list[str]:
+    """Why --ledger PATH cannot be written: inside SRC (its work tree or git directory), inside the target
+    (`target_where` names it), a symlink, existing, or in a missing directory. Shared by ledger and decls."""
+    refusals = []
+    ledger = pathlib.Path(arg).expanduser()
+    lp = ledger.parent.resolve() / ledger.name
+    if _inside(lp, src_roots):
+        refusals.append(f"--ledger {arg}: inside the source repository; the ledger names private source "
+                        f"paths and lean-pkg-extract leaves SRC unchanged, so write it outside SRC (copy it into "
+                        f"SRC's notes/ by hand to keep it there)")
+    if _inside(lp, target_roots):
+        refusals.append(f"--ledger {arg}: {target_where}; the ledger is private and never enters the exported "
+                        f"tree, so write it outside the target")
+    if ledger.is_symlink():
+        refusals.append(f"--ledger {arg}: a symlink; name a new regular file")
+    elif ledger.exists():
+        refusals.append(f"--ledger {arg}: exists; a ledger is evidence and is never overwritten, so "
+                        f"record to a new path")
+    elif not lp.parent.is_dir():
+        refusals.append(f"--ledger {arg}: its directory does not exist")
+    return refusals
+
+
 def run_ledger(args) -> tuple[dict, int]:
     repo = pathlib.Path(args.repo).expanduser()
     tdir = pathlib.Path(args.target).expanduser()
@@ -813,22 +879,8 @@ def run_ledger(args) -> tuple[dict, int]:
     ttop, tgitdir = ex._src_top(tdir, "--target")
     refusals: list[str] = []
     spec = parse_spec(args, refusals)
+    refusals += ledger_path_refusals(args.ledger, (top, gitdir), (ttop, tgitdir), "inside the target repository")
     ledger = pathlib.Path(args.ledger).expanduser()
-    lp = ledger.parent.resolve() / ledger.name
-    if _inside(lp, (top, gitdir)):
-        refusals.append(f"--ledger {args.ledger}: inside the source repository; the ledger names private source "
-                        f"paths and lean-pkg-extract leaves SRC unchanged, so write it outside SRC (copy it into "
-                        f"SRC's notes/ by hand to keep it there)")
-    if _inside(lp, (ttop, tgitdir)):
-        refusals.append(f"--ledger {args.ledger}: inside the target repository; the ledger is private and never "
-                        f"enters the exported tree, so write it outside the target")
-    if ledger.is_symlink():
-        refusals.append(f"--ledger {args.ledger}: a symlink; name a new regular file")
-    elif ledger.exists():
-        refusals.append(f"--ledger {args.ledger}: exists; a ledger is evidence and is never overwritten, so "
-                        f"record to a new path")
-    elif not lp.parent.is_dir():
-        refusals.append(f"--ledger {args.ledger}: its directory does not exist")
     c = ex.resolve_commit(repo, args.commit)
     t = ex.resolve_commit(tdir, args.target_commit or "HEAD")
     if not c:

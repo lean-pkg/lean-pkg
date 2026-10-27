@@ -629,9 +629,9 @@ def test_recheck_usage_errors_answer_in_json(capsys):
 # contract
 
 def test_no_gate_page_or_index_reads_the_ledger():
-    """The ledger is evidence for a person, read by no gate, page, index or claims command."""
+    """The ledger is evidence for a person, read by no gate, page, index or claims command (decls writes one)."""
     src = pathlib.Path(el.__file__).parent
     readers = sorted(p.name for p in src.glob("*.py")
-                     if p.name not in ("extract_ledger.py", "extract.py") and
+                     if p.name not in ("extract_ledger.py", "extract.py", "extract_decls.py") and
                      ("extract_ledger" in p.read_text() or el.EXTRACT_LEDGER_SCHEMA in p.read_text()))
     assert readers == []

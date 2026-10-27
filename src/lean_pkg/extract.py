@@ -5,7 +5,9 @@ repository, with exact provenance. This release has the dry run only: `plan` wri
 `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH [--json] [--report PATH]`
 
 The declaration-level extraction ledger, `ledger` and `recheck` (proposal 0009), lives in
-extract_ledger.py; this module parses and dispatches them.
+extract_ledger.py, and `decls`, which writes the target modules and records their ledger, in
+extract_decls.py (its write step, shared with the file-level write mode to come, in extract_write.py);
+this module parses and dispatches them.
 
 Read-only by construction: it reads git objects at COMMIT (`git ls-tree -r -z --full-tree`,
 `git cat-file --batch`), never the working tree, the index or a registry; no network (lazy fetches of
@@ -1036,10 +1038,12 @@ examples:
   lean-pkg-extract plan --repo . --commit v1.0 --manifest extract.json --report ../extract-plan.json
   lean-pkg-extract ledger @ledger-args.txt
   lean-pkg-extract recheck --ledger ../newlib-ledger.json --repo . --target ../newlib
+  lean-pkg-extract decls @decls-args.txt --output ../newlib --scaffold newlib --ledger ../newlib-ledger.json
 
 Dry run only: `plan` reads git objects at COMMIT and writes nothing (--report PATH, outside SRC, is the
-one exception). The `write --output DIR` step comes next. `ledger` writes only its ledger, outside SRC
-and the target; `recheck` writes nothing.
+one exception). The file-level `write --output DIR` step comes next. `ledger` writes only its ledger,
+outside SRC and the target; `recheck` writes nothing; `decls` writes the target modules into a new
+directory outside SRC (staged, scanned with public-safety, moved into place) and its ledger.
 exit codes: 0 plan clean, 1 refused (every reason listed), 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html"""
 
@@ -1069,7 +1073,7 @@ def parser() -> argparse.ArgumentParser:
     ap = _Parser(prog="lean-pkg-extract", formatter_class=fmt, epilog=EXAMPLES,
                  description="Plan a standalone public Lean-verification repository from a mixed working "
                              "repository, with exact provenance. Read-only; no registry, no network.")
-    sub = ap.add_subparsers(dest="verb", metavar="{plan,ledger,recheck}", required=True)
+    sub = ap.add_subparsers(dest="verb", metavar="{plan,ledger,recheck,decls}", required=True)
     p = sub.add_parser("plan", formatter_class=fmt, epilog=EXAMPLES,
                        help="dry run: classify, check and inventory what an extract at COMMIT would contain",
                        description="Dry run: classify every file under the manifest's roots at COMMIT "
@@ -1082,8 +1086,9 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--json", dest="json_out", action="store_true", help=f"JSON on stdout (schema {PLAN_SCHEMA})")
     p.add_argument("--report", metavar="PATH",
                    help="also write the JSON plan (with the private excluded list) to PATH, outside SRC")
-    from . import extract_ledger
+    from . import extract_decls, extract_ledger
     extract_ledger.add_parsers(sub, _Parser, fmt)
+    extract_decls.add_parser(sub, _Parser, fmt)
     return ap
 
 
@@ -1142,6 +1147,11 @@ def main(argv: list[str] | None = None) -> int:
     _Parser.json_requested = "--json" in raw or extract_ledger.argsfile_requests_json(raw)
     args = parser().parse_args(raw)
     try:
+        if args.verb == "decls":
+            from . import extract_decls
+            text, rc = extract_decls.run(args)
+            sys.stdout.write(text)
+            return rc
         if args.verb != "plan":
             text, rc = extract_ledger.run(args)
             sys.stdout.write(text)

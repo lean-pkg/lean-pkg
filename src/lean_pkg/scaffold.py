@@ -220,7 +220,7 @@ The verification page is rendered only after that.
 """
 REUSE_TOML = """\
 # REUSE (https://reuse.software): every file of this package, including the receipts and logs added later,
-# is under {spdx} with this copyright; `reuse lint` reads it (written by `lean-pkg new`).
+# is under {spdx} with this copyright; `reuse lint` reads it (written by `{tool}`).
 version = 1
 SPDX-PackageName = {name}
 
@@ -354,6 +354,22 @@ def files(name: str, module: str, author: str, mathlib: bool = True, license_spd
     return out
 
 
+def package_files(name: str, author: str, license_spdx: str = "Apache-2.0", year: int = 2026,
+                  tool: str = "lean-pkg new") -> dict[str, str]:
+    """The package-level files of a scaffold, without the example theorem: .gitignore, CITATION.cff,
+    LICENSE, LICENSES/<SPDX>.txt and REUSE.toml (whose comment names `tool`, the command that wrote it).
+    `new` writes them as part of `files()`; `lean-pkg-extract decls --scaffold` writes them around the
+    extracted modules (proposal 0009, stage S3)."""
+    return {
+        ".gitignore": "/.lake\n",
+        "CITATION.cff": CITATION.format(title=_yaml_str(name), author=_yaml_str(author)),
+        "LICENSE": license_text(license_spdx, author, year),
+        f"LICENSES/{license_spdx}.txt": license_text(license_spdx, author, year),
+        "REUSE.toml": REUSE_TOML.format(name=_yaml_str(name), spdx=license_spdx, tool=tool,
+                                        copyright=_yaml_str(f"{year} {author}")),
+    }
+
+
 def _files(name: str, module: str, author: str, mathlib: bool, license_spdx: str, year: int, kind: str,
            stack: dict | None) -> dict[str, str]:
     toolchain, rev = pins(stack, mathlib)
@@ -363,9 +379,11 @@ def _files(name: str, module: str, author: str, mathlib: bool, license_spdx: str
     lean = {kind: LEAN_FILE.format(imports=imports, module=module, theorem=THEOREM, nat=nat, proof=proof)
             for kind, proof in (("Challenge", "sorry"), ("Solution", "omega"))}
     slug = THEOREM.replace("_", "-")
+    pkg = package_files(name, author, license_spdx, year)
+    # the package files in the order `new` has always written them (the dict order is the write order)
     return {
         "lean-toolchain": toolchain + "\n",
-        ".gitignore": "/.lake\n",
+        ".gitignore": pkg[".gitignore"],
         "lakefile.toml": LAKEFILE.format(name=name, module=module,
                                          require=REQUIRE_MATHLIB.format(rev=rev) if mathlib else ""),
         f"{module}.lean": ROOT_FILE.format(module=module),
@@ -376,11 +394,10 @@ def _files(name: str, module: str, author: str, mathlib: bool, license_spdx: str
         "claims.yaml": CLAIMS.format(name=name, module=module, theorem=THEOREM, slug=slug),
         "coverage.yaml": (COVERAGE_PAPER if kind == "paper" else COVERAGE).format(name=name, slug=slug,
                                                                                   stack=stack_line),
-        "CITATION.cff": CITATION.format(title=_yaml_str(name), author=_yaml_str(author)),
-        "LICENSE": license_text(license_spdx, author, year),
-        f"LICENSES/{license_spdx}.txt": license_text(license_spdx, author, year),
-        "REUSE.toml": REUSE_TOML.format(name=_yaml_str(name), spdx=license_spdx,
-                                        copyright=_yaml_str(f"{year} {author}")),
+        "CITATION.cff": pkg["CITATION.cff"],
+        "LICENSE": pkg["LICENSE"],
+        f"LICENSES/{license_spdx}.txt": pkg[f"LICENSES/{license_spdx}.txt"],
+        "REUSE.toml": pkg["REUSE.toml"],
         "README.md": README.format(name=name, module=module, credit=page_mod.CREDIT,
                                    paper=README_PAPER.format(name=name) if kind == "paper" else ""),
         "verify.sh": VERIFY.format(name=name, module=module, mathlib_line="" if mathlib else NO_MATHLIB_LINE,

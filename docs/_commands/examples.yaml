@@ -679,3 +679,9 @@ lean-pkg-extract recheck:
     say: Read the ledger strictly and recompute it from its own recorded map at its recorded commits; every field must match, so an edited hash or verdict is refused. Writes nothing.
   - cmd: lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main --target-commit main
     say: Is the library still faithful to the source at the newer commits? Nothing may fail; what changed since the ledger is listed as drift.
+
+lean-pkg-extract decls:
+  - cmd: "lean-pkg-extract decls --repo ~/paper --commit HEAD --output ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --scaffold newlib --author 'Ada Lovelace' --ledger ~/ledgers/newlib-1.json"
+    say: Write New.A from Src/A.lean at the source commit with the maps applied and the dropped declaration left out, as a new package (pins copied from the source commit, git init, nothing committed), staged beside ~/newlib and scanned with public-safety before it is moved into place; the ledger of what was written goes outside both trees. Exit 1 with nothing written on any refusal.
+  - cmd: lean-pkg-extract decls --repo ~/paper --commit HEAD --output ~/newlib --from-module Src/A.lean:New.A --ledger ~/ledgers/newlib-1.json --dry-run
+    say: The plainest map, reading and comparing only; nothing is written (the public-safety scan runs only when writing).
