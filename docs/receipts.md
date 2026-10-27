@@ -1868,6 +1868,7 @@ lean-pkg receipt ci --log "$LOG" --repo .     # --receipt-commit defaults to GIT
 | `the workflow file ... cannot be read: commit ... is not in this clone` | `workflow_file_sha256` hashes the workflow file at `GITHUB_WORKFLOW_SHA`; a shallow clone lacks that commit when it is not the pushed one (`verify.yml` fetches it; otherwise `fetch-depth: 0`) |
 | `the workflow file ... does not exist at ...` | `GITHUB_WORKFLOW_REF` names a file the commit does not have |
 | `ci.job_workflow: the OIDC token request failed` | the job has `id-token: write` (lean-pkg's `verify.yml` does) but the token could not be read; rerun the job |
+| `--attest: the job has no OIDC token` | `--attest` (which `verify.yml` passes) records `ci.attestation`, the bundle the next step signs with the job's OIDC token; a job without `id-token: write` cannot sign one |
 | `public-safety: a private string remains ...` | a path the built-in redactions do not cover (another `/home/<x>`, say); add a `--redact REGEX` |
 
 Then every refusal of `receipt slurm` without `--stdout`: the in-log seal,
@@ -1914,8 +1915,12 @@ On your machine, in the package checkout: downloads the artifact
 `gh` login; checks the receipt as `gate --check` does against the
 checkout's `HEAD` (the validator with the `ci` block's level 1, and the
 redacted log against `report_sha256`); and copies the receipt and its log
-into `.lean-receipts/`. It never commits or pushes: commit the two files as
-an evidence-only descendant. It refuses, copying nothing, when `gh` is not
+into `.lean-receipts/`, and the Sigstore bundle `ci.attestation` names
+when the receipt has one ([level 3](#attesting-the-run-level-3---attested)).
+It never commits or pushes: commit the files as an evidence-only
+descendant. It refuses, copying nothing, when the receipt names a bundle the
+artifact does not hold, or one whose subjects are not exactly the receipt
+and its log; when `gh` is not
 on `PATH`, the artifact cannot be downloaded, a run has several receipt
 artifacts and no `--attempt`, the artifact does not hold exactly one
 `<c12>-gha-R-A.json`, the receipt's `ci.run_id` is not RUN (or its
@@ -1983,6 +1988,60 @@ in that repository, on that commit, on a GitHub-hosted runner, which wrote
 exactly the committed receipt and log bytes. It does not prove the
 mathematics (build code runs in the same job), and it says nothing once
 the run's records are gone ([Trust model](trust-model.md#not-covered-lean-pkg-relies-on-honesty-here)).
+
+### Attesting the run (level 3, `--attested`)
+
+Level 2 decays: once the run's records expire, it fails. Level 3 is the
+durable route. lean-pkg's `verify.yml` runs `receipt ci --attest`, which
+records in the receipt's `ci.attestation` the name
+`<c12>-gha-<run>-<attempt>.sigstore.json`, and then signs the receipt and
+its redacted log with `actions/attest-build-provenance` (pinned to a 40-hex
+commit): a Sigstore bundle signed with the job's OIDC token and recorded in
+the public transparency log. The workflow copies the bundle beside the
+receipt under that name and uploads the three files; `--collect` copies
+the bundle too, and you commit it with the receipt. The bundle is the one
+committed corroboration record lean-pkg accepts, because it is signed.
+
+```bash
+lean-pkg receipt check --repo . --commit <X> --attested [--github OWNER/REPO]
+lean-pkg receipt check --repo . --commit <X> --attested --trusted-root trusted_root.json   # offline
+lean-pkg page NAME --check --attested
+```
+
+`receipt check --attested` and `page --attested` run, for each receipt
+with a `ci` block that passes level 1, these checks (in `receipt check`,
+rows `ci level 3 CHECK`):
+
+| Row | What passes |
+|---|---|
+| `bundle` | the receipt has `ci.attestation`, and `.lean-receipts/<ci.attestation>` is committed at the ref read |
+| `bundle subjects` | the bundle's in-toto statement (read without cryptography) has exactly two subjects: the SHA-256 of the committed receipt bytes and the receipt's `report_sha256` (the redacted log); a receipt edited after the run, another log, or a third subject fails |
+| `attestation repository` | only when `--github OWNER/REPO` (or the registry's repository URL, for `page`) names another repository than `ci.repository`: fails |
+| `verifier` | `gh attestation verify RECEIPT --bundle BUNDLE --repo ci.repository --signer-workflow lean-pkg/lean-pkg/.github/workflows/verify.yml --deny-self-hosted-runners --format json` exits 0 (with `--trusted-root FILE`, also `--custom-trusted-root FILE`, offline). `gh` is an optional outside tool, as `sacct` is; lean-pkg has no Sigstore dependency |
+| `certificate repository` | the verified certificate's source repository is `ci.repository` and its numeric id `ci.repository_id` (a fork's run has the fork's id) |
+| `certificate commit` | its source commit is the receipt's `commit` |
+| `certificate run` | its run invocation is run `ci.run_id` attempt `ci.run_attempt` |
+| `certificate signer` | its build signer is `https://github.com/<ci.job_workflow>`, lean-pkg's `verify.yml` at the pinned commit |
+| `certificate runner` | `github-hosted` |
+
+Every failure is named and fails closed: a missing `gh` (with
+`--attested`), a bundle not committed, a subject mismatch, a verifier that
+exits non-zero, a certificate naming another repository, commit, run or
+signer. None lowers the receipt below level 1. With both `--attested` and
+`--corroborate` both levels run, and level 3 needs both; once the run has expired,
+drop `--corroborate`. `receipt check --attested` exits 1 when a receipt
+does not reach level 3; its `--json` gains `ci: {level, rows[]}`, `github`,
+`attested: true` and `trusted_root`, and `network` is true unless
+`--trusted-root` is given without `--corroborate`. `page --attested`
+renders the GitHub Actions sentence at level 3 (`page --json`
+`sites.github-actions.level` and `levels` reach 3). Without `--attested`,
+`receipt check` shows a receipt that names a bundle with a `ci attestation`
+skip row (saying when `gh` is not on `PATH`), and never runs `gh`.
+
+Level 3 proves the run identity level 2 proves, through a signature
+instead of the API, so it holds after the run's records expire. Like level
+2 it does not prove the mathematics, nor that build code in the same job did
+not lie.
 
 ## Comparator receipt schema (`comparator-receipt/2`; `/1` still validates)
 
@@ -2554,7 +2613,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `... report log` | `report_sha256` is the SHA-256 of the committed redacted log (or of its `.gz`, decompressed); a missing log fails |
 | `... evidence files` | `manifest_sha256`, `artifacts_manifest_sha256`, `unit_properties_sha256` against the files they name, when present; `job_stdout_sha256` is not checkable (the job's stdout is not published) |
 | `... sacct seal` | only when the receipt has a `slurm_sacct` block ([`--seal-sacct`](#sealing-the-sacct-record---seal-sacct)): shown (job, window, record); the validator of `lower <receipt>` already failed it unless the sealed record is committed at REF and still hashes and parses to the block |
-| `... ci` | only when the receipt has a `ci` block (a GitHub Actions run): shown (the run, its attempt, repository, event and job, at level 1); the validator of `lower <receipt>` already failed it unless every level-1 rule holds. `... ci workflow file`: the workflow file at `ci.workflow_sha` rehashed (`skip` when that commit is not in the clone). A receipt with a `gha-` job id and no block: `skip` (it backs no compute job). With `--corroborate`: `... ci level 2 CHECK`, one row per level-2 check, and `... ci level` ([level 2](#corroborating-the-run-level-2---corroborate)) |
+| `... ci` | only when the receipt has a `ci` block (a GitHub Actions run): shown (the run, its attempt, repository, event and job, at level 1); the validator of `lower <receipt>` already failed it unless every level-1 rule holds. `... ci workflow file`: the workflow file at `ci.workflow_sha` rehashed (`skip` when that commit is not in the clone). A receipt with a `gha-` job id and no block: `skip` (it backs no compute job). With `--corroborate`: `... ci level 2 CHECK`, one row per level-2 check, and `... ci level` ([level 2](#corroborating-the-run-level-2---corroborate)). With `--attested`: `... ci level 3 CHECK` rows and `... ci level`, which then needs level 3 ([level 3](#attesting-the-run-level-3---attested)); without it, a receipt whose block names a bundle gets a `... ci attestation` skip row |
 | `... container` | only when the receipt has a `container` key: shown (engine, digest, image ref); a malformed one fails; the digest is not re-derivable (the image is not published) |
 | `... claim axioms` | only when the receipt has a `claim_axioms` key: re-derived from the committed sealed log against `claims.yaml` at X (every claim checked, none missing, no `sorryAx`, no axiom in the log's `#print axioms` output that the walk did not find) and equal to the key |
 | `claims` | `claims.yaml` at X passes the claims/1 schema and the declaration check `gate` runs |

@@ -496,12 +496,18 @@ def claims_at_head(pkg: dict, repo: pathlib.Path) -> tuple[dict[str, dict], str]
     return {str(c.get("id")): c for c in doc.get("claims") or [] if isinstance(c, dict)}, rel
 
 
+BUNDLE_SUFFIX = ".sigstore.json"     # ci_github.BUNDLE_SUFFIX (a leaf constant here)
+
+
 def tracked_receipts(repo: pathlib.Path) -> list[str]:
-    """Receipt JSON files tracked at HEAD directly under .lean-receipts/ (package-relative, sorted)."""
+    """Receipt JSON files tracked at HEAD directly under .lean-receipts/ (package-relative, sorted). A Sigstore
+    bundle beside a GitHub Actions receipt (<c12>-gha-R-A.sigstore.json, the receipt's ci.attestation) is evidence
+    for the receipt, not a receipt, and is not listed."""
     p = core.git(repo, "ls-tree", "-z", "--name-only", "HEAD", "--", ".lean-receipts/")
     if p.returncode != 0:
         return []
-    out = [x for x in p.stdout.split("\0") if x.endswith(".json") and x.count("/") == 1]
+    out = [x for x in p.stdout.split("\0") if x.endswith(".json") and not x.endswith(BUNDLE_SUFFIX)
+           and x.count("/") == 1]
     return sorted(out)
 
 

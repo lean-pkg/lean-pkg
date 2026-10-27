@@ -2,7 +2,9 @@
 
 Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
 Decided: accepted 2026-10-26 by Le Chen, with the recommended answers to open questions 1 to 11. Implemented in:
-(release); tracked in [#318](https://github.com/lean-pkg/lean-pkg/issues/318).
+(release), by #338 (S1, level 1), #348 (S2, `receipt ci` and `verify.yml`), #355 (S3, `--corroborate`, level 2),
+#363 (S4, `--attested`, level 3) and #358 (S5, the comparator tier in CI); a live run in a public sample
+repository is still to do. Tracked in [#318](https://github.com/lean-pkg/lean-pkg/issues/318).
 
 ## Summary
 

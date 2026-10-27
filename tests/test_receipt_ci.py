@@ -640,7 +640,7 @@ def test_the_template_is_a_pinned_caller(lp, capsys, monkeypatch):
     doc = yaml.safe_load(text)
     assert set(_on(doc)) == {"push", "workflow_dispatch"}
     assert ".lean-receipts/**" in _on(doc)["push"]["paths-ignore"]
-    assert doc["permissions"] == {"contents": "read", "id-token": "write"}
+    assert doc["permissions"] == {"contents": "read", "id-token": "write", "attestations": "write"}
     assert doc["jobs"]["verify"]["uses"] == f"lean-pkg/lean-pkg/.github/workflows/verify.yml@{'c' * 40}"
     capsys.readouterr()
     assert lp.main(["receipt", "ci", "--template", "--json"]) == 0
@@ -666,8 +666,12 @@ def test_verify_yml_is_reusable_minimal_and_pinned():
     assert list(on) == ["workflow_call"], on                     # never on lean-pkg's own pushes
     uses = [v for k, v in _walk(doc) if k == "uses"]
     assert uses and all(re.fullmatch(r"[\w.-]+/[\w.-]+(/[\w./-]+)?@[0-9a-f]{40}", u) for u in uses), uses
-    perms = [v for k, v in _walk(doc) if k == "permissions"]
-    assert perms and all(p == {"contents": "read", "id-token": "write"} for p in perms), perms
+    # the attesting verify job (and the workflow's default) may write attestations (S4); the comparator job may not
+    attesting = {"contents": "read", "id-token": "write", "attestations": "write"}
+    assert doc["permissions"] == attesting and doc["jobs"]["verify"]["permissions"] == attesting
+    assert doc["jobs"]["comparator"]["permissions"] == {"contents": "read", "id-token": "write"}
+    assert [v for k, v in _walk(doc) if k == "permissions"] == [attesting, attesting,
+                                                                {"contents": "read", "id-token": "write"}]
     assert all(v != "write" for k, v in _walk(doc) if k == "contents")
     steps = doc["jobs"]["verify"]["steps"]
     runs = "\n".join(s.get("run", "") for s in steps)

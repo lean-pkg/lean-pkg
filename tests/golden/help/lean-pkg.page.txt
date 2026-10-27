@@ -1,6 +1,6 @@
 usage: lean-pkg page [-h] [--write] [--check] [--out PATH] [--site DIR] [--html PATH] [--repo DIR]
-                     [--strict-preview] [--corroborate] [--allow-private-manuscript]
-                     [--agent AGENT] [--json]
+                     [--strict-preview] [--corroborate] [--attested] [--trusted-root FILE]
+                     [--allow-private-manuscript] [--agent AGENT] [--json]
                      name
 
 positional arguments:
@@ -42,6 +42,13 @@ options:
                         only when every one reaches it; a failure is named and fails closed.
                         GH_TOKEN or GITHUB_TOKEN, when set, only raises the rate limit and is
                         never printed
+  --attested            verify each GitHub Actions job coverage.yaml lists at level 3: its
+                        committed Sigstore bundle (ci.attestation) with `gh attestation verify`,
+                        an optional outside tool, and the certificate against the ci block; the
+                        sentence renders at level 3, which holds after the run's records expire
+                        (with --corroborate too, level 2 must also hold); a failure is named
+  --trusted-root FILE   with --attested: verify offline against this Sigstore trusted root (gh
+                        attestation verify --custom-trusted-root)
   --allow-private-manuscript
                         render against manuscript.version 'unposted'; the page then says so
   --agent AGENT         with --write: the lease holder, when the package is leased

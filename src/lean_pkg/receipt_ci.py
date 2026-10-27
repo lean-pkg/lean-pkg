@@ -1,6 +1,6 @@
 # lean-pkg receipt ci -- a lower-tier receipt written inside a GitHub Actions job (proposal 0008, stage S2)
 """`lean-pkg receipt ci --log PATH [--receipt-commit SHA] [--checker TEXT] [--repo DIR] [--redact REGEX]...
-[--out PATH] [--json]`: the CI-runner counterpart of `receipt slurm` and `receipt systemd`. Run as the last
+[--out PATH] [--attest] [--json]`: the CI-runner counterpart of `receipt slurm` and `receipt systemd`. Run as the last
 step of a GitHub Actions job (lean-pkg's reusable `.github/workflows/verify.yml`), it turns the job's
 self-sealed verify log into a lower-tier receipt through the shared pipeline (`receipt.produce`: the seal,
 the log's fields, redaction, the public-safety scan), with `job_id: gha-<run_id>-<run_attempt>` and the
@@ -34,10 +34,17 @@ corroboration (level 2, stage S3) reads:
 (on stdout; on stderr under --json, where stdout carries the JSON document), and appends a short entry to
 the job's step summary (`GITHUB_STEP_SUMMARY`).
 
+`--attest` (stage S4; verify.yml passes it): the job attests, so the block records `ci.attestation`, the name
+`<commit12>-gha-<R>-<A>.sigstore.json` of the Sigstore bundle verify.yml's next step
+(actions/attest-build-provenance) signs over the receipt and its redacted log and copies beside them. Refused
+when the job has no OIDC token (an attestation is signed with it).
+
 `--collect RUN [--attempt N] [--repo DIR]` (on the author's machine): downloads the run's receipt artifact
 with `gh run download` (the author's own `gh` login), checks it as `gate --check` does against the local
 checkout (gate_mod.validate_receipt, which runs the `ci` block's level 1, and the redacted log against
-report_sha256), and copies the receipt and its log into `.lean-receipts/`. It never commits or pushes.
+report_sha256), and copies the receipt and its log into `.lean-receipts/`, and the bundle `ci.attestation`
+names (refused when the artifact lacks it or its subjects are not exactly the receipt and the log; its
+signature is checked by `receipt check --attested`). It never commits or pushes.
 
 `--template`: prints the caller workflow a package commits (`uses: lean-pkg/lean-pkg/.github/workflows/
 verify.yml@<40-hex>`, the commit of the installed lean-pkg when pip recorded one).
@@ -263,14 +270,17 @@ def annotation(receipt_sha: str, report_sha: str) -> str:
 
 
 def step_summary(ci: dict, rel_receipt: str, receipt_sha: str, report_sha: str) -> str:
+    bundle = ci.get("attestation")
     return "\n".join([
         "### lean-pkg receipt",
         "",
         f"- Receipt: `{rel_receipt}` (job `gha-{ci['run_id']}-{ci['run_attempt']}`), SHA-256 `{receipt_sha}`",
         f"- Redacted verify log SHA-256 `{report_sha}` (= `report_sha256`)",
         f"- Commit `{ci['head_sha']}`, event `{ci['event']}`, {ci['runner']['environment']} runner",
+        *([f"- Attestation: the Sigstore bundle `{bundle}` (`ci.attestation`), signed by the next step"]
+          if bundle else []),
         f"- Collect it: `lean-pkg receipt ci --collect {ci['run_id']} --attempt {ci['run_attempt']}`, then commit "
-        f"the two files under `.lean-receipts/`",
+        f"the {'three' if bundle else 'two'} files under `.lean-receipts/`",
         "", ""])
 
 
@@ -312,6 +322,13 @@ def cmd_write(args) -> int:
     redacted, _n = rc.redact(raw_text, extra, reds)   # the bytes produce writes: report_sha256 (same inputs)
     report_sha = hashlib.sha256(redacted.encode("utf-8")).hexdigest()
     ci = ci_block(env, wf_sha or "0" * 64, report_sha, job_workflow)
+    if getattr(args, "attest", False):
+        if job_workflow is None and not any(r.startswith("ci.job_workflow:") for r in refusals):
+            refusals.append("--attest: the job has no OIDC token (no id-token: write), so it cannot sign an "
+                            "attestation; lean-pkg's verify.yml grants id-token: write and attestations: write")
+        ci["attestation"] = ci_github.bundle_name(sha, job_id)
+        checks.append(f"✓ ci.attestation: {ci['attestation']} (the Sigstore bundle the job's attestation step signs "
+                      f"for this receipt and its log, to be committed beside them)")
     if wf_sha is not None:
         problems, row = ci_github.level1({"commit": sha, "job_id": job_id, "report_sha256": report_sha, "ci": ci},
                                          repo)
@@ -479,6 +496,20 @@ def cmd_collect(args) -> int:
         logs = [p for p in (adir / log_name, adir / (log_name + gate_mod.REPORT_GZ_SUFFIX)) if p.is_file()]
         base["log"] = f".lean-receipts/{logs[0].name}" if logs else None
         copies = [(rpath, rdir / rpath.name)] + [(p, rdir / p.name) for p in logs]
+        bundle = ci.get("attestation")
+        if bundle is not None:            # level 1 (validate_receipt) checked it is a plain file name
+            bpath = adir / bundle
+            if not (bpath.is_file() and not bpath.is_symlink()):
+                return _collect_refuse(args, [f"{rpath.name}: ci.attestation names {bundle}, which the artifact does "
+                                              f"not hold (the run's attestation step did not finish?)"], checks, base)
+            subjects, why = ci_github.bundle_subjects(bpath.read_bytes())
+            bad = [why] if subjects is None else ci_github.subject_problems(
+                subjects, hashlib.sha256(raw).hexdigest(), str(rec.get("report_sha256", "")))
+            if bad:
+                return _collect_refuse(args, [f"{bundle}: {'; '.join(bad)}"], checks, base)
+            checks.append(f"✓ attestation: {bundle} signs exactly this receipt and its log (its signature is checked "
+                          f"by `receipt check --attested`, level 3)")
+            copies.append((bpath, rdir / bundle))
         for src, dst in copies:
             why = rc._same_or_absent(dst, src.read_bytes())
             if why:
@@ -529,8 +560,9 @@ def template(pin: str | None) -> str:
 # .github/workflows/lean-pkg.yml: verify this package on a GitHub-hosted runner and write a lower-tier receipt
 # (printed by `lean-pkg receipt ci --template`). lean-pkg's reusable verify.yml checks out the pushed commit,
 # installs elan, the Mathlib cache and the lean-pkg release it ships with, runs the verify command with a
-# self-sealed log, then `lean-pkg receipt ci`, and uploads the receipt as the artifact
-# lean-pkg-receipt-<run>-<attempt>. It never pushes: after a green run, on your machine,
+# self-sealed log, then `lean-pkg receipt ci`, signs the receipt and its log into a Sigstore bundle (an
+# attestation, level 3), and uploads the three as the artifact lean-pkg-receipt-<run>-<attempt>. It never pushes:
+# after a green run, on your machine,
 #
 #   lean-pkg receipt ci --collect RUN_ID          # download, check against your checkout, copy into .lean-receipts/
 #   git add .lean-receipts && git commit -m "receipt: GitHub Actions run RUN_ID"
@@ -546,6 +578,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  attestations: write
 jobs:
   verify:
     uses: {VERIFY_WORKFLOW}@{ref}
@@ -573,7 +606,7 @@ def cmd_template(args) -> int:
 WRITER_FLAGS = (("--log", "log"), ("--receipt-commit", "commit_sha"), ("--checker", "checker"),
                 ("--redact", "redact"), ("--out", "out"), ("--compress-log", "compress_log"),
                 ("--append-readme", "append_readme"), ("--readme-heading", "readme_heading"),
-                ("--readme-line", "readme_line"), ("--tar-sha256", "tar_sha256"))
+                ("--readme-line", "readme_line"), ("--tar-sha256", "tar_sha256"), ("--attest", "attest"))
 
 
 def cmd_receipt_ci(args) -> int:
@@ -616,6 +649,10 @@ def add_parser(rsub) -> None:
                         "its log into .lean-receipts/; never commits or pushes")
     s.add_argument("--attempt", type=int, default=None, metavar="N",
                    help="with --collect: the run attempt (default: the run's only receipt artifact)")
+    s.add_argument("--attest", action="store_true",
+                   help="the job attests (verify.yml): record ci.attestation, the name <commit12>-gha-<R>-<A>"
+                        ".sigstore.json of the Sigstore bundle the next step signs for the receipt and its log, to "
+                        "be committed beside them (level 3); refused without an OIDC token (id-token: write)")
     s.add_argument("--template", action="store_true",
                    help="print the caller workflow (.github/workflows/lean-pkg.yml) that runs lean-pkg's reusable "
                         "verify.yml pinned to a 40-hex commit; needs no other flag")

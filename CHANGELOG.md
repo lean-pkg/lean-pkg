@@ -120,6 +120,30 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   no sentence, and a README carrying it fails `page --check` with a
   `--corroborate` hint
   ([corroborating the run](docs/receipts.md#corroborating-the-run-level-2---corroborate)).
+- Level 3, an attested GitHub Actions receipt (#363; stage S4 of
+  proposal 0008, #318): `verify.yml` runs `receipt ci --attest`, which
+  records `ci.attestation` (`<c12>-gha-<run>-<attempt>.sigstore.json`),
+  then signs the receipt and its redacted log with
+  `actions/attest-build-provenance` (pinned to a 40-hex commit; the job and
+  the `receipt ci --template` caller gain `attestations: write`), copies
+  the Sigstore bundle beside them and uploads it with them; `--collect`
+  copies it, refusing a bundle the artifact lacks or whose subjects are not
+  exactly the receipt and its log. `receipt check --attested
+  [--trusted-root FILE]` and `page --attested` verify the committed bundle
+  with `gh attestation verify --repo ci.repository --signer-workflow
+  lean-pkg/lean-pkg/.github/workflows/verify.yml --deny-self-hosted-runners`
+  (an optional outside tool, as `sacct` is; offline with
+  `--custom-trusted-root`), and the certificate's repository and id,
+  commit, run and attempt, signer and runner against the `ci` block. A
+  bundle not committed, a subject mismatch, a missing `gh`, a verifier
+  exiting non-zero and a certificate naming another identity each fail
+  closed, named. `receipt check` gains `ci level 3 CHECK` rows and `--json`
+  `attested` and `trusted_root`; `page --json` `sites.<name>.level` and
+  `levels` reach 3, and the GitHub Actions sentence renders at level 3,
+  which survives the run's records expiring. Without `--attested` gh never
+  runs, and a receipt naming a bundle gets a `ci attestation` skip row; the
+  receipt listings skip `*.sigstore.json`
+  ([attesting the run](docs/receipts.md#attesting-the-run-level-3---attested)).
 - The comparator tier in CI (#358; stage S5 of proposal 0008, #318):
   `lean-pkg receipt comparator` (the `comparator-receipt` program)
   recognizes a GitHub-hosted runner (`GITHUB_ACTIONS=true` and

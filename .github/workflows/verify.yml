@@ -5,9 +5,12 @@
 # The job checks out the pushed commit, installs elan (a pinned release, its archive hash checked), the
 # Mathlib cache when the package depends on Mathlib, and lean-pkg at the commit of this very file
 # (github.job_workflow_sha), runs the package's verify command with its log sealed in-log, then
-# `lean-pkg receipt ci`, and uploads the receipt and its redacted log as the artifact
-# lean-pkg-receipt-<run_id>-<run_attempt>. The author collects it with `lean-pkg receipt ci --collect RUN`
-# and commits it; CI never pushes to the package's repository (no contents: write).
+# `lean-pkg receipt ci --attest`, signs the receipt and its redacted log into one Sigstore bundle with
+# actions/attest-build-provenance (stage S4, level 3: signed with the job's OIDC token and recorded in the public
+# transparency log), copies the bundle beside them as <commit12>-gha-<run_id>-<run_attempt>.sigstore.json (the
+# name the receipt's ci.attestation records), and uploads the three as the artifact
+# lean-pkg-receipt-<run_id>-<run_attempt>. The author collects it with `lean-pkg receipt ci --collect RUN` and
+# commits it; CI never pushes to the package's repository (no contents: write).
 #
 # With `comparator: true` a second job, `comparator`, runs the comparator tier on its own GitHub-hosted runner
 # (proposal 0008, stage S5): it lifts Ubuntu's AppArmor restriction on unprivileged user namespaces (the judge
@@ -47,6 +50,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  attestations: write
 
 jobs:
   verify:
@@ -55,7 +59,8 @@ jobs:
     timeout-minutes: ${{ inputs.timeout-minutes }}
     permissions:
       contents: read
-      id-token: write   # the OIDC token's job_workflow_ref claim becomes ci.job_workflow; the token is never kept
+      id-token: write   # the OIDC token's job_workflow_ref claim becomes ci.job_workflow, and it signs the attestation
+      attestations: write   # the attestation of the receipt and its log (level 3); never contents: write
     env:
       PKG_DIR: ${{ inputs.package-dir }}
       LEAN_PKG_SHA: ${{ github.job_workflow_sha }}
@@ -117,9 +122,32 @@ jobs:
         env:
           CHECKER: ${{ inputs.checker }}
         run: |
-          set -- --log "$RUNNER_TEMP/lean-pkg/verify.log" --repo "$PKG_DIR"
+          set -- --log "$RUNNER_TEMP/lean-pkg/verify.log" --repo "$PKG_DIR" --attest
           if [ -n "$CHECKER" ]; then set -- "$@" --checker "$CHECKER"; fi
           lean-pkg receipt ci "$@"
+
+      - name: Attest the receipt and its log (Sigstore, level 3)
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            ${{ inputs.package-dir }}/.lean-receipts/*-gha-${{ github.run_id }}-${{ github.run_attempt }}.json
+            ${{ inputs.package-dir }}/.lean-receipts/*-gha-${{ github.run_id }}-${{ github.run_attempt }}-verify.redacted.log
+
+      - name: Put the bundle beside the receipt (the name ci.attestation records)
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -- "$PKG_DIR"/.lean-receipts/*-gha-"$GITHUB_RUN_ID"-"$GITHUB_RUN_ATTEMPT".json
+          if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+            echo "expected exactly one receipt of this run, found: $*" >&2
+            exit 1
+          fi
+          if [ ! -f "$BUNDLE_PATH" ]; then
+            echo "the attestation step wrote no bundle" >&2
+            exit 1
+          fi
+          cp "$BUNDLE_PATH" "${1%.json}.sigstore.json"
 
       - name: Upload the receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -128,6 +156,7 @@ jobs:
           path: |
             ${{ inputs.package-dir }}/.lean-receipts/*-gha-${{ github.run_id }}-${{ github.run_attempt }}.json
             ${{ inputs.package-dir }}/.lean-receipts/*-gha-${{ github.run_id }}-${{ github.run_attempt }}-verify.redacted.log
+            ${{ inputs.package-dir }}/.lean-receipts/*-gha-${{ github.run_id }}-${{ github.run_attempt }}.sigstore.json
           if-no-files-found: error
 
   comparator:

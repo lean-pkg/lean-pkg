@@ -591,6 +591,33 @@ changes:
     breaking: false
     changelog: Deprecated
     split: true
+  - pr: 363
+    id: ci-receipt-attestation
+    kind: command
+    area: receipt check, page, receipt ci
+    summary: >-
+      Stage S4 of proposal 0008 (#318): lean-pkg's verify.yml now attests. It runs receipt ci --attest, which
+      records ci.attestation, the name <commit12>-gha-<run>-<attempt>.sigstore.json, then signs the receipt and its
+      redacted log with actions/attest-build-provenance (pinned to a 40-hex commit; permissions contents: read,
+      id-token: write, attestations: write), copies the Sigstore bundle beside them and uploads the three files;
+      receipt ci --collect copies the bundle too, refusing one the artifact lacks or whose subjects are not exactly
+      the receipt and the log. receipt check --attested [--trusted-root FILE] and page --attested verify the
+      committed bundle at level 3 with gh attestation verify (an optional outside tool, no Sigstore dependency):
+      the bundle is committed, its subjects are exactly the committed receipt and log, the verifier exits 0
+      (--repo ci.repository, --signer-workflow lean-pkg/lean-pkg/.github/workflows/verify.yml,
+      --deny-self-hosted-runners; offline with --custom-trusted-root), and the certificate names the ci block's
+      repository and id, commit, run and attempt, signer and a GitHub-hosted runner. Each failure is named and
+      fails closed; a missing gh fails under --attested and is a skip row without it. receipt check gains rows
+      `ci level 3 CHECK` and --json attested and trusted_root; page --json sites.<name>.level and levels reach 3,
+      and the GitHub Actions sentence renders at level 3, so it survives the run's records expiring. The receipt
+      listings skip *.sigstore.json files.
+    action: >-
+      Nothing without --attested: every command reads and prints what it did, except that receipt check shows a
+      `ci attestation` skip row for a receipt naming a bundle. To get level 3, regenerate the caller workflow
+      (lean-pkg receipt ci --template: it now grants attestations: write, which the new verify.yml needs) and pin it
+      to this release, commit the bundle --collect copies, and check with --attested (gh installed).
+    breaking: false
+    changelog: Added
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

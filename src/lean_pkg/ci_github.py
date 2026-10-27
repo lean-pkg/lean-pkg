@@ -33,6 +33,18 @@ in the GitHub-hosted runner group; the workflow file at `ci.workflow_sha` hashes
 and calls lean-pkg's verify.yml at a 40-hex commit equal to `ci.job_workflow`, whose content SHA-256 is in the
 shipped pin list (data/verify-workflow-pins.yaml). Every failed request fails closed and is named. The level is
 computed at check time and never stored.
+
+Level 3 (`attest`; `receipt check --attested`, `page --attested`; stage S4) checks the Sigstore bundle the job's
+attestation step signed (actions/attest-build-provenance in verify.yml), committed beside the receipt under
+`.lean-receipts/` and named by `ci.attestation`: the bundle is committed at the ref read, its in-toto statement's
+subjects are exactly the committed receipt bytes and the redacted log (report_sha256), `gh attestation verify`
+(an optional outside tool, as sacct is; no Sigstore dependency) verifies it with `--repo ci.repository
+--signer-workflow lean-pkg/lean-pkg/.github/workflows/verify.yml --deny-self-hosted-runners` (offline with
+`--custom-trusted-root FILE`), and the verified certificate names the `ci` block's repository (name and numeric
+id), commit, run and attempt, the signer `ci.job_workflow` and a GitHub-hosted runner. It proves the run identity
+level 2 proves, through a signature recorded in the public transparency log, so it holds after the run's records
+expire. The bundle is the one committed corroboration record: it is signed. A failure fails closed and is named;
+a missing gh fails under --attested (without the flag, `receipt check` shows the bundle as a skip).
 """
 
 from __future__ import annotations
@@ -43,7 +55,9 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -692,3 +706,212 @@ def run_link(ci: dict) -> str:
     attempts/A)."""
     return (f"[run {ci['run_id']} attempt {ci['run_attempt']}]({SERVER_URL}/{ci['repository']}/actions/runs/"
             f"{ci['run_id']}/attempts/{ci['run_attempt']})")
+
+
+# --------------------------------------------------------------------------
+# level 3: the committed Sigstore bundle, verified by `gh attestation verify` (proposal 0008, stage S4)
+#
+# The bundle is what actions/attest-build-provenance writes (its `bundle-path` output): a Sigstore bundle, JSON
+# (one bundle, or a JSON Lines file of exactly one), whose dsseEnvelope.payload is the base64 in-toto statement
+# with `subject: [{name, digest: {sha256}}]`. `gh attestation verify --format json` prints a list of results;
+# the fields read here (an assumption until a live run, as for level 2) are
+# verificationResult.signature.certificate.{sourceRepositoryURI, sourceRepositoryIdentifier,
+# sourceRepositoryDigest, runInvocationURI, buildSignerURI, runnerEnvironment} and
+# verificationResult.statement.subject.
+
+BUNDLE_SUFFIX = ".sigstore.json"
+GH_ATTEST_TIMEOUT = 300
+MAX_BUNDLE_BYTES = 4 << 20
+LEVEL3_NOTE = ("level 3, attested: the committed Sigstore bundle verifies (gh attestation verify) for the "
+               "committed receipt and log, signed in that repository (by numeric id), on that commit, in that run "
+               "and attempt, by lean-pkg's verify workflow on a GitHub-hosted runner, and recorded in the public "
+               "transparency log, so it holds after the run's records expire; it says nothing about the "
+               "mathematics, nor that build code in the same job did not lie")
+GH_MISSING = ("gh (the GitHub CLI) is not on PATH: level 3 runs `gh attestation verify`, an optional outside tool "
+              "(https://cli.github.com)")
+
+
+def bundle_name(commit: str, job_id: str) -> str:
+    """The bundle's file name beside the receipt: <commit12>-gha-<R>-<A>.sigstore.json."""
+    return f"{commit[:12]}-{job_id}{BUNDLE_SUFFIX}"
+
+
+def bundle_subjects(raw: bytes) -> tuple[dict[str, str] | None, str | None]:
+    """({sha256: name} of the bundle's in-toto subjects, None), or (None, why it cannot be read). Read without
+    any cryptography: what the subjects are, not that they are signed (gh attestation verify decides that)."""
+    if len(raw) > MAX_BUNDLE_BYTES:
+        return None, f"larger than {MAX_BUNDLE_BYTES} bytes"
+    try:
+        text = raw.decode("utf-8")
+        try:
+            docs = [json.loads(text)]
+        except ValueError:
+            docs = [json.loads(x) for x in text.splitlines() if x.strip()]
+        if len(docs) != 1:
+            return None, f"{len(docs)} bundles in one file; exactly one is expected"
+        envelope = docs[0].get("dsseEnvelope") if isinstance(docs[0], dict) else None
+        if not (isinstance(envelope, dict) and isinstance(envelope.get("payload"), str)):
+            return None, "not a Sigstore bundle with a DSSE envelope (dsseEnvelope.payload)"
+        stmt = json.loads(base64.b64decode(envelope["payload"], validate=True))
+    except (UnicodeDecodeError, ValueError):
+        return None, "not a JSON Sigstore bundle, or its payload is not a base64 JSON statement"
+    subjects = stmt.get("subject") if isinstance(stmt, dict) else None
+    if not isinstance(subjects, list):
+        return None, "the statement has no subject list"
+    out: dict[str, str] = {}
+    for s in subjects:
+        d = s.get("digest") if isinstance(s, dict) else None
+        h = d.get("sha256") if isinstance(d, dict) else None
+        if not (isinstance(h, str) and HEX64.match(h)):
+            return None, "a subject without a sha256 digest"
+        out[h] = str(s.get("name") or "")
+    if len(out) != len(subjects):
+        return None, "two subjects with the same digest"
+    return out, None
+
+
+def subject_problems(subjects: dict[str, str], receipt_sha256: str, report_sha256: str) -> list[str]:
+    """Why the subjects are not exactly the receipt and its redacted log; [] when they are."""
+    want = {receipt_sha256: "the receipt", report_sha256.lower(): "the redacted log"}
+    out = [f"no subject is {w}'s digest {h[:12]} (its bytes changed after the run, or it is another file)"
+           for h, w in want.items() if h not in subjects]
+    extra = [h for h in subjects if h not in want]
+    if extra:
+        out.append(f"{len(extra)} other subject(s) ({', '.join(h[:12] for h in extra)}): the bundle signs other "
+                   f"bytes too")
+    return out
+
+
+def _gh_results(stdout: str) -> list[dict] | None:
+    try:
+        doc = json.loads(stdout)
+    except ValueError:
+        return None
+    if isinstance(doc, dict):
+        doc = [doc]
+    return [d for d in doc if isinstance(d, dict)] if isinstance(doc, list) else None
+
+
+def _dig(d, *keys):
+    for k in keys:
+        d = d.get(k) if isinstance(d, dict) else None
+    return d
+
+
+def _certificate_rows(rows: _Rows, rec: dict, results: list[dict], receipt_sha256: str) -> None:
+    ci = rec[KEY]
+    mine = [r for r in results if receipt_sha256 in
+            {_dig(s, "digest", "sha256") for s in (_dig(r, "verificationResult", "statement", "subject") or [])
+             if isinstance(s, dict)}]
+    cert = _dig(mine[0], "verificationResult", "signature", "certificate") if mine else None
+    if not isinstance(cert, dict):
+        rows.add("certificate", False, "gh attestation verify printed no verified statement with a certificate "
+                                       "naming the receipt's digest; not attested")
+        return
+    repo_uri = f"{SERVER_URL}/{ci['repository']}"
+    got_uri, got_id = cert.get("sourceRepositoryURI"), cert.get("sourceRepositoryIdentifier")
+    ok = isinstance(got_uri, str) and got_uri.lower() == repo_uri.lower() and str(got_id) == str(ci["repository_id"])
+    rows.add("certificate repository", ok, f"source repository {got_uri!r} id {got_id!r}" + (
+        " = ci.repository and ci.repository_id" if ok else
+        f", not {repo_uri} id {ci['repository_id']} (another repository's run, a fork's included)"))
+    dig = cert.get("sourceRepositoryDigest")
+    rows.add("certificate commit", dig == rec["commit"], f"source commit {str(dig)[:12]}" + (
+        " = the receipt commit" if dig == rec["commit"] else f", not the receipt commit {rec['commit'][:12]}"))
+    run_uri = f"{repo_uri}/actions/runs/{ci['run_id']}/attempts/{ci['run_attempt']}"
+    got_run = cert.get("runInvocationURI")
+    ok = isinstance(got_run, str) and got_run.lower() == run_uri.lower()
+    rows.add("certificate run", ok, f"run {got_run!r}" + (" = ci.run_id and ci.run_attempt" if ok else
+                                                           f", not {run_uri} (another run or attempt)"))
+    jw = ci.get("job_workflow")
+    want = f"{SERVER_URL}/{jw}" if isinstance(jw, str) and jw.startswith(VERIFY_WORKFLOW + "@") else None
+    signer = cert.get("buildSignerURI")
+    ok = want is not None and signer == want
+    rows.add("certificate signer", ok, f"signer {signer!r}" + (
+        " = ci.job_workflow, lean-pkg's verify workflow" if ok else
+        f", not {want}" if want else f", and ci.job_workflow {jw!r} is not {VERIFY_WORKFLOW}@<ref>"))
+    renv = cert.get("runnerEnvironment")
+    rows.add("certificate runner", renv == HOSTED, f"runner environment {renv!r}" + (
+        "" if renv == HOSTED else f", not {HOSTED} (a self-hosted runner is the author's own machine)"))
+
+
+def attest(rec: dict, repo: pathlib.Path | None, *, receipt_bytes: bytes, bundle: bytes | None,
+           expect_repo: str | None = None, trusted_root: str | None = None) -> tuple[bool, list[dict]]:
+    """(attested, rows) of a receipt with a `ci` block: level 3. bundle: the bytes of
+    `.lean-receipts/<ci.attestation>` committed at the ref read (None: not committed). rows: one {check, verdict,
+    detail} per check, in order; attested only when every row passes. Runs `gh attestation verify` (from PATH) on
+    copies of the committed bytes in a private temporary directory; only the tail of a failure's message is kept.
+    expect_repo: the package's own repository OWNER/REPO (None: ci.repository). trusted_root: a Sigstore trusted
+    root file for an offline verification (gh's --custom-trusted-root)."""
+    rows = _Rows(None)
+    problems, _row = level1(rec, repo)
+    if problems:
+        rows.add("level 1", False, "; ".join(problems))
+        return False, rows.items
+    ci = rec[KEY]
+    name = ci.get("attestation")
+    if name is None:
+        rows.add("bundle", False, "the receipt has no ci.attestation: its run did not attest (level 3 needs the "
+                                  "Sigstore bundle lean-pkg's verify.yml signs, committed beside the receipt)")
+        return False, rows.items
+    if bundle is None:
+        rows.add("bundle", False, f".lean-receipts/{name} (ci.attestation) is not committed: collect it with "
+                                  f"`lean-pkg receipt ci --collect {ci['run_id']} --attempt {ci['run_attempt']}` and "
+                                  f"commit it beside the receipt")
+        return False, rows.items
+    rows.add("bundle", True, f".lean-receipts/{name} is committed ({len(bundle)} bytes, sha256 "
+                             f"{hashlib.sha256(bundle).hexdigest()[:12]})")
+    receipt_sha256 = hashlib.sha256(receipt_bytes).hexdigest()
+    report = str(rec.get("report_sha256", ""))
+    subjects, why = bundle_subjects(bundle)
+    if subjects is None:
+        rows.add("bundle subjects", False, f"{name}: {why}")
+        return False, rows.items
+    bad = subject_problems(subjects, receipt_sha256, report)
+    rows.add("bundle subjects", not bad, "; ".join(bad) if bad else
+             f"the signed subjects are exactly the committed receipt ({receipt_sha256[:12]}) and log ({report[:12]})")
+    if expect_repo is not None and expect_repo.lower() != ci["repository"].lower():
+        rows.add("attestation repository", False, f"the package repository is {expect_repo}, but the run is in "
+                                              f"{ci['repository']} (ci.repository): a fork's or another repository's "
+                                              f"run does not back the package")
+    gh = shutil.which("gh")
+    if gh is None:
+        rows.add("verifier", False, GH_MISSING)
+        return False, rows.items
+    how = "offline, against the --trusted-root file" if trusted_root is not None else "online"
+    with tempfile.TemporaryDirectory(prefix="lean-pkg-attest-") as tmp:
+        rpath = pathlib.Path(tmp) / f"{rec['commit'][:12]}-{rec.get('job_id')}.json"
+        bpath = pathlib.Path(tmp) / name
+        rpath.write_bytes(receipt_bytes)
+        bpath.write_bytes(bundle)
+        argv = [gh, "attestation", "verify", str(rpath), "--bundle", str(bpath), "--repo", ci["repository"],
+                "--signer-workflow", VERIFY_WORKFLOW, "--deny-self-hosted-runners", "--format", "json"]
+        if trusted_root is not None:
+            argv += ["--custom-trusted-root", str(pathlib.Path(trusted_root).resolve())]
+        try:
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=GH_ATTEST_TIMEOUT,
+                               env=core.scrubbed_env(), cwd=tmp)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            rows.add("verifier", False, f"gh attestation verify could not run ({e.__class__.__name__}); not attested")
+            return False, rows.items
+    if p.returncode != 0:
+        tail = " ".join((p.stderr or p.stdout or "").strip().splitlines()[-2:])[:300] or "no message"
+        rows.add("verifier", False, f"gh attestation verify ({how}) exited {p.returncode}: {tail}; not attested")
+        return False, rows.items
+    rows.add("verifier", True, f"gh attestation verify ({how}): the signature, the certificate chain and the "
+                               f"transparency-log entry verify for the receipt, signer workflow {VERIFY_WORKFLOW}, "
+                               f"no self-hosted runner")
+    results = _gh_results(p.stdout)
+    if not results:
+        rows.add("certificate", False, "gh attestation verify printed no JSON verification result; not attested")
+    else:
+        _certificate_rows(rows, rec, results, receipt_sha256)
+    return all(r["verdict"] == "pass" for r in rows.items), rows.items
+
+
+def level_of(corroborated: int | None, attested: bool | None) -> int:
+    """The level a receipt reached under the flags given. corroborated: the level-2 answer (None: no
+    --corroborate); attested: the level-3 answer (None: no --attested). Level 3 needs the attestation and, under
+    --corroborate too, the API's answer; a failure never lowers a receipt below level 1."""
+    if attested and (corroborated is None or corroborated >= 2):
+        return 3
+    return 2 if corroborated is not None and corroborated >= 2 else 1

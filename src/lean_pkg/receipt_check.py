@@ -1,6 +1,6 @@
 # lean-pkg receipt check -- validate a published package's receipts from git alone
 """`lean-pkg receipt check --repo DIR --commit X [--at REF] [--docs-descendants | --evidence-only] [--name NAME]
-[--corroborate [--github OWNER/REPO]] [--json]`:
+[--corroborate] [--attested [--trusted-root FILE]] [--github OWNER/REPO] [--json]`:
 the registry-free receipt verifier an outside referee runs on a clone of a published package. It needs no
 lean-pkg registry, no lab account and no network, and it never runs Lean: everything is read from git, at the
 bound commit X and at the published ref REF (default: the checkout's HEAD), in a private clone of DIR (the
@@ -66,7 +66,7 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   commit, the toolchain and Mathlib pins, every Evidence row (path, commit, SHA-256 of the committed file), the
   lower-tier sorry count and axioms, the comparator's configuration and theorem counts.
 
---corroborate (proposal 0008, level 2) is the one networked check: every lower-tier receipt with a `ci` block
+--corroborate (proposal 0008, level 2) is a networked check: every lower-tier receipt with a `ci` block
 that passes level 1 is corroborated against the public GitHub REST API (ci_github.corroborate), one row per
 level-2 check, and fails when it does not reach level 2 (a 404, a 403 or 429 naming GH_TOKEN, a network error
 and a redirect off api.github.com each fail closed, named). The package's own repository is --github
@@ -75,8 +75,19 @@ GITHUB_TOKEN only raises the rate limit; it is never printed or written. The JSO
 (level: the lowest a corroborated receipt reached; null when none has a `ci` block), `github` and
 `network: true`.
 
+--attested (level 3, stage S4): every such receipt's committed Sigstore bundle (`ci.attestation`, beside the
+receipt under .lean-receipts/ at REF) is verified by `gh attestation verify`, an optional outside tool
+(ci_github.attest), one row per level-3 check, and the receipt fails unless it reaches level 3 (with
+--corroborate too, level 2 must hold as well). A missing gh, a bundle not committed, subjects other than the
+committed receipt and log, a verifier that exits non-zero and a certificate naming another repository, commit,
+run or signer each fail, named. --trusted-root FILE verifies offline (gh's --custom-trusted-root). The JSON
+gains `ci`, `github`, `attested: true` and `trusted_root`; `network` is true unless --trusted-root is given and
+--corroborate is not. Without --attested a receipt whose block names a bundle gets a skip row (and the row
+says when gh is not on PATH).
+
 Exit 0 only when no check fails; 1 otherwise; 2 on a usage error (DIR is not a git checkout, X or REF does
-not resolve, --github without --corroborate or not OWNER/REPO).
+not resolve, --github without --corroborate or --attested or not OWNER/REPO, --trusted-root without
+--attested or not a file).
 """
 
 from __future__ import annotations
@@ -105,6 +116,10 @@ PASS, FAIL, SKIP = "pass", "fail", "skip"
 CORROBORATE_NOTE = ("this command never runs Lean; with --corroborate it asks the public GitHub REST API (level 2) "
                     "and nothing else on the network: rebuilding at the commit and re-running the comparator are "
                     "steps 4 and 5 of docs/trust-model.md#re-verify-a-page-yourself")
+ATTESTED_NOTE = ("this command never runs Lean; with --attested it runs `gh attestation verify` on each committed "
+                 "Sigstore bundle (level 3; online unless --trusted-root), and with --corroborate it asks the public "
+                 "GitHub REST API (level 2): rebuilding at the commit and re-running the comparator are steps 4 and "
+                 "5 of docs/trust-model.md#re-verify-a-page-yourself")
 REPO_DEFAULT = ("no --github: the package repository is taken to be each receipt's ci.repository (pass --github "
                 "OWNER/REPO to name it; a run in another repository, a fork included, then does not back)")
 REPO_NOTE = "the package repository is {where}; a run in another repository (by numeric id) does not back"
@@ -416,21 +431,58 @@ def ci_check(c: Checks, repo: pathlib.Path, view: dict, tier: str = "lower") -> 
         c.add(f"{tier} {rel}: ci workflow file", PASS if row[0] == "pass" else SKIP, row[1])
 
 
-def corroborate_check(c: Checks, repo: pathlib.Path, view: dict, fetch, github: str | None) -> dict | None:
+def corroborate_check(c: Checks, repo: pathlib.Path, view: dict, fetch, github: str | None,
+                      attested: bool = False, trusted_root: str | None = None, corroborate: bool = True
+                      ) -> dict | None:
     """--corroborate: level 2 of a receipt whose `ci` block passed level 1 (ci_github.corroborate), one row per
-    check, failed when one fails. {path, level, rows}, or None for a receipt without a valid block."""
+    check, failed when one fails. --attested: level 3 (ci_github.attest: the committed Sigstore bundle, verified
+    by gh attestation verify), one row per check, and the receipt fails unless it reaches level 3. {path, level,
+    rows}, or None for a receipt without a valid block."""
     from . import ci_github
     rec, rel = view["data"], view["path"]
     if ci_github.KEY not in rec or ci_github.level1(rec, repo)[0]:
         return None
-    level, rows = ci_github.corroborate(rec, repo, fetch=fetch, receipt_sha256=view["sha256"], expect_repo=github)
-    for r in rows:
-        c.add(f"lower {rel}: ci level 2 {r['check']}", PASS if r["verdict"] == "pass" else FAIL, r["detail"])
-    c.add(f"lower {rel}: ci level", PASS if level >= 2 else FAIL,
-          ci_github.LEVEL2_NOTE if level >= 2 else
-          f"level {level}: not corroborated, so the GitHub Actions sentence is not earned (the receipt stays a "
-          f"valid level-1 receipt and still backs its compute job)")
-    return {"path": rel, "level": level, "rows": rows}
+    level2, rows = None, []
+    if corroborate:
+        level2, rows = ci_github.corroborate(rec, repo, fetch=fetch, receipt_sha256=view["sha256"],
+                                             expect_repo=github)
+        for r in rows:
+            c.add(f"lower {rel}: ci level 2 {r['check']}", PASS if r["verdict"] == "pass" else FAIL, r["detail"])
+    if not attested:
+        c.add(f"lower {rel}: ci level", PASS if level2 >= 2 else FAIL,
+              ci_github.LEVEL2_NOTE if level2 >= 2 else
+              f"level {level2}: not corroborated, so the GitHub Actions sentence is not earned (the receipt stays a "
+              f"valid level-1 receipt and still backs its compute job)")
+        return {"path": rel, "level": level2, "rows": rows}
+    name = rec[ci_github.KEY].get("attestation")
+    bundle = core.git_show_bytes(repo, f"{RECEIPTS_DIR}/{name}") if isinstance(name, str) else None
+    raw = core.git_show_bytes(repo, rel) or b""
+    ok3, rows3 = ci_github.attest(rec, repo, receipt_bytes=raw, bundle=bundle, expect_repo=github,
+                                  trusted_root=trusted_root)
+    for r in rows3:
+        c.add(f"lower {rel}: ci level 3 {r['check']}", PASS if r["verdict"] == "pass" else FAIL, r["detail"])
+    level = ci_github.level_of(level2, ok3)
+    c.add(f"lower {rel}: ci level", PASS if level >= 3 else FAIL,
+          ci_github.LEVEL3_NOTE if level >= 3 else
+          f"level {level}: not attested, so level 3 is not reached (the receipt stays a valid level-{level} receipt "
+          f"and still backs its compute job)")
+    return {"path": rel, "level": level, "rows": rows + rows3}
+
+
+def attestation_skip(c: Checks, repo: pathlib.Path, view: dict) -> None:
+    """Without --attested: a receipt whose valid `ci` block names a bundle (ci.attestation) gets a skip row saying
+    level 3 was not run (it runs `gh attestation verify`, an optional outside tool, only under --attested)."""
+    import shutil
+    from . import ci_github
+    rec, rel = view["data"], view["path"]
+    ci = rec.get(ci_github.KEY)
+    if not (isinstance(ci, dict) and "attestation" in ci) or ci_github.level1(rec, repo)[0]:
+        return
+    committed = core.git_show_bytes(repo, f"{RECEIPTS_DIR}/{ci['attestation']}") is not None
+    gh = "" if shutil.which("gh") else f"; {ci_github.GH_MISSING}"
+    c.add(f"lower {rel}: ci attestation", SKIP,
+          f"ci.attestation names {RECEIPTS_DIR}/{ci['attestation']} ({'committed' if committed else 'not committed'}"
+          f"): level 3 is not checked without --attested{gh}")
 
 
 def container_check(c: Checks, view: dict, tier: str = "lower") -> None:
@@ -719,17 +771,32 @@ def opt_in_view(oi) -> dict | None:
             "file": oi.file_state, "problems": list(oi.problems)}
 
 
+def attested_usage(attested: bool, trusted_root: str | None) -> str | None:
+    """--trusted-root goes with --attested and names a readable file; its absolute path, or None."""
+    if trusted_root is None:
+        return None
+    if not attested:
+        raise core.UsageError("--trusted-root FILE is the Sigstore trusted root of an offline --attested check; pass "
+                              "both")
+    p = pathlib.Path(trusted_root).expanduser()
+    if not p.is_file():
+        raise core.UsageError(f"--trusted-root {trusted_root}: no such file")
+    return str(p.resolve())
+
+
 def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants: bool = False,
              name: str | None = None, evidence_only: bool = False, corroborate: bool = False,
-             github: str | None = None, fetch=None) -> tuple[list[str], dict, int]:
+             github: str | None = None, fetch=None, attested: bool = False,
+             trusted_root: str | None = None) -> tuple[list[str], dict, int]:
     from . import index as index_mod
     if docs_descendants and evidence_only:
         raise core.UsageError("--docs-descendants and --evidence-only are mutually exclusive: --docs-descendants "
                               f"accepts docs-only descendants for a package without {BINDING_FILE}, "
                               "--evidence-only refuses them whatever the package committed")
     from . import ci_github
-    if github is not None and not corroborate:
+    if github is not None and not (corroborate or attested):
         raise core.UsageError("--github names the package's repository for --corroborate; pass both")
+    trusted_root = attested_usage(attested, trusted_root)
     if github is not None and not ci_github.REPOSITORY_RE.match(github):
         raise core.UsageError(f"--github {github!r}: must be OWNER/REPO")
     corroborated: list[dict] = []
@@ -780,8 +847,11 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                 evidence_file_checks(c, repo, v, x)
                 sacct_seal_check(c, v)
                 ci_check(c, repo, v)
-                if corroborate and (got := corroborate_check(c, repo, v, fetch, github)) is not None:
+                if (corroborate or attested) and (got := corroborate_check(
+                        c, repo, v, fetch, github, attested, trusted_root, corroborate)) is not None:
                     corroborated.append(got)
+                if not attested:
+                    attestation_skip(c, repo, v)
                 container_check(c, v)
                 claim_axioms_check(c, repo, v, x)
         cs = gate_mod.claims_schema_at(pkg_name, pkg, repo, x)
@@ -813,6 +883,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
         i["verdict"] == FAIL for i in c.items if i["id"].startswith(("comparator ", "claimed theorems")))
     tier = index_mod.compute_trust(lower_ok, comp_ok, [])
     rule = rule_text(oi, x, evidence_only)
+    note = ATTESTED_NOTE if attested else CORROBORATE_NOTE if corroborate else RERUN_NOTE
     ok = failed == 0
     counts = {v: sum(i["verdict"] == v for i in c.items) for v in (PASS, FAIL, SKIP)}
     summary = (f"receipt check: {'PASS' if ok else 'FAIL'} {pkg_name} at {x[:12]} "
@@ -822,9 +893,9 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
              f"  commit {x} (published ref {ref[:12]}{', the same commit' if ref == x else ''})",
              f"  rule: {rule}",
              *[f"  exemption: {e}" for e in c.exemptions],
-             f"  note: {CORROBORATE_NOTE if corroborate else RERUN_NOTE}",
+             f"  note: {note}",
              *([f"  repository: {REPO_NOTE.format(where='--github ' + github) if github else REPO_DEFAULT}"]
-               if corroborate else []),
+               if corroborate or attested else []),
              *[f"  {w}" for w in advisory_lines]]
     lines += [f"  {i['verdict'].upper():4} {i['id']}: {i['detail']}" for i in c.items]
     lines.append(summary)
@@ -834,12 +905,15 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
     payload = {"ok": ok, "name": pkg_name, "commit": x, "at": ref, "prefix": src["prefix"] or None,
                "docs_descendants": oi.rule == "docs-only", "evidence_only": bool(evidence_only),
                "opt_in": opt_in_view(oi), "rule": rule, "tier": tier, "runs_lean": False,
-               "network": bool(corroborate),
-               "note": CORROBORATE_NOTE if corroborate else RERUN_NOTE, "receipts": receipts, "bound_receipts": bound,
+               "network": bool(corroborate or (attested and trusted_root is None)),
+               "note": note, "receipts": receipts, "bound_receipts": bound,
                "counts": counts, "exemptions": c.exemptions,
                "skipped_records": [v["path"] for v in found["sidecar"]], "checks": c.items,
                "toolchain_advisories": advisories}
-    if corroborate:
+    if attested:
+        payload["attested"] = True
+        payload["trusted_root"] = trusted_root
+    if corroborate or attested:
         payload["github"] = github
         payload["ci"] = {"level": min((g["level"] for g in corroborated), default=None),
                          "rows": [{"receipt": g["path"], **r} for g in corroborated for r in g["rows"]]}
@@ -849,7 +923,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
 def cmd_receipt_check(args) -> int:
     lines, payload, rc = do_check(args.repo, args.commit_sha, args.at, args.docs_descendants, args.name,
                                   getattr(args, "evidence_only", False),
-                                  corroborate=args.corroborate, github=args.github)
+                                  corroborate=args.corroborate, github=args.github,
+                                  attested=args.attested, trusted_root=args.trusted_root)
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:
@@ -887,8 +962,16 @@ def add_parser(rsub) -> None:
                         "error and a redirect off api.github.com fail closed). GH_TOKEN or GITHUB_TOKEN, when set, "
                         "only raises the rate limit and is never printed. The one networked check")
     s.add_argument("--github", default=None, metavar="OWNER/REPO",
-                   help="with --corroborate: the package's own GitHub repository, whose numeric id the run's must "
-                        "equal (default: the receipt's ci.repository, and the output says so)")
+                   help="with --corroborate or --attested: the package's own GitHub repository, whose numeric id "
+                        "the run's must equal (default: the receipt's ci.repository, and the output says so)")
+    s.add_argument("--attested", action="store_true",
+                   help="also verify every receipt with a ci block at level 3: its committed Sigstore bundle "
+                        "(ci.attestation) with `gh attestation verify`, an optional outside tool (missing: a "
+                        "failure), and the certificate's repository, commit, run and signer against the ci block; "
+                        "fail when one does not reach level 3")
+    s.add_argument("--trusted-root", default=None, metavar="FILE",
+                   help="with --attested: verify offline against this Sigstore trusted root (gh attestation "
+                        "verify --custom-trusted-root)")
     s.add_argument("--json", dest="json_out", action="store_true", default=argparse.SUPPRESS,
                    help="machine-readable JSON on stdout: every check with its verdict")
     s.set_defaults(fn=cmd_receipt_check)

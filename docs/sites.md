@@ -48,7 +48,7 @@ first, then the package's own, each by name).
 - A scheduler also says from which corroboration level its sentence is
   rendered. Slurm's is level 1, what an offline check reaches: a backed
   Easley job puts the Easley sentence on the page. GitHub Actions' is level
-  2 (below).
+  2 (below; level 3, an attested run, renders it too).
 
 | Scheduler | Job id | Backed by | Sentence from |
 |---|---|---|---|
@@ -153,6 +153,14 @@ memory, so render it in CI with `--corroborate` and `GITHUB_TOKEN` set
 `--corroborate`, the README block is stale to an offline `page --check`;
 check it with the flag too.
 
+**Level 3 keeps it.** `verify.yml` also signs the receipt and its log into a
+Sigstore bundle, which you commit beside them.
+`lean-pkg page NAME --attested` (and `page --check --attested`) verifies
+that bundle with `gh attestation verify` instead of asking the API
+([every check](receipts.md#attesting-the-run-level-3---attested)), so the
+sentence still renders after the run's records expire; `page --json`
+reports `level: 3`. With both flags level 3 needs both answers.
+
 ### Writing the receipt in CI
 
 `lean-pkg receipt ci` writes the receipt inside the job, and lean-pkg's
@@ -167,14 +175,15 @@ The caller names `lean-pkg/lean-pkg/.github/workflows/verify.yml@<40-hex>`,
 a full commit: the template fills in the commit of the installed lean-pkg
 when pip recorded one (a `pipx install git+...@vX.Y.Z`); otherwise it
 prints a placeholder to replace. It runs on `push` and `workflow_dispatch`
-only, with `contents: read` and `id-token: write`, never
+only, with `contents: read`, `id-token: write` and `attestations: write`, never
 `contents: write`: CI never pushes to your repository. The job checks out the pushed
 commit, installs elan (a pinned release), the Mathlib cache and lean-pkg at
 the commit of `verify.yml` itself, runs your verify command (input
 `verify-command`, default `bash verify.sh`, the script `lean-pkg new`
 writes) with the log path as its last argument, seals the log in-log, runs
-`lean-pkg receipt ci` and uploads the receipt and its redacted log as the
-artifact `lean-pkg-receipt-<run_id>-<run_attempt>`. After a green run, on
+`lean-pkg receipt ci --attest`, signs the receipt and its redacted log into a
+Sigstore bundle (`actions/attest-build-provenance`, level 3) and uploads the
+three as the artifact `lean-pkg-receipt-<run_id>-<run_attempt>`. After a green run, on
 your machine:
 
 ```bash
@@ -182,8 +191,8 @@ lean-pkg receipt ci --collect 11622958301   # gh run download, the gate's checks
 ```
 
 `--collect` uses your own `gh` login, checks the receipt as `gate --check`
-does against your checkout, and never commits or pushes: commit the two
-files under `.lean-receipts/` yourself (an evidence-only descendant), then
+does against your checkout, and never commits or pushes: commit the files
+under `.lean-receipts/` yourself (the bundle too) (an evidence-only descendant), then
 name the job under `compute` as above. A re-run writes `gha-<run>-2`; pass
 `--attempt N` when a run has more than one receipt artifact. Every refusal
 and the built-in redactions are in [Receipts and
@@ -197,4 +206,5 @@ lean-pkg credit. The lower-tier receipt can come from any executor
 [Receipts and trust](receipts.md)). A receipt from a GitHub Actions run is
 judged at level 1, written in the job by `lean-pkg receipt ci`
 ([Writing the receipt in CI](#writing-the-receipt-in-ci)) and corroborated
-against the run with `--corroborate` ([GitHub Actions](#github-actions)).
+against the run with `--corroborate`, or through its committed attestation
+with `--attested` ([GitHub Actions](#github-actions)).
