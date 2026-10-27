@@ -145,11 +145,18 @@ def _conditional_ready(led: dict) -> tuple[int, list[str]] | None:
     conditional required claims (proposal 0003, open question 1); None otherwise, so other pages are unchanged."""
     if led.get("package_status") != "ready" or not led.get("conditional_required"):
         return None
-    return len(led["conditional_required"]), _names(led.get("outstanding_hypotheses"))
+    return len(led["conditional_required"]), list(led.get("outstanding_hypotheses") or [])
 
 
-def _hyp_list(hyps: list[str]) -> str:
-    return ", ".join(f"`{h}`" for h in hyps) or "none, all discharged"
+def _hyp_list(hyps: list) -> str:
+    """The outstanding hypotheses as code spans; a name that is not a safe token is counted, never dropped, so
+    the list never reads as empty ("all discharged") while one is outstanding."""
+    if not hyps:
+        return "none, all discharged"
+    shown = _names(hyps)
+    hidden = len(hyps) - len(shown)
+    return ", ".join([f"`{h}`" for h in shown] + ([f"{hidden} more not shown here (see the claims ledger)"]
+                                                  if hidden else []))
 
 
 def _conditional_tag(led: dict) -> str:

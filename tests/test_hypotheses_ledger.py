@@ -518,3 +518,12 @@ def test_the_page_shows_an_evaluated_conditional_row_as_not_yet_verified(lp, env
     block = md.split("### Theorem 1: Main bound\n", 1)[1].split("\n## ", 1)[0]
     assert a["verified_rows"] == 0 and "**Verified.**" not in md
     assert block.startswith("\n**Not yet verified.** lean-pkg's record of the checks says: conditional.")
+
+
+def test_page_never_lists_outstanding_hypotheses_as_empty_when_a_name_is_hidden():
+    from lean_pkg import page
+    # a name that is not a safe token is counted, never dropped: an empty list would read "all discharged"
+    assert page._hyp_list([]) == "none, all discharged"
+    assert page._hyp_list(["Hyp.A"]) == "`Hyp.A`"
+    assert page._hyp_list(["«my hyp»"]) == "1 more not shown here (see the claims ledger)"
+    assert page._hyp_list(["Hyp.A", "a`b"]) == "`Hyp.A`, 1 more not shown here (see the claims ledger)"
