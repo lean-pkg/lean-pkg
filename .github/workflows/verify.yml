@@ -9,6 +9,13 @@
 # lean-pkg-receipt-<run_id>-<run_attempt>. The author collects it with `lean-pkg receipt ci --collect RUN`
 # and commits it; CI never pushes to the package's repository (no contents: write).
 #
+# With `comparator: true` a second job, `comparator`, runs the comparator tier on its own GitHub-hosted runner
+# (proposal 0008, stage S5): it lifts Ubuntu's AppArmor restriction on unprivileged user namespaces (the judge
+# runs `lake comparator` inside bwrap, which needs one; a hosted runner's sudo allows it), checks with
+# `lean-pkg comparator host-check --routes` that this runner can judge (else it fails naming the route), then
+# runs `lean-pkg receipt comparator`, whose receipt records host_policy "GitHub Actions run R attempt A",
+# job_id gha-R-A and the same `ci` block. It uploads lean-pkg-comparator-receipt-<run_id>-<run_attempt>.
+#
 # Every action is pinned to a full commit SHA. Inputs reach shell steps through env, never interpolated into
 # a script.
 name: lean-pkg verify (reusable)
@@ -32,6 +39,10 @@ on:
         description: the job's time limit (a GitHub-hosted runner allows at most 360)
         type: number
         default: 360
+      comparator:
+        description: also run the comparator tier (lean-pkg receipt comparator) in the job `comparator`; the package needs committed comparator configurations
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -117,4 +128,83 @@ jobs:
           path: |
             ${{ inputs.package-dir }}/.lean-receipts/*-gha-${{ github.run_id }}-${{ github.run_attempt }}.json
             ${{ inputs.package-dir }}/.lean-receipts/*-gha-${{ github.run_id }}-${{ github.run_attempt }}-verify.redacted.log
+          if-no-files-found: error
+
+  comparator:
+    # the comparator tier (proposal 0008, S5); GitHub-hosted only: on a self-hosted runner `receipt comparator`
+    # does not recognize the run, and its receipt would back no GitHub Actions job
+    if: ${{ inputs.comparator }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    permissions:
+      contents: read
+      id-token: write   # as in verify: the job_workflow_ref claim becomes ci.job_workflow; the token is never kept
+    env:
+      PKG_DIR: ${{ inputs.package-dir }}
+      LEAN_PKG_SHA: ${{ github.job_workflow_sha }}
+      ELAN_VERSION: v4.2.4
+      ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
+    steps:
+      - name: Check out the pushed commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Fetch the workflow commit when it is not the pushed one
+        run: |
+          git cat-file -e "${GITHUB_WORKFLOW_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags --depth=1 origin "$GITHUB_WORKFLOW_SHA"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install lean-pkg at this workflow's commit
+        run: |
+          [[ "$LEAN_PKG_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "github.job_workflow_sha is not a 40-hex commit: '$LEAN_PKG_SHA'" >&2; exit 1; }
+          python -m pip install --disable-pip-version-check "git+https://github.com/lean-pkg/lean-pkg.git@${LEAN_PKG_SHA}"
+          lean-pkg --version
+
+      - name: Install elan (pinned release)
+        run: |
+          d=$(mktemp -d)
+          curl -sSfL "https://github.com/leanprover/elan/releases/download/${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz" -o "$d/elan.tar.gz"
+          echo "${ELAN_SHA256}  $d/elan.tar.gz" | sha256sum -c -
+          tar -xzf "$d/elan.tar.gz" -C "$d"
+          "$d/elan-init" -y --no-modify-path --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Install bubblewrap (the judge's sandbox)
+        run: |
+          command -v bwrap >/dev/null || { sudo apt-get update -q && sudo apt-get install -y -q bubblewrap; }
+
+      - name: Allow bwrap an unprivileged user namespace (AppArmor)
+        run: |
+          # Ubuntu 24.04 sets kernel.apparmor_restrict_unprivileged_userns=1; bwrap then cannot create the user
+          # namespace the judge needs. This runner's VM is the job's own, and its sudo may lift the restriction.
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = "1" ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Check that this runner can judge (comparator host-check --routes)
+        working-directory: ${{ inputs.package-dir }}
+        run: |
+          lean-pkg comparator host-check --routes | tee "$RUNNER_TEMP/host-routes.txt" || true
+          if ! grep -q '^route judge: yes' "$RUNNER_TEMP/host-routes.txt"; then
+            echo "::error title=lean-pkg comparator::this runner cannot judge: $(grep '^route judge:' "$RUNNER_TEMP/host-routes.txt" || echo 'route judge: not reported')"
+            exit 1
+          fi
+
+      - name: Write the comparator receipt (lean-pkg receipt comparator)
+        run: lean-pkg receipt comparator --repo "$PKG_DIR" --mechanism toolchain
+
+      - name: Upload the comparator receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lean-pkg-comparator-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ inputs.package-dir }}/.lean-receipts/*-comparator.json
+            ${{ inputs.package-dir }}/.lean-receipts/*-comparator-*.log
           if-no-files-found: error

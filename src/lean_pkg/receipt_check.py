@@ -392,26 +392,28 @@ def sacct_seal_check(c: Checks, view: dict) -> None:
     c.add(f"lower {rel}: sacct seal", PASS, gate_mod.sacct_seal_lines(rec)[0][2:].replace("at HEAD", "at the ref"))
 
 
-def ci_check(c: Checks, repo: pathlib.Path, view: dict) -> None:
+def ci_check(c: Checks, repo: pathlib.Path, view: dict, tier: str = "lower") -> None:
     """The additive `ci` block (a GitHub Actions run, proposal 0008), at level 1: shown. The validator
     (gate_mod.validate_receipt, run first) already refused a block that fails level 1; this row names the run, and
-    the workflow-file row says whether the file was rehashed or why not. A gha- receipt without the block: a
-    skip row (it backs no GitHub Actions compute job)."""
+    the workflow-file row says whether the file was rehashed or why not. `tier`: "lower", or "comparator" for a
+    comparator receipt written on a GitHub-hosted runner (proposal 0008, S5; validate_comparator refused a failing
+    block). A gha- receipt without the block: a skip row (it backs no GitHub Actions compute job)."""
     from . import ci_github
     rec, rel = view["data"], view["path"]
     if ci_github.KEY not in rec:
         job = rec.get("job_id")
         if isinstance(job, str) and ci_github.JOB_RE.match(job):
-            c.add(f"lower {rel}: ci", SKIP, f"job_id {job} has no ci block: the receipt is a lower-tier receipt "
+            c.add(f"{tier} {rel}: ci", SKIP, f"job_id {job} has no ci block: the receipt is a "
+                  f"{'lower-tier' if tier == 'lower' else tier} receipt "
                   f"like any other, but backs no GitHub Actions compute job")
         return
     problems, row = ci_github.level1(rec, repo)
     if problems:        # unreachable after the validator; kept so a row never claims a pass it did not check
-        c.add(f"lower {rel}: ci", FAIL, "; ".join(problems))
+        c.add(f"{tier} {rel}: ci", FAIL, "; ".join(problems))
         return
-    c.add(f"lower {rel}: ci", PASS, ci_github.summary(rec))
+    c.add(f"{tier} {rel}: ci", PASS, ci_github.summary(rec))
     if row is not None:
-        c.add(f"lower {rel}: ci workflow file", PASS if row[0] == "pass" else SKIP, row[1])
+        c.add(f"{tier} {rel}: ci workflow file", PASS if row[0] == "pass" else SKIP, row[1])
 
 
 def corroborate_check(c: Checks, repo: pathlib.Path, view: dict, fetch, github: str | None) -> dict | None:
@@ -796,6 +798,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                   f"sign-off), every log's sha256 and PASS line, same commit as the lower tier")
             olean_check(c, repo, v, x)
             container_check(c, v, "comparator")
+            ci_check(c, repo, v, "comparator")
         claimed_theorems_check(c, repo, pkg, x, bool(found["comparator"]))
         coverage_check(c, repo, pkg)
         page_checks(c, repo, x, found)

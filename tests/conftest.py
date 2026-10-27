@@ -41,7 +41,10 @@ def _scrub_git_local_env() -> None:
                  "LEAN_PKG_PUSH_RETRIES", "LEAN_PKG_GZIP_LIMIT",
                  "COMPARATOR_CHECK",
                  "COMPARATOR_RECEIPT_ALLOW_HOST", "COMPARATOR_RECEIPT_ALLOWED_HOSTS",
-                 "SLURM_JOB_ID"):
+                 "SLURM_JOB_ID",
+                 # lean-pkg's own CI runs on GitHub-hosted runners: the comparator's GitHub Actions context
+                 # (proposal 0008, S5) is entered only by the tests that build it
+                 "GITHUB_ACTIONS", "RUNNER_ENVIRONMENT"):
         os.environ.pop(name, None)
     # The comparator host policy's workstation default depends on whether this machine has Slurm; tests that
     # want it enable it themselves (test_comparator_host_default.py).

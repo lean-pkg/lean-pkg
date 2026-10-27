@@ -172,6 +172,28 @@ page: that needs a corroborated run (level 2, `--corroborate`; [Corroborating
 the run](receipts.md#corroborating-the-run-level-2---corroborate)). A receipt with a `gha-` job id and no `ci` block still passes
 `gate` and backs no `compute` job.
 
+### In a comparator receipt
+
+`ci` is also an optional, additive key of `comparator-receipt/2` (stage S5
+of the proposal): `lean-pkg receipt comparator` writes it when it runs on a
+GitHub-hosted runner, with `job_id` `gha-<run_id>-<run_attempt>` and
+`host_policy` `GitHub Actions run <run_id> attempt <run_attempt>`
+([On a GitHub-hosted runner](comparator.md#on-a-github-hosted-runner)). The
+schema stays `comparator-receipt/2`, and a lean-pkg that predates the key
+ignores it, as `validate_comparator` ignores every key it does not read.
+
+The block has the keys of the table above except `verify_log_sha256`: a
+comparator receipt has no verify log, and each of its comparison logs is
+bound by `configs[].log_sha256`. Level 1 applies the same rules, with
+`commit` the comparator receipt's own, plus two of its own: `host_policy`
+must name the run (`GitHub Actions run <run_id> attempt <run_attempt>`), and
+a `verify_log_sha256` key is refused. `gate`, `gate --check` and
+`receipt check` refuse a comparator receipt whose block fails
+(`comparator ci block (a GitHub Actions run, level 1; ...): ...`). Only a
+comparator receipt whose block passes backs a `github-actions` `compute`
+job, as only a sealed one backs a Slurm job; one with a `gha-` job id and no
+block is named in the refusal.
+
 ## The hypotheses section of the verify log (`hyp-probe/1`)
 
 **Written since stage H1 of [proposal 0003](proposals/0003-conditional-claims-and-discharge.md)

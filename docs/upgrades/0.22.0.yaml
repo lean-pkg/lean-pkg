@@ -278,6 +278,31 @@ changes:
       receipt ci --collect RUN.
     breaking: false
     changelog: Added
+  - pr: 0
+    id: comparator-receipt-github-actions
+    kind: format
+    area: comparator receipts, coverage check, receipt check
+    summary: >-
+      Stage S5 of proposal 0008 (#318): lean-pkg receipt comparator (the comparator-receipt program) runs on a
+      GitHub-hosted runner (GITHUB_ACTIONS=true and RUNNER_ENVIRONMENT=github-hosted) as a host-policy context of
+      its own, checked first: the comparator-receipt/2 receipt records host_policy "GitHub Actions run R attempt
+      A", job_id gha-R-A and the additive ci block of receipt ci less verify_log_sha256. On a hosted runner with a
+      runner variable missing or malformed, a disallowed event, a server other than github.com, the workflow file
+      missing at GITHUB_WORKFLOW_SHA or GITHUB_SHA other than the checkout's HEAD it refuses, writing nothing.
+      GITHUB_ACTIONS without RUNNER_ENVIRONMENT, or a self-hosted runner, is not recognized (the other rules apply,
+      as before). gate, gate --check and receipt check refuse a comparator ci block that fails level 1 (the
+      lower-tier rules, plus host_policy equal to the run and no verify_log_sha256); a comparator receipt backs
+      coverage.yaml compute: [{cluster: github-actions, jobs: [gha-R-A]}] only with a block that passes, and a
+      gha- comparator receipt without one is named. slurm_job_of is unchanged. lean-pkg's verify.yml gains the
+      input comparator (default false) and the job comparator: bubblewrap, the AppArmor user-namespace sysctl,
+      comparator host-check --routes (fails unless route judge: yes), receipt comparator, and the artifact
+      lean-pkg-comparator-receipt-<run>-<attempt>.
+    action: >-
+      Nothing for a package whose comparator receipts come from Slurm, a listed host or a workstation. To run the
+      comparator tier on GitHub Actions, pass comparator: true to verify.yml and commit the run's comparator
+      receipt and logs; a script reading a comparator receipt may see the ci key.
+    breaking: false
+    changelog: Added
   - pr: 350
     id: hyp-probe-log-section
     kind: format

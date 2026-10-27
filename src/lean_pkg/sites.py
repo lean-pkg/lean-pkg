@@ -26,7 +26,8 @@ A *scheduler* is code, not data: it is how a committed receipt shows a job ran (
 its sentence (`sentence_level`). Slurm: `slurm-<J>`, which `receipt slurm` writes only after sacct shows the
 job COMPLETED, or a comparator receipt whose Slurm claim (job_id J, host_policy `Slurm job J ...`) carries a
 valid sacct seal (`comparator-receipt --seal-sacct`); sentence level 1. GitHub Actions (proposal 0008):
-`gha-<run_id>-<run_attempt>`, a lower-tier receipt whose additive `ci` block passes level 1 (ci_github.py);
+`gha-<run_id>-<run_attempt>`, a lower-tier receipt, or a comparator receipt written on a GitHub-hosted runner
+(stage S5), whose additive `ci` block passes level 1 (ci_github.py);
 sentence level 2, so the page carries its sentence only once the run is corroborated, never offline. A
 built-in-only scheduler (`builtin_only`) may be named by a built-in profile alone: no package writes its own
 wording for its evidence sentence. The acknowledgement token `{runs}` (filled with the corroborated runs'

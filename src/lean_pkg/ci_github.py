@@ -12,6 +12,14 @@ report_sha256` (gate's own report-log check binds the committed log to report_sh
 formed and of the same repository, and the workflow file at `workflow_sha` hashing to `workflow_file_sha256`
 when that commit is in the clone (else a shown skip). Unknown keys inside the block are ignored.
 
+A comparator receipt (`comparator-receipt/2`) written on a GitHub-hosted runner carries the same block (proposal
+0008, stage S5: comparator_receipt.github_actions_context), less `verify_log_sha256`: a comparator receipt has
+no verify log, and gate binds each of its comparison logs through `configs[].log_sha256`. Its level 1 also
+requires `host_policy == "GitHub Actions run <run_id> attempt <run_attempt>"` (what the runner records), and
+refuses `verify_log_sha256` when present. With a block that passes, the comparator receipt backs its
+`gha-<R>-<A>` job: the CI counterpart of a comparator receipt's Slurm claim, which backs only with its sacct
+seal (coverage.slurm_job_of).
+
 That is consistency only, the strength of a `slurm-<J>` receipt and as forgeable: every value is text the
 author could write. Level 1 backs a compute job but never renders the GitHub Actions sentence on the page
 (the scheduler's sentence_level is 2: a corroborated run).
@@ -50,6 +58,9 @@ ALLOWED_EVENTS = ("push", "workflow_dispatch")
 REQUIRED = ("provider", "server_url", "repository", "repository_id", "run_id", "run_attempt", "job", "event",
             "head_sha", "workflow_ref", "workflow_sha", "workflow_file_sha256", "job_workflow", "runner",
             "verify_log_sha256")
+# a comparator receipt's block: the same keys less verify_log_sha256 (it has no verify log; gate binds its
+# comparison logs through configs[].log_sha256)
+COMPARATOR_REQUIRED = tuple(k for k in REQUIRED if k != "verify_log_sha256")
 OPTIONAL = ("attestation",)
 RUNNER_REQUIRED = ("environment", "os", "arch", "image", "image_version")
 HOSTED = "github-hosted"
@@ -63,6 +74,11 @@ LEVEL1_NOTE = ("level 1, offline: consistent with itself, the commit and the com
                "receipt and as forgeable; it does not show that the run happened")
 EVENT_WHY = ("a pull_request run is on a merge commit, not the receipt's commit; pull_request_target runs the base "
              "branch's workflow with the pull request's code; other events are not accepted until a proposal says so")
+
+
+def host_policy_of(run_id, attempt) -> str:
+    """The host_policy a comparator receipt written in a GitHub Actions run records (proposal 0008, S5)."""
+    return f"GitHub Actions run {run_id} attempt {attempt}"
 
 
 def _pos_int(v, minimum: int = 1) -> bool:
@@ -92,7 +108,8 @@ def level1(rec: dict, repo: pathlib.Path | None) -> tuple[list[str], tuple[str, 
     if not isinstance(ci, dict):
         return [f"ci: must be a mapping (the GitHub Actions run block), got {type(ci).__name__}"], None
     out: list[str] = []
-    missing = [k for k in REQUIRED if k not in ci]
+    comparator = rec.get("schema") in core.COMPARATOR_SCHEMAS
+    missing = [k for k in (COMPARATOR_REQUIRED if comparator else REQUIRED) if k not in ci]
     if missing:
         out.append(f"ci: missing required key(s) {', '.join(missing)}")
     has = ci.__contains__
@@ -116,6 +133,9 @@ def level1(rec: dict, repo: pathlib.Path | None) -> tuple[list[str], tuple[str, 
         want = f"gha-{run_id}-{attempt}"
         if rec.get("job_id") != want:
             out.append(f"job_id: {rec.get('job_id')!r} is not {want} (gha-<ci.run_id>-<ci.run_attempt>)")
+        if comparator and rec.get("host_policy") != host_policy_of(run_id, attempt):
+            out.append(f"host_policy: {rec.get('host_policy')!r} is not {host_policy_of(run_id, attempt)!r} (what "
+                       f"comparator-receipt records on a GitHub-hosted runner)")
     if has("job") and not _line(ci["job"]):
         out.append(f"ci.job: must be one non-empty line, got {ci['job']!r}")
     if has("event") and ci["event"] not in ALLOWED_EVENTS:
@@ -145,7 +165,10 @@ def level1(rec: dict, repo: pathlib.Path | None) -> tuple[list[str], tuple[str, 
     if has("runner"):
         out += _runner_problems(ci["runner"])
     vlog = ci.get("verify_log_sha256")
-    if has("verify_log_sha256"):
+    if comparator and has("verify_log_sha256"):
+        out.append("ci.verify_log_sha256: a comparator receipt has no verify log (each comparison log is bound by "
+                   "configs[].log_sha256); the key belongs to a lower-tier receipt's block")
+    elif has("verify_log_sha256"):
         if not (isinstance(vlog, str) and HEX64.match(vlog)):
             out.append(f"ci.verify_log_sha256: must be 64 lowercase hex, got {vlog!r}")
         elif vlog != str(rec.get("report_sha256", "")).lower():
@@ -203,9 +226,11 @@ def _workflow_row(repo, path: str, wsha: str, want: str, out: list[str]) -> tupl
 def summary(rec: dict) -> str:
     """One line naming the run a valid block describes (level1 found no problem)."""
     ci = rec[KEY]
+    logs = ("host_policy" if rec.get("schema") in core.COMPARATOR_SCHEMAS
+            else "verify_log_sha256 = report_sha256")
     return (f"GitHub Actions run {ci['run_id']} attempt {ci['run_attempt']} of {ci['repository']} (event "
             f"{ci['event']}, job {ci['job']}, {ci['runner']['environment']} runner): head_sha = commit, job_id, "
-            f"verify_log_sha256 = report_sha256, server and provider consistent; {LEVEL1_NOTE}")
+            f"{logs}, server and provider consistent; {LEVEL1_NOTE}")
 
 
 def check_lines(rec: dict, repo: pathlib.Path | None) -> list[str]:
@@ -228,28 +253,31 @@ def check_lines(rec: dict, repo: pathlib.Path | None) -> list[str]:
 # --------------------------------------------------------------------------
 # the github-actions scheduler's reader (coverage.JOB_INDEX) and its near misses
 
-def _is_lower(rec: dict) -> bool:
-    return rec.get("schema") not in core.COMPARATOR_SCHEMAS
-
-
 def gha_job_of(rec: dict, repo: pathlib.Path | None) -> str | None:
-    """The receipt's GitHub Actions job `gha-<R>-<A>`, or None: a lower-tier receipt with that job_id whose
-    `ci` block passes level 1. A gha- job_id without the block, or with a failing one, shows no run."""
+    """The receipt's GitHub Actions job `gha-<R>-<A>`, or None: a lower-tier or comparator receipt with that
+    job_id whose `ci` block passes level 1 (for a comparator receipt the block is what makes its claim, as an
+    sacct seal makes a Slurm one). A gha- job_id without the block, or with a failing one, shows no run."""
     job = rec.get("job_id")
-    if not (isinstance(job, str) and JOB_RE.match(job) and _is_lower(rec) and KEY in rec):
+    if not (isinstance(job, str) and JOB_RE.match(job) and KEY in rec):
         return None
     return job if not level1(rec, repo)[0] else None
 
 
 def jobs_at_head(repo: pathlib.Path) -> dict[str, str]:
-    """{gha-<R>-<A>: receipt path} for every receipt tracked at HEAD that shows a GitHub Actions run."""
+    """{gha-<R>-<A>: receipt path} for every receipt tracked at HEAD that shows a GitHub Actions run. The verify
+    and comparator jobs of one verify.yml run share gha-<R>-<A>: the lower-tier receipt is named first, since
+    corroboration (level 2) reads its annotation; a comparator receipt is named only for a job no lower-tier
+    receipt shows."""
     from . import coverage as cov
     out: dict[str, str] = {}
+    comparator: dict[str, str] = {}
     for rel in cov.tracked_receipts(repo):
         rec, _raw = cov.receipt_at_head(repo, rel)
         job = gha_job_of(rec, repo) if rec else None
         if job:
-            out.setdefault(job, rel)
+            (comparator if rec.get("schema") in core.COMPARATOR_SCHEMAS else out).setdefault(job, rel)
+    for job, rel in comparator.items():
+        out.setdefault(job, rel)
     return out
 
 
@@ -261,7 +289,7 @@ def near_misses(repo: pathlib.Path, missing: list[str]) -> str:
     for rel in cov.tracked_receipts(repo):
         rec, _raw = cov.receipt_at_head(repo, rel)
         job = rec.get("job_id") if rec else None
-        if job not in missing or job in hints or not _is_lower(rec):
+        if job not in missing or job in hints:
             continue
         if KEY not in rec:
             hints[job] = (f"; {rel} has job_id {job} but no ci block, so it backs no GitHub Actions job (the block "
