@@ -432,6 +432,69 @@ def test_registry_without_a_checkout_is_unknown_not_conditional(lp, env, capsys)
 
 # --- outputs stay fail closed until stage H4: the page never calls a conditional row verified -----------------
 
+def _conditional_page(env, monkeypatch, outstanding=True):
+    """The page fixture with beta/foo-le-bar (the one reusable claim) under Hyp.A, evaluated from a sealed
+    hyp-probe/1 section: ready with one conditional required claim, Hyp.A outstanding unless discharged."""
+    from lean_pkg import gate as gate_mod
+
+    from .conftest import CLAIMS_YAML
+    from .test_page import COVERAGE, prepare
+    claims_text = yaml.safe_load(CLAIMS_YAML)
+    claims_text["claims"][0]["hypotheses"] = ["Hyp.A"]
+    cov = copy.deepcopy(COVERAGE)
+    cov["rows"][0].update({"class": "inputs-supplied",
+                           "inputs": [{"hypothesis": "Hyp.A", "text": "the a priori bound, Lemma 3.1"}]})
+    prepare(env, cov, extra={"claims.yaml": yaml.safe_dump(claims_text, sort_keys=False)})
+    names = json.loads((env.repo_b / "comparator.json").read_text())["theorem_names"]
+    log = hyp_log(decls={"Demo.foo_le_bar": (binder(0, "Hyp.A"),)},
+                  challenge={n: (binder(0, "Hyp.A"),) for n in names}, facts=[])
+    monkeypatch.setattr(gate_mod, "sealed_log_text", lambda repo, rec, rel: log)
+    if not outstanding:                     # every hypothesis discharged: the ledger names none outstanding
+        from lean_pkg import ledger as ledger_mod
+        real = ledger_mod.ledger_for
+
+        def discharged(pkg, stage="promote"):
+            led = real(pkg, stage)
+            if "outstanding_hypotheses" in led:
+                led["outstanding_hypotheses"] = []
+            return led
+        monkeypatch.setattr(ledger_mod, "ledger_for", discharged)
+
+
+READY_CONDITIONAL = ("- lean-pkg's claims ledger: **ready**, every required claim is verified or conditional (proved "
+                     "under its stated hypotheses) by the recorded receipts; 0 of 1 required claim(s) verified, 1 "
+                     "conditional (outstanding hypotheses: `Hyp.A`) (`sha256:")
+
+
+def test_a_ready_ledger_with_conditional_claims_says_so_on_the_page(lp, env, capsys, monkeypatch, tmp_path):
+    from .test_page import page_json, run
+    _conditional_page(env, monkeypatch)
+    rc, a = page_json(lp, env, capsys)
+    md = a["markdown"]
+    assert rc == 0 and a["ledger_status"] == "ready" and a["verified_rows"] == 0
+    [line] = [x for x in md.splitlines() if x.startswith("- lean-pkg's claims ledger:")]
+    assert line.startswith(READY_CONDITIONAL), line
+    assert line.endswith("…`). A conditional result says nothing when an outstanding assumption is false.")
+    assert "every required claim is closed by the recorded receipts" not in md
+    site = tmp_path / "site"
+    rc, out, _ = run(lp, env, capsys, "page", "beta", "--site", str(site))
+    cov_md = (site / "coverage.md").read_text()
+    assert ("- lean-pkg's claims ledger: **ready**, with 1 conditional required claim(s) (outstanding hypotheses: "
+            "`Hyp.A`) (`sha256:") in cov_md
+    (env.repo_b / "README.md").write_text("# Beta\n")
+    rc, _out, _err = run(lp, env, capsys, "page", "beta", "--write")
+    assert rc == 0 and READY_CONDITIONAL in (env.repo_b / "README.md").read_text()
+    rc, _out, err = run(lp, env, capsys, "page", "beta", "--check", "--site", str(site))
+    assert rc == 0, err                                  # --check round-trips the conditional line
+
+
+def test_a_ready_page_with_every_hypothesis_discharged_says_none_outstanding(lp, env, capsys, monkeypatch):
+    from .test_page import page_json
+    _conditional_page(env, monkeypatch, outstanding=False)
+    rc, a = page_json(lp, env, capsys)
+    assert "1 conditional (outstanding hypotheses: none, all discharged)" in a["markdown"]
+
+
 def test_the_page_shows_an_evaluated_conditional_row_as_not_yet_verified(lp, env, capsys, monkeypatch):
     from lean_pkg import gate as gate_mod
 

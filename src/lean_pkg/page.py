@@ -137,6 +137,28 @@ LEDGER_WORDS = {
     "failed": "recorded evidence contradicts a required claim",
     "unknown": "the recorded evidence cannot be read, or establishes nothing yet",
 }
+CONDITIONAL_SENTENCE = "A conditional result says nothing when an outstanding assumption is false."
+
+
+def _conditional_ready(led: dict) -> tuple[int, list[str]] | None:
+    """(conditional required claims, outstanding hypotheses as safe names) when the ledger is ready with
+    conditional required claims (proposal 0003, open question 1); None otherwise, so other pages are unchanged."""
+    if led.get("package_status") != "ready" or not led.get("conditional_required"):
+        return None
+    return len(led["conditional_required"]), _names(led.get("outstanding_hypotheses"))
+
+
+def _hyp_list(hyps: list[str]) -> str:
+    return ", ".join(f"`{h}`" for h in hyps) or "none, all discharged"
+
+
+def _conditional_tag(led: dict) -> str:
+    """The qualifier after a ready ledger's status on the coverage pages ('' unless conditional)."""
+    cond = _conditional_ready(led)
+    return (f", with {cond[0]} conditional required claim(s) (outstanding hypotheses: {_hyp_list(cond[1])})"
+            if cond else "")
+
+
 def _cell(s) -> str:
     return str(s).replace("|", "\\|").replace("\n", " ")
 
@@ -801,8 +823,16 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
     md += ["## How this was checked", ""]
     req = led["required"]
     n_req_ok = sum(1 for r in led["claims"] if r["required"] and r["status"] == "verified")
-    md.append(f"- lean-pkg's claims ledger: **{pstatus}**, {LEDGER_WORDS.get(pstatus, _md(pstatus))}; "
-              f"{n_req_ok} of {req} required claim(s) verified (`{led['ledger_digest'][:23]}…`).")
+    cond = _conditional_ready(led)
+    if cond:                # proposal 0003: a ready ledger with conditional claims never reads as unconditional
+        k, hyps = cond
+        md.append(f"- lean-pkg's claims ledger: **{pstatus}**, every required claim is verified or conditional "
+                  f"(proved under its stated hypotheses) by the recorded receipts; {n_req_ok} of {req} required "
+                  f"claim(s) verified, {k} conditional (outstanding hypotheses: {_hyp_list(hyps)}) "
+                  f"(`{led['ledger_digest'][:23]}…`). {CONDITIONAL_SENTENCE}")
+    else:
+        md.append(f"- lean-pkg's claims ledger: **{pstatus}**, {LEDGER_WORDS.get(pstatus, _md(pstatus))}; "
+                  f"{n_req_ok} of {req} required claim(s) verified (`{led['ledger_digest'][:23]}…`).")
     if lower:
         sc = lower.get("sorry_count")
         md.append(f"- Build check (`lean-pkg gate`) at commit `{_c12(lower.get('commit'))}`: `sorry` count "
@@ -952,7 +982,8 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
     md += [f"Manuscript: {_manuscript_ref(doc['manuscript'])}.", "",
            f"- Paper results: {len(doc['rows'])} ({counts['same-assumptions']} same assumptions, "
            f"{counts['inputs-supplied']} inputs supplied, {counts['outside']} outside this formalization).",
-           f"- lean-pkg's claims ledger: **{led['package_status']}** (`{led['ledger_digest'][:23]}…`).", "",
+           f"- lean-pkg's claims ledger: **{led['package_status']}**{_conditional_tag(led)} "
+           f"(`{led['ledger_digest'][:23]}…`).", "",
            "| Paper | Title | Correspondence | Claims | Lean declarations | Ledger | Inputs | Note |",
            "|---|---|---|---|---|---|---|---|"]
     for r in doc["rows"]:
@@ -979,7 +1010,8 @@ def _library_coverage_lines(ctx: dict, target: str) -> list[str]:
     by_id = {r["id"]: r for r in led["claims"]}
     md = ["Library: each row is a main result of the library.", "",
           f"- Main results: {len(doc['rows'])}.",
-          f"- lean-pkg's claims ledger: **{led['package_status']}** (`{led['ledger_digest'][:23]}…`).", "",
+          f"- lean-pkg's claims ledger: **{led['package_status']}**{_conditional_tag(led)} "
+          f"(`{led['ledger_digest'][:23]}…`).", "",
           "| Result | Claims | Lean declarations | Ledger | Note |", "|---|---|---|---|---|"]
     for r in doc["rows"]:
         ids = list(r["claims"])

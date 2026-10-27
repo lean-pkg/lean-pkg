@@ -207,7 +207,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   ledger, byte for byte, and the same `ledger_digest`
   (`tests/golden/ledger-no-keys.json`). The page, `status`, `receipt check`
   and the index do not render conditional results yet: a conditional row of
-  the page reads "Not yet verified"
+  the page reads "Not yet verified", and a `ready` ledger with conditional
+  required claims says so on the page ("every required claim is verified or
+  conditional (proved under its stated hypotheses) ...; N of M required
+  claim(s) verified, K conditional (outstanding hypotheses: ...)", then "A
+  conditional result says nothing when an outstanding assumption is
+  false."), never "every required claim is closed"
   ([conditional claims](docs/lifecycle.md#conditional-claims)).
 
 - The committed docs-only opt-in, `lean-pkg-binding.yaml` (#349; #319,

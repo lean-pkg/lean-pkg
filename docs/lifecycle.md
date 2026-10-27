@@ -265,7 +265,12 @@ claims ledger ready: N required claim(s) verified or conditional (conditional: K
 `next` then names an outstanding hypothesis as a possible next
 formalization step, never as an error. The page, `status`, `receipt check`
 and the index do not render conditional results yet: a conditional row of
-the page reads "Not yet verified", with the ledger word `conditional`.
+the page reads "Not yet verified", with the ledger word `conditional`. A
+`ready` ledger with conditional required claims never reads as
+unconditional on the page: its line says every required claim is verified
+or conditional, counts the conditional ones, names the outstanding
+hypotheses, and adds "A conditional result says nothing when an outstanding
+assumption is false." (the coverage page adds the same count and names).
 
 A comparator configuration names a claim only by its full declaration name:
 a `theorem_names` entry equal to the claim's `decl`, or `<Prefix>.<decl>`
