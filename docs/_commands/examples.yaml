@@ -290,6 +290,8 @@ lean-pkg receipt ci:
     say: Print the caller workflow that runs lean-pkg's reusable verify.yml on a GitHub-hosted runner; commit it as .github/workflows/lean-pkg.yml.
   - cmd: lean-pkg receipt ci --log "$RUNNER_TEMP/lean-pkg/verify.log" --repo .
     say: Inside the job (verify.yml's last step), write the receipt gha-<run>-<attempt> with its ci block from the runner's variables; refused outside GitHub Actions.
+  - cmd: lean-pkg receipt ci --log "$RUNNER_TEMP/lean-pkg/verify.log" --repo . --attest
+    say: The same in a job that attests (verify.yml), where ci.attestation names the Sigstore bundle the next step signs over the receipt and its log.
   - cmd: lean-pkg receipt ci --collect 11622958301 --attempt 1
     say: On your machine, download the run's receipt artifact with gh, check it as gate --check does and copy it into .lean-receipts/; nothing is committed or pushed.
 
@@ -321,6 +323,8 @@ lean-pkg receipt check:
     say: For a package without lean-pkg-binding.yaml, also accept a README or notes committed after the evidence (the docs-only rule, the referee's choice); every check with its verdict as JSON.
   - cmd: lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --corroborate --github OWNER/REPO
     say: Also corroborate a GitHub Actions receipt against the public run API (level 2), the package's repository named by --github; GH_TOKEN only raises the rate limit.
+  - cmd: lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --attested
+    say: Also verify a GitHub Actions receipt's committed Sigstore bundle with gh attestation verify (level 3), which holds after the run's records expire.
 
 lean-pkg gate:
   - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --check
@@ -425,6 +429,8 @@ lean-pkg page:
     say: Also write the docs pages and one self-contained HTML file.
   - cmd: lean-pkg page my-proof --check --corroborate
     say: The same check with each GitHub Actions run corroborated against the public run API, so the GitHub Actions sentence (with its run links) is earned; for CI, with GITHUB_TOKEN set.
+  - cmd: lean-pkg page my-proof --check --attested
+    say: The same check with each GitHub Actions run's committed attestation verified by gh attestation verify (level 3), so the sentence stays earned after the run expires.
 
 lean-pkg claims list:
   - cmd: lean-pkg claims list

@@ -162,7 +162,7 @@ ignored, as for `producer`.
 | `job_workflow` | `OWNER/REPO/.github/workflows/FILE.yml@REF` or `null` | well formed when not null |
 | `runner` | mapping `{environment, os, arch, image, image_version}` | `environment` is `github-hosted` (a self-hosted runner is refused, naming `receipt local`); `os`, `arch` one line of text; `image`, `image_version` one line of text or null |
 | `verify_log_sha256` | 64 lowercase hex | equals `report_sha256` (which the committed redacted log must hash to, as for every receipt) |
-| `attestation` | file name (no `/`), optional | the form only (the bundle is checked at level 3) |
+| `attestation` | file name (no `/`), optional | the form only (the bundle is checked at level 3, below) |
 
 Level 1 is consistency with the receipt, the commit and the committed log:
 the strength of a `slurm-<J>` receipt, and as forgeable, since every value
@@ -171,6 +171,25 @@ It backs a `compute` job but never puts the GitHub Actions sentence on the
 page: that needs a corroborated run (level 2, `--corroborate`; [Corroborating
 the run](receipts.md#corroborating-the-run-level-2---corroborate)). A receipt with a `gha-` job id and no `ci` block still passes
 `gate` and backs no `compute` job.
+
+### The attestation bundle
+
+`attestation` (stage S4) is written by `receipt ci --attest`, which
+lean-pkg's `verify.yml` passes: it names the Sigstore bundle
+`<c12>-gha-<run_id>-<run_attempt>.sigstore.json`, committed beside the
+receipt under `.lean-receipts/` (the receipt's own file name with
+`.sigstore.json` for `.json`). The bundle is what
+`actions/attest-build-provenance` writes: Sigstore bundle JSON (one bundle;
+a JSON Lines file of exactly one is read too) whose DSSE envelope carries an
+in-toto statement with exactly two subjects, the SHA-256 of the receipt
+bytes and the receipt's `report_sha256` (the redacted log). Its name is
+fixed before the signature, so the receipt can name it and still be a
+subject. lean-pkg never writes or edits the bundle; it is not a receipt,
+and the receipt listings of `coverage check`, `page` and `receipt check`
+skip files ending in `.sigstore.json`. Level 3 (`--attested`) verifies it
+with `gh attestation verify` ([Attesting the run](receipts.md#attesting-the-run-level-3---attested)).
+The key stays optional: a receipt without it means what it meant before,
+and reaches at most level 2.
 
 ### In a comparator receipt
 

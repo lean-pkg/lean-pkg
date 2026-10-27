@@ -1,6 +1,6 @@
 usage: lean-pkg receipt check [-h] --repo DIR --commit SHA [--at REF] [--docs-descendants |
                               --evidence-only] [--name NAME] [--corroborate] [--github OWNER/REPO]
-                              [--json]
+                              [--attested] [--trusted-root FILE] [--json]
 
 options:
   -h, --help           show this help message and exit
@@ -23,7 +23,14 @@ options:
                        reach it (404, rate limit, network error and a redirect off api.github.com
                        fail closed). GH_TOKEN or GITHUB_TOKEN, when set, only raises the rate
                        limit and is never printed. The one networked check
-  --github OWNER/REPO  with --corroborate: the package's own GitHub repository, whose numeric id
-                       the run's must equal (default: the receipt's ci.repository, and the output
-                       says so)
+  --github OWNER/REPO  with --corroborate or --attested: the package's own GitHub repository,
+                       whose numeric id the run's must equal (default: the receipt's
+                       ci.repository, and the output says so)
+  --attested           also verify every receipt with a ci block at level 3: its committed
+                       Sigstore bundle (ci.attestation) with `gh attestation verify`, an optional
+                       outside tool (missing: a failure), and the certificate's repository,
+                       commit, run and signer against the ci block; fail when one does not reach
+                       level 3
+  --trusted-root FILE  with --attested: verify offline against this Sigstore trusted root (gh
+                       attestation verify --custom-trusted-root)
   --json               machine-readable JSON on stdout: every check with its verdict

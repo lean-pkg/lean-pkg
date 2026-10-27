@@ -14,7 +14,7 @@ a lower-tier receipt written inside a GitHub Actions job (job_id gha-&lt;run&gt;
 
 ```text
 lean-pkg receipt ci [--log PATH] [--receipt-commit SHA] [--redact REGEX] [--collect RUN]
-                    [--attempt N] [--template] [--checker TEXT] [--repo DIR]
+                    [--attempt N] [--attest] [--template] [--checker TEXT] [--repo DIR]
                     [--out PATH] [--compress-log] [--append-readme]
                     [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
                     [--json]
@@ -29,6 +29,7 @@ lean-pkg receipt ci [--log PATH] [--receipt-commit SHA] [--redact REGEX] [--coll
 | `--redact REGEX` | also replace matches with &lt;redacted&gt; (repeatable); the checkout, GITHUB_WORKSPACE, RUNNER_TEMP, RUNNER_TOOL_CACHE, $HOME, /home/runner and /run/user/N/ are always redacted to &lt;repo&gt;, &lt;GITHUB_WORKSPACE&gt;, &lt;RUNNER_TEMP&gt;, &lt;RUNNER_TOOL_CACHE&gt;, &lt;HOME&gt;, /run/user/&lt;UID&gt;/ instead |
 | `--collect RUN` | on your machine: download run RUN's receipt artifact with `gh run download` (your gh login), check it as gate --check does against the --repo checkout, copy the receipt and its log into .lean-receipts/; never commits or pushes |
 | `--attempt N` | with --collect: the run attempt (default: the run's only receipt artifact) |
+| `--attest` | the job attests (verify.yml): record ci.attestation, the name &lt;commit12&gt;-gha-&lt;R&gt;-&lt;A&gt;.sigstore.json of the Sigstore bundle the next step signs for the receipt and its log, to be committed beside them (level 3); refused without an OIDC token (id-token: write) |
 | `--template` | print the caller workflow (.github/workflows/lean-pkg.yml) that runs lean-pkg's reusable verify.yml pinned to a 40-hex commit; needs no other flag |
 | `--checker TEXT` | the exact checker command or mode (default: the log's `checker:` line) |
 | `--repo DIR` | the package checkout (default: the current directory) |
@@ -43,7 +44,7 @@ lean-pkg receipt ci [--log PATH] [--receipt-commit SHA] [--redact REGEX] [--coll
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `receipt ci` | the same lower-tier receipt written inside a GitHub Actions job (proposal 0008, stage S2), usually as the last step of lean-pkg's reusable `.github/workflows/verify.yml`; reads and writes no registry, needs no token. `job_id` is `gha-<run_id>-<run_attempt>` and the receipt gains the additive `ci` block (provider, server, repository and its id, run, attempt, job, event, head SHA, workflow ref, SHA and file hash, `job_workflow`, runner, `verify_log_sha256`) from the runner's variables; the log must carry its own seal (no `--stdout`). Refuses (exit 1, nothing written) outside GitHub Actions (`GITHUB_ACTIONS` not `true`), on a self-hosted runner (naming `receipt local`), with a runner variable missing, on an event other than `push` and `workflow_dispatch`, on a server other than `https://github.com`, with `--receipt-commit` other than `GITHUB_SHA` (the default), with the workflow file missing at `GITHUB_WORKFLOW_SHA` (a shallow clone is named), when the OIDC token request fails in a job that has `id-token: write`, and on every `receipt slurm` refusal. `job_workflow` is the OIDC token's `job_workflow_ref` claim, or null without `id-token: write`; the token is never printed or written. Built-in redactions: the checkout, `GITHUB_WORKSPACE`, `RUNNER_TEMP`, `RUNNER_TOOL_CACHE`, `$HOME` and `/home/runner` to tokens, then every `--redact`. After writing, prints exactly one `::notice title=lean-pkg-receipt::receipt_sha256=<hex> report_sha256=<hex>` line (stderr under `--json`) and appends to `GITHUB_STEP_SUMMARY`. `--collect RUN [--attempt N]`: on your machine, `gh run download` of the artifact `lean-pkg-receipt-RUN-N` (your gh login), the gate's checks against the checkout, a copy into `.lean-receipts/`; never commits or pushes; refuses on no `gh`, no artifact, several artifacts without `--attempt`, a run id or attempt mismatch, a receipt the gate refuses, other bytes at the destination, a symlinked `.lean-receipts/`. `--template`: the caller workflow, `uses:` pinned to a 40-hex lean-pkg commit. Details: [Receipts and trust](../receipts.md#a-lower-tier-receipt-from-github-actions) | `--log PATH` `[--receipt-commit SHA]` `[--checker TEXT]` `[--repo DIR]` `[--redact REGEX]...` `[--out PATH]` `[--compress-log]` `[--append-readme ...]` `[--json]`; `--collect RUN [--attempt N]`; `--template` |
+| `receipt ci` | the same lower-tier receipt written inside a GitHub Actions job (proposal 0008, stage S2), usually as the last step of lean-pkg's reusable `.github/workflows/verify.yml`; reads and writes no registry, needs no token. `job_id` is `gha-<run_id>-<run_attempt>` and the receipt gains the additive `ci` block (provider, server, repository and its id, run, attempt, job, event, head SHA, workflow ref, SHA and file hash, `job_workflow`, runner, `verify_log_sha256`) from the runner's variables; the log must carry its own seal (no `--stdout`). Refuses (exit 1, nothing written) outside GitHub Actions (`GITHUB_ACTIONS` not `true`), on a self-hosted runner (naming `receipt local`), with a runner variable missing, on an event other than `push` and `workflow_dispatch`, on a server other than `https://github.com`, with `--receipt-commit` other than `GITHUB_SHA` (the default), with the workflow file missing at `GITHUB_WORKFLOW_SHA` (a shallow clone is named), when the OIDC token request fails in a job that has `id-token: write`, and on every `receipt slurm` refusal. `job_workflow` is the OIDC token's `job_workflow_ref` claim, or null without `id-token: write`; the token is never printed or written. Built-in redactions: the checkout, `GITHUB_WORKSPACE`, `RUNNER_TEMP`, `RUNNER_TOOL_CACHE`, `$HOME` and `/home/runner` to tokens, then every `--redact`. After writing, prints exactly one `::notice title=lean-pkg-receipt::receipt_sha256=<hex> report_sha256=<hex>` line (stderr under `--json`) and appends to `GITHUB_STEP_SUMMARY`. `--attest` (verify.yml passes it; stage S4): the block records `ci.attestation`, the name `<c12>-gha-R-A.sigstore.json` of the Sigstore bundle the job's next step signs over the receipt and its log; refused without an OIDC token. `--collect RUN [--attempt N]`: on your machine, `gh run download` of the artifact `lean-pkg-receipt-RUN-N` (your gh login), the gate's checks against the checkout, a copy into `.lean-receipts/` (the bundle `ci.attestation` names too); never commits or pushes; refuses on a named bundle the artifact lacks or whose subjects are not exactly the receipt and its log, no `gh`, no artifact, several artifacts without `--attempt`, a run id or attempt mismatch, a receipt the gate refuses, other bytes at the destination, a symlinked `.lean-receipts/`. `--template`: the caller workflow, `uses:` pinned to a 40-hex lean-pkg commit. Details: [Receipts and trust](../receipts.md#a-lower-tier-receipt-from-github-actions) | `--log PATH` `[--receipt-commit SHA]` `[--checker TEXT]` `[--repo DIR]` `[--redact REGEX]...` `[--out PATH]` `[--compress-log]` `[--append-readme ...]` `[--attest]` `[--json]`; `--collect RUN [--attempt N]`; `--template` |
 
 ## Examples
 
@@ -57,6 +58,12 @@ Inside the job (verify.yml's last step), write the receipt gha-&lt;run&gt;-&lt;a
 
 ```bash
 lean-pkg receipt ci --log "$RUNNER_TEMP/lean-pkg/verify.log" --repo .
+```
+
+The same in a job that attests (verify.yml), where ci.attestation names the Sigstore bundle the next step signs over the receipt and its log.
+
+```bash
+lean-pkg receipt ci --log "$RUNNER_TEMP/lean-pkg/verify.log" --repo . --attest
 ```
 
 On your machine, download the run's receipt artifact with gh, check it as gate --check does and copy it into .lean-receipts/; nothing is committed or pushed.

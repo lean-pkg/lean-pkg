@@ -8,8 +8,9 @@ title: "Design: compute sites and CI-runner receipts"
 being implemented in stages under [proposal 0008](../proposals/0008-github-actions-compute-receipt.md): stage
 S1 (the `github-actions` scheduler and profile, the `ci` block judged at level 1, `page --json` levels),
 S2 (`lean-pkg receipt ci`, its `--collect` and `--template`, the reusable `verify.yml`), S3 (`--corroborate`,
-level 2 against the public run API, the `verify.yml` pin list, the sentence at level 2) and S5 (the comparator tier
-on a GitHub-hosted runner) are in; attestation (S4) is not yet. Roadmap wave 3, "Core apart from the lab": a
+level 2 against the public run API, the `verify.yml` pin list, the sentence at level 2), S4 (the attestation step in
+`verify.yml`, the committed Sigstore bundle, `--attested`, level 3) and S5 (the comparator tier
+on a GitHub-hosted runner) are in: section 4 is implemented. Roadmap wave 3, "Core apart from the lab": a
 package can be verified and
 published with no lab account. The four decisions of section 6 were taken on 2026-10-17, as recommended
 ([decision 0007](../decisions/0007-recommendations-accepted-2026-10-17.md)).*
@@ -122,7 +123,7 @@ institution or host name).
 
 ## 4. Design: a compute receipt from a CI runner (GitHub Actions first)
 
-Designed in [proposal 0008](../proposals/0008-github-actions-compute-receipt.md), accepted 2026-10-26; stages S1 (level 1), S2 (writing the receipt in CI), S3 (level 2, `--corroborate`) and S5 (the comparator tier in CI) are implemented, stage S4 is not yet. The goal: a mathematician with a public GitHub repository and no cluster account gets a
+Designed in [proposal 0008](../proposals/0008-github-actions-compute-receipt.md), accepted 2026-10-26; stages S1 (level 1), S2 (writing the receipt in CI), S3 (level 2, `--corroborate`), S4 (level 3, `--attested`) and S5 (the comparator tier in CI) are implemented. The goal: a mathematician with a public GitHub repository and no cluster account gets a
 compute receipt that backs `coverage.yaml` `compute` the way `slurm-<J>` does, and that a third party can
 corroborate without trusting the author.
 

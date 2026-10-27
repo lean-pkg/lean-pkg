@@ -1,5 +1,5 @@
 usage: lean-pkg receipt ci [-h] [--log PATH] [--receipt-commit SHA] [--redact REGEX]
-                           [--collect RUN] [--attempt N] [--template] [--checker TEXT]
+                           [--collect RUN] [--attempt N] [--attest] [--template] [--checker TEXT]
                            [--repo DIR] [--out PATH] [--compress-log] [--append-readme]
                            [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
                            [--json]
@@ -20,6 +20,10 @@ options:
                         --repo checkout, copy the receipt and its log into .lean-receipts/; never
                         commits or pushes
   --attempt N           with --collect: the run attempt (default: the run's only receipt artifact)
+  --attest              the job attests (verify.yml): record ci.attestation, the name
+                        <commit12>-gha-<R>-<A>.sigstore.json of the Sigstore bundle the next step
+                        signs for the receipt and its log, to be committed beside them (level 3);
+                        refused without an OIDC token (id-token: write)
   --template            print the caller workflow (.github/workflows/lean-pkg.yml) that runs lean-
                         pkg's reusable verify.yml pinned to a 40-hex commit; needs no other flag
   --checker TEXT        the exact checker command or mode (default: the log's `checker:` line)
