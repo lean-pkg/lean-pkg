@@ -26,6 +26,25 @@ file) and `lean-pkg repo move NAME PATH` (the package's checkout). The
 short spellings above (`board`, `validate`, `claim`, ...) are permanent
 aliases: `lean-pkg help aliases` lists them.
 
+## Keep the receipts bound after the page commit
+
+Commit `lean-pkg-binding.yaml` (`docs_descendants: true`) with the package
+before the verify run, and a later README or `coverage.yaml` commit keeps
+the receipts bound; an outside `receipt check` then passes without flags.
+`lean-pkg new` writes the file. For an older package that opted in through
+the registry (deprecated: `gate` and `publish` print `WARN: deprecated:`):
+
+```bash
+lean-pkg update my-proof --write-binding-file --dry-run   # the file the record gives
+lean-pkg update my-proof --write-binding-file             # write it; nothing staged
+git add lean-pkg-binding.yaml && git commit -m "Opt in to docs-only descendants"
+lean-pkg verify my-proof                                  # new receipts, at a commit with the file
+```
+
+Commit the file on its own, right before the verify run: until that run,
+the current receipts do not bind a commit that added it
+([docs-only descendants](receipts.md#docs-only-descendants-opt-in)).
+
 ## Read one field, or the registry as it was
 
 ```bash

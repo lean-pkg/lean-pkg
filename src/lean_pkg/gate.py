@@ -43,6 +43,7 @@ from .core import (
     sha256_bytes, symlink_targets, tracked_at, under_any, UsageError, warn_lease,
 )
 from .holes import SIDECAR as SIGNOFF_SIDECAR, check_definition_holes, parse_sidecar
+from . import binding_file
 
 
 # --------------------------------------------------------------------------
@@ -1613,7 +1614,8 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
                "comparator": ({"commit": comp["commit"], "configs": len(comp["configs"])} if comp else None),
                "private_strings": private, "dirty": dirty, "claims_schema": cs, "pins": pins,
                "pins_kept": pins_kept, "report_log": report_view, "resolved_paths": resolved, **docs_view,
-               "toolchain_advisories": toolchain_advisories_of(receipt)}
+               "toolchain_advisories": toolchain_advisories_of(receipt),
+               **binding_file.admission_deprecations(name, docs_view)}
     if regate:
         payload["regate"] = regate_view
     return [msg] + [f"  {c}" for c in checks], payload
@@ -1795,7 +1797,8 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
                "status_unchanged": was_public or regate, "private_strings": private, "dirty": dirty,
                "ignored_evidence": ignored, "claims_schema": cs, "pins": pins,
                "pins_kept": pins_kept, "report_log": report_view, "resolved_paths": resolved, **docs_view,
-               "toolchain_advisories": toolchain_advisories_of(receipt)}
+               "toolchain_advisories": toolchain_advisories_of(receipt),
+               **binding_file.admission_deprecations(name, docs_view)}
     if regate:
         payload.update(previous_commit=prev_commit, non_descendant=non_descendant, reason=reason or "")
     if comp_rel:
@@ -1847,7 +1850,8 @@ def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool 
         payload = {"ok": True, "name": name, "event": "comparator-checked",
                    "recorded": False, "commit": comp["commit"], "configs": n,
                    "lower_receipt_commit": lower_commit, "head": git_head(repo), "checks": checks,
-                   "private_strings": private, "dirty": dirty, **docs_view}
+                   "private_strings": private, "dirty": dirty, **docs_view,
+                   **binding_file.admission_deprecations(name, docs_view)}
         return [msg] + [f"  {c}" for c in checks], payload
     rec_comp = recorded_json(repo, gate.get("comparator"))
     if rec_comp is not None and rec_comp == comp:
@@ -1883,7 +1887,8 @@ def _do_comparator(reg_path, reg, events_p, name, receipt_arg, check_only: bool 
     payload = {"ok": True, "name": name, "event": event, **extra,
                "status": pkg.get("status"), "gate": pkg["gate"],
                "comparator": comp_rel, "commit": commit, "private_strings": private,
-               "dirty": dirty, "ignored_evidence": attached_ignored_evidence(pkg, repo), **docs_view}
+               "dirty": dirty, "ignored_evidence": attached_ignored_evidence(pkg, repo), **docs_view,
+               **binding_file.admission_deprecations(name, docs_view)}
     return out, payload
 
 
@@ -2072,6 +2077,7 @@ def cmd_gate(args) -> int:
     from .toolchain_advisories import warn_line   # #237: a warning, never a refusal
     for view in payload.get("toolchain_advisories") or []:
         print(warn_line(view), file=sys.stderr)
+    binding_file.print_deprecations(payload)
     if args.json_out:
         print_json(payload)
     else:

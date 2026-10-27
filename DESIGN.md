@@ -162,9 +162,13 @@ input under the package directory changed. The opt-in is
 `docs_descendants: true`, optional `build_inputs`) committed in the package
 directory and read **at X only**, never at H, in the working tree or in a
 commit between, so a later commit cannot grant itself the rule (proposal
-0002). The older route, the record's `docs_descendants: true`
-(`lean-pkg update NAME --accept-docs-descendants --reason TEXT`), still opts
-in when X has no file; a record `false` vetoes a committed `true`; once the
+0002). `lean-pkg new` writes the file, and
+`update NAME --write-binding-file` writes it from the record. The older
+route, the record's `docs_descendants: true`
+(`lean-pkg update NAME --accept-docs-descendants --reason TEXT`), is
+deprecated (a
+`WARN: deprecated:` line and `deprecations[]`; removed no earlier than
+1.0.0) and still opts in when X has no file; a record `false` vetoes a committed `true`; once the
 file exists at X it decides, and an invalid file does not opt in. Build inputs: `*.lean`,
 `lakefile.*`, `lake-manifest.json`, `lean-toolchain` at any depth, the
 `build_inputs` globs of the file and the record, and the files the receipt's

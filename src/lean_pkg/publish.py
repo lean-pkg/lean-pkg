@@ -279,6 +279,10 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False, corrobor
     tags = tags_at_head(repo)
     items.append(("✓", f"tag at HEAD: {', '.join(tags)}") if tags else
                  ("WARN", f"no tag at HEAD {head[:12]} (tag the release after publish --yes)"))
+    deprecations = registry_opt_in_deprecations(pkg, repo)
+    for d in deprecations:   # proposal 0002, stage G3: a WARN item while the opt-in is registry-only
+        items.append(("WARN", f"docs-only opt-in only in the registry record (deprecated): {d['message']}; "
+                              f"migrate with {d['replacement']}"))
     from . import palomar_check   # advisory (feature request #6): a WARN item, never a ✗
     palomar = palomar_check.summary(pkg, repo, head)
     if warning := palomar_check.summary_warning(palomar):
@@ -302,7 +306,23 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False, corrobor
                "palomar_check": palomar, "page": page_state}
     if safety is not None:
         payload["public_safety"] = safety
+    if deprecations:
+        payload["deprecations"] = deprecations
     return lines, 0 if ready else 1, payload
+
+
+def registry_opt_in_deprecations(pkg: dict, repo) -> list[dict]:
+    """[the deprecation] while the docs-only opt-in exists only in the registry record: docs_descendants: true
+    and no lean-pkg-binding.yaml at the gate-bound commit (HEAD when no gate receipt is readable); else []."""
+    from . import binding_file
+    if pkg.get("docs_descendants") is not True:
+        return []
+    rec = gate_mod.recorded_json(repo, (pkg.get("gate") or {}).get("receipt"))
+    commit = str(rec.get("commit") or "") if isinstance(rec, dict) else ""
+    commit = commit or core.git_head(repo) or ""
+    if not binding_file.registry_only(repo, commit, pkg):
+        return []
+    return [binding_file.registry_only_deprecation(pkg["name"], commit)]
 
 
 def cmd_publish(args) -> int:
@@ -322,6 +342,8 @@ def cmd_publish(args) -> int:
     reg_path = core.registry_path(args)
     lines, rc, payload = do_publish_check(core.load_registry(reg_path), args.name, args.public_safety,
                                           corroborate=getattr(args, "corroborate", False))
+    from . import binding_file
+    binding_file.print_deprecations(payload)
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:

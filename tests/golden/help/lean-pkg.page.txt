@@ -9,10 +9,13 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --write               replace the marked block in the package README.md (append it when absent);
-                        prose outside the markers is untouched. For a gated package whose record
-                        says nothing about the docs-only exception, it then turns it on (`update
-                        NAME --accept-docs-descendants`, its own registry write), so committing
-                        the README keeps the receipts bound
+                        prose outside the markers is untouched. For a gated package without lean-
+                        pkg-binding.yaml at the gated commit it then keeps the receipts bound
+                        through the deprecated registry route (when the record says nothing:
+                        `update NAME --accept-docs-descendants`, its own registry write; a record
+                        false is left alone), with a WARN, and writes lean-pkg-binding.yaml into
+                        the working tree (never staged or overwritten) to commit before the next
+                        verify run
   --check               exit 1 when the README block is missing or stale, the lean-pkg credit is
                         missing, or a site sentence has no backing receipt (or, for GitHub
                         Actions, no corroborated run: --corroborate); with --site/--html also when

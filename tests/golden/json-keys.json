@@ -352,6 +352,7 @@
     "keys": [
       "author",
       "author_source",
+      "binding_file",
       "committed",
       "coverage_complete",
       "dir",

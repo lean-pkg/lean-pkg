@@ -591,7 +591,12 @@ pi-lambda: page: current (README.md)
 ([`coverage`](commands/coverage.md), [`page`](commands/page.md).) The first
 `page --write` turns on the docs-only exception (the `updated` lines, one
 registry event): a documentation-only commit (this README) keeps the
-receipts bound to the gated commit. An excerpt of the
+receipts bound to the gated commit. (This run predates the committed opt-in.
+A package scaffolded now commits `lean-pkg-binding.yaml` with its first
+commit, so `page --write` prints neither line; the registry route it used
+here is deprecated, and today it also prints a `WARN: deprecated:` line and
+writes the file into the working tree: see [page](page.md#the-docs-only-opt-in).)
+An excerpt of the
 rendered page today:
 
 ````markdown

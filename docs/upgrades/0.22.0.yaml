@@ -494,6 +494,78 @@ changes:
     breaking: false
     changelog: Changed
     split: true
+  - pr: 0
+    id: update-write-binding-file
+    kind: command
+    area: registry
+    summary: >-
+      New flag update NAME --write-binding-file (#319, proposal 0002, stage G3): writes lean-pkg-binding.yaml into
+      the package directory from the record's docs_descendants: true and build_inputs, the migration off the
+      deprecated registry route. Nothing is staged or committed and the registry is not written. It writes
+      nothing (exit 0) when the record does not opt in; an identical file is a no-op; a different file, a symlink
+      or a directory at the path is refused (exit 1, untouched); --dry-run prints the file; with a field, --status
+      or --path it is a usage error (exit 2). It prints the advice to commit the file on its own right before the
+      next verify run.
+    action: >-
+      Nothing required now. A package that opted in through the registry runs it (see the deprecation entry
+      registry-docs-descendants-deprecated).
+    breaking: false
+    changelog: Added
+    split: true
+  - pr: 0
+    id: new-binding-file
+    kind: behavior
+    area: new
+    summary: >-
+      lean-pkg new writes lean-pkg-binding.yaml (docs_descendants: true, with a comment saying what it permits)
+      into every new package (#319, stage G3), so the README page committed after the verified commit keeps the
+      receipts bound without a registry setting; new --evidence-only leaves it out. --json gains binding_file
+      (the file, or null), and the scaffold has one more file.
+    action: >-
+      Nothing. Commit the file with the package (the scaffold's git add -A does); pass --evidence-only for a
+      package that should accept only evidence after its verified commit.
+    breaking: false
+    changelog: Added
+    split: true
+  - pr: 0
+    id: page-write-binding-file
+    kind: behavior
+    area: page
+    summary: >-
+      page --write on a gated package without lean-pkg-binding.yaml at its gated commit keeps the receipts bound
+      through the registry route as before (when the record says nothing: its own update NAME
+      --accept-docs-descendants invocation; a record false is left alone), now with the deprecation WARN and
+      --json deprecations[], and writes lean-pkg-binding.yaml into the working tree, never staged and never over
+      an existing path (--json binding_file {path, state, written}). With the file at the gated commit it does
+      nothing about the opt-in.
+    action: >-
+      After page --write, commit README.md without the new file (git add README.md, not git add -A), and commit
+      lean-pkg-binding.yaml on its own right before the next verify run: a commit that adds it after the gated
+      commit unbinds the current receipts until that run.
+    breaking: false
+    changelog: Changed
+    split: true
+  - pr: 0
+    id: registry-docs-descendants-deprecated
+    kind: behavior
+    area: registry, gate, publish
+    summary: >-
+      The registry route of the docs-only opt-in is deprecated (#319, stage G3): the record's docs_descendants:
+      true with no lean-pkg-binding.yaml at the receipts' commit, and update NAME --accept-docs-descendants that
+      sets it. It keeps working, with a stderr 'WARN: deprecated: ...' line and a --json deprecations[] entry
+      {id registry-docs-descendants, message, replacement, earliest_removal 1.0.0, removal_rule}, in gate, gate
+      --check and comparator when the docs-only rule admitted HEAD through the record, in publish (the read-only
+      checklist, plus a WARN item) whenever the opt-in exists only in the record, in update
+      --accept-docs-descendants and in page --write. A package with the file, or with neither, prints none of
+      them. It is removed no earlier than the latest of 1.0.0, one minor release after this one, and two minor
+      releases plus 60 days. The veto (docs_descendants: false) and build_inputs stay.
+    action: >-
+      Migrate before the removal: lean-pkg update NAME --write-binding-file, commit lean-pkg-binding.yaml in a
+      commit of its own, then run the verify step again so the new receipts bind a commit that contains it. The
+      warning stops at the first gate on those receipts.
+    breaking: false
+    changelog: Deprecated
+    split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

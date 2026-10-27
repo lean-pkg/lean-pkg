@@ -321,7 +321,9 @@ def build_parser():
     g = s.add_mutually_exclusive_group()
     g.add_argument("--accept-docs-descendants", dest="docs_descendants", action="store_const", const=True,
                    default=None,
-                   help="opt in (needs --reason): a receipt bound to commit C is also accepted at a descendant "
+                   help="deprecated (WARN; removed no earlier than 1.0.0): the registry route of the docs-only "
+                        "opt-in, replaced by a committed lean-pkg-binding.yaml (--write-binding-file). "
+                        "Opt in (needs --reason): a receipt bound to commit C is also accepted at a descendant "
                         "of C where no build input under the package directory changed (*.lean, lakefile.*, "
                         "lake-manifest.json, lean-toolchain, --build-inputs globs, the checker's files; never a "
                         "symlink/gitlink change, .gitattributes, .gitmodules, .lfsconfig, claims.yaml, nor those "
@@ -333,6 +335,13 @@ def build_parser():
                    help="extra build inputs for the docs-only rule (needs --reason): comma-separated "
                         "package-relative fnmatch globs (`*` crosses /; a glob without / also matches a "
                         "basename), replacing the recorded list; '' clears it")
+    s.add_argument("--write-binding-file", dest="write_binding_file", action="store_true",
+                   help="write lean-pkg-binding.yaml (schema lean-pkg-binding/1) into the package directory from "
+                        "the record's docs_descendants: true and build_inputs, the migration off the deprecated "
+                        "registry route; writes nothing (exit 0) when the record does not opt in; an identical "
+                        "file is a no-op, a different file or a symlink is refused (exit 1); never staged or "
+                        "committed, and the registry is not written. On its own (no field, --status or --path); "
+                        "--dry-run prints the file")
     s.add_argument("--reaudit-after", dest="reaudit_after", metavar="ISO8601")
     s.add_argument("--owner-project", dest="owner_project")
     s.add_argument("--url", dest="repo", metavar="URL", help="remote URL (e.g. after publishing a private dep)")
@@ -396,7 +405,7 @@ def build_parser():
                         "public flip still goes through promote")
     s.add_argument("--dry-run", dest="dry_run", action="store_true",
                    help="with --path, --withdraw-publication or --release-publication-hold: print the would-be "
-                        "changes, write nothing")
+                        "changes, write nothing; with --write-binding-file: print the file")
     add_json(s)
     s.set_defaults(fn=cmd_update)
     update_parser = s

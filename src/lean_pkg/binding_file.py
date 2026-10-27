@@ -17,6 +17,10 @@ resolve_opt_in applies the registry precedence of the proposal: a registry `docs
 a registry `true` with no file still opts in (the deprecated route), and once the file exists at X it
 decides. The parse is strict and fails closed: a file that does not validate does not opt in, and the output
 names the file and the key.
+
+Stage G3: render() is the file `new`, `page --write` and `update NAME --write-binding-file` write (write_into
+never overwrites), and the registry route is deprecated: the deprecations[] entries and their stderr
+`WARN: deprecated:` line (RELEASING.md, "Aliases and deprecations") come from here.
 """
 
 from __future__ import annotations
@@ -305,3 +309,138 @@ def referee_opt_in(repo: pathlib.Path, bound: str, accepted: bool = False, evide
         return oi
     return dataclasses.replace(oi, notes=oi.notes + (
         f"--docs-descendants is overridden: {FILE} at {x12} is the author's committed choice",))
+
+
+# --------------------------------------------------------------------------
+# render: the file `new`, `page --write` and `update NAME --write-binding-file` write (proposal 0002, stage G3)
+
+COMMENT = f"""\
+# {FILE}: this package's docs-only opt-in (lean-pkg docs/receipts.md, "Docs-only descendants").
+# docs_descendants: true lets a receipt bound to commit X also bind a later commit that changes only files
+# the build does not read (README.md, coverage.yaml, notes). A change to a build input (*.lean, lakefile.*,
+# lake-manifest.json, lean-toolchain, a build_inputs glob, claims.yaml, this file) still needs a new receipt.
+# lean-pkg reads this file at X only, never in the working tree: commit it before the verify run.
+# Say false (or delete the file) to keep the strict evidence-only rule.
+"""
+
+
+def render(docs_descendants: bool = True, build_inputs=(), comment: bool = True) -> str:
+    """The text of a lean-pkg-binding.yaml; parse() reads it back to the same keys. Each glob is written as
+    a double-quoted YAML string, so `*` and `:` never need thought."""
+    import json
+    text = (COMMENT if comment else "") + (f"schema: {SCHEMA}\n"
+                                           f"docs_descendants: {'true' if docs_descendants else 'false'}\n")
+    globs = _globs(list(build_inputs))
+    if globs:
+        text += "build_inputs:\n" + "".join(f"  - {json.dumps(g, ensure_ascii=False)}\n" for g in globs)
+    return text
+
+
+# --------------------------------------------------------------------------
+# the deprecated registry route (RELEASING.md, "Aliases and deprecations"; its removal is stage G4)
+
+DEPRECATION_ID = "registry-docs-descendants"
+EARLIEST_REMOVAL = "1.0.0"
+REMOVAL_RULE = ("the latest of 1.0.0, one minor release after the release that deprecated it, and two minor "
+                "releases plus 60 days")
+DOCS = "docs/receipts.md#docs-only-descendants-opt-in"
+
+
+def replacement(name: str) -> str:
+    return (f"`lean-pkg update {name} --write-binding-file`, then commit {FILE} in a commit of its own right "
+            f"before the next verify run")
+
+
+def deprecation(name: str, what: str) -> dict:
+    """One `deprecations[]` entry of --json: the registry record's docs_descendants: true as the opt-in."""
+    return {"id": DEPRECATION_ID, "message": f"{name}: {what}", "replacement": replacement(name),
+            "earliest_removal": EARLIEST_REMOVAL, "removal_rule": REMOVAL_RULE}
+
+
+def deprecation_line(d: dict) -> str:
+    """The stderr line of a deprecation: `WARN: deprecated: ...`, naming the replacement and the removal."""
+    return (f"WARN: deprecated: {d['message']}; replacement: {d['replacement']}; removed no earlier than "
+            f"{d['earliest_removal']} ({DOCS})")
+
+
+def registry_admission_deprecation(name: str, commit: str) -> dict:
+    """gate, gate --check, comparator: the docs-only rule admitted HEAD through the registry record."""
+    return deprecation(name, f"the docs-only rule admitted HEAD through the registry record's docs_descendants: "
+                             f"true, with no {FILE} at {commit[:12]}")
+
+
+def registry_only_deprecation(name: str, commit: str | None) -> dict:
+    """publish --dry-run, page --write: the opt-in exists only in the registry record."""
+    where = f" at {commit[:12]}" if commit else ""
+    return deprecation(name, f"the docs-only opt-in exists only in the registry record (docs_descendants: true; "
+                             f"no {FILE}{where})")
+
+
+def accept_flag_deprecation(name: str) -> dict:
+    """update --accept-docs-descendants: it sets the registry route."""
+    return deprecation(name, "`update --accept-docs-descendants` sets the registry record's docs_descendants: "
+                             "true, the deprecated route of the docs-only opt-in")
+
+
+def admission_deprecations(name: str, docs_view: dict) -> dict:
+    """{"deprecations": [...]} when the docs-only rule admitted HEAD through the registry record's
+    docs_descendants: true (docs_view: gate.docs_admission's), else {}: the payload key is present only then,
+    so a package that uses neither route keeps its output byte for byte. Never part of an event (the events
+    carry opt_in.source)."""
+    view = docs_view.get("opt_in") or {}
+    if view.get("source") != "registry":
+        return {}
+    return {"deprecations": [registry_admission_deprecation(name, str(view.get("commit") or ""))]}
+
+
+def print_deprecations(payload: dict) -> None:
+    """One stderr `WARN: deprecated: ...` line per payload deprecations[] entry, in text and --json mode
+    alike (stdout keeps the one JSON object)."""
+    import sys
+    for d in payload.get("deprecations") or []:
+        print(deprecation_line(d), file=sys.stderr)
+
+
+def registry_only(repo: pathlib.Path, commit: str | None, pkg: dict | None) -> bool:
+    """Does the package's opt-in exist only in the registry record: the record says docs_descendants: true and
+    there is no lean-pkg-binding.yaml at `commit` (the gate-bound commit)?"""
+    if (pkg or {}).get("docs_descendants") is not True:
+        return False
+    if not commit:
+        return True
+    return read_at(repo, commit).state == "absent"
+
+
+def commit_advice(x12: str) -> str:
+    """What to do with a written, uncommitted file (proposal 0002 plan, open question 1)."""
+    return (f"commit it in a commit of its own right before the next verify run, not together with README.md: "
+            f"it takes effect only for receipts bound at a commit that contains it, and a commit that adds it "
+            f"after {x12} unbinds the current receipts until that run ({DOCS})")
+
+
+def write_into(directory: pathlib.Path, text: str, dry_run: bool = False) -> tuple[str, str | None]:
+    """Write `text` as directory/lean-pkg-binding.yaml unless something is there: (state, problem). state:
+    "written", "would-write" (dry run), "unchanged" (the same bytes, or a file that parses to the same keys),
+    "refused" (a symlink, a non-file, an unreadable file or a different one: never overwritten)."""
+    path = directory / FILE
+    if path.is_symlink():
+        return "refused", f"{path} is a symlink; nothing written (remove it, then run again)"
+    if path.exists():
+        if not path.is_file():
+            return "refused", f"{path} exists and is not a regular file; nothing written"
+        try:
+            old = path.read_bytes()
+        except OSError as e:
+            return "refused", f"{path}: cannot read it ({e.strerror}); nothing written"
+        if old == text.encode("utf-8"):
+            return "unchanged", None
+        have, _p = parse(old, str(path))
+        want, _w = parse(text.encode("utf-8"))
+        if have is not None and have == want:
+            return "unchanged", None
+        return "refused", (f"{path} already exists and says something else; nothing written (edit it by hand, "
+                           f"or remove it and run again)")
+    if dry_run:
+        return "would-write", None
+    path.write_text(text, encoding="utf-8")
+    return "written", None

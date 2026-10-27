@@ -53,7 +53,13 @@ next:
   lake update && lake exe cache get
   lake build MyProof.Solution MyProof.Axioms
   git add -A && git commit -m "new package"
+lean-pkg-binding.yaml opts in to the docs-only rule: a later commit that changes only files the build does not read (README.md, coverage.yaml) keeps the receipts bound; commit it with the package (--evidence-only leaves it out)
 ```
+
+`lean-pkg new` also writes `lean-pkg-binding.yaml`, the package's committed
+docs-only opt-in ([receipts](receipts.md#docs-only-descendants-opt-in)):
+committed with the package, it lets the README page of step 7 follow the
+verified commit without new receipts. `--evidence-only` leaves it out.
 
 `lean-pkg new` writes the [getting-started project](getting-started.md#start-from-scratch)
 (a trusted statement in `MyProof/Challenge.lean`, its proof in
@@ -196,18 +202,20 @@ lean-pkg page my-proof --check
 ```
 
 ```text
-my-proof: updated 1 field(s)
-  docs_descendants: None -> True
 my-proof: wrote the page block into .../my-proof/README.md — not committed; commit it yourself
-my-proof: turned on the docs-only exception (`lean-pkg update my-proof --accept-docs-descendants --reason ...`): the record now says docs_descendants: true, so a commit after a0a4fe68e46c that changes only non-build files, such as this README, keeps the receipts bound to a0a4fe68e46c; ...
 my-proof: page: current (README.md)
 ```
 
-Committing the README moves `HEAD` past the verified commit. The first
-`page --write` therefore records the docs-only exception for you (the
-`update` line above, its own registry event): a later commit that changes no
-build input keeps the receipts bound. A record that already says either way
-is left as it is.
+Committing the README moves `HEAD` past the verified commit. The receipts
+stay bound because `lean-pkg-binding.yaml`, committed with the package in
+step 2, opts in to the docs-only rule: a later commit that changes no build
+input keeps them bound. A package without that file at its verified commit
+(one scaffolded before lean-pkg wrote it, or with `--evidence-only`) gets
+the older registry route from `page --write` instead: it sets the record's
+`docs_descendants: true` (deprecated, with a `WARN: deprecated:` line) and
+writes `lean-pkg-binding.yaml` into the working tree. Commit README.md on
+its own, as above, and the file in a commit of its own right before the
+next verify run ([page](page.md#the-docs-only-opt-in)).
 
 The README now says, among other things:
 

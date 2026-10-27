@@ -1,7 +1,7 @@
 usage: lean-pkg update [-h] [--automation AUTOMATION] [--notes TEXT] [--replace-notes]
                        [--upstream-target {none,mathlib,palomar}] [--doi-track {palomar,doi-only}]
                        [--accept-docs-descendants | --no-accept-docs-descendants]
-                       [--build-inputs GLOB,GLOB] [--reaudit-after ISO8601]
+                       [--build-inputs GLOB,GLOB] [--write-binding-file] [--reaudit-after ISO8601]
                        [--owner-project OWNER_PROJECT] [--url URL] [--license-spdx SPDX]
                        [--formalization-yaml REL] [--headline-config REL] [--paper-arxiv ID]
                        [--paper-status {unpublished,preprint,published}]
@@ -33,19 +33,28 @@ options:
                         minted without a palomar-* event; palomar (the default when absent) keeps
                         rule doi-in-palomar (old spelling --track, kept working)
   --accept-docs-descendants
-                        opt in (needs --reason): a receipt bound to commit C is also accepted at a
-                        descendant of C where no build input under the package directory changed
-                        (*.lean, lakefile.*, lake-manifest.json, lean-toolchain, --build-inputs
-                        globs, the checker's files; never a symlink/gitlink change,
-                        .gitattributes, .gitmodules, .lfsconfig, claims.yaml, nor those attribute
-                        files in a directory above a subdirectory package); the gated commit stays
-                        C (docs/receipts.md); --dry-run supported
+                        deprecated (WARN; removed no earlier than 1.0.0): the registry route of
+                        the docs-only opt-in, replaced by a committed lean-pkg-binding.yaml
+                        (--write-binding-file). Opt in (needs --reason): a receipt bound to commit
+                        C is also accepted at a descendant of C where no build input under the
+                        package directory changed (*.lean, lakefile.*, lake-manifest.json, lean-
+                        toolchain, --build-inputs globs, the checker's files; never a
+                        symlink/gitlink change, .gitattributes, .gitmodules, .lfsconfig,
+                        claims.yaml, nor those attribute files in a directory above a subdirectory
+                        package); the gated commit stays C (docs/receipts.md); --dry-run supported
   --no-accept-docs-descendants
                         opt out again (needs --reason): only the evidence-only rule applies
   --build-inputs GLOB,GLOB
                         extra build inputs for the docs-only rule (needs --reason): comma-
                         separated package-relative fnmatch globs (`*` crosses /; a glob without /
                         also matches a basename), replacing the recorded list; '' clears it
+  --write-binding-file  write lean-pkg-binding.yaml (schema lean-pkg-binding/1) into the package
+                        directory from the record's docs_descendants: true and build_inputs, the
+                        migration off the deprecated registry route; writes nothing (exit 0) when
+                        the record does not opt in; an identical file is a no-op, a different file
+                        or a symlink is refused (exit 1); never staged or committed, and the
+                        registry is not written. On its own (no field, --status or --path); --dry-
+                        run prints the file
   --reaudit-after ISO8601
   --owner-project OWNER_PROJECT
   --url URL             remote URL (e.g. after publishing a private dep) (old spelling --repo,
@@ -105,7 +114,8 @@ options:
                         lift a publication hold (needs --reason); status and visibility unchanged;
                         a later public flip still goes through promote
   --dry-run             with --path, --withdraw-publication or --release-publication-hold: print
-                        the would-be changes, write nothing
+                        the would-be changes, write nothing; with --write-binding-file: print the
+                        file
   --json                machine-readable JSON on stdout
   --commit              write commands: pull --ff-only, then commit the registry files (default:
                         $LEAN_PKG_COMMIT=1)

@@ -228,8 +228,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   literal `true`/`false`, a symlink, gitlink or directory at the path, more
   than 64 KiB: it does not opt in, and the output names the file and the
   key); a copy under `.lean-receipts/`, at the repository root above a
-  subdirectory package or in a nested package is not the package's. Write it
-  by hand for now ([docs-only descendants](docs/receipts.md#docs-only-descendants-opt-in),
+  subdirectory package or in a nested package is not the package's. `new`
+  and `update NAME --write-binding-file` write it (stage G3, below), or write
+  it by hand ([docs-only descendants](docs/receipts.md#docs-only-descendants-opt-in),
   [on-disk formats](docs/formats.md)); `receipt check` and a registry-less
   `index check` read it too (stage G2, below).
 - Additive `opt_in: {source, commit, path}` (#349; #319) in the
@@ -244,6 +245,26 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `ignored: --evidence-only`, and the validators apply the same rule.
   `--docs-descendants` and `--evidence-only` together are a usage error
   (exit 2) ([Checking a published package's receipts](docs/receipts.md#checking-a-published-packages-receipts-receipt-check)).
+- `update NAME --write-binding-file` (#PR_G3; #319, proposal 0002, stage
+  G3): the migration off the registry route. It writes
+  `lean-pkg-binding.yaml` into the package directory from the record's
+  `docs_descendants: true` and `build_inputs`; nothing is staged or
+  committed and the registry is not written (so it is not a registry write
+  for committed mode). It writes nothing (exit 0) when the record does not
+  opt in; an identical file is a no-op; a different file, a symlink or a
+  directory at the path is refused (exit 1, untouched). `--dry-run` prints
+  the file; with a field, `--status` or `--path` it is a usage error
+  (exit 2). It prints the advice to commit the file on its own right before
+  the next verify run: a commit that adds it after the receipts' commit
+  unbinds them until that run. `--json` {event, state, path, written,
+  dry_run, docs_descendants, build_inputs, content, advice, problem}
+  ([docs-only descendants](docs/receipts.md#writing-the-file)).
+- `lean-pkg new` writes `lean-pkg-binding.yaml` (`docs_descendants: true`,
+  with a comment saying what it permits) (#PR_G3; #319, stage G3), so a
+  scaffolded package's README page can follow the verified commit without
+  new receipts once the file is committed with the package; `new
+  --evidence-only` leaves it out. `--json` gains `binding_file` (the file,
+  or null).
 
 ### Changed
 
@@ -394,6 +415,38 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   reach it; for every other package `ready` still means every required
   claim `verified`
   ([conditional claims](docs/lifecycle.md#conditional-claims)).
+
+- `page --write` writes `lean-pkg-binding.yaml` (#PR_G3; #319, proposal
+  0002, stage G3). For a gated package without the file at its gated
+  commit it keeps the receipts bound through the registry route as before
+  (when the record says nothing: its own `update NAME
+  --accept-docs-descendants` invocation; a record `false` is left alone),
+  now with the deprecation `WARN` (`--json` `deprecations[]`), and writes
+  the file into the working tree, never staged and never over an existing
+  path (`--json` `binding_file` {path, state, written}), with the advice to
+  commit README.md without it and the file on its own right before the next
+  verify run. With the file at the gated commit it does nothing about the
+  opt-in ([the docs-only opt-in](docs/page.md#the-docs-only-opt-in)).
+
+### Deprecated
+
+- The registry route of the docs-only opt-in (#PR_G3; #319, proposal 0002,
+  stage G3): the record's `docs_descendants: true` with no
+  `lean-pkg-binding.yaml` at the receipts' commit, and `update NAME
+  --accept-docs-descendants`, which sets it. Replacement: the committed
+  file (`lean-pkg update NAME --write-binding-file`, then commit it on its
+  own right before the next verify run). It keeps working, with a stderr
+  `WARN: deprecated: ...` line and a `deprecations[]` entry in `--json`
+  (`{id: registry-docs-descendants, message, replacement,
+  earliest_removal: 1.0.0, removal_rule}`) in `gate`, `gate --check` and
+  `comparator` when the docs-only rule admitted HEAD through the record, in
+  `publish` (read-only checklist, plus a `WARN` item) whenever the opt-in
+  exists only in the record, in `update --accept-docs-descendants` and in
+  `page --write`. A package with the file at that commit, or with neither,
+  prints none of them. Removed no earlier than the latest of 1.0.0, one
+  minor release after this one, and two minor releases plus 60 days
+  (RELEASING.md). The veto `--no-accept-docs-descendants`
+  (`docs_descendants: false`) and `build_inputs` are not deprecated.
 
 ### Fixed
 

@@ -178,6 +178,17 @@ accepted 2026-10-17). Renaming and removing are different things:
   is longer**; and it is removed only in a release whose `### Removed`
   section names it. After 1.0.0 a removal is a major release anyway.
 
+Deprecations in force, each with its removal rule:
+
+- `registry-docs-descendants` (proposal 0002, #319): the registry record's
+  `docs_descendants: true` as the docs-only opt-in, and
+  `update NAME --accept-docs-descendants` that sets it. Replacement: the
+  committed `lean-pkg-binding.yaml` (`update NAME --write-binding-file`).
+  Removed (stage G4) no earlier than the latest of: 1.0.0, one minor release
+  after the release that deprecated it, and two minor releases plus 60 days
+  (the maintainer's decision of 2026-10-26). The veto,
+  `docs_descendants: false`, stays.
+
 After 1.0.0, versions follow [Semantic Versioning](https://semver.org/)
 proper: a breaking change (a removed command, flag or JSON key, or a format
 an older lean-pkg cannot read) is a major, an addition a minor, a fix a

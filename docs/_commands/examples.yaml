@@ -19,6 +19,8 @@ lean-pkg new:
     say: Scaffold a library (its coverage.yaml lists the example as the main result); the quickstart takes it from there.
   - cmd: lean-pkg new my-proof --kind library --no-mathlib --author "Ada Lovelace" --license MIT
     say: The same in core Lean, with the author and the license named.
+  - cmd: lean-pkg new my-proof --kind library --evidence-only
+    say: Leave out lean-pkg-binding.yaml, the docs-only opt-in written by default; then only evidence may follow the verified commit.
 
 lean-pkg registry init:
   - cmd: lean-pkg registry init
@@ -233,6 +235,10 @@ lean-pkg repo adopt:
 lean-pkg update:
   - cmd: lean-pkg update my-proof --license-spdx Apache-2.0
     say: Set a field of a registered package (register is only for new ones).
+  - cmd: lean-pkg update my-proof --write-binding-file --dry-run
+    say: Print the lean-pkg-binding.yaml the record's docs_descendants and build_inputs give; nothing written.
+  - cmd: lean-pkg update my-proof --write-binding-file
+    say: Write it into the package directory (the migration off the deprecated registry route; never staged, the registry untouched), then commit it on its own right before the next verify run.
 
 lean-pkg record:
   - cmd: lean-pkg record my-proof consent-recorded --field who=ada --field role=author --field pointer=https://example.org/consent
@@ -412,7 +418,7 @@ lean-pkg page:
   - cmd: lean-pkg page my-proof
     say: Print the README verification section rendered from coverage.yaml, the claims, the ledger and the receipts.
   - cmd: lean-pkg page my-proof --write
-    say: Replace the marked block in the package README.md (append it when absent).
+    say: Replace the marked block in the package README.md (append it when absent). Without lean-pkg-binding.yaml at the gated commit it keeps the receipts bound through the deprecated registry route (a WARN) and writes that file into the working tree; commit README.md without it.
   - cmd: lean-pkg page my-proof --check
     say: Exit 1 when the README block is missing or stale; a CI step for the package.
   - cmd: lean-pkg page my-proof --site docs --html docs/verification.html
