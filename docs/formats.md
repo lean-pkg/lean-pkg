@@ -25,7 +25,12 @@ A format version names a set of keys and what each one means.
   entry `{hypothesis, text}` in `coverage/1`; proposal 0003) were added
   this way. `claims/1` and `coverage/1` are strict, so an older lean-pkg
   refuses a file that uses a key added after it: a package that uses one
-  needs a release that knows it in its CI pin.
+  needs a release that knows it in its CI pin. `index-entry/2` gained two
+  optional derived keys of a claim the same way, `status` (only
+  `conditional`) and `open_hypotheses`, written by `index add` only for a
+  headline whose claim is conditional and recomputed by `index check`
+  ([Conditional claims](index-catalog.md#conditional-claims)); an older
+  lean-pkg refuses an entry that carries them (the entry schema is strict).
 - **A new required key, a removed key, or a changed meaning bumps the
   version** (`claims/1` to `claims/2`, `v: 1` to `v: 2`). A lean-pkg that
   meets a version newer than it knows refuses the file, naming the upgrade,
@@ -218,7 +223,9 @@ block is named in the refusal.
 **Written since stage H1 of [proposal 0003](proposals/0003-conditional-claims-and-discharge.md)
 (conditional claims, [#320](https://github.com/lean-pkg/lean-pkg/issues/320)); read by the claims
 ledger since stage H3** ([Conditional claims](lifecycle.md#conditional-claims)), which judges the
-facts from the sealed log the gate receipt binds, at the gate-bound commit, on every call.
+facts from the sealed log the gate receipt binds, at the gate-bound commit, on every call; since
+stage H4 also by `receipt check` (its `hypotheses` check), `index add` and `index check`, by the same
+rule.
 
 The lower-tier verify scripts (`receipt slurm --template` and the `verify.sh` that `lean-pkg new`
 writes) append this section after the

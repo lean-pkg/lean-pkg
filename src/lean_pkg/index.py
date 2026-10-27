@@ -47,6 +47,9 @@ BUILT_ON_KEYS = ("name", "url", "authors", "license", "pin", "relation", "note")
 BUILT_ON_REQUIRED = ("name", "url", "authors")
 BUILT_ON_RELATIONS = ("depends-on", "adapted-from")
 INDEX_CLAIM_KEYS = ("id", "decl", "kind", "summary", "judged_as", "trust")
+# Optional derived keys of a claim (proposal 0003): a headline whose claim is conditional. Recomputed by
+# `index check --clone` from the sealed log at the pin, like every derived key; absent on every other claim.
+INDEX_CLAIM_OPTIONAL_KEYS = ("status", "open_hypotheses")
 TRUST_LEVELS = ("lower-tier", "comparator", "palomar")
 TRUST_RANK = {t: i for i, t in enumerate(TRUST_LEVELS, 1)}
 NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -117,12 +120,88 @@ def entry_keys(entry: dict) -> tuple[str, ...]:
     return ENTRY_KEYS_BY_SCHEMA.get(entry.get("schema"), ENTRY_KEYS)
 
 
-def index_claims(name: str, headline: list[dict], trust) -> list[dict]:
-    """claims[] of an index-entry/2: one per headline item, derived, never typed."""
+def index_claims(name: str, headline: list[dict], trust, conditional: dict | None = None) -> list[dict]:
+    """claims[] of an index-entry/2: one per headline item, derived, never typed. `conditional` (proposal 0003)
+    {headline name: its outstanding hypotheses} adds the optional derived keys `status: conditional` and
+    `open_hypotheses` to those items; without it every claim is exactly as before."""
     from .claims import slug_of_decl
-    return [{"id": f"{name}/{slug_of_decl(h['name'])}", "decl": h["name"], "kind": "theorem",
+    out = []
+    for h in headline:
+        c = {"id": f"{name}/{slug_of_decl(h['name'])}", "decl": h["name"], "kind": "theorem",
              "summary": h["summary"], "judged_as": h.get("judged_as"), "trust": trust}
-            for h in headline]
+        if conditional and h["name"] in conditional:
+            c.update(status="conditional", open_hypotheses=list(conditional[h["name"]]))
+        out.append(c)
+    return out
+
+
+def _conditional_keys(claims: list) -> dict:
+    """{claim decl: {status, open_hypotheses}} of the claims that carry the optional derived keys."""
+    return {str(c.get("decl")): {k: c.get(k) for k in INDEX_CLAIM_OPTIONAL_KEYS}
+            for c in claims if isinstance(c, dict) and any(k in c for k in INDEX_CLAIM_OPTIONAL_KEYS)}
+
+
+def trust_text(trust: str, claims: list[dict]) -> str:
+    """The rendered trust of an entry or a claim: the tier, and for conditional claims (proposal 0003) the
+    assumptions it rests on, "comparator, conditional on 1 assumption". The tier itself never changes: it
+    grades the receipts, not the hypotheses."""
+    cond = [c for c in claims if isinstance(c, dict) and c.get("status") == "conditional"]
+    if not cond:
+        return trust
+    n = len({h for c in cond for h in c.get("open_hypotheses") or []})
+    if not n:
+        return f"{trust}, conditional (all assumptions discharged)"
+    return f"{trust}, conditional on {n} assumption{'s' if n != 1 else ''}"
+
+
+def conditional_at(clone: pathlib.Path, pin: str, res: dict, headline: list[dict]) -> dict | None:
+    """{headline name: outstanding hypotheses} for the headline items whose claim in claims.yaml at the pin is
+    conditional (proposal 0003), judged from the sealed verify log `derive` verified (hypotheses.judge_at; the
+    promote stage when the comparator receipt validated). A headline names a claim by its declaration (the
+    comparator's naming rule) or by its judged_as. None when no claim at the pin uses hypotheses, discharges or
+    witness: entries of every other package carry no new key."""
+    from . import claims as claims_mod
+    from . import comparator_config as cc
+    from . import hypotheses as hyp
+    raw = core.git_show_bytes(clone, "./claims.yaml", pin)
+    if raw is None:
+        return None
+    try:
+        doc = claims_mod.load_claims_text(raw.decode("utf-8", errors="replace"), f"claims.yaml at {pin[:12]}")
+    except core.Fail:
+        return None
+    claims = [c for c in doc.get("claims") or [] if isinstance(c, dict)]
+    if not any(claims_mod.uses_conditional_keys(c) for c in claims):
+        return None
+    text = None
+    if res.get("lower_ok"):
+        name = gate_mod.report_log_name(res["lower"])
+        for rel, data in res["bytes"].items():
+            base = pathlib.PurePosixPath(rel).name
+            if base == name:
+                text = data.decode("utf-8", "replace")
+            elif base == name + gate_mod.REPORT_GZ_SUFFIX and text is None:
+                import gzip
+                try:
+                    text = gzip.decompress(data).decode("utf-8", "replace")
+                except (OSError, EOFError):
+                    text = None
+    comparator_ok, smoke = bool(res.get("comparator_ok")), None
+    if comparator_ok:
+        try:
+            smoke = smoke_at(clone, pin, res["comparator"])
+        except core.Fail:                           # a malformed sidecar: no discharge counts (fail closed)
+            comparator_ok = False
+    got = hyp.judge_at(clone, pin, claims, text, comparator_ok=comparator_ok, smoke=smoke)
+    out: dict[str, list[str]] = {}
+    for h in headline:
+        hits = [c for c in claims if str(c.get("id")) in got["conditional"]
+                and (cc.covers({h["name"]}, str(c.get("decl") or ""), str(c.get("decl") or "") in got["qualified"])
+                     or (h.get("judged_as") and h["judged_as"] in got["credited"].get(str(c.get("id")), set())))]
+        if hits:
+            out[h["name"]] = sorted({x["decl"] for c in hits for x in got["claims"][str(c["id"])]["hypotheses"]
+                                     if x["state"] == "open"})
+    return out
 
 
 def entry_optional_keys(entry: dict) -> tuple[str, ...]:
@@ -465,13 +544,27 @@ def _index_claim_errors(entry: dict, prior: list[str]) -> list[str]:
     if not isinstance(cs, list):
         return ["claims must be a list"]
     out: list[str] = []
+    cond: dict[str, list] = {}
     for i, c in enumerate(cs):
-        if _exact_keys(c, INDEX_CLAIM_KEYS, f"claims[{i}]", out) and not (
+        base = {k: v for k, v in c.items() if k not in INDEX_CLAIM_OPTIONAL_KEYS} if isinstance(c, dict) else c
+        if _exact_keys(base, INDEX_CLAIM_KEYS, f"claims[{i}]", out) and not (
                 isinstance(c["id"], str) and CLAIM_ID_RE.match(c["id"])):
             out.append(f"claims[{i}].id must be <name>/<slug>, got {c['id']!r}")
+        if not isinstance(c, dict) or not any(k in c for k in INDEX_CLAIM_OPTIONAL_KEYS):
+            continue
+        hs = c.get("open_hypotheses")               # proposal 0003: optional derived keys, both or neither
+        if not all(k in c for k in INDEX_CLAIM_OPTIONAL_KEYS):
+            out.append(f"claims[{i}]: status and open_hypotheses come together (proposal 0003), or neither")
+        elif c["status"] != "conditional":
+            out.append(f"claims[{i}].status must be conditional when present, got {c['status']!r}")
+        elif not (isinstance(hs, list) and all(isinstance(h, str) and h.strip() for h in hs)
+                  and hs == sorted(set(hs))):
+            out.append(f"claims[{i}].open_hypotheses must be a sorted list of distinct hypothesis names")
+        else:
+            cond[str(c.get("decl"))] = hs
     if out or any(x.startswith("headline") for x in prior):
         return out
-    if cs != index_claims(entry["name"], entry["headline"], entry["trust"]):
+    if cs != index_claims(entry["name"], entry["headline"], entry["trust"], cond):
         out.append("claims[] must be derived from the headline (one per item: id <name>/<slug of the "
                    "name>, kind theorem, its summary and judged_as, the entry's trust); nothing is typed "
                    "by hand: re-run `lean-pkg index add`")
@@ -1101,7 +1194,8 @@ def do_index_add(root: pathlib.Path, events_p: pathlib.Path | None, reg: dict | 
             "mathlib_rev": mathlib_rev_at(clone),
             "license_spdx": license_spdx, "trust": trust,
             "receipts": {"lower": lower_rel or None, "comparator": comp_rel or None},
-            "headline": headline, "claims": index_claims(name, headline, trust),
+            "headline": headline,
+            "claims": index_claims(name, headline, trust, conditional_at(clone, pin, res, headline)),
             "palomar": palomar, "doi": doi, "reservoir": reservoir,
             "formalization_yaml": opts.get("formalization_yaml") or pkg.get("formalization_yaml"),
             **({"built_on": built_on} if built_on else {}),
@@ -1404,6 +1498,18 @@ def check_entry(root: pathlib.Path, name: str, source: str | None, clone_it: boo
                 if copy != res["bytes"][rel]:
                     rep["failures"].append(f"receipts.{k}: index copy differs from the bytes in the repository")
         rep["failures"] += at_pin_problems(clone, entry, res, record)
+        if isinstance(entry.get("claims"), list):   # index-entry/2: the conditional keys are derived, recomputed
+            try:
+                want = index_claims(entry["name"], entry["headline"], entry["trust"],
+                                    conditional_at(clone, entry["pin"]["commit"], res, entry["headline"]))
+            except core.Fail as e:
+                want = None
+                rep["failures"].append(f"claims[]: the conditional keys cannot be derived at the pin: {e}")
+            if want is not None and _conditional_keys(entry["claims"]) != _conditional_keys(want):
+                rep["failures"].append(
+                    f"claims[]: the conditional keys (status, open_hypotheses) are not what the evidence at the pin "
+                    f"gives: stated {_conditional_keys(entry['claims'])}, derived {_conditional_keys(want)} "
+                    f"(proposal 0003); re-run `lean-pkg index add`")
         try:
             smoke = smoke_at(clone, entry["pin"]["commit"], res["comparator"]) if res["comparator_ok"] else {}
         except core.Fail as e:
@@ -1542,9 +1648,9 @@ def render_index(root: pathlib.Path) -> str:
                 f"| {_cell(n)} | [{_cell(c['name'])}]({c['url']}) | {_authors(c['authors'])} | "
                 f"{c.get('relation') or ''} | {_cell(c.get('license') or '')} | "
                 + (f"`{c['pin'][:12]}`" if c.get("pin") else "") + f" | {_cell(c.get('note') or '')} |")
-        rows.append(f"| [{_cell(n)}]({e['repo']}) | {trust} | {_cell(tc)} | {head} | {built} | {pin} | "
-                    f"{' · '.join(links)} |")
-        claim_rows += [f"| `{_cell(c['id'])}` | `{_cell(c['decl'])}` | {c['kind']} | {c['trust']} |"
+        rows.append(f"| [{_cell(n)}]({e['repo']}) | {trust_text(trust, e.get('claims') or [])} | {_cell(tc)} | "
+                    f"{head} | {built} | {pin} | {' · '.join(links)} |")
+        claim_rows += [f"| `{_cell(c['id'])}` | `{_cell(c['decl'])}` | {c['kind']} | {trust_text(c['trust'], [c])} |"
                        for c in e.get("claims") or []]
     out = [RENDER_BANNER, "", "# lean-pkg index", "",
            "Generated by `lean-pkg index render` from `index/<name>/entry.yaml`. Do not edit this "

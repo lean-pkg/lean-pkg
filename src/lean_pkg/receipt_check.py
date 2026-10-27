@@ -60,6 +60,12 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   <Prefix>.<decl>). Any `judged_as` that names no configured theorem, or whose claim's decl is not declared in
   its file, fails, whatever the claim's status. claims.yaml is bound to X like the sources (a change after X is
   neither evidence-only nor docs-only), so the mapping is read where the claims are.
+- hypotheses (proposal 0003), only when claims.yaml at X uses hypotheses, discharges or witness: the discharge
+  states recomputed from the hyp-probe/1 section of the sealed log of the lower-tier receipt that binds X (the
+  promote stage when the comparator tier passed, else nothing is discharged): it names the conditional claims,
+  each discharged hypothesis with its corollary and the outstanding ones, and fails on any failed-class code
+  (hypothesis-not-in-type, hypothesis-inadmissible, discharge-type-mismatch, witness-type-mismatch), an
+  unreadable sealed log or a log without a complete section. `--json` gains `hypotheses` under the same condition.
 - coverage: coverage.yaml at REF, when tracked, passes `coverage check` (schema, claim ids, backed compute
   jobs, R8 to R12: every theorem the comparator receipt compares is the declaration of a claim a row names).
 - page: the README.md verification block at REF, when present, states what the receipts say: the bound
@@ -596,6 +602,63 @@ def claimed_theorems_check(c: Checks, repo: pathlib.Path, pkg: dict, x: str, hav
           + (f"; {rest} not covered, none of them reusable" if rest else "") + ")")
 
 
+def hypotheses_check(c: Checks, repo: pathlib.Path, x: str, found: dict, comp_ok: bool) -> dict | None:
+    """Proposal 0003, stage H4: when claims.yaml at X uses hypotheses, discharges or witness, the discharge
+    states recomputed from the hyp-probe/1 section of the sealed log of the lower-tier receipt that binds X
+    (hypotheses.judge_at; the promote stage when the comparator tier passed here, else the gate stage, where
+    nothing is discharged). FAIL on any failed-class code, on a sealed log that is not readable, or on a log
+    without a complete section; SKIP when no lower-tier receipt binds X. No row, and None (no `hypotheses` in
+    --json), when no claim uses the keys: the output of every other package is unchanged."""
+    from . import claims as claims_mod
+    from . import comparator_config as cc
+    from . import hypotheses as hyp
+    raw = core.git_show_bytes(repo, "./claims.yaml", x)
+    if raw is None:
+        return None
+    try:
+        doc = claims_mod.load_claims_text(raw.decode("utf-8", errors="replace"), f"claims.yaml at {x[:12]}")
+    except core.Fail:
+        return None                                 # the claims check fails it
+    claims = [cl for cl in doc.get("claims") or [] if isinstance(cl, dict)]
+    if not any(claims_mod.uses_conditional_keys(cl) for cl in claims):
+        return None
+    cid = "hypotheses"
+    view: dict = {"stage": "promote" if comp_ok else "gate", "checked": False}
+    if not found["lower"]:
+        c.add(cid, SKIP, f"claims.yaml at {x[:12]} uses hypotheses, discharges or witness, but no lower-tier "
+                         f"receipt binds {x[:12]}: no sealed verify log to read the {hyp.FORMAT} facts from")
+        return view
+    lower = found["lower"][0]
+    text = gate_mod.sealed_log_text(repo, lower["data"], lower["path"])     # hash-checked against report_sha256
+    if text is None:
+        c.add(cid, FAIL, "the sealed verify log is not readable here (missing, or its bytes are not the receipt's "
+                         "report_sha256), so the hypotheses cannot be judged")
+        return view
+    try:
+        smoke = cc.smoke_configs(repo, x, "HEAD") if comp_ok else None
+    except core.Fail:
+        smoke = None
+    res = hyp.judge_at(repo, x, claims, text, comparator_ok=comp_ok, smoke=smoke)
+    view.update(checked=True, conditional=res["conditional"], discharged=res["discharged"],
+                outstanding=res["outstanding"], failed=res["failed"], open=res["open"],
+                claims=res["claims"])
+    if not res["facts_ok"]:
+        c.add(cid, FAIL, f"claims.yaml at {x[:12]} uses hypotheses, discharges or witness: {res['facts_why']}")
+        return view
+    if res["failed"]:
+        c.add(cid, FAIL, "; ".join(f"{f['claim']}: {f['code']} ({f['detail'][:240]})" for f in res["failed"][:10]))
+        return view
+    disc = ", ".join(f"{d['decl']} ({d['corollary']})" for d in res["discharged"]) or "none"
+    detail = (f"{len(res['conditional'])} conditional claim(s); discharged {disc}; outstanding "
+              f"{', '.join(res['outstanding']) or 'none'}")
+    if view["stage"] == "gate":
+        detail += f" (no passing comparator receipt binds {x[:12]}: nothing is discharged at the build tier)"
+    if res["open"]:
+        detail += ("; not judged: " + "; ".join(f"{o['claim']}: {o['code']}" for o in res["open"][:10]))
+    c.add(cid, PASS, detail)
+    return view
+
+
 def coverage_check(c: Checks, repo: pathlib.Path, pkg: dict) -> None:
     from . import coverage as cov
     cid = "coverage"
@@ -784,6 +847,17 @@ def attested_usage(attested: bool, trusted_root: str | None) -> str | None:
     return str(p.resolve())
 
 
+def _lower_ok(c: Checks, found: dict) -> bool:
+    return bool(found["lower"]) and not any(
+        i["verdict"] == FAIL for i in c.items if i["id"].startswith(("lower ", "receipts", "binding")))
+
+
+def _comparator_ok(c: Checks, found: dict) -> bool:
+    """The comparator tier passed so far (the tier's own rule; the checks after `claimed theorems` never count)."""
+    return _lower_ok(c, found) and bool(found["comparator"]) and not any(
+        i["verdict"] == FAIL for i in c.items if i["id"].startswith(("comparator ", "claimed theorems")))
+
+
 def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants: bool = False,
              name: str | None = None, evidence_only: bool = False, corroborate: bool = False,
              github: str | None = None, fetch=None, attested: bool = False,
@@ -870,6 +944,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
             container_check(c, v, "comparator")
             ci_check(c, repo, v, "comparator")
         claimed_theorems_check(c, repo, pkg, x, bool(found["comparator"]))
+        hyp_view = hypotheses_check(c, repo, x, found, _comparator_ok(c, found))
         coverage_check(c, repo, pkg)
         page_checks(c, repo, x, found)
         # #237: the toolchain the receipts bind (else lean-toolchain at X) against the shipped advisories
@@ -877,10 +952,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
         advisories, advisory_lines = toolchain_advisories.warn_lines(
             [t for t in toolchains if isinstance(t, str) and t.strip()] or [toolchain_at(repo, x)])
     failed = c.failed()
-    lower_ok = bool(found["lower"]) and not any(
-        i["verdict"] == FAIL for i in c.items if i["id"].startswith(("lower ", "receipts", "binding")))
-    comp_ok = lower_ok and bool(found["comparator"]) and not any(
-        i["verdict"] == FAIL for i in c.items if i["id"].startswith(("comparator ", "claimed theorems")))
+    lower_ok = _lower_ok(c, found)
+    comp_ok = _comparator_ok(c, found)
     tier = index_mod.compute_trust(lower_ok, comp_ok, [])
     rule = rule_text(oi, x, evidence_only)
     note = ATTESTED_NOTE if attested else CORROBORATE_NOTE if corroborate else RERUN_NOTE
@@ -910,6 +983,8 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
                "counts": counts, "exemptions": c.exemptions,
                "skipped_records": [v["path"] for v in found["sidecar"]], "checks": c.items,
                "toolchain_advisories": advisories}
+    if hyp_view is not None:                        # proposal 0003: only when claims.yaml at X uses the keys
+        payload["hypotheses"] = hyp_view
     if attested:
         payload["attested"] = True
         payload["trusted_root"] = trusted_root

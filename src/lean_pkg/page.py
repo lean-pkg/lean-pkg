@@ -185,6 +185,12 @@ def _conditional_tag(led: dict) -> str:
             if cond else "")
 
 
+def _conditional_gloss(led: dict) -> str:
+    """The coverage table's gloss of *conditional* (proposal 0003), only when a claim uses the keys."""
+    return ("; *conditional* means they close it only under its hypotheses, some of which may be outstanding "
+            "(an outstanding assumption is not proved)" if "conditional" in led["counts"] else "")
+
+
 def _cell(s) -> str:
     return str(s).replace("|", "\\|").replace("\n", " ")
 
@@ -579,7 +585,13 @@ def _row_compared(ctx: dict, sts: list[dict]) -> bool:
     return bool(sts) and all(_compared(ctx, st) for st in sts)
 
 
-def _status_line(word: str, compared: bool) -> str:
+def _status_line(word: str, compared: bool, conditional: str | None = None) -> str:
+    if word == "conditional" and conditional:       # proposal 0003: never the word verified alone
+        checks = ("every check of this result passed (the build, and the statement comparison)" if compared else
+                  "every check that applies to this result passed (the build; its statement was not compared by "
+                  "a second checker)")
+        return (f"**Conditional.** {conditional} Lean accepts the proof under these assumptions, and lean-pkg's "
+                f"record shows {checks}.")
     if word == "verified" and compared:
         return ("**Verified.** Lean accepts the proof, and lean-pkg's record shows every check of this result "
                 "passed (the build, and the statement comparison).")
@@ -624,12 +636,88 @@ def _depends_lines(ctx: dict, sts: list[dict]) -> list[str]:
     return [x for line in out for x in (line, "")]
 
 
+def _hyp_modules(ctx: dict) -> dict[str, str]:
+    """{hypothesis constant: its module}, from the binders of the hyp-probe/1 facts in the gate receipt's sealed
+    log (proposal 0003), read once per page; {} when there is no readable section."""
+    if "hyp_modules" not in ctx:
+        from . import hypotheses as hyp
+        mods: dict[str, str] = {}
+        rel = ctx["gate"].get("receipt")
+        text = gate_mod.sealed_log_text(ctx["repo"], ctx["lower"], rel) if ctx["lower"] and rel else None
+        fx = hyp.facts(text)
+        if fx.get("ok"):
+            objs = list(fx["decls"].values()) + [o for os in fx["challenge"].values() for o in os]
+            for o in objs:
+                for b in o["binders"]:
+                    mods.setdefault(b["head"], b["module"])
+        ctx["hyp_modules"] = mods
+    return ctx["hyp_modules"]
+
+
+def _hyp_ref(ctx: dict, name: str) -> str | None:
+    """A hypothesis as a code span, linked to its declaration's source at the commit the page reads when the
+    page can form the link (its module's file is in the package and declares it); None when the name is not
+    a safe token (the caller counts it, never drops it)."""
+    from . import lean_scan
+    safe = _safe(name)
+    if safe is None:
+        return None
+    rel = lean_scan.module_file(_hyp_modules(ctx).get(safe) or "")
+    if not (ctx["link_base"] and rel and re.fullmatch(r"[A-Za-z0-9_./«»'-]+\.lean", rel) and ".." not in rel):
+        return f"`{safe}`"
+    raw = core.git_show_bytes(ctx["repo"], rel, ctx["anchor"] or "HEAD")
+    line = next((d[0] for d in lean_scan.declarations(raw.decode("utf-8", "replace")) if d[2] == safe),
+                None) if raw is not None else None
+    return f"[`{safe}`]({ctx['link_base']}/{rel}#L{line})" if line else f"`{safe}`"
+
+
+def _refs(ctx: dict, items: list[tuple[str, str]]) -> str:
+    """'ref (detail), ...' for [(hypothesis, detail)]; names that are not safe tokens are counted."""
+    shown = [(ref, d) for ref, d in ((_hyp_ref(ctx, h), d) for h, d in items) if ref is not None]
+    hidden = len(items) - len(shown)
+    return ", ".join([ref + (f" ({d})" if d else "") for ref, d in shown]
+                     + ([f"{hidden} more not shown here (see the claims ledger)"] if hidden else []))
+
+
+def _conditional_text(ctx: dict, r: dict, by_id: dict) -> str | None:
+    """Proposal 0003: the assumptions of a row whose claims are verified or conditional, from the ledger rows:
+    "Verified under assumptions `A`, `B`. Discharged: `A` (proved by P; corollary C, compared at X). Outstanding:
+    `B` (its coverage text)." or, with nothing outstanding, "Verified (all assumptions discharged: ...)". None
+    when no claim of the row has a hypothesis."""
+    hyps: dict[str, dict] = {}
+    for cid in r.get("claims") or []:
+        row = by_id.get(cid) or {}
+        if row.get("status") != "conditional":
+            continue
+        for h in row.get("hypotheses") or []:
+            old = hyps.get(h["decl"])
+            if old is None or (old["state"] != "open" and h["state"] == "open"):
+                hyps[h["decl"]] = h                     # outstanding anywhere in the row: outstanding
+    if not hyps:
+        return None
+    texts = {x.get("hypothesis"): x.get("text") for x in r.get("inputs") or [] if isinstance(x, dict)}
+    at = _c12(ctx["bound"])
+    done = [(d, f"proved by `{_code(h['by']['proof'])}`; corollary `{_code(h['by']['corollary'])}`"
+                + (f", compared at `{at}`" if at else ""))
+            for d, h in hyps.items() if h["state"] == "discharged"]
+    left = [(d, "; ".join(x for x in (_md(texts[d]) if texts.get(d) else "",
+                                        f"inherited from `{_code(h['via'])}`" if h.get("via") else "") if x))
+            for d, h in hyps.items() if h["state"] == "open"]
+    if not left:
+        return f"Verified (all assumptions discharged: {_refs(ctx, done)})."
+    out = f"Verified under assumptions {_refs(ctx, [(d, '') for d in hyps])}."
+    if done:
+        out += f" Discharged: {_refs(ctx, done)}."
+    return out + f" Outstanding: {_refs(ctx, left)}."
+
+
 def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, statement: str | None,
                   hypotheses: str | None) -> tuple[list[str], str, bool]:
     word = _ledger_word(r, _row_statuses(r, by_id))
     sts = [_lean_statement(ctx, cid) for cid in r.get("claims") or []]
     compared = _row_compared(ctx, sts)
-    md = [f"### {heading}", "", _status_line(word, compared), "", *_internal_line(r, by_id)]
+    cond = _conditional_text(ctx, r, by_id) if word == "conditional" else None
+    md = [f"### {heading}", "", _status_line(word, compared, cond), "", *_internal_line(r, by_id)]
     if not ctx["library"]:
         md += ["**In the paper.**" + ("" if statement else " The statement is not quoted here; read it in the "
                                                           "paper."), ""]
@@ -675,7 +763,10 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     (verification.md beside coverage.md) or 'html' (one page holding both)."""
     doc, led = ctx["doc"], ctx["led"]
     by_id = {r["id"]: r for r in led["claims"]}
-    md: list[str] = ["## Verification at a glance", "", LIBRARY_TRUST_LINE if ctx["library"] else TRUST_LINE, ""]
+    keyed = "conditional" in led["counts"]          # proposal 0003: a claim uses hypotheses
+    trust = LIBRARY_TRUST_LINE if ctx["library"] else TRUST_LINE
+    md: list[str] = ["## Verification at a glance", "",
+                     trust + (f" {CONDITIONAL_SENTENCE}" if keyed and led["counts"]["conditional"] else ""), ""]
     if ctx["preview"]:
         pv = ctx["preview"]
         binds = (f"the recorded build check binds commit `{_c12(pv['commit'])}`" if _c12(pv.get("commit"))
@@ -706,6 +797,8 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
         words.append(w)
         n_compared += w == "verified" and c
     n_verified = sum(w == "verified" for w in words)
+    n_cond = sum(w == "conditional" for w in words)
+    cond = f"; conditional (proved under the assumptions each names): {n_cond}" if n_cond else ""
     # "verified" is the ledger's word: a claim that is not reusable needs no comparator, so say how many of
     # the verified results also had their statement compared whenever that is not all of them
     also = (f" (for {n_compared} of them a second checker also compared the statement)"
@@ -716,7 +809,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     if ctx["library"]:
         counts = None
         n = len(doc["rows"])
-        md += [f"- Main results: {n}; verified: {n_verified} of {n}{also}.", ""]
+        md += [f"- Main results: {n}; verified: {n_verified} of {n}{also}{cond}.", ""]
         md += ["## Main results", "", *blocks]
     else:
         counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
@@ -725,7 +818,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
                f"- Results listed: {len(doc['rows'])}. In Lean with the paper's own hypotheses: "
                f"{counts['same-assumptions']}; in Lean with extra hypotheses, named below: "
                f"{counts['inputs-supplied']}; not formalized: {counts['outside']}.",
-               f"- Verified: {n_verified} of the {formal} result(s) in Lean{also}.", ""]
+               f"- Verified: {n_verified} of the {formal} result(s) in Lean{also}{cond}.", ""]
         md += ["## The paper's results in Lean", "", *blocks]
         md += ["## Not formalized", ""]
         outside = [r for r in doc["rows"] if r["class"] == "outside"]
@@ -735,7 +828,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
         else:
             md.append(f"Nothing in the manuscript is excluded: {_md(doc['nothing_excluded']['reason'])}")
         md.append("")
-    return _body_rest(ctx, target, md, counts, n_verified)
+    return _body_rest(ctx, target, md, counts, n_verified, n_cond if keyed else None)
 
 
 def _claim_axioms_lines(value) -> list[str]:
@@ -803,8 +896,8 @@ def _stack_lines(doc: dict, repo, warnings: list[str]) -> list[str]:
             f"`{stacks.declared()[name]['mathlib']['rev']}`), supported until {res['supported_until']}."]
 
 
-def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_verified: int
-               ) -> tuple[list[str], dict]:
+def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_verified: int,
+               n_conditional: int | None = None) -> tuple[list[str], dict]:
     """What the checks establish, How this was checked, and the citation, license and acknowledgments."""
     name, pkg, repo, doc = (ctx[k] for k in ("name", "pkg", "repo", "doc"))
     lower, comp, gate, cite, led = ctx["lower"], ctx["comp"], ctx["gate"], ctx["cite"], ctx["led"]
@@ -946,6 +1039,8 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
     site_facts = {n: site_fact(s, ctx["backed"].get(n) or [], corr) for n, s in ctx["sites"].items()}
     md += [sentence(s, site_facts[n]) for n, s in ctx["sites"].items() if site_facts[n]["sentence"]]
     facts = {"rows": len(doc["rows"]), "counts": counts, "verified_rows": n_verified,
+             # proposal 0003: only when a claim uses the keys, so every other page's facts are unchanged
+             **({"conditional_rows": n_conditional} if n_conditional is not None else {}),
              "ledger_status": pstatus, "ledger_digest": led["ledger_digest"],
              "private_manuscript": kind == "unposted", "manuscript": kind,
              "kind": "library" if ctx["library"] else "paper",
@@ -1029,7 +1124,7 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
                   f"{_md(r['note']) if r.get('note') else '—'} |")
     md += ["", "One line per paper result of `coverage.yaml`. *Ledger*: the status `lean-pkg claims ledger` "
                "gives each claim, in the order of the claims; only *verified* means the "
-               "recorded receipts close the claim.", ""]
+               f"recorded receipts close the claim{_conditional_gloss(led)}.", ""]
     if not any(r["class"] == "outside" for r in doc["rows"]):
         md += [f"Nothing in the manuscript is excluded: {_md(doc['nothing_excluded']['reason'])}", ""]
     md.append(f"Back to [Verification]({'verification.md' if target == 'site' else '#verification'}).")
@@ -1053,7 +1148,7 @@ def _library_coverage_lines(ctx: dict, target: str) -> list[str]:
                   f"{'<br>'.join(_status_cells(r, by_id))} | {_md(r['note']) if r.get('note') else '—'} |")
     md += ["", "One line per main result of `coverage.yaml`. *Ledger*: the status `lean-pkg claims ledger` gives "
                "each claim, in the order of the claims; only *verified* means the recorded "
-               "receipts close the claim.", "",
+               f"receipts close the claim{_conditional_gloss(led)}.", "",
            f"Back to [Verification]({'verification.md' if target == 'site' else '#verification'})."]
     return md
 

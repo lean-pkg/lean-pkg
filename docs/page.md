@@ -150,6 +150,34 @@ carries an **Internal.** line, and the Ledger column of `coverage.md` adds
 `out-of-scope (internal)`). Internal claims are never required, so they never change the
 ledger's package status or the "required claim(s) verified" count.
 
+### Conditional results
+
+A claim that lists `hypotheses` ([conditional claims](lifecycle.md#conditional-claims),
+[proposal 0003](proposals/0003-conditional-claims-and-discharge.md)) is `conditional` in the claims
+ledger, never `verified`, and the page never calls it verified without saying under what. A result
+block whose claims are all verified or conditional, at least one conditional, reads:
+
+> **Conditional.** Verified under assumptions `Hyp.A`, `Hyp.B`. Discharged: `Hyp.A` (proved by
+> `demo/proof-a`; corollary `demo/main-of-b`, compared at `3f2a9c1e0b7d`). Outstanding: `Hyp.B` (the
+> tail estimate of [12, Theorem 2]). Lean accepts the proof under these assumptions, and lean-pkg's
+> record shows every check of this result passed (the build, and the statement comparison).
+
+The text after an outstanding hypothesis is its `{hypothesis, text}` entry of the row's `inputs`;
+an outstanding hypothesis a claim inherits through `depends_on` says "inherited from" that claim.
+With nothing outstanding the block reads "Verified (all assumptions discharged: ...)". Each
+hypothesis links to its declaration at the gate-bound commit, so the reader can read what it says,
+when the page can form the link: the sealed verify log names the module of each hypothesis constant,
+and the link is made when that module is a file of the package that declares the name. A
+hypothesis whose name is not a plain Lean name is counted ("1 more not shown here"), never dropped.
+A row with a claim that is also open still reads "Not yet verified".
+
+Only when a claim uses the keys: the fixed paragraph gains "A conditional result says nothing when
+an outstanding assumption is false.", the counts line gains "conditional (proved under the
+assumptions each names): K" (the verified count never includes them), the *Ledger* gloss of
+`coverage.md` says what *conditional* means, and `page --json` gains `conditional_rows`. Every other
+page is byte for byte what it was. To update a published page, run `page --write` (and `--site` /
+`--html`), as after any change to the data.
+
 Commit the README and `coverage.yaml` after the gate, and the gate-bound
 commit is no longer `HEAD`. The package needs the docs-only opt-in so the
 receipts keep binding. Without it, the ledger reports the receipts as stale

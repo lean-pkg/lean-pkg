@@ -274,6 +274,37 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   conditional result says nothing when an outstanding assumption is
   false."), never "every required claim is closed"
   ([conditional claims](docs/lifecycle.md#conditional-claims)).
+- Conditional claims, stage H4 (#PR_H4; #320, proposal 0003): the outputs
+  say what the claims ledger judged, and the word *verified* never stands
+  alone on a row, headline or claim with an outstanding hypothesis. `page`:
+  a row whose claims are verified or conditional gets the capsule
+  **Conditional.** and "Verified under assumptions `Hyp.A`, `Hyp.B`.
+  Discharged: `Hyp.A` (proved by `demo/proof-a`; corollary
+  `demo/main-of-b`, compared at `<commit>`). Outstanding: `Hyp.B` (the
+  coverage input's text).", or "Verified (all assumptions discharged:
+  ...)", each hypothesis linked to its declaration at the gate-bound commit
+  when the module the sealed log names is a file of the package; a name that
+  is not a plain token is counted, never dropped. The fixed paragraph adds
+  "A conditional result says nothing when an outstanding assumption is
+  false.", the counts line the conditional count (never in the verified
+  one), the coverage gloss what *conditional* means, and `page --json`
+  `conditional_rows` ([conditional results](docs/page.md#conditional-results)).
+  `status`: `claims: 3 (1 verified, 2 conditional; outstanding hypotheses:
+  Hyp.B) (claims ledger, promote stage: ready)` and `--json`
+  `scope.claims.ledger`. `receipt check`: a `hypotheses` check recomputing
+  the discharge states from the sealed log
+  (`PASS hypotheses: 2 conditional claim(s); discharged Hyp.A
+  (demo/main-of-b); outstanding Hyp.B`), failing on a failed-class code, an
+  unreadable log or a missing section; `--json` `hypotheses`
+  ([the hypotheses check](docs/receipts.md#the-hypotheses-check-of-receipt-check)).
+  The index: claims of `index-entry/2` gain the optional derived keys
+  `status: conditional` and `open_hypotheses`, written by `index add` and
+  recomputed by `index check --clone`; the render reads "comparator,
+  conditional on 1 assumption"; trust tiers are unchanged
+  ([conditional claims](docs/index-catalog.md#conditional-claims)). Every
+  output of a package whose claims use none of the keys is byte for byte as
+  before (`tests/test_outputs_golden.py`, a golden written by the pre-H4
+  code).
 
 - The committed docs-only opt-in, `lean-pkg-binding.yaml` (#349; #319,
   proposal 0002, stage G1): a package opts in to the docs-only descendant
