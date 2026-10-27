@@ -470,7 +470,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `hyp-probe/1` section of the verify log, with the Challenge built outside
   the sealed log. Both are marked as not implemented in this release
   (proposal 0003).
-- Proposal 0009 accepted (#PRNUM): declaration-level extraction with a
+- Proposal 0009 accepted (#357): declaration-level extraction with a
   rename map and an extraction ledger, accepted 2026-10-26 as written,
   with the recommended answers; implementation in stages S1 to S5 (#329).
 

@@ -475,5 +475,5 @@ changes:
 # Internal: gate, audit/validate and the argument parser move out of cli.py into gate.py, audit.py and
 # cli_parser.py; cli.py keeps re-exports for one release; no change to the CLI or its JSON (#353, #317).
 # Build: make docs runs its python3 steps with a private bytecode cache, so it writes no __pycache__ into the tree (#352).
-# Docs: proposal 0009 accepted 2026-10-26 (status line, table row, plan row); no code changes (#PRNUM).
-no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346, 351, 352, 353, PRNUM]
+# Docs: proposal 0009 accepted 2026-10-26 (status line, table row, plan row); no code changes (#357).
+no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346, 351, 352, 353, 357]
