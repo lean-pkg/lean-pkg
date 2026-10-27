@@ -424,7 +424,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   ([extraction ledger](docs/extract.md#declaration-level-extraction-ledger),
   [on-disk formats](docs/formats.md)).
 - `lean-pkg-extract decls` writes the target modules of a
-  declaration-level extraction and records their ledger (#PR_EX3; #329,
+  declaration-level extraction and records their ledger (#373; #329,
   proposal 0009, stage S3): with the flags of `ledger` (no `--target`,
   `--new` or `--allow-differs`) plus `--output DIR`, each mapped source
   module is read at the commit and written as its target module, the

@@ -825,7 +825,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 373
     id: extract-decls
     kind: command
     area: lean-pkg-extract
