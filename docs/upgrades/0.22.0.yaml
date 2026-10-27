@@ -635,7 +635,7 @@ changes:
       release with publish NAME --dry-run --attested instead of --corroborate (gh installed).
     breaking: false
     changelog: Added
-  - pr: 0
+  - pr: 362
     id: declarations-follow-lean-scopes
     kind: behavior
     area: search, claims ledger, coverage check, comparator config, claims mark, page

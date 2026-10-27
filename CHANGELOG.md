@@ -511,7 +511,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 ### Fixed
 
 - The Lean declaration scanner follows Lean's scopes one name component at
-  a time (#PR_DS): after `namespace A.B`, `end B` closes `B` only, so the
+  a time (#362): after `namespace A.B`, `end B` closes `B` only, so the
   declarations after it are `A.x` (they lost the `A.` prefix; 125 of 8487
   Mathlib files had such an `end`), and `end A.B` closes both. A `theorem`,
   `def` or `namespace` line inside a syntax quotation (`` `(...) ``,
