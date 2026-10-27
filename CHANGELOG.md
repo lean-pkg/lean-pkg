@@ -305,7 +305,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   output of a package whose claims use none of the keys is byte for byte as
   before (`tests/test_outputs_golden.py`, a golden written by the pre-H4
   code).
-- Conditional claims, stage H5 (#PR_H5; #320, proposal 0003, open
+- Conditional claims, stage H5 (#368; #320, proposal 0003, open
   question 7): `coverage check NAME` warns, and never refuses, for each
   assumption a theorem mapped by a `same-assumptions` or `inputs-supplied`
   row takes that is not listed: a binder of the claim's declaration headed
@@ -317,7 +317,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   head from Mathlib or another dependency, an inductive `Prop` or a library
   coverage: no warning, and the output is byte for byte as before
   ([unlisted assumptions](docs/page.md#unlisted-assumptions)).
-- `search` marks a conditional claim (#PR_H5; #320): a registry claim that
+- `search` marks a conditional claim (#368; #320): a registry claim that
   lists `hypotheses`, or an index claim whose derived `status` is
   `conditional`, reads `(theorem, reusable (conditional), trust ...)`, and its
   `--json` hit gains `conditional: true`; other hits are unchanged.
@@ -715,7 +715,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - Proposal 0009 accepted (#357): declaration-level extraction with a
   rename map and an extraction ledger, accepted 2026-10-26 as written,
   with the recommended answers; implementation in stages S1 to S5 (#329).
-- Conditional claims, close-out (#PR_H5; #320, proposal 0003): the
+- Conditional claims, close-out (#368; #320, proposal 0003): the
   "planned" and "not implemented yet" sentences are replaced by what
   lean-pkg does. docs/comparator.md states the statements-module rule as a
   convention lean-pkg reads but neither declares nor enforces (no key names

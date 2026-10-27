@@ -721,7 +721,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 368
     id: coverage-unlisted-assumption-warning
     kind: behavior
     area: coverage check, receipt check
@@ -745,7 +745,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 368
     id: search-conditional-marker
     kind: format
     area: search
