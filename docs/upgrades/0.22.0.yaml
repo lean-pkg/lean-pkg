@@ -454,7 +454,7 @@ changes:
       hint reworded from "is not in this release" to name --corroborate.
     breaking: false
     changelog: Added
-  - pr: 0
+  - pr: 359
     id: ledger-conditional-status
     kind: behavior
     area: claims ledger
@@ -478,7 +478,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 359
     id: promote-accepts-conditional
     kind: behavior
     area: claims ledger

@@ -179,7 +179,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   ([conditional claims](docs/prior-art.md#conditional-claims),
   [ledger codes](docs/lifecycle.md#claims-ledger),
   [coverage.yaml](docs/page.md#coverageyaml)).
-- Conditional claims, stage H3 (#PR_H3; #320, proposal 0003): the claims
+- Conditional claims, stage H3 (#359; #320, proposal 0003): the claims
   ledger judges `hypotheses`, `discharges` and `witness` from the
   `hyp-probe/1` facts of the gate receipt's sealed verify log at the
   gate-bound commit, recomputed on every call and never stored. A claim
@@ -384,7 +384,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   receipt), `--force` only when a kept key differs. `verify` still does not
   refresh the file (the issue's option (b)).
 - `promote` accepts a package whose required claims are `verified` or
-  `conditional` (#PR_H3; #320, proposal 0003, open question 1): the claims
+  `conditional` (#359; #320, proposal 0003, open question 1): the claims
   ledger is `ready` with conditional required claims, and the checklist
   line, also in `publish --dry-run`, prints them and the outstanding
   hypotheses: `claims ledger ready: N required claim(s) verified or
