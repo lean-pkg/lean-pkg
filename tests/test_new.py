@@ -53,6 +53,33 @@ def test_the_scaffold_is_the_getting_started_template():
     assert made[".gitignore"] == "/.lake\n" and scaffold.TOOLCHAIN == TC_TEMPLATE
 
 
+# The files of `new` and their order (the write order) before package_files() was split out (proposal 0009, S3).
+NEW_ORDER = ["lean-toolchain", ".gitignore", "lakefile.toml", "{m}.lean", "{m}/Challenge.lean", "{m}/Solution.lean",
+             "{m}/Axioms.lean", "comparator.json", "claims.yaml", "coverage.yaml", "CITATION.cff", "LICENSE",
+             "LICENSES/{l}.txt", "REUSE.toml", "README.md", "verify.sh", "lean-pkg-binding.yaml"]
+
+
+@pytest.mark.parametrize("lic", scaffold.LICENSES)
+@pytest.mark.parametrize("author", ["Ada Lovelace", 'A "quoted" name'])
+def test_the_package_files_split_keeps_new_byte_identical(lic, author):
+    """`lean-pkg-extract decls --scaffold` reuses package_files(); `new` writes the same bytes, in the same order,
+    as the inline templates did before the split (each file rebuilt here from the templates, as then)."""
+    made = scaffold.files("my-lib", "MyLib", author, license_spdx=lic, year=2031)
+    assert list(made) == [f.format(m="MyLib", l=lic) for f in NEW_ORDER]
+    text = scaffold.license_text(lic, author, 2031)
+    before = {".gitignore": "/.lake\n", "LICENSE": text, f"LICENSES/{lic}.txt": text,
+              "CITATION.cff": scaffold.CITATION.format(title='"my-lib"', author=json.dumps(author)),
+              "REUSE.toml": scaffold.REUSE_TOML.format(name='"my-lib"', spdx=lic, tool="lean-pkg new",
+                                                       copyright=json.dumps(f"2031 {author}"))}
+    for rel, want in before.items():
+        assert made[rel] == want, rel
+    assert "reads it (written by `lean-pkg new`).\n" in made["REUSE.toml"]
+    pkg = scaffold.package_files("my-lib", author, lic, 2031)
+    assert pkg == before and list(pkg) == [".gitignore", "CITATION.cff", "LICENSE", f"LICENSES/{lic}.txt",
+                                           "REUSE.toml"]
+    assert "Challenge" not in "".join(pkg.values()) and scaffold.THEOREM not in "".join(pkg.values())
+
+
 def test_new_writes_the_package_and_touches_no_registry(lp, capsys, tmp_path):
     rc, data, err = new(lp, capsys, tmp_path, "my-proof", "--author", "Ada Lovelace")
     assert rc == 0, err
