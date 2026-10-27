@@ -494,7 +494,7 @@ changes:
     breaking: false
     changelog: Changed
     split: true
-  - pr: 0
+  - pr: 360
     id: update-write-binding-file
     kind: command
     area: registry
@@ -512,7 +512,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 360
     id: new-binding-file
     kind: behavior
     area: new
@@ -527,7 +527,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 360
     id: page-write-binding-file
     kind: behavior
     area: page
@@ -545,7 +545,7 @@ changes:
     breaking: false
     changelog: Changed
     split: true
-  - pr: 0
+  - pr: 360
     id: registry-docs-descendants-deprecated
     kind: behavior
     area: registry, gate, publish

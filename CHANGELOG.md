@@ -245,7 +245,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `ignored: --evidence-only`, and the validators apply the same rule.
   `--docs-descendants` and `--evidence-only` together are a usage error
   (exit 2) ([Checking a published package's receipts](docs/receipts.md#checking-a-published-packages-receipts-receipt-check)).
-- `update NAME --write-binding-file` (#PR_G3; #319, proposal 0002, stage
+- `update NAME --write-binding-file` (#360; #319, proposal 0002, stage
   G3): the migration off the registry route. It writes
   `lean-pkg-binding.yaml` into the package directory from the record's
   `docs_descendants: true` and `build_inputs`; nothing is staged or
@@ -260,7 +260,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   dry_run, docs_descendants, build_inputs, content, advice, problem}
   ([docs-only descendants](docs/receipts.md#writing-the-file)).
 - `lean-pkg new` writes `lean-pkg-binding.yaml` (`docs_descendants: true`,
-  with a comment saying what it permits) (#PR_G3; #319, stage G3), so a
+  with a comment saying what it permits) (#360; #319, stage G3), so a
   scaffolded package's README page can follow the verified commit without
   new receipts once the file is committed with the package; `new
   --evidence-only` leaves it out. `--json` gains `binding_file` (the file,
@@ -416,7 +416,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   claim `verified`
   ([conditional claims](docs/lifecycle.md#conditional-claims)).
 
-- `page --write` writes `lean-pkg-binding.yaml` (#PR_G3; #319, proposal
+- `page --write` writes `lean-pkg-binding.yaml` (#360; #319, proposal
   0002, stage G3). For a gated package without the file at its gated
   commit it keeps the receipts bound through the registry route as before
   (when the record says nothing: its own `update NAME
@@ -430,7 +430,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Deprecated
 
-- The registry route of the docs-only opt-in (#PR_G3; #319, proposal 0002,
+- The registry route of the docs-only opt-in (#360; #319, proposal 0002,
   stage G3): the record's `docs_descendants: true` with no
   `lean-pkg-binding.yaml` at the receipts' commit, and `update NAME
   --accept-docs-descendants`, which sets it. Replacement: the committed
