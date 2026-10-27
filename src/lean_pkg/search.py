@@ -36,6 +36,9 @@ ADAPTERS = {"loogle": loogle, "leansearch": leansearch, "reservoir": reservoir,
 LATE_STATUSES = ("experimental", "superseded")
 HIT_KEYS = ("source", "id", "package", "decl", "kind", "summary", "trust", "status", "pin",
             "file", "score", "where", "hit_kind", "repo")
+# A claim hit gains `conditional: true` only when the claim is conditional (proposal 0003, #320; as `claims list`
+# marks it): a registry claim that lists `hypotheses`, or an index claim whose derived `status` is conditional.
+OPTIONAL_HIT_KEYS = ("conditional",)
 PACKAGE_FIELDS = ("name", "notes", "owner_project", "repo")
 _TOKEN_SPLIT = re.compile(r"[\W_]+", re.UNICODE)
 # A home directory anywhere; a cluster or system root (/scratch/<x>, /work/<x>, /gpfs/<x>, /srv/<x>, /mnt/<x>,
@@ -127,10 +130,13 @@ def rank(hits: list[dict]) -> list[dict]:
 
 
 def _hit(source: str, c: dict, package: str, trust, pin, score: int, where: str) -> dict:
-    return {"source": source, "id": c.get("id"), "package": package, "decl": c.get("decl"),
-            "kind": c.get("kind"), "summary": c.get("summary"), "trust": trust or "none",
-            "status": c.get("status") or "reusable", "pin": pin, "file": c.get("file"),
-            "score": score, "where": where, "hit_kind": "claim", "repo": None}
+    hit = {"source": source, "id": c.get("id"), "package": package, "decl": c.get("decl"),
+           "kind": c.get("kind"), "summary": c.get("summary"), "trust": trust or "none",
+           "status": c.get("status") or "reusable", "pin": pin, "file": c.get("file"),
+           "score": score, "where": where, "hit_kind": "claim", "repo": None}
+    if c.get("hypotheses") or c.get("conditional") is True:     # a conditional claim, always (proposal 0003)
+        hit["conditional"] = True
+    return hit
 
 
 def _package_hit(name: str, pkg: dict, score: int, where: str) -> dict:
@@ -535,7 +541,8 @@ def entry_claims(entry: dict) -> list[dict]:
     pin = (entry.get("pin") or {}).get("commit") if isinstance(entry.get("pin"), dict) else None
     return [{**c, "status": "reusable", "keywords": list(entry.get("fields") or []),
              "file": (heads.get(c.get("decl")) or {}).get("file"), "pin": pin,
-             "trust": c.get("trust") or trust} for c in base]
+             "trust": c.get("trust") or trust, **({"conditional": True} if c.get("status") == "conditional" else {})}
+            for c in base]
 
 
 def index_revision(root: pathlib.Path) -> str:
@@ -728,8 +735,9 @@ def render_text(payload: dict) -> list[str]:
                     lines.append(f"      {h['summary']}")
             elif "id" in h:
                 pin = f", pin {str(h['pin'])[:12]}" if h["pin"] else ""
+                cond = " (conditional)" if h.get("conditional") else ""
                 lines.append(f"  [{h['score']} {h['where']}] {h['id']}  {h['decl']}  "
-                             f"({h['kind']}, {h['status']}, trust {h['trust']}{pin})")
+                             f"({h['kind']}, {h['status']}{cond}, trust {h['trust']}{pin})")
                 lines.append(f"      {h['summary']}")
             else:
                 lines.append(f"  {h['name']}  {h.get('url') or ''}".rstrip())

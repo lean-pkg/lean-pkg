@@ -270,13 +270,14 @@ ones, names the outstanding hypotheses, and adds "A conditional result says
 nothing when an outstanding assumption is false." (the coverage page adds
 the same count and names).
 
-#### What each output says (stage H4)
+#### What each output says
 
 The one rule: the word *verified* never appears on a row, headline or claim
 that has an outstanding hypothesis unless the same line says "under
 assumptions", "conditional" or "all assumptions discharged". Every output
 below changes only for a package whose claims use `hypotheses`, `discharges`
-or `witness`; for every other package each one is byte for byte what it was
+or `witness` (except the `coverage check` warning, last below); for every
+other package each one is byte for byte what it was
 (`tests/test_outputs_golden.py`, `tests/golden/receipt-check`,
 `tests/test_ledger_golden.py`).
 
@@ -302,6 +303,17 @@ or `witness`; for every other package each one is byte for byte what it was
 - **The index**: derived `claims` carry `status: conditional` and
   `open_hypotheses`; the render says "comparator, conditional on 1
   assumption" ([index-catalog.md](index-catalog.md#conditional-claims)).
+- **`claims list` and `search`**: a claim with `hypotheses` reads
+  `<status> (conditional)`, `--json` `conditional: true` (in `search`, also
+  an index claim whose derived `status` is `conditional`).
+- **`coverage check`** (stage H5, open question 7): a warning, never an
+  error, for an assumption a mapped theorem takes that neither its claim's
+  `hypotheses` nor its row's inputs name, when the gate receipt's sealed log
+  shows its head is a `Prop` `def` of the package; `receipt check`'s
+  `coverage` check carries the first one
+  ([page.md](page.md#unlisted-assumptions)). This one fires for a package
+  that does not use the keys too, but only when its sealed log has the
+  `hyp-probe/1` section and shows such a binder.
 
 A comparator configuration names a claim only by its full declaration name:
 a `theorem_names` entry equal to the claim's `decl`, or `<Prefix>.<decl>`

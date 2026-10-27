@@ -151,9 +151,11 @@ re-check it without trusting the prover.
 No. The current receipt machinery certifies the formal theorem and evidence at
 a pinned commit; it does not require that every mathematical fact used by the
 paper originate inside the same repository. A conditional theorem should make
-its mathematical inputs explicit in its statement or formal interfaces.
-Structured "conditional certificate" and certificate-lineage metadata are
-planned rather than current schema fields.
+its mathematical inputs explicit in its statement or formal interfaces. A
+claim names those inputs as its `hypotheses` (each a `Prop` definition the
+theorem takes as an explicit argument), and lean-pkg then reports it as
+*conditional*, never as verified without saying under what
+([Conditional claims](prior-art.md#conditional-claims)).
 
 **What does a conditional verification mean?**
 It means Lean has checked the stated consequence from explicitly declared
@@ -162,7 +164,12 @@ formalization boundary. The important distinction is between theorem
 hypotheses, kernel-checked Lean dependencies, external results from the
 literature, temporary project assumptions, and material that is simply outside
 scope. A conditional certificate must never be described as verification of
-more than that boundary.
+more than that boundary. lean-pkg holds to this: the claims ledger gives such
+a claim the status `conditional`, the page reads "Conditional. Verified under
+assumptions ... Outstanding: ..." and adds "A conditional result says nothing
+when an outstanding assumption is false.", and `status`, `receipt check`, the
+index and `search` say *conditional* too
+([Conditional results](page.md#conditional-results)).
 
 **Should an external theorem be added as a Lean axiom?**
 Usually no. Prefer a theorem hypothesis, structure field, or abstract interface
@@ -171,9 +178,14 @@ axiom would enlarge Lean's logical trust base and would conflict with the
 receipt discipline that audits permitted axioms.
 
 **Can a certificate become stronger later?**
-Yes in principle, and the roadmap proposes explicit certificate lineage for
-this. If an external result is later formalized, a new pinned certificate can
-replace that dependency with a formal Lean theorem. The earlier certificate
+Yes. A hypothesis is discharged when a corollary that drops it (and, for an
+assumption without parameters, a proof of it) is compared in the same
+comparator build; the claims ledger, the page and
+the index then name it as discharged, with the proof and the corollary
+([Conditional claims](lifecycle.md#conditional-claims)). Discharge across
+packages is not implemented yet (open question 2 of proposal 0003). If an
+external result is later formalized, a new pinned certificate can replace that
+dependency with a formal Lean theorem. The earlier certificate
 should remain immutable historical evidence rather than being rewritten.
 
 **Can Lean verification help improve a manuscript before publication?**
@@ -472,7 +484,9 @@ preference by default and remembers your choice in the browser.
 **Can I list a project that is not finished?**
 Yes, if what you list is what is proved. Headlines must be theorems that exist
 at the pin and that the receipts cover; the goal and the gaps go in `notes`;
-partial or conditional results are claims with status `experimental`. See
+partial results are claims with status `experimental`, and a result proved
+under assumptions not formalized yet names them as the claim's `hypotheses`,
+so the index marks it conditional. See
 [An unfinished project as an entry](index-catalog.md#an-unfinished-project-as-an-entry).
 
 **Something here is wrong or missing.**

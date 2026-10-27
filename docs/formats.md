@@ -226,7 +226,8 @@ block is named in the refusal.
 ledger since stage H3** ([Conditional claims](lifecycle.md#conditional-claims)), which judges the
 facts from the sealed log the gate receipt binds, at the gate-bound commit, on every call; since
 stage H4 also by `receipt check` (its `hypotheses` check), `index add` and `index check`, by the same
-rule.
+rule; since stage H5 the `hyp-decl` lines also by `coverage check` and `receipt check`'s `coverage`
+check, for a warning only ([Unlisted assumptions](page.md#unlisted-assumptions)).
 
 The lower-tier verify scripts (`receipt slurm --template` and the `verify.sh` that `lean-pkg new`
 writes) append this section after the

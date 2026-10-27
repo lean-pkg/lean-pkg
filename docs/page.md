@@ -178,6 +178,28 @@ assumptions each names): K" (the verified count never includes them), the *Ledge
 page is byte for byte what it was. To update a published page, run `page --write` (and `--site` /
 `--html`), as after any change to the data.
 
+### Unlisted assumptions
+
+Listing an assumption is the author's choice. An assumption the declaration takes but no one lists
+is not hidden (the Lean statement on the page shows it, and the comparator checks it), but the
+ledger then calls the claim verified, and the row does not say it is conditional. `coverage check`
+warns about such an assumption (open question 7 of proposal 0003), and never refuses for it:
+
+```
+beta: coverage: OK; 2 row(s): 1 same-assumptions, 0 inputs-supplied, 1 outside; manuscript arxiv
+  warning: rows[0] (Theorem 1, same-assumptions): claim beta/foo-le-bar (Demo.foo_le_bar) takes the assumption Hyp.A, a Prop def of the package (Demo.Statements), that neither the claim's hypotheses nor the row's inputs name (the gate receipt's sealed verify log): the claims ledger calls it verified without it. List it under hypotheses of beta/foo-le-bar and name it in the row's inputs (class inputs-supplied), or make it part of the statement (proposal 0003, open question 7)
+```
+
+The warning reads only the `hyp-decl` lines of the `hyp-probe/1` section of the gate receipt's
+sealed verify log (hash-checked against `report_sha256`), for each claim a `same-assumptions` or
+`inputs-supplied` row names. It names a binder of the claim's declaration whose head is a `Prop`
+`def` declared in a module of the package (its file committed at `HEAD`) and that neither the
+claim's `hypotheses` nor a `{hypothesis, text}` input of the row names. A head from Mathlib or any
+other dependency, an inductive `Prop` or a structure, and the rows of a library coverage (each is
+its Lean statement) give no warning. Without a gate receipt, a readable sealed log or a complete
+`hyp-probe/1` section there is no warning, and the output is what it was. `receipt check` appends
+the first such warning to its `coverage` check, which still passes.
+
 Commit the README and `coverage.yaml` after the gate, and the gate-bound
 commit is no longer `HEAD`. The package needs the docs-only opt-in so the
 receipts keep binding. Without it, the ledger reports the receipts as stale

@@ -68,6 +68,9 @@ Checks, each with a verdict pass | fail | skip (skip: the check does not apply, 
   unreadable sealed log or a log without a complete section. `--json` gains `hypotheses` under the same condition.
 - coverage: coverage.yaml at REF, when tracked, passes `coverage check` (schema, claim ids, backed compute
   jobs, R8 to R12: every theorem the comparator receipt compares is the declaration of a claim a row names).
+  Its first warning, and the first unlisted assumption (proposal 0003, open question 7, from the hyp-decl lines
+  of the sealed log of the lower-tier receipt that binds X: coverage.unlisted_assumption_warnings), are appended
+  to the detail; a warning never fails it.
 - page: the README.md verification block at REF, when present, states what the receipts say: the bound
   commit, the toolchain and Mathlib pins, every Evidence row (path, commit, SHA-256 of the committed file), the
   lower-tier sorry count and axioms, the comparator's configuration and theorem counts.
@@ -659,19 +662,27 @@ def hypotheses_check(c: Checks, repo: pathlib.Path, x: str, found: dict, comp_ok
     return view
 
 
-def coverage_check(c: Checks, repo: pathlib.Path, pkg: dict) -> None:
+def coverage_check(c: Checks, repo: pathlib.Path, pkg: dict, found: dict | None = None) -> None:
+    """The coverage item; its first warning, and the first unlisted-assumption warning (proposal 0003, open
+    question 7, from the sealed log of the lower-tier receipt that binds X) with how many more there are. A
+    warning never fails the item."""
     from . import coverage as cov
     cid = "coverage"
     if not core.tracked_at(repo, cov.DEFAULT_COVERAGE_FILE):
         c.add(cid, SKIP, f"no {cov.DEFAULT_COVERAGE_FILE} at the published ref")
         return
     try:
-        doc, _claims, warnings = cov.load_checked(pkg, repo, None, False)
+        doc, claims, warnings = cov.load_checked(pkg, repo, None, False)
     except core.Fail as e:
         c.add(cid, FAIL, " ".join(str(e).split()))
         return
+    lower = (found or {}).get("lower") or []
+    unlisted = cov.unlisted_assumption_warnings(doc, claims, repo, lower[0]["data"], lower[0]["path"]) if lower \
+        else []
     c.add(cid, PASS, f"{cov.DEFAULT_COVERAGE_FILE}: {len(doc['rows'])} row(s); every compared theorem is the "
-          f"declaration of a claim a row names (R11)" + (f"; warning: {warnings[0]}" if warnings else ""))
+          f"declaration of a claim a row names (R11)" + (f"; warning: {warnings[0]}" if warnings else "")
+          + (f"; warning: {unlisted[0]}" + (f" (and {len(unlisted) - 1} more unlisted assumption(s))"
+                                             if len(unlisted) > 1 else "") if unlisted else ""))
 
 
 # --------------------------------------------------------------------------
@@ -945,7 +956,7 @@ def do_check(repo_dir: str, commit: str, at: str | None = None, docs_descendants
             ci_check(c, repo, v, "comparator")
         claimed_theorems_check(c, repo, pkg, x, bool(found["comparator"]))
         hyp_view = hypotheses_check(c, repo, x, found, _comparator_ok(c, found))
-        coverage_check(c, repo, pkg)
+        coverage_check(c, repo, pkg, found)
         page_checks(c, repo, x, found)
         # #237: the toolchain the receipts bind (else lean-toolchain at X) against the shipped advisories
         toolchains = [v["data"].get("lean_toolchain") for k in ("lower", "comparator") for v in found[k]]

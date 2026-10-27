@@ -45,9 +45,11 @@ The useful research loop is therefore:
 
 The loop may stay private. `lean-pkg` already provides the commit-bound
 lifecycle, append-only history, receipts, and re-certification rules needed to
-track changing evidence without publishing intermediate work. Planned
-certificate-lineage metadata will make the mathematical boundary itself
-explicit across revisions.
+track changing evidence without publishing intermediate work. Conditional
+claims make the mathematical boundary itself explicit across revisions: a
+claim names the assumptions it is proved under, and each is shown as
+outstanding until a compared corollary discharges it
+([Conditional claims](lifecycle.md#conditional-claims)).
 
 ### Discovery is provenance, not proof
 
@@ -124,12 +126,23 @@ The honest interpretation is then: *if the declared external inputs are
 mathematically valid, Lean certifies the stated consequence inside this
 boundary.*
 
+lean-pkg records this boundary for the first kind of input that matters most:
+an assumption the theorem takes as an explicit argument, a named `Prop`
+definition, listed as the claim's `hypotheses`. The claim is then
+*conditional*, never plainly verified, on the page, in `status`, in
+`receipt check` and in the index, and each outstanding assumption is named
+there with the text the authors give for it
+([Conditional results](page.md#conditional-results)). The other kinds above
+stay prose in the coverage file's `inputs` and notes.
+
 As the ecosystem grows, external dependencies can be replaced by formal ones.
 A new certificate should supersede the old one without erasing it, so the
 verification history becomes progressively stronger rather than merely
-"pass/fail". This planned **certificate lineage** is especially important in
-areas such as stochastic analysis, where today's conditional result may become
-tomorrow's end-to-end formalization.
+"pass/fail". For a listed assumption this is **discharge**: a corollary that
+drops the assumption, compared in the same build as the theorem, moves it from
+outstanding to discharged, and the page names the proof and the corollary.
+This matters especially in areas such as stochastic analysis, where today's
+conditional result may become tomorrow's end-to-end formalization.
 
 ## Coordination is the other half
 

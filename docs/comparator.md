@@ -47,11 +47,10 @@ reader who trusts Mathlib and nothing else.
   characterizes it. (A definitions-only module that imports only Mathlib and
   that the Solution imports too is part of the Challenge, not an import of
   your project: [Private helpers and copied references](#private-helpers-and-copied-references).)
-  The one exception is for conditional claims only, and is planned: one
-  declared statements module of `Prop` definitions
-  ([A statements module for conditional claims](#a-statements-module-for-conditional-claims-planned)),
-  with proposal 0003, not yet implemented in this release. A package without
-  conditional claims has no exception.
+  The one exception is for conditional claims only: one statements module
+  of `Prop` definitions
+  ([A statements module for conditional claims](#a-statements-module-for-conditional-claims)),
+  proposal 0003. A package without conditional claims has no exception.
 - Put the theorems in a namespace of their own, for example
   `<Package>Audit.<Claim>`. The Solution imports your project, so a Challenge
   theorem whose full name is already a project declaration (say
@@ -90,14 +89,18 @@ bash ~/src/lean-pkg/src/lean_pkg/scripts/comparator-check.sh --lint-configs
 # All 1 configuration(s) lint clean.
 ```
 
-### A statements module for conditional claims (planned)
+### A statements module for conditional claims
 
-**With [proposal 0003](proposals/0003-conditional-claims-and-discharge.md)
-(conditional claims), not yet implemented in this release.** This lean-pkg
-neither checks nor credits anything in this section, and no tool reads a
-statements module yet. Do not rely on it before the proposal's stages H1 to
-H5 ship ([#320](https://github.com/lean-pkg/lean-pkg/issues/320)); until
-then the rule above holds with no exception.
+[Proposal 0003](proposals/0003-conditional-claims-and-discharge.md)
+(conditional claims, [#320](https://github.com/lean-pkg/lean-pkg/issues/320)).
+The rule is a convention lean-pkg relies on and reads, not one it declares or
+enforces: no key names the statements module, and the gates do not judge
+what a Challenge imports. What lean-pkg
+does check is the facts: the hypotheses probe of the lower-tier job
+(`hyp-probe/1`, [formats](formats.md)) imports the Challenge modules and
+prints, from the built environment, which constant heads each binder of
+each Challenge theorem, and the claims ledger judges discharge from those
+facts alone ([Conditional claims](lifecycle.md#conditional-claims)).
 
 A conditional claim is a theorem proved under hypotheses that are not yet
 formalized. Each hypothesis is a named `Prop` definition, say `Hyp.A`, and
@@ -110,28 +113,31 @@ to the same constant. That needs one module that both import.
 
 The rule, for a package that uses conditional claims:
 
-- **One module, declared.** At most one statements module per package,
-  declared to lean-pkg as such (the key that declares it ships with the
-  implementation). The Challenge imports Mathlib and this module, and
-  nothing else from your project. The Solution imports the same module under
+- **One module.** At most one statements module per package. The Challenge
+  imports Mathlib and this module, and nothing else from your project. No
+  key declares it in this release; the README or the module's docstring
+  should say which module it is. The Solution imports the same module under
   the same name, so every name agrees, as in pattern 1 of
   [Private helpers and copied references](#private-helpers-and-copied-references).
 - **`Prop` definitions in Mathlib's vocabulary.** The module imports Mathlib
   modules only and holds only the hypotheses: each a `def` whose type is a
   `Prop` (or an `inductive` in `Prop`), written in Mathlib terms. No
   theorem, `axiom`, `opaque`, instance or `sorry`. A hypothesis headed by an
-  axiom, an opaque constant or a theorem will fail the claim
+  axiom, an opaque constant or a theorem fails the claim
   (`hypothesis-inadmissible`).
 - **Trusted, and shown.** The module is part of the trusted statement, like
   the Challenge: a reader must accept what each hypothesis says, because a
   hypothesis that is trivially true or false changes what the theorem means,
-  and only a reader can judge that. The package page links the module and
-  shows each hypothesis's source next to the claims that assume it. The
+  and only a reader can judge that. The package page links each hypothesis
+  to its declaration in the module, at the gate-bound commit, next to the
+  result that assumes it ([Conditional results](page.md#conditional-results)). The
   listing in [Challenge types mention only trusted constants](#challenge-types-mention-only-trusted-constants)
   names `Hyp.A` with the statements module; that is expected, as for the
   Challenge's own declarations.
-- **`palomar check` warns.** `lean-pkg palomar check` will report a warning
-  for a Challenge that imports the statements module, never a silent pass.
+- **`palomar check` does not read Challenge imports.** It lists them among
+  the checks it does not run (`not_checked`), so it neither warns about the
+  statements module nor passes it: read the Challenge's `import` lines
+  yourself before submitting.
 - **Open: Palomar's acceptance.** Whether Palomar accepts a Challenge that
   imports a module beyond Mathlib in this way is not confirmed. This page
   will say when it is.
