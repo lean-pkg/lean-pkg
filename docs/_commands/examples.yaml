@@ -530,6 +530,8 @@ lean-pkg publish:
     say: The same, also scanning the tree and the git history for private strings.
   - cmd: lean-pkg publish my-proof --corroborate
     say: The same, with the page line rendered from corroborated GitHub Actions runs (page --check --corroborate).
+  - cmd: lean-pkg publish my-proof --attested
+    say: The same, with the page line rendered from attested GitHub Actions receipts (page --check --attested); after the run has expired from the GitHub API, use this instead of --corroborate.
   - cmd: lean-pkg publish my-proof --yes --dry-run
     say: The promotion checklist that --yes runs; nothing changes (the pre-1.0 `promote my-proof`).
   - cmd: lean-pkg publish my-proof --yes

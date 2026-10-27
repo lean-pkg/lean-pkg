@@ -51,9 +51,9 @@ line) asks the public GitHub REST API about each listed run (ci_github.corrobora
 repository from the registry's repository URL), and the sentence renders with `{runs}` filled by the runs'
 links only when every listed job reached level 2. Without the flag the sentence is absent and a README
 carrying it fails `--check` with a `--corroborate` hint; with it, a failed corroboration is named. `--attested`
-(level 3) verifies each listed job's committed Sigstore bundle with `gh attestation verify` instead (or as well,
-with both flags, when level 3 needs both answers), so the sentence survives the run's records expiring;
-`--trusted-root FILE` verifies offline. `page --json` sites.<name>.level and levels then reach 3.
+(level 3; here and on the `publish --dry-run` page line) verifies each listed job's committed Sigstore bundle
+with `gh attestation verify` instead (or as well, with both flags, when level 3 needs both answers), so the
+sentence survives the run's records expiring; `--trusted-root FILE` verifies offline. `page --json` sites.<name>.level and levels then reach 3.
 
 Not a registry write: the registry is read, never written (no lock, no --commit), like `formalization
 --write --no-registry`. `--write` honours a live lease held by another agent (pass --agent HOLDER).
@@ -1424,12 +1424,16 @@ def _override_problems(problems: list[str], override: dict | None, stale_sites: 
     return [(why(stale[p]), not rf.get("binds_head")) if p in stale else (p, False) for p in problems]
 
 
-def publish_item(pkg: dict, repo, corroborate: bool = False, fetch=None) -> tuple[tuple[str, str], dict]:
+def publish_item(pkg: dict, repo, corroborate: bool = False, fetch=None, *, attested: bool = False,
+                 trusted_root: str | None = None) -> tuple[tuple[str, str], dict]:
     """The `publish --dry-run` checklist line for `page --check`, and its JSON. Adopted (coverage.yaml at
     HEAD or a page block in the README): any problem is ✗. Not adopted: WARN, except a site sentence (Easley's)
     with no backing, which is ✗ (it states where the evidence was produced). corroborate (`publish --dry-run
     --corroborate`): the page is rendered as `page --check --corroborate` renders it (level 2 for GitHub
-    Actions jobs)."""
+    Actions jobs). attested (`publish --dry-run --attested [--trusted-root FILE]`): as `page --check --attested`
+    renders it (level 3, which holds after the run's records expire; under both flags level 3 needs both
+    answers); the rendered payload then also carries sites.<name>.{level, levels} and the page's corroboration
+    warnings (`page --json` carries the same)."""
     name = pkg["name"]
     try:
         readme = _read_readme(repo)
@@ -1454,7 +1458,9 @@ def publish_item(pkg: dict, repo, corroborate: bool = False, fetch=None) -> tupl
                  + (f"; {'; '.join(problems)}" if problems else "") + hint)
         return (mark, label), {"status": "fail" if unbacked else "warn", "adopted": False, "problems": problems}
     try:
-        block, facts, _w = render(pkg, repo, corroborator=Corroborator(pkg, repo, fetch) if corroborate else None)
+        corr = Corroborator(pkg, repo, fetch, corroborate=corroborate, attested=attested, trusted_root=trusted_root) \
+            if corroborate or attested else None
+        block, facts, _w = render(pkg, repo, corroborator=corr)
     except (core.Fail, core.UsageError) as e:
         # A multi-line refusal (coverage.yaml's) puts only a count on its first line: show the reasons too.
         lines = [x.strip() for x in str(e).splitlines() if x.strip()] or [type(e).__name__]
@@ -1463,10 +1469,16 @@ def publish_item(pkg: dict, repo, corroborate: bool = False, fetch=None) -> tupl
         label = "page cannot be rendered: " + (shown if len(shown) <= 600 else shown[:597] + "...")
         return ("✗", label), {"status": "fail", "adopted": True, "problems": reasons}
     problems = readme_problems(readme, block, backed_sites(facts), sites.for_repo(repo), facts)
+    extra = {}
+    if attested:   # what `page --json --attested` carries about the levels, and its warnings (additive keys)
+        extra = {"sites": {n: {"level": f.get("level"), "levels": f.get("levels") or {}}
+                           for n, f in (facts.get("sites") or {}).items()},
+                 "warnings": corroboration_warnings(facts, attested=True)}
     if problems:
-        return ("✗", f"page: {'; '.join(problems)}"), {"status": "fail", "adopted": True, "problems": problems}
+        return ("✗", f"page: {'; '.join(problems)}"), {"status": "fail", "adopted": True, "problems": problems,
+                                                      **extra}
     return ("✓", f"page block in {README} is current (`lean-pkg page {name} --check`)"), \
-        {"status": "pass", "adopted": True, "problems": []}
+        {"status": "pass", "adopted": True, "problems": [], **extra}
 
 
 

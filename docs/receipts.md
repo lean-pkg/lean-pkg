@@ -2006,9 +2006,11 @@ committed corroboration record lean-pkg accepts, because it is signed.
 lean-pkg receipt check --repo . --commit <X> --attested [--github OWNER/REPO]
 lean-pkg receipt check --repo . --commit <X> --attested --trusted-root trusted_root.json   # offline
 lean-pkg page NAME --check --attested
+lean-pkg publish NAME --dry-run --attested      # the release checklist's page line
 ```
 
-`receipt check --attested` and `page --attested` run, for each receipt
+`receipt check --attested`, `page --attested` and
+`publish NAME --dry-run --attested` run, for each receipt
 with a `ci` block that passes level 1, these checks (in `receipt check`,
 rows `ci level 3 CHECK`):
 
@@ -2034,7 +2036,12 @@ does not reach level 3; its `--json` gains `ci: {level, rows[]}`, `github`,
 `attested: true` and `trusted_root`, and `network` is true unless
 `--trusted-root` is given without `--corroborate`. `page --attested`
 renders the GitHub Actions sentence at level 3 (`page --json`
-`sites.github-actions.level` and `levels` reach 3). Without `--attested`,
+`sites.github-actions.level` and `levels` reach 3).
+`publish NAME --dry-run --attested [--trusted-root FILE]` renders the
+checklist's page line the same way (not with `--yes`); its `--json` `page`
+gains `sites` {name: {level, levels}} and the page's `warnings[]`. After the run has expired, check with
+`--attested` instead of `--corroborate`: `--corroborate` fails, alone or
+beside `--attested`. Without `--attested`,
 `receipt check` shows a receipt that names a bundle with a `ci attestation`
 skip row (saying when `gh` is not on `PATH`), and never runs `gh`.
 
