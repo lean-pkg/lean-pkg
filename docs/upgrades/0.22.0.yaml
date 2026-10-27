@@ -847,6 +847,21 @@ changes:
       private.
     breaking: false
     changelog: Added
+  - pr: 374
+    id: verify-yml-oidc-commit
+    kind: behavior
+    area: receipt ci
+    summary: >-
+      lean-pkg's reusable verify.yml installs the lean-pkg commit named by the job's OIDC token (its
+      job_workflow_sha claim, accepted only when job_workflow_ref is lean-pkg/lean-pkg/.github/workflows/verify.yml
+      at that 40-hex commit), in both the verify and comparator jobs. It read github.job_workflow_sha, which is empty
+      inside a called workflow's jobs on GitHub-hosted runners, so every run failed at the install step (found by
+      the first live run, for #318). The token is never printed or written.
+    action: >-
+      If your caller workflow pins verify.yml to a lean-pkg commit before this fix, it cannot run: pin uses: to a
+      commit at or after it (lean-pkg receipt ci --template prints the caller with the release commit).
+    breaking: false
+    changelog: Fixed
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

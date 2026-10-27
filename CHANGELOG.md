@@ -632,6 +632,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `verify.yml` installs the lean-pkg commit named by the job's OIDC token
+  (#374; #318): it read `github.job_workflow_sha`, which is empty inside a
+  called workflow's jobs on GitHub-hosted runners, so both jobs failed at
+  the install step (found by the first live run). A new step exports the
+  `job_workflow_sha` claim, only when `job_workflow_ref` is lean-pkg's own
+  `verify.yml` at that commit; the token is never printed or written. A
+  caller pinned before this fix must pin a commit at or after it.
 - The Lean declaration scanner follows Lean's scopes one name component at
   a time (#362): after `namespace A.B`, `end B` closes `B` only, so the
   declarations after it are `A.x` (they lost the `A.` prefix; 125 of 8487
