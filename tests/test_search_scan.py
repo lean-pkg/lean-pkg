@@ -181,6 +181,62 @@ def test_class_abbrev_is_a_class(scan):
     assert scan.declarations(src)[0][5] == "IsGood"
 
 
+# A prefix command's `in` (`variable (p) in`, `open X in`, ...) belongs to the command after it, on the
+# same line or the next; a prefix before a term, a tactic or a scope declares nothing.
+
+_PREFIXES = ["variable (p)", "open Nat", "set_option linter.unusedVariables false", "omit [Fintype α]",
+             "include h", "attribute [local simp] foo", "unseal foo", "#guard_msgs (drop info)",
+             "open A in set_option maxHeartbeats 0"]
+
+
+@pytest.mark.parametrize("prefix", _PREFIXES)
+@pytest.mark.parametrize("sep", [" ", "\n"])
+@pytest.mark.parametrize("mods, kw", [("protected", "lemma"), ("private", "theorem"), ("@[simp]", "lemma"),
+                                       ("@[simp] protected noncomputable", "def")])
+def test_a_declaration_after_a_prefix_command_is_read(scan, prefix, sep, mods, kw):
+    src = (f"namespace D\n{prefix} in{sep}/-- the doc -/{sep}{mods} {kw} zero_le : 0 ≤ p := sorry\n"
+           "theorem after : True := trivial\nend D\n")
+    d = scan.declarations(src)
+    assert [(x[1], x[2]) for x in d] == [(kw, "D.zero_le"), ("theorem", "D.after")]
+    assert d[0][0] == (2 if sep == " " else 4) and d[0][3] == "/-- the doc -/" and d[0][5] == "zero_le"
+    assert d[1][3] is None
+
+
+def test_the_mathlib_dyck_word_case(scan):
+    src = ("namespace DyckWord\nvariable {p q : DyckWord}\n\n"
+           "variable (p) in protected lemma zero_le : 0 ≤ p := add_zero p ▸ le_add_self p 0\n\n"
+           "lemma infix_of_le (h : p ≤ q) : p.toList <:+: q.toList := by\n  sorry\nend DyckWord\n")
+    assert names(scan, src) == [("lemma", "DyckWord.zero_le"), ("lemma", "DyckWord.infix_of_le")]
+    assert scan.declarations(src)[0][0] == 4
+
+
+def test_a_docstring_after_the_prefix_belongs_to_the_declaration(scan):
+    src = "open Nat in /-- inner -/ @[simp] theorem t : True := trivial\n"
+    assert [(x[2], x[3]) for x in scan.declarations(src)] == [("t", "/-- inner -/")]
+
+
+@pytest.mark.parametrize("src", [
+    "theorem t : True := by\n  open Nat in simp\n",
+    "theorem t : True := by\nopen Nat in\n  simp\n",
+    "def f : Nat := open Nat in succ 0\n",
+    "open Nat in namespace X\nend X\n",
+    "open Nat in\n",
+    "variable (x : Nat) (h : x ∈ s)\n",                     # `∈`, not `in`
+    "open Nat (inr) in\n",
+])
+def test_a_prefix_before_a_non_declaration_declares_nothing(scan, src):
+    assert [n for _, n in names(scan, src)] == (["t"] if src.startswith("theorem") else
+                                                 ["f"] if src.startswith("def") else [])
+    if src.startswith("open Nat in namespace"):
+        assert names(scan, src + "theorem u : True := trivial\n") == [("theorem", "u")]
+
+
+def test_in_inside_brackets_or_a_name_is_not_the_prefix_in(scan):
+    src = ("variable (h : ∀ x, let y := x; y = y) in theorem a : True := trivial\n"
+           "open «in» in theorem b : True := trivial\nopen Nat.inner in theorem c : True := trivial\n")
+    assert [n for _, n in names(scan, src)] == ["a", "b", "c"]
+
+
 # --- names ---------------------------------------------------------------------------------------
 
 def test_split_name_respects_guillemets(scan):
