@@ -6,7 +6,11 @@ cache, `page --check`), plus the exact next commands. Read-only (`--dry-run` say
 explicitly): nothing is written, the registry is not locked, `--commit` is ignored. With
 `--corroborate` the page line is rendered as `page --check --corroborate` renders it: the GitHub
 Actions jobs coverage.yaml lists are corroborated against the public GitHub REST API (level 2),
-the checklist's only network use.
+the checklist's only network use. With `--attested [--trusted-root FILE]` it is rendered as `page
+--check --attested` renders it: each job's committed Sigstore bundle is verified with `gh attestation
+verify` (level 3), which still holds after the run has expired from the API (when `--corroborate`
+can no longer succeed; under both flags level 3 needs both answers, so after expiry drop
+`--corroborate`).
 
 `publish NAME --yes` publishes: the promotion checklist, then the GitHub repository goes public
 (the pre-1.0 `promote NAME --yes`, a permanent alias); `--yes --dry-run` runs the same checklist
@@ -231,7 +235,8 @@ def next_commands(pkg: dict, repo, ready: bool, tags: list[str]) -> list[str]:
 
 
 def do_publish_check(reg: dict, name: str, public_safety: bool = False, corroborate: bool = False,
-                     fetch=None) -> tuple[list[str], int, dict]:
+                     fetch=None, *, attested: bool = False,
+                     trusted_root: str | None = None) -> tuple[list[str], int, dict]:
     pkg = core.get_pkg(reg, name)
     repo = core.repo_path(pkg)
     if not repo.is_dir():
@@ -271,7 +276,8 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False, corrobor
     items += formalization_items(pkg, repo)
     items.append(claims_item(pkg, repo, head))
     from . import page as page_mod
-    item, page_state = page_mod.publish_item(pkg, repo, corroborate=corroborate, fetch=fetch)
+    item, page_state = page_mod.publish_item(pkg, repo, corroborate=corroborate, fetch=fetch, attested=attested,
+                                             trusted_root=trusted_root)
     items.append(item)
     lake_name = lakefile_package_name(repo)
     items.append(("✓", f"lakefile package name {lake_name}") if lake_name else
@@ -326,10 +332,16 @@ def registry_opt_in_deprecations(pkg: dict, repo) -> list[dict]:
 
 
 def cmd_publish(args) -> int:
+    from .receipt_check import attested_usage
+    attested = getattr(args, "attested", False)
+    trusted_root = attested_usage(attested, getattr(args, "trusted_root", None))
     if args.yes:   # the promotion: the pre-1.0 `promote NAME [--yes]`
         if getattr(args, "corroborate", False):
             raise core.UsageError("--corroborate renders the read-only checklist's page line from corroborated "
                                   "GitHub Actions runs; it does not go with --yes")
+        if attested:
+            raise core.UsageError("--attested renders the read-only checklist's page line from attested GitHub "
+                                  "Actions receipts; it does not go with --yes")
         if args.public_safety:
             raise core.UsageError("--public-safety adds the scan to the read-only checklist; --yes always runs it "
                                   "(unless --skip-public-safety)")
@@ -341,9 +353,12 @@ def cmd_publish(args) -> int:
                               f"always lists the public-safety state with --public-safety)")
     reg_path = core.registry_path(args)
     lines, rc, payload = do_publish_check(core.load_registry(reg_path), args.name, args.public_safety,
-                                          corroborate=getattr(args, "corroborate", False))
+                                          corroborate=getattr(args, "corroborate", False),
+                                          attested=attested, trusted_root=trusted_root)
     from . import binding_file
     binding_file.print_deprecations(payload)
+    for w in (payload.get("page") or {}).get("warnings") or []:   # only under --attested, as page prints them
+        print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:
@@ -368,6 +383,14 @@ def add_parsers(sub, add_json) -> None:
                    help="read-only checklist: render the page line as `page --check --corroborate` does, asking "
                         "the public GitHub REST API about each GitHub Actions job (level 2), so a README carrying "
                         "the GitHub Actions sentence can pass; GH_TOKEN or GITHUB_TOKEN only raises the rate limit")
+    s.add_argument("--attested", action="store_true",
+                   help="read-only checklist: render the page line as `page --check --attested` does, verifying "
+                        "each GitHub Actions job's committed Sigstore bundle with `gh attestation verify` (level "
+                        "3), which holds after the run has expired from the API; with --corroborate too, level 2 "
+                        "must also hold, so after expiry drop --corroborate")
+    s.add_argument("--trusted-root", default=None, metavar="FILE",
+                   help="with --attested: verify offline against this Sigstore trusted root (gh attestation "
+                        "verify --custom-trusted-root)")
     s.add_argument("--skip-public-safety", action="store_true",
                    help="with --yes: do not run the public-safety scan of the tree and history (a WARN line "
                         "instead; the scan covers the whole repository when the package is a subdirectory of it)")

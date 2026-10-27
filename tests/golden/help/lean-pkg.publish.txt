@@ -1,6 +1,6 @@
-usage: lean-pkg publish [-h] [--yes] [--dry-run] [--public-safety] [--corroborate]
-                        [--skip-public-safety] [--agent AGENT] [--json] [--commit] [--push]
-                        [--no-commit]
+usage: lean-pkg publish [-h] [--yes] [--dry-run] [--public-safety] [--corroborate] [--attested]
+                        [--trusted-root FILE] [--skip-public-safety] [--agent AGENT] [--json]
+                        [--commit] [--push] [--no-commit]
                         name
 
 positional arguments:
@@ -20,6 +20,13 @@ options:
                         does, asking the public GitHub REST API about each GitHub Actions job
                         (level 2), so a README carrying the GitHub Actions sentence can pass;
                         GH_TOKEN or GITHUB_TOKEN only raises the rate limit
+  --attested            read-only checklist: render the page line as `page --check --attested`
+                        does, verifying each GitHub Actions job's committed Sigstore bundle with
+                        `gh attestation verify` (level 3), which holds after the run has expired
+                        from the API; with --corroborate too, level 2 must also hold, so after
+                        expiry drop --corroborate
+  --trusted-root FILE   with --attested: verify offline against this Sigstore trusted root (gh
+                        attestation verify --custom-trusted-root)
   --skip-public-safety  with --yes: do not run the public-safety scan of the tree and history (a
                         WARN line instead; the scan covers the whole repository when the package
                         is a subdirectory of it)

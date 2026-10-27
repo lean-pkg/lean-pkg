@@ -159,7 +159,10 @@ Sigstore bundle, which you commit beside them.
 that bundle with `gh attestation verify` instead of asking the API
 ([every check](receipts.md#attesting-the-run-level-3---attested)), so the
 sentence still renders after the run's records expire; `page --json`
-reports `level: 3`. With both flags level 3 needs both answers.
+reports `level: 3`. With both flags level 3 needs both answers. The same
+holds for the release checklist: after the run has expired,
+`publish NAME --dry-run --corroborate` fails its page line, so check with
+`publish NAME --dry-run --attested` instead of `--corroborate`.
 
 ### Writing the receipt in CI
 

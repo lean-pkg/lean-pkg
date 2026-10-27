@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Level 3 of a GitHub Actions receipt (proposal 0008, stage S4): verify.yml attests the receipt and its log
 (actions/attest-build-provenance), `receipt ci --attest` records the bundle's name in `ci.attestation`, `--collect`
-copies the bundle, and `receipt check --attested` and `page --attested` verify the committed bundle with `gh
-attestation verify`. No test opens a network connection or runs a real gh: `gh` is a fake executable on PATH that
+copies the bundle, and `receipt check --attested`, `page --attested` and `publish --dry-run --attested` verify the
+committed bundle with `gh attestation verify`. No test opens a network connection or runs a real gh: `gh` is a fake executable on PATH that
 records its argv and the bytes it was handed and answers with a recorded result shaped after `gh attestation
 verify --format json`. Every refusal the proposal lists for S4 has a test: bundle not committed, subject digest
 mismatch, tool absent (a skip without --attested, a failure with it), wrong signer workflow, wrong repository,
@@ -459,6 +459,118 @@ def test_page_trusted_root_usage(lp, env, capsys):
     attested_page(env)
     rc, _out, err = run(lp, env, capsys, "page", "beta", "--trusted-root", "x.json")
     assert rc == 2 and "--trusted-root FILE is the Sigstore trusted root" in err
+
+
+# --------------------------------------------------------------------------
+# publish --dry-run --attested
+
+def publish(lp, env, capsys, *argv):
+    """`publish beta --dry-run ARGV --json`: (rc, payload, the checklist's page line, stderr)."""
+    rc, out, err = run(lp, env, capsys, "--json", "publish", "beta", "--dry-run", *argv)
+    data = json.loads(out)
+    line = [c for c in data["checklist"] if "page" in c["label"]]
+    assert len(line) == 1, data["checklist"]
+    return rc, data, line[0], err
+
+
+def verifies(gh) -> list[list[str]]:
+    """The argv of each `gh attestation verify` run (the checklist also asks `gh repo view`)."""
+    return [c["argv"] for c in gh.calls if c["argv"][:2] == ["attestation", "verify"]]
+
+
+def written_attested_page(lp, env, capsys, gh) -> tuple[str, dict]:
+    """beta attested, its README carrying the GitHub Actions sentence (page --write --attested)."""
+    x, good = attested_page(env)
+    gh.answer(0, gh_result(x, good))
+    assert run(lp, env, capsys, "page", "beta", "--write", "--attested")[0] == 0
+    assert SENTENCE.replace("{runs}", LINK) in (env.repo_b / "README.md").read_text()
+    return x, good
+
+
+@pytest.mark.parametrize("gone", [404, 410])
+def test_publish_attested_passes_the_page_line_after_the_run_expired(lp, env, capsys, gh, monkeypatch, gone):
+    from .test_ci_corroborate import API, BASE, routes, serve
+    x, _good = written_attested_page(lp, env, capsys, gh)
+    r = routes(env, x)
+    r[BASE] = (gone, {"message": "Not Found" if gone == 404 else "Gone"})   # the run's records expired
+    api = serve(monkeypatch, API(r))
+    _rc, _data, line, _err = publish(lp, env, capsys, "--corroborate")
+    assert line["status"] == "fail" and "corroboration failed" in line["label"], line
+    n = len(verifies(gh))
+    _rc, data, line, err = publish(lp, env, capsys, "--attested")
+    assert line["status"] == "pass", line
+    assert data["page"] == {"status": "pass", "adopted": True, "problems": [],
+                            "sites": {**{k: v for k, v in data["page"]["sites"].items() if k != "github-actions"},
+                                      "github-actions": {"level": 3, "levels": {GHA: 3}}},
+                            "warnings": []}, data["page"]
+    assert len(verifies(gh)) == n + 1
+    assert "warning" not in err
+    calls = len(api.calls)
+    # under both flags level 3 needs both answers: after expiry the line fails (drop --corroborate)
+    _rc, data, line, err = publish(lp, env, capsys, "--attested", "--corroborate")
+    assert line["status"] == "fail" and data["page"]["sites"]["github-actions"]["level"] == 1, data["page"]
+    assert len(api.calls) > calls
+    assert any(w.startswith(f"github-actions: {GHA} is not attested (level 1)") for w in data["page"]["warnings"])
+    assert "lean-pkg: warning: github-actions:" in err
+    _rc, out, _err = run(lp, env, capsys, "publish", "beta", "--dry-run", "--attested")   # the text line
+    assert "✓  page block in README.md is current (`lean-pkg page beta --check`)" in out, out
+
+
+def test_publish_attested_trusted_root_verifies_offline(lp, env, capsys, gh, tmp_path):
+    written_attested_page(lp, env, capsys, gh)
+    root = tmp_path / "trusted_root.json"
+    root.write_text("{}\n")
+    _rc, data, line, _err = publish(lp, env, capsys, "--attested", "--trusted-root", str(root))
+    assert line["status"] == "pass" and data["page"]["sites"]["github-actions"]["level"] == 3, data["page"]
+    a = verifies(gh)[-1]
+    assert a[a.index("--custom-trusted-root") + 1] == str(root.resolve())
+
+
+def test_publish_attested_without_gh_fails_the_line(lp, env, capsys, gh, monkeypatch, tmp_path):
+    written_attested_page(lp, env, capsys, gh)
+    no_gh(monkeypatch, tmp_path)
+    _rc, data, line, err = publish(lp, env, capsys, "--attested")
+    assert line["status"] == "fail" and data["page"]["sites"]["github-actions"]["level"] == 1, data["page"]
+    assert any("gh (the GitHub CLI) is not on PATH" in p for p in data["page"]["problems"]), data["page"]
+    assert "gh (the GitHub CLI) is not on PATH" in err
+
+
+def test_publish_attested_and_corroborated_but_the_bundle_fails_is_level_2(lp, env, capsys, gh, monkeypatch):
+    from .test_ci_corroborate import API, routes, serve
+    x, _good = written_attested_page(lp, env, capsys, gh)
+    serve(monkeypatch, API(routes(env, x)))
+    gh.answer(1, "", "failed to verify\n")
+    _rc, data, line, err = publish(lp, env, capsys, "--attested", "--corroborate")
+    assert line["status"] == "pass" and data["page"]["sites"]["github-actions"] == {"level": 2,
+                                                                                    "levels": {GHA: 2}}, data["page"]
+    assert any(w.startswith(f"github-actions: {GHA} is corroborated but not attested (level 2): verifier: gh "
+                            f"attestation verify (online) exited 1") for w in data["page"]["warnings"])
+    assert "is corroborated but not attested" in err
+    _rc, data, line, _err = publish(lp, env, capsys, "--attested")      # --attested alone: the sentence is unearned
+    assert line["status"] == "fail" and data["page"]["sites"]["github-actions"]["level"] == 1
+
+
+def test_publish_without_the_flag_is_unchanged_and_never_runs_gh(lp, env, capsys, gh):
+    written_attested_page(lp, env, capsys, gh)
+    n = len(verifies(gh))
+    _rc, data, line, err = publish(lp, env, capsys)
+    assert set(data["page"]) == {"status", "adopted", "problems"} and line["status"] == "fail"
+    assert len(verifies(gh)) == n and "warning" not in err
+
+
+@pytest.mark.parametrize("argv, needle", [
+    (["--yes", "--attested"], "--attested renders the read-only checklist's page line from attested GitHub "
+                              "Actions receipts; it does not go with --yes"),
+    (["--yes", "--dry-run", "--attested"], "it does not go with --yes"),
+    (["--trusted-root", "x.json"], "--trusted-root FILE is the Sigstore trusted root of an offline --attested check"),
+    (["--yes", "--trusted-root", "x.json"], "--trusted-root FILE is the Sigstore trusted root"),
+    (["--attested", "--trusted-root", "/nonexistent/root.json"], "--trusted-root /nonexistent/root.json: no such file"),
+])
+def test_publish_attested_usage(lp, env, capsys, gh, argv, needle):
+    attested_page(env)
+    rc, _out, err = run(lp, env, capsys, "publish", "beta", *argv)
+    assert rc == 2 and needle in err, err
+    assert verifies(gh) == []
 
 
 # --------------------------------------------------------------------------
