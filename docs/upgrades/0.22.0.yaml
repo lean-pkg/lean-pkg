@@ -656,7 +656,7 @@ changes:
       A decl already written that way, refused before, is now credited.
     breaking: true
     changelog: Fixed
-  - pr: 0
+  - pr: 366
     id: conditional-outputs
     kind: format
     area: page, status, receipt check, index add, index check, index render

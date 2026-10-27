@@ -274,7 +274,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   conditional result says nothing when an outstanding assumption is
   false."), never "every required claim is closed"
   ([conditional claims](docs/lifecycle.md#conditional-claims)).
-- Conditional claims, stage H4 (#PR_H4; #320, proposal 0003): the outputs
+- Conditional claims, stage H4 (#366; #320, proposal 0003): the outputs
   say what the claims ledger judged, and the word *verified* never stands
   alone on a row, headline or claim with an outstanding hypothesis. `page`:
   a row whose claims are verified or conditional gets the capsule
