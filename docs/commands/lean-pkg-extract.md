@@ -21,6 +21,7 @@ lean-pkg-extract COMMAND
 - [`lean-pkg-extract plan`](lean-pkg-extract.md): dry run: classify, check and inventory what an extract at COMMIT would contain
 - [`lean-pkg-extract ledger`](lean-pkg-extract.md): record an extraction ledger: a hand-ported target compared, declaration by declaration, with the source at COMMIT
 - [`lean-pkg-extract recheck`](lean-pkg-extract.md): re-verify an extraction ledger against the source and the target
+- [`lean-pkg-extract decls`](lean-pkg-extract.md): write the target modules of a declaration-level extraction (optionally a whole package) and record its extraction ledger
 
 ## More from --help
 
@@ -31,10 +32,12 @@ examples:
   lean-pkg-extract plan --repo . --commit v1.0 --manifest extract.json --report ../extract-plan.json
   lean-pkg-extract ledger @ledger-args.txt
   lean-pkg-extract recheck --ledger ../newlib-ledger.json --repo . --target ../newlib
+  lean-pkg-extract decls @decls-args.txt --output ../newlib --scaffold newlib --ledger ../newlib-ledger.json
 
 Dry run only: `plan` reads git objects at COMMIT and writes nothing (--report PATH, outside SRC, is the
-one exception). The `write --output DIR` step comes next. `ledger` writes only its ledger, outside SRC
-and the target; `recheck` writes nothing.
+one exception). The file-level `write --output DIR` step comes next. `ledger` writes only its ledger,
+outside SRC and the target; `recheck` writes nothing; `decls` writes the target modules into a new
+directory outside SRC (staged, scanned with public-safety, moved into place) and its ledger.
 exit codes: 0 plan clean, 1 refused (every reason listed), 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html
 ```
@@ -44,6 +47,8 @@ docs: https://lean-pkg.github.io/lean-pkg/extract.html
 See also `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH`, a separate console script that plans a public Lean-verification repository from a mixed working repository, read-only and registry-free: [Extracting a public Lean repository](../extract.md).
 
 `lean-pkg-extract ledger` and `lean-pkg-extract recheck` record and re-verify a declaration-level extraction ledger (`lean-pkg-extract-ledger/1`) for a library ported by hand from private modules: [Declaration-level extraction ledger](../extract.md#declaration-level-extraction-ledger).
+
+`lean-pkg-extract decls` writes the target modules from the same map into a new directory (with `--scaffold NAME`, a whole package: pins copied from the source commit, `git init`, nothing committed), staged beside it and scanned with public-safety before it is moved into place, and records the ledger of what it wrote: [Writing the target modules](../extract.md#writing-the-target-modules-decls).
 
 ## lean-pkg-extract plan
 
@@ -212,4 +217,68 @@ Is the library still faithful to the source at the newer commits? Nothing may fa
 
 ```bash
 lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main --target-commit main
+```
+
+## lean-pkg-extract decls
+
+write the target modules of a declaration-level extraction (optionally a whole package) and record its extraction ledger.
+
+### Usage
+
+```text
+lean-pkg-extract decls --repo SRC --commit COMMIT --output DIR
+                       --from-module SRC/Path.lean:New.Module
+                       [--namespace OLD.Ns=NEW.Ns] [--rename OLD.qual=NEW.qual]
+                       [--drop OLD.qual:REASON] [--scaffold NAME] [--author TEXT]
+                       [--license {Apache-2.0,MIT}] --ledger PATH [--dry-run] [--json]
+```
+
+Read the mapped source modules at COMMIT, write each as its target module (the namespace and rename maps applied, --drop declarations left out, imports of mapped modules rewritten, comments other than docstrings removed) into --output DIR, which must be absent or empty and outside SRC, and record the ledger (lean-pkg-extract-ledger/1, target.commit null) to --ledger PATH. The tree is compared with the source (text/1) before anything is written, staged beside DIR, scanned with public-safety and moved into place in one step. --scaffold NAME adds the package files and runs git init; nothing is committed.
+
+### Arguments and flags
+
+| Argument or flag | Description |
+|---|---|
+| `--repo SRC` | the source git repository (its top directory). Required. |
+| `--commit COMMIT` | the source commit; recorded as a full SHA. Required. |
+| `--output DIR` | where to write: a new or empty directory, outside SRC, not a symbolic link. Required. |
+| `--from-module SRC/Path.lean:New.Module` | a source module and the target module to write it as (repeatable, at least one). Required. |
+| `--namespace OLD.Ns=NEW.Ns` | a namespace prefix map (repeatable; the longest prefix wins) |
+| `--rename OLD.qual=NEW.qual` | a declaration renamed, fully qualified (repeatable; takes precedence over --namespace) |
+| `--drop OLD.qual:REASON` | a source declaration left out of the target, with a one-line reason |
+| `--scaffold NAME` | also write the package: lean-toolchain and lake-manifest.json copied from the source commit, lakefile.toml, README.md, CITATION.cff, LICENSE, REUSE.toml; then git init (nothing committed) |
+| `--author TEXT` | with --scaffold: the CITATION.cff author (default: git config user.name) |
+| `--license {Apache-2.0,MIT}` | with --scaffold: the LICENSE written (default Apache-2.0). Choices: `Apache-2.0`, `MIT`. |
+| `--ledger PATH` | where to write the ledger: a new file outside SRC and outside DIR. Required. |
+| `--dry-run` | read and compare, report what would be written, and write nothing (the public-safety scan of the staged tree runs only when writing) |
+| `--json` | JSON on stdout: the ledger plus refusals, failures, written, output and public_safety |
+
+### More from --help
+
+```text
+examples:
+  lean-pkg-extract decls --repo ~/paper --commit HEAD --output ~/newlib \
+      --from-module Paper/Bounds.lean:NewLib.Bounds --namespace Paper.Bounds=NewLib.Bounds \
+      --rename Paper.Bounds.main=NewLib.Bounds.main_bound --drop 'Paper.Bounds.scratch:exploration only' \
+      --scaffold newlib --author 'Ada Lovelace' --ledger ~/ledgers/newlib-1.json
+  lean-pkg-extract decls @decls-args.txt --dry-run
+
+@ARGSFILE: as for `ledger` (one argument per line; `--flag value` lines keep the rest of the line).
+exit codes: 0 written (or, with --dry-run, writable) and every declaration IDENTICAL or dropped, 1 refused
+(nothing written), 2 usage.
+docs: https://lean-pkg.github.io/lean-pkg/extract.html#writing-the-target-modules-decls
+```
+
+### Examples
+
+Write New.A from Src/A.lean at the source commit with the maps applied and the dropped declaration left out, as a new package (pins copied from the source commit, git init, nothing committed), staged beside ~/newlib and scanned with public-safety before it is moved into place; the ledger of what was written goes outside both trees. Exit 1 with nothing written on any refusal.
+
+```bash
+lean-pkg-extract decls --repo ~/paper --commit HEAD --output ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --scaffold newlib --author 'Ada Lovelace' --ledger ~/ledgers/newlib-1.json
+```
+
+The plainest map, reading and comparing only; nothing is written (the public-safety scan runs only when writing).
+
+```bash
+lean-pkg-extract decls --repo ~/paper --commit HEAD --output ~/newlib --from-module Src/A.lean:New.A --ledger ~/ledgers/newlib-1.json --dry-run
 ```

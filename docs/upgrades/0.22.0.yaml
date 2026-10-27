@@ -825,6 +825,28 @@ changes:
     breaking: false
     changelog: Added
     split: true
+  - pr: 0
+    id: extract-decls
+    kind: command
+    area: lean-pkg-extract
+    summary: >-
+      Stage S3 of proposal 0009 (#329): lean-pkg-extract decls --repo SRC --commit C --output DIR --from-module
+      SRC/Path.lean:New.Module ... [--namespace OLD=NEW] [--rename OLD=NEW] [--drop NAME:REASON] [--scaffold NAME
+      [--author TEXT] [--license SPDX]] --ledger PATH [--dry-run] writes each mapped source module, read at C, as its
+      target module (the maps applied as ledger applies them, dropped declarations left out, imports of mapped modules
+      rewritten, comments but docstrings removed; an import of an unextracted source module refused) and records the
+      extraction ledger of what it wrote (target.commit null). --scaffold adds the package (lean-toolchain copied from
+      the source commit, its lake-manifest.json with only the root name changed, lakefile.toml, README, and the
+      package files of lean-pkg new, which writes the same bytes as before) and runs git init, nothing committed. The
+      tree is compared before anything is written, then staged beside DIR, scanned with public-safety and moved into
+      place with one os.replace; any refusal or failure (DIR not empty, a symlink or inside SRC, a leftover staging
+      directory, a blocking hit, every ledger refusal) writes nothing.
+    action: >-
+      Nothing required. To start a library from declarations of a private project, run lean-pkg-extract decls
+      (--dry-run first), review and commit DIR, and recheck the ledger with --target-commit HEAD; keep the ledger
+      private.
+    breaking: false
+    changelog: Added
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,
