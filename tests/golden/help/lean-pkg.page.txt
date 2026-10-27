@@ -1,5 +1,6 @@
 usage: lean-pkg page [-h] [--write] [--check] [--out PATH] [--site DIR] [--html PATH] [--repo DIR]
-                     [--strict-preview] [--allow-private-manuscript] [--agent AGENT] [--json]
+                     [--strict-preview] [--corroborate] [--allow-private-manuscript]
+                     [--agent AGENT] [--json]
                      name
 
 positional arguments:
@@ -13,8 +14,9 @@ options:
                         NAME --accept-docs-descendants`, its own registry write), so committing
                         the README keeps the receipts bound
   --check               exit 1 when the README block is missing or stale, the lean-pkg credit is
-                        missing, or the Easley sentence has no backing Slurm receipt; with
-                        --site/--html also when those files are missing or stale; writes nothing
+                        missing, or a site sentence has no backing receipt (or, for GitHub
+                        Actions, no corroborated run: --corroborate); with --site/--html also when
+                        those files are missing or stale; writes nothing
   --out PATH            write the block here instead; README untouched
   --site DIR            also write DIR/verification.md (the full page) and DIR/coverage.md (every
                         row, its claims, inputs and notes) for MkDocs; with --check, compare them
@@ -31,6 +33,12 @@ options:
                         (exit 0)
   --strict-preview      with --check --repo: a preview's differences from the receipt-bound README
                         block and --site/--html files fail the check (exit 1) instead of warning
+  --corroborate         ask the public GitHub REST API about each GitHub Actions job coverage.yaml
+                        lists (level 2: the run, its job, the pinned verify.yml, the receipt
+                        annotation), and render the GitHub Actions sentence, with its run links,
+                        only when every one reaches it; a failure is named and fails closed.
+                        GH_TOKEN or GITHUB_TOKEN, when set, only raises the rate limit and is
+                        never printed
   --allow-private-manuscript
                         render against manuscript.version 'unposted'; the page then says so
   --agent AGENT         with --write: the lease holder, when the package is leased

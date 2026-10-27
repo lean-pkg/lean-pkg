@@ -1,0 +1,9 @@
+# The content SHA-256 of lean-pkg's reusable .github/workflows/verify.yml at every release (proposal 0008,
+# "The pinned reusable workflow"). Corroboration (level 2: receipt check --corroborate, page --corroborate)
+# accepts a caller's `uses: lean-pkg/lean-pkg/.github/workflows/verify.yml@<40-hex>` only when the file at that
+# commit hashes to an entry: a commit SHA alone is not enough, because GitHub serves a fork's commits through
+# the parent repository's path. Append-only, oldest first; written by `make docs`
+# (scripts/verify-workflow-pins.py), never by hand.
+schema: lean-pkg-verify-workflow-pins/1
+sha256:
+  - 2930a93ef13961d3897dfed17d4fac3b308f968e84b260f8817d2d7ace7dcc32

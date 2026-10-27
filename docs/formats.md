@@ -83,8 +83,8 @@ under `comparator-stages/` (`comparator-stages/1`, `comparator-attempt/1`,
 checkpoint, and the search cache (`lean-pkg-palomar-cache/1`) belong to
 the run that wrote them and may change in any release. So do the data
 files lean-pkg ships (`lean-pkg-toolchain-advisories/1`,
-`lean-pkg-stack/1`, `lean-pkg-upgrade-breaking/1`), which only the same
-release reads.
+`lean-pkg-stack/1`, `lean-pkg-upgrade-breaking/1`,
+`lean-pkg-verify-workflow-pins/1`), which only the same release reads.
 
 **Reports.** Output that is printed or written on request and never read
 back is versioned too, so a script can tell what it has:
@@ -168,8 +168,8 @@ Level 1 is consistency with the receipt, the commit and the committed log:
 the strength of a `slurm-<J>` receipt, and as forgeable, since every value
 is text the author could write ([Trust model](trust-model.md#not-covered-lean-pkg-relies-on-honesty-here)).
 It backs a `compute` job but never puts the GitHub Actions sentence on the
-page: that needs a corroborated run (level 2, a later stage of the
-proposal). A receipt with a `gha-` job id and no `ci` block still passes
+page: that needs a corroborated run (level 2, `--corroborate`; [Corroborating
+the run](receipts.md#corroborating-the-run-level-2---corroborate)). A receipt with a `gha-` job id and no `ci` block still passes
 `gate` and backs no `compute` job.
 
 ## The hypotheses section of the verify log (`hyp-probe/1`)

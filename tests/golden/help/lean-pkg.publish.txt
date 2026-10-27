@@ -1,5 +1,6 @@
-usage: lean-pkg publish [-h] [--yes] [--dry-run] [--public-safety] [--skip-public-safety]
-                        [--agent AGENT] [--json] [--commit] [--push] [--no-commit]
+usage: lean-pkg publish [-h] [--yes] [--dry-run] [--public-safety] [--corroborate]
+                        [--skip-public-safety] [--agent AGENT] [--json] [--commit] [--push]
+                        [--no-commit]
                         name
 
 positional arguments:
@@ -15,6 +16,10 @@ options:
                         checklist only
   --public-safety       read-only checklist: also scan the tree and git history for private
                         patterns (`lean-pkg public-safety`); --yes always scans
+  --corroborate         read-only checklist: render the page line as `page --check --corroborate`
+                        does, asking the public GitHub REST API about each GitHub Actions job
+                        (level 2), so a README carrying the GitHub Actions sentence can pass;
+                        GH_TOKEN or GITHUB_TOKEN only raises the rate limit
   --skip-public-safety  with --yes: do not run the public-safety scan of the tree and history (a
                         WARN line instead; the scan covers the whole repository when the package
                         is a subdirectory of it)

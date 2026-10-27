@@ -3,7 +3,10 @@
 package to a public, tagged, listed one, composed from checks that already exist elsewhere
 (the promotion checklist, the index license check, the formalization renderer, the claims
 cache, `page --check`), plus the exact next commands. Read-only (`--dry-run` says so
-explicitly): nothing is written, the registry is not locked, `--commit` is ignored.
+explicitly): nothing is written, the registry is not locked, `--commit` is ignored. With
+`--corroborate` the page line is rendered as `page --check --corroborate` renders it: the GitHub
+Actions jobs coverage.yaml lists are corroborated against the public GitHub REST API (level 2),
+the checklist's only network use.
 
 `publish NAME --yes` publishes: the promotion checklist, then the GitHub repository goes public
 (the pre-1.0 `promote NAME --yes`, a permanent alias); `--yes --dry-run` runs the same checklist
@@ -227,7 +230,8 @@ def next_commands(pkg: dict, repo, ready: bool, tags: list[str]) -> list[str]:
     return cmds
 
 
-def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple[list[str], int, dict]:
+def do_publish_check(reg: dict, name: str, public_safety: bool = False, corroborate: bool = False,
+                     fetch=None) -> tuple[list[str], int, dict]:
     pkg = core.get_pkg(reg, name)
     repo = core.repo_path(pkg)
     if not repo.is_dir():
@@ -267,7 +271,7 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
     items += formalization_items(pkg, repo)
     items.append(claims_item(pkg, repo, head))
     from . import page as page_mod
-    item, page_state = page_mod.publish_item(pkg, repo)
+    item, page_state = page_mod.publish_item(pkg, repo, corroborate=corroborate, fetch=fetch)
     items.append(item)
     lake_name = lakefile_package_name(repo)
     items.append(("✓", f"lakefile package name {lake_name}") if lake_name else
@@ -303,6 +307,9 @@ def do_publish_check(reg: dict, name: str, public_safety: bool = False) -> tuple
 
 def cmd_publish(args) -> int:
     if args.yes:   # the promotion: the pre-1.0 `promote NAME [--yes]`
+        if getattr(args, "corroborate", False):
+            raise core.UsageError("--corroborate renders the read-only checklist's page line from corroborated "
+                                  "GitHub Actions runs; it does not go with --yes")
         if args.public_safety:
             raise core.UsageError("--public-safety adds the scan to the read-only checklist; --yes always runs it "
                                   "(unless --skip-public-safety)")
@@ -313,7 +320,8 @@ def cmd_publish(args) -> int:
         raise core.UsageError(f"{', '.join(extra)} go(es) with --yes (the read-only checklist takes no lease and "
                               f"always lists the public-safety state with --public-safety)")
     reg_path = core.registry_path(args)
-    lines, rc, payload = do_publish_check(core.load_registry(reg_path), args.name, args.public_safety)
+    lines, rc, payload = do_publish_check(core.load_registry(reg_path), args.name, args.public_safety,
+                                          corroborate=getattr(args, "corroborate", False))
     if getattr(args, "json_out", False):
         core.print_json(payload)
     else:
@@ -334,6 +342,10 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--public-safety", action="store_true",
                    help="read-only checklist: also scan the tree and git history for private patterns "
                         "(`lean-pkg public-safety`); --yes always scans")
+    s.add_argument("--corroborate", action="store_true",
+                   help="read-only checklist: render the page line as `page --check --corroborate` does, asking "
+                        "the public GitHub REST API about each GitHub Actions job (level 2), so a README carrying "
+                        "the GitHub Actions sentence can pass; GH_TOKEN or GITHUB_TOKEN only raises the rate limit")
     s.add_argument("--skip-public-safety", action="store_true",
                    help="with --yes: do not run the public-safety scan of the tree and history (a WARN line "
                         "instead; the scan covers the whole repository when the package is a subdirectory of it)")

@@ -429,6 +429,31 @@ changes:
     breaking: false
     changelog: Added
     split: true
+  - pr: 355
+    id: ci-receipt-corroborate
+    kind: command
+    area: receipt check, page
+    summary: >-
+      Stage S3 of proposal 0008 (#318): receipt check --corroborate [--github OWNER/REPO], page --corroborate and
+      publish --dry-run --corroborate corroborate a GitHub Actions receipt against the public REST API of
+      api.github.com (level 2): the attempt the receipt names completed with success on its commit, of the
+      workflow file and event its ci block names, in the package's repository by numeric id; exactly one
+      lean-pkg-receipt annotation in the attempt's jobs whose hashes are the committed receipt and log bytes, from a
+      successful job in the GitHub-hosted runner group; the workflow file at ci.workflow_sha hashes to
+      ci.workflow_file_sha256 and calls lean-pkg/lean-pkg/.github/workflows/verify.yml at a 40-hex commit equal to
+      ci.job_workflow, whose content SHA-256 is in the shipped list data/verify-workflow-pins.yaml. A 404, 403 or
+      429 (naming GH_TOKEN), a network error and a redirect off api.github.com fail closed. receipt check gains a row
+      per check and --json ci {level, rows}, github and network true; the page renders the GitHub Actions sentence,
+      {runs} filled with run links, only when every listed job reaches level 2 (page --json sites.github-actions
+      gains corroboration and runs). GH_TOKEN or GITHUB_TOKEN only raises the rate limit and is never printed or
+      written.
+    action: >-
+      Nothing: without --corroborate every command reads and prints what it did, with no network. A package backing
+      compute with GitHub Actions runs renders and checks its page with --corroborate (in CI with GITHUB_TOKEN set)
+      to carry the GitHub Actions sentence. A script matching the page --check refusal for that sentence sees the
+      hint reworded from "is not in this release" to name --corroborate.
+    breaking: false
+    changelog: Added
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

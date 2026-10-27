@@ -95,6 +95,31 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   package calls pinned to a 40-hex lean-pkg commit
   ([writing the receipt in CI](docs/sites.md#writing-the-receipt-in-ci),
   [receipt ci](docs/commands/receipt-ci.md)).
+- `--corroborate`: a GitHub Actions receipt corroborated against the
+  public run API, level 2 (#355; stage S3 of proposal 0008, #318).
+  `receipt check --corroborate [--github OWNER/REPO]`, `page --corroborate`
+  and `publish --dry-run --corroborate` ask `api.github.com` (https only, a
+  timeout, a redirect elsewhere refused) about the attempt each receipt
+  names: completed with success on the receipt's commit, of the workflow
+  file and event the `ci` block names, in the package's repository by
+  numeric id (a fork's run does not back); exactly one `lean-pkg-receipt`
+  annotation in its jobs whose hashes are the committed receipt and log
+  bytes, written by a successful job in the GitHub-hosted runner group; and
+  the workflow file at `ci.workflow_sha`, hashing to
+  `ci.workflow_file_sha256`, calls lean-pkg's `verify.yml` at a 40-hex
+  commit equal to `ci.job_workflow` whose content is in the shipped pin
+  list `src/lean_pkg/data/verify-workflow-pins.yaml` (kept by `make docs`).
+  A 404, 403 or 429 (naming `GH_TOKEN`), a network error and a redirect off
+  `api.github.com` fail closed, named; the level is never stored. `receipt
+  check` gains one row per check and `--json` `ci {level, rows}`, `github`
+  and `network: true`; the page renders the GitHub Actions sentence only
+  when every listed job reaches level 2, `{runs}` filled with the runs'
+  links (`page --json` `sites.github-actions` gains `corroboration` and
+  `runs`). `GH_TOKEN` or `GITHUB_TOKEN` only raises the rate limit and is
+  never printed or written. Without the flag nothing changes: no network,
+  no sentence, and a README carrying it fails `page --check` with a
+  `--corroborate` hint
+  ([corroborating the run](docs/receipts.md#corroborating-the-run-level-2---corroborate)).
 - `repo export --author 'NAME <EMAIL>'` and `--allow-author-email`
   (#344; #339): `--author` names the author and committer of the export
   commit; `--allow-author-email` accepts an address that is not a GitHub

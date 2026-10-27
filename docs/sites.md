@@ -125,12 +125,33 @@ strong as a `slurm-<J>` receipt and as forgeable: every value in the block
 is text the author could write. The GitHub Actions acknowledgement ("Verification
 ran on [GitHub Actions](https://docs.github.com/en/actions) hosted runners
 (...)") states that the runs happened, so it renders only from a run
-corroborated against GitHub's public record (level 2, `--corroborate`, a
-later stage of the proposal, not in this release). Until then a README
-that carries that sentence fails `page --check` and the page line of
-`publish --dry-run`. The profile's `mention_pattern` is narrow on purpose
+corroborated against GitHub's public record (level 2, below). Without
+`--corroborate` a README that carries that sentence fails `page --check`
+and the page line of `publish --dry-run`, with a hint to add the flag. The
+profile's `mention_pattern` is narrow on purpose
 (`Verification ran on [GitHub Actions`): a CI badge or "tests run on GitHub
 Actions" is not a claim and is never refused.
+
+**Level 2 renders the sentence.** `lean-pkg page NAME --corroborate` (and
+`page --check --corroborate`, `publish NAME --dry-run --corroborate`) asks
+the public GitHub REST API about every listed `gha-` job: the attempt the
+receipt names completed with success on the receipt's commit, in the
+package's repository (by numeric id, from the registry's repository URL),
+on a GitHub-hosted runner, running lean-pkg's pinned `verify.yml`, and it
+wrote exactly the committed receipt and log bytes
+([every check](receipts.md#corroborating-the-run-level-2---corroborate)).
+When every listed job reaches level 2 the Acknowledgments carry
+
+> Verification ran on [GitHub Actions](https://docs.github.com/en/actions) hosted runners ([run 11622958301 attempt 1](https://github.com/OWNER/REPO/actions/runs/11622958301/attempts/1)).
+
+with `{runs}` filled by the runs' links; `page --json` reports `level: 2`
+and, per job, the `corroboration` rows and the `runs`. A failure (a 404
+once the run's records expire, a rate limit, a network error) is a warning
+naming why, and the sentence is left out: the page never claims level 2 from
+memory, so render it in CI with `--corroborate` and `GITHUB_TOKEN` set
+([The verification page in CI](page.md#in-ci)). Written with
+`--corroborate`, the README block is stale to an offline `page --check`;
+check it with the flag too.
 
 ### Writing the receipt in CI
 
@@ -174,7 +195,6 @@ Nothing above is required. A page without `compute` carries only the
 lean-pkg credit. The lower-tier receipt can come from any executor
 (`lean-pkg receipt systemd --run` runs the verify script in a capped local unit; see
 [Receipts and trust](receipts.md)). A receipt from a GitHub Actions run is
-judged at level 1 and written in the job by `lean-pkg receipt ci`
-([Writing the receipt in CI](#writing-the-receipt-in-ci)); corroborating it
-against the run is the next stage of
-[proposal 0008](proposals/0008-github-actions-compute-receipt.md).
+judged at level 1, written in the job by `lean-pkg receipt ci`
+([Writing the receipt in CI](#writing-the-receipt-in-ci)) and corroborated
+against the run with `--corroborate` ([GitHub Actions](#github-actions)).

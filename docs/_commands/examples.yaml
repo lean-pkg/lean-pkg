@@ -313,6 +313,8 @@ lean-pkg receipt check:
     say: The strict rule over the author's committed opt-in, where only an evidence-only descendant binds; every check with its verdict as JSON.
   - cmd: lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --at v1.0.0 --docs-descendants --json
     say: For a package without lean-pkg-binding.yaml, also accept a README or notes committed after the evidence (the docs-only rule, the referee's choice); every check with its verdict as JSON.
+  - cmd: lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --corroborate --github OWNER/REPO
+    say: Also corroborate a GitHub Actions receipt against the public run API (level 2), the package's repository named by --github; GH_TOKEN only raises the rate limit.
 
 lean-pkg gate:
   - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --check
@@ -415,6 +417,8 @@ lean-pkg page:
     say: Exit 1 when the README block is missing or stale; a CI step for the package.
   - cmd: lean-pkg page my-proof --site docs --html docs/verification.html
     say: Also write the docs pages and one self-contained HTML file.
+  - cmd: lean-pkg page my-proof --check --corroborate
+    say: The same check with each GitHub Actions run corroborated against the public run API, so the GitHub Actions sentence (with its run links) is earned; for CI, with GITHUB_TOKEN set.
 
 lean-pkg claims list:
   - cmd: lean-pkg claims list
@@ -512,6 +516,8 @@ lean-pkg publish:
     say: The read-only checklist from verified-private to listed, with the exact next commands; exit 1 while not ready.
   - cmd: lean-pkg publish my-proof --public-safety
     say: The same, also scanning the tree and the git history for private strings.
+  - cmd: lean-pkg publish my-proof --corroborate
+    say: The same, with the page line rendered from corroborated GitHub Actions runs (page --check --corroborate).
   - cmd: lean-pkg publish my-proof --yes --dry-run
     say: The promotion checklist that --yes runs; nothing changes (the pre-1.0 `promote my-proof`).
   - cmd: lean-pkg publish my-proof --yes
