@@ -16,6 +16,13 @@ with every file traced to a blob of one source commit.
 `lean-pkg-extract plan`. It writes nothing. A later release adds
 `lean-pkg-extract write --output DIR`, which materializes exactly the plan.
 
+For a library you ported by hand, declaration by declaration, from private
+modules (new namespaces, a few renames, some declarations left out),
+`lean-pkg-extract ledger` records an [extraction
+ledger](#declaration-level-extraction-ledger): each source declaration
+compared with its port at two named commits, and `lean-pkg-extract recheck`
+re-verifies it later.
+
 ```bash
 lean-pkg-extract plan --repo . --commit HEAD --manifest extract.json
 ```
@@ -428,6 +435,192 @@ the same commit and manifest are byte-identical.
 
 Exit codes: 0 the plan is clean, 1 refused, 2 usage (argparse; `--repo` not a
 git repository or a subdirectory of one).
+
+## Declaration-level extraction ledger
+
+*I ported declarations from several private modules into a new library,
+under new namespaces and with a few renames. Can I show the library's
+downstream owner that statements and proofs are unchanged?*
+
+`lean-pkg-extract ledger` compares a target library you ported by hand with
+the source it came from, declaration by declaration, and writes a ledger
+(`lean-pkg-extract-ledger/1`) that names both commits, every module on both
+sides, the map you applied and a verdict with SHA-256 hashes for each
+declaration. `lean-pkg-extract recheck` re-verifies that ledger later, by
+anyone who holds the source. It is the record proposal
+[0009](proposals/0009-extraction-ledger.md) specifies; the verbs that write
+the target modules for you (`decls`) and compare elaborated types
+(`types/1`) are later stages.
+
+```bash
+lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib \
+    --from-module Src/A.lean:New.A --from-module Src/B.lean:New.B \
+    --namespace Old.A=New.A --namespace Old.B=New.B \
+    --rename Old.A.foo=New.A.bar \
+    --drop 'Old.A.aux:exploration only, never used' \
+    --ledger ~/ledgers/newlib-1.json
+```
+
+```text
+ledger: OK (text/1): 5 identical, 1 dropped, 0 differs, 0 new, 0 missing, 0 weakened; 2 context row(s) (0 differ); 0 warning(s); source 0034dfa7..., target 395069d8...; written to ~/ledgers/newlib-1.json
+entries (PRIVATE: source names and paths; keep this list out of anything published):
+  IDENTICAL theorem   Old.A.foo -> New.A.bar
+  IDENTICAL theorem   Old.A.uses_foo -> New.A.uses_foo
+  DROPPED   lemma     Old.A.aux -> New.A.aux  (dropped: exploration only, never used)
+  IDENTICAL def       Old.A.f -> New.A.f
+  IDENTICAL instance  instance#1@Src.A -> instance#1@New.A
+  IDENTICAL theorem   Old.B.g -> New.B.g
+context rows (each module's other commands, after mapping):
+  IDENTICAL Src.A -> New.A
+  IDENTICAL Src.B -> New.B
+modules (PRIVATE: source names and paths; keep this list out of anything published):
+  ...
+totals: IDENTICAL 5, DROPPED 1, DIFFERS 0, NEW 0, MISSING 0, weakened 0
+ledger: OK (text/1): ...
+```
+
+### The input
+
+Everything is a flag, repeatable where it says so; put a long map in a file
+and pass `@FILE` (one argument per line; a line `--flag value` is the flag
+and the rest of the line, so a reason may hold spaces; blank lines and lines
+starting with `#` are skipped). The manifest `lean-pkg-extract/1` of `plan`
+is not used.
+
+| Flag | Meaning |
+|---|---|
+| `--repo SRC --commit C` | the source repository (its top directory) and commit |
+| `--target TDIR [--target-commit T]` | the target repository (its top directory) and commit, `HEAD` by default |
+| `--from-module SRC/Path.lean:New.Module` | a source module and the target module it was ported to; at least one, each side at most once |
+| `--namespace OLD.Ns=NEW.Ns` | a namespace prefix map; the longest prefix wins |
+| `--rename OLD.qual=NEW.qual` | a declaration renamed, fully qualified; it takes precedence over `--namespace` |
+| `--drop OLD.qual:REASON` | a source declaration left out on purpose, with a one-line reason |
+| `--new NEW.qual:REASON` | a target declaration with no source counterpart, declared, with a reason |
+| `--allow-differs OLD.qual:REASON` | a difference you disclose (counted as `weakened`); `context@<source module>` for a module's context row |
+| `--ledger PATH` | where to write the ledger (required, see below) |
+
+Both sides are read from git objects at their commit, never from a working
+tree, and neither repository is written. The target module `New.A` is the
+file `New/A.lean` in the target repository (or the one file ending in
+`/New/A.lean`). The source module's name is its path from the nearest
+directory holding a `lakefile.toml` or `lakefile.lean`.
+
+### The comparison: `text/1`
+
+For each module pair, both files are split into declarations: comments and
+docstrings stripped, strings and `«»` names kept, a declaration's
+attributes, modifiers, `where`, `termination_by` and `decreasing_by` kept
+with it. A `mutual` block is one entry, keyed by its sorted names; an
+anonymous instance or example is keyed by its position, `instance#k@Module`.
+The namespace and rename maps are applied to the source text (whole
+identifiers only, relative names resolved in the scope where they stand),
+the text is normalized (trailing space and blank lines dropped, common
+indentation removed, relative indentation kept) and hashed with SHA-256.
+
+| Verdict | Meaning | Failure? |
+|---|---|---|
+| IDENTICAL | the mapped source text equals the target text | no |
+| DROPPED | absent from the target and listed in `--drop` | no |
+| DIFFERS | in both, the texts differ | yes, unless listed in `--allow-differs` (then counted as `weakened`) |
+| NEW | a target declaration with no source counterpart | yes, unless declared with `--new` |
+| MISSING | absent from the target and not dropped | yes |
+
+`whitespace_only` marks a DIFFERS whose texts are equal once all whitespace
+is collapsed: a hint, never a pass. `doc_changed` marks a changed
+docstring, for information. Each module pair also gets a context row: its
+other top-level commands (`open`, `variable`, `universe`, `set_option`,
+`namespace`/`section`/`end`, notation, attributes, ...) in order, mapped and
+hashed; a DIFFERS context row fails unless allowed with
+`--allow-differs context@<source module>:REASON`. The module header
+(`module`, `import`, `prelude`) is not compared: imports change with the
+module map, and the build checks them. Module-system modifiers are not
+ignored: `public def f` against `def f` DIFFERS.
+
+What `text/1` cannot see (proposal 0009, "Known false negatives"): a short
+name that resolves to a different constant after the move, a different
+Mathlib under the same text, context from modules not extracted. The
+lean-toolchain and the `lake-manifest.json` of both sides are recorded, and
+a toolchain or dependency revision that differs is a warning, never a
+refusal. That the proofs still check is shown by building the target, not by
+the ledger.
+
+### Where the ledger may live
+
+The ledger names source paths, the source commit, source names and drop
+reasons: it is private. `--ledger PATH` is refused inside SRC (its work tree
+or git directory; `lean-pkg-extract` leaves SRC unchanged), inside the
+target repository (the ledger never enters the exported tree), when it is a
+symlink, when its directory does not exist, and when it already exists. To
+keep it beside the source, copy it into SRC's `notes/` by hand, a directory
+an export drops.
+
+The ledger is written only when nothing fails and nothing is refused, and
+then once: it is evidence, never rewritten. To record again, write a new
+file. No gate, page, index or claims command reads it.
+
+### Refusals and failures
+
+Exit 1, nothing written, every reason listed (and the JSON on stdout under
+`--json`):
+
+- `--commit` or `--target-commit` that is not a commit; a blob missing from
+  the object store (a partial clone);
+- `--from-module`: the path missing at C, not a `.lean` file, not a plain
+  relative path, mapped twice, a target module that is not a Lean name,
+  under a reserved root (`Init`, `Lean`, `Mathlib`, ...), the target of two
+  source modules, or with no file in the target;
+- `--namespace` or `--rename` that is stale (acts on no source
+  declaration), malformed, mapped twice (an overlap of equal length), a
+  chain or a cycle (`A=B`, `B=C`), or that makes two declarations land on
+  one target name;
+- `--drop`, `--new`, `--allow-differs`: stale, named twice, an empty or
+  multi-line reason; a dropped declaration still present in the target, or
+  still referenced by a kept one (best effort); an allowed difference that
+  is identical; a declaration both dropped and allowed to differ;
+- a qualified name declared in two source modules; a file that cannot be
+  split into declarations (an unclosed comment or bracket, ...), refused
+  whole;
+- the ledger location (above);
+- any failure: MISSING, an undeclared NEW, a DIFFERS or context DIFFERS not
+  allowed.
+
+`--repo` or `--target` that is not a git repository, or a subdirectory of
+one, is a usage error (exit 2), as is any argparse error; under `--json`
+the error is a JSON object.
+
+### Rechecking a ledger
+
+```bash
+lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib
+lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main --target-commit main
+```
+
+`recheck` reads the ledger strictly: exact keys at every level, closed
+verdicts, duplicate JSON keys refused, totals that count the entries. A
+newer `lean-pkg-extract-ledger/N`, or a method this release does not know
+(`types/1` before stage S4), is refused with "upgrade lean-pkg". It then
+recomputes the ledger from its own recorded map:
+
+- at the recorded commits (the defaults: `--commit` is the ledger's source
+  commit, `--target-commit` its target commit), every field must match, so
+  an edited hash or verdict is refused and the differing fields listed;
+- at another `--commit` or `--target-commit` ("is the library still
+  faithful to the source at C?"), nothing may fail, and what changed since
+  the ledger (declarations whose source or target text moved, verdicts,
+  module blobs) is listed as drift.
+
+A ledger whose `target.commit` is null needs `--target-commit`. `recheck`
+writes nothing. Exit 0 the ledger holds, 1 refused or failing, 2 usage.
+
+### Output
+
+Text output prints the verdict first and again last; the entries and modules
+lists carry "PRIVATE: source names and paths". `--json` prints the ledger
+object (sorted keys) plus `refusals`, `failures` and `written` (and, for
+`recheck`, `drift`); the file at `--ledger` holds the ledger object alone.
+The ledger's keys are documented in proposal
+[0009](proposals/0009-extraction-ledger.md#the-ledger-format-lean-pkg-extract-ledger1);
+each context row also carries `reason` (the allowed difference, or null).
 
 ## What comes next
 

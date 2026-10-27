@@ -19,6 +19,8 @@ lean-pkg-extract COMMAND
 ## Subcommands
 
 - [`lean-pkg-extract plan`](lean-pkg-extract.md): dry run: classify, check and inventory what an extract at COMMIT would contain
+- [`lean-pkg-extract ledger`](lean-pkg-extract.md): record an extraction ledger: a hand-ported target compared, declaration by declaration, with the source at COMMIT
+- [`lean-pkg-extract recheck`](lean-pkg-extract.md): re-verify an extraction ledger against the source and the target
 
 ## More from --help
 
@@ -27,9 +29,12 @@ examples:
   lean-pkg-extract plan --repo . --commit HEAD --manifest extract.json
   lean-pkg-extract plan --repo ~/paper --commit 0123abc --manifest extract.json --json
   lean-pkg-extract plan --repo . --commit v1.0 --manifest extract.json --report ../extract-plan.json
+  lean-pkg-extract ledger @ledger-args.txt
+  lean-pkg-extract recheck --ledger ../newlib-ledger.json --repo . --target ../newlib
 
 Dry run only: `plan` reads git objects at COMMIT and writes nothing (--report PATH, outside SRC, is the
-one exception). The `write --output DIR` step comes next.
+one exception). The `write --output DIR` step comes next. `ledger` writes only its ledger, outside SRC
+and the target; `recheck` writes nothing.
 exit codes: 0 plan clean, 1 refused (every reason listed), 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html
 ```
@@ -37,6 +42,8 @@ docs: https://lean-pkg.github.io/lean-pkg/extract.html
 ## Details
 
 See also `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH`, a separate console script that plans a public Lean-verification repository from a mixed working repository, read-only and registry-free: [Extracting a public Lean repository](../extract.md).
+
+`lean-pkg-extract ledger` and `lean-pkg-extract recheck` record and re-verify a declaration-level extraction ledger (`lean-pkg-extract-ledger/1`) for a library ported by hand from private modules: [Declaration-level extraction ledger](../extract.md#declaration-level-extraction-ledger).
 
 ## lean-pkg-extract plan
 
@@ -87,4 +94,122 @@ The same at a tag, also writing the JSON plan (with the private excluded list) t
 
 ```bash
 lean-pkg-extract plan --repo . --commit v1.0 --manifest extract.json --report ../extract-plan.json
+```
+
+## lean-pkg-extract ledger
+
+record an extraction ledger: a hand-ported target compared, declaration by declaration, with the source at COMMIT.
+
+### Usage
+
+```text
+lean-pkg-extract ledger --repo SRC --commit COMMIT --target TDIR [--target-commit T]
+                        --from-module SRC/Path.lean:New.Module
+                        [--namespace OLD.Ns=NEW.Ns] [--rename OLD.qual=NEW.qual]
+                        [--drop OLD.qual:REASON] [--new NEW.qual:REASON]
+                        [--allow-differs OLD.qual:REASON] --ledger PATH [--json]
+```
+
+Compare the target modules at TARGET_COMMIT with the source modules at COMMIT, declaration by declaration (method text/1: comments stripped, the namespace and rename maps applied, normalized text hashed), and, when nothing fails, write the ledger (lean-pkg-extract-ledger/1) to --ledger PATH, once. Reads git objects only; writes nothing else.
+
+### Arguments and flags
+
+| Argument or flag | Description |
+|---|---|
+| `--repo SRC` | the source git repository (its top directory). Required. |
+| `--commit COMMIT` | the source commit; recorded as a full SHA. Required. |
+| `--target TDIR` | the target git repository (its top directory). Required. |
+| `--target-commit T` | the target commit (default: HEAD) |
+| `--from-module SRC/Path.lean:New.Module` | a source module and the target module it was ported to (repeatable, at least one). Required. |
+| `--namespace OLD.Ns=NEW.Ns` | a namespace prefix map (repeatable; the longest prefix wins) |
+| `--rename OLD.qual=NEW.qual` | a declaration renamed, fully qualified (repeatable; takes precedence over --namespace) |
+| `--drop OLD.qual:REASON` | a source declaration left out of the target on purpose, with a one-line reason |
+| `--new NEW.qual:REASON` | a target declaration with no source counterpart, declared, with a one-line reason |
+| `--allow-differs OLD.qual:REASON` | a disclosed difference, counted as weakened (context@&lt;source module&gt; for a module's context rows) |
+| `--ledger PATH` | where to write the ledger: a new file outside SRC and outside the target. Required. |
+| `--json` | JSON on stdout: the ledger plus refusals, failures and written |
+
+### More from --help
+
+```text
+examples:
+  lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib \
+      --from-module Paper/Bounds.lean:NewLib.Bounds --namespace Paper.Bounds=NewLib.Bounds \
+      --rename Paper.Bounds.main=NewLib.Bounds.main_bound --drop 'Paper.Bounds.scratch:exploration only' \
+      --ledger ~/ledgers/newlib-1.json
+  lean-pkg-extract ledger @ledger-args.txt --json
+
+@ARGSFILE: one argument per line; a line `--flag value` is the flag and the rest of the line (so a reason
+may hold spaces); blank lines and lines starting with # are skipped.
+exit codes: 0 every declaration accounted for (ledger written), 1 refused or failing (nothing written), 2 usage.
+docs: https://lean-pkg.github.io/lean-pkg/extract.html#declaration-level-extraction-ledger
+```
+
+### Examples
+
+Compare the hand-ported module New.A at the target's HEAD with Src/A.lean at the source commit, declaration by declaration (method text/1), and write the private extraction ledger once, outside both repositories; exit 1 with nothing written when a declaration is MISSING, an undeclared NEW or a DIFFERS not allowed.
+
+```bash
+lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --ledger ~/ledgers/newlib-1.json
+```
+
+Sample output:
+
+```text
+ledger: OK (text/1): 4 identical, 1 dropped, 0 differs, 0 new, 0 missing, 0 weakened; 1 context row(s) (0 differ); 0 warning(s); source 0034dfa7d81c09810ac5fce559088d62d0f84b3d, target 395069d8463ef9217daa068b9908d5972692afcc; written to ~/ledgers/newlib-1.json
+entries (PRIVATE: source names and paths; keep this list out of anything published):
+  IDENTICAL theorem   Old.A.foo -> New.A.bar
+  DROPPED   lemma     Old.A.aux -> New.A.aux  (dropped: exploration only, never used)
+  ...
+ledger: OK (text/1): 4 identical, 1 dropped, 0 differs, 0 new, 0 missing, 0 weakened; 1 context row(s) (0 differ); 0 warning(s); source 0034dfa7d81c09810ac5fce559088d62d0f84b3d, target 395069d8463ef9217daa068b9908d5972692afcc; written to ~/ledgers/newlib-1.json
+```
+
+## lean-pkg-extract recheck
+
+re-verify an extraction ledger against the source and the target.
+
+### Usage
+
+```text
+lean-pkg-extract recheck --ledger PATH --repo SRC --target TDIR [--commit COMMIT]
+                         [--target-commit T] [--json]
+```
+
+Read a ledger strictly and recompute it from its own recorded map. At the recorded commits every field must match; at a newer --commit or --target-commit nothing may fail, and what changed is listed as drift. Writes nothing.
+
+### Arguments and flags
+
+| Argument or flag | Description |
+|---|---|
+| `--ledger PATH` | the ledger (lean-pkg-extract-ledger/1). Required. |
+| `--repo SRC` | the source git repository (its top directory). Required. |
+| `--target TDIR` | the target git repository (its top directory). Required. |
+| `--commit COMMIT` | the source commit (default: the ledger's source.commit) |
+| `--target-commit T` | the target commit (default: the ledger's target.commit; required when it is null) |
+| `--json` | JSON on stdout: the recomputed ledger plus refusals, failures, drift and written |
+
+### More from --help
+
+```text
+examples:
+  lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib
+  lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main
+
+exit codes: 0 the ledger holds (at its commits: recomputed byte for byte; at other commits: nothing fails),
+1 refused or failing, 2 usage.
+docs: https://lean-pkg.github.io/lean-pkg/extract.html#rechecking-a-ledger
+```
+
+### Examples
+
+Read the ledger strictly and recompute it from its own recorded map at its recorded commits; every field must match, so an edited hash or verdict is refused. Writes nothing.
+
+```bash
+lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib
+```
+
+Is the library still faithful to the source at the newer commits? Nothing may fail; what changed since the ledger is listed as drift.
+
+```bash
+lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main --target-commit main
 ```
