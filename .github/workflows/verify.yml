@@ -4,7 +4,7 @@
 #
 # The job checks out the pushed commit, installs elan (a pinned release, its archive hash checked), the
 # Mathlib cache when the package depends on Mathlib, and lean-pkg at the commit of this very file
-# (github.job_workflow_sha), runs the package's verify command with its log sealed in-log, then
+# (the OIDC token's job_workflow_sha claim), runs the package's verify command with its log sealed in-log, then
 # `lean-pkg receipt ci --attest`, signs the receipt and its redacted log into one Sigstore bundle with
 # actions/attest-build-provenance (stage S4, level 3: signed with the job's OIDC token and recorded in the public
 # transparency log), copies the bundle beside them as <commit12>-gha-<run_id>-<run_attempt>.sigstore.json (the
@@ -63,7 +63,6 @@ jobs:
       attestations: write   # the attestation of the receipt and its log (level 3); never contents: write
     env:
       PKG_DIR: ${{ inputs.package-dir }}
-      LEAN_PKG_SHA: ${{ github.job_workflow_sha }}
       ELAN_VERSION: v4.2.4
       ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
     steps:
@@ -83,9 +82,29 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Resolve the lean-pkg commit this job runs (the OIDC token's job_workflow_sha claim)
+        # github.job_workflow_sha is empty inside a called workflow's jobs on GitHub-hosted runners, so the commit
+        # comes from the job's OIDC token: job_workflow_ref must be lean-pkg's own verify.yml at that commit. The
+        # token is decoded here and never printed or written.
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import base64, json, os, re, sys, urllib.request
+          req = urllib.request.Request(os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&audience=lean-pkg",
+                                       headers={"Authorization": "bearer " + os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]})
+          token = json.load(urllib.request.urlopen(req, timeout=30))["value"]
+          body = token.split(".")[1]
+          claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+          sha, ref = claims.get("job_workflow_sha", ""), claims.get("job_workflow_ref", "")
+          want = "lean-pkg/lean-pkg/.github/workflows/verify.yml@"
+          if not re.fullmatch(r"[0-9a-f]{40}", sha or "") or ref != want + sha:
+              sys.exit(f"the OIDC token's job_workflow_ref {ref!r} is not {want}<job_workflow_sha {sha!r}>: "
+                       "call lean-pkg's verify.yml pinned to a full 40-hex commit")
+          print(f"LEAN_PKG_SHA={sha}")
+          PY
+
       - name: Install lean-pkg at this workflow's commit
         run: |
-          [[ "$LEAN_PKG_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "github.job_workflow_sha is not a 40-hex commit: '$LEAN_PKG_SHA'" >&2; exit 1; }
+          [[ "$LEAN_PKG_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "the lean-pkg commit is not a 40-hex commit: '$LEAN_PKG_SHA'" >&2; exit 1; }
           python -m pip install --disable-pip-version-check "git+https://github.com/lean-pkg/lean-pkg.git@${LEAN_PKG_SHA}"
           lean-pkg --version
 
@@ -170,7 +189,6 @@ jobs:
       id-token: write   # as in verify: the job_workflow_ref claim becomes ci.job_workflow; the token is never kept
     env:
       PKG_DIR: ${{ inputs.package-dir }}
-      LEAN_PKG_SHA: ${{ github.job_workflow_sha }}
       ELAN_VERSION: v4.2.4
       ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
     steps:
@@ -190,9 +208,29 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Resolve the lean-pkg commit this job runs (the OIDC token's job_workflow_sha claim)
+        # github.job_workflow_sha is empty inside a called workflow's jobs on GitHub-hosted runners, so the commit
+        # comes from the job's OIDC token: job_workflow_ref must be lean-pkg's own verify.yml at that commit. The
+        # token is decoded here and never printed or written.
+        run: |
+          python - <<'PY' >> "$GITHUB_ENV"
+          import base64, json, os, re, sys, urllib.request
+          req = urllib.request.Request(os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&audience=lean-pkg",
+                                       headers={"Authorization": "bearer " + os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]})
+          token = json.load(urllib.request.urlopen(req, timeout=30))["value"]
+          body = token.split(".")[1]
+          claims = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+          sha, ref = claims.get("job_workflow_sha", ""), claims.get("job_workflow_ref", "")
+          want = "lean-pkg/lean-pkg/.github/workflows/verify.yml@"
+          if not re.fullmatch(r"[0-9a-f]{40}", sha or "") or ref != want + sha:
+              sys.exit(f"the OIDC token's job_workflow_ref {ref!r} is not {want}<job_workflow_sha {sha!r}>: "
+                       "call lean-pkg's verify.yml pinned to a full 40-hex commit")
+          print(f"LEAN_PKG_SHA={sha}")
+          PY
+
       - name: Install lean-pkg at this workflow's commit
         run: |
-          [[ "$LEAN_PKG_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "github.job_workflow_sha is not a 40-hex commit: '$LEAN_PKG_SHA'" >&2; exit 1; }
+          [[ "$LEAN_PKG_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "the lean-pkg commit is not a 40-hex commit: '$LEAN_PKG_SHA'" >&2; exit 1; }
           python -m pip install --disable-pip-version-check "git+https://github.com/lean-pkg/lean-pkg.git@${LEAN_PKG_SHA}"
           lean-pkg --version
 
