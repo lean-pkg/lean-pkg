@@ -557,3 +557,41 @@ def test_make_docs_rewrites_exactly_the_generated_files(tmp_path):
     assert sorted(k for k in after if after[k] != before[k]) == sorted(GENERATED)
     for rel in GENERATED:
         assert after[rel] == (ROOT / rel).read_bytes(), f"{rel} is stale: run `make docs`"
+
+
+HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$")
+
+
+def _repeated_headings(text: str) -> list[str]:
+    """ATX headings that occur more than once on a page (outside fenced code). `#330` at the start of a line
+    is not a heading: a heading needs a space after the hashes."""
+    seen: dict[str, int] = {}
+    fence = None
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            mark = stripped[:3]
+            fence = None if fence == mark else (fence or mark)
+            continue
+        m = None if fence else HEADING_RE.match(line)
+        if m:
+            key = f"{m.group(1)} {m.group(2)}"
+            seen[key] = seen.get(key, 0) + 1
+    return sorted(k for k, n in seen.items() if n > 1)
+
+
+def test_upgrade_pages_never_repeat_a_heading():
+    """One table per section: two "## Nothing required" tables on docs/upgrades/0.22.0.md went unnoticed when two
+    pull requests each appended their own section and a rebase kept both."""
+    pages = sorted((ROOT / "docs" / "upgrades").glob("*.md"))
+    assert pages, "no upgrade pages found"
+    repeated = {p.name: r for p in pages if (r := _repeated_headings(p.read_text()))}
+    assert not repeated, f"upgrade page(s) repeat a heading; merge the sections: {repeated}"
+
+
+def test_repeated_heading_check_catches_a_repeat_and_ignores_code_and_issue_numbers():
+    page = ("# Upgrading\n\n## Nothing required\n\n| a |\n\n## Act first\n\n#330, a paragraph\n\n"
+            "```text\n## Nothing required\n```\n")
+    assert _repeated_headings(page) == []
+    assert _repeated_headings(page + "\n## Nothing required\n") == ["## Nothing required"]
+    assert _repeated_headings("### Same\n\n## Same\n") == []      # a different level is a different heading
