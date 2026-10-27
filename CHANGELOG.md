@@ -120,7 +120,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   no sentence, and a README carrying it fails `page --check` with a
   `--corroborate` hint
   ([corroborating the run](docs/receipts.md#corroborating-the-run-level-2---corroborate)).
-- Level 3, an attested GitHub Actions receipt (#PR_S4; stage S4 of
+- Level 3, an attested GitHub Actions receipt (#363; stage S4 of
   proposal 0008, #318): `verify.yml` runs `receipt ci --attest`, which
   records `ci.attestation` (`<c12>-gha-<run>-<attempt>.sigstore.json`),
   then signs the receipt and its redacted log with
