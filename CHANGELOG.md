@@ -356,6 +356,30 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   new receipts once the file is committed with the package; `new
   --evidence-only` leaves it out. `--json` gains `binding_file` (the file,
   or null).
+- Declaration-level extraction ledger (#367; #329, proposal 0009, stage
+  S2): `lean-pkg-extract ledger --repo SRC --commit C --target TDIR
+  [--target-commit T] --from-module SRC/Path.lean:New.Module ...
+  [--namespace OLD=NEW] [--rename OLD=NEW] [--drop NAME:REASON]
+  [--new NAME:REASON] [--allow-differs NAME:REASON] --ledger PATH` (flags,
+  or an `@ARGSFILE`) compares a library ported by hand with the private
+  modules it came from, declaration by declaration, read from both
+  repositories at their commits. The method `text/1` strips comments,
+  applies the namespace and rename maps to the source and compares the
+  normalized texts by SHA-256: each declaration is IDENTICAL, DROPPED,
+  DIFFERS, NEW or MISSING, and each module pair gets a context row
+  (`open`, `variable`, `namespace`, ...). MISSING, an undeclared NEW and a
+  DIFFERS not allowed fail (exit 1, nothing written); every map entry must
+  act on something and every declared drop, new declaration and allowed
+  difference needs a one-line reason. Otherwise the ledger is written once:
+  the new format `lean-pkg-extract-ledger/1`, refused inside SRC, inside
+  the target, over a symlink or an existing file, private, and read by no
+  gate, page or index. `lean-pkg-extract recheck --ledger PATH --repo SRC
+  --target TDIR [--commit C] [--target-commit T]` reads a ledger strictly
+  and recomputes it from its own map: at the recorded commits every field
+  must match; at newer ones nothing may fail, and the drift is listed.
+  Verdict first and last, `--json`
+  ([extraction ledger](docs/extract.md#declaration-level-extraction-ledger),
+  [on-disk formats](docs/formats.md)).
 
 ### Changed
 

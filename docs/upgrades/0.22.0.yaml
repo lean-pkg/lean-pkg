@@ -680,6 +680,47 @@ changes:
       whose CI pins an older lean-pkg refuses an entry carrying them (index-entry/2 is strict).
     breaking: false
     changelog: Added
+  - pr: 367
+    id: extract-ledger-commands
+    kind: command
+    area: lean-pkg-extract
+    summary: >-
+      Stage S2 of proposal 0009 (#329): two new verbs of the lean-pkg-extract script. lean-pkg-extract ledger --repo SRC
+      --commit C --target TDIR [--target-commit T] --from-module SRC/Path.lean:New.Module ... [--namespace OLD=NEW]
+      [--rename OLD=NEW] [--drop NAME:REASON] [--new NAME:REASON] [--allow-differs NAME:REASON] --ledger PATH (flags,
+      or an @ARGSFILE) compares a library ported by hand with its source, declaration by declaration, from git
+      objects at both commits (method text/1: comments stripped, the maps applied, normalized text hashed): IDENTICAL,
+      DROPPED, DIFFERS, NEW, MISSING, plus a context row per module. MISSING, an undeclared NEW and a DIFFERS not
+      allowed fail (exit 1, nothing written); otherwise the ledger is written once to PATH, refused inside SRC, inside
+      the target, over a symlink or an existing file. lean-pkg-extract recheck --ledger PATH --repo SRC --target TDIR
+      [--commit C] [--target-commit T] recomputes a ledger from its own map: at the recorded commits every field must
+      match, at other commits nothing may fail and the drift is listed. Verdict-first text and --json; no registry,
+      no network, and neither repository is written.
+    action: >-
+      Nothing required. To give a downstream owner evidence that a hand-ported library is faithful to private
+      source modules, record a ledger with lean-pkg-extract ledger and keep it private; recheck it after either side
+      moves on.
+    breaking: false
+    changelog: Added
+    split: true
+  - pr: 367
+    id: extract-ledger-format
+    kind: format
+    area: lean-pkg-extract
+    summary: >-
+      New on-disk format lean-pkg-extract-ledger/1 (proposal 0009), the extraction ledger: strict JSON with sorted keys
+      holding the method (text/1), both commits, the lean-toolchain text and lake-manifest.json SHA-256 of both sides,
+      every module's path, module name, blob and SHA-256, the resolved map with its reasons, one entry per declaration
+      (verdict, source_raw_sha256, source_sha256, target_sha256, whitespace_only, doc_changed, reason), one context row
+      per module, the warnings and the totals. It is evidence: never rewritten, read back by lean-pkg-extract recheck
+      only (strictly: exact keys, closed verdicts, duplicate keys refused; a newer lean-pkg-extract-ledger/N or an
+      unknown method is refused naming the upgrade), and by no gate, page, index or claims command.
+    action: >-
+      Nothing: no earlier release wrote the format. Keep ledgers out of anything published; they name private source
+      paths and names.
+    breaking: false
+    changelog: Added
+    split: true
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

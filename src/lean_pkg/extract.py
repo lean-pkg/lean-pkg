@@ -4,6 +4,9 @@ repository, with exact provenance. This release has the dry run only: `plan` wri
 
 `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH [--json] [--report PATH]`
 
+The declaration-level extraction ledger, `ledger` and `recheck` (proposal 0009), lives in
+extract_ledger.py; this module parses and dispatches them.
+
 Read-only by construction: it reads git objects at COMMIT (`git ls-tree -r -z --full-tree`,
 `git cat-file --batch`), never the working tree, the index or a registry; no network (lazy fetches of
 a partial clone are disabled, so a missing object is a refusal). The only write is `--report PATH`,
@@ -161,8 +164,10 @@ def ls_tree(repo: pathlib.Path, sha: str) -> dict[str, dict]:
             continue
         meta, path = item.split(b"\t", 1)
         mode, typ, oid, size = meta.decode().split()
+        # size is `-` for a tree or gitlink and `BAD` for a blob missing from the object store (a partial
+        # clone): None, and the blob read refuses it
         out[path.decode("utf-8", "surrogateescape")] = {"mode": mode, "type": typ, "oid": oid,
-                                                         "size": None if size == "-" else int(size)}
+                                                         "size": int(size) if size.isdigit() else None}
     return out
 
 
@@ -1029,9 +1034,12 @@ examples:
   lean-pkg-extract plan --repo . --commit HEAD --manifest extract.json
   lean-pkg-extract plan --repo ~/paper --commit 0123abc --manifest extract.json --json
   lean-pkg-extract plan --repo . --commit v1.0 --manifest extract.json --report ../extract-plan.json
+  lean-pkg-extract ledger @ledger-args.txt
+  lean-pkg-extract recheck --ledger ../newlib-ledger.json --repo . --target ../newlib
 
 Dry run only: `plan` reads git objects at COMMIT and writes nothing (--report PATH, outside SRC, is the
-one exception). The `write --output DIR` step comes next.
+one exception). The `write --output DIR` step comes next. `ledger` writes only its ledger, outside SRC
+and the target; `recheck` writes nothing.
 exit codes: 0 plan clean, 1 refused (every reason listed), 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html"""
 
@@ -1044,13 +1052,24 @@ class _Parser(argparse.ArgumentParser):
             print(json.dumps({"ok": False, "error": message, "usage": True}))
         super().error(message)
 
+    def convert_arg_line_to_args(self, arg_line):
+        """An @ARGSFILE line: `--flag value` is the flag and the rest of the line (a reason may hold
+        spaces), any other line one argument; blank lines and `#` lines are skipped."""
+        line = arg_line.strip()
+        if not line or line.startswith("#"):
+            return []
+        head, _, rest = line.partition(" ")
+        if head.startswith("--") and "=" not in head and rest.strip():
+            return [head, rest.strip()]
+        return [line]
+
 
 def parser() -> argparse.ArgumentParser:
     fmt = argparse.RawDescriptionHelpFormatter
     ap = _Parser(prog="lean-pkg-extract", formatter_class=fmt, epilog=EXAMPLES,
                  description="Plan a standalone public Lean-verification repository from a mixed working "
                              "repository, with exact provenance. Read-only; no registry, no network.")
-    sub = ap.add_subparsers(dest="verb", metavar="plan", required=True)
+    sub = ap.add_subparsers(dest="verb", metavar="{plan,ledger,recheck}", required=True)
     p = sub.add_parser("plan", formatter_class=fmt, epilog=EXAMPLES,
                        help="dry run: classify, check and inventory what an extract at COMMIT would contain",
                        description="Dry run: classify every file under the manifest's roots at COMMIT "
@@ -1063,23 +1082,25 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--json", dest="json_out", action="store_true", help=f"JSON on stdout (schema {PLAN_SCHEMA})")
     p.add_argument("--report", metavar="PATH",
                    help="also write the JSON plan (with the private excluded list) to PATH, outside SRC")
+    from . import extract_ledger
+    extract_ledger.add_parsers(sub, _Parser, fmt)
     return ap
 
 
-def _src_top(repo: pathlib.Path) -> tuple[pathlib.Path | None, pathlib.Path]:
+def _src_top(repo: pathlib.Path, flag: str = "--repo") -> tuple[pathlib.Path | None, pathlib.Path]:
     """(work tree top or None for a bare repository, git dir); Usage when repo is not a git repository
     or is a subdirectory of one."""
     if not repo.is_dir():
-        raise Usage(f"--repo {repo}: not a directory")
+        raise Usage(f"{flag} {repo}: not a directory")
     p = _git(repo, "rev-parse", "--is-bare-repository", "--absolute-git-dir")
     if p.returncode != 0:
-        raise Usage(f"--repo {repo}: not a git repository")
+        raise Usage(f"{flag} {repo}: not a git repository")
     bare, gitdir = p.stdout.decode().split("\n")[:2]
     if bare == "true":
         return None, pathlib.Path(gitdir)
     top = _git(repo, "rev-parse", "--show-toplevel").stdout.decode().strip()
     if pathlib.Path(top).resolve() != repo.resolve():
-        raise Usage(f"--repo {repo}: a subdirectory of a git repository; pass its top directory "
+        raise Usage(f"{flag} {repo}: a subdirectory of a git repository; pass its top directory "
                     f"(manifest paths are relative to it)")
     return pathlib.Path(top).resolve(), pathlib.Path(gitdir).resolve()
 
@@ -1117,9 +1138,14 @@ def run(args) -> tuple[dict, int]:
 
 def main(argv: list[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
-    _Parser.json_requested = "--json" in raw
+    from . import extract_ledger
+    _Parser.json_requested = "--json" in raw or extract_ledger.argsfile_requests_json(raw)
     args = parser().parse_args(raw)
     try:
+        if args.verb != "plan":
+            text, rc = extract_ledger.run(args)
+            sys.stdout.write(text)
+            return rc
         plan, rc = run(args)
     except Usage as e:
         if args.json_out:

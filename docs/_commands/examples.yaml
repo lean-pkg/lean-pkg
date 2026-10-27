@@ -662,3 +662,20 @@ lean-pkg-extract plan:
       plan: REFUSED (1 refusal(s)): 16 file(s) included (25095 bytes), 0 excluded, 0 allowed private, 4 module(s), 0 claim(s), 0 weakening(s); source commit d3cb7c86cccc608017c2dc944db57931d6007409
   - cmd: lean-pkg-extract plan --repo . --commit v1.0 --manifest extract.json --report ../extract-plan.json
     say: The same at a tag, also writing the JSON plan (with the private excluded list) to a path outside the source repository, its one write.
+
+lean-pkg-extract ledger:
+  - cmd: "lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --ledger ~/ledgers/newlib-1.json"
+    say: Compare the hand-ported module New.A at the target's HEAD with Src/A.lean at the source commit, declaration by declaration (method text/1), and write the private extraction ledger once, outside both repositories; exit 1 with nothing written when a declaration is MISSING, an undeclared NEW or a DIFFERS not allowed.
+    output: |
+      ledger: OK (text/1): 4 identical, 1 dropped, 0 differs, 0 new, 0 missing, 0 weakened; 1 context row(s) (0 differ); 0 warning(s); source 0034dfa7d81c09810ac5fce559088d62d0f84b3d, target 395069d8463ef9217daa068b9908d5972692afcc; written to ~/ledgers/newlib-1.json
+      entries (PRIVATE: source names and paths; keep this list out of anything published):
+        IDENTICAL theorem   Old.A.foo -> New.A.bar
+        DROPPED   lemma     Old.A.aux -> New.A.aux  (dropped: exploration only, never used)
+        ...
+      ledger: OK (text/1): 4 identical, 1 dropped, 0 differs, 0 new, 0 missing, 0 weakened; 1 context row(s) (0 differ); 0 warning(s); source 0034dfa7d81c09810ac5fce559088d62d0f84b3d, target 395069d8463ef9217daa068b9908d5972692afcc; written to ~/ledgers/newlib-1.json
+
+lean-pkg-extract recheck:
+  - cmd: lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib
+    say: Read the ledger strictly and recompute it from its own recorded map at its recorded commits; every field must match, so an edited hash or verdict is refused. Writes nothing.
+  - cmd: lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main --target-commit main
+    say: Is the library still faithful to the source at the newer commits? Nothing may fail; what changed since the ledger is listed as drift.
