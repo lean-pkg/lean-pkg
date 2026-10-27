@@ -105,3 +105,14 @@ def test_a_token_that_does_not_name_lean_pkgs_verify_yml_at_a_commit_refuses(cla
 def test_a_failed_token_request_refuses():
     r, _ = _run(None, status=403)
     assert r.returncode != 0 and "LEAN_PKG_SHA" not in r.stdout
+
+
+def test_both_uploads_include_the_hidden_receipts_directory():
+    """The second live run (chenle02/neumann-cosine-lean, run 40495667187) wrote both receipts and the Sigstore bundle,
+    then both uploads failed with "No files were found": upload-artifact skips hidden files and directories by
+    default, and the receipts live under .lean-receipts/."""
+    for job in ("verify", "comparator"):
+        ups = [s for s in _steps(job) if str(s.get("uses", "")).startswith("actions/upload-artifact@")]
+        assert len(ups) == 1, job
+        assert ups[0]["with"].get("include-hidden-files") is True, job
+        assert ".lean-receipts/" in ups[0]["with"]["path"], job
