@@ -57,6 +57,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["leases"], "lease list", False, False, False),
     (["update", "demo", "--notes", "n"], "update", True, True, False),
     (["update", "demo", "--notes", "n", "--dry-run"], "update", False, False, False),
+    (["update", "demo", "--write-binding-file"], "update", False, False, False),   # the package's file only
+    (["update", "demo", "--write-binding-file", "--dry-run"], "update", False, False, False),
     (["update", "demo", "--headline-config", "h.json"], "update", True, True, False),
     (["update", "demo", "--headline-config", ""], "update", True, True, False),
     (["update", "demo", "--withdraw-publication", "--reason", "r"], "update", True, True, False),

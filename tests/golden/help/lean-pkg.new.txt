@@ -1,6 +1,6 @@
 usage: lean-pkg new [-h] [--kind {paper,library}] [--stack NAME|current|none] [--dir DIR]
                     [--module MOD] [--no-mathlib] [--author TEXT] [--license {Apache-2.0,MIT}]
-                    [--json]
+                    [--evidence-only] [--json]
                     name
 
 Write a minimal Lean 4 package that comparator-receipt, `receipt systemd`, gate and reuse lint
@@ -35,4 +35,7 @@ options:
   --license {Apache-2.0,MIT}
                         the LICENSE written (default Apache-2.0); pass the same id to `update NAME
                         --license-spdx`
+  --evidence-only       leave out lean-pkg-binding.yaml, the docs-only opt-in written by default:
+                        then only evidence may follow the verified commit, and committing the
+                        README page needs a new verify run
   --json                machine-readable JSON on stdout

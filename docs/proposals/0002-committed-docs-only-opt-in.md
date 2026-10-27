@@ -2,8 +2,11 @@
 
 Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
 Decided: accepted 2026-10-26 by Le Chen, as written: the file is `lean-pkg-binding.yaml` (open question 1, the
-draft's own choice) and questions 2 to 5 take the recommended answers. Implemented in: (release); tracked in
-[#319](https://github.com/lean-pkg/lean-pkg/issues/319).
+draft's own choice) and questions 2 to 5 take the recommended answers; question 5 as the latest of 1.0.0, one
+minor release after G3 ships, and RELEASING.md's two minor releases plus 60 days. Implemented in: (release),
+by #349 (G1), #356 (G2) and #360 (G3: `update NAME --write-binding-file`, `new` writes the file, `page --write`
+writes it into the working tree, and the registry route is deprecated); the removal of the registry route
+(G4) is scheduled. Tracked in [#319](https://github.com/lean-pkg/lean-pkg/issues/319).
 
 ## Summary
 

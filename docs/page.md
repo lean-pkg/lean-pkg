@@ -151,10 +151,31 @@ carries an **Internal.** line, and the Ledger column of `coverage.md` adds
 ledger's package status or the "required claim(s) verified" count.
 
 Commit the README and `coverage.yaml` after the gate, and the gate-bound
-commit is no longer `HEAD`. Opt the package into the docs-only rule
-(`lean-pkg update NAME --accept-docs-descendants --reason TEXT`, see
-[receipts](receipts.md)) so the receipts keep binding. Without it, the ledger
-reports the receipts as stale and the page says so.
+commit is no longer `HEAD`. The package needs the docs-only opt-in so the
+receipts keep binding. Without it, the ledger reports the receipts as stale
+and the page says so.
+
+### The docs-only opt-in
+
+The opt-in is `lean-pkg-binding.yaml` (`docs_descendants: true`), committed
+in the package directory at the commit the receipts bind
+([receipts](receipts.md#docs-only-descendants-opt-in)). `lean-pkg new`
+writes it; for an older package, `lean-pkg update NAME --write-binding-file`
+writes it from the registry record, then commit it in a commit of its own
+and run the verify step again.
+
+`page --write` handles a gated package without the file at its gated commit
+X through the registry route, which is deprecated: when the record says
+nothing either way it sets `docs_descendants: true` (its own
+`update --accept-docs-descendants` invocation and `updated` event), a record
+`false` (the veto) is left alone, and it prints `WARN: deprecated: ...`
+(`--json`: `deprecations[]`). It then writes `lean-pkg-binding.yaml` into
+the working tree, never staged and never over an existing path (`--json`:
+`binding_file {path, state, written}`). Commit README.md without it
+(`git add README.md`, not `git add -A`): a file added after X unbinds the current
+receipts until the next verify run, so commit it in a commit of its own
+right before that run. With the file at X, `page --write` does none of
+this.
 
 ## coverage.yaml
 
@@ -353,7 +374,10 @@ names such a receipt. Write it with `lean-pkg receipt slurm --job <J>`, which
 checks sacct first, rather than editing `job_id` by hand.
 
 A repository whose gated commit already has a README with an Easley sentence
-adopts the page after the gate. First opt in to the docs-only rule:
+adopts the page after the gate. Without `lean-pkg-binding.yaml` at the gated
+commit, only the registry route (deprecated, with a `WARN: deprecated:`
+line) keeps the current receipts bound, until the next verify run at a
+commit with the file:
 
 ```bash
 lean-pkg update NAME --accept-docs-descendants --reason TEXT

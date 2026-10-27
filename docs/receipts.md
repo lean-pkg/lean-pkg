@@ -2151,24 +2151,41 @@ nowhere else**:
    registered package's directory is never this package's opt-in. The nested
    package reads its own.
 
-#### Writing the file by hand
+#### Writing the file
 
-Until `lean-pkg update NAME --write-binding-file` arrives (a later stage of
-#319), write the file yourself, in the package directory, and commit it:
+`lean-pkg new` writes the file (`docs_descendants: true`, with a comment
+saying what it permits) into every new package; `new --evidence-only`
+leaves it out. For an existing package, write it from the registry record
+(the migration off the registry route, below) or by hand, then commit it:
 
 ```
+lean-pkg update NAME --write-binding-file            # from the record's docs_descendants: true and build_inputs
+# or by hand:
 printf 'schema: lean-pkg-binding/1\ndocs_descendants: true\n' > lean-pkg-binding.yaml
 git add lean-pkg-binding.yaml && git commit -m "Opt in to docs-only descendants"
 lean-pkg verify NAME     # or the receipt step and gate: the new receipt binds a commit with the file
 ```
 
+`update NAME --write-binding-file` writes the file into the package
+directory and nothing else: the registry is not written, nothing is staged
+or committed, and it takes the lease rule of `update`. It writes nothing
+(exit 0) when the record does not opt in (`docs_descendants` absent or
+`false`); an identical file (or one that parses to the same keys) is a
+no-op; a different file, a symlink or a directory at the path is refused
+(exit 1) and left as it is. `--dry-run` prints the file. It goes on its own:
+with a field, `--status` or `--path` it is a usage error (exit 2).
+
 Commit it on its own, right before the verify run, not together with a
-README edit made after the gate: a file committed after X is rule 2's case
-and unbinds the current receipts until the next verify run.
+README edit made after the gate (`git add -A` would): a file committed after
+X is rule 2's case and unbinds the current receipts until the next verify
+run. The command prints this advice.
 
-#### The registry record (the older route)
+#### The registry record (deprecated)
 
-The registry fields set the same opt-in for commands that read a registry:
+The registry fields set the same opt-in for commands that read a registry.
+Granting it there (`docs_descendants: true`) is deprecated: the committed
+file replaces it, and the veto (`docs_descendants: false`) and
+`build_inputs` stay.
 
 ```
 lean-pkg update NAME --accept-docs-descendants --reason "notes are committed beside the code"
@@ -2193,9 +2210,36 @@ committed file and the record combine as follows:
 A registry operator can therefore still refuse the rule for a package it
 coordinates (`docs_descendants: false`), but it cannot grant it where the
 committed file says `false`. `build_inputs` is the union of the file's globs
-at X and the record's, so the record can only add inputs. The registry
-route stays during a deprecation period (from a later stage of #319, with a
-warning naming the file).
+at X and the record's, so the record can only add inputs.
+
+The registry route keeps working during a deprecation period, with a
+warning. A stderr line
+
+```
+WARN: deprecated: NAME: the docs-only rule admitted HEAD through the registry record's docs_descendants: true, with no lean-pkg-binding.yaml at <X12>; replacement: `lean-pkg update NAME --write-binding-file`, then commit lean-pkg-binding.yaml in a commit of its own right before the next verify run; removed no earlier than 1.0.0 (docs/receipts.md#docs-only-descendants-opt-in)
+```
+
+and a `deprecations[]` entry in `--json` (with the keys `id`
+(`registry-docs-descendants`), `message`, `replacement`, `earliest_removal`
+and `removal_rule`) appear:
+
+- in `gate`, `gate --regate`, `gate --check` and `comparator` (attach and
+  `--check`), only when the docs-only rule admitted HEAD through the record;
+- in `publish --dry-run` whenever the opt-in exists only in the record (a
+  `WARN` checklist item too), whether or not HEAD needs it;
+- in `update NAME --accept-docs-descendants` (`--no-accept-docs-descendants`,
+  the veto, is not deprecated);
+- in `page --write`, which keeps the record's opt-in for a package without
+  the file at its gated commit and writes the file into the working tree
+  ([page](page.md)).
+
+A package with the file at X, or with neither, prints none of them. The
+receipts bound at a commit without the file can only use the registry route,
+so the warning lasts until the package's next verify run after the file is
+committed. The route is removed in the latest of: 1.0.0, one minor release
+after the release that deprecated it, and two minor releases plus 60 days
+(RELEASING.md, "Aliases and deprecations"); after that, a record `true` with
+no file at X no longer opts in.
 
 Readers without a registry read the same file at the same commit:
 `receipt check` applies it by default (the outside referee's check, below:
@@ -2336,7 +2380,7 @@ outside every `lean_lib` root (`tests/Escape*.lean`), and an owner list
 that a native gate reads (`EXPECTED-PRODUCTION-OWNERS.txt`). An edit to
 either would have passed as docs.
 
-So, before `update NAME --accept-docs-descendants`:
+So, before opting in (committing `lean-pkg-binding.yaml`, or the deprecated `update NAME --accept-docs-descendants`):
 
 1. Read `verify.sh` and every script, hook or native gate it calls, and list
    every file they execute, compile or read dynamically. Typical entries:

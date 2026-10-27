@@ -1460,36 +1460,67 @@ def cmd_page(args) -> int:
 
 
 def docs_only_opt_in(args, reg: dict, payload: dict) -> list[str]:
-    """After `page --write` changed README.md of a gated package: turn on the docs-only exception the page
-    commit needs, unless the record already says either way. Committing the README moves HEAD past the gated
-    commit, and without the opt-in the receipts stop binding (the gate, publish and `receipt check` refuse a
-    non-evidence descendant). Done through `lean-pkg update NAME --accept-docs-descendants --reason R`, its own
-    invocation (its lock, committed mode and `updated` event); the lines say what it records."""
+    """After `page --write` changed README.md of a gated package: the docs-only opt-in the page commit needs.
+    Committing the README moves HEAD past the gated commit X, and without the opt-in the receipts stop binding
+    (the gate, publish and `receipt check` refuse a non-evidence descendant).
+
+    lean-pkg-binding.yaml at X decides when it is there (proposal 0002): nothing is done. Without it, the
+    registry route (deprecated) keeps the receipts bound: when the record says nothing either way it is turned
+    on through `lean-pkg update NAME --accept-docs-descendants --reason R`, its own invocation (its lock,
+    committed mode, `updated` event and deprecation WARN); a record `false` (the veto) is left alone. Then the
+    file is written into the working tree (never staged, never over an existing path) for the next verify
+    run, with the commit advice, and the payload carries the deprecation."""
+    from . import binding_file
     from . import verify as verify_mod
     pkg = core.get_pkg(reg, args.name)
     gated = (pkg.get("gate") or {}).get("receipt")
-    if not gated or pkg.get("docs_descendants") is not None:   # not gated, or opted in or out already
+    if not gated or pkg.get("docs_descendants") is False:   # not gated, or the record's veto
         return []
-    bound = gate_mod.recorded_json(core.repo_path(pkg), gated) or {}
-    c12 = str(bound.get("commit") or "")[:12] or "the gated commit"
-    argv = verify_mod.global_flags(args) + ["update", args.name, "--accept-docs-descendants", "--reason",
-                                            f"page --write: the README verification page is committed after {c12}"]
-    argv += ["--agent", args.agent] if args.agent else []
-    json_out = getattr(args, "json_out", False)
-    rc, out = verify_mod.invoke(argv + (["--json"] if json_out else []), capture_json=json_out)
-    shown = "lean-pkg " + core.shlex.join(argv)
-    payload["docs_descendants"] = {"turned_on": rc == 0, "command": shown, "rc": rc,
-                                   **({"update": out} if out is not None else {})}
-    if rc != 0:
-        payload["warnings"].append(f"the docs-only exception is not on (`{shown}` exited {rc}); committing "
-                                   f"README.md moves HEAD past {c12} and the receipts stop binding")
-        return [f"{args.name}: WARN: the docs-only exception is not on: `{shown}` exited {rc}; run it before "
-                f"committing README.md"]
-    return [f"{args.name}: turned on the docs-only exception (`{shown}`): the record now says docs_descendants: "
-            f"true, so a commit after {c12} that changes only non-build files, such as this README, keeps the "
-            f"receipts bound to {c12}; a changed build input (*.lean, lakefile, lake-manifest.json, "
-            f"lean-toolchain, claims.yaml) still needs new receipts. Undo: lean-pkg update {args.name} "
-            f"--no-accept-docs-descendants --reason R"]
+    repo = core.repo_path(pkg)
+    bound = gate_mod.recorded_json(repo, gated) or {}
+    x = str(bound.get("commit") or "")
+    c12 = x[:12] or "the gated commit"
+    if x and binding_file.read_at(repo, x).state != "absent":   # the committed file at X decides
+        return []
+    lines: list[str] = []
+    dep = binding_file.registry_only_deprecation(args.name, x or None)
+    if pkg.get("docs_descendants") is None:
+        argv = verify_mod.global_flags(args) + ["update", args.name, "--accept-docs-descendants", "--reason",
+                                                f"page --write: the README verification page is committed after "
+                                                f"{c12}"]
+        argv += ["--agent", args.agent] if args.agent else []
+        json_out = getattr(args, "json_out", False)
+        rc, out = verify_mod.invoke(argv + (["--json"] if json_out else []), capture_json=json_out)
+        shown = "lean-pkg " + core.shlex.join(argv)
+        payload["docs_descendants"] = {"turned_on": rc == 0, "command": shown, "rc": rc,
+                                       **({"update": out} if out is not None else {})}
+        if rc != 0:
+            payload["warnings"].append(f"the docs-only exception is not on (`{shown}` exited {rc}); committing "
+                                       f"README.md moves HEAD past {c12} and the receipts stop binding")
+            return [f"{args.name}: WARN: the docs-only exception is not on: `{shown}` exited {rc}; run it before "
+                    f"committing README.md"]
+        lines.append(f"{args.name}: turned on the docs-only exception (`{shown}`): the record now says "
+                     f"docs_descendants: true, so a commit after {c12} that changes only non-build files, such as "
+                     f"this README, keeps the receipts bound to {c12}; a changed build input (*.lean, lakefile, "
+                     f"lake-manifest.json, lean-toolchain, claims.yaml) still needs new receipts. Undo: lean-pkg "
+                     f"update {args.name} --no-accept-docs-descendants --reason R")
+    else:   # the record already opts in, with no file at X (otherwise the update above printed the WARN)
+        print(binding_file.deprecation_line(dep), file=core.sys.stderr)
+    payload["deprecations"] = [dep]
+    globs = [g for g in (pkg.get("build_inputs") or []) if isinstance(g, str) and g.strip()]
+    state, problem = binding_file.write_into(repo, binding_file.render(True, globs))
+    path = repo / binding_file.FILE
+    payload["binding_file"] = {"path": str(path), "state": state, "written": state == "written"}
+    advice = binding_file.commit_advice(c12)
+    if state == "written":
+        lines.append(f"{args.name}: wrote {path} (docs_descendants: true"
+                     + (f", build_inputs: {', '.join(globs)}" if globs else "")
+                     + f"), the committed opt-in that replaces the deprecated registry route; not staged: {advice}")
+    elif state == "unchanged":
+        lines.append(f"{args.name}: {path} is already in the working tree (not overwritten): {advice}")
+    else:
+        lines.append(f"{args.name}: WARN: {binding_file.FILE} not written: {problem}")
+    return lines
 
 
 def add_parsers(sub, add_json) -> None:
@@ -1498,9 +1529,11 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("name")
     s.add_argument("--write", action="store_true",
                    help="replace the marked block in the package README.md (append it when absent); prose outside "
-                        "the markers is untouched. For a gated package whose record says nothing about the "
-                        "docs-only exception, it then turns it on (`update NAME --accept-docs-descendants`, its "
-                        "own registry write), so committing the README keeps the receipts bound")
+                        "the markers is untouched. For a gated package without lean-pkg-binding.yaml at the "
+                        "gated commit it then keeps the receipts bound through the deprecated registry route "
+                        "(when the record says nothing: `update NAME --accept-docs-descendants`, its own registry "
+                        "write; a record false is left alone), with a WARN, and writes lean-pkg-binding.yaml into "
+                        "the working tree (never staged or overwritten) to commit before the next verify run")
     s.add_argument("--check", action="store_true",
                    help="exit 1 when the README block is missing or stale, the lean-pkg credit is missing, or a "
                         "site sentence has no backing receipt (or, for GitHub Actions, no corroborated run: "

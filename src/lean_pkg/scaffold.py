@@ -339,11 +339,23 @@ def pins(stack: dict | None, mathlib: bool = True) -> tuple[str, str | None]:
 
 
 def files(name: str, module: str, author: str, mathlib: bool = True, license_spdx: str = "Apache-2.0",
-          year: int = 2026, kind: str = "paper", stack: dict | None = None) -> dict[str, str]:
+          year: int = 2026, kind: str = "paper", stack: dict | None = None,
+          evidence_only: bool = False) -> dict[str, str]:
     """The scaffold, relative path -> text. With mathlib and no stack, the files docs/getting-started.md
     writes by hand (lean-toolchain, .gitignore, lakefile.toml, MOD.lean, Challenge, Solution, comparator.json) are
     byte-identical to that template for NAME my-proof (tests/test_new.py holds them together). With a stack
-    (proposal 0004): its lean-toolchain and Mathlib rev, and `stack: NAME` in coverage.yaml."""
+    (proposal 0004): its lean-toolchain and Mathlib rev, and `stack: NAME` in coverage.yaml. Unless
+    evidence_only, lean-pkg-binding.yaml opts in to the docs-only rule (proposal 0002, stage G3): every
+    published page is committed after the verified commit."""
+    out = _files(name, module, author, mathlib, license_spdx, year, kind, stack)
+    if not evidence_only:
+        from . import binding_file
+        out[binding_file.FILE] = binding_file.render(True)
+    return out
+
+
+def _files(name: str, module: str, author: str, mathlib: bool, license_spdx: str, year: int, kind: str,
+           stack: dict | None) -> dict[str, str]:
     toolchain, rev = pins(stack, mathlib)
     stack_line = f"stack: {stack['name']}\n" if stack is not None else ""
     imports = "\npublic import Mathlib\n" if mathlib else ""
@@ -422,8 +434,8 @@ def choose_stack(kind: str, stack_arg: str | None) -> tuple[dict | None, str, li
 
 
 def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, author: str | None,
-           license_spdx: str = "Apache-2.0", kind: str = "paper", stack_arg: str | None = None
-           ) -> tuple[list[str], dict]:
+           license_spdx: str = "Apache-2.0", kind: str = "paper", stack_arg: str | None = None,
+           evidence_only: bool = False) -> tuple[list[str], dict]:
     if not NAME_RE.match(name) or len(name) > NAME_MAX:
         raise core.UsageError(f"package name {name!r}: lower-case letters, digits and single hyphens, starting "
                               f"with a letter, at most {NAME_MAX} characters (e.g. my-proof)")
@@ -451,7 +463,8 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
         raise core.Fail(f"{dir_arg} exists and is not a directory; nothing written")
     if target.is_dir() and any(target.iterdir()):
         raise core.Fail(f"{dir_arg} exists and is not empty; nothing written (choose a new directory with --dir)")
-    scaffold = files(name, module, author, mathlib, license_spdx, dt.date.today().year, kind, stack)
+    scaffold = files(name, module, author, mathlib, license_spdx, dt.date.today().year, kind, stack,
+                     evidence_only=evidence_only)
     toolchain, rev = pins(stack, mathlib)
     rc_pin = is_release_candidate(toolchain)
     target.mkdir(parents=True, exist_ok=True)
@@ -485,6 +498,14 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
                 f"  lean-pkg formalization anchor {name} --arxiv <id>v<N> --from-file E-PRINT "
                 f"--compare-tex PAPER.tex --write",
                 "(the receipts and the gate do not need it; the page does. No paper? --kind library)"]
+    from . import binding_file
+    if evidence_only:
+        out.append(f"no {binding_file.FILE} (--evidence-only): only evidence may follow the verified commit, so "
+                   f"the README page needs a new verify run after it is committed")
+    else:
+        out.append(f"{binding_file.FILE} opts in to the docs-only rule: a later commit that changes only files "
+                   f"the build does not read (README.md, coverage.yaml) keeps the receipts bound; commit it with "
+                   f"the package (--evidence-only leaves it out)")
     out.append("then verify and render the page: docs/quickstart.md "
                "(https://lean-pkg.github.io/lean-pkg/quickstart.html)")
     payload = {"ok": True, "name": name, "dir": str(target), "kind": kind, "module": module, "mathlib": mathlib,
@@ -492,13 +513,14 @@ def do_new(name: str, dir_arg: str | None, module: str | None, mathlib: bool, au
                "stack": stack["name"] if stack else None, "stack_source": stack_source,
                "license_spdx": license_spdx, "author": author, "author_source": source,
                "files": sorted(scaffold), "git_init": True, "committed": False, "registry_touched": False,
-               "coverage_complete": kind == "library", "next_commands": nxt, "warnings": warnings}
+               "coverage_complete": kind == "library", "next_commands": nxt, "warnings": warnings,
+               "binding_file": None if evidence_only else binding_file.FILE}
     return out, payload
 
 
 def cmd_new(args) -> int:
     out, payload = do_new(args.name, args.dir, args.module, not args.no_mathlib, args.author, args.license,
-                          args.kind, args.stack)
+                          args.kind, args.stack, evidence_only=args.evidence_only)
     for w in payload["warnings"]:
         print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
     if args.json_out:
@@ -539,6 +561,10 @@ def add_parsers(sub, add_json) -> None:
                    help="the CITATION.cff author (default: git config user.name)")
     s.add_argument("--license", default="Apache-2.0", choices=LICENSES,
                    help="the LICENSE written (default Apache-2.0); pass the same id to `update NAME --license-spdx`")
+    s.add_argument("--evidence-only", action="store_true",
+                   help="leave out lean-pkg-binding.yaml, the docs-only opt-in written by default: then only "
+                        "evidence may follow the verified commit, and committing the README page needs a new "
+                        "verify run")
     s.add_argument("--json", dest="json_out", action="store_true", default=argparse.SUPPRESS,
                    help="machine-readable JSON on stdout")
     s.set_defaults(fn=cmd_new)

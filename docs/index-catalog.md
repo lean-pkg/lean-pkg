@@ -260,7 +260,7 @@ With a registry (`--registry`, `$LEAN_PKG_REGISTRY` or the user default),
 `index add` and `index check --clone` / `--repo` also read the record with
 the entry's name and repository, with the precedence `gate` applies: the
 record's `docs_descendants: true` (set with
-`lean-pkg update NAME --accept-docs-descendants --reason R`) opts in only
+`lean-pkg update NAME --accept-docs-descendants --reason R`, deprecated) opts in only
 when the pin has no file, and the note then says
 `the registry record opts in`; a file at the pin saying `false`, or one
 that does not validate, overrides the record's `true`:

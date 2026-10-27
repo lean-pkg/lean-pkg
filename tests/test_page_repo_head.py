@@ -171,7 +171,9 @@ def set_docs_descendants(env, value: bool) -> None:
 def write_official_page(lp, env, capsys, *extra) -> None:
     (env.repo_b / "README.md").write_text("# Beta\n")
     assert run(lp, env, capsys, "page", "beta", "--write", *extra)[0] == 0
-    _git(env.repo_b, "add", "-A")
+    # page --write also leaves lean-pkg-binding.yaml in the working tree (proposal 0002, stage G3): as its
+    # advice says, it is committed before the next verify run, never with the page
+    _git(env.repo_b, "add", "-A", "--", ".", ":!lean-pkg-binding.yaml")
     _git(env.repo_b, "commit", "-q", "-m", "page")
 
 
