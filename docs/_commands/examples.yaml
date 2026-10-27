@@ -673,12 +673,18 @@ lean-pkg-extract ledger:
         DROPPED   lemma     Old.A.aux -> New.A.aux  (dropped: exploration only, never used)
         ...
       ledger: OK (text/1): 4 identical, 1 dropped, 0 differs, 0 new, 0 missing, 0 weakened; 1 context row(s) (0 differ); 0 warning(s); source 0034dfa7d81c09810ac5fce559088d62d0f84b3d, target 395069d8463ef9217daa068b9908d5972692afcc; written to ~/ledgers/newlib-1.json
+  - cmd: "lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --method types --emit-script ~/ledgers/newlib-types"
+    say: Method types/1, step 1 - write the two Lean programs (source.lean, target.lean) that print the elaborated types of the compared declarations; nothing else is written and lean-pkg runs no Lean. Run each in its checkout at the compared commit with lake env lean --run, after lake build.
+  - cmd: "lean-pkg-extract ledger --repo ~/paper --commit HEAD --target ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --method types --from-output source.out target.out --ledger ~/ledgers/newlib-2.json"
+    say: Step 2 - read both outputs back (bound to the commits and the programs' hashes) and write the ledger with method types/1; a text DIFFERS whose types are equal shows as DIFFERS (types equal) and no longer fails for a statement.
 
 lean-pkg-extract recheck:
   - cmd: lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib
     say: Read the ledger strictly and recompute it from its own recorded map at its recorded commits; every field must match, so an edited hash or verdict is refused. Writes nothing.
   - cmd: lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main --target-commit main
     say: Is the library still faithful to the source at the newer commits? Nothing may fail; what changed since the ledger is listed as drift.
+  - cmd: lean-pkg-extract recheck --ledger ~/ledgers/newlib-2.json --repo ~/paper --target ~/newlib --from-output source.out target.out
+    say: Recheck a types/1 ledger with the outputs of its two programs, run again at the recorded commits; without --from-output a types/1 ledger is refused, since lean-pkg runs no Lean.
 
 lean-pkg-extract decls:
   - cmd: "lean-pkg-extract decls --repo ~/paper --commit HEAD --output ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --scaffold newlib --author 'Ada Lovelace' --ledger ~/ledgers/newlib-1.json"
