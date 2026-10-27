@@ -150,7 +150,9 @@ reported, never refused. A log without the section (a verify script older than t
 same receipt as before; when `claims.yaml` uses the keys, a `·` line says the section is missing.
 
 The [claims ledger](lifecycle.md#conditional-claims) reads the facts from the sealed log the gate receipt
-binds (stage H3), at the gate-bound commit, on every call; the receipt stays unchanged. To see the section a
+binds (stage H3), at the gate-bound commit, on every call; the receipt stays unchanged. Since stage H4,
+`receipt check` ([its `hypotheses` check](#the-hypotheses-check-of-receipt-check)), `index add` and
+`index check` judge them the same way, and the page renders the result. To see the section a
 job would write, on a built checkout:
 `python3 -m lean_pkg.hypotheses --repo .` (it builds the Challenge modules, as the job does).
 
@@ -2627,6 +2629,7 @@ the working tree of `--repo` is never read or changed. It checks:
 | `comparator <receipt>` | `gate`'s validator: the exact set of configurations tracked at X, each one's SHA-256, theorem names and sign-off, each log's SHA-256 and PASS line, the lower tier's commit |
 | `... olean manifest` | the receipt's `olean_manifest` names the toolchain and `lake-manifest.json` of X (the manifest file itself is not published) |
 | `claimed theorems` | every `reusable` theorem or lemma claim at X is named by a comparator configuration at X: by its `judged_as` when set (that exact name), else by the naming rule; any `judged_as` that names no configured theorem, or whose `decl` is not declared in its file, fails whatever the claim's status ([explicit mapping](comparator.md#how-a-theorem-name-maps-to-a-claim)) |
+| `hypotheses` | only when `claims.yaml` at X uses `hypotheses`, `discharges` or `witness`: the discharge states recomputed from the sealed log (see [below](#the-hypotheses-check-of-receipt-check)) |
 | `coverage` | `coverage.yaml` at REF passes `coverage check`, R11 included: each compared theorem is the declaration of a claim a row names |
 | `page: ...` | the README page block at REF states X, the pins of X, each receipt row's path, commit and SHA-256 as committed (the *Receipts* table; *Evidence* on a page written before 0.11), and the receipts' sorry count, axioms and comparator counts |
 
@@ -2634,6 +2637,30 @@ A check that does not apply (no `coverage.yaml`, no page block, no olean
 manifest) is `skip`, with the reason. Exit 0 only when no check fails, 1
 otherwise, 2 on a usage error. Re-running Lean is not part of it: see
 [Re-verify a page yourself](trust-model.md#re-verify-a-page-yourself).
+
+#### The hypotheses check of `receipt check`
+
+Stage H4 of [proposal 0003](proposals/0003-conditional-claims-and-discharge.md). When `claims.yaml` at X
+uses `hypotheses`, `discharges` or `witness` ([conditional claims](lifecycle.md#conditional-claims)),
+`receipt check` reads the [hyp-probe/1 section](#hypotheses-section-hyp-probe1) of the sealed log of the
+lower-tier receipt that binds X and recomputes the discharge states by the claims ledger's rule: at the
+promote stage when the comparator tier passed in this run (a hypothesis is discharged only through a
+corollary compared in that build), else at the gate stage, where nothing is discharged. It prints, for
+example:
+
+```text
+  PASS hypotheses: 2 conditional claim(s); discharged Hyp.A (demo/main-of-b); outstanding Hyp.B
+```
+
+It fails on any failed-class code (`hypothesis-not-in-type`, `hypothesis-inadmissible`,
+`discharge-type-mismatch`, `witness-type-mismatch`, each named with its claim), on a sealed log that is not
+readable, and on a log without a complete section (a verify script without the probe: regenerate it and
+re-gate). Open-class codes (`hypotheses-unchecked`, `discharge-not-compared`) do not fail the check; the
+detail lists them as "not judged". It is `skip` when no lower-tier receipt binds X. `--json` gains
+`hypotheses` {stage, checked, conditional, discharged [{decl, claim, corollary, proof}], outstanding, failed,
+open, claims}. The trust tier the summary line names is unchanged: it grades the receipts, not the
+hypotheses. A package whose claims use none of the keys gets no row and no `hypotheses` key, so its output
+is byte for byte what it was.
 
 **Which descendants bind: the author's opt-in, or the referee's choice.**
 A published page is committed after the evidence, so the published ref is
@@ -2962,6 +2989,8 @@ RULES = [
     (r"comparator \S+", "log_sha256 mismatch", "restore", "the comparator log: the committed copy is not the receipt's bytes"),
     (r"comparator \S+(: .*)?", None, "new-run", "the comparator tier: configurations, sign-off, olean manifest"),
     (r"claimed theorems", None, "new-run", "comparator configurations are bound to the commit"),
+    (r"hypotheses", "sealed verify log is not readable", "restore", "the sealed log"),
+    (r"hypotheses", None, "new-run", "the hyp-probe/1 facts are sealed in the log of the commit"),
     (r"coverage", None, "restore", "coverage.yaml at the published ref (metadata, a docs-only descendant)"),
     (r"page: .*", None, "restore", "the README page block: lean-pkg page NAME --write (a docs-only descendant)"),
 ]
@@ -3060,6 +3089,8 @@ The classes only explain: a receipt passes when `receipt check` (or
 | `comparator R: olean manifest` | toolchain or manifest digest | new run | a new comparator run |
 | `comparator R: container` | malformed `container` | new run | a new comparator run |
 | `claimed theorems` | reusable claim named by no configuration, `judged_as` not backed | new run | configurations and claims are bound to X |
+| `hypotheses` | `the sealed verify log is not readable here ...` | restoration only | the sealed log, as for `lower R: claim axioms` |
+| `hypotheses` | a failed-class code (`hypothesis-not-in-type`, `hypothesis-inadmissible`, `discharge-type-mismatch`, `witness-type-mismatch`), or no complete hyp-probe/1 section | new run | the facts are sealed in the log of X and the claims are bound to X: fix them at a new commit, with a verify script that writes the section |
 | `coverage` | `coverage check` refusal | restoration only | edit `coverage.yaml` (not a build input; commit it as a docs-only descendant) |
 | `page: commit`, `page: pins`, `page: evidence`, `page: trust boundary` | the block disagrees with the receipts | restoration only | `lean-pkg page NAME --write` and commit (a docs-only descendant) |
 

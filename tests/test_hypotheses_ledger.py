@@ -495,7 +495,9 @@ def test_a_ready_page_with_every_hypothesis_discharged_says_none_outstanding(lp,
     assert "1 conditional (outstanding hypotheses: none, all discharged)" in a["markdown"]
 
 
-def test_the_page_shows_an_evaluated_conditional_row_as_not_yet_verified(lp, env, capsys, monkeypatch):
+def test_the_page_shows_an_evaluated_conditional_row_as_conditional(lp, env, capsys, monkeypatch):
+    """Stage H4 replaced H3's fail-closed "Not yet verified ... conditional" with the Conditional capsule
+    (tests/test_conditional_outputs.py has the wording); never **Verified.**"""
     from lean_pkg import gate as gate_mod
 
     from .conftest import CLAIMS_YAML
@@ -517,7 +519,8 @@ def test_the_page_shows_an_evaluated_conditional_row_as_not_yet_verified(lp, env
     md = a["markdown"]
     block = md.split("### Theorem 1: Main bound\n", 1)[1].split("\n## ", 1)[0]
     assert a["verified_rows"] == 0 and "**Verified.**" not in md
-    assert block.startswith("\n**Not yet verified.** lean-pkg's record of the checks says: conditional.")
+    assert block.startswith("\n**Conditional.** Verified under assumptions `Hyp.A`. Outstanding: `Hyp.A` (the a "
+                            "priori bound, Lemma 3.1).")
 
 
 def test_page_never_lists_outstanding_hypotheses_as_empty_when_a_name_is_hidden():

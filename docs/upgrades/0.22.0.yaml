@@ -656,6 +656,30 @@ changes:
       A decl already written that way, refused before, is now credited.
     breaking: true
     changelog: Fixed
+  - pr: 366
+    id: conditional-outputs
+    kind: format
+    area: page, status, receipt check, index add, index check, index render
+    summary: >-
+      Stage H4 of proposal 0003 (#320): the outputs say what the claims ledger judged, and never call a result with
+      an outstanding hypothesis verified. page: a row whose claims are verified or conditional reads 'Conditional.
+      Verified under assumptions A, B. Discharged: A (proved by P; corollary C, compared at X). Outstanding: B
+      (its coverage text).', or 'Verified (all assumptions discharged: ...)', each hypothesis linked to its
+      declaration at the gate-bound commit when the page can form the link; the fixed paragraph adds 'A conditional
+      result says nothing when an outstanding assumption is false.', the counts line the conditional count, and
+      page --json gains conditional_rows. status: a 'claims: N (... verified, ... conditional; outstanding
+      hypotheses: ...)' line and --json scope.claims.ledger. receipt check: a hypotheses check that recomputes the
+      discharge states from the sealed log and fails on a failed-class code; --json gains hypotheses. index: derived
+      claims carry the optional keys status (conditional) and open_hypotheses in index-entry/2, recomputed by index
+      check; the render says 'comparator, conditional on 1 assumption'; trust tiers are unchanged. Every output of a
+      package whose claims use no hypotheses, discharges or witness is byte for byte as before.
+    action: >-
+      Nothing for a package whose claims do not use the keys: its published pages and index entries are unchanged.
+      For one that does, run lean-pkg page NAME --write (and --site / --html) so the page shows the conditional
+      wording, and commit it; index check recomputes the new claim keys (re-run index add to write them). An index
+      whose CI pins an older lean-pkg refuses an entry carrying them (index-entry/2 is strict).
+    breaking: false
+    changelog: Added
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

@@ -235,9 +235,12 @@ def judge_structure(text: str, claims_bytes: bytes | None = None,
                "challenge_builds_failed": sum(1 for t, o in records if t == "hyp-challenge-build" and not o["ok"])}
     lines = []
     if not refusals:
+        # Stage H4: the ledger judges the facts now. A claims file without the keys keeps the line it had, byte
+        # for byte (proposal 0003, open question 8); only a file that uses them gets the current wording.
+        judged = ("judged by the claims ledger and `receipt check`, recomputed on every call" if keyed
+                  else "judged by the claims ledger in a later stage")
         lines.append(f"✓ hypotheses: {FORMAT} section complete: {decls} decl(s), {summary['challenge']} Challenge "
-                     f"theorem(s), {summary['facts']} fact(s) (sealed by report_sha256; judged by the claims ledger "
-                     f"in a later stage)")
+                     f"theorem(s), {summary['facts']} fact(s) (sealed by report_sha256; {judged})")
         for tag, obj in records:
             if tag == "hyp-error":
                 lines.append(f"· hypotheses: the {obj['phase']} part did not run ({obj['message'][:200]})"
@@ -537,6 +540,84 @@ def evaluate(claims: list[dict], fx: dict, *, stage: str, bound: str | None, com
                                f", but the facts to judge them are missing (proposal 0003): "
                                + "; ".join(dict.fromkeys(s["unchecked"]))))
     return out
+
+
+def judge_at(repo, commit: str, claims: list[dict], text: str | None, *, comparator_ok: bool,
+             smoke=None) -> dict:
+    """Proposal 0003, stage H4: the conditional keys of `claims` (claims.yaml at `commit`) judged from `text`,
+    the sealed verify log, for the readers that have no registry record (`receipt check`, `index add|check`).
+    The promote stage when `comparator_ok` (a valid comparator receipt binds `commit`), else the gate stage, where
+    nothing is discharged. A claim is clean here when its declaration occurs in its file and, at the promote
+    stage, a required theorem or lemma is credited by a non-smoke configuration (the ledger's own per-claim
+    checks; the receipts themselves are the caller's checks). Recomputed on every call, never stored.
+
+    {stage, facts_ok, facts_why, claims {id: {hypotheses, witness, diagnostics}}, conditional [ids], discharged
+    [{decl, claim, corollary, proof}], outstanding [decls], failed [{claim, code, detail}], open [{claim, code,
+    detail}], credited {id: set}, qualified set}: `conditional` lists the claims with hypotheses, own or
+    inherited through depends_on (a claim with every hypothesis discharged stays conditional), `outstanding`
+    their open hypotheses, `failed` and `open` the diagnostics of those classes."""
+    from . import claims as claims_mod
+    from . import comparator_config as cc
+    from . import ledger as ledger_mod
+    stage = "promote" if comparator_ok else "gate"
+    read = claims_mod._reader(repo, commit)
+    qualified = cc.qualified_decls(read, claims)
+    credited: dict[str, set[str]] = {}
+    if comparator_ok:
+        names, todo = cc._names(cc._configs_at(repo, commit), cc._sidecar_at(repo, commit), smoke)
+        mapped = cc.mapped_names(claims)
+        credited = {str(c.get("id")): cc.credited_names(names - todo, c, qualified, mapped) for c in claims}
+    clean = {}
+    for c in claims:
+        cid = str(c.get("id"))
+        missing = bool(c.get("decl") and isinstance(c.get("file"), str) and claims_mod.decl_problems(read, [c]))
+        needs = (comparator_ok and c.get("status") in ledger_mod.REQUIRED_STATUSES
+                 and c.get("kind") in cc.CLAIM_KINDS)
+        clean[cid] = not missing and (not needs or bool(credited.get(cid)))
+    fx = facts(text)
+    res = evaluate(claims, fx, stage=stage, bound=commit, comparator_ok=comparator_ok, credited=credited,
+                   clean=clean)
+    rows = []
+    for c in claims:
+        cid = str(c.get("id"))
+        e = res.get(cid) or {}
+        row = {"id": cid, "depends_on": [d for d in c.get("depends_on") or [] if isinstance(d, str)],
+               "diagnostics": [ledger_mod._diag(code, detail) for code, detail in e.get("diags") or []]}
+        if e.get("hypotheses") is not None:
+            row["hypotheses"] = e["hypotheses"]
+        if e.get("witness") is not None:
+            row["witness"] = e["witness"]
+        rows.append(row)
+    by_id = {r["id"]: r for r in rows}
+
+    def closes(dep) -> bool:                        # as the ledger: a conditional-class code never blocks
+        return clean.get(dep["id"], False) and not any(
+            ledger_mod.CODES[d["code"]][0] != "conditional" for d in dep["diagnostics"])
+    ledger_mod._inherit(rows, by_id, closes)
+    out: dict = {"stage": stage, "facts_ok": bool(fx.get("ok")), "facts_why": fx.get("why"), "claims": {},
+                 "conditional": [], "discharged": [], "outstanding": [], "failed": [], "open": [],
+                 "credited": credited, "qualified": qualified}
+    outstanding: set[str] = set()
+    for r in rows:
+        if r.get("hypotheses") is None and r.get("witness") is None and not r["diagnostics"]:
+            continue
+        out["claims"][r["id"]] = {"hypotheses": r.get("hypotheses"), "witness": r.get("witness"),
+                                  "diagnostics": r["diagnostics"]}
+        if r.get("hypotheses"):
+            out["conditional"].append(r["id"])
+        for h in r.get("hypotheses") or []:
+            if h["state"] == "open":
+                outstanding.add(h["decl"])
+            elif not h.get("via"):
+                out["discharged"].append({"decl": h["decl"], "claim": r["id"], "corollary": h["by"]["corollary"],
+                                          "proof": h["by"]["proof"]})
+        for d in r["diagnostics"]:
+            cls = ledger_mod.CODES[d["code"]][0]
+            if cls in ("failed", "open"):
+                out[cls].append({"claim": r["id"], "code": d["code"], "detail": d["detail"]})
+    out["outstanding"] = sorted(outstanding)
+    return out
+
 
 def job_sh() -> str:
     """Shell functions for a verify script: `hypotheses_run LOG DIR LEAN_PATH [SIDE_LOG]` appends the hyp-probe/1

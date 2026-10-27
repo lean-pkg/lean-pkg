@@ -75,7 +75,7 @@ from its headline (no other key changes), so its headlines become searchable.
 | `trust` | `lower-tier`, `comparator` or `palomar` (computed) |
 | `receipts` | `lower` and `comparator`: repository paths under `.lean-receipts/`, or null |
 | `headline` | list of `name` (fully qualified), `file` (repository-relative `.lean`), `summary` (one sentence), and optionally `judged_as` (the Challenge theorem name under which a comparator configuration judged it) |
-| `claims` | `index-entry/2` only: one claim per headline item, derived at `index add` and never typed: `id` (`<name>/<slug of the declaration>`), `decl`, `kind` (`theorem`), `summary`, `judged_as`, `trust` (the entry's); `lean-pkg search` finds them ([Prior-art search](prior-art.md)) |
+| `claims` | `index-entry/2` only: one claim per headline item, derived at `index add` and never typed: `id` (`<name>/<slug of the declaration>`), `decl`, `kind` (`theorem`), `summary`, `judged_as`, `trust` (the entry's), and, only for a headline whose claim is conditional, the optional derived keys `status` (`conditional`) and `open_hypotheses` (see [Conditional claims](#conditional-claims)); `lean-pkg search` finds them ([Prior-art search](prior-art.md)) |
 | `palomar` | list of `id` and `version` |
 | `doi` | null, or `concept` and `versions` (each `doi`, `tag`, `commit`) |
 | `reservoir` | null, or the package's Reservoir page |
@@ -285,6 +285,39 @@ The static check refuses only a stated trust above the evidence; a stated
 trust below it is caught by `--clone` or `--repo`, which recompute trust
 from bytes and require equality.
 
+## Conditional claims
+
+When `claims.yaml` at the pin names `hypotheses` for a claim
+([conditional claims](lifecycle.md#conditional-claims),
+[proposal 0003](proposals/0003-conditional-claims-and-discharge.md)), the claim of each headline that
+names it (by its declaration, or by its `judged_as`) carries two optional derived keys:
+
+```yaml
+claims:
+  - id: demo/demo-main
+    decl: Demo.main
+    kind: theorem
+    summary: The main estimate.
+    judged_as: DemoAudit.Demo.main
+    trust: comparator
+    status: conditional
+    open_hypotheses: [Hyp.B]
+```
+
+`index add` judges them from the sealed verify log of the lower-tier receipt at the pin (its
+hyp-probe/1 section) and from the comparator configurations at the pin: a hypothesis is discharged
+only when the comparator receipt validates there (the rule of the claims ledger). `open_hypotheses` is
+the sorted list of the outstanding ones; it is empty when every one is discharged, and the claim stays
+`conditional`. Both keys come together or not at all, and `status` is only ever `conditional`. The
+static check validates their shape; `index check --clone` (or `--repo`) recomputes them from bytes like
+every derived key and refuses an entry whose keys differ. An entry of a package whose claims use no
+hypotheses carries neither key and is byte for byte what it was.
+
+The trust tier is unchanged: it grades the receipts, not the hypotheses. The render says what a
+conditional headline rests on, in the package row and in the *Claims* table:
+`comparator, conditional on 1 assumption` (the number of distinct outstanding hypotheses), or
+`comparator, conditional (all assumptions discharged)`.
+
 ## An unfinished project as an entry
 
 A project does not have to be finished to be listed; it has to be honest.
@@ -302,11 +335,12 @@ judged. An unfinished project is listed like this:
   the headline lifts it to `comparator`; the Palomar level needs a registered
   result. A project below Palomar's toolchain floor can still reach comparator
   trust through the legacy mechanism.
-- **Partial and conditional results are claims, not headlines.** The
-  package's `claims.yaml` marks reusable results `reusable` and conditional or
-  provisional ones `experimental` (with the hypothesis in the summary), so
-  `lean-pkg search` finds them with their status. Conditional certificates are
-  a planned schema extension; until then the summary carries the condition.
+- **Partial results are claims, not headlines.** The package's
+  `claims.yaml` marks reusable results `reusable` and provisional ones
+  `experimental`, so `lean-pkg search` finds them with their status. A result
+  proved under assumptions that are not formalized yet names them as the
+  claim's `hypotheses`; its headline is then marked conditional
+  ([Conditional claims](#conditional-claims)).
 - **Progress is a new pin.** Each milestone is a receipt at a new commit and a
   pull request that replaces the entry; the index history is the project's
   verified timeline.

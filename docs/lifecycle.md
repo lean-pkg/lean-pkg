@@ -263,14 +263,45 @@ claims ledger ready: N required claim(s) verified or conditional (conditional: K
 ```
 
 `next` then names an outstanding hypothesis as a possible next
-formalization step, never as an error. The page, `status`, `receipt check`
-and the index do not render conditional results yet: a conditional row of
-the page reads "Not yet verified", with the ledger word `conditional`. A
-`ready` ledger with conditional required claims never reads as
-unconditional on the page: its line says every required claim is verified
-or conditional, counts the conditional ones, names the outstanding
-hypotheses, and adds "A conditional result says nothing when an outstanding
-assumption is false." (the coverage page adds the same count and names).
+formalization step, never as an error. A `ready` ledger with conditional
+required claims never reads as unconditional on the page: its line says
+every required claim is verified or conditional, counts the conditional
+ones, names the outstanding hypotheses, and adds "A conditional result says
+nothing when an outstanding assumption is false." (the coverage page adds
+the same count and names).
+
+#### What each output says (stage H4)
+
+The one rule: the word *verified* never appears on a row, headline or claim
+that has an outstanding hypothesis unless the same line says "under
+assumptions", "conditional" or "all assumptions discharged". Every output
+below changes only for a package whose claims use `hypotheses`, `discharges`
+or `witness`; for every other package each one is byte for byte what it was
+(`tests/test_outputs_golden.py`, `tests/golden/receipt-check`,
+`tests/test_ledger_golden.py`).
+
+- **`page`**: a row whose claims are verified or conditional, at least one
+  conditional, gets the capsule **Conditional.** and the text "Verified under
+  assumptions `Hyp.A`, `Hyp.B`. Discharged: `Hyp.A` (proved by
+  `demo/proof-a`; corollary `demo/main-of-b`, compared at `<commit>`).
+  Outstanding: `Hyp.B` (the coverage input's text)."; with nothing outstanding
+  "Verified (all assumptions discharged: ...)". Each hypothesis links to its
+  declaration's source at the gate-bound commit when the module its binder
+  names (from the sealed log's facts) is a file of the package that declares
+  it. A row with a claim that is also open still reads "Not yet verified". The
+  fixed paragraph gains "A conditional result says nothing when an outstanding
+  assumption is false.", the counts line gains "conditional (proved under the
+  assumptions each names): K", and `--json` gains `conditional_rows`;
+  see [page.md](page.md#conditional-results).
+- **`status`**: the scope block gains a line
+  `claims: 3 (1 verified, 2 conditional; outstanding hypotheses: Hyp.B) (claims ledger, promote stage: ready)`, and
+  `--json` gains `scope.claims.ledger` {stage, package_status, total, counts,
+  outstanding_hypotheses}.
+- **`receipt check`**: a `hypotheses` check
+  ([receipts.md](receipts.md#the-hypotheses-check-of-receipt-check)).
+- **The index**: derived `claims` carry `status: conditional` and
+  `open_hypotheses`; the render says "comparator, conditional on 1
+  assumption" ([index-catalog.md](index-catalog.md#conditional-claims)).
 
 A comparator configuration names a claim only by its full declaration name:
 a `theorem_names` entry equal to the claim's `decl`, or `<Prefix>.<decl>`
