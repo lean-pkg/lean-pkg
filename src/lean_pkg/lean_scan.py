@@ -206,6 +206,39 @@ def _quotations(masked: str) -> list[tuple[int, int]]:
     return out
 
 
+def _after_in_prefix(masked: str, i: int) -> int | None:
+    """When masked[i] starts a prefix command (`open X in`, `variable (p) in`, `set_option o v in`, any of
+    _IN_WORDS) whose `in` is followed on the same line by more text, the index of that text; else None
+    (no prefix, or an `in` that ends its line: the command it prefixes starts the next line, which is
+    read as its own line). The `in` is the first one at bracket depth zero on the line, as `_head` reads it."""
+    m = _HASH_WORD.match(masked, i) if masked.startswith("#", i) else _WORD.match(masked, i)
+    if not m or m.group(0) not in _IN_WORDS:
+        return None
+    eol = masked.find("\n", m.end())
+    eol = len(masked) if eol < 0 else eol
+    depth, k = 0, m.end()
+    while k < eol:
+        ch = masked[k]
+        if ch == "«":
+            close = masked.find("»", k + 1, eol)
+            if close < 0:
+                return None
+            k = close + 1
+            continue
+        if ch in _BRACKETS:
+            depth += 1
+        elif ch in _CLOSERS:
+            depth -= 1
+        elif depth == 0 and ch == "i" and _IN.match(masked, k) and \
+                not (masked[k - 1].isalnum() or masked[k - 1] in "_'.!?«»"):
+            rest = k + 2
+            while rest < eol and masked[rest] in " \t":
+                rest += 1
+            return rest if rest < eol else None
+        k += 1
+    return None
+
+
 def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
     """(line, keyword, qualified name, docstring or None, stripped source line, name as written) for every
     declaration. `class inductive` and `class abbrev` report keyword `class`; an anonymous instance is left
@@ -234,7 +267,9 @@ def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
             qi += 1
         if qi < len(quotes) and quotes[qi][0] < c:      # inside a syntax quotation
             continue
-        i = c
+        i, prefixed = c, False
+        while (nxt := _after_in_prefix(masked, i)) is not None:   # `variable (p) in protected lemma ...`
+            i, prefixed = nxt, True
         while masked.startswith("@[", i):                      # attributes, across lines
             i = _skip_ws(masked, _balanced(masked, i + 1))
         words_seen = []
@@ -256,6 +291,8 @@ def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
         w, after = m.group(0), m.end()
         if after < len(masked) and not masked[after].isspace():
             continue
+        if prefixed and w not in KEYWORDS:
+            continue                                    # `open X in` before a term, a tactic or a scope
         if w == "namespace" and not words_seen:
             name, consumed = _scope_name(masked, after)
             if name:
@@ -300,7 +337,10 @@ def declarations(text: str) -> list[tuple[int, str, str, str | None, str, str]]:
             qual = ".".join(ns + parts)
         line = line_of(m.start())
         doc = None
-        for _a, b, d in reversed(doc_by_end):
+        inside = [d for a, b, d in doc_by_end if c <= a and b <= m.start()] if prefixed else []
+        if inside:                                      # `open X in` / attributes, then the docstring
+            doc = inside[-1]
+        for _a, b, d in ([] if inside else reversed(doc_by_end)):
             if b <= c and not masked[b:c].strip():
                 doc = d
                 break

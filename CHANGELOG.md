@@ -593,6 +593,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `claims mark`) and in the page's statement lookup. A claim `decl` written
   as the old misread name is no longer credited to a comparator name: write
   Lean's fully qualified name.
+- The Lean declaration scanner reads a declaration after a prefix command's
+  `in` on the same line (#PR_IN): `variable (p) in protected lemma zero_le`
+  (Mathlib's `DyckWord`), `open X in theorem t`, and the same after
+  `set_option`, `omit`, `include`, `attribute`, `unseal` and `#guard_msgs`,
+  with the declaration's modifiers, attributes and docstring. It was missed
+  in `search`, the claims commands' qualified names, the page's statement
+  lookup and `lean-exercise`, which now refuses a Challenge with
+  `open X in def f ...` on one line as it refuses any `def` there.
 - `make docs` writes no `__pycache__` into the tree (#352): its python3 steps
   now share a private bytecode cache, as `make test` and `make goldens` do.
 - `new` globs the library's root module (#334, #326): `lakefile.toml`
