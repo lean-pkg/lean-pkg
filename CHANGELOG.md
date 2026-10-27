@@ -448,7 +448,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   17) will use ([writing the target
   modules](docs/extract.md#writing-the-target-modules-decls)).
 - The elaborated-type method `types/1` of the extraction ledger
-  (#PR_EX4; #329, proposal 0009, stage S4): `lean-pkg-extract ledger
+  (#377; #329, proposal 0009, stage S4): `lean-pkg-extract ledger
   --method types` compares the elaborated types of the declarations both
   sides have, besides their text, in two steps, since lean-pkg never runs
   Lean. `--emit-script DIR` writes two Lean programs (`source.lean`,

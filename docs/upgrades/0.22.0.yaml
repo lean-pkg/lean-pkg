@@ -876,7 +876,7 @@ changes:
       (lean-pkg receipt ci --template prints the caller with the release commit).
     breaking: false
     changelog: Fixed
-  - pr: 0
+  - pr: 377
     id: extract-method-types
     kind: command
     area: lean-pkg-extract
@@ -899,7 +899,7 @@ changes:
     breaking: false
     changelog: Added
     split: true
-  - pr: 0
+  - pr: 377
     id: extract-ledger-types-keys
     kind: format
     area: lean-pkg-extract
