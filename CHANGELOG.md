@@ -120,7 +120,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   no sentence, and a README carrying it fails `page --check` with a
   `--corroborate` hint
   ([corroborating the run](docs/receipts.md#corroborating-the-run-level-2---corroborate)).
-- The comparator tier in CI (#PR_S5; stage S5 of proposal 0008, #318):
+- The comparator tier in CI (#358; stage S5 of proposal 0008, #318):
   `lean-pkg receipt comparator` (the `comparator-receipt` program)
   recognizes a GitHub-hosted runner (`GITHUB_ACTIONS=true` and
   `RUNNER_ENVIRONMENT=github-hosted`) as a host-policy context, checked

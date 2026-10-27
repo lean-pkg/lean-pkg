@@ -278,7 +278,7 @@ changes:
       receipt ci --collect RUN.
     breaking: false
     changelog: Added
-  - pr: 0
+  - pr: 358
     id: comparator-receipt-github-actions
     kind: format
     area: comparator receipts, coverage check, receipt check
