@@ -517,5 +517,5 @@ changes:
 # Build: make docs runs its python3 steps with a private bytecode cache, so it writes no __pycache__ into the tree (#352).
 # Docs: proposal 0009 accepted 2026-10-26 (status line, table row, plan row); no code changes (#357).
 # Internal: proposal 0009 stage S1, strip_comments, decl_spans, normalize and apply_map in lean_scan.py for the
-# extraction ledger's text/1 method; library only, no CLI (#99999, #329).
-no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346, 351, 352, 353, 357, 99999]
+# extraction ledger's text/1 method; library only, no CLI (#361, #329).
+no_author_change: [321, 323, 331, 332, 333, 337, 342, 343, 345, 346, 351, 352, 353, 357, 361]
