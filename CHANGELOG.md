@@ -594,7 +594,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   as the old misread name is no longer credited to a comparator name: write
   Lean's fully qualified name.
 - The Lean declaration scanner reads a declaration after a prefix command's
-  `in` on the same line (#PR_IN): `variable (p) in protected lemma zero_le`
+  `in` on the same line (#370): `variable (p) in protected lemma zero_le`
   (Mathlib's `DyckWord`), `open X in theorem t`, and the same after
   `set_option`, `omit`, `include`, `attribute`, `unseal` and `#guard_msgs`,
   with the declaration's modifiers, attributes and docstring. It was missed
