@@ -1,7 +1,9 @@
 # 0009: Declaration-level extraction with a rename map and an extraction ledger
 
-Status: draft. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
+Decided: accepted 2026-10-26 by Le Chen, as written, with the recommended answers to open questions 1 to 8
+(and to the one left to S4). Implemented in: (release); tracked in
+[#329](https://github.com/lean-pkg/lean-pkg/issues/329).
 
 ## Summary
 
