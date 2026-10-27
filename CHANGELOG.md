@@ -179,6 +179,41 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   ([conditional claims](docs/prior-art.md#conditional-claims),
   [ledger codes](docs/lifecycle.md#claims-ledger),
   [coverage.yaml](docs/page.md#coverageyaml)).
+- Conditional claims, stage H3 (#359; #320, proposal 0003): the claims
+  ledger judges `hypotheses`, `discharges` and `witness` from the
+  `hyp-probe/1` facts of the gate receipt's sealed verify log at the
+  gate-bound commit, recomputed on every call and never stored. A claim
+  with `hypotheses` gets the new status `conditional` (never `verified`,
+  even with every hypothesis discharged); a claim that `depends_on` one
+  inherits its outstanding hypotheses (`depends-on-conditional`, to a fixed
+  point; an edge Lean shows to be stale is named). New codes:
+  `hypothesis-not-in-type` and `hypothesis-inadmissible` (failed: a listed
+  hypothesis is not an explicit binder of the declaration, or of its
+  Challenge theorem at the promote stage, or is not a `def` or inductive
+  `Prop`), `hypothesis-open` (conditional), `discharge-type-mismatch`
+  (failed), `discharge-not-compared` (open) and `witness-type-mismatch`
+  (failed). A hypothesis is discharged only at the promote stage, with a
+  clean comparator tier, through a corollary whose Challenge type is the
+  claim's minus exactly the discharged binders and proof claims of exactly
+  the hypothesis (a proof quantifying over data is attribution: the
+  corollary alone is the evidence), each credited by exactly one non-smoke
+  comparator name at that commit. `hypotheses-unchecked` now means the facts
+  are missing (no section, a part of the probe that did not run, a skipped
+  search, ambiguous credit), no longer that nothing evaluates the keys.
+  Rows gain `hypotheses`, `discharges` and `witness`, and the ledger
+  `counts.conditional`, `conditional_required` and `outstanding_hypotheses`,
+  only when a claim uses the keys; `next` names an outstanding hypothesis as
+  a possible next step. A claims file without the keys gives the same
+  ledger, byte for byte, and the same `ledger_digest`
+  (`tests/golden/ledger-no-keys.json`). The page, `status`, `receipt check`
+  and the index do not render conditional results yet: a conditional row of
+  the page reads "Not yet verified", and a `ready` ledger with conditional
+  required claims says so on the page ("every required claim is verified or
+  conditional (proved under its stated hypotheses) ...; N of M required
+  claim(s) verified, K conditional (outstanding hypotheses: ...)", then "A
+  conditional result says nothing when an outstanding assumption is
+  false."), never "every required claim is closed"
+  ([conditional claims](docs/lifecycle.md#conditional-claims)).
 
 - The committed docs-only opt-in, `lean-pkg-binding.yaml` (#349; #319,
   proposal 0002, stage G1): a package opts in to the docs-only descendant
@@ -348,6 +383,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (or `gate NAME --receipt R --refresh-formalization` after a new
   receipt), `--force` only when a kept key differs. `verify` still does not
   refresh the file (the issue's option (b)).
+- `promote` accepts a package whose required claims are `verified` or
+  `conditional` (#359; #320, proposal 0003, open question 1): the claims
+  ledger is `ready` with conditional required claims, and the checklist
+  line, also in `publish --dry-run`, prints them and the outstanding
+  hypotheses: `claims ledger ready: N required claim(s) verified or
+  conditional (conditional: K; outstanding hypotheses: Hyp.B)`. A trust-model
+  change: a published conditional result says nothing when an outstanding
+  hypothesis is false. Only packages whose claims use `hypotheses` can
+  reach it; for every other package `ready` still means every required
+  claim `verified`
+  ([conditional claims](docs/lifecycle.md#conditional-claims)).
 
 ### Fixed
 

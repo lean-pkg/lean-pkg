@@ -128,9 +128,11 @@ nothing.
 Each claim gets a list of named diagnostics, and it is `verified` only when
 that list is empty. Its status is the first that applies: `out-of-scope`
 (claims.yaml status `superseded`, or `internal` and not judged, below),
-`blocked` (a `depends_on` claim in the same package is not verified,
-transitively), `unknown` (evidence that cannot be read), `verified`, else
-`open`.
+`blocked` (a `depends_on` claim in the same package is not closed,
+transitively), `unknown` (evidence that cannot be read), `open` (a code of
+class open or failed), `conditional` (the claim lists `hypotheses`, or
+inherits outstanding ones through `depends_on`:
+[conditional claims](#conditional-claims)), `verified`, else `open`.
 
 An `internal` theorem or lemma is *judged* (`judged_internal: true` in
 `--json`; promote stage only) when the comparator tier is clean for the
@@ -162,7 +164,9 @@ The package status fails closed:
   claims set is never clean.
 - `failed`: recorded evidence contradicts a required claim (a code of class
   failed below).
-- `ready`: every required claim is verified.
+- `ready`: every required claim is verified or `conditional`
+  ([conditional claims](#conditional-claims); `--json` then names the
+  `conditional_required` claims and the `outstanding_hypotheses`).
 - `open`: anything else.
 
 The exit code is 0 only when the package is `ready`. `--json` carries the
@@ -192,19 +196,81 @@ one.
 | `comparator-todo` | open | the declaration is only a scaffold `TODO` entry (`comparator config --from-claims`) |
 | `depends-on-open` | blocked | a `depends_on` claim in this package is not verified |
 | `depends-on-unknown` | unknown | a `depends_on` claim is in another package or not in this claims file |
-| `hypotheses-unchecked` | open | the claim sets `hypotheses`, `discharges` or `witness` ([conditional claims](prior-art.md#conditional-claims)), which this lean-pkg does not evaluate yet: the claim is never `verified` |
+| `hypotheses-unchecked` | open | the claim sets `hypotheses`, `discharges` or `witness` ([conditional claims](prior-art.md#conditional-claims)), but the sealed verify log at the gate-bound commit lacks the facts to judge them: no `hyp-probe/1` section (a verify script without the probe: regenerate it and re-gate), a part of the probe that did not run, a skipped corollary search, or a claim judged by more than one comparator name |
+| `hypothesis-not-in-type` | failed | a listed hypothesis is not an explicit binder of the declaration's type at the gate-bound commit (renamed, dropped or implicit), or, at the promote stage, of its Challenge theorem |
+| `hypothesis-inadmissible` | failed | a listed hypothesis is an `axiom`, `opaque` or `theorem` constant, not a `def` or an inductive `Prop` |
+| `hypothesis-open` | conditional | a listed hypothesis has no discharge at the gate-bound commit; the detail names it and says why |
+| `discharge-type-mismatch` | failed | on the corollary: its Challenge type is not the discharged claim's type with exactly the discharged binders removed, or a proof claim's type is not exactly the hypothesis (compared strictly, no unfolding) |
+| `discharge-not-compared` | open | promote stage, on the corollary: it, the claim it discharges or a proof claim is in no (non-smoke) comparator configuration at the gate-bound commit |
+| `witness-type-mismatch` | failed | the `witness` claim's Challenge type is not the expected witness of the claim's hypotheses, or the claim takes no parameters (prove the hypotheses instead) |
+| `depends-on-conditional` | conditional | a `depends_on` claim in this package is `conditional`: the detail lists the outstanding hypotheses inherited from it, and names the edge as stale when Lean proved this claim without hypotheses and the comparator checked it |
 
 Receipt-level codes apply to every claim, and comparator codes to every
 required theorem and lemma: one stale receipt opens them all.
 
-A claim that sets `hypotheses` (non-empty), `discharges` or `witness` gets
-`hypotheses-unchecked` whatever its other evidence says (proposal 0003,
-stage H2). Until the ledger evaluates hypotheses and discharge from the
-sealed verify log (stage H3), a conditional result can therefore never show
-as `verified`, on the ledger, the page or anywhere that reads it; a
-`reusable` claim with the keys keeps the package `open`. A claims file
-without the keys gives the same ledger, codes and `ledger_digest` as
-before.
+### Conditional claims
+
+A claim that lists `hypotheses` (proposal 0003; the keys are in
+[prior-art.md](prior-art.md#conditional-claims)) is judged from the
+`hyp-probe/1` section of the gate receipt's sealed verify log at the
+gate-bound commit X ([formats.md](formats.md#the-hypotheses-section-of-the-verify-log-hyp-probe1)),
+which `report_sha256` binds. The ledger never runs Lean, and it compares no
+names or strings to conclude that a discharge happened: it reads the facts
+Lean printed in the bound build. Nothing is stored; every call recomputes.
+
+- Every listed hypothesis must head explicit binders of the declaration's
+  type (`hyp-decl`) and, at the promote stage, of the Challenge theorem that
+  credits the claim (`hyp-challenge`), and its head must be a `def` or an
+  inductive `Prop`.
+- Hypothesis `A` of `T` is **discharged** only at the promote stage, with a
+  clean comparator tier, by a claim `T'` whose `discharges` names `T`
+  (`superseded_by` followed) and `A`, when `T`, `T'` and each proof claim are
+  each credited by exactly one non-smoke comparator name at X; the facts hold
+  `hyp-corollary` (`T'`'s Challenge type is `T`'s with exactly the
+  discharged binders removed) and, for each proof claim `P`, `hyp-proof`
+  (`P`'s Challenge type is exactly `A`), unless `P`'s Challenge type
+  quantifies over data: an assumption with parameters is discharged by the
+  corollary alone, and `P` is attribution (open question 3); and `T'` and
+  `P` have no open, failed or unknown diagnostic of their own. At the gate
+  stage nothing is discharged.
+- `T` stays `conditional` even when every hypothesis is discharged: its
+  statement still carries them. Its row lists `hypotheses`, each
+  `{decl, state: open|discharged, by: {proof, corollary}|null, via: null}`;
+  the corollary's row carries its `discharges`. Each outstanding hypothesis
+  is a `hypothesis-open` diagnostic, of class conditional, which never
+  blocks a dependent.
+- A claim that `depends_on` a conditional claim is at most `conditional`:
+  it inherits the outstanding hypotheses (`via` the dependency), to a fixed
+  point, with `depends-on-conditional`. A dependency that is open or
+  unknown still makes it `blocked`.
+- `witness` gives the row `{claim, state: checked|unchecked|mismatch}`:
+  `checked` when the facts hold `hyp-witness` for the two credited Challenge
+  theorems, `unchecked` (no diagnostic) when they are not both compared or
+  at the gate stage, `mismatch` with `witness-type-mismatch` otherwise.
+- `counts` gains `conditional`, `--json` gains `conditional_required` (the
+  required claims that are conditional) and `outstanding_hypotheses`, and
+  `ledger_digest` covers the new row keys, all only when some claim uses the
+  keys. A claims file without them gives the same ledger, text and JSON,
+  byte for byte, and the same `ledger_digest` as before
+  (`tests/test_ledger_golden.py`).
+
+A required claim that is `conditional` counts as closed (open question 1):
+the package is `ready`, `promote` accepts it, and its checklist line (also
+in `publish --dry-run`) reads:
+
+```text
+claims ledger ready: N required claim(s) verified or conditional (conditional: K; outstanding hypotheses: Hyp.B)
+```
+
+`next` then names an outstanding hypothesis as a possible next
+formalization step, never as an error. The page, `status`, `receipt check`
+and the index do not render conditional results yet: a conditional row of
+the page reads "Not yet verified", with the ledger word `conditional`. A
+`ready` ledger with conditional required claims never reads as
+unconditional on the page: its line says every required claim is verified
+or conditional, counts the conditional ones, names the outstanding
+hypotheses, and adds "A conditional result says nothing when an outstanding
+assumption is false." (the coverage page adds the same count and names).
 
 A comparator configuration names a claim only by its full declaration name:
 a `theorem_names` entry equal to the claim's `decl`, or `<Prefix>.<decl>`
@@ -225,7 +291,8 @@ claim gets a Challenge/Solution entry of its own (rename a short
 `<Ns>.thm` entry to `<Ns>.<full decl>`, or run
 `comparator config --from-claims NAME`).
 
-`promote` refuses unless the ledger at the promote stage is `ready`: one
+`promote` refuses unless the ledger at the promote stage is `ready` (every
+required claim verified or conditional): one
 checklist line carries its summary and names `claims ledger NAME`, and
 `--json` adds `claims_ledger`. `publish --dry-run` shows the same line, since
 it runs the promote checklist. `next` recommends `publish --dry-run` only once

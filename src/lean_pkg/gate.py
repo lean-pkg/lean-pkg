@@ -1216,6 +1216,46 @@ def recorded_report_log_problem(repo: pathlib.Path, receipt: dict, rel: str) -> 
     return None
 
 
+SEALED_LOG_TEXT_CAP = 256 << 20     # sealed_log_text reads no more than this (uncompressed) into memory
+
+
+def sealed_log_text(repo: pathlib.Path, receipt: dict, rel: str) -> str | None:
+    """The text of a recorded lower-tier receipt's sealed verify log: the first copy report_log_check looks at
+    (beside the receipt `rel`, in .lean-receipts/, tracked there at HEAD; the .log, else its .gz decompressed)
+    whose uncompressed bytes hash to report_sha256. None when there is none, it cannot be read, or it is larger
+    than SEALED_LOG_TEXT_CAP: a reader of the log's facts (the claims ledger, proposal 0003) then has none."""
+    try:
+        name = report_log_name(receipt)
+        want = str(receipt["report_sha256"]).lower()
+    except (Fail, KeyError, TypeError):
+        return None
+    cands: list = []
+    for base in ((repo / rel).parent, repo / ".lean-receipts"):
+        cands += [(base / name, False), (base / (name + REPORT_GZ_SUFFIX), True)]
+    for fname, unpack in ((name, False), (name + REPORT_GZ_SUFFIX, True)):
+        cands.append((lambda f=fname: git_show_bytes(repo, f"./.lean-receipts/{f}", "HEAD"), unpack))
+    for src, unpack in cands:
+        try:
+            if isinstance(src, pathlib.Path):
+                if not src.is_file() or src.stat().st_size > SEALED_LOG_TEXT_CAP:
+                    continue
+                data = src.read_bytes()
+            else:
+                data = src()
+                if data is None:
+                    continue
+            if unpack:
+                with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as g:
+                    data = g.read(SEALED_LOG_TEXT_CAP + 1)
+                if len(data) > SEALED_LOG_TEXT_CAP:
+                    continue
+        except (OSError, EOFError, zlib.error):
+            continue
+        if sha256_bytes(data) == want:
+            return data.decode("utf-8", "replace")
+    return None
+
+
 def report_log_missing(repo: pathlib.Path, receipt: dict, receipt_path: pathlib.Path,
                        why: str = "none found") -> str:
     """The refusal for a lower-tier receipt whose redacted verify log is not there to hash: where it was

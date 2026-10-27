@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 from .conftest import (put_receipt, ROOT, _git, commit_claims, drop_claims, make_comparator_receipt, make_receipt,
-                       publish_evidence, read_events, read_reg, repo_head, write_reg)
+                       publish_evidence, read_events, read_reg, repo_head, write_reg, write_report_log)
 
 LEAN = ("namespace Demo\n"   # the claims name Demo.<decl>: exact covers() (#80 fix)
         "theorem foo_le_bar : True := trivial\nlemma baz : True := trivial\ndef qux := 1\n"
@@ -37,9 +37,10 @@ def claims_list(**change):
     return [r for r in rows.values() if r is not None]
 
 
-def gated(env, claims=None, names=ALL_NAMES, todo=(), receipt=None, comparator=True):
+def gated(env, claims=None, names=ALL_NAMES, todo=(), receipt=None, comparator=True, log=None, lean=LEAN):
     """beta gated (and, unless comparator=False, compared) at one commit tracking LEAN, claims.yaml and
-    comparator.json; the receipts are written untracked under .lean-receipts/ and recorded in the registry."""
+    comparator.json; the receipts are written untracked under .lean-receipts/ and recorded in the registry.
+    log: the text of the sealed verify log (default: a fixture line, no hyp-probe/1 section)."""
     repo = env.repo_b
     cfg = {"challenge_module": "Challenge", "solution_module": "Solution", "theorem_names": list(names),
            "definition_names": [], "permitted_axioms": ["propext", "Quot.sound", "Classical.choice"],
@@ -48,8 +49,12 @@ def gated(env, claims=None, names=ALL_NAMES, todo=(), receipt=None, comparator=T
         cfg["lean_pkg_scaffold"] = {"todo": [{"theorem_name": t} for t in todo]}
     (repo / "comparator.json").write_text(json.dumps(cfg, indent=2) + "\n")
     doc = {"schema": "claims/1", "package": "beta", "claims": claims_list() if claims is None else claims}
-    commit_claims(repo, yaml.safe_dump(doc, sort_keys=False), lean=LEAN)
-    put_receipt(repo / ".lean-receipts" / "g.json", make_receipt(repo, **(receipt or {})))
+    commit_claims(repo, yaml.safe_dump(doc, sort_keys=False), lean=lean)
+    rec = make_receipt(repo, **(receipt or {}))
+    if log is not None:
+        (repo / ".lean-receipts").mkdir(exist_ok=True)
+        write_report_log(repo / ".lean-receipts", rec, log)
+    put_receipt(repo / ".lean-receipts" / "g.json", rec)
     comp_rel = None
     if comparator:
         comp_rel = ".lean-receipts/c.json"
@@ -258,9 +263,111 @@ def _depends_on_unknown(lp, env, capsys):
     gated(env, claims=claims_list(zap=claim("zap", "Demo.zap", deps=["other-pkg/thing"])))
 
 
-def _hypotheses_unchecked(lp, env, capsys):     # proposal 0003, stage H2: fail closed until H3
+def _hypotheses_unchecked(lp, env, capsys):     # proposal 0003: a log without the hyp-probe/1 section
     gated(env, claims=claims_list(**{"foo-le-bar": dict(claim("foo-le-bar", "Demo.foo_le_bar"),
                                                        hypotheses=["Hyp.A"])}))
+
+
+# --- proposal 0003 (conditional claims): demo/main under Hyp.A and Hyp.B, the proof of Hyp.A, and the corollary
+# main-of-b discharging Hyp.A; the facts are the hyp-probe/1 section of the sealed verify log ------------------
+
+LEAN_H = LEAN + ("namespace Demo\ntheorem main : True := trivial\ntheorem main_of_b : True := trivial\n"
+                 "theorem proof_a : True := trivial\ntheorem wit : True := trivial\nend Demo\n")
+COND_NAMES = ALL_NAMES + ("BetaAudit.Demo.main", "BetaAudit.Demo.main_of_b", "BetaAudit.Demo.proof_a")
+HYP_HEADER = "== lean-pkg hypotheses (hyp-probe/1) =="
+
+
+def cond_claims(**change):
+    rows = {
+        "main": dict(claim("main", "Demo.main"), hypotheses=["Hyp.A", "Hyp.B"]),
+        "proof-a": claim("proof-a", "Demo.proof_a"),
+        "main-of-b": dict(claim("main-of-b", "Demo.main_of_b"), hypotheses=["Hyp.B"],
+                          discharges={"claim": "beta/main", "hypotheses": ["Hyp.A"], "proofs": ["beta/proof-a"]}),
+    }
+    rows.update(change)
+    return claims_list(**rows)
+
+
+def binder(i, head, kind="def", explicit=True):
+    return {"i": i, "head": head, "kind": kind, "module": "Demo.Statements", "explicit": explicit}
+
+
+def hyp_line(tag, **obj) -> str:
+    return f"{tag}: " + json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+
+
+def decl_line(theorem, *binders, data=0, config=None) -> str:
+    obj = {"v": 1, "theorem": theorem, "binders": list(binders), "data_binders": data}
+    if config:
+        obj["config"] = config
+    return hyp_line("hyp-challenge" if config else "hyp-decl", **obj)
+
+
+AB = (binder(0, "Hyp.A"), binder(1, "Hyp.B"))
+
+
+def hyp_log(*, decls=None, challenge=None, facts=None, extra=(), configs=("comparator.json",)) -> str:
+    """A sealed verify log with a hyp-probe/1 section: hyp-decl lines (default: every decl of cond_claims, main
+    under A and B, main_of_b under B), the Challenge build, hyp-challenge lines (default: the credited names, same
+    binders) and the facts (default: the honest corollary and the proof of Hyp.A)."""
+    if decls is None:
+        decls = {"Demo.foo_le_bar": (), "Demo.baz": (), "Demo.qux": (), "Demo.old_one": (), "Demo.zap": (),
+                 "Demo.main": AB, "Demo.proof_a": (), "Demo.main_of_b": (binder(0, "Hyp.B"),)}
+    if challenge is None:
+        challenge = {"BetaAudit.Demo.main": AB, "BetaAudit.Demo.main_of_b": (binder(0, "Hyp.B"),),
+                     "BetaAudit.Demo.proof_a": (), "BetaAudit.Demo.foo_le_bar": (), "BetaAudit.Demo.baz": (),
+                     "BetaAudit.Demo.zap": ()}
+    if facts is None:
+        facts = [hyp_line("hyp-corollary", corollary="BetaAudit.Demo.main_of_b", of="BetaAudit.Demo.main",
+                          drops=["Hyp.A"], binders=[0]),
+                 hyp_line("hyp-proof", proof="BetaAudit.Demo.proof_a", proves="Hyp.A")]
+    lines = [decl_line(t, *bs) if not isinstance(bs, dict) else decl_line(t, *bs["binders"], data=bs["data"])
+             for t, bs in decls.items()]
+    if configs:
+        lines.append(hyp_line("hyp-challenge-build", module="Challenge", ok=True))
+        lines += [decl_line(t, *(bs if not isinstance(bs, dict) else bs["binders"]),
+                            data=0 if not isinstance(bs, dict) else bs["data"], config=configs[0])
+                  for t, bs in challenge.items()]
+    lines += list(facts) + list(extra)
+    n_decl = sum(x.startswith(("hyp-decl:", "hyp-missing:")) for x in lines)
+    n_chal = sum(x.startswith("hyp-challenge:") for x in lines)
+    done = hyp_line("hyp-done", v=1, decls=n_decl, challenge=n_chal, configs=list(configs))
+    return "fixture verify log\n" + HYP_HEADER + "\n" + "".join(x + "\n" for x in lines) + done + "\n"
+
+
+def cond_gated(env, claims=None, names=COND_NAMES, log=None, **kw):
+    return gated(env, claims=cond_claims() if claims is None else claims, names=names,
+                 log=hyp_log() if log is None else log, lean=LEAN_H, **kw)
+
+
+def _hypothesis_not_in_type(lp, env, capsys):
+    cond_gated(env, log=hyp_log(decls={"Demo.main": (binder(0, "Hyp.B"),), "Demo.main_of_b": (binder(0, "Hyp.B"),)}))
+
+
+def _hypothesis_inadmissible(lp, env, capsys):
+    ax = (binder(0, "Hyp.A", kind="axiom"), binder(1, "Hyp.B"))
+    cond_gated(env, log=hyp_log(decls={"Demo.main": ax, "Demo.main_of_b": (binder(0, "Hyp.B"),)}))
+
+
+def _hypothesis_open(lp, env, capsys):
+    cond_gated(env)
+
+
+def _discharge_type_mismatch(lp, env, capsys):
+    cond_gated(env, log=hyp_log(facts=[hyp_line("hyp-proof", proof="BetaAudit.Demo.proof_a", proves="Hyp.A")]))
+
+
+def _discharge_not_compared(lp, env, capsys):
+    cond_gated(env, names=tuple(n for n in COND_NAMES if n != "BetaAudit.Demo.proof_a"))
+
+
+def _witness_type_mismatch(lp, env, capsys):
+    cond_gated(env, claims=cond_claims(main=dict(claim("main", "Demo.main"), hypotheses=["Hyp.A", "Hyp.B"],
+                                                 witness="beta/foo-le-bar")))
+
+
+def _depends_on_conditional(lp, env, capsys):
+    cond_gated(env, claims=cond_claims(zap=claim("zap", "Demo.zap", deps=["beta/baz", "beta/main"])))
 
 
 # code -> (scenario, the claim it lands on, that claim's status, the package status)
@@ -284,6 +391,13 @@ SCENARIOS = {
     "depends-on-open": (_depends_on_open, "zap", "blocked", "open"),
     "depends-on-unknown": (_depends_on_unknown, "zap", "unknown", "unknown"),
     "hypotheses-unchecked": (_hypotheses_unchecked, "foo-le-bar", "open", "open"),
+    "hypothesis-not-in-type": (_hypothesis_not_in_type, "main", "open", "failed"),
+    "hypothesis-inadmissible": (_hypothesis_inadmissible, "main", "open", "failed"),
+    "hypothesis-open": (_hypothesis_open, "main", "conditional", "ready"),
+    "discharge-type-mismatch": (_discharge_type_mismatch, "main-of-b", "open", "failed"),
+    "discharge-not-compared": (_discharge_not_compared, "main-of-b", "open", "open"),
+    "witness-type-mismatch": (_witness_type_mismatch, "main", "open", "failed"),
+    "depends-on-conditional": (_depends_on_conditional, "zap", "conditional", "ready"),
 }
 
 
@@ -303,7 +417,7 @@ def test_each_code(lp, env, capsys, code):
     row = by_id(data)[cid]
     assert code in codes(row), (code, row)
     assert row["status"] == claim_status, row
-    assert data["package_status"] == package_status and rc == 1, data["reasons"]
+    assert data["package_status"] == package_status and rc == (package_status != "ready"), data["reasons"]
     if code == "axiom-not-allowed":
         assert "receipt-invalid" not in codes(row)            # one fact, one code
 

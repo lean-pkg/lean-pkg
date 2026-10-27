@@ -328,8 +328,15 @@ def _ledger_step(reg: dict, pkg: dict, name: str, state: dict, notes: list[str],
     state["claims_ledger"] = {"package_status": led["package_status"], "counts": led["counts"],
                               "required": led["required"], "ledger_digest": led["ledger_digest"]}
     if led["package_status"] == "ready":
+        cond = ""
+        if led.get("conditional_required"):        # proposal 0003: a possible next formalization step, not an error
+            hs = led.get("outstanding_hypotheses") or []
+            cond = (f"; {len(led['conditional_required'])} required claim(s) are conditional"
+                    + (f", outstanding hypotheses {', '.join(hs)}: proving {hs[0]} (a proof claim and a corollary "
+                       f"that discharges it) is a possible next formalization step, not an error" if hs
+                       else " with every hypothesis discharged"))
         return out(f"lean-pkg publish {name} --dry-run",
-                   f"verified-private with comparator evidence bound to HEAD and the claims ledger ready: run "
+                   f"verified-private with comparator evidence bound to HEAD and the claims ledger ready{cond}: run "
                    f"the read-only publish checklist, then `lean-pkg publish {name} --yes --dry-run` (a dry run; a human reads "
                    f"it before --yes)")
     why = ledger.summary(led)
