@@ -690,6 +690,12 @@ def validate_comparator(pkg: dict, repo: pathlib.Path, comp: dict,
         if not str(comp[f]).strip():
             raise Fail(f"comparator field {f!r} is empty")
     check_timestamp(comp["generated_at"], "comparator receipt")
+    if "ci" in comp:                   # additive (proposal 0008, S5): written on a GitHub-hosted runner, level 1
+        from . import ci_github
+        problems, _workflow = ci_github.level1(comp, repo)
+        if problems:
+            raise Fail("comparator ci block (a GitHub Actions run, level 1; docs/formats.md#the-ci-block): "
+                       + "; ".join(problems))
     if comp["result"] != "pass":
         raise Fail(f"comparator result must be 'pass', got {comp['result']!r}")
     configs = comp["configs"]
@@ -902,6 +908,7 @@ def comparator_check_lines(pkg: dict, repo: pathlib.Path, comp: dict, lower_comm
                f"each log PASS ({mech} mechanism)")
     out.append(f"✓ comparator commit = lower-tier receipt commit {lower_commit[:12]}" if lower_commit
                else "· no lower-tier receipt to pair with (commit equality not checked)")
+    out += ci_check_lines(comp, repo)                    # proposal 0008, S5: a GitHub Actions run, level 1
     if isinstance(comp.get("build_provenance"), dict):   # #56: printed, never validated
         out.append(f"· {build_provenance_line(comp['build_provenance'])}")
     om = comp.get("olean_manifest")

@@ -19,7 +19,9 @@ A run that replaces an earlier run's stage files first keeps them, read-only, as
 comparator-stages/attempts/NNN/ (numbers never reused; never deleted or read back by lean-pkg);
 `comparator-receipt --attempts [DIR] [--json]` lists them.
 
-Host policy: the run is allowed iff SLURM_JOB_ID is set (inside a Slurm job),
+Host policy: the run is allowed iff it runs on a GitHub-hosted runner (GITHUB_ACTIONS=true and
+RUNNER_ENVIRONMENT=github-hosted: host_policy "GitHub Actions run R attempt A", job_id gha-R-A and the `ci`
+block of proposal 0008, stage S5; github_actions_context), OR SLURM_JOB_ID is set (inside a Slurm job),
 OR this host's name or its label is listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS
 (comma-separated), OR COMPARATOR_RECEIPT_ALLOW_HOST=1, OR (the workstation
 default) the allow-list is unset, COMPARATOR_RECEIPT_WORKSTATION_DEFAULT is not 0
@@ -27,7 +29,11 @@ and this machine has no Slurm (no sbatch/srun/slurmd on PATH, no slurm.conf, no
 SLURM_CONF): the machine running the command, named by its label. The reason is
 recorded in the receipt's host_policy field. SLURM_JOB_ID is any shell's to set: a Slurm
 claim backs a coverage.yaml compute job only after `--seal-sacct RECEIPT` sealed
-the job's sacct record into it (receipt.seal_comparator_sacct).
+the job's sacct record into it (receipt.seal_comparator_sacct). A GitHub Actions claim backs a
+`github-actions` compute job only with a `ci` block that passes level 1 (ci_github.level1). On a hosted runner
+with a runner variable missing or malformed the run refuses (nothing guessed); GITHUB_ACTIONS without
+RUNNER_ENVIRONMENT, or a self-hosted runner, is not this context (the other rules apply, and the receipt is
+the machine's, worth what a local one is).
 
 Host label: the receipt never names the host. `host`, `host_label`, the host in
 `job_id` and `host_policy` (and in COMPARATOR_RECEIPT_BUILD_SOURCE) are the label: the
@@ -450,16 +456,64 @@ def parse_allowed_hosts(value: str | None) -> set[str]:
     return {h.strip() for h in (value or "").split(",") if h.strip()}
 
 
+GHA_HOSTED = "github-hosted"
+
+
+def github_actions_context(env=None) -> tuple[dict | None, list[str]]:
+    """(context, problems) of a GitHub Actions run (proposal 0008, stage S5). The context is recognized only
+    with GITHUB_ACTIONS=true and RUNNER_ENVIRONMENT=github-hosted; then every runner variable the `ci` block
+    takes must be present and well formed (receipt_ci.env_problems, the checks `receipt ci` runs), else the
+    problems refuse the run: fail closed, nothing guessed. Not recognized, (None, []): not in GitHub Actions,
+    RUNNER_ENVIRONMENT unset (an older runner, or a shell that set GITHUB_ACTIONS), or a self-hosted runner,
+    which is the author's own machine. Context: {run_id, run_attempt, job_id gha-R-A, host_policy}."""
+    env = os.environ if env is None else env
+    if env.get("GITHUB_ACTIONS") != "true" or env.get("RUNNER_ENVIRONMENT") != GHA_HOSTED:
+        return None, []
+    from . import ci_github, receipt_ci
+    problems = receipt_ci.env_problems(dict(env))
+    if problems:
+        return None, problems
+    run_id, attempt = int(env["GITHUB_RUN_ID"]), int(env["GITHUB_RUN_ATTEMPT"])
+    return {"run_id": run_id, "run_attempt": attempt, "job_id": f"gha-{run_id}-{attempt}",
+            "host_policy": ci_github.host_policy_of(run_id, attempt)}, []
+
+
+def github_actions_ci(project: pathlib.Path, env=None, fetch=None) -> tuple[dict | None, list[str]]:
+    """(ci block, problems) for a comparator receipt written in a recognized GitHub Actions run: the block
+    `receipt ci` writes (receipt_ci.ci_block, every value from the runner's variables), less
+    verify_log_sha256 (a comparator receipt has no verify log). Refusals: the workflow file absent at
+    GITHUB_WORKFLOW_SHA (a shallow clone is named), a failed OIDC token request when the job has id-token: write."""
+    from . import receipt_ci
+    env = dict(os.environ if env is None else env)
+    problems = []
+    wf_sha, why = receipt_ci.workflow_file(project, env)
+    if why:
+        problems.append(why)
+    job_workflow, why, _line = receipt_ci.job_workflow_claim(env, fetch)
+    if why:
+        problems.append(why)
+    if problems:
+        return None, problems
+    ci = receipt_ci.ci_block(env, wf_sha, "", job_workflow)
+    del ci["verify_log_sha256"]
+    return ci, []
+
+
 def host_policy_ok(slurm_job: str | None, allow: bool,
                    hostname: str | None = None,
                    allowed_hosts: set[str] | None = None,
-                   label: str | None = None, workstation: bool = False) -> tuple[bool, str]:
+                   label: str | None = None, workstation: bool = False,
+                   github: dict | None = None) -> tuple[bool, str]:
     """(allowed, reason). An allow-list entry may be the host's name (any case) or its label (the hashed
     `h-...` label or the operator's --host-label); the reason names the label only, never the name.
-    `workstation` (workstation_default): with no allow-list, the machine running the command is allowed."""
+    `workstation` (workstation_default): with no allow-list, the machine running the command is allowed.
+    `github` (github_actions_context): a GitHub-hosted runner, allowed first, so the receipt's host_policy,
+    job_id and ci block always name the same run."""
     hostname = hostname or socket.gethostname()
     label = label or published_host(hostname)
     allowed_hosts = allowed_hosts or set()
+    if github is not None:
+        return True, github["host_policy"]
     if allow:
         return True, f"allowed by {ALLOW_HOST_ENV}=1"
     if slurm_job:
@@ -1897,7 +1951,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt",
         resume: bool = True, judges: int = 1, slot_spec: str | None = None,
         estimate: int | None = None, unit_size: int | None = None, sample_explicit: bool = False,
-        force_sample: bool = False) -> dict:
+        force_sample: bool = False, ci: dict | None = None) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     evidence = evidence or project / DEFAULT_EVIDENCE
@@ -2123,7 +2177,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
                                             extra={**result["extra"], "partial": True,
                                                    "slots": [s.row() for s in st.slots],
                                                    "slots_total": len(st.all_slots)},
-                                            config_extra=result["config_extra"], dest=stages.dir))
+                                            config_extra=result["config_extra"], dest=stages.dir, ci=ci))
                 stage_log.write_text(f"wrote the PARTIAL receipt {result['receipt']} (diagnostic only)\n",
                                      encoding="utf-8")
                 return "ok", 0, f"partial receipt in {stages.dir.name}/ (diagnostic only)"
@@ -2136,7 +2190,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         def receipt_stage(stage_log: pathlib.Path):
             result.update(write_receipt(project, configs, log_dir, commit, mechanism, toolchain, tools,
                                         host_policy, pathlib.Path(tmp), stages.summary(),
-                                        extra=result["extra"], config_extra=result["config_extra"]))
+                                        extra=result["extra"], config_extra=result["config_extra"], ci=ci))
             stage_log.write_text(f"wrote {result['receipt']} and {len(configs)} log(s)\n", encoding="utf-8")
             return "ok", 0, f".lean-receipts/{commit[:12]}-comparator.json"
 
@@ -2148,9 +2202,12 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
 def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Path, commit: str,
                   mechanism: str, toolchain: str, tools: dict, host_policy: str, tmp: pathlib.Path,
                   stage_summary: list[dict], extra: dict | None = None,
-                  config_extra: dict | None = None, dest: pathlib.Path | None = None) -> dict:
+                  config_extra: dict | None = None, dest: pathlib.Path | None = None,
+                  ci: dict | None = None) -> dict:
     """The receipt and its logs, all or nothing, into <project>/.lean-receipts/ -- or, for a partial
-    (--slots) run, into dest (the stage directory, never the repository), suffixed `.partial`."""
+    (--slots) run, into dest (the stage directory, never the repository), suffixed `.partial`. `ci`
+    (github_actions_ci): the run's block; the job id becomes gha-<run_id>-<run_attempt>, and a block that fails
+    level 1 against this receipt (ci_github.level1: head_sha = commit, host_policy, the workflow file) refuses."""
     partial = dest is not None
     sfx = ".partial" if partial else ""
     entries = []
@@ -2191,7 +2248,8 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
         })
     host = published_host()          # never the host name (the hashed label unless --host-label)
     now = dt.datetime.now(dt.timezone.utc)
-    job = (os.environ.get("SLURM_JOB_ID")
+    job = (f"gha-{ci['run_id']}-{ci['run_attempt']}" if ci is not None
+           else os.environ.get("SLURM_JOB_ID")
            or f"local-{host}-{os.getpid()}-{now.strftime('%Y%m%dT%H%M%SZ')}")
     receipt = {
         "schema": SCHEMA, "mechanism": mechanism, "commit": commit,
@@ -2211,6 +2269,13 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
     from . import producer as pr
     receipt["producer"] = pr.receipt_producer(pr.fingerprint())
     receipt = label_host_fields(redact_json(receipt))   # #41: <checkout>/, <home>/, <tmp>/ instead of host paths
+    if ci is not None:     # proposal 0008, S5: the runner's values, verbatim (no path or host name in them)
+        from . import ci_github
+        receipt[ci_github.KEY] = ci
+        problems, _row = ci_github.level1(receipt, project)
+        if problems:
+            raise RunnerError("the ci block (GitHub Actions run) would fail level 1: " + "; ".join(problems)
+                              + "; nothing written")
     rec_tmp = tmp / "receipt.json"
     rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     rec_dir = dest if partial else project / ".lean-receipts"
@@ -2609,16 +2674,29 @@ def run_main(args, argv: list[str], prog: str = "comparator-receipt") -> int:
         except ValueError as e:
             print(f"comparator-receipt: {e}", file=sys.stderr)
             return 2
+    gha, gha_problems = github_actions_context()
+    if gha_problems:
+        print("comparator-receipt: refusing: a GitHub-hosted runner (GITHUB_ACTIONS=true, RUNNER_ENVIRONMENT="
+              f"{GHA_HOSTED}) without a complete run identity: " + "; ".join(gha_problems) + "; nothing written",
+              file=sys.stderr)
+        return 1
     ok, why = host_policy_ok(os.environ.get("SLURM_JOB_ID"),
                              os.environ.get(ALLOW_HOST_ENV) == "1",
                              hostname=socket.gethostname(),
                              allowed_hosts=parse_allowed_hosts(
                                  os.environ.get(ALLOWED_HOSTS_ENV)),
-                             workstation=workstation_default()[0])
-    why = replace_host(why)       # the label replaces the host name everywhere a receipt or its output names it
+                             workstation=workstation_default()[0], github=gha)
+    if gha is None:
+        why = replace_host(why)   # the label replaces the host name everywhere a receipt or its output names it
     if not ok:
         print(f"comparator-receipt: refusing: {why}", file=sys.stderr)
         return 1
+    ci = None
+    if gha is not None and not args.prepare:     # --prepare writes no receipt
+        ci, problems = github_actions_ci(pathlib.Path(args.project).resolve())
+        if problems:
+            print("comparator-receipt: refusing: " + "; ".join(problems) + "; nothing written", file=sys.stderr)
+            return 1
     if os.environ.get(FAKE_LAKE_ENV) is None and not args.prepare:   # the host check (#22.5); never a refusal
         hc = host_checks()
         print(f"comparator-receipt: host-check: {hc['verdict']}", file=sys.stderr)
@@ -2639,7 +2717,7 @@ def run_main(args, argv: list[str], prog: str = "comparator-receipt") -> int:
                       resume=not args.no_resume, judges=judges, slot_spec=args.slots,
                       estimate=(args.sample or ESTIMATE_MIN_SAMPLE) if args.estimate else None,
                       unit_size=unit_size, sample_explicit=args.sample is not None,
-                      force_sample=args.force_sample)
+                      force_sample=args.force_sample, ci=ci)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
         if isinstance(e, UsageError):

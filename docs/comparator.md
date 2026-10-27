@@ -2383,6 +2383,7 @@ these holds, and records which in `host_policy`:
 
 | Condition | Reason recorded |
 |---|---|
+| a GitHub-hosted runner: `GITHUB_ACTIONS=true` and `RUNNER_ENVIRONMENT=github-hosted` (checked first) | `GitHub Actions run <run_id> attempt <run_attempt>` |
 | `SLURM_JOB_ID` is set | `Slurm job <id> on <label>` |
 | the host's name (any case) or its label is in `COMPARATOR_RECEIPT_ALLOWED_HOSTS` | `host <label> listed in COMPARATOR_RECEIPT_ALLOWED_HOSTS` |
 | `COMPARATOR_RECEIPT_ALLOW_HOST=1` | `allowed by COMPARATOR_RECEIPT_ALLOW_HOST=1` |
@@ -2390,9 +2391,73 @@ these holds, and records which in `host_policy`:
 Otherwise it refuses with a message naming all three options and this
 host's label. `COMPARATOR_RECEIPT_ALLOWED_HOSTS` may list a host by its name
 or by its label (the hashed label, or the `--host-label` given); only the
-label is ever written. In CI, list the runner's hostname or label in
+label is ever written. On a GitHub-hosted runner nothing needs setting (see
+below). In another CI, list the runner's hostname or label in
 `COMPARATOR_RECEIPT_ALLOWED_HOSTS` or use the explicit override; the override
 is visible in the receipt either way.
+
+### On a GitHub-hosted runner
+
+On a GitHub-hosted runner (`GITHUB_ACTIONS=true` and
+`RUNNER_ENVIRONMENT=github-hosted`; stage S5 of
+[proposal 0008](proposals/0008-github-actions-compute-receipt.md)) the run
+is allowed by that context, checked before every other rule, so the
+receipt's three run fields always name the same run:
+
+- `host_policy`: `GitHub Actions run <run_id> attempt <run_attempt>`;
+- `job_id`: `gha-<run_id>-<run_attempt>`, instead of `SLURM_JOB_ID` or
+  `local-...`;
+- `ci`: the block `lean-pkg receipt ci` writes, from the runner's variables,
+  less `verify_log_sha256` ([the `ci` block](formats.md#in-a-comparator-receipt)).
+
+It refuses, exit 1 and nothing written, when a runner variable the block
+takes is missing or malformed, on an event other than `push` and
+`workflow_dispatch`, on a server other than github.com, when the workflow
+file is missing at `GITHUB_WORKFLOW_SHA` (a shallow clone is named), or when
+`GITHUB_SHA` is not the checkout's `HEAD` (the run would describe another
+commit). `GITHUB_ACTIONS` without `RUNNER_ENVIRONMENT`, or a self-hosted
+runner, is not this context: the rules above decide, and the receipt is an
+ordinary one with a `local-...` job id. A self-hosted runner is the author's
+own machine.
+
+A comparator receipt with a `ci` block that passes level 1 backs
+`coverage.yaml` `compute: [{cluster: github-actions, jobs: [gha-R-A]}]`:
+the CI counterpart of the sacct seal a Slurm claim needs. `gate`,
+`gate --check` and `receipt check` refuse a comparator receipt whose block
+fails, and `receipt check` shows the run as a `comparator R: ci` row. Like a
+lower-tier receipt at level 1, this is consistency, not proof that the run
+happened, and the page never carries the GitHub Actions sentence from it.
+
+lean-pkg's reusable workflow runs the tier when the caller passes
+`comparator: true`:
+
+```yaml
+jobs:
+  verify:
+    uses: lean-pkg/lean-pkg/.github/workflows/verify.yml@<40-hex lean-pkg commit>
+    with:
+      verify-command: bash verify.sh
+      comparator: true
+```
+
+Its `comparator` job, on its own hosted runner, installs `bubblewrap`, lifts
+Ubuntu 24.04's AppArmor restriction on unprivileged user namespaces
+(`sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`: the judge
+runs `lake comparator` inside `bwrap`, which needs one, and the runner's VM is
+the job's own), runs `lean-pkg comparator host-check --routes` and fails,
+naming the route, unless it says `route judge: yes`, then runs
+`lean-pkg receipt comparator --mechanism toolchain` and uploads the receipt
+and its logs as the artifact
+`lean-pkg-comparator-receipt-<run_id>-<run_attempt>`. Fetch it and commit it
+beside the lower-tier receipt:
+
+```bash
+gh run download <RUN> --name lean-pkg-comparator-receipt-<RUN>-<ATTEMPT> --dir .lean-receipts
+git add .lean-receipts && git commit -m "comparator receipt: GitHub Actions run <RUN>"
+```
+
+A hosted runner has 4 CPUs, 16 GB and six hours: a package whose comparison
+needs more stays on a cluster.
 
 ### Seal the Slurm claim with sacct
 

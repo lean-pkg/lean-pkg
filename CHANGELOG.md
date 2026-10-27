@@ -120,6 +120,31 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   no sentence, and a README carrying it fails `page --check` with a
   `--corroborate` hint
   ([corroborating the run](docs/receipts.md#corroborating-the-run-level-2---corroborate)).
+- The comparator tier in CI (#358; stage S5 of proposal 0008, #318):
+  `lean-pkg receipt comparator` (the `comparator-receipt` program)
+  recognizes a GitHub-hosted runner (`GITHUB_ACTIONS=true` and
+  `RUNNER_ENVIRONMENT=github-hosted`) as a host-policy context, checked
+  before the others, and records `host_policy` `GitHub Actions run R attempt
+  A`, `job_id` `gha-R-A` and the additive `ci` block of `receipt ci`, less
+  `verify_log_sha256` (a comparator receipt's logs are bound by
+  `configs[].log_sha256`). On a hosted runner it refuses, writing nothing,
+  with a runner variable missing or malformed, on an event other than `push`
+  and `workflow_dispatch`, on a server other than github.com, with the
+  workflow file missing at `GITHUB_WORKFLOW_SHA`, or when `GITHUB_SHA` is
+  not the checkout's `HEAD`. `GITHUB_ACTIONS` without `RUNNER_ENVIRONMENT`,
+  or a self-hosted runner, is not recognized: the other rules apply, as
+  before. `gate`, `gate --check` and `receipt check` refuse a comparator
+  `ci` block that fails level 1 (the lower-tier rules, `host_policy` equal
+  to the run, no `verify_log_sha256`), and `receipt check` shows a
+  `comparator R: ci` row; a comparator receipt backs `compute:
+  [{cluster: github-actions, jobs: [gha-R-A]}]` only with a block that
+  passes, the CI counterpart of the sacct seal a Slurm claim needs
+  (`slurm_job_of` is unchanged). `verify.yml` gains the input `comparator`
+  (default false) and the job `comparator`, which lifts Ubuntu's AppArmor
+  restriction on unprivileged user namespaces for `bwrap`, fails unless
+  `lean-pkg comparator host-check --routes` says `route judge: yes`, and
+  uploads `lean-pkg-comparator-receipt-<run>-<attempt>`
+  ([on a GitHub-hosted runner](docs/comparator.md#on-a-github-hosted-runner)).
 - `repo export --author 'NAME <EMAIL>'` and `--allow-author-email`
   (#344; #339): `--author` names the author and committer of the export
   commit; `--allow-author-email` accepts an address that is not a GitHub

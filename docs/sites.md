@@ -53,7 +53,7 @@ first, then the package's own, each by name).
 | Scheduler | Job id | Backed by | Sentence from |
 |---|---|---|---|
 | `slurm` | `slurm-<J>` | a lower-tier receipt with that `job_id` (`receipt slurm`), or a comparator receipt with a sacct seal | level 1 (offline) |
-| `github-actions` | `gha-<run_id>-<run_attempt>` | a lower-tier receipt with that `job_id` and a `ci` block that passes level 1 ([The `ci` block](formats.md#the-ci-block)) | level 2 (a corroborated run) |
+| `github-actions` | `gha-<run_id>-<run_attempt>` | a lower-tier receipt with that `job_id` and a `ci` block that passes level 1 ([The `ci` block](formats.md#the-ci-block)), or a comparator receipt written on a GitHub-hosted runner with one ([comparator tier in CI](comparator.md#on-a-github-hosted-runner)) | level 2 (a corroborated run) |
 
 ## Add a site of your own
 
