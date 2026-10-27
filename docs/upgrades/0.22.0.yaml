@@ -618,7 +618,7 @@ changes:
       to this release, commit the bundle --collect copies, and check with --attested (gh installed).
     breaking: false
     changelog: Added
-  - pr: 0
+  - pr: 364
     id: publish-attested
     kind: command
     area: publish

@@ -144,7 +144,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   runs, and a receipt naming a bundle gets a `ci attestation` skip row; the
   receipt listings skip `*.sigstore.json`
   ([attesting the run](docs/receipts.md#attesting-the-run-level-3---attested)).
-- `publish NAME --dry-run --attested [--trusted-root FILE]` (#PR_S4B; a
+- `publish NAME --dry-run --attested [--trusted-root FILE]` (#364; a
   follow-up to stage S4 of proposal 0008, #318): the read-only checklist's
   page line rendered as `page --check --attested` renders it (level 3), so
   a README carrying the GitHub Actions sentence passes it after the run has
