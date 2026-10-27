@@ -31,6 +31,8 @@ lean-pkg claims sync [--agent AGENT] [common flags] NAME
 |---|---|---|
 | `claims sync NAME` | read `claims.yaml` (schema `claims/1`) at `HEAD` of the checkout, check every `decl` occurs in its `file` (a `decl` is a dotted Lean name whose components may be «quoted», as in `Demo.«foo bar»`; its last component, «» kept whole, is looked up), refuse any claim still carrying a `claims migrate` placeholder (`decl: TODO`, or a `summary` starting with `TODO`), naming the claim, cache the claims and the commit in the registry; event `claims-synced`; identical re-sync is a no-op; when the pinned commit is on no remote-tracking branch of the checkout (as of its last fetch, so never pushed) both print a stderr `WARN` naming the commit and the push to make, and `--json` carries `pin_published` (`true`, `false`, or `null` without a remote) | |
 
+When `claims.yaml` declares `statements_module` (the one module of `Prop` definitions a Challenge may import, [#369](https://github.com/lean-pkg/lean-pkg/issues/369)), `claims sync` also refuses, at `HEAD`, a module whose file is not committed or whose text holds anything but `Prop` definitions (a text check by lean-pkg's scanner), prints the module, and `--json` carries `statements_module` ([A statements module for conditional claims](../comparator.md#a-statements-module-for-conditional-claims)).
+
 ## Examples
 
 Read claims.yaml at HEAD of the checkout, validate it and cache the claims in the registry.

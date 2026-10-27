@@ -23,7 +23,10 @@ A format version names a set of keys and what each one means.
   `kind: library` in `coverage/1`, and the conditional-claim keys
   (`hypotheses`, `discharges` and `witness` in `claims/1`, an `inputs`
   entry `{hypothesis, text}` in `coverage/1`; proposal 0003) were added
-  this way. `claims/1` and `coverage/1` are strict, so an older lean-pkg
+  this way, and so was the top-level `statements_module` of `claims/1`
+  ([#369](https://github.com/lean-pkg/lean-pkg/issues/369): the one module
+  of `Prop` definitions a Challenge may import;
+  [A statements module for conditional claims](comparator.md#a-statements-module-for-conditional-claims)). `claims/1` and `coverage/1` are strict, so an older lean-pkg
   refuses a file that uses a key added after it: a package that uses one
   needs a release that knows it in its CI pin. `index-entry/2` gained two
   optional derived keys of a claim the same way, `status` (only
