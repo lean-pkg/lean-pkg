@@ -84,6 +84,7 @@ def test_status_without_fields_unchanged(lp, env, capsys):
     assert set(data) == {"ok", "name", "package", "history_count", "branch",   # branch: additive (#48)
                          "lease_state",                                       # additive: lapse warning
                          "scope",                                             # additive (#5 field report)
+                         "registry_state",                                    # additive (#385)
                          "producer_skew"}                                     # additive: producer skew
     assert data["package"]["name"] == "alpha"
 
