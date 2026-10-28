@@ -500,6 +500,78 @@ def test_a_private_manuscript_needs_the_flag_and_is_marked(lp, env, capsys):
     assert rc == 0 and a["private_manuscript"] is True and "Manuscript not yet posted" in a["markdown"]
 
 
+def _set_paper(env, paper: dict | None) -> None:
+    reg = read_reg(env)
+    pkg = reg["packages"]["beta"]
+    pkg.pop("paper", None)
+    if paper is not None:
+        pkg["paper"] = paper
+    write_reg(env, reg)
+
+
+def _every_output(lp, env, capsys, tmp_path, tag: str, *argv) -> tuple[dict, list[str]]:
+    site, html = tmp_path / f"site-{tag}", tmp_path / f"v-{tag}.html"
+    rc, a = page_json(lp, env, capsys, *argv, "--site", str(site), "--html", str(html))
+    assert rc == 0, a
+    return a, [a["markdown"], (site / "verification.md").read_text(), (site / "coverage.md").read_text(),
+               html.read_text()]
+
+
+def test_a_published_paper_with_an_unanchored_source_is_not_called_a_draft(lp, env, capsys, tmp_path):
+    """Issue 396: manuscript.version unposted and the record's paper.status published: the page says the paper
+    is published and its exact source is not publicly anchored, never "an unposted draft"; every other status
+    renders byte-for-byte as before."""
+    doc = json.loads(json.dumps(COVERAGE))
+    doc["manuscript"]["version"] = "unposted"
+    prepare(env, doc)
+    flag = "--allow-private-manuscript"
+    assert run(lp, env, capsys, "page", "beta")[0] == 1          # still refused without the flag
+    _set_paper(env, {"status": "published"})
+    assert run(lp, env, capsys, "page", "beta")[0] == 1          # published does not lift the refusal
+    _set_paper(env, None)
+    base, base_out = _every_output(lp, env, capsys, tmp_path, "absent", flag)
+    assert base["paper_status"] is None and base["manuscript_note"] is None
+    assert "Manuscript not yet posted" in base["markdown"] and "*T*, an unposted draft" not in base["markdown"]
+    assert ", an unposted draft" in base["markdown"]
+    for status in ("unpublished", "preprint"):                    # unchanged, byte for byte
+        _set_paper(env, {"status": status})
+        a, out = _every_output(lp, env, capsys, tmp_path, status, flag)
+        assert out == base_out and a["paper_status"] == status and a["manuscript_note"] is None
+        assert a["manuscript"] == "unposted" and a["private_manuscript"] is True
+    _set_paper(env, {"status": "published", "arxiv": "2501.01234"})
+    a, out = _every_output(lp, env, capsys, tmp_path, "published", flag)
+    assert a["paper_status"] == "published" and a["manuscript_note"] == "published-unanchored"
+    assert a["manuscript"] == "unposted" and a["private_manuscript"] is True
+    title = f"*{COVERAGE['manuscript']['title']}*"
+    ref = f"{title} (published; the exact source the paper numbers refer to is not publicly anchored)"
+    for text in out:
+        assert "unposted draft" not in text and "not yet posted" not in text
+    md = a["markdown"]
+    assert "> **Published; source not publicly anchored.** The paper is published, but no public version" in md
+    assert "`lean-pkg formalization anchor`" in md and "{repo, commit, sha256}" in md
+    assert f"- Paper: {ref}." in md and f"It formalizes results of {ref}. " in md
+    assert "Published; source not publicly anchored." in out[1] and f"Manuscript: {ref}." in out[2]
+    assert "Published; source not publicly anchored." in out[3] and "not publicly anchored)" in out[3]
+    # page --check treats the new wording as current
+    assert run(lp, env, capsys, "page", "beta", "--write", flag)[0] == 0
+    rc, out_json, _err = run(lp, env, capsys, "--json", "page", "beta", "--check", flag)
+    assert rc == 0 and json.loads(out_json)["problems"] == []
+    _set_paper(env, {"status": "preprint"})                       # the status moves back: the block is stale
+    assert run(lp, env, capsys, "page", "beta", "--check", flag)[0] == 1
+
+
+def test_a_posted_manuscript_ignores_the_paper_status(lp, env, capsys, tmp_path):
+    """Issue 396: an arXiv version renders the same whatever the record's paper.status says."""
+    prepare(env)
+    _set_paper(env, None)
+    base, base_out = _every_output(lp, env, capsys, tmp_path, "absent")
+    assert base["paper_status"] is None and base["manuscript_note"] is None
+    _set_paper(env, {"status": "published"})
+    a, out = _every_output(lp, env, capsys, tmp_path, "published")
+    assert out == base_out and a["paper_status"] == "published" and a["manuscript_note"] is None
+    assert a["manuscript"] == "arxiv" and "not publicly anchored" not in a["markdown"]
+
+
 def test_citation_without_authors_is_refused(lp, env, capsys):
     prepare(env, citation="cff-version: 1.2.0\ntitle: Beta\nauthors: []\n")
     rc, _out, err = run(lp, env, capsys, "page", "beta")

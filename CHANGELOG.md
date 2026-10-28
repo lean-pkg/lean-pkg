@@ -111,6 +111,23 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   unchanged, and a row with any other open reason, or a blocked, unknown or
   conditional claim, keeps the old wording.
 
+- `page` no longer calls a published paper an unposted draft (#399; #396).
+  When `coverage.yaml` `manuscript.version` is `unposted` and the registry
+  record's `paper.status` is `published` (`update NAME --paper-status
+  published`), the page cites the paper as `*Title* (published; the exact
+  source the paper numbers refer to is not publicly anchored)` and its note
+  reads **Published; source not publicly anchored**: a reader cannot check
+  the paper numbers against a posted version, and the note names how to
+  anchor one (an arXiv version with `formalization anchor`, or a public
+  `{repo, commit, sha256}` source). The README block and the `--site` and
+  `--html` files carry the same text, and `page --check` treats it as the
+  current rendering. `--json` gains `paper_status` (the record's status, or
+  null) and `manuscript_note` (`"published-unanchored"`, else null);
+  `manuscript` and `private_manuscript` are unchanged. Every other case
+  renders as before, and `unposted` still needs `--allow-private-manuscript`.
+  Field report: a companion to a journal paper whose exact source had no
+  public anchor was rendered as "Manuscript not yet posted".
+
 ### Documentation
 
 - Proposals 0002, 0003, 0008 and 0009 are implemented in 0.22.0 (#384):

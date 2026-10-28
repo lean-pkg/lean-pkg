@@ -232,7 +232,20 @@ def _join(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1] if names else ""
 
 
-def _manuscript_ref(m: dict) -> str:
+def _published_unanchored(ctx: dict) -> bool:
+    """An unposted manuscript whose registry record says the paper is published (`update --paper-status
+    published`): the paper exists, but no public version of the exact source its numbers refer to is anchored
+    (issue 396). The page then never calls it an unposted draft."""
+    return ctx["kind"] == "unposted" and _paper_status(ctx["pkg"]) == "published"
+
+
+def _paper_status(pkg: dict) -> str | None:
+    paper = pkg.get("paper")
+    status = paper.get("status") if isinstance(paper, dict) else None
+    return status if isinstance(status, str) else None
+
+
+def _manuscript_ref(m: dict, published: bool = False) -> str:
     v = m["version"]
     kind = cov.manuscript_kind(v)
     title = f"*{_md(m['title'])}*"
@@ -243,6 +256,8 @@ def _manuscript_ref(m: dict) -> str:
         repo = v["repo"].rstrip("/")
         repo = repo[:-4] if repo.endswith(".git") else repo
         return f"{title}, [{_md(repo)} at `{v['commit'][:12]}`]({repo}/tree/{v['commit']}) (file SHA-256 `{v['sha256']}`)"
+    if published:
+        return f"{title} (published; the exact source the paper numbers refer to is not publicly anchored)"
     return f"{title}, an unposted draft"
 
 
@@ -842,7 +857,12 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
         md += [f"> **The recorded build check does not validate.** The recorded receipt "
                f"`{_code(str(iv['receipt']))}` binds this commit, but it does not validate: {_md(str(iv['reason']))}. "
                f"No result below is verified and no check is reported for it.", ""]
-    if ctx["kind"] == "unposted":
+    if _published_unanchored(ctx):
+        md += ["> **Published; source not publicly anchored.** The paper is published, but no public version of "
+               "the exact source the paper numbers below refer to is anchored, so a reader cannot check them "
+               "against a posted version. To anchor one, pin an arXiv version (`lean-pkg formalization anchor`) "
+               "or set `manuscript.version` in coverage.yaml to a public source {repo, commit, sha256}.", ""]
+    elif ctx["kind"] == "unposted":
         md += ["> **Manuscript not yet posted.** The paper numbers below refer to an unposted draft; a reader "
                "cannot check them until a version is posted.", ""]
     md += [_md(doc["summary"], lead=True), ""]
@@ -877,7 +897,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     else:
         counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
         formal = len(doc["rows"]) - counts["outside"]
-        md += [f"- Paper: {_manuscript_ref(doc['manuscript'])}.",
+        md += [f"- Paper: {_manuscript_ref(doc['manuscript'], _published_unanchored(ctx))}.",
                f"- Results listed: {len(doc['rows'])}. In Lean with the paper's own hypotheses: "
                f"{counts['same-assumptions']}; in Lean with extra hypotheses, named below: "
                f"{counts['inputs-supplied']}; not formalized: {counts['outside']}.",
@@ -1088,7 +1108,8 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
         line += f" Version {_md(cite['version'])}."
     if cite["doi"] and re.fullmatch(r"10\.\d{4,9}/[^\s()\[\]<>`]+", cite["doi"]):
         line += f" [doi:{_md(cite['doi'])}](https://doi.org/{cite['doi']})."
-    formalizes = "" if ctx["library"] else f"It formalizes results of {_manuscript_ref(doc['manuscript'])}. "
+    formalizes = ("" if ctx["library"] else
+                  f"It formalizes results of {_manuscript_ref(doc['manuscript'], _published_unanchored(ctx))}. ")
     md += [line, "", f"{formalizes}See {_file_ref(ctx, 'CITATION.cff', target)}.", ""]
     # license
     spdx, lic_rel = ctx["license"]
@@ -1106,6 +1127,10 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
              **({"conditional_rows": n_conditional} if n_conditional is not None else {}),
              "ledger_status": pstatus, "ledger_digest": led["ledger_digest"],
              "private_manuscript": kind == "unposted", "manuscript": kind,
+             # issue 396, additive: the record's paper.status, and the note when an unposted manuscript is a
+             # published paper whose exact source is not publicly anchored (else null)
+             "paper_status": _paper_status(ctx["pkg"]),
+             "manuscript_note": "published-unanchored" if _published_unanchored(ctx) else None,
              "kind": "library" if ctx["library"] else "paper",
              # the legacy top-level key (`easley` since 0.7, its 0.7 shape) and `sites` for every profile,
              # the package's own included
@@ -1170,7 +1195,7 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
     if ctx["library"]:
         return md + _library_coverage_lines(ctx, target)
     counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
-    md += [f"Manuscript: {_manuscript_ref(doc['manuscript'])}.", "",
+    md += [f"Manuscript: {_manuscript_ref(doc['manuscript'], _published_unanchored(ctx))}.", "",
            f"- Paper results: {len(doc['rows'])} ({counts['same-assumptions']} same assumptions, "
            f"{counts['inputs-supplied']} inputs supplied, {counts['outside']} outside this formalization).",
            f"- lean-pkg's claims ledger: **{led['package_status']}**{_conditional_tag(led)} "
