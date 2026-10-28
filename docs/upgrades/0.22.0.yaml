@@ -967,6 +967,19 @@ changes:
       summary of a passing recheck beside the library and keep the ledger private.
     breaking: false
     changelog: Added
+  - pr: 382
+    id: page-evidence-gha-job
+    kind: format
+    area: page
+    summary: >-
+      The page's Evidence (Receipts) table names a GitHub Actions receipt's job, gha-<run>-<attempt>, when the
+      receipt's ci block passes level 1, as it names a Slurm receipt's slurm-<J> (#381). A gha- job id without the
+      block, or with a failing one, still shows a dash; no other job id is copied.
+    action: >-
+      Only a page that lists a GitHub Actions receipt changes: run lean-pkg page NAME --write again (page --check
+      reports such a page stale until then).
+    breaking: false
+    changelog: Fixed
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

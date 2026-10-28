@@ -418,3 +418,26 @@ def test_receipt_check_fails_a_failing_block(lp, env, capsys, tmp_path):
     rel = f".lean-receipts/{x[:12]}-{GHA}.json"
     row = next(c for c in payload["checks"] if c["id"] == f"lower {rel}")
     assert rc == 1 and row["verdict"] == "fail" and "receipt local" in row["detail"]
+
+
+def _receipt_row(markdown: str, x: str, job_id: str) -> str:
+    rel = f".lean-receipts/{x[:12]}-{job_id}.json"
+    return next(line for line in markdown.splitlines() if line.startswith(f"| `{rel}`"))
+
+
+def test_the_evidence_table_names_the_github_actions_job(lp, env, capsys):
+    """#381: a GitHub Actions receipt whose ci block passes level 1 shows its job, as a Slurm receipt does."""
+    x = gha_page(env)
+    rc, a = page_json(lp, env, capsys)
+    assert rc == 0, a
+    assert f"| {GHA} |" in _receipt_row(a["markdown"], x, GHA)
+
+
+@pytest.mark.parametrize("kind", ["no block", "failing block"])
+def test_a_gha_job_id_without_a_passing_block_shows_no_job(lp, env, capsys, kind):
+    """A gha- job_id is only text the author wrote until its ci block passes level 1: the job column stays —."""
+    edit = (lambda ci: ci.update(event="pull_request")) if kind == "failing block" else None
+    x = gha_page(env, compute=[], with_ci=kind != "no block", edit=edit)
+    rc, a = page_json(lp, env, capsys)
+    row = _receipt_row(a["markdown"], x, GHA)
+    assert GHA not in row.split("|")[5] and row.split("|")[5].strip() == "—", row
