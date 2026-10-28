@@ -148,6 +148,29 @@ changes:
       --json's key set exactly sees paper_status and manuscript_note.
     breaking: false
     changelog: Fixed
+  - pr: 403
+    id: palomar-prepare-handoff-checklist
+    kind: behavior
+    area: palomar prepare
+    summary: >-
+      palomar prepare (issue 402): the bundle's README.txt is a staged handoff checklist: 1 static readiness
+      (what lean-pkg checked at the commit, and that it is not Palomar's full preflight), 2 the full mechanical
+      preflight (PalomarSubmission's reusable workflow .github/workflows/submission.yml, mode full,
+      execution_profile palomar-standard-v1, uses and pipeline_commit pinned to the same full commit the live
+      contract names; a local lake build, a CI job or a standalone comparator run is not equivalent), 3 the
+      approval fields to show the user before intake (repository, commit, comparator_config_path pre-filled;
+      authorization_relationship for the user to state), 4 intake, proof and cleanup per the live agent
+      contract https://submit.palomar-registry.org/llms.txt (linked, not copied), 5 editorial review, 6
+      registration only on the user's decision, 7 the record palomar-submitted command. --json gains handoff
+      {stages, approval_fields, agent_contract, full_preflight}. No network request; receipts, configs,
+      MANIFEST and refusals unchanged. Classified with OTHER_AREAS: the bundle copies receipts and adds
+      documentation; it changes neither what a receipt holds nor how one is judged.
+    action: >-
+      Nothing required. Before submitting a prepared bundle, follow its README.txt stages in order; a script
+      that checks palomar prepare --json's key set exactly sees handoff, and one that reads README.txt by line
+      number sees the new layout.
+    breaking: false
+    changelog: Changed
 # Docs: proposals 0002, 0003, 0008 and 0009 marked implemented in 0.22.0 (status lines, the proposals table,
 # plan rows); no code changes (#384).
 no_author_change: [384]
