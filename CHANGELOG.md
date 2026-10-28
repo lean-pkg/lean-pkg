@@ -39,6 +39,27 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- `palomar prepare` writes a staged handoff checklist as the bundle's
+  `README.txt` (#403; #402), so a prepared bundle no longer reads as ready
+  to submit: 1 static readiness (what lean-pkg checked at the commit, and
+  that it is not Palomar's full preflight), 2 the full mechanical preflight
+  (PalomarSubmission's reusable workflow `.github/workflows/submission.yml`
+  with `mode: full` and `execution_profile: palomar-standard-v1`, `uses:`
+  and `pipeline_commit` pinned to the same full commit the live contract
+  names; a local `lake build`, a repository CI job or a standalone
+  comparator run is not equivalent; continue only on `status: pass`), 3 the
+  approval fields to show the user before intake (`repository`, `commit`,
+  `comparator_config_path` pre-filled, the headline configuration when one
+  is declared; `authorization_relationship` for the user to state), 4
+  intake, proof and cleanup per Palomar's live agent contract
+  (https://submit.palomar-registry.org/llms.txt, linked, not copied), 5
+  editorial review, 6 registration only on the user's decision, 7 the
+  `record ... palomar-submitted` command as before. lean-pkg still makes no
+  network request and automates none of them. Additive JSON: `handoff`
+  {stages[], approval_fields, agent_contract, full_preflight}, in the dry
+  run too. The bundle, its MANIFEST and the refusals are otherwise
+  unchanged.
+
 - `gate --check` prints its Palomar advisory (`WARN: palomar: not
   submittable ...`) only for a package that aims at Palomar (#391; #387):
   `upstream_target: palomar` or a recorded Palomar entry, and a status other

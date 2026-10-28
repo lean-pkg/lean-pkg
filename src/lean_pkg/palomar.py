@@ -1,7 +1,7 @@
 # lean-pkg palomar -- build a Palomar submission bundle (no network)
 """`lean-pkg palomar prepare NAME [--out DIR] [--dry-run] [--json]` (#22.3): collect what a manual
 Palomar submission needs into one directory, check it, and record that it was built. Bundle only:
-lean-pkg makes no HTTP request and submits nothing; the README lists the manual steps.
+lean-pkg makes no HTTP request and submits nothing; the README is the staged handoff checklist.
 
 The bundle (default `<checkout>/.lean-receipts/palomar-<HEAD12>/`):
 
@@ -12,7 +12,9 @@ The bundle (default `<checkout>/.lean-receipts/palomar-<HEAD12>/`):
   entry and says the others are submitted separately;
 - `receipts/<file>`: the recorded gate and comparator receipts, validated against HEAD (bound to it
   or to an ancestor whose difference is evidence only);
-- `README.txt`: the manual submission steps and the Palomar URLs;
+- `README.txt`: the staged handoff checklist (#402): static readiness (what lean-pkg checked, not
+  Palomar's full preflight), the pinned full preflight, the approval fields, intake through the live
+  agent contract, editorial review, registration on the user's decision, and the `record` command;
 - `MANIFEST.sha256`: `sha256  path` for every other file (`sha256sum -c` checks it).
 
 Refusals (exit 1, nothing written): a missing receipt, a receipt not bound to HEAD, no consent
@@ -36,6 +38,13 @@ from . import core
 
 PALOMAR_URL = "https://palomar-registry.org/"
 PALOMAR_SUBMISSION_URL = "https://github.com/PalomarRegistry/PalomarSubmission"
+# Palomar's live agent contract: intake, proof and cleanup are linked, never copied (they change; #402).
+PALOMAR_AGENT_CONTRACT_URL = "https://submit.palomar-registry.org/llms.txt"
+# The full mechanical preflight; its PalomarSubmission commit is pinned by the user, from the live contract.
+PALOMAR_PREFLIGHT_WORKFLOW = "PalomarRegistry/PalomarSubmission/.github/workflows/submission.yml"
+PALOMAR_EXECUTION_PROFILE = "palomar-standard-v1"
+HANDOFF_STAGES = ("static-readiness", "full-preflight", "approval", "intake", "editorial-review",
+                  "registration", "record")
 EVENT = "palomar-prepared"
 
 
@@ -45,29 +54,82 @@ def _write(root: pathlib.Path, rel: str, data: bytes) -> None:
     p.write_bytes(data)
 
 
+def config_path(configs: list[str], headline: str | None) -> str:
+    """The configuration a submission names: the headline one, else the first tracked one."""
+    return headline or (configs[0] if configs else "comparator.json")
+
+
+def handoff(pkg: dict, head: str, configs: list[str], headline: str | None) -> dict:
+    """The staged handoff checklist as data (#402; JSON `handoff`, additive): the README's stages."""
+    return {"stages": list(HANDOFF_STAGES),
+            "approval_fields": {"repository": pkg.get("repo"), "commit": head,
+                                "comparator_config_path": config_path(configs, headline),
+                                "authorization_relationship": None},
+            "agent_contract": PALOMAR_AGENT_CONTRACT_URL,
+            "full_preflight": {"workflow": PALOMAR_PREFLIGHT_WORKFLOW, "mode": "full",
+                               "execution_profile": PALOMAR_EXECUTION_PROFILE}}
+
+
 def readme_text(pkg: dict, head: str, configs: list[str], files: list[str], placeholders: list[str],
                 headline: str | None = None) -> str:
+    """README.txt: a staged handoff checklist (#402). lean-pkg did stage 1; the rest are the user's and
+    Palomar's, in order. Intake and its proof are linked to the live agent contract, never copied."""
     from . import __version__
     name = pkg["name"]
-    cfg = headline or (configs[0] if configs else "comparator.json")
+    repo = pkg.get("repo")
+    cfg = config_path(configs, headline)
+    others = [c for c in configs if c != cfg]
     lines = [
         f"Palomar submission bundle for {name} at commit {head}",
         f"Built by lean-pkg {__version__} on {core.now_iso()}. Nothing was submitted: lean-pkg makes no",
-        "network request. Submit by hand:",
+        "network request and does none of the steps below (consent, sign-in, intake, registration).",
+        "Work through the stages in order; each one needs the one before it.",
         "",
-        f"1. Make sure commit {head} is pushed to the public repository {pkg.get('repo')}.",
-        f"2. Open {PALOMAR_URL} and follow its submission instructions; the submission",
-        f"   repository layout is described at {PALOMAR_SUBMISSION_URL}.",
-        "3. Give the repository URL, the commit above and the comparator configuration(s):",
+        "1. Static readiness (done by lean-pkg)",
+        "   lean-pkg checked, at the commit above: palomar check (no error gap), the gate and",
+        "   comparator receipts (bound to that commit), and public-safety on this bundle.",
+        "   This is NOT Palomar's full preflight: lean-pkg read files and built nothing.",
+        f"   Make sure commit {head} is pushed to the public repository {repo}.",
+        "   Check this bundle: sha256sum -c MANIFEST.sha256 (run inside this directory).",
+        "",
+        "2. Full mechanical preflight (before intake)",
+        f"   Run the reusable workflow {PALOMAR_PREFLIGHT_WORKFLOW}",
+        f"   with mode: full and execution_profile: {PALOMAR_EXECUTION_PROFILE}, on the repository,",
+        "   commit and configuration of stage 3. Pin `uses:` and `pipeline_commit` to the same full",
+        "   PalomarSubmission commit: the one the live agent contract (stage 4) names.",
+        "   A local lake build, a repository CI job or a standalone comparator run (lean-pkg's",
+        "   comparator receipt included) is not equivalent. Continue only on status: pass.",
+        "",
+        "3. Approval: show the user these fields before intake",
+        f"     repository: {repo}",
+        f"     commit: {head}",
+        f"     comparator_config_path: {cfg}" + ("   (headline: the paper's main results;" if headline else ""),
     ]
     if headline:
-        lines += [f"     {headline}   (headline: the paper's main results; formalization.yaml",
-                  "     status.main_results lists its theorems)",
-                  "   Palomar takes one configuration per submission: submit any other separately."]
-    lines += [f"     {c}" for c in configs if c != headline]
+        lines += ["       formalization.yaml status.main_results lists its theorems)"]
+    lines += ["     authorization_relationship: (the user states it; Palomar records it permanently)",
+              "   Go on only on the user's explicit agreement to all four."]
+    if others:
+        lines += ["   Palomar takes one configuration per submission: submit each other one separately,",
+                  "   through every stage from 2:"]
+        lines += [f"     {c}" for c in others]
     lines += [
-        "4. Check this bundle first: sha256sum -c MANIFEST.sha256 (run inside this directory).",
-        "5. Once Palomar returns a submission id, record it:",
+        "",
+        "4. Intake, proof and cleanup",
+        f"   Follow Palomar's live agent contract: {PALOMAR_AGENT_CONTRACT_URL}",
+        "   It describes intake, the proof of write access and the cleanup after it. They change,",
+        "   so they are not copied here.",
+        f"   Registry: {PALOMAR_URL}",
+        f"   Submission layout: {PALOMAR_SUBMISSION_URL}",
+        "",
+        "5. Editorial review",
+        "   Palomar's editors review the submission. Give the review to the user to read.",
+        "",
+        "6. Registration",
+        "   Register only on the user's explicit decision, made after reading the review.",
+        "",
+        "7. Record the submission",
+        "   Once Palomar returns a submission id, record it:",
         f"     lean-pkg record {name} palomar-submitted --field commit={head} \\",
         f"       --field submission_id=ID --field comparator_config={cfg}",
         "",
@@ -161,6 +223,7 @@ def build(pkg: dict, repo: pathlib.Path, stage: pathlib.Path) -> tuple[list[str]
                         f"({ps.warn_families(scan['hits'])}); review them")
     from . import ledger as ledger_mod
     facts = {"commit": head, "configs": configs, "headline_config": headline,
+             "handoff": handoff(pkg, head, configs, headline),
              "files": files + ["MANIFEST.sha256"],
              "manuscript_findings": ledger_mod.package_findings(pkg, repo),
              "bundle_sha256": hashlib.sha256(manifest.encode()).hexdigest(), "placeholders": placeholders,
