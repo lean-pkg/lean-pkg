@@ -9,6 +9,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Documentation
+
+- Proposals 0002, 0003, 0008 and 0009 are implemented in 0.22.0 (#384):
+  their status lines, the proposals table and the plan rows say so.
+
 ## [0.22.0] - 2026-10-28
 
 ### Added

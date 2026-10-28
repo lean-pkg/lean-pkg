@@ -1,10 +1,12 @@
 # 0008: A compute receipt from a CI runner (GitHub Actions first)
 
-Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
-Decided: accepted 2026-10-26 by Le Chen, with the recommended answers to open questions 1 to 11. Implemented in:
-(release), by #338 (S1, level 1), #348 (S2, `receipt ci` and `verify.yml`), #355 (S3, `--corroborate`, level 2),
-#363 (S4, `--attested`, level 3) and #358 (S5, the comparator tier in CI); a live run in a public sample
-repository is still to do. Tracked in [#318](https://github.com/lean-pkg/lean-pkg/issues/318).
+Status: implemented. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
+Decided: accepted 2026-10-26 by Le Chen, with the recommended answers to open questions 1 to 11. Implemented
+in: 0.22.0 ([doi:10.5281/zenodo.23719839](https://doi.org/10.5281/zenodo.23719839)), by #338 (S1, level 1),
+#348 (S2, `receipt ci` and `verify.yml`), #355 (S3, `--corroborate`, level 2), #363 (S4, `--attested`, level
+3) and #358 (S5, the comparator tier in CI), with #364, #374, #375, #379 and #382; validated by a live run in
+chenle02/neumann-cosine-lean (run 40501641370, levels 1 to 3). Tracked in
+[#318](https://github.com/lean-pkg/lean-pkg/issues/318).
 
 ## Summary
 
