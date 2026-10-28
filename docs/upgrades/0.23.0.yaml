@@ -126,6 +126,8 @@ changes:
     action: >-
       Nothing required. Re-run lean-pkg page NAME --write (and --site/--html) to refresh a committed page;
       page --check reports the old wording as stale until then.
+    breaking: false
+    changelog: Fixed
   - pr: 399
     id: page-published-unanchored-manuscript
     kind: behavior
