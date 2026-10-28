@@ -14,6 +14,8 @@ import re
 
 import yaml
 
+import lean_pkg
+
 from .conftest import ROOT, index_add, make_index_package
 
 GOLDEN = ROOT / "tests" / "golden" / "outputs-no-keys.json"
@@ -22,6 +24,8 @@ GOLDEN = ROOT / "tests" / "golden" / "outputs-no-keys.json"
 def _normalize(text: str, *paths) -> str:
     for p in paths:
         text = text.replace(str(p), "<TMP>")
+    # status names the running lean-pkg; the golden must not pin the release (the 0.22.0 cut failed on it)
+    text = text.replace(f"running {lean_pkg.__version__})", "running <LEAN_PKG_VERSION>)")
     text = re.sub(r"\b[0-9a-f]{64}\b", "<SHA256>", text)
     text = re.sub(r"\b[0-9a-f]{40}\b", "<SHA40>", text)
     text = re.sub(r"\b[0-9a-f]{12}\b", "<SHA12>", text)
