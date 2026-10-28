@@ -322,6 +322,20 @@ lists each one with its fix. `warn` gaps never block it: they print as
 `lean-pkg: warning: palomar check: ...` lines, and no flag is needed to
 proceed past them.
 
+**`palomar prepare` built a bundle. Is the package ready to submit?**
+Not yet. The bundle's `README.txt` is a staged handoff checklist, and
+lean-pkg has done only its first stage, a static readiness check that
+builds nothing. Before intake comes Palomar's full mechanical preflight
+(its reusable workflow with `mode: full`, pinned to one PalomarSubmission
+commit; a local `lake build`, a CI job or lean-pkg's comparator receipt is
+not equivalent), then the user's explicit approval of `repository`,
+`commit`, `comparator_config_path` and `authorization_relationship`, then
+intake, proof and cleanup as Palomar's
+[live agent contract](https://submit.palomar-registry.org/llms.txt) says,
+editorial review, and registration only on the user's decision. lean-pkg
+automates none of these and makes no network request; `--json` carries the
+same stages as `handoff`.
+
 **Which rules does it check, and where do they come from?**
 Palomar's own repository,
 [PalomarSubmission](https://github.com/PalomarRegistry/PalomarSubmission),

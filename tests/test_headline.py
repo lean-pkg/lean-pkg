@@ -346,5 +346,9 @@ def test_prepare_bundles_the_headline_config_and_names_it(lp, env, capsys, assum
     readme = (bundle / "README.txt").read_text()
     assert f"{HEADLINE}   (headline: the paper's main results" in readme
     assert f"--field comparator_config={HEADLINE}" in readme
+    # #402: the approval fields pre-fill the headline configuration; the others go separately
+    assert f"     comparator_config_path: {HEADLINE}   (headline: the paper's main results;" in readme
+    assert "submit each other one separately" in readme and "\n     comparator.json\n" in readme
+    assert payload["handoff"]["approval_fields"]["comparator_config_path"] == HEADLINE
     fz = yaml.safe_load((bundle / "formalization.yaml").read_text())
     assert decls(fz) == [(HEADLINE, "BetaAudit.A.one")]
