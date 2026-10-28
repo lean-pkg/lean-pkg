@@ -49,6 +49,24 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   record with `update NAME --path DIR --reason TEXT`, which the writing
   gate's own `--repo` refusal now also says.
 
+- `palomar port-modules` names what it did not read, scopes `--write` to
+  the package, and `verify` suggests it (#395; #392). The plan still reads
+  HEAD only; untracked `.lean` files of the package (its exclusions apply)
+  are now listed: `N untracked .lean file(s) under DIR/ not read
+  (port-modules reads HEAD): commit them first`, and the verdict says
+  `nothing to port at HEAD (N untracked .lean file(s) not read)` instead of
+  a bare `nothing to port`. `--write` checks `git status -- <package dir>`
+  (and the files it writes, all inside it): a modified or untracked path
+  inside the package still refuses, paths elsewhere in the repository (a
+  manuscript beside an embedded package) no longer do; the refusal names
+  the scope checked. For a package at the repository root nothing changes.
+  Additive JSON: `untracked_lean[]` and `clean_scope` (the package
+  directory, `.` at the root). `verify`'s step 0 runs port-modules' import
+  scan at HEAD: a module-headed file importing a non-module file of the
+  package (which fails to build) is a warning naming the files and `next:
+  lean-pkg palomar port-modules NAME --dry-run`, never a refusal; the
+  step-0 `--json` output gains `module_imports[]` and `warnings[]`.
+
 ### Documentation
 
 - Proposals 0002, 0003, 0008 and 0009 are implemented in 0.22.0 (#384):

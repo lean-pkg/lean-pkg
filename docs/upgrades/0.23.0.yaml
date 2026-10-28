@@ -54,6 +54,27 @@ changes:
       the gate.
     breaking: false
     changelog: Changed
+  - pr: 395
+    id: port-modules-package-scope
+    kind: behavior
+    area: palomar port-modules, verify
+    summary: >-
+      palomar port-modules (issue 392) lists the package's untracked .lean files it did not read (it reads HEAD):
+      'N untracked .lean file(s) under DIR/ not read (port-modules reads HEAD): commit them first', and says
+      'nothing to port at HEAD (N untracked ...)' instead of a bare 'nothing to port'; --json gains
+      untracked_lean[]. --write checks the cleanliness of the package directory only (git status -- DIR, plus
+      the files it writes): a dirty or untracked path inside the package still refuses, paths elsewhere in the
+      repository no longer block; the refusal and --json (clean_scope, "." at the root) name the scope. A
+      package at the repository root is unchanged. verify's step 0 runs the same import scan at HEAD and warns
+      (never refuses) when a module-headed file imports a non-module file of the package, naming the files and
+      lean-pkg palomar port-modules NAME --dry-run; the step-0 JSON output gains module_imports[] and
+      warnings[].
+    action: >-
+      Nothing required. Commit new .lean files before port-modules if it lists them; a package embedded in a
+      larger repository can now --write with unrelated changes elsewhere. On the verify warning, run the
+      printed port-modules dry run.
+    breaking: false
+    changelog: Changed
 # Docs: proposals 0002, 0003, 0008 and 0009 marked implemented in 0.22.0 (status lines, the proposals table,
 # plan rows); no code changes (#384).
 no_author_change: [384]

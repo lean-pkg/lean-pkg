@@ -6,7 +6,8 @@ positional arguments:
 options:
   -h, --help     show this help message and exit
   --dry-run      the default: print the per-file plan and the unified diff; write nothing
-  --write        apply the plan to a clean working tree (a dirty tree is refused); never commits,
+  --write        apply the plan to a clean package directory (a dirty or untracked path inside it
+                 is refused; paths elsewhere in the repository are not checked); never commits,
                  never writes the registry
   --agent AGENT  with --write: the lease holder, when the package is leased
   --json         machine-readable JSON on stdout

@@ -144,3 +144,53 @@ def test_an_already_verified_package_skips_the_preflight(lp, env, capsys, monkey
     calls, _ = fake_steps(monkeypatch, env.repo_b)
     rc, out, _err = run(lp, capsys, "--registry", str(env.registry), "verify", "beta")
     assert rc == 0 and "already verified" in out and "0/3 preflight" not in out and calls == []
+
+
+SOLUTION = "module\n\npublic import Demo.Main\n\npublic section\ntheorem s : True := trivial\nend\n"
+
+
+def test_a_module_file_importing_a_non_module_file_warns_and_proceeds(lp, vpkg, capsys, monkeypatch, tmp_path):
+    """#392: step 0 runs port-modules' import scan at HEAD; a module-headed file importing a non-module
+    file of the package is a warning naming the files and the next command, never a refusal."""
+    reg, repo = vpkg
+    head = commit(repo, {"claims.yaml": CLAIMS, "Demo/Main.lean": LEAN, "Solution.lean": SOLUTION})
+    calls, _ = fake_steps(monkeypatch, repo)
+    rc, _out, err = verify(lp, capsys, reg, tmp_path)
+    assert rc == 0, err
+    assert len(calls) == 4
+    assert (f"lean-pkg: warning: 1 module-headed file(s) at {head[:12]} import a non-module file of the package"
+            in err)
+    assert "Solution.lean:3 imports Demo.Main (Demo/Main.lean)" in err
+    assert "next: lean-pkg palomar port-modules v --dry-run" in err
+    rc, out, _err = run(lp, capsys, "--registry", str(reg), "--json", "verify", "v", "--dry-run")
+    pre = json.loads(out)["steps"][0]["output"]
+    assert rc == 0 and pre["module_imports"] == [{"file": "Solution.lean", "line": 3, "module": "Demo.Main",
+                                                  "target": "Demo/Main.lean"}]
+    assert len(pre["warnings"]) == 1 and "palomar port-modules v --dry-run" in pre["warnings"][0]
+
+
+def test_no_module_import_warning_otherwise(lp, vpkg, capsys, monkeypatch, tmp_path):
+    """Both files module-headed, or neither: no warning; an uncommitted bad import is not read (HEAD)."""
+    reg, repo = vpkg
+    ported = "module\n\npublic section\n" + LEAN + "end\n"
+    commit(repo, {"claims.yaml": CLAIMS, "Demo/Main.lean": ported, "Solution.lean": SOLUTION,
+                  ".gitignore": "Extra.lean\n"})
+    (repo / "Extra.lean").write_text("module\n\npublic import Legacy\n")
+    fake_steps(monkeypatch, repo)
+    rc, out, err = run(lp, capsys, "--registry", str(reg), "--json", "verify", "v", "--dry-run")
+    pre = json.loads(out)["steps"][0]["output"]
+    assert rc == 0 and pre["module_imports"] == [] and pre["warnings"] == [] and "non-module" not in err
+
+
+def test_an_unreadable_tree_skips_the_scan_silently(lp, vpkg, capsys, monkeypatch, tmp_path):
+    from lean_pkg import core, port_modules
+    reg, repo = vpkg
+    commit(repo, {"claims.yaml": CLAIMS, "Demo/Main.lean": LEAN, "Solution.lean": SOLUTION})
+
+    def boom(_repo):
+        raise core.Fail("cannot list the tree")
+    monkeypatch.setattr(port_modules, "non_module_imports", boom)
+    fake_steps(monkeypatch, repo)
+    rc, out, err = run(lp, capsys, "--registry", str(reg), "--json", "verify", "v", "--dry-run")
+    pre = json.loads(out)["steps"][0]["output"]
+    assert rc == 0 and pre["module_imports"] == [] and pre["warnings"] == [] and "warning" not in err

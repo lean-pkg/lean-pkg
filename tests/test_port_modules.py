@@ -244,6 +244,90 @@ def test_review_items_meta_and_non_module_import(lp, tmp_path, capsys):
     assert [r["code"] for r in files["P/UsesCore.lean"]["reviews"]] == ["imports-non-module"]
 
 
+def test_untracked_lean_files_are_named_not_read(lp, tmp_path, capsys):
+    """#392: the plan reads HEAD; untracked .lean files of the package are listed (text and JSON), so a dry
+    run never says a bare "nothing to port" over files it did not read. The plan's exclusions apply."""
+    repo, reg = make_pkg(tmp_path, project())
+    port(lp, reg, capsys, "--write")
+    _git(repo, "commit", "-qam", "port")
+    rc, data = port(lp, reg, capsys)
+    assert rc == 0 and data["untracked_lean"] == [] and data["counts"]["port"] == 0
+    lp.main(["--registry", str(reg), "palomar", "port-modules", "gamma"])
+    assert "nothing to port at HEAD (dry run)" in capsys.readouterr().out
+    for rel in ("P/New.lean", "P/Sub/Other.lean", "lake-packages/old/Old.lean", "vendor/x/lakefile.toml",
+                "vendor/x/X.lean", "notes.txt"):
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text("def n := 1\n")
+    rc, data = port(lp, reg, capsys)
+    assert rc == 0 and data["untracked_lean"] == ["P/New.lean", "P/Sub/Other.lean"]
+    assert data["clean_scope"] == "." and data["counts"]["port"] == 0
+    lp.main(["--registry", str(reg), "palomar", "port-modules", "gamma"])
+    out = capsys.readouterr().out
+    assert out.splitlines()[0].endswith("nothing to port at HEAD (2 untracked .lean file(s) not read) (dry run)")
+    assert "2 untracked .lean file(s) under ./ not read (port-modules reads HEAD): commit them first" in out
+    assert "    P/New.lean" in out and "Old.lean" not in out and "X.lean" not in out
+    assert "nothing to port (dry run)" not in out
+    rc = lp.main(["--registry", str(reg), "palomar", "port-modules", "gamma", "--write"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "nothing to port at HEAD (2 untracked .lean file(s) not read)" in out
+    assert "commit them first" in out
+
+
+def subdir_pkg(tmp_path):
+    """A package in pkg/ of a manuscript repository (paper/ beside it)."""
+    files = {f"pkg/{k}": v for k, v in project().items()}
+    files.update({"paper/main.tex": "\\documentclass{article}\n", ".gitignore": ".lake/\n"})
+    repo, reg = make_pkg(tmp_path, files)
+    doc = yaml.safe_load(reg.read_text())
+    doc["packages"]["gamma"]["local_path"] = str(repo / "pkg")
+    reg.write_text(yaml.safe_dump(doc, sort_keys=False))
+    return repo, reg
+
+
+def test_write_checks_the_package_directory_only(lp, tmp_path, capsys):
+    """#392: --write checks `git status -- <package dir>`: dirty or untracked paths elsewhere in the
+    repository no longer block; a dirty or untracked path inside the package still refuses, and the refusal
+    and --json name the scope checked."""
+    repo, reg = subdir_pkg(tmp_path)
+    (repo / "paper/main.tex").write_text("edited\n")
+    (repo / "paper/draft.tex").write_text("untracked\n")
+    (repo / "pkg/P/Main.lean").write_text(MAIN + "-- edit\n")
+    rc = lp.main(["--registry", str(reg), "palomar", "port-modules", "gamma", "--write"])
+    err = capsys.readouterr().err
+    assert rc == 1 and "the package directory pkg/ of the repository" in err and "checked: pkg" in err
+    assert "pkg/P/Main.lean" in err and "paper/" not in err and "nothing written" in err
+    (repo / "pkg/P/Main.lean").write_text(MAIN)
+    (repo / "pkg/scratch.txt").write_text("x")
+    rc = lp.main(["--registry", str(reg), "palomar", "port-modules", "gamma", "--write"])
+    assert rc == 1 and "pkg/scratch.txt" in capsys.readouterr().err
+    (repo / "pkg/scratch.txt").unlink()
+    rc, data = port(lp, reg, capsys, "--write")
+    assert rc == 0 and data["clean_scope"] == "pkg" and data["project_path"] == "pkg"
+    assert data["written"] == ["P.lean", "P/Defs.lean", "P/Main.lean"]
+    assert (repo / "paper/main.tex").read_text() == "edited\n"          # outside: untouched
+    assert has_module_header((repo / "pkg/P/Main.lean").read_text())
+
+
+def test_write_at_the_repository_root_checks_the_whole_tree(lp, tmp_path, capsys):
+    """A package at the repository root: unchanged, any dirty path refuses; the scope is "."."""
+    repo, reg = make_pkg(tmp_path, project(**{"paper/main.tex": "x\n"}))
+    (repo / "paper/main.tex").write_text("edited\n")
+    rc = lp.main(["--registry", str(reg), "palomar", "port-modules", "gamma", "--write"])
+    err = capsys.readouterr().err
+    assert rc == 1 and f"the working tree of {repo} is not clean" in err and "checked: ." in err
+    assert "paper/main.tex" in err and (repo / "P/Main.lean").read_text() == MAIN
+
+
+def test_non_module_imports_at_head(tmp_path):
+    """#392: verify's preflight scan: a module-headed file importing a non-module file of the package."""
+    from lean_pkg.port_modules import non_module_imports
+    repo, _reg = make_pkg(tmp_path, project(**{
+        "P/Solution.lean": "module\n\npublic import P.Defs\npublic import P.Ok\n",
+        "P/Ok.lean": "module\n\npublic section\ndef ok := 1\nend\n"}))
+    assert non_module_imports(repo) == [{"file": "P/Solution.lean", "line": 3, "module": "P.Defs",
+                                         "target": "P/Defs.lean"}]
+
+
 def test_palomar_check_reports_no_module_gap_after_the_port(lp, tmp_path, capsys):
     repo, reg = make_pkg(tmp_path, project())
     lp.main(["--registry", str(reg), "palomar", "check", "gamma", "--json"])
