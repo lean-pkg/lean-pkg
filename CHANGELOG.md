@@ -689,6 +689,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- The page's Evidence table names a GitHub Actions receipt's job (#382;
+  #381): `gha-<run>-<attempt>` when the receipt's `ci` block passes level 1,
+  as it names a Slurm receipt's `slurm-<J>`; it showed a dash.
 - `verify.yml`'s comparator job uploads only the checked-out commit's
   comparator receipt and logs (#379; #318), named from `GITHUB_SHA`, not every
   comparator receipt in `.lean-receipts/` (found by the third live run).
