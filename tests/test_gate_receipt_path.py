@@ -83,8 +83,11 @@ def test_writing_gate_from_a_parent_cwd_records_the_resolved_receipt(lp, env, ca
     assert read_reg(env)["packages"]["alpha"]["status"] == "verified-private"
 
 
-def test_check_refusing_agent_explains_why(lp, env, tmp_path, capsys):
+def test_check_with_agent_runs_and_notes_it(lp, env, tmp_path, capsys):
+    """#386: --check takes --agent (it was exit 2): a stderr note, and the agent goes into next:."""
     put(env.repo_a, make_receipt(env.repo_a))
-    assert gate(lp, env, "alpha", "--receipt", str(env.repo_a / REL), "--check", "--agent", "vera") == 2
-    err = capsys.readouterr().err
-    assert "takes no lease" in err and "gate alpha --receipt R --agent A" in err
+    assert gate(lp, env, "alpha", "--receipt", str(env.repo_a / REL), "--check", "--agent", "vera") == 0
+    cap = capsys.readouterr()
+    assert "gate --check takes no lease" in cap.err and "--agent vera is used by the writing gate" in cap.err
+    assert cap.out.splitlines()[-1] == f"next: lean-pkg gate alpha --receipt {env.repo_a / REL} --agent vera"
+    assert read_events(env) == []

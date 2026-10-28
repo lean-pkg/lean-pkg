@@ -35,6 +35,25 @@ changes:
       checks --json's key set exactly sees the new schema key.
     breaking: false
     changelog: Added
+  - pr: 390
+    id: gate-check-next-command
+    kind: behavior
+    area: gate
+    summary: >-
+      gate --check takes --agent A (issue 386): it runs the check and notes on stderr that --check takes no
+      lease and --agent A is for the writing gate; it was a usage error (exit 2). --check
+      --refresh-formalization is still refused (it writes). A passing check, on a status the writing gate
+      takes, ends with 'next: lean-pkg gate NAME --receipt R ... --agent A' (the evidence flags it was given,
+      shell-quoted; --agent A when given, else the placeholder AGENT), and --json gains next_command (that
+      string, null when the check fails or the status needs another step first). After --check --repo DIR
+      away from the registered local_path a line adds that the writing gate binds the registered checkout
+      (run it there, or move the record with update NAME --path DIR --reason TEXT).
+    action: >-
+      Nothing required. A script that called gate --check without --agent keeps working; one that read the
+      exit 2 of --check --agent now gets the check's own exit code. Run the printed next: command to record
+      the gate.
+    breaking: false
+    changelog: Changed
 # Docs: proposals 0002, 0003, 0008 and 0009 marked implemented in 0.22.0 (status lines, the proposals table,
 # plan rows); no code changes (#384).
 no_author_change: [384]

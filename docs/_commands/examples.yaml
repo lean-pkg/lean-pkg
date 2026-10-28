@@ -344,6 +344,8 @@ lean-pkg receipt check:
 lean-pkg gate:
   - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --check
     say: Validate the receipt against HEAD and record nothing; exit 1 when gate would refuse it.
+  - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --check --agent vera
+    say: The same check; when it passes, the last line is the writing gate to run next, with --agent vera (JSON next_command).
   - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json
     say: Accept the lower-tier receipt and move the package from gate-pending to verified-private.
   - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --regate
