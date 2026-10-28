@@ -5,7 +5,7 @@
 schema: lean-pkg-upgrade-record/1
 version: 0.23.0
 changes:
-  - pr: 389   # PRNUM: predicted; set to the real PR number when it is opened
+  - pr: 390
     id: gate-check-next-command
     kind: behavior
     area: gate

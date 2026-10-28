@@ -12,7 +12,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 ### Changed
 
 - `gate --check` can become the writing gate without retyping it
-  (#389; #386). `gate NAME --check --agent A` runs the check, with one
+  (#390; #386). `gate NAME --check --agent A` runs the check, with one
   stderr note that `--check` takes no lease and `--agent A` is for the
   writing gate; it was a usage error (exit 2). `--check
   --refresh-formalization` stays refused (it writes). A passing check, on
