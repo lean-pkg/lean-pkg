@@ -12,7 +12,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 ### Changed
 
 - `gate --check` prints its Palomar advisory (`WARN: palomar: not
-  submittable ...`) only for a package that aims at Palomar (#PRNUM; #387):
+  submittable ...`) only for a package that aims at Palomar (#391; #387):
   `upstream_target: palomar` or a recorded Palomar entry, and a status other
   than scratch, archived or upstreamed, the predicate `registry audit`
   already used. For any other package, such as a verified-private one with

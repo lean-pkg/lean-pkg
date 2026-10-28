@@ -5,7 +5,7 @@
 schema: lean-pkg-upgrade-record/1
 version: 0.23.0
 changes:
-  - pr: PRNUM
+  - pr: 391
     id: gate-check-palomar-advisory-intent
     kind: behavior
     area: gate
