@@ -200,7 +200,7 @@ def test_yes_with_gh_logged_out_refuses(lp, env, capsys, tmp_path, monkeypatch):
 def test_json_shape(lp, env, capsys):
     rc, out = _report(lp, env, capsys, "--body", "the lease vanished")
     assert rc == 0
-    assert set(out) == {"ok", "filed", "url", "title", "labels", "body", "redactions"}
+    assert set(out) == {"ok", "filed", "url", "title", "labels", "body", "redactions", "schema"}
     assert out["ok"] is True and out["filed"] is False and out["url"] is None
     assert out["labels"] == ["bug"] and isinstance(out["redactions"], int)
     from lean_pkg import __version__
@@ -530,3 +530,90 @@ def test_the_git_work_tree_holding_the_registry_is_a_placeholder(rp, tmp_path):
     reg.parent.mkdir()
     red = rp.build_redactor(reg, {}, None)
     assert red(f"{repo} @ abc1234 on main; {reg}") == "<registry-repo> @ abc1234 on main; <registry>"
+
+
+# --------------------------------------------------------------------------
+# intake fields: --expected, --workaround, --blocking, and the lean-pkg-report/1 marker
+
+def _expected(body: str) -> str:
+    """The What you expected section of a report body."""
+    return body.split("**What you expected**", 1)[1].split("**Minimal registry or receipt**", 1)[0]
+
+
+def test_the_marker_is_a_module_constant(rp):
+    assert rp.SCHEMA == "lean-pkg-report/1" and rp.MARKER == "<!-- lean-pkg-report/1 -->"
+
+
+def test_the_marker_is_line_one_of_the_body_in_json_and_dry_run(lp, env, capsys, rp):
+    rc, out = _report(lp, env, capsys, "--body", "x")
+    assert rc == 0 and out["schema"] == rp.SCHEMA
+    assert out["body"].splitlines()[0] == rp.MARKER
+    assert out["body"].splitlines()[1].startswith("<!-- filed with `lean-pkg report`")
+    assert lp.main(["--registry", str(env.registry), "report", "--body", "x", "--dry-run"]) == 0
+    text = capsys.readouterr().out
+    assert text.split("\n---\n", 1)[1].splitlines()[0] == rp.MARKER
+
+
+def test_the_marker_is_line_one_of_the_filed_body(lp, env, capsys, rp, tmp_path):
+    rc, out = _report(lp, env, capsys, "--body", "x", "--yes")
+    assert rc == 0 and out["filed"] is True and out["schema"] == rp.SCHEMA
+    assert (tmp_path / "gh-body.md").read_text().splitlines()[0] == rp.MARKER
+
+
+def test_each_intake_flag_renders_its_section(lp, env, capsys, rp):
+    rc, out = _report(lp, env, capsys, "--body", "x", "--expected", "the lease kept", "--workaround",
+                      "claimed it again", "--blocking", "yes")
+    assert rc == 0
+    body = out["body"]
+    found = tuple(re.findall(r"^\*\*([^*]+)\*\*", body, re.M))
+    assert found == ("Blocking",) + rp.SECTIONS[:4] + ("Workaround",) + rp.SECTIONS[4:]
+    assert "\n**Blocking**: yes\n" in body and body.index("**Blocking**") < body.index("**Version**")
+    assert _expected(body) == ":\n\nthe lease kept\n\n**Workaround**:\n\nclaimed it again\n\n"
+    assert "<!-- what should have happened -->" not in body
+    rc, out = _report(lp, env, capsys, "--body", "x", "--blocking", "no")
+    assert rc == 0 and "\n**Blocking**: no\n" in out["body"]
+
+
+def test_absent_intake_flags_render_nothing(lp, env, capsys, rp):
+    rc, out = _report(lp, env, capsys, "--body", "x")
+    assert rc == 0
+    body = out["body"]
+    assert tuple(re.findall(r"^\*\*([^*]+)\*\*", body, re.M)) == rp.SECTIONS
+    assert "Blocking" not in body and "Workaround" not in body and "unknown" not in body
+    assert _expected(body) == ":\n\n<!-- what should have happened -->\n\n"
+
+
+@pytest.mark.parametrize("value", ["maybe", "YES", "true", ""])
+def test_blocking_rejects_other_values(lp, env, capsys, value):
+    with pytest.raises(SystemExit) as e:
+        lp.main(["--registry", str(env.registry), "report", "--body", "x", "--blocking", value])
+    assert e.value.code == 2
+    assert "--blocking" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag", ["--expected", "--workaround"])
+def test_an_empty_intake_text_is_a_usage_error(lp, env, capsys, flag):
+    assert lp.main(["--registry", str(env.registry), "report", "--body", "x", flag, "  "]) == 2
+    assert f"{flag} must not be empty" in capsys.readouterr().err
+
+
+def test_intake_texts_are_redacted_like_the_body(lp, env, capsys, monkeypatch):
+    _private_notes(lp, env, monkeypatch)
+    rc, out = _report(lp, env, capsys, "--body", "x",
+                      "--expected", f"read {lp.HOME}/proj/a.lean, mail a.person@uni.edu",
+                      "--workaround", f"copied {lp.HOME}/proj/b.lean by hand, asked b.person@uni.edu")
+    assert rc == 0
+    body = out["body"]
+    assert str(lp.HOME) not in body and "a.person@uni.edu" not in body and "b.person@uni.edu" not in body
+    assert "read ~/proj/a.lean, mail […]" in _expected(body)
+    assert "copied ~/proj/b.lean by hand, asked […]" in _expected(body)
+
+
+def test_a_private_string_left_in_an_intake_text_refuses_naming_it(lp, env, capsys, rp, monkeypatch, tmp_path):
+    _anchored_pattern(rp, env, monkeypatch)
+    for flag in ("--expected", "--workaround"):
+        rc, out = _report(lp, env, capsys, "--yes", "--body", "x", flag, "first line\nCODENAME left here")
+        assert rc == 1 and out["ok"] is False and out["body"] is None
+        assert out["sections"] == [{"section": flag, "origin": "user", "families": [rp.ps.PATTERNS_FILE]}]
+        assert f"in your text ({flag}); nothing filed" in out["error"]
+        assert "CODENAME" not in json.dumps(out) and not (tmp_path / "gh-argv.txt").exists()
