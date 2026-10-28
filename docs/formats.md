@@ -26,7 +26,11 @@ A format version names a set of keys and what each one means.
   this way, and so was the top-level `statements_module` of `claims/1`
   ([#369](https://github.com/lean-pkg/lean-pkg/issues/369): the one module
   of `Prop` definitions a Challenge may import;
-  [A statements module for conditional claims](comparator.md#a-statements-module-for-conditional-claims)). `claims/1` and `coverage/1` are strict, so an older lean-pkg
+  [A statements module for conditional claims](comparator.md#a-statements-module-for-conditional-claims)).
+  The registry's top-level `lean_pkg: {recommended: X.Y.Z}` was added the
+  same way, within version 3 ([#388](https://github.com/lean-pkg/lean-pkg/issues/388);
+  [The registry file](cli.md#the-registry-file)): an older lean-pkg ignores it and keeps it
+  on every save. `claims/1` and `coverage/1` are strict, so an older lean-pkg
   refuses a file that uses a key added after it: a package that uses one
   needs a release that knows it in its CI pin. `index-entry/2` gained two
   optional derived keys of a claim the same way, `status` (only
@@ -344,12 +348,12 @@ non-negative integer, and prints one warning naming the upgrade; a reader
 that only shows lines (the board's last event, the pending-change summary
 of a committed-mode refusal) shows them as they are.
 
-Package events (every event below except the four log-only ones) are also
+Package events (every event below except the five log-only ones) are also
 appended to the package's `history[]` in the registry, without `v`, and may
 carry `actor`: the `--agent` of the `gate`, `comparator`, `record`,
 `publish`, `claims sync` or `verify` run that wrote an event with no
 `agent` key. The log-only events are `registry-created`,
-`registry-migrated`, `index-added` and `prior-art-searched`.
+`registry-migrated`, `registry-recommended`, `index-added` and `prior-art-searched`.
 
 The keys of each event, beyond `ts`, `event`, `name` and `v`. Not every key
 is on every line: a key that does not apply is left out. `<field>_from`
@@ -359,6 +363,7 @@ stands for one key per field `update` changed, holding its old value.
 |---|---|---|
 | `registry-created` | `registry init` | `registry`, `version`, `forced` |
 | `registry-migrated` | `registry migrate` | `from_version`, `to_version`, `changes` |
+| `registry-recommended` | `registry recommend` | `recommended`, `previous`, `reason` |
 | `registered` | `register` | `repo`, `local_path`, `status`, `visibility`, `lean_toolchain`, `mathlib_pin`, `workspace`, `agent`, `reason`, `like`, `license_spdx` |
 | `updated` | `update` | `fields`, `reason`, `forced`, `notes_replaced`, `<field>_from` |
 | `claimed` | `lease claim` | `agent`, `workspace`, `ttl_hours`, `reason`, `contact` |

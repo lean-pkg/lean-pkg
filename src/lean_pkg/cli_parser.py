@@ -150,10 +150,11 @@ def build_parser():
     # 1.0 command tree (docs/design/1.0-command-tree.md): coordination and maintenance commands live under
     # nouns; each keeps its pre-1.0 `cmd` (set_defaults) so every predicate below is unchanged, and its old
     # top-level spelling is a permanent alias (command_tree.COMMAND_ALIASES).
-    s = sub.add_parser("registry", help="the registry file itself: init, migrate, validate, audit, board, wiki "
+    s = sub.add_parser("registry", help="the registry file itself: init, migrate, validate, audit, board, recommend, "
+                                        "wiki "
                                         "(the old top-level spellings keep working)")
     registry_sub = s.add_subparsers(dest="registry_cmd", required=True,
-                                    metavar="{board,init,migrate,validate,audit,wiki}")
+                                    metavar="{board,init,migrate,validate,audit,recommend,wiki}")
     s = registry_sub.add_parser("board", help="curses TUI on a tty; static table otherwise",
                        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=package_fields_help())
     s.add_argument("--only", metavar="NAME[,NAME]", default=None,
@@ -674,6 +675,9 @@ def build_parser():
     s = registry_sub.add_parser("validate", help="schema + enum + history sanity; exit 0/1")
     add_json(s)
     s.set_defaults(fn=cmd_validate, cmd="validate")
+
+    from . import recommended as recommended_mod
+    recommended_mod.add_parser(registry_sub, add_json)
 
     s = sub.add_parser("doctor", help="installation, registry, index and tool diagnostics; "
                                       "exit 1 when the registry is unreadable or its schema "

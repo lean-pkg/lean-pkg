@@ -179,6 +179,25 @@ The holder is whatever `--agent` (and `--workspace`) the claim passed, so:
   they become derived patterns at scan time, so a machine name in a contact is flagged if it
   turns up in the package.
 
+## The registry file
+
+`lean-packages.yaml` is a mapping with these top-level keys. Never edit it by hand: each key has its
+writing command.
+
+| Key | Required | Meaning | Written by |
+|---|---|---|---|
+| `version` | yes | the schema version, 3 (1 and 2 are read; a newer one is refused, naming the upgrade) | `registry init`, `registry migrate` |
+| `packages` | yes | one [package record](#package-record) per package, keyed by its name | `register`, `update` and every other write |
+| `lean_pkg` | no | `{recommended: X.Y.Z}`: the release of lean-pkg every machine using this registry should run ([#388](https://github.com/lean-pkg/lean-pkg/issues/388)) | [`registry recommend`](commands/registry-recommend.md) |
+
+`lean_pkg` is additive within schema version 3: an older lean-pkg ignores it and keeps it on every save.
+When the running lean-pkg is older than `lean_pkg.recommended` (compared on `X.Y.Z`), every writing command
+ends with one stderr notice naming both versions and the upgrade route, and a registry write's `--json`
+gains `lean_pkg_skew` {`running`, `recommended`}; `doctor` prints it as its `recommended` line. It is never
+a refusal and reads no network. `registry validate` refuses a `lean_pkg` that is not a mapping or a
+`recommended` that is not an `X.Y.Z` string; other keys under `lean_pkg` are ignored, so a later release
+can add one.
+
 ## Package record
 
 Each package in the registry, and the `package` object of `status NAME --json`, is a mapping

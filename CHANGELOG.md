@@ -20,6 +20,23 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `<!-- lean-pkg-report/1 -->`, and `--json` gains `schema:
   "lean-pkg-report/1"`.
 
+- `registry recommend X.Y.Z` and an offline notice when the running
+  lean-pkg is older than the release a shared registry recommends
+  (#394; #388). The registry gains the optional top-level key `lean_pkg:
+  {recommended: X.Y.Z}` (additive: the schema stays version 3, and an
+  older lean-pkg ignores the key and keeps it), written only by `registry
+  recommend` (committed mode as other registry writes; log-only event
+  `registry-recommended`). On an older lean-pkg, every writing command
+  (registry writes, and `receipt slurm`, `systemd`, `ci` and `comparator`
+  outside their read-only forms) ends with one stderr line `lean-pkg:
+  notice: this is lean-pkg A.B.C; the registry recommends X.Y.Z (upgrade:
+  ...)`, never a refusal and without network access; a registry write's
+  `--json` gains `lean_pkg_skew {running, recommended}` (absent when not
+  older). `doctor` prints a `recommended` line (warn when older or
+  malformed), and `registry validate` checks the key's shape. Versions
+  compare on `X.Y.Z`, so a development build `0.23.0.dev1` counts as
+  0.23.0.
+
 ### Changed
 
 - `gate --check` prints its Palomar advisory (`WARN: palomar: not

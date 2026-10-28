@@ -54,6 +54,25 @@ changes:
       the gate.
     breaking: false
     changelog: Changed
+  - pr: 394
+    id: registry-recommended-version
+    kind: command
+    area: registry
+    summary: >-
+      New registry recommend X.Y.Z (issue 388) sets the registry's optional top-level lean_pkg: {recommended:
+      X.Y.Z} (additive; schema version stays 3; an older lean-pkg ignores the key and keeps it on save) and
+      appends the log-only event registry-recommended {recommended, previous, reason}. When the running
+      lean-pkg is older (compared on X.Y.Z; a dev build 0.23.0.dev1 counts as 0.23.0), every writing command
+      (registry writes; receipt slurm, systemd, ci and comparator outside their read-only forms) ends with one
+      stderr line 'lean-pkg: notice: this is lean-pkg A.B.C; the registry recommends X.Y.Z (upgrade: ...)',
+      offline and never a refusal, and a registry write's --json gains lean_pkg_skew {running, recommended}
+      (absent when not older). doctor gains a recommended line; registry validate checks the key's shape.
+    action: >-
+      Nothing required. Whoever upgrades a shared registry can run lean-pkg registry recommend X.Y.Z --commit;
+      a script that checks a writing command's --json key set exactly may see lean_pkg_skew, and one that
+      reads doctor's lines sees one more.
+    breaking: false
+    changelog: Added
 # Docs: proposals 0002, 0003, 0008 and 0009 marked implemented in 0.22.0 (status lines, the proposals table,
 # plan rows); no code changes (#384).
 no_author_change: [384]

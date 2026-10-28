@@ -79,7 +79,8 @@ EVENT_LINE_VERSION = 1
 EVENT_LINE_KEYS = ("ts", "event", "name", "v")
 # Events written only to the log (no history[] entry, no `actor` unless listed); every other event is a
 # package event written by record(), which may also carry `actor` (the --agent of the invocation, #21.3).
-LOG_ONLY_EVENTS = ("registry-created", "registry-migrated", "index-added", "prior-art-searched")
+LOG_ONLY_EVENTS = ("registry-created", "registry-migrated", "registry-recommended", "index-added",
+                   "prior-art-searched")
 # `updated` carries <field>_from (the old value) for each field it changed: these fields.
 UPDATED_FROM_FIELDS = ("lean_toolchain", "mathlib_pin", "status")   # plus every UPDATABLE field
 _GATE_EVENT_KEYS = ("commit", "job_id", "checker", "receipt", "descendant_of", "docs_paths", "opt_in",
@@ -90,6 +91,7 @@ _LEASE_EVENT_KEYS = ("agent", "workspace", "ttl_hours", "reason", "contact")
 EVENT_KEYS: dict[str, tuple[str, ...]] = {
     "registry-created": ("registry", "version", "forced"),
     "registry-migrated": ("from_version", "to_version", "changes"),
+    "registry-recommended": ("recommended", "previous", "reason"),
     "registered": ("repo", "local_path", "status", "visibility", "lean_toolchain", "mathlib_pin", "workspace",
                    "agent", "reason", "like", "license_spdx"),
     "updated": ("fields", "reason", "forced", "notes_replaced", "<field>_from"),
@@ -542,6 +544,9 @@ def nested_label(paths, dirs) -> str:
 # The packages of the registry this process loaded last (load_registry): the nested-package rule (#3)
 # reads their roots. A caller with no registry loaded sees none, which keeps the stricter rule.
 _LOADED_PACKAGES: dict = {}
+# The top-level keys other than `packages` of the registry this process last loaded (mutated, never rebound):
+# run_command clears it per invocation, and recommended.after_command reads `lean_pkg` from it.
+_LOADED_TOP: dict = {}
 
 
 def registered_nested_dirs(repo: pathlib.Path, packages: dict | None = None) -> tuple[str, ...]:
@@ -968,6 +973,8 @@ def load_registry(path: pathlib.Path, *, check_version: bool = True) -> dict:
                    f"registry: upgrade lean-pkg (`lean-pkg migrate` upgrades only older registries)")
     global _LOADED_PACKAGES
     _LOADED_PACKAGES = data["packages"]
+    _LOADED_TOP.clear()   # the other top-level keys (version, lean_pkg, ...): the recommended-version notice
+    _LOADED_TOP.update((k, v) for k, v in data.items() if k != "packages")
     return data
 
 
