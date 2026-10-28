@@ -85,6 +85,21 @@ lean-pkg report:
       ...
   - cmd: lean-pkg report --from-log logs/build.log:100 --body "lake build hangs at Mathlib.Order" --yes
     say: File it on lean-pkg/lean-pkg with `gh issue create` and print the issue URL; refused with exit 1 when gh is missing or not logged in (a blocking private-pattern hit left after redaction refuses in either mode).
+  - cmd: lean-pkg report --title "claim refused" --body "claim refused on a free package" --expected "the lease granted" --workaround "claimed from another checkout" --blocking yes
+    say: A triageable report for an intake channel; the body starts with the `<!-- lean-pkg-report/1 -->` marker, then a Blocking line before Version, the expected result under What you expected and a Workaround section after it, all three redacted like --body.
+    output: |
+      title: claim refused
+      labels: bug
+      repository: lean-pkg/lean-pkg
+      redactions: 12
+      ---
+      <!-- lean-pkg-report/1 -->
+      <!-- filed with `lean-pkg report`: captured text is redacted (paths, home directory, private patterns, registry-derived names) -->
+
+      **Blocking**: yes
+
+      **Version**: lean-pkg ...
+      ...
 
 # --- see the registry -------------------------------------------------------------------------------
 

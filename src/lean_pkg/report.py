@@ -1,6 +1,7 @@
 # lean-pkg report -- a redacted bug report in the repository's own issue format
 """`lean-pkg report [--command "<lean-pkg args>"] [--body TEXT] [--from-log FILE[:N]] [--package NAME]
-[--title T] [--enhancement] [--repo OWNER/NAME] [--dry-run|--yes] [--json]` (#47, #55): assemble a bug report in the shape of
+[--expected TEXT] [--workaround TEXT] [--blocking yes|no] [--title T] [--enhancement] [--repo OWNER/NAME]
+[--dry-run|--yes] [--json]` (#47, #55): assemble a bug report in the shape of
 `.github/ISSUE_TEMPLATE/bug_report.md` (same section headings, same order: SECTIONS, which a test
 keeps equal to the template's) and, with `--yes`, file it with `gh issue create` on lean-pkg/lean-pkg
 (label `bug`, or `enhancement`; `--repo` for a fork).
@@ -19,8 +20,13 @@ Filled automatically, all read-only:
   gate and comparator receipt paths with the commits they bind).
 - Checklist: ticked from what is known (`--json` used; `validate` passes).
 
+Intake fields, each rendered only when given: `--blocking yes|no` (a `**Blocking**` line before Version),
+`--expected TEXT` (fills What you expected, else the template's placeholder comment) and `--workaround TEXT`
+(a `**Workaround**` section after it). The first line of every body is MARKER, `<!-- lean-pkg-report/1 -->`,
+so an intake channel can recognise a report and its format; `--json` carries the same string as `schema`.
+
 Redaction is mandatory and applies to every captured text (the command, its output, the doctor and
-host lines, the record, the title) before it is printed or sent, in this order:
+host lines, the record, the title, --expected, --workaround) before it is printed or sent, in this order:
 
 0. in the sections report attaches itself (version, doctor, host, record, the re-run's stdout and
    stderr) only: every record's and lease's `agent`, `workspace` and `contact` value -> `<agent>`,
@@ -39,7 +45,8 @@ host lines, the record, the title) before it is printed or sent, in this order:
    from every registry record (`local_path`, `agent`, `workspace`, lease); each match becomes `[…]`.
    Email addresses are redacted even when a record declares them.
 
-Every redacted section, the user's (title, --command, --body, --from-log, --package) and the attached
+Every redacted section, the user's (title, --command, --body, --from-log, --package, --expected,
+--workaround) and the attached
 ones, is scanned once more, line by line; a blocking hit left refuses (exit 1, the hit families listed
 and the sections named, nothing filed). The report's own fixed prose is not scanned: a derived token can
 be an ordinary word (#330). Default is a dry run (print title, labels and body; exit 0). `--yes`
@@ -73,6 +80,11 @@ TEMPLATE = ".github/ISSUE_TEMPLATE/bug_report.md"
 # The bold section labels of TEMPLATE, in order (tests/test_report.py keeps them equal).
 SECTIONS = ("Version", "Command", "What happened", "What you expected", "Minimal registry or receipt",
             "Checklist")
+# Bold labels report adds beyond the template, each only when its flag is given: --blocking and --workaround.
+INTAKE_SECTIONS = ("Blocking", "Workaround")
+# The format marker: the first line of every report body (dry run, --yes, --json) and --json `schema`.
+SCHEMA = "lean-pkg-report/1"
+MARKER = f"<!-- {SCHEMA} -->"
 REGISTRY_TOKEN, REGISTRY_DIR_TOKEN, CHECKOUT_TOKEN = "<registry>", "<registry-dir>", "<checkout>"
 USER_REGISTRY_TOKEN, USER_REGISTRY_DIR_TOKEN = "<user-default-registry>", "<user-default-registry-dir>"
 INDEX_DIR_TOKEN, EVENTS_TOKEN, REGISTRY_REPO_TOKEN = "<index-dir>", "<events-path>", "<registry-repo>"
@@ -439,9 +451,13 @@ def clip(text: str) -> str:
 def render_body(f: dict) -> str:
     """The issue body: SECTIONS in order, each filled from the (already redacted) facts in f."""
     v, c, h, e, m, k = SECTIONS
-    parts = ["<!-- filed with `lean-pkg report`: captured text is redacted (paths, home directory, "
-             "private patterns, registry-derived names) -->", "",
-             f"**{v}**: {f['version']}", ""]
+    b, w = INTAKE_SECTIONS
+    parts = [MARKER,
+             "<!-- filed with `lean-pkg report`: captured text is redacted (paths, home directory, "
+             "private patterns, registry-derived names) -->", ""]
+    if f.get("blocking"):
+        parts += [f"**{b}**: {f['blocking']}", ""]
+    parts += [f"**{v}**: {f['version']}", ""]
     parts += ["`lean-pkg doctor --json` (ok/warn lines):", fence("\n".join(f["doctor"]) or "(none)"), "",
               f"`lean-pkg comparator host-check --json`: {f['host']}", ""]
     parts += [f"**{c}** (exact, with flags; private paths redacted):", "", fence(f["command"]), ""]
@@ -463,7 +479,9 @@ def render_body(f: dict) -> str:
             parts += [f"**{h}**:", ""] + given + [rerun[0].upper() + rerun[1:] + ":", ""] + streams
         else:
             parts += [f"**{h}** ({rerun}):", ""] + streams
-    parts += [f"**{e}**:", "", "<!-- what should have happened -->", ""]
+    parts += [f"**{e}**:", "", (f.get("expected") or "<!-- what should have happened -->").rstrip("\n"), ""]
+    if f.get("workaround"):
+        parts += [f"**{w}**:", "", f["workaround"].rstrip("\n"), ""]
     parts += [f"**{m}** that reproduces it, if the problem is about validation (attach a file; replace "
               f"private paths with placeholders):", ""]
     if f["record"]:
@@ -482,7 +500,8 @@ def report_sections(f: dict, title: str, title_is_user: bool) -> list[tuple[str,
     """(name, origin, redacted text) of every variable part of the title and body (#330): the user's own
     text, and the sections report attaches itself. render_body adds only fixed prose around them."""
     out = [("title", USER if title_is_user else ATTACHED, title), ("--command", USER, f["command"]),
-           ("--body", USER, f.get("body_text") or ""), ("--package", USER, f.get("package") or "")]
+           ("--body", USER, f.get("body_text") or ""), ("--package", USER, f.get("package") or ""),
+           ("--expected", USER, f.get("expected") or ""), ("--workaround", USER, f.get("workaround") or "")]
     if f.get("log"):
         out.append(("--from-log", USER, f["log"]["path"] + "\n" + (f["log"]["text"] or "")))
     out += [("version", ATTACHED, f["version"]), ("doctor", ATTACHED, "\n".join(f["doctor"])),
@@ -554,8 +573,9 @@ def cmd_report(args) -> int:
         raise core.UsageError(f"--repo must be OWNER/NAME, got {args.repo!r}")
     if args.title is not None and not args.title.strip():
         raise core.UsageError("--title must not be empty")
-    if args.body is not None and not args.body.strip():
-        raise core.UsageError("--body must not be empty")
+    for flag in ("body", "expected", "workaround"):
+        if getattr(args, flag) is not None and not getattr(args, flag).strip():
+            raise core.UsageError(f"--{flag} must not be empty")
     if args.command is None and args.body is None and args.from_log is None:
         raise core.UsageError("report needs at least one of --command \"ARGS\" (re-run it), --body TEXT "
                               "(describe it) or --from-log FILE[:N] (the tail of a stage log)")
@@ -598,6 +618,9 @@ def cmd_report(args) -> int:
              "record": [att(x) for x in record_lines(pkg)] if pkg is not None else [],
              "valid": valid, "run": None, "json": False, "what": None,
              "body_text": red(args.body.strip("\n")) if args.body is not None else None,
+             "expected": red(args.expected.strip("\n")) if args.expected is not None else None,
+             "workaround": red(args.workaround.strip("\n")) if args.workaround is not None else None,
+             "blocking": args.blocking,
              "log": ({"path": red(log["path"]), "lines": len(log["tail"]), "text": red("\n".join(log["tail"]))}
                      if log is not None else None)}
     if tokens is None:
@@ -630,7 +653,7 @@ def cmd_report(args) -> int:
     hits = red.blocking_sections(report_sections(facts, title, args.title is not None or shown is not None))
     families = sorted({f for h in hits for f in h["families"]})
     payload = {"ok": True, "filed": False, "url": None, "title": title, "labels": labels, "body": body,
-               "redactions": red.count}
+               "redactions": red.count, "schema": SCHEMA}
     if facts["log"] is not None:
         payload["log_excerpt"] = {"path": facts["log"]["path"], "lines": facts["log"]["lines"]}
     if families:
@@ -681,6 +704,13 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--from-log", default=None, metavar="FILE[:N]",
                    help=f"the last N lines (default {LOG_TAIL}) of a stage log, under Log excerpt in What "
                         "happened; redacted like everything else; a missing file is a usage error")
+    s.add_argument("--expected", default=None, metavar="TEXT",
+                   help="what you expected instead, for What you expected; redacted like --body")
+    s.add_argument("--workaround", default=None, metavar="TEXT",
+                   help="what you did instead, as a Workaround section after What you expected; redacted like "
+                        "--body")
+    s.add_argument("--blocking", default=None, choices=("yes", "no"),
+                   help="whether the problem blocks your work: a Blocking line before Version (none without it)")
     s.add_argument("--package", default=None, metavar="NAME",
                    help="add the package's registry record (status, lease, receipt commits); its "
                         f"{ps.PATTERNS_FILE} joins the redaction")

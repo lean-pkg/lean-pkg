@@ -5,6 +5,21 @@
 schema: lean-pkg-upgrade-record/1
 version: 0.23.0
 changes:
+  - pr: 389
+    id: report-intake-fields
+    kind: command
+    area: report
+    summary: >-
+      New report flags --expected TEXT (fills What you expected), --workaround TEXT (a Workaround section after it)
+      and --blocking yes|no (a Blocking line before Version; another value exits 2), each rendered only when
+      given; the two texts are redacted like --body and scanned by the blocking guard. The first line of every
+      report body, in the dry run, the filed issue and --json, is the marker <!-- lean-pkg-report/1 -->, and
+      --json gains schema: lean-pkg-report/1. Without the new flags the body only gains that first line.
+    action: >-
+      Nothing required. A script that reads report's body by line number sees one more line at the top; one that
+      checks --json's key set exactly sees the new schema key.
+    breaking: false
+    changelog: Added
   - pr: 390
     id: gate-check-next-command
     kind: behavior
