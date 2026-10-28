@@ -319,6 +319,14 @@ def license_file(pkg: dict, repo) -> tuple[str, str]:
 # --------------------------------------------------------------------------
 # the data every output is rendered from
 
+def _evidence_job(rec: dict, repo) -> str | None:
+    """The Evidence table's job: a Slurm job (coverage.slurm_job_of) or a GitHub Actions job `gha-<R>-<A>`
+    whose `ci` block passes level 1 (ci_github.gha_job_of, the rule that lets it back a compute job), else None.
+    Never another job id: those carry host labels (#381)."""
+    from . import ci_github
+    return cov.slurm_job_of(rec, repo) or ci_github.gha_job_of(rec, repo)
+
+
 def _evidence(repo, gate: dict) -> tuple[list[dict], dict, dict]:
     """(table rows, gate receipt facts, comparator receipt facts) from receipts committed at HEAD."""
     rows = []
@@ -334,7 +342,7 @@ def _evidence(repo, gate: dict) -> tuple[list[dict], dict, dict]:
             continue
         m = DATE_RE.match(str(rec.get("generated_at") or ""))
         rows.append({"path": rel, "tier": tier, "commit": rec["commit"], "date": m.group(1) if m else None,
-                     "sha256": core.sha256_bytes(raw), "job": cov.slurm_job_of(rec, repo),
+                     "sha256": core.sha256_bytes(raw), "job": _evidence_job(rec, repo),
                      "recorded": rel in (gate.get("receipt"), gate.get("comparator"))})
     lower, _ = cov.receipt_at_head(repo, gate["receipt"]) if gate.get("receipt") else (None, None)
     comp, _ = cov.receipt_at_head(repo, gate["comparator"]) if gate.get("comparator") else (None, None)

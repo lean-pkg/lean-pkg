@@ -39,9 +39,10 @@ Only these receipt fields are copied: the commit, the toolchain, the Mathlib
 revision, the `sorry` count, the axioms, the theorem names, the permitted
 axioms and the definition names of each comparator configuration, the date
 part of `generated_at`, the SHA-256 of the committed file, and a job id of
-the form `slurm-<J>`. Host names, paths, user names, checker commands and
-every other job id (a systemd unit's or a local run's, which name a host) are
-never copied. Every output (the block, the site pages, the HTML file) then
+the form `slurm-<J>`, or `gha-<run>-<attempt>` when the receipt's `ci` block
+passes level 1 (a GitHub Actions run names a public run, not a host).
+Host names, paths, user names, checker commands and every other job id (a
+systemd unit's or a local run's, which name a host) are never copied. Every output (the block, the site pages, the HTML file) then
 passes through the
 [public-safety scanner](how-to.md#scan-for-private-strings-before-publishing)
 with the package's `.lean-pkg-private-patterns`. A blocking hit in any of them
