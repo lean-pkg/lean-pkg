@@ -22,7 +22,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 - `registry recommend X.Y.Z` and an offline notice when the running
   lean-pkg is older than the release a shared registry recommends
-  (#394; #388). The registry gains the optional top-level key `lean_pkg:
+  (#395; #388). The registry gains the optional top-level key `lean_pkg:
   {recommended: X.Y.Z}` (additive: the schema stays version 3, and an
   older lean-pkg ignores the key and keeps it), written only by `registry
   recommend` (committed mode as other registry writes; log-only event

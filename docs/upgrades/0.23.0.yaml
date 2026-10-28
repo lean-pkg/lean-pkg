@@ -54,7 +54,7 @@ changes:
       the gate.
     breaking: false
     changelog: Changed
-  - pr: 394
+  - pr: 395
     id: registry-recommended-version
     kind: command
     area: registry
