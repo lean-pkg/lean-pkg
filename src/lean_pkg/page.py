@@ -593,7 +593,25 @@ def _row_compared(ctx: dict, sts: list[dict]) -> bool:
     return bool(sts) and all(_compared(ctx, st) for st in sts)
 
 
-def _status_line(word: str, compared: bool, conditional: str | None = None) -> str:
+# the one ledger reason that means "built, only the statement comparison is missing" (issue 398): every gate
+# diagnostic is package-wide and lands on every claim, so a claim whose only diagnostic is this one has a
+# passing, commit-bound gate and comparator receipt, and no comparator configuration names its declaration
+UNCOMPARED_CODES = frozenset({"no-comparator-config"})
+
+
+def _only_uncompared(r: dict, by_id: dict) -> bool:
+    """True when the row is not verified and every claim of it that is not verified is open solely because no
+    statement comparison names it (issue 398: display only, the ledger's status stays open). A claim not in the
+    ledger, blocked, unknown, failed, conditional or out of scope, or open for any other reason, keeps the
+    default wording."""
+    pending = [by_id.get(cid) for cid in r.get("claims") or []]
+    pending = [x for x in pending if not x or x.get("status") != "verified"]
+    return bool(pending) and all(
+        x and x.get("status") == "open" and x.get("diagnostics")
+        and all(d.get("code") in UNCOMPARED_CODES for d in x["diagnostics"]) for x in pending)
+
+
+def _status_line(word: str, compared: bool, conditional: str | None = None, uncompared: bool = False) -> str:
     if word == "conditional" and conditional:       # proposal 0003: never the word verified alone
         checks = ("every check of this result passed (the build, and the statement comparison)" if compared else
                   "every check that applies to this result passed (the build; its statement was not compared by "
@@ -606,6 +624,9 @@ def _status_line(word: str, compared: bool, conditional: str | None = None) -> s
     if word == "verified":
         return ("**Verified.** Lean accepts the proof, and lean-pkg's record shows every check that applies to "
                 "this result passed (the build; its statement was not compared by a second checker).")
+    if word == "open" and uncompared:
+        return ("**Built, not compared.** Lean accepts the proof (the build passed), but its statement has not "
+                "yet been compared by a second checker, which this result requires.")
     return (f"**Not yet verified.** lean-pkg's record of the checks says: {_md(word or 'nothing recorded')}. "
             f"Until it says verified, read the Lean statement below as work in progress.")
 
@@ -758,7 +779,7 @@ def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, statement: str 
     sts = [_lean_statement(ctx, cid) for cid in r.get("claims") or []]
     compared = _row_compared(ctx, sts)
     cond = _conditional_text(ctx, r, by_id) if word == "conditional" else None
-    md = [f"### {heading}", "", _status_line(word, compared, cond), "", *_internal_line(r, by_id)]
+    md = [f"### {heading}", "", _status_line(word, compared, cond, _only_uncompared(r, by_id)), "", *_internal_line(r, by_id)]
     if not ctx["library"]:
         md += ["**In the paper.**" + ("" if statement else " The statement is not quoted here; read it in the "
                                                           "paper."), ""]

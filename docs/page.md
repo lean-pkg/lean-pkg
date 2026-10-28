@@ -129,6 +129,23 @@ as the gate) closes every claim the row names. Otherwise the row shows the
 ledger's own status (`open`, `blocked`, `unknown`, `out-of-scope`). Nothing in
 the block calls the paper verified.
 
+Such a row reads "**Not yet verified.** lean-pkg's record of the checks says:
+open. Until it says verified, read the Lean statement below as work in
+progress.", with one exception. When every claim of the row that is not
+verified is `open` for the single ledger reason `no-comparator-config` (the
+gate and comparator receipts pass at the gate-bound commit, but no comparator
+configuration names the declaration), the proof is built and only the
+statement comparison a `reusable` claim needs is missing, so the row reads:
+
+> **Built, not compared.** Lean accepts the proof (the build passed), but its
+> statement has not yet been compared by a second checker, which this result
+> requires.
+
+This is wording only: the ledger status stays `open`, the row is not counted
+as verified, and the *Ledger* column of `coverage.md` still shows `open`. A
+claim open for any other reason (a `comparator-todo` entry among them), or
+`blocked`, `unknown` or `conditional`, keeps the row on "Not yet verified".
+
 The comparator tier is required only for `reusable` claims, so a row can be
 *verified* without a statement comparison. A verified row says "(the build,
 and the statement comparison)" only when every claim it names was judged by a

@@ -98,6 +98,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   lease was EXPIRED and held by another agent while the live lease, pushed
   from the first machine, was the reporter's own.
 
+### Fixed
+
+- `page`: a result row whose claims that are not verified are open only
+  because no comparator configuration names them (ledger reason
+  `no-comparator-config`) now reads "**Built, not compared.** Lean accepts
+  the proof (the build passed), but its statement has not yet been compared
+  by a second checker, which this result requires." instead of "Not yet
+  verified ... read the Lean statement below as work in progress", which
+  told a reader the proof was unfinished (#401; #398). Display only: ledger
+  statuses, the verified counts and the *Ledger* column of `coverage.md` are
+  unchanged, and a row with any other open reason, or a blocked, unknown or
+  conditional claim, keeps the old wording.
+
 ### Documentation
 
 - Proposals 0002, 0003, 0008 and 0009 are implemented in 0.22.0 (#384):
