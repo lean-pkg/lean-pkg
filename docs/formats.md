@@ -102,8 +102,24 @@ back is versioned too, so a script can tell what it has:
 `claims-ledger/1`, `claims-rebase/1`, `host-routes/1`, `exercise-check/1`,
 `exercise-batch/1`, `lean-pkg-extract-plan/1`, `lean-pkg-upgrade/1`,
 `formalization-kept/1`, `comparator-types/1`, `lean-pkg-lean-diag/1`,
-`lean-pkg-dup-constants/1` and `lean-pkg-comparator-contracts/1`. The
+`lean-pkg-dup-constants/1`, `lean-pkg-comparator-contracts/1` and
+`lean-pkg-extract-ledger-summary/1`. The
 `lean-pkg-extract` manifest a user writes is `lean-pkg-extract/1`.
+
+`lean-pkg-extract-ledger-summary/1` is the public summary of an extraction
+ledger (`lean-pkg-extract recheck --public-summary PATH`, written only when
+the recheck passes, once, outside SRC, after a public-safety scan; it may
+live inside the target): strict JSON, keys sorted, exactly the keys
+`schema`, `method` (the ledger's: `text/1` or `types/1`), `ok` (always
+true), `ledger_sha256` (of the ledger file rechecked), `at_ledger_commits`,
+`source_commit` (null unless `--include-source-commit`), `target` {`commit`,
+`modules` (target module names, sorted)}, `entries` (each {`target` (null
+for a DROPPED row), `target_module`, `verdict`, `source_sha256`,
+`target_sha256`}), `context` (each {`target_module`, `verdict`,
+`source_sha256`, `target_sha256`}) and `totals` (the ledger's). It holds no
+source path, source module or declaration name, reason, warning or (by
+default) source commit; nothing reads it back
+([A public summary of a ledger](extract.md#a-public-summary-of-a-ledger)).
 
 ## Formats owned by outside projects
 

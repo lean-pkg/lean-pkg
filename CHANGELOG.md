@@ -475,6 +475,27 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (and takes `--emit-script`), a `text/1` ledger refuses both
   ([the comparison `types/1`](docs/extract.md#the-comparison-types1),
   [on-disk formats](docs/formats.md)).
+- A public summary of an extraction ledger (#PR_EX5; #329, proposal 0009,
+  stage S5): `lean-pkg-extract recheck --public-summary PATH` writes, when
+  the recheck passes, the report `lean-pkg-extract-ledger-summary/1`, which
+  may be published: the method, the SHA-256 of the ledger file rechecked,
+  whether the recheck ran at the ledger's own commits, the target commit
+  and target module names, per declaration the target name, target module,
+  verdict, `target_sha256` and `source_sha256` (a hash commitment a holder
+  of the source can verify), each module's context row, and the totals. It
+  leaves out source paths, source module and declaration names (a DROPPED
+  row has `target: null`, since the name it would have had is the mapped
+  source name), every reason, the warnings and the source commit
+  (`--include-source-commit` adds it). Rows are sorted by target-side values
+  only; the file is deterministic. PATH must be new, not a symbolic link and
+  outside SRC (inside the target is allowed); the summary is staged beside
+  PATH and scanned with public-safety (the source repository's patterns
+  file applies), and a blocking hit, like a refused or failing recheck,
+  writes nothing (exit 1). `--json` adds `public_summary` {written, sha256,
+  include_source_commit, public_safety}; without the flag `recheck` is
+  unchanged, byte for byte ([a public summary of a
+  ledger](docs/extract.md#a-public-summary-of-a-ledger), [on-disk
+  formats](docs/formats.md)).
 
 ### Changed
 

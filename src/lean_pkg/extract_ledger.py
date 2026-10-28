@@ -899,6 +899,9 @@ def verdict(verb: str, out: dict) -> str:
         else:
             tail = "; nothing written"
         tgt = "not committed" if out["ok"] else tgt
+    if out.get("public_summary") is not None:
+        tail = (f"; public summary written to {out['public_summary_path']}" if out["public_summary"]["written"]
+                else "; public summary not written")
     return f"{head} ({led['method']}): {_counts(led)}; source {src}, target {tgt}{tail}"
 
 
@@ -972,6 +975,9 @@ def render(verb: str, out: dict) -> str:
         lines.append(f"types: Lean {tb['lean']} ({tb['lean_githash']}); programs source {tb['source_script_sha256']}, "
                      f"target {tb['target_script_sha256']}")
     lines.append("totals: " + ", ".join(f"{k} {v}" for k, v in out["totals"].items()))
+    ps_ = (out.get("public_summary") or {}).get("public_safety")
+    if ps_ is not None:
+        lines.append(f"public-safety of the public summary: {ps_['block_hits']} blocking, {ps_['warn_hits']} warn-only")
     lines.append(verdict(verb, out))
     return "\n".join(lines)
 
@@ -982,8 +988,8 @@ def ledger_json(led: dict) -> str:
 
 
 def public_json(out: dict) -> str:
-    return json.dumps({k: v for k, v in out.items() if k != "ledger_path"}, indent=2, sort_keys=True,
-                      ensure_ascii=False) + "\n"
+    return json.dumps({k: v for k, v in out.items() if k not in ("ledger_path", "public_summary_path")}, indent=2,
+                      sort_keys=True, ensure_ascii=False) + "\n"
 
 
 # ----------------------------------------------------------------------------------------------------
@@ -1157,18 +1163,53 @@ def _output(led: dict, refusals: list[str], failures: list[str]) -> dict:
 
 
 def run_recheck(args) -> tuple[dict, int]:
+    """recheck, and with --public-summary PATH the summary of a passing recheck (extract_summary.py)."""
+    summ = getattr(args, "public_summary", None)
+    if getattr(args, "include_source_commit", False) and summ is None:
+        raise ex.Usage("--include-source-commit adds the source commit to the public summary; pass "
+                       "--public-summary PATH")
+    if summ is not None and getattr(args, "emit_script", None):
+        raise ex.Usage("--public-summary summarizes a recheck, and --emit-script only writes the Lean programs; "
+                       "pass it with --from-output, once the programs have run")
+    state: dict = {}
+    out, rc = _recheck(args, state)
+    if summ is None:
+        return out, rc
+    from . import extract_summary as xs
+    rec = {"written": False, "sha256": None, "include_source_commit": bool(args.include_source_commit),
+           "public_safety": None}
+    if out["ok"]:
+        text = xs.summary_json(xs.summary(out, state["data"], state["same"], args.include_source_commit))
+        scan, refs = xs.write(summ, text, state["top"], state["top"] or state["gitdir"])
+        rec["public_safety"] = scan
+        if refs:
+            out["refusals"] = sorted(set(out["refusals"]) | set(refs))
+            out["ok"], rc = False, 1
+        else:
+            rec.update(written=True, sha256=_sha(text))
+    out["public_summary"] = rec
+    out["public_summary_path"] = summ
+    return out, rc
+
+
+def _recheck(args, state: dict) -> tuple[dict, int]:
     repo = pathlib.Path(args.repo).expanduser()
     tdir = pathlib.Path(args.target).expanduser()
     _method_mode(args, None)
     top, gitdir = ex._src_top(repo)
     ttop, tgitdir = ex._src_top(tdir, "--target")
     refusals: list[str] = []
+    state.update(top=top, gitdir=gitdir, same=False)
+    if getattr(args, "public_summary", None) is not None:
+        from . import extract_summary as xs
+        refusals += xs.path_refusals(args.public_summary, (top, gitdir))
     path = pathlib.Path(args.ledger).expanduser()
     stored = None
     try:
         data = path.read_bytes() if path.is_file() else None
     except OSError:
         data = None
+    state["data"] = data
     if data is None:
         refusals.append(f"--ledger {args.ledger}: not a readable regular file")
     else:
@@ -1223,6 +1264,7 @@ def run_recheck(args) -> tuple[dict, int]:
         out["drift"] = []
         return out, (0 if out["ok"] else 1)
     same = c == stored["source"]["commit"] and (stored["target"]["commit"] in (None, t))
+    state["same"] = same
     if same and not refusals:
         want = {k: led[k] for k in ledger_keys(method)}
         recorded = dict(stored)
@@ -1312,16 +1354,19 @@ examples:
   lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main
   lean-pkg-extract recheck --ledger ~/ledgers/newlib-types.json --repo ~/paper --target ~/newlib \\
       --from-output source.out target.out
+  lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib \\
+      --public-summary ~/newlib/EXTRACTION.json
 
 exit codes: 0 the ledger holds (at its commits: recomputed byte for byte; at other commits: nothing fails;
-with --emit-script: the programs written), 1 refused or failing, 2 usage.
+with --emit-script: the programs written; with --public-summary: the summary written), 1 refused or
+failing (no summary written), 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html#rechecking-a-ledger"""
     r = sub.add_parser("recheck", formatter_class=fmt, epilog=rc_ex, fromfile_prefix_chars="@",
                        help="re-verify an extraction ledger against the source and the target",
                        description="Read a ledger strictly and recompute it from its own recorded map. At the "
                                    "recorded commits every field must match; at a newer --commit or "
                                    "--target-commit nothing may fail, and what changed is listed as drift. "
-                                   "Writes nothing. A types/1 ledger needs --from-output (its programs' outputs "
+                                   "Writes nothing, except the public summary on request. A types/1 ledger needs --from-output (its programs' outputs "
                                    "at the commits rechecked; --emit-script writes the programs).")
     r.add_argument("--ledger", required=True, metavar="PATH", help=f"the ledger ({EXTRACT_LEDGER_SCHEMA})")
     r.add_argument("--repo", required=True, metavar="SRC", help="the source git repository (its top directory)")
@@ -1330,8 +1375,16 @@ docs: https://lean-pkg.github.io/lean-pkg/extract.html#rechecking-a-ledger"""
     r.add_argument("--target-commit", metavar="T",
                    help="the target commit (default: the ledger's target.commit; required when it is null)")
     _types_flags(r, "recheck")
+    r.add_argument("--public-summary", dest="public_summary", metavar="PATH",
+                   help="when the recheck passes, also write its public summary (lean-pkg-extract-ledger-summary/1: "
+                        "target names, verdicts, hashes and totals, no source path or name) to PATH, a new file "
+                        "outside SRC (inside the target is allowed), after a public-safety scan")
+    r.add_argument("--include-source-commit", dest="include_source_commit", action="store_true",
+                   help="with --public-summary: record the source commit in the summary (left out by default, "
+                        "since it may be private)")
     r.add_argument("--json", dest="json_out", action="store_true",
-                   help="JSON on stdout: the recomputed ledger plus refusals, failures, drift and written")
+                   help="JSON on stdout: the recomputed ledger plus refusals, failures, drift and written (and "
+                        "public_summary, with --public-summary)")
 
 
 def run(args) -> tuple[str, int]:

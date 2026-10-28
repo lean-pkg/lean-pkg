@@ -23,7 +23,9 @@ ledger](#declaration-level-extraction-ledger): each source declaration
 compared with its port at two named commits, and `lean-pkg-extract recheck`
 re-verifies it later. `lean-pkg-extract decls` [writes those target modules
 for you](#writing-the-target-modules-decls) from the same map, optionally as a
-whole new package, and records the ledger of what it wrote.
+whole new package, and records the ledger of what it wrote. The ledger is
+private; `recheck --public-summary PATH` writes a [summary that may be
+published](#a-public-summary-of-a-ledger).
 
 ```bash
 lean-pkg-extract plan --repo . --commit HEAD --manifest extract.json
@@ -713,7 +715,8 @@ ledger from its own recorded map:
   module blobs) is listed as drift.
 
 A ledger whose `target.commit` is null needs `--target-commit`. `recheck`
-writes nothing. Exit 0 the ledger holds, 1 refused or failing, 2 usage.
+writes nothing, except the [public summary](#a-public-summary-of-a-ledger)
+when asked. Exit 0 the ledger holds, 1 refused or failing, 2 usage.
 
 A `types/1` ledger cannot be recomputed without Lean, so `recheck` refuses it
 without `--from-output`. `recheck --emit-script DIR` writes the programs for
@@ -722,6 +725,87 @@ the commits it rechecks (the recorded ones by default), and
 `ledger` does and then compares every field, the type hashes and the `types`
 block included (so another Lean build at the recorded commits is drift). A
 `text/1` ledger refuses both flags.
+
+### A public summary of a ledger
+
+*The ledger is private. What can I publish beside the library, to show its
+readers that it was checked against its source?*
+
+`recheck --public-summary PATH` writes, when the recheck passes, a summary
+of what it rechecked (`lean-pkg-extract-ledger-summary/1`): a report, never
+read back as evidence, that may be published, inside the target too.
+
+```bash
+lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib \
+    --public-summary ~/newlib/EXTRACTION.json
+```
+
+```text
+{
+  "at_ledger_commits": true,
+  "context": [
+    {"source_sha256": "70b16647...", "target_module": "New.A", "target_sha256": "70b16647...", "verdict": "IDENTICAL"},
+    {"source_sha256": "877a5cb5...", "target_module": "New.B", "target_sha256": "877a5cb5...", "verdict": "IDENTICAL"}
+  ],
+  "entries": [
+    {"source_sha256": "ab97033d...", "target": null, "target_module": "New.A", "target_sha256": null, "verdict": "DROPPED"},
+    {"source_sha256": "32ed2edb...", "target": "New.A.bar", "target_module": "New.A", "target_sha256": "32ed2edb...", "verdict": "IDENTICAL"},
+    ...
+  ],
+  "ledger_sha256": "9fe4cdc5...",
+  "method": "text/1",
+  "ok": true,
+  "schema": "lean-pkg-extract-ledger-summary/1",
+  "source_commit": null,
+  "target": {"commit": "020c8c70...", "modules": ["New.A", "New.B"]},
+  "totals": {"DIFFERS": 0, "DROPPED": 1, "IDENTICAL": 5, "MISSING": 0, "NEW": 0, "weakened": 0}
+}
+```
+
+(Shortened: the file is indented JSON with sorted keys.)
+
+What it holds, and what it leaves out:
+
+- **Holds:** the method; `ledger_sha256`, the SHA-256 of the ledger file
+  rechecked, so the holder of the ledger can show which ledger the summary
+  is of; `at_ledger_commits` (true: rechecked at the ledger's own commits,
+  where it matched field for field; false: at a newer `--commit` or
+  `--target-commit`, where nothing failed, and the rows are those of the
+  recheck); the target commit and target module names; per declaration the
+  target name, target module, verdict, `target_sha256` and `source_sha256`;
+  per module its context row's verdict and the same two hashes; the totals.
+  `source_sha256` is a hash commitment: a holder of the source can recompute
+  it, and it tells anyone else nothing. `ok` is always true, since only a
+  passing recheck writes a summary.
+- **Leaves out:** source paths, source module and declaration names (a
+  rename reveals the old name; so a DROPPED row has `target: null`, since
+  the name it would have had is the mapped source name), every reason (of
+  drops, declared new declarations and allowed differences), the warnings
+  (they quote both sides' pins) and the source commit.
+  `--include-source-commit` adds the source commit, as `source_commit`, for
+  a source that may be named.
+
+Rows are sorted by target module, target name and verdict (then the
+hashes), never by a source name. The file is deterministic (no timestamp,
+no host path, no lean-pkg version), so the same recheck writes the same
+bytes. A DIFFERS row in a summary is either allowed (counted under
+`weakened`) or, under `types/1`, cleared by equal elaborated types.
+
+Before the summary is written it is staged beside PATH and scanned with
+public-safety, with the source repository's patterns file and declared
+addresses, as `decls` scans its tree; a blocking hit refuses and nothing is
+written. The summary is also not written, and `recheck` exits 1, when PATH
+is inside SRC (its work tree or its repository directory), a symlink,
+existing, or in a missing directory, and whenever the recheck itself is
+refused or fails. `--include-source-commit` without `--public-summary`, and
+`--public-summary` with `--emit-script` (which only writes the programs),
+are usage errors (exit 2). The text output names the summary at the end of
+its verdict lines (`; public summary written to PATH`, or
+`; public summary not written`) and prints the scan's counts; `--json` adds
+`public_summary`
+{written, sha256 (of the file written), include_source_commit,
+public_safety {ok, block_hits, warn_hits}, null when no scan ran}. Without
+`--public-summary`, `recheck`'s output is unchanged.
 
 ### Writing the target modules: `decls`
 
@@ -835,7 +919,8 @@ existing Lake package; a write that fails part way. `--author` or
 Text output prints the verdict first and again last; the entries and modules
 lists carry "PRIVATE: source names and paths". `--json` prints the ledger
 object (sorted keys) plus `refusals`, `failures` and `written` (and, for
-`recheck`, `drift`; with `--emit-script`, `programs` {dir, files, count,
+`recheck`, `drift`, and with `--public-summary` the `public_summary` record
+[above](#a-public-summary-of-a-ledger); with `--emit-script`, `programs` {dir, files, count,
 written, source_script_sha256, target_script_sha256}, where `failures`
 lists the text failures the types may still settle; for `decls`, `output` {files, scaffold, dry_run,
 written, git_init, committed, object_format} and `public_safety` {ok,

@@ -36,8 +36,9 @@ examples:
 
 Dry run only: `plan` reads git objects at COMMIT and writes nothing (--report PATH, outside SRC, is the
 one exception). The file-level `write --output DIR` step comes next. `ledger` writes only its ledger,
-outside SRC and the target; `recheck` writes nothing; `decls` writes the target modules into a new
-directory outside SRC (staged, scanned with public-safety, moved into place) and its ledger.
+outside SRC and the target; `recheck` writes nothing but its public summary on request (--public-summary);
+`decls` writes the target modules into a new directory outside SRC (staged, scanned with public-safety,
+moved into place) and its ledger.
 exit codes: 0 plan clean, 1 refused (every reason listed), 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html
 ```
@@ -46,7 +47,7 @@ docs: https://lean-pkg.github.io/lean-pkg/extract.html
 
 See also `lean-pkg-extract plan --repo SRC --commit COMMIT --manifest PATH`, a separate console script that plans a public Lean-verification repository from a mixed working repository, read-only and registry-free: [Extracting a public Lean repository](../extract.md).
 
-`lean-pkg-extract ledger` and `lean-pkg-extract recheck` record and re-verify a declaration-level extraction ledger (`lean-pkg-extract-ledger/1`) for a library ported by hand from private modules: [Declaration-level extraction ledger](../extract.md#declaration-level-extraction-ledger). With `--method types` they compare the elaborated types too (`types/1`): `--emit-script DIR` writes two Lean programs to run in the source and target checkouts, and `--from-output` reads their outputs back ([The comparison `types/1`](../extract.md#the-comparison-types1)).
+`lean-pkg-extract ledger` and `lean-pkg-extract recheck` record and re-verify a declaration-level extraction ledger (`lean-pkg-extract-ledger/1`) for a library ported by hand from private modules: [Declaration-level extraction ledger](../extract.md#declaration-level-extraction-ledger). With `--method types` they compare the elaborated types too (`types/1`): `--emit-script DIR` writes two Lean programs to run in the source and target checkouts, and `--from-output` reads their outputs back ([The comparison `types/1`](../extract.md#the-comparison-types1)). `recheck --public-summary PATH` also writes, when the recheck passes, a summary that may be published (`lean-pkg-extract-ledger-summary/1`: target names, verdicts, hashes and totals, no source path or name), scanned with public-safety first ([A public summary of a ledger](../extract.md#a-public-summary-of-a-ledger)).
 
 `lean-pkg-extract decls` writes the target modules from the same map into a new directory (with `--scaffold NAME`, a whole package: pins copied from the source commit, `git init`, nothing committed), staged beside it and scanned with public-safety before it is moved into place, and records the ledger of what it wrote: [Writing the target modules](../extract.md#writing-the-target-modules-decls).
 
@@ -198,10 +199,11 @@ re-verify an extraction ledger against the source and the target.
 ```text
 lean-pkg-extract recheck --ledger PATH --repo SRC --target TDIR [--commit COMMIT]
                          [--target-commit T] [--emit-script DIR]
-                         [--from-output OUT [OUT ...]] [--json]
+                         [--from-output OUT [OUT ...]] [--public-summary PATH]
+                         [--include-source-commit] [--json]
 ```
 
-Read a ledger strictly and recompute it from its own recorded map. At the recorded commits every field must match; at a newer --commit or --target-commit nothing may fail, and what changed is listed as drift. Writes nothing. A types/1 ledger needs --from-output (its programs' outputs at the commits rechecked; --emit-script writes the programs).
+Read a ledger strictly and recompute it from its own recorded map. At the recorded commits every field must match; at a newer --commit or --target-commit nothing may fail, and what changed is listed as drift. Writes nothing, except the public summary on request. A types/1 ledger needs --from-output (its programs' outputs at the commits rechecked; --emit-script writes the programs).
 
 ### Arguments and flags
 
@@ -214,7 +216,9 @@ Read a ledger strictly and recompute it from its own recorded map. At the record
 | `--target-commit T` | the target commit (default: the ledger's target.commit; required when it is null) |
 | `--emit-script DIR` | method types/1, step 1: write the Lean programs DIR/source.lean and DIR/target.lean (DIR new, outside SRC and the target) and nothing else; run each in its checkout with `lake env lean --run` and keep its stdout |
 | `--from-output OUT [OUT ...]` | method types/1, step 2: the two programs' outputs (source and target, any order), read strictly and bound to this ledger's commits and programs |
-| `--json` | JSON on stdout: the recomputed ledger plus refusals, failures, drift and written |
+| `--public-summary PATH` | when the recheck passes, also write its public summary (lean-pkg-extract-ledger-summary/1: target names, verdicts, hashes and totals, no source path or name) to PATH, a new file outside SRC (inside the target is allowed), after a public-safety scan |
+| `--include-source-commit` | with --public-summary: record the source commit in the summary (left out by default, since it may be private) |
+| `--json` | JSON on stdout: the recomputed ledger plus refusals, failures, drift and written (and public_summary, with --public-summary) |
 
 ### More from --help
 
@@ -224,9 +228,12 @@ examples:
   lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --commit main
   lean-pkg-extract recheck --ledger ~/ledgers/newlib-types.json --repo ~/paper --target ~/newlib \
       --from-output source.out target.out
+  lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib \
+      --public-summary ~/newlib/EXTRACTION.json
 
 exit codes: 0 the ledger holds (at its commits: recomputed byte for byte; at other commits: nothing fails;
-with --emit-script: the programs written), 1 refused or failing, 2 usage.
+with --emit-script: the programs written; with --public-summary: the summary written), 1 refused or
+failing (no summary written), 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html#rechecking-a-ledger
 ```
 
@@ -248,6 +255,12 @@ Recheck a types/1 ledger with the outputs of its two programs, run again at the 
 
 ```bash
 lean-pkg-extract recheck --ledger ~/ledgers/newlib-2.json --repo ~/paper --target ~/newlib --from-output source.out target.out
+```
+
+When the recheck passes, also write its public summary (lean-pkg-extract-ledger-summary/1) - target names, verdicts, hashes and totals, no source path, source name, reason or source commit - after a public-safety scan; inside the target is allowed, inside SRC and an existing file are refused.
+
+```bash
+lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --public-summary ~/newlib/EXTRACTION.json
 ```
 
 ## lean-pkg-extract decls

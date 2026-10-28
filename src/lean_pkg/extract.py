@@ -7,7 +7,8 @@ repository, with exact provenance. This release has the dry run only: `plan` wri
 The declaration-level extraction ledger, `ledger` and `recheck` (proposal 0009), lives in
 extract_ledger.py (its elaborated-type method `types/1` in extract_types.py), and `decls`, which writes the target modules and records their ledger, in
 extract_decls.py (its write step, shared with the file-level write mode to come, in extract_write.py);
-this module parses and dispatches them.
+the public summary of a recheck (`--public-summary`) in extract_summary.py; this module parses and
+dispatches them.
 
 Read-only by construction: it reads git objects at COMMIT (`git ls-tree -r -z --full-tree`,
 `git cat-file --batch`), never the working tree, the index or a registry; no network (lazy fetches of
@@ -1042,8 +1043,9 @@ examples:
 
 Dry run only: `plan` reads git objects at COMMIT and writes nothing (--report PATH, outside SRC, is the
 one exception). The file-level `write --output DIR` step comes next. `ledger` writes only its ledger,
-outside SRC and the target; `recheck` writes nothing; `decls` writes the target modules into a new
-directory outside SRC (staged, scanned with public-safety, moved into place) and its ledger.
+outside SRC and the target; `recheck` writes nothing but its public summary on request (--public-summary);
+`decls` writes the target modules into a new directory outside SRC (staged, scanned with public-safety,
+moved into place) and its ledger.
 exit codes: 0 plan clean, 1 refused (every reason listed), 2 usage.
 docs: https://lean-pkg.github.io/lean-pkg/extract.html"""
 

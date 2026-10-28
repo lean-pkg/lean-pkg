@@ -2,8 +2,9 @@
 
 Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
 Decided: accepted 2026-10-26 by Le Chen, as written, with the recommended answers to open questions 1 to 8
-(and to the one left to S4). Implemented in: (release); tracked in
-[#329](https://github.com/lean-pkg/lean-pkg/issues/329).
+(and to the one left to S4). Implemented in: (release), by #361 (S1, the scanner spans), #367 (S2, `ledger`
+and `recheck`, `text/1`), #373 (S3, `decls` and `--scaffold`), #377 (S4, `types/1`) and #PR_EX5 (S5,
+`recheck --public-summary`); tracked in [#329](https://github.com/lean-pkg/lean-pkg/issues/329).
 
 ## Summary
 
