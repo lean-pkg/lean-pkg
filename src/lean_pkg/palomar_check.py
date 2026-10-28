@@ -734,8 +734,14 @@ def summary(pkg: dict, repo: pathlib.Path, commit: str) -> dict:
             "warns": rep["counts"]["warn"], "codes": sorted({g["code"] for g in rep["gaps"]}), "command": cmd}
 
 
+# why the gate's advisory stays quiet for a package that does not intend Palomar (#387)
+SKIPPED_NOT_AIMING = "not aiming at Palomar"
+
+
 def hook(reg: dict, name: str, commit: str | None) -> dict | None:
-    """summary() for the package NAME at `commit` (None: HEAD); None when there is no checkout to read."""
+    """summary() for the package NAME at `commit` (None: HEAD), plus `skipped`: None for a package that
+    intends Palomar, else SKIPPED_NOT_AIMING (the fields are still filled; the gate prints no WARN, #387).
+    None when there is no checkout to read."""
     pkg = core.get_pkg(reg, name)
     repo = core.repo_path(pkg)
     if not repo.is_dir():
@@ -743,10 +749,12 @@ def hook(reg: dict, name: str, commit: str | None) -> dict | None:
     commit = commit or core.git_head(repo)
     if not commit or not core._rev(repo, commit):
         return None
-    return summary(pkg, repo, commit)
+    return {**summary(pkg, repo, commit), "skipped": None if intends_palomar(pkg) else SKIPPED_NOT_AIMING}
 
 
 def summary_warning(view: dict) -> str | None:
+    if view.get("skipped"):
+        return None
     if view.get("ready") is None:
         return f"palomar: the readiness check could not run ({view.get('error')}); run {view['command']}"
     if view["ready"]:

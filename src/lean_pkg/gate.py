@@ -2100,7 +2100,8 @@ def cmd_gate(args) -> int:
                                      refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
                                      regate=regate, reason=reason)
         payload["repo_override"] = override
-        from . import palomar_check   # advisory (feature request #6): never changes the verdict
+        from . import palomar_check   # advisory (feature request #6): never changes the verdict; no WARN
+        # for a package not aiming at Palomar (#387: the same predicate as audit; JSON skipped says so)
         payload["palomar_check"] = view = palomar_check.hook(reg, args.name, payload.get("commit"))
         if view and (warning := palomar_check.summary_warning(view)):
             print(f"WARN: {warning}", file=sys.stderr)

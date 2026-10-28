@@ -22,6 +22,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- `gate --check` prints its Palomar advisory (`WARN: palomar: not
+  submittable ...`) only for a package that aims at Palomar (#391; #387):
+  `upstream_target: palomar` or a recorded Palomar entry, and a status other
+  than scratch, archived or upstreamed, the predicate `registry audit`
+  already used. For any other package, such as a verified-private one with
+  no Palomar plans, whose gaps (licence, public repository) cannot apply
+  before publication, it stays quiet. Additive JSON: `palomar_check` gains
+  `skipped`, null for a package aiming at Palomar and `"not aiming at
+  Palomar"` for any other, whose readiness fields are still filled.
+  `publish --dry-run`, `palomar check` and the verdict are unchanged.
+
 - `gate --check` can become the writing gate without retyping it
   (#390; #386). `gate NAME --check --agent A` runs the check, with one
   stderr note that `--check` takes no lease and `--agent A` is for the

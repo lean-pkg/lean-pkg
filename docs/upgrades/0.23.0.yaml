@@ -5,6 +5,21 @@
 schema: lean-pkg-upgrade-record/1
 version: 0.23.0
 changes:
+  - pr: 391
+    id: gate-check-palomar-advisory-intent
+    kind: behavior
+    area: gate
+    summary: >-
+      gate --check prints its Palomar advisory (WARN: palomar: not submittable ...) only for a package that aims
+      at Palomar (#387): upstream_target palomar or a recorded Palomar entry, and a status other than scratch,
+      archived or upstreamed, the predicate registry audit uses. Any other package gets no WARN. JSON
+      palomar_check gains skipped: null for a package aiming at Palomar, "not aiming at Palomar" for any other,
+      whose readiness fields are still filled. publish --dry-run and palomar check are unchanged.
+    action: >-
+      Nothing. To keep the advisory for a package headed to Palomar, run lean-pkg update NAME
+      --upstream-target palomar; a script reading gate --check --json palomar_check sees one more key.
+    breaking: false
+    changelog: Changed
   - pr: 389
     id: report-intake-fields
     kind: command

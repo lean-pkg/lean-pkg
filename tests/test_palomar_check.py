@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from .conftest import _git, base_pkg, repo_head
+from .conftest import _git, base_pkg, read_reg, repo_head, write_reg
 
 MIT = "MIT License\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\n"
 FORMALIZATION = """\
@@ -313,20 +313,62 @@ def test_header_recognizer():
 # --------------------------------------------------------------------------
 # the advisory hooks
 
-def test_gate_check_warns_with_the_gap_count_never_refuses(lp, env, tmp_path, capsys):
-    """beta (conftest): Lean v4.32.0, no module headers. The check still passes; the WARN names the command."""
+def gate_check_beta(lp, env, tmp_path, capsys, **fields):
+    """gate --check on beta (conftest: Lean v4.32.0, no module headers) with FIELDS set on its record."""
+    if fields:
+        reg = read_reg(env)
+        reg["packages"]["beta"].update(fields)
+        write_reg(env, reg)
     rp = tmp_path / "receipt.json"
     rp.write_text(json.dumps(env.receipt_b))
     rc = lp.main(["--registry", str(env.registry), "gate", "beta", "--receipt", str(rp), "--check", "--json"])
     cap = capsys.readouterr()
-    data = json.loads(cap.out)
+    return rc, json.loads(cap.out), cap.err
+
+
+def test_gate_check_warns_with_the_gap_count_never_refuses(lp, env, tmp_path, capsys):
+    """beta aiming at Palomar: the check still passes; the WARN names the command."""
+    rc, data, err = gate_check_beta(lp, env, tmp_path, capsys, upstream_target="palomar")
     assert rc == 0 and data["ok"] is True
     view = data["palomar_check"]
-    assert view["ready"] is False and view["errors"] >= 2
+    assert view["ready"] is False and view["errors"] >= 2 and view["skipped"] is None
     assert {"source.module_required", "toolchain.unsupported"} <= set(view["codes"])
     assert view["command"] == f"lean-pkg palomar check beta --rev {env.receipt_b['commit'][:12]}"
-    (warn,) = [line for line in cap.err.splitlines() if line.startswith("WARN: palomar:")]
+    (warn,) = [line for line in err.splitlines() if line.startswith("WARN: palomar:")]
     assert f"{view['errors']} gap(s) need a new commit" in warn and view["command"] in warn
+
+
+def test_gate_check_warns_for_recorded_palomar_evidence(lp, env, tmp_path, capsys):
+    """A palomar entry on the record signals intent too, as in audit (#387)."""
+    rc, data, err = gate_check_beta(lp, env, tmp_path, capsys,
+                                    palomar=[{"commit": "a" * 40, "preflight_run": "run-1"}])
+    assert rc == 0 and data["palomar_check"]["skipped"] is None
+    assert [line for line in err.splitlines() if line.startswith("WARN: palomar:")]
+
+
+@pytest.mark.parametrize("fields", [
+    {},                                               # conftest: upstream_target none, verified-private
+    {"upstream_target": "mathlib"},
+    {"upstream_target": "palomar", "status": "archived"},
+])
+def test_gate_check_is_quiet_for_a_package_not_aiming_at_palomar(lp, env, tmp_path, capsys, fields):
+    """#387: no WARN; JSON palomar_check keeps every field and says why it was skipped."""
+    rc, data, err = gate_check_beta(lp, env, tmp_path, capsys, **fields)
+    assert rc == 0 and data["ok"] is True
+    assert "palomar" not in err
+    view = data["palomar_check"]
+    assert view["skipped"] == "not aiming at Palomar"
+    assert view["ready"] is False and view["errors"] >= 2 and "source.module_required" in view["codes"]
+    assert view["command"] == f"lean-pkg palomar check beta --rev {env.receipt_b['commit'][:12]}"
+
+
+def test_publish_dry_run_warns_even_when_not_aiming_at_palomar(lp, env, capsys):
+    """#387 leaves publish alone: its checklist item stays, and its view has no skipped key."""
+    assert read_reg(env)["packages"]["beta"]["upstream_target"] == "none"
+    lp.main(["--registry", str(env.registry), "publish", "beta", "--dry-run", "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert "skipped" not in data["palomar_check"]
+    assert [i for i in data["checklist"] if i["label"].startswith("palomar: ")]
 
 
 def test_publish_dry_run_carries_a_warn_item(lp, env, capsys):

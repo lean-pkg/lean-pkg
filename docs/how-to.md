@@ -482,8 +482,8 @@ release: Palomar's verifier needs a `module` header in every `.lean` file of
 the repository, and porting to the module system (`module`, `public import`,
 `@[expose]`) changes build inputs, so it forces a re-gate.
 `palomar port-modules` plans that port (a diff, plus the definitions likely
-to need `@[expose]`) and `--write` applies it to a clean tree, uncommitted. `gate --check` and
-`publish --dry-run` print a `palomar:` warning with the gap count. The rules,
+to need `@[expose]`) and `--write` applies it to a clean tree, uncommitted. `gate --check` (for a package
+aiming at Palomar) and `publish --dry-run` print a `palomar:` warning with the gap count. The rules,
 their source and their date: [FAQ](faq.md#palomar-readiness).
 
 ## Add an entry to the index
