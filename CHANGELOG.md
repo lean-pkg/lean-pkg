@@ -475,7 +475,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (and takes `--emit-script`), a `text/1` ledger refuses both
   ([the comparison `types/1`](docs/extract.md#the-comparison-types1),
   [on-disk formats](docs/formats.md)).
-- A public summary of an extraction ledger (#PR_EX5; #329, proposal 0009,
+- A public summary of an extraction ledger (#380; #329, proposal 0009,
   stage S5): `lean-pkg-extract recheck --public-summary PATH` writes, when
   the recheck passes, the report `lean-pkg-extract-ledger-summary/1`, which
   may be published: the method, the SHA-256 of the ledger file rechecked,

@@ -949,7 +949,7 @@ changes:
       only the run's own files.
     breaking: false
     changelog: Fixed
-  - pr: 0
+  - pr: 380
     id: extract-public-summary
     kind: command
     area: lean-pkg-extract
