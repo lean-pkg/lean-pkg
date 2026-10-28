@@ -685,6 +685,8 @@ lean-pkg-extract recheck:
     say: Is the library still faithful to the source at the newer commits? Nothing may fail; what changed since the ledger is listed as drift.
   - cmd: lean-pkg-extract recheck --ledger ~/ledgers/newlib-2.json --repo ~/paper --target ~/newlib --from-output source.out target.out
     say: Recheck a types/1 ledger with the outputs of its two programs, run again at the recorded commits; without --from-output a types/1 ledger is refused, since lean-pkg runs no Lean.
+  - cmd: lean-pkg-extract recheck --ledger ~/ledgers/newlib-1.json --repo ~/paper --target ~/newlib --public-summary ~/newlib/EXTRACTION.json
+    say: When the recheck passes, also write its public summary (lean-pkg-extract-ledger-summary/1) - target names, verdicts, hashes and totals, no source path, source name, reason or source commit - after a public-safety scan; inside the target is allowed, inside SRC and an existing file are refused.
 
 lean-pkg-extract decls:
   - cmd: "lean-pkg-extract decls --repo ~/paper --commit HEAD --output ~/newlib --from-module Src/A.lean:New.A --namespace Old.A=New.A --rename Old.A.foo=New.A.bar --drop 'Old.A.aux:exploration only, never used' --scaffold newlib --author 'Ada Lovelace' --ledger ~/ledgers/newlib-1.json"
