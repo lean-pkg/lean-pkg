@@ -2281,6 +2281,33 @@ statement is at fault. `the judge tool failed before judging`, with the
 judge's last log line, means a tool or setup step failed first; it is not a
 verdict on the proof.
 
+When the judge log of a refused configuration carries one of Lake's two
+compare-step messages, `Challenge and solution theorem statement do not match`
+or `Const does not match between challenge and target`, the refusal ends with
+one line pointing to the
+[contracts-only diagnostic](#a-contracts-only-diagnostic), which names the
+first differing field and the constants there (#397):
+
+```text
+comparator-receipt: stage 04-comparator failed: comparator.json: lake comparator did not accept the solution (slot 1/1 foo, exit 1); partial: 0/1 done, 1 failed; nothing written; partial report .../04-comparator.partial.json (log: .../04-comparator.log; stages: .../stages.json)
+next: lean-pkg comparator check my-proof --contracts-only
+```
+
+The runner reads the registry only for this line, best effort and read-only
+(`--registry` under `lean-pkg receipt comparator`, else `LEAN_PKG_REGISTRY`,
+else the user-level default). NAME is the one package whose `local_path` is the
+run's checkout; else the one package whose `repo` is a git remote of the
+checkout, and the line adds `--repo DIR`. When no single package matches, the
+line keeps the literal `NAME` with `--repo DIR` and names this section. The line
+is printed once per run, also when several configurations or units were refused
+the same way, and `stages.json` records the same command as `next_command`
+(`null` for a pass or any other failure; a kept attempt's `attempt.json` and its
+`--attempts --json` row carry it too, with the checkout path redacted there as
+`<checkout>`). Other refusals (an illegal axiom, a missing theorem, a build
+error, a judge that failed before judging, a timeout or signal) get no such
+line. It is display only: the comparison, the checker, the exit code and what
+the run writes are unchanged.
+
 `--mechanism toolchain` on a toolchain below the floor refuses with a message
 that names the floor and writes nothing. A `legacy` pass is evidence of a
 second-kernel replay, not of what Palomar will say; only the `toolchain`
