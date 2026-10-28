@@ -1,3 +1,3 @@
 | Form | What it does | Key flags |
 |---|---|---|
-| `leases` | held leases, soonest expiry first, with `live` / `EXPIRED` state and a last `CONTACT` column (blank when the lease has none); `--json` rows carry `contact` (null when unset); read-only | `[--agent A]` `[--expiring HOURS]` (HOURS >= 0; a negative window exits 2) |
+| `leases` | held leases, soonest expiry first, with `live` / `EXPIRED` state and a last `CONTACT` column (blank when the lease has none); `--json` rows carry `contact` (null when unset); read-only, never fetched: in a registry git clone a last line names the commit the leases were read from, `(as of registry <sha7>, committed 3h ago)` (on the `no leases` line itself when there are none), `--json` adds `registry_state` (as in [status](status.md#lease-state-on-a-stale-clone)), and a clone behind its last-fetched `origin/<branch>` prints one stderr warning | `[--agent A]` `[--expiring HOURS]` (HOURS >= 0; a negative window exits 2) |

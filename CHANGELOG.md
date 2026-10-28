@@ -49,6 +49,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   record with `update NAME --path DIR --reason TEXT`, which the writing
   gate's own `--repo` refusal now also says.
 
+- `status`, `gate NAME --check`, `lease list` and the lease warning name the
+  registry commit their lease state was read from (#393; #385): on a registry
+  git clone the lease line ends `(as of registry <sha7>, committed 6h ago)`,
+  `status` now also prints the line for a live lease (`lease: live, expires
+  in ...`) and for none, and `--json` gains `registry_state` {root, commit,
+  committed_at, age_seconds, branch, upstream, behind, ahead, dirty} (null
+  outside a git clone). A clone behind the `origin/<branch>` it last fetched
+  prints one stderr warning, `registry clone is N commit(s) behind
+  origin/<branch> as last fetched (lease state may be stale)`, with the `git
+  pull --ff-only` that fixes it. Local refs only: read-only commands still
+  never fetch. Field report: on a second machine `gate --check` warned that a
+  lease was EXPIRED and held by another agent while the live lease, pushed
+  from the first machine, was the reporter's own.
+
 ### Documentation
 
 - Proposals 0002, 0003, 0008 and 0009 are implemented in 0.22.0 (#384):

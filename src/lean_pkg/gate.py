@@ -40,7 +40,8 @@ from .core import (
     get_pkg, gh_nwo, git, git_head, git_show_bytes, _is_ancestor, lake_artifact, lease_actor, lease_live,
     linked_changes, linked_evidence_changes, load_registry, LOWER_RECEIPT_SCHEMA, _LOWER_RECEIPT_SCHEMA_RE,
     LOWER_RECEIPT_SCHEMAS, nested_exclusions, nested_label, parse_ts, print_json, RECEIPT_FIELDS, record,
-    refuse_invalid_lease, registered_nested_dirs, registry_path, repo_path, require_nonempty, save_registry,
+    refuse_invalid_lease, registered_nested_dirs, registry_behind_warning, registry_path, registry_state_of,
+    repo_path, require_nonempty, save_registry,
     sha256_bytes, symlink_targets, tracked_at, under_any, UsageError, warn_lease,
 )
 from .holes import SIDECAR as SIGNOFF_SIDECAR, check_definition_holes, parse_sidecar
@@ -2092,6 +2093,11 @@ def cmd_gate(args) -> int:
             print(f"lean-pkg: note: gate --check takes no lease and checks none; --agent {args.agent} is "
                   "used by the writing gate (see next:)", file=sys.stderr)
         reg, override = load_registry(reg_path), None
+        # #385: the registry commit the record (and the lease warning) was read from; local refs, no fetch.
+        # Said before the checks, so a refusal read from a stale clone carries it too.
+        rstate = registry_state_of(args)
+        if behind := registry_behind_warning(rstate):
+            print(behind, file=sys.stderr)
         if repo_arg is not None:
             reg, override = repo_override(reg, args.name, repo_arg)
             if note := repo_override_note(override):
@@ -2100,6 +2106,7 @@ def cmd_gate(args) -> int:
                                      refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
                                      regate=regate, reason=reason)
         payload["repo_override"] = override
+        payload["registry_state"] = rstate
         from . import palomar_check   # advisory (feature request #6): never changes the verdict; no WARN
         # for a package not aiming at Palomar (#387: the same predicate as audit; JSON skipped says so)
         payload["palomar_check"] = view = palomar_check.hook(reg, args.name, payload.get("commit"))
