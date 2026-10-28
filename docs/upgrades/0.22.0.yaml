@@ -935,6 +935,20 @@ changes:
       read coverage.not_searched and decide whether those packages matter for the query.
     breaking: true
     changelog: Changed
+  - pr: 379
+    id: verify-yml-comparator-upload-this-commit
+    kind: behavior
+    area: receipt ci
+    summary: >-
+      lean-pkg's reusable verify.yml comparator job uploads only the comparator receipt and logs of the checked-out
+      commit (<commit12>-comparator.json and <commit12>-comparator-*.log, named from GITHUB_SHA), not every comparator
+      receipt in .lean-receipts/: the third live run's artifact also carried the package's committed receipts for
+      earlier commits (#318). The job fails if its own receipt is missing.
+    action: >-
+      Nothing required. A caller that pins verify.yml to a commit at or after this fix gets a comparator artifact with
+      only the run's own files.
+    breaking: false
+    changelog: Fixed
 # Docs: the 2026-10 improvement plan (docs/design/improvement-plan-2026-10.md, issues #310 to #320), and
 # proposals 0002 and 0003 marked accepted; no code changes (#321).
 # Tests and CI (#323): bytecode stays out of src/, CI time limits, pip cache, cancelled superseded runs,

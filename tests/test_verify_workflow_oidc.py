@@ -116,3 +116,20 @@ def test_both_uploads_include_the_hidden_receipts_directory():
         assert len(ups) == 1, job
         assert ups[0]["with"].get("include-hidden-files") is True, job
         assert ".lean-receipts/" in ups[0]["with"]["path"], job
+
+
+def test_the_comparator_upload_takes_only_this_runs_commit():
+    """The third live run (chenle02/neumann-cosine-lean, run 40501641370) uploaded the package's committed comparator
+    receipts for two earlier commits beside the new one: `*-comparator.json` matched every receipt in
+    .lean-receipts/. The upload is now limited to the checked-out commit's <commit12>-comparator.json and its logs."""
+    steps = _steps("comparator")
+    names = [s.get("name", "") for s in steps]
+    name_i = next(i for i, n in enumerate(names) if n.startswith("Name this run's comparator files"))
+    up_i = names.index("Upload the comparator receipt")
+    assert names.index("Write the comparator receipt (lean-pkg receipt comparator)") < name_i < up_i
+    run = steps[name_i]["run"]
+    assert 'c12="${GITHUB_SHA:0:12}"' in run and 'COMPARATOR_C12=$c12' in run and "exit 1" in run
+    path = steps[up_i]["with"]["path"]
+    assert "*-comparator.json" not in path and "*-comparator-*.log" not in path
+    assert "/.lean-receipts/${{ env.COMPARATOR_C12 }}-comparator.json" in path
+    assert "/.lean-receipts/${{ env.COMPARATOR_C12 }}-comparator-*.log" in path
