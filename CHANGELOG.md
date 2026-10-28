@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-28
+
 ### Added
 
 - Lower-tier receipt schema marker (#324; the format freeze of the 1.0
@@ -861,6 +863,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   docs/formalization.md says conditional claims add no Palomar field.
   Proposal 0003 names its stage pull requests (status `accepted` until the
   release), and plan row 9c is implemented.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.21.0] - 2026-10-26
 
