@@ -12,7 +12,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 ### Added
 
 - `report --expected TEXT`, `--workaround TEXT` and `--blocking yes|no`, for
-  reports an intake channel can triage (#PRNUM): `--expected` fills What you
+  reports an intake channel can triage (#389): `--expected` fills What you
   expected, `--workaround` adds a Workaround section after it and
   `--blocking` a `**Blocking**: yes` (or `no`) line before Version; each
   renders only when given, and the two texts are redacted like `--body`. The
