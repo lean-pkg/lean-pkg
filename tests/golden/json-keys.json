@@ -297,6 +297,7 @@
       "event",
       "head",
       "name",
+      "next_command",
       "ok",
       "palomar_check",
       "pins",
