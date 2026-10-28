@@ -187,3 +187,77 @@ def test_ready_package_prepares_and_warn_gaps_never_refuse(lp, tmp_path, capsys)
     assert any(w.startswith("palomar check: ") for w in payload["warnings"])
     assert "lean-pkg: warning: palomar check: " in cap.err
     assert (repo / payload["bundle"] / "MANIFEST.sha256").is_file()
+
+
+STAGE_HEADINGS = ["1. Static readiness (done by lean-pkg)", "2. Full mechanical preflight (before intake)",
+                  "3. Approval: show the user these fields before intake", "4. Intake, proof and cleanup",
+                  "5. Editorial review", "6. Registration", "7. Record the submission"]
+CONTRACT = "https://submit.palomar-registry.org/llms.txt"
+NOT_EQUIVALENT = ("A local lake build, a repository CI job or a standalone comparator run (lean-pkg's\n"
+                  "   comparator receipt included) is not equivalent. Continue only on status: pass.")
+
+
+def test_readme_is_the_staged_handoff_checklist(lp, env, capsys, assume_ready):
+    """#402: README.txt carries the seven stages in order, the pre-filled approval fields, the live agent
+    contract (linked, not copied) and the not-equivalent sentence; --json carries the same as `handoff`."""
+    with_consent(env)
+    head = repo_head(env.repo_b)
+    repo_url = read_reg(env)["packages"]["beta"].get("repo")
+    assert cli(lp, env, "palomar", "prepare", "beta", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    bundle = env.repo_b / payload["bundle"]
+    readme = (bundle / "README.txt").read_text()
+    at = [readme.index(h) for h in STAGE_HEADINGS]
+    assert at == sorted(at)
+    assert "This is NOT Palomar's full preflight" in readme and NOT_EQUIVALENT in readme
+    assert ("PalomarRegistry/PalomarSubmission/.github/workflows/submission.yml" in readme
+            and "mode: full and execution_profile: palomar-standard-v1" in readme
+            and "Pin `uses:` and `pipeline_commit` to the same full" in readme)
+    assert (f"     repository: {repo_url}\n     commit: {head}\n     comparator_config_path: comparator.json\n"
+            "     authorization_relationship: (the user states it; Palomar records it permanently)\n") in readme
+    assert f"Follow Palomar's live agent contract: {CONTRACT}" in readme
+    assert "Register only on the user's explicit decision, made after reading the review." in readme
+    # today's facts are kept: commit, push, MANIFEST check, record command, files
+    assert f"Make sure commit {head} is pushed to the public repository {repo_url}." in readme
+    assert "sha256sum -c MANIFEST.sha256" in readme
+    assert {"  README.txt", "  MANIFEST.sha256", "  configs/comparator.json"} <= set(
+        readme.split("\nFiles:\n", 1)[1].splitlines())
+    assert (f"lean-pkg record beta palomar-submitted --field commit={head} \\\n"
+            "       --field submission_id=ID --field comparator_config=comparator.json") in readme
+    assert readme.index("7. Record the submission") < readme.index("lean-pkg record beta palomar-submitted")
+    for line in (bundle / "MANIFEST.sha256").read_text().splitlines():
+        digest, rel = line.split("  ", 1)
+        assert hashlib.sha256((bundle / rel).read_bytes()).hexdigest() == digest
+    assert payload["handoff"] == {
+        "stages": ["static-readiness", "full-preflight", "approval", "intake", "editorial-review",
+                   "registration", "record"],
+        "approval_fields": {"repository": repo_url, "commit": head, "comparator_config_path": "comparator.json",
+                            "authorization_relationship": None},
+        "agent_contract": CONTRACT,
+        "full_preflight": {"workflow": "PalomarRegistry/PalomarSubmission/.github/workflows/submission.yml",
+                           "mode": "full", "execution_profile": "palomar-standard-v1"}}
+
+
+def test_dry_run_json_carries_the_handoff(lp, env, capsys, assume_ready):
+    with_consent(env)
+    assert cli(lp, env, "palomar", "prepare", "beta", "--dry-run", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["handoff"]["approval_fields"]["commit"] == repo_head(env.repo_b)
+    assert payload["handoff"]["approval_fields"]["authorization_relationship"] is None
+
+
+def test_readme_is_deterministic_apart_from_the_built_line(lp, monkeypatch):
+    """Two renders differ only in the `Built by ... on <time>` line; each other configuration is listed for a
+    separate submission, after the approved one."""
+    palomar = importlib.import_module("lean_pkg.palomar")
+    pkg = {"name": "beta", "repo": "https://github.com/o/beta"}
+    args = (pkg, "a" * 40, ["comparator.json", "comparator/config-b.json"], ["README.txt"], [])
+    stamps = iter(["2026-10-28T00:00:00+00:00", "2026-10-29T12:00:00+00:00"])
+    monkeypatch.setattr(palomar.core, "now_iso", lambda: next(stamps))
+    one, two = (palomar.readme_text(*args).splitlines() for _ in range(2))
+    assert len(one) == len(two)
+    assert [i for i, (a, b) in enumerate(zip(one, two, strict=True)) if a != b] == [1]
+    text = "\n".join(one)
+    assert "comparator_config_path: comparator.json\n" in text
+    assert text.index("authorization_relationship") < text.index("submit each other one separately")
+    assert "\n     comparator/config-b.json\n" in text
