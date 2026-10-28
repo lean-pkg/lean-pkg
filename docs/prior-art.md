@@ -484,9 +484,10 @@ exactly its result limit (its block's `capped[]` with `cap_limit`: GitHub's code
 or repository search stops at 30, so more matches may exist; the record's Sources
 table says `capped:` and an `Incomplete:` sentence names it; Palomar, Reservoir
 and Loogle say the same when they found more matches than they list, with the
-block's `total`), a local source marked `incomplete` (unreadable candidate files
-or index entries) or a package that was never searched means the search was
-bounded.
+block's `total`), or a local source marked `incomplete` (unreadable candidate files
+or index entries, or a registered package the registry could not search at all:
+no path, no checkout, no git HEAD, a scan error) means the search was bounded,
+and `complete` is false.
 
 **2. Pin what you found.** A candidate is only usable at an exact revision.
 Each hit carries one: a registry claim its `pin` (the synced commit), the index

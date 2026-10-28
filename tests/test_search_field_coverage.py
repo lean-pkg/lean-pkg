@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import subprocess
 
-from .conftest import run_search
+from .conftest import base_pkg, read_reg, run_search, write_reg
 from .test_search_declarations import unclaimed  # noqa: F401  (fixture)
 
 NETWORK = ("loogle", "leansearch", "reservoir", "palomar", "github")
@@ -164,3 +164,21 @@ def test_cache_dir_keeps_the_refresh_private(lp, srch, searchable, monkeypatch, 
 def test_offline_writes_nothing(lp, srch, searchable, capsys):
     assert run_search(lp, searchable, "gumbel", "--offline", "--json") == 0
     assert json.loads(capsys.readouterr().out)["cache"]["writes"] == []
+
+
+def test_require_complete_fails_once_a_registered_package_is_not_searched(lp, srch, searchable, monkeypatch,
+                                                                         tmp_path, capsys):
+    """#376: a registered package the registry could not search (here: no checkout) makes a search that was
+    complete incomplete; before the fix `complete` stayed true and --require-complete passed."""
+    stub(srch, monkeypatch, [])
+    assert run_search(lp, searchable, "x", "--loogle-query", "Real.exp", "--require-complete", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["complete"] is True
+    reg = read_reg(searchable.env)
+    reg["packages"]["gone"] = base_pkg("gone", tmp_path / "no-such-checkout", "gate-pending")
+    write_reg(searchable.env, reg)
+    assert run_search(lp, searchable, "x", "--loogle-query", "Real.exp", "--require-complete", "--json") == 1
+    cap = capsys.readouterr()
+    p = json.loads(cap.out)
+    assert p["complete"] is False and p["truncated_sources"] == ["registry"] and p["ok"] is False
+    assert p["coverage"]["not_searched"] == ["gone"]
+    assert "registry: 1 registered package(s) not searched (no checkout)" in p["error"]

@@ -183,7 +183,10 @@ def test_a_match_past_200_candidate_files_is_found(lp, srch, unclaimed, capsys):
     p = json.loads(capsys.readouterr().out)
     decls = [h["decl"] for h in p["sources"][0]["hits"] if h.get("hit_kind") == srch.DECL_HIT_KIND]
     assert decls == ["chaosMoments_bound"]
-    assert p["coverage"]["declaration_files_capped"] == [] and "registry" not in p["truncated_sources"]
+    # no file cap was hit: the registry's only incomplete reason is demo-c, registered without a checkout (#376)
+    assert p["coverage"]["declaration_files_capped"] == []
+    assert p["sources"][0]["incomplete"] == ("1 registered package(s) not searched (no checkout) "
+                                             "(see the coverage line)")
 
 
 def test_a_file_cap_that_is_reached_is_reported_and_makes_the_search_incomplete(lp, srch, unclaimed,
