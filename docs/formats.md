@@ -102,9 +102,17 @@ back is versioned too, so a script can tell what it has:
 `claims-ledger/1`, `claims-rebase/1`, `host-routes/1`, `exercise-check/1`,
 `exercise-batch/1`, `lean-pkg-extract-plan/1`, `lean-pkg-upgrade/1`,
 `formalization-kept/1`, `comparator-types/1`, `lean-pkg-lean-diag/1`,
-`lean-pkg-dup-constants/1`, `lean-pkg-comparator-contracts/1` and
-`lean-pkg-extract-ledger-summary/1`. The
+`lean-pkg-dup-constants/1`, `lean-pkg-comparator-contracts/1`,
+`lean-pkg-extract-ledger-summary/1` and `lean-pkg-report/1`. The
 `lean-pkg-extract` manifest a user writes is `lean-pkg-extract/1`.
+
+`lean-pkg-report/1` is the bug report `lean-pkg report` assembles: the first
+line of its body, in the dry run, the filed issue and `--json`, is the
+marker `<!-- lean-pkg-report/1 -->`, and `--json` carries the same string
+as `schema`. An intake channel reads it to recognise a report and its
+layout: the template's bold section labels in order, with the optional
+`**Blocking**` line before Version and `**Workaround**` section after What
+you expected ([report](commands/report.md)).
 
 `lean-pkg-extract-ledger-summary/1` is the public summary of an extraction
 ledger (`lean-pkg-extract recheck --public-summary PATH`, written only when

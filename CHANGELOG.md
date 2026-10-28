@@ -9,6 +9,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `report --expected TEXT`, `--workaround TEXT` and `--blocking yes|no`, for
+  reports an intake channel can triage (#PRNUM): `--expected` fills What you
+  expected, `--workaround` adds a Workaround section after it and
+  `--blocking` a `**Blocking**: yes` (or `no`) line before Version; each
+  renders only when given, and the two texts are redacted like `--body`. The
+  first line of every report body (dry run, filed, `--json`) is the marker
+  `<!-- lean-pkg-report/1 -->`, and `--json` gains `schema:
+  "lean-pkg-report/1"`.
+
 ### Documentation
 
 - Proposals 0002, 0003, 0008 and 0009 are implemented in 0.22.0 (#384):

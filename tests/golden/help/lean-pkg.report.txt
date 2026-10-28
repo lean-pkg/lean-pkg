@@ -1,6 +1,6 @@
-usage: lean-pkg report [-h] [--command ARGS] [--body TEXT] [--from-log FILE[:N]] [--package NAME]
-                       [--title TITLE] [--enhancement] [--target-repo OWNER/NAME] [--dry-run |
-                       --yes] [--json]
+usage: lean-pkg report [-h] [--command ARGS] [--body TEXT] [--from-log FILE[:N]] [--expected TEXT]
+                       [--workaround TEXT] [--blocking {yes,no}] [--package NAME] [--title TITLE]
+                       [--enhancement] [--target-repo OWNER/NAME] [--dry-run | --yes] [--json]
 
 options:
   -h, --help            show this help message and exit
@@ -11,6 +11,11 @@ options:
                         --command is given too); redacted like everything else
   --from-log FILE[:N]   the last N lines (default 200) of a stage log, under Log excerpt in What
                         happened; redacted like everything else; a missing file is a usage error
+  --expected TEXT       what you expected instead, for What you expected; redacted like --body
+  --workaround TEXT     what you did instead, as a Workaround section after What you expected;
+                        redacted like --body
+  --blocking {yes,no}   whether the problem blocks your work: a Blocking line before Version (none
+                        without it)
   --package NAME        add the package's registry record (status, lease, receipt commits); its
                         .lean-pkg-private-patterns joins the redaction
   --title TITLE         issue title (default: report: <the command>, else report: lean-pkg
