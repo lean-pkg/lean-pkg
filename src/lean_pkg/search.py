@@ -456,14 +456,22 @@ def capped_phrase(c: dict) -> str:
 
 
 def registry_incomplete(cov: dict | None) -> str | None:
-    """Why the registry source read only part of what it should have, or None."""
-    capped = (cov or {}).get("declaration_files_capped") or []
-    if not capped:
-        return None
-    cap = any(c["candidates"] - c["inspected"] - (c.get("unreadable") or 0) > 0 for c in capped)
-    unreadable = sum(c.get("unreadable") or 0 for c in capped)
-    why = (["a file cap"] if cap else []) + ([f"{unreadable} unreadable candidate file(s)"] if unreadable else [])
-    return f"declaration search hit {' and '.join(why)} (see the coverage line)"
+    """Why the registry source read only part of what it should have, or None: candidate files a package's
+    declaration search did not read, or registered packages it could not search at all (#376: those make the
+    search incomplete too, so `complete`, --require-complete and the record never treat them as searched).
+    Counts only, never package names: the text reaches the --record page."""
+    cov = cov or {}
+    parts = []
+    capped = cov.get("declaration_files_capped") or []
+    if capped:
+        cap = any(c["candidates"] - c["inspected"] - (c.get("unreadable") or 0) > 0 for c in capped)
+        unreadable = sum(c.get("unreadable") or 0 for c in capped)
+        why = (["a file cap"] if cap else []) + ([f"{unreadable} unreadable candidate file(s)"] if unreadable else [])
+        parts.append(f"declaration search hit {' and '.join(why)}")
+    missed = cov.get("not_searched") or []
+    if missed:
+        parts.append(f"{len(missed)} registered package(s) not searched ({not_searched_groups(cov, names=False)})")
+    return f"{'; '.join(parts)} (see the coverage line)" if parts else None
 
 
 # --------------------------------------------------------------------------

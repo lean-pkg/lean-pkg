@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from .conftest import _git, base_pkg, make_repo, run_search
+from .conftest import _git, base_pkg, make_repo, read_reg, run_search, write_reg
 
 
 def pkg_repo(tmp_path, files: dict):
@@ -173,3 +173,59 @@ def test_scrub_paths_redacts_cluster_and_system_roots(srch, text):
                                   "ratio 1/tmp", "/tmp", "/scratch/"])
 def test_scrub_paths_leaves_urls_and_relative_paths(srch, text):
     assert srch.scrub_paths(text) == text
+
+
+# --- 9: registered packages the registry could not search (#376) --------------------------------
+
+def _unsearched(searchable, tmp_path, *, non_git: bool = False):
+    """Register `gone` with no checkout (and, with non_git, `plain` whose checkout is not a git work tree)."""
+    reg = read_reg(searchable.env)
+    reg["packages"]["gone"] = base_pkg("gone", tmp_path / "no-such-checkout", "gate-pending")
+    if non_git:
+        plain = tmp_path / "plain-dir"
+        plain.mkdir()
+        (plain / "X.lean").write_text("def gumbelThing : Nat := 0\n")
+        reg["packages"]["plain"] = base_pkg("plain", plain, "gate-pending")
+    write_reg(searchable.env, reg)
+
+
+def test_an_unsearched_registered_package_makes_the_search_incomplete(lp, searchable, tmp_path, capsys):
+    _unsearched(searchable, tmp_path)
+    assert run_search(lp, searchable, "gumbel", "--offline", "--json", "--sources", "registry") == 0
+    p = json.loads(capsys.readouterr().out)
+    reg = p["sources"][0]
+    assert p["coverage"]["not_searched"] == ["gone"]
+    assert reg["incomplete"] == "1 registered package(s) not searched (no checkout) (see the coverage line)"
+    assert p["complete"] is False and p["truncated_sources"] == ["registry"]
+    assert run_search(lp, searchable, "gumbel", "--offline", "--sources", "registry") == 0
+    out = capsys.readouterr().out
+    assert "registry: 1 registered package(s) not searched (no checkout)" in out
+    assert "registry (incomplete, " in out
+
+
+def test_unsearched_packages_are_counted_by_reason_without_names(lp, searchable, tmp_path, capsys):
+    _unsearched(searchable, tmp_path, non_git=True)
+    assert run_search(lp, searchable, "gumbel", "--offline", "--json", "--sources", "registry") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert sorted(p["coverage"]["not_searched"]) == ["gone", "plain"]
+    why = p["sources"][0]["incomplete"]
+    assert why == "2 registered package(s) not searched (no checkout: 1, no git HEAD: 1) (see the coverage line)"
+    assert "gone" not in why and "plain" not in why
+
+
+def test_the_record_never_says_not_found_in_a_registry_with_unsearched_packages(lp, searchable, tmp_path):
+    _unsearched(searchable, tmp_path)
+    assert run_search(lp, searchable, "gumbel", "--offline", "--package", "beta", "--record") == 0
+    text = (searchable.env.repo_b / "docs/prior-art" / f"{today(lp)}-gumbel.md").read_text()
+    assert "Not found in registry" not in text
+    assert "incomplete: 1 registered package(s) not searched (no checkout)" in text
+    assert "Not fully searched, so a zero there is not an absence: registry (1 registered package(s) not searched" in text
+    assert "gone" not in text.split("## Candidates")[0].split("## Sources")[1]   # counts only, no names
+
+
+def test_declaration_only_packages_leave_the_registry_complete(lp, searchable, capsys):
+    """A package searched by declaration was searched: only packages the registry could not read at all count."""
+    assert run_search(lp, searchable, "gumbel", "--offline", "--json", "--sources", "registry") == 0
+    p = json.loads(capsys.readouterr().out)
+    assert p["coverage"]["not_searched"] == [] and p["coverage"]["declaration_only"] >= 1
+    assert p["sources"][0].get("incomplete") is None and p["truncated_sources"] == []
