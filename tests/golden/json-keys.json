@@ -448,6 +448,7 @@
   },
   "palomar-port-modules": {
     "keys": [
+      "clean_scope",
       "commit",
       "counts",
       "diff",
@@ -460,6 +461,7 @@
       "ok",
       "outside_package",
       "project_path",
+      "untracked_lean",
       "vendored_dirs",
       "written"
     ],

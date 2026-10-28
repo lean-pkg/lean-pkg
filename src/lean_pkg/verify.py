@@ -11,7 +11,10 @@ checks, refusals, registry lock and committed mode), and printed before it runs:
    check` (coverage.preflight_at_head: schema and length limits, claim ids, comparator theorems mapped to rows,
    against the files and configurations committed at HEAD; placeholder text and an unposted manuscript are
    warnings here, since `coverage check` and `page` refuse them later). A refusal stops verify with that message
-   before any receipt work: nothing run, nothing written. Files only in the working tree are never read;
+   before any receipt work: nothing run, nothing written. Files only in the working tree are never read.
+   Step 0 also scans the imports at HEAD (port_modules.non_module_imports, #392): a module-headed file of the
+   package that imports a non-module file of the package is a warning naming the files and `lean-pkg palomar
+   port-modules NAME --dry-run`, never a refusal (skipped silently when the tree cannot be read);
 1. the comparator receipt: `lean-pkg receipt comparator --repo CHECKOUT` (the `comparator-receipt` program);
 2. the lower-tier receipt on this workstation: `lean-pkg receipt systemd --unit U --receipt-commit X --log
    W/verify.log --stdout W/unit.out --stderr W/unit.err --repo CHECKOUT --run -- bash verify.sh W/verify.log`,
@@ -305,9 +308,37 @@ def preflight(steps: Steps, name: str, pkg: dict, repo: pathlib.Path, c12: str) 
     steps.say(f"verify: 0/3 preflight: claims and coverage files committed at {c12}")
     for line in res["lines"]:
         steps.say(f"  {line}")
+    hits, warnings = module_import_warnings(name, repo, c12)
+    for w in warnings:
+        print(f"lean-pkg: warning: {w}", file=sys.stderr)
     steps.done.append({"step": "0/3 preflight", "rc": 0 if res["ok"] else 1,
-                       "output": {"ok": res["ok"], "claims": res["claims"], "coverage": res["coverage"]}})
+                       "output": {"ok": res["ok"], "claims": res["claims"], "coverage": res["coverage"],
+                                  "module_imports": hits, "warnings": warnings}})
     return res
+
+
+MODULE_HITS_SHOWN = 10
+
+
+def module_import_warnings(name: str, repo: pathlib.Path, c12: str) -> tuple[list[dict], list[str]]:
+    """Step 0's module-import scan (#392): at HEAD, a module-headed file of the package that imports a
+    non-module file of the package fails to build (`cannot import non-module`). port_modules' detection,
+    reported as one warning with the next command; never a refusal. Skipped silently ([], []) when HEAD or
+    the tree cannot be read."""
+    from . import port_modules
+    try:
+        hits = port_modules.non_module_imports(repo)
+    except (core.Fail, OSError, ValueError, UnicodeError):
+        return [], []
+    if not hits:
+        return [], []
+    shown = "; ".join(f"{h['file']}:{h['line']} imports {h['module']} ({h['target']})"
+                      for h in hits[:MODULE_HITS_SHOWN])
+    more = f"; and {len(hits) - MODULE_HITS_SHOWN} more" if len(hits) > MODULE_HITS_SHOWN else ""
+    files = len({h["file"] for h in hits})
+    return hits, [f"{files} module-headed file(s) at {c12} import a non-module file of the package, which "
+                  f"fails to build (a module cannot import a non-module): {shown}{more}; next: "
+                  f"lean-pkg palomar port-modules {name} --dry-run"]
 
 
 def cmd_verify(args) -> int:
@@ -439,7 +470,9 @@ def add_parsers(sub, add_json) -> None:
                                    "one is re-gated), each as its own lean-pkg invocation with its own checks. "
                                    "First (step 0, read-only, also under --dry-run) the claims/1 check on the "
                                    "claims file committed at HEAD and, when coverage.yaml is committed, the "
-                                   "offline `coverage check`: a refusal stops verify before any receipt. "
+                                   "offline `coverage check`: a refusal stops verify before any receipt; "
+                                   "a module-headed file importing a non-module file of the package at HEAD "
+                                   "is a warning naming `palomar port-modules NAME --dry-run`. "
                                    "Writes only what those commands write; commits nothing in the checkout. A "
                                    "package whose committed coverage.yaml declares an LTS stack (`stack: NAME`, "
                                    "docs/stacks/) is checked against it (lean-toolchain, the Mathlib commit, the "

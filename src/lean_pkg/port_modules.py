@@ -4,7 +4,10 @@
 Palomar requires every tracked `.lean` file to begin with `module` (`palomar check`:
 `source.module_required`). This command plans the mechanical part of that port for the package's
 tracked `.lean` files at HEAD (git objects, never the working tree) and, with `--write`, applies it to
-a clean working tree. It never commits, never builds and never writes the registry.
+a clean package directory (`git status -- <package dir>`: a modified or untracked path inside it refuses;
+paths elsewhere in the repository do not, since the port writes only inside the package; #392). It never
+commits, never builds and never writes the registry. Untracked `.lean` files of the package are not read;
+the report names them (`untracked_lean`), so "nothing to port" is never said over files it did not read.
 
 Per file that is not module-headed yet:
 
@@ -368,14 +371,14 @@ def _module_file(mod: str) -> str:
     return "/".join(lean_scan.split_name(mod) or [mod]).replace("«", "").replace("»", "") + ".lean"
 
 
-def plan(pkg: dict, repo: pathlib.Path) -> dict:
-    name = pkg["name"]
-    head = core.git_head(repo)
-    if head is None:
-        raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
-    tree = Tree(repo, head)
-    prefix = tree.prefix
-    vendored = _excluded_dirs(tree, prefix, repo)
+def _is_excluded(rel: str, vendored: list[str]) -> bool:
+    """A package-relative path under .git/, .lake/, lake-packages/ or another Lake project."""
+    return bool(set(rel.split("/")[:-1]) & set(EXCLUDED_DIRS)) or any(rel.startswith(d + "/") for d in vendored)
+
+
+def _package_lean(tree: Tree, prefix: str, vendored: list[str]) -> tuple[list[str], list[str], int, list[str]]:
+    """(the package's .lean blobs, excluded .lean paths, .lean files outside the package, symlinks), all
+    package-relative, from the tree at HEAD."""
     lean, excluded, outside, links = [], [], 0, []
     for p, (mode, kind, _sha) in sorted(tree.entries.items()):
         if not p.endswith(".lean"):
@@ -384,17 +387,70 @@ def plan(pkg: dict, repo: pathlib.Path) -> dict:
             outside += 1
             continue
         rel = p[len(prefix):]
-        parts = rel.split("/")
-        if set(parts[:-1]) & set(EXCLUDED_DIRS) or any(rel.startswith(d + "/") for d in vendored):
+        if _is_excluded(rel, vendored):
             excluded.append(rel)
             continue
-        if parts[-1] in EXEMPT_FILES:
+        if rel.split("/")[-1] in EXEMPT_FILES:
             continue
         if mode == "120000":
             links.append(rel)
             continue
         if kind == "blob":
             lean.append(rel)
+    return lean, excluded, outside, links
+
+
+def untracked_lean(repo: pathlib.Path, vendored: list[str]) -> list[str]:
+    """The package's untracked, not ignored `.lean` files (package-relative; the plan's exclusions apply,
+    and a directory with its own untracked lakefile is another Lake project): port-modules reads HEAD, so
+    these are not read (#392). [] when the status cannot be read."""
+    p = core.git(repo, "ls-files", "-z", "--others", "--exclude-standard", "--", ".")
+    if p.returncode != 0:
+        return []
+    paths = [x for x in p.stdout.split("\0") if x]
+    nested = sorted({x.rsplit("/", 1)[0] for x in paths if "/" in x and x.rsplit("/", 1)[1] in LAKEFILES})
+    return sorted(x for x in paths if x.endswith(".lean") and x.split("/")[-1] not in EXEMPT_FILES
+                  and not _is_excluded(x, [*vendored, *nested]))
+
+
+def non_module_imports(repo: pathlib.Path) -> list[dict]:
+    """At HEAD: each import, in a module-headed `.lean` file of the package, of a package file that is not
+    module-headed (Lean: `cannot import non-module`; `palomar port-modules` ports the target). The same file
+    set and header parser as the plan. [{file, line, module, target}], package-relative paths (#392)."""
+    head = core.git_head(repo)
+    if head is None:
+        raise core.Fail(f"{repo} is not a git checkout with a commit")
+    tree = Tree(repo, head)
+    prefix = tree.prefix
+    lean, _excluded, _outside, _links = _package_lean(tree, prefix, _excluded_dirs(tree, prefix, repo))
+    blobs = tree.blobs([prefix + r for r in lean])
+    texts = {}
+    for rel in lean:
+        try:
+            texts[rel] = blobs.get(prefix + rel, b"").decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+    out = []
+    for rel, text in sorted(texts.items()):
+        if not has_module_header(text):
+            continue
+        for imp in parse_header(text).get("imports", []):
+            target = _module_file(imp["name"])
+            if target in texts and not has_module_header(texts[target]):
+                out.append({"file": rel, "line": _line_of(text, imp["start"]), "module": imp["name"],
+                            "target": target})
+    return out
+
+
+def plan(pkg: dict, repo: pathlib.Path) -> dict:
+    name = pkg["name"]
+    head = core.git_head(repo)
+    if head is None:
+        raise core.Fail(f"{name}: {repo} is not a git checkout with a commit")
+    tree = Tree(repo, head)
+    prefix = tree.prefix
+    vendored = _excluded_dirs(tree, prefix, repo)
+    lean, excluded, outside, links = _package_lean(tree, prefix, vendored)
     blobs = tree.blobs([prefix + r for r in lean])
     files, texts, new_texts = [], {}, {}
     for rel in lean:
@@ -468,13 +524,16 @@ def plan(pkg: dict, repo: pathlib.Path) -> dict:
     counts["review"] = sum(len(f["reviews"]) for f in files)
     return {"commit": head, "project_path": prefix.rstrip("/") or ".", "files": files, "counts": counts,
             "expose": expose, "excluded": excluded, "vendored_dirs": vendored, "outside_package": outside,
-            "diff": diff, "_new": new_texts}
+            "diff": diff, "untracked_lean": untracked_lean(repo, vendored), "_new": new_texts}
 
 
 # ------------------------------------------------------------------------------------------- writing
 
-def dirty_paths(repo: pathlib.Path) -> list[str]:
-    p = core.git(repo, "status", "--porcelain", "--untracked-files=normal")
+def dirty_paths(repo: pathlib.Path, extra: list[str] | None = None) -> list[str]:
+    """Modified, staged or untracked paths in the package directory `repo` (and `extra`, package-relative
+    paths it would write, inside it anyway), as `git status --porcelain` prints them (repository-relative).
+    Paths elsewhere in the repository do not count: the port writes only inside the package (#392)."""
+    p = core.git(repo, "status", "--porcelain", "--untracked-files=normal", "--", ".", *(extra or []))
     if p.returncode != 0:
         raise core.Fail(f"cannot read the working-tree status of {repo}")
     return [ln[3:] for ln in p.stdout.splitlines() if ln.strip()]
@@ -515,7 +574,10 @@ def run_port(reg: dict, name: str, write: bool, agent: str | None) -> tuple[list
     new = rep.pop("_new")
     c = rep["counts"]
     refused = [f for f in rep["files"] if f["action"] == "refused"]
-    payload = {"ok": not refused, "name": name, "dry_run": not write, "written": [], **rep, "follow_ups": []}
+    scope = rep["project_path"]
+    payload = {"ok": not refused, "name": name, "dry_run": not write, "written": [], **rep, "clean_scope": scope,
+               "follow_ups": []}
+    untracked = rep["untracked_lean"]
     if write:
         if refused:
             raise core.Fail(f"{name}: {len(refused)} file(s) cannot be ported mechanically; nothing written:\n"
@@ -526,10 +588,12 @@ def run_port(reg: dict, name: str, write: bool, agent: str | None) -> tuple[list
             if core.lease_live(lease, core.dt.datetime.now(core.dt.timezone.utc)) and agent != lease.get("agent"):
                 raise core.Fail(f"{name}: lease held by {lease.get('agent')} — pass --agent {lease.get('agent')}; "
                                 f"nothing written")
-            dirty = dirty_paths(repo)
+            dirty = dirty_paths(repo, sorted(new))
             if dirty:
-                raise core.Fail(f"{name}: the working tree of {repo} is not clean ({len(dirty)} path(s)); "
-                                f"--write needs a clean tree so the port is the only change; commit or stash "
+                where = ("the working tree of " + str(repo) if scope == "." else
+                         f"the package directory {scope}/ of the repository at {repo}")
+                raise core.Fail(f"{name}: {where} is not clean ({len(dirty)} path(s); checked: {scope}); "
+                                f"--write needs it clean so the port is the only change there; commit or stash "
                                 f"first, nothing written:\n" + "\n".join(f"  {p}" for p in dirty[:20]))
             if core.git_head(repo) != rep["commit"]:
                 raise core.Fail(f"{name}: HEAD moved during the plan; nothing written (run again)")
@@ -539,11 +603,18 @@ def run_port(reg: dict, name: str, write: bool, agent: str | None) -> tuple[list
         payload["follow_ups"] = follow_ups(pkg, name, len(new), rep["expose"]) if new else []
     head = (f"{name}: port-modules at {rep['commit'][:12]}: {c['port']} file(s) to port, {c['skip']} already "
             f"module-headed, {c['refused']} refused, {c['review']} review item(s)")
+    idle = " — nothing to port at HEAD" + (f" ({len(untracked)} untracked .lean file(s) not read)" if untracked
+                                           else "")
     if write:
-        head += f" — {len(payload['written'])} file(s) written (not committed)" if new else " — nothing to port"
+        head += f" — {len(payload['written'])} file(s) written (not committed)" if new else idle
     else:
-        head += " (dry run: nothing written)" if new or refused else " — nothing to port (dry run)"
+        head += " (dry run: nothing written)" if new or refused else idle + " (dry run)"
     lines = [head]
+    if untracked:
+        lines.append(f"  {len(untracked)} untracked .lean file(s) under {scope}/ not read (port-modules reads "
+                     f"HEAD): commit them first")
+        lines += [f"    {u}" for u in untracked[:20]] + ([f"    ... and {len(untracked) - 20} more"]
+                                                         if len(untracked) > 20 else [])
     mark = {"port": "PORT", "skip": "skip", "refused": "✗"}
     for f in rep["files"]:
         if f["action"] == "skip" and not f["reviews"]:
@@ -573,7 +644,8 @@ def run_port(reg: dict, name: str, write: bool, agent: str | None) -> tuple[list
         lines.append("next:")
         lines += [f"  {s}" for s in payload["follow_ups"]]
     elif not write and new:
-        lines.append(f"next: lean-pkg palomar port-modules {name} --write (a clean working tree; never commits)")
+        lines.append(f"next: lean-pkg palomar port-modules {name} --write (a clean package directory, {scope}/; "
+                     f"never commits)")
     if len(lines) > 12:
         lines.append(head)
     return lines, payload, 0 if not refused else 1
@@ -596,8 +668,10 @@ def add_parser(psub, add_json) -> None:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--dry-run", action="store_true", help="the default: print the per-file plan and the unified "
                                                           "diff; write nothing")
-    g.add_argument("--write", action="store_true", help="apply the plan to a clean working tree (a dirty tree is "
-                                                        "refused); never commits, never writes the registry")
+    g.add_argument("--write", action="store_true", help="apply the plan to a clean package directory (a dirty or "
+                                                        "untracked path inside it is refused; paths elsewhere in "
+                                                        "the repository are not checked); never commits, never "
+                                                        "writes the registry")
     p.add_argument("--agent", default=None, help="with --write: the lease holder, when the package is leased")
     add_json(p)
     p.set_defaults(fn=cmd_port_modules, palomar_fn="port-modules")

@@ -7,10 +7,12 @@ Run, at the checkout's HEAD, `receipt comparator`, `receipt systemd --run -- bas
 `gate` (an active package first moves to gate-pending; a gated one is re-gated), each as its own
 lean-pkg invocation with its own checks. First (step 0, read-only, also under --dry-run) the
 claims/1 check on the claims file committed at HEAD and, when coverage.yaml is committed, the
-offline `coverage check`: a refusal stops verify before any receipt. Writes only what those
-commands write; commits nothing in the checkout. A package whose committed coverage.yaml declares
-an LTS stack (`stack: NAME`, docs/stacks/) is checked against it (lean-toolchain, the Mathlib
-commit, the comparator receipt's tool digests): a warning per difference, never a refusal.
+offline `coverage check`: a refusal stops verify before any receipt; a module-headed file
+importing a non-module file of the package at HEAD is a warning naming `palomar port-modules NAME
+--dry-run`. Writes only what those commands write; commits nothing in the checkout. A package
+whose committed coverage.yaml declares an LTS stack (`stack: NAME`, docs/stacks/) is checked
+against it (lean-toolchain, the Mathlib commit, the comparator receipt's tool digests): a warning
+per difference, never a refusal.
 
 positional arguments:
   name
