@@ -668,6 +668,9 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `verify.yml`'s comparator job uploads only the checked-out commit's
+  comparator receipt and logs (#379; #318), named from `GITHUB_SHA`, not every
+  comparator receipt in `.lean-receipts/` (found by the third live run).
 - `verify.yml` uploads the receipts from `.lean-receipts/` (#375; #318):
   `actions/upload-artifact` skips hidden directories unless
   `include-hidden-files: true`, so both uploads failed after the receipts,
