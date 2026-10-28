@@ -50,7 +50,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   gate's own `--repo` refusal now also says.
 
 - `palomar port-modules` names what it did not read, scopes `--write` to
-  the package, and `verify` suggests it (#395; #392). The plan still reads
+  the package, and `verify` suggests it (#394; #392). The plan still reads
   HEAD only; untracked `.lean` files of the package (its exclusions apply)
   are now listed: `N untracked .lean file(s) under DIR/ not read
   (port-modules reads HEAD): commit them first`, and the verdict says

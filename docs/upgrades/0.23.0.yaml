@@ -54,7 +54,7 @@ changes:
       the gate.
     breaking: false
     changelog: Changed
-  - pr: 395
+  - pr: 394
     id: port-modules-package-scope
     kind: behavior
     area: palomar port-modules, verify
