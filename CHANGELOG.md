@@ -478,6 +478,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- `search` counts a registered package it could not search as making the
+  search incomplete (#378; #376): a package with no path, no checkout, no git
+  HEAD or a failing `git grep` makes the registry block `incomplete` (counted
+  by reason, never named), adds `registry` to `truncated_sources`, sets
+  `complete` to false and makes `--require-complete` exit 1, and
+  `search --record` names the registry under "Not fully searched" instead
+  of "Not found in registry". Breaking for a script that relied on
+  `complete` being true for such a search.
 - Command-line consistency (#322): `--commit`, `--push` and
   `--no-commit` appear in the help of the commands that can write the
   registry (and of `verify`, which passes them on) only; a read-only command
