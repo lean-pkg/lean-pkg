@@ -25,6 +25,7 @@ import os
 import pathlib
 import posixpath
 import re
+import shlex
 import shutil
 import sys
 import zlib
@@ -2042,6 +2043,32 @@ def do_gate_refresh(reg_path, reg, events_p, args) -> tuple[list[str], dict, lis
     return out + f_lines, payload, warnings
 
 
+def _move_record_hint(name: str) -> str:
+    """The one way to make the writing gate bind another checkout: move the registered local_path."""
+    return f"move the record with `lean-pkg update {name} --path DIR --reason TEXT`"
+
+
+def gate_next_command(args, payload: dict, regate: bool, reason: str | None) -> str | None:
+    """#386: the writing `gate` a passing `--check` stands for: the same evidence flags (as given), --agent
+    A when --check got one (else the AGENT placeholder). None when the check fails or the writing gate
+    would refuse the status (the check lines then say what comes first)."""
+    if not payload.get("ok") or not (regate or payload.get("status") in ("gate-pending", "public")):
+        return None
+    q = shlex.quote
+    parts = ["lean-pkg", "gate", q(args.name), "--receipt", q(args.receipt)]
+    if args.comparator is not None:
+        parts += ["--comparator", q(args.comparator)]
+    if regate:
+        parts.append("--regate")
+    if reason is not None:
+        parts += ["--reason", q(reason)]
+    parts += [f for f, on in (("--refuse-private", args.refuse_private),
+                              ("--refuse-dirty", args.refuse_dirty)) if on]
+    agent = getattr(args, "agent", None)
+    parts += ["--agent", q(agent) if agent is not None else "AGENT"]
+    return " ".join(parts)
+
+
 def cmd_gate(args) -> int:
     reg_path, events_p = registry_path(args), events_path(args)
     regate, reason = getattr(args, "regate", False), getattr(args, "reason", None)
@@ -2054,14 +2081,16 @@ def cmd_gate(args) -> int:
     if repo_arg is not None and not getattr(args, "check", False):
         # field report: a writing gate binds the registered checkout; move it with `update --path`
         raise UsageError("gate --repo goes with --check: a writing gate binds the registered local_path "
-                         f"(validate here with `gate {args.name} --check --repo DIR`, or move the record with "
-                         f"`lean-pkg update {args.name} --path DIR --reason TEXT`)")
+                         f"(drop --repo to gate that checkout; validate DIR with `gate {args.name} --check "
+                         f"--repo DIR`; {_move_record_hint(args.name)})")
     if getattr(args, "check", False):
-        if getattr(args, "refresh_formalization", False) or getattr(args, "agent", None) is not None:
-            raise UsageError("gate --check writes nothing; --refresh-formalization and --agent do not apply: "
-                             "--check takes no lease and checks none (anyone may validate a receipt, at any "
-                             "status), so drop --agent here and pass it to the writing `gate` "
-                             f"(`lean-pkg gate {args.name} --receipt R --agent A`)")
+        if getattr(args, "refresh_formalization", False):
+            raise UsageError("gate --check writes nothing; --refresh-formalization does not apply (it writes "
+                             "formalization.yaml after the gate): pass it to the writing "
+                             f"`lean-pkg gate {args.name} --receipt R --refresh-formalization --agent A`")
+        if getattr(args, "agent", None) is not None:   # #386: carried into the next: command, not refused
+            print(f"lean-pkg: note: gate --check takes no lease and checks none; --agent {args.agent} is "
+                  "used by the writing gate (see next:)", file=sys.stderr)
         reg, override = load_registry(reg_path), None
         if repo_arg is not None:
             reg, override = repo_override(reg, args.name, repo_arg)
@@ -2075,6 +2104,12 @@ def cmd_gate(args) -> int:
         payload["palomar_check"] = view = palomar_check.hook(reg, args.name, payload.get("commit"))
         if view and (warning := palomar_check.summary_warning(view)):
             print(f"WARN: {warning}", file=sys.stderr)
+        payload["next_command"] = nxt = gate_next_command(args, payload, regate, reason)
+        if nxt is not None:
+            out.append(f"next: {nxt}")
+            if override is not None and repo_override_note(override) is not None:
+                out.append(f"  (the writing gate binds the registered local_path {override['registered_path']}, "
+                           f"not --repo: run it there, or {_move_record_hint(args.name)})")
     elif getattr(args, "refresh_formalization", False):
         _ACTOR["agent"] = getattr(args, "agent", None) or None    # its own lease check runs in do_gate_refresh
         out, payload, warnings = do_gate_refresh(reg_path, load_registry(reg_path), events_p, args)

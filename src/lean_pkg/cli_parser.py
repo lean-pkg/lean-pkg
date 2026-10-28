@@ -503,10 +503,12 @@ def build_parser():
                         "refuses when nothing would change")
     s.add_argument("--agent", default=None,
                    help="the agent acting (recorded as the event's actor); another agent's live lease then "
-                        "refuses; with --refresh-formalization: the live lease holder (the file write needs it)")
+                        "refuses; with --refresh-formalization: the live lease holder (the file write needs it); "
+                        "with --check: not used (a stderr note), carried into the printed next: command")
     s.add_argument("--check", action="store_true",
                    help="validate only, against HEAD (with --comparator: both tiers); write nothing, record "
-                        "nothing (works at any status), like `comparator --check`")
+                        "nothing (works at any status), like `comparator --check`; when it passes, prints the "
+                        "writing gate to run next (next:, JSON next_command)")
     s.add_argument("--regate", action="store_true",
                    help="re-gate a verified-private (or public) package on a new receipt in one step: event "
                         "regated {previous_commit, commit, job_id, reason}, status unchanged; the receipt's "
@@ -518,7 +520,7 @@ def build_parser():
                    help="with --check only: validate against the checkout DIR instead of the registered "
                         "local_path, for this call (never saved; JSON repo_override). DIR must be a git work "
                         "tree, and when it has remotes one must be the package's repo. A writing gate refuses "
-                        "it: it binds the registered checkout (move that with `update --path`)")
+                        "it: it binds the registered checkout (drop --repo, or move that with `update --path`)")
     add_json(s)
     s.set_defaults(fn=cmd_gate)
 

@@ -20,6 +20,24 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `<!-- lean-pkg-report/1 -->`, and `--json` gains `schema:
   "lean-pkg-report/1"`.
 
+### Changed
+
+- `gate --check` can become the writing gate without retyping it
+  (#390; #386). `gate NAME --check --agent A` runs the check, with one
+  stderr note that `--check` takes no lease and `--agent A` is for the
+  writing gate; it was a usage error (exit 2). `--check
+  --refresh-formalization` stays refused (it writes). A passing check, on
+  a status the writing gate takes, ends with `next: lean-pkg gate NAME
+  --receipt R ... --agent A`: the evidence flags it was given
+  (`--comparator`, `--regate`, `--reason`, `--refuse-private`,
+  `--refuse-dirty`), shell-quoted, and `--agent A`, else the placeholder
+  `AGENT`. `--json` gains `next_command` (that string, or `null` when the
+  check fails or the status needs another step first). After `--check
+  --repo DIR` away from the registered `local_path`, a line adds that the
+  writing gate binds the registered checkout: run it there, or move the
+  record with `update NAME --path DIR --reason TEXT`, which the writing
+  gate's own `--repo` refusal now also says.
+
 ### Documentation
 
 - Proposals 0002, 0003, 0008 and 0009 are implemented in 0.22.0 (#384):
