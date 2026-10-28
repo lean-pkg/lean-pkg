@@ -1134,6 +1134,81 @@ def registry_snapshot_arg(args) -> str | None:
     return flag or os.environ.get(SNAPSHOT_ENV, "").strip() or None
 
 
+def registry_sync_counts(root: pathlib.Path, branch: str) -> tuple[int, int] | None:
+    """(behind, ahead) of HEAD against the local ref refs/remotes/origin/BRANCH, as last fetched (this never
+    fetches); None when there is no such ref. The one count behind doctor's registry-repo and install lines
+    and registry_state."""
+    counts = registry_git(root, "rev-list", "--left-right", "--count", f"refs/remotes/origin/{branch}...HEAD")
+    if counts.returncode != 0:
+        return None
+    try:
+        behind, ahead = (int(x) for x in counts.stdout.split())
+    except ValueError:
+        return None
+    return behind, ahead
+
+
+def registry_state(reg_p: pathlib.Path) -> dict | None:
+    """The registry commit a reader's lease state comes from (#385), from local refs only (no fetch, no
+    network): {root, commit, committed_at, age_seconds, branch, upstream, behind, ahead, dirty}. branch is
+    null on a detached HEAD; upstream, behind and ahead are null without a local origin/<branch> ref; dirty
+    says the registry file has uncommitted changes (null when git cannot tell). None when git is not on
+    PATH, the registry is not inside a git work tree or HEAD has no commit: never an error."""
+    if shutil.which("git") is None:
+        return None
+    reg_p = pathlib.Path(os.path.realpath(pathlib.Path(reg_p).expanduser()))
+    if reg_p.is_dir():
+        reg_p = reg_p / DEFAULT_REGISTRY_NAME
+    if not reg_p.parent.is_dir():
+        return None
+    top = registry_git(reg_p.parent, "rev-parse", "--show-toplevel")
+    if top.returncode != 0 or not top.stdout.strip():
+        return None
+    root = pathlib.Path(top.stdout.strip())
+    log = registry_git(root, "log", "-1", "--format=%H %cI")
+    fields = log.stdout.split() if log.returncode == 0 else []
+    if len(fields) != 2:
+        return None    # an unborn HEAD: nothing committed yet
+    sha, committed_at = fields
+    try:
+        age = int((dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(committed_at)).total_seconds())
+    except ValueError:
+        age = None
+    br = registry_git(root, "symbolic-ref", "-q", "--short", "HEAD")
+    branch = br.stdout.strip() if br.returncode == 0 and br.stdout.strip() else None
+    counts = registry_sync_counts(root, branch) if branch else None
+    st = registry_git(root, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no", "--",
+                      str(reg_p))
+    return {"root": str(root), "commit": sha, "committed_at": committed_at,
+            "age_seconds": None if age is None else max(age, 0), "branch": branch,
+            "upstream": f"origin/{branch}" if counts is not None else None,
+            "behind": counts[0] if counts is not None else None,
+            "ahead": counts[1] if counts is not None else None,
+            "dirty": bool(st.stdout.strip()) if st.returncode == 0 else None}
+
+
+def registry_state_of(args) -> dict | None:
+    """registry_state for the invocation's registry; None under --registry-snapshot (the reader named the
+    commit itself) and on any internal error (a stamp must never fail the command)."""
+    if registry_snapshot_arg(args):
+        return None
+    try:
+        return registry_state(registry_path(args))
+    except Exception:   # noqa: BLE001 -- best effort: the stamp is information, never a refusal
+        return None
+
+
+def registry_behind_warning(state: dict | None) -> str | None:
+    """The one stderr line a lease reader prints when its registry clone is behind the origin/<branch> it last
+    fetched (#385); None when it is not, or cannot be told. Local refs only: a clone that was never fetched
+    looks up to date, which is why every lease line also names the commit it was read from."""
+    if not state or not state.get("behind"):
+        return None
+    root = shlex.quote(state["root"])
+    return (f"lean-pkg: WARN: registry clone is {state['behind']} commit(s) behind {state['upstream']} as last "
+            f"fetched (lease state may be stale): git -C {root} pull --ff-only, or lean-pkg doctor --fetch")
+
+
 def registry_home_dir(args) -> pathlib.Path:
     """The directory the registry file lives in: under --registry-snapshot the working-tree directory, not
     the temporary copy (siblings such as index/ and the adoption ledger are read from there)."""

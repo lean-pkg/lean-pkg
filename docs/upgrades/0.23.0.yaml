@@ -54,6 +54,22 @@ changes:
       the gate.
     breaking: false
     changelog: Changed
+  - pr: 393
+    id: lease-registry-stamp
+    kind: behavior
+    area: status, registry
+    summary: >-
+      status, gate --check, lease list and the lease warning name the registry commit their lease state was read
+      from: on a registry git clone the lease line ends "(as of registry SHA7, committed AGE ago)", status also
+      prints the line for a live lease and for none, and --json gains registry_state {root, commit, committed_at,
+      age_seconds, branch, upstream, behind, ahead, dirty} (null outside a git clone). A clone behind the
+      origin/BRANCH it last fetched prints one stderr warning with the git pull --ff-only that fixes it. Local refs
+      only; read-only commands still never fetch (#385).
+    action: >-
+      Nothing required. A script that reads status's last text line, or checks the --json key set of status,
+      gate --check or lease list exactly, sees the stamp and the new registry_state key.
+    breaking: false
+    changelog: Changed
 # Docs: proposals 0002, 0003, 0008 and 0009 marked implemented in 0.22.0 (status lines, the proposals table,
 # plan rows); no code changes (#384).
 no_author_change: [384]
