@@ -268,12 +268,20 @@ jobs:
       - name: Write the comparator receipt (lean-pkg receipt comparator)
         run: lean-pkg receipt comparator --repo "$PKG_DIR" --mechanism toolchain
 
+      - name: Name this run's comparator files (the receipt is named for the checked-out commit)
+        # .lean-receipts/ also holds the package's committed comparator receipts for earlier commits; upload only
+        # the one this job wrote, <commit12>-comparator.json, and its logs
+        run: |
+          c12="${GITHUB_SHA:0:12}"
+          [ -f "$PKG_DIR/.lean-receipts/$c12-comparator.json" ] || { echo "no comparator receipt for $c12 in $PKG_DIR/.lean-receipts" >&2; exit 1; }
+          echo "COMPARATOR_C12=$c12" >> "$GITHUB_ENV"
+
       - name: Upload the comparator receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lean-pkg-comparator-receipt-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            ${{ inputs.package-dir }}/.lean-receipts/*-comparator.json
-            ${{ inputs.package-dir }}/.lean-receipts/*-comparator-*.log
+            ${{ inputs.package-dir }}/.lean-receipts/${{ env.COMPARATOR_C12 }}-comparator.json
+            ${{ inputs.package-dir }}/.lean-receipts/${{ env.COMPARATOR_C12 }}-comparator-*.log
           if-no-files-found: error
           include-hidden-files: true   # the receipts live under .lean-receipts/, a hidden directory
