@@ -1,10 +1,11 @@
 # 0009: Declaration-level extraction with a rename map and an extraction ledger
 
-Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
+Status: implemented. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-26.
 Decided: accepted 2026-10-26 by Le Chen, as written, with the recommended answers to open questions 1 to 8
-(and to the one left to S4). Implemented in: (release), by #361 (S1, the scanner spans), #367 (S2, `ledger`
-and `recheck`, `text/1`), #373 (S3, `decls` and `--scaffold`), #377 (S4, `types/1`) and #380 (S5,
-`recheck --public-summary`); tracked in [#329](https://github.com/lean-pkg/lean-pkg/issues/329).
+(and to the one left to S4). Implemented in: 0.22.0
+([doi:10.5281/zenodo.23719839](https://doi.org/10.5281/zenodo.23719839)), by #361 (S1, the scanner spans),
+#367 (S2, `ledger` and `recheck`, `text/1`), #373 (S3, `decls` and `--scaffold`), #377 (S4, `types/1`) and
+#380 (S5, `recheck --public-summary`); tracked in [#329](https://github.com/lean-pkg/lean-pkg/issues/329).
 
 ## Summary
 

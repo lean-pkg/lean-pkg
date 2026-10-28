@@ -1,11 +1,11 @@
 # 0003: Conditional claims and discharge
 
-Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
+Status: implemented. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
 Decided: accepted 2026-10-26 by Le Chen, as written: open questions 1 to 7 and 9 take the recommended answers,
-and question 8 the draft's own choice (hypotheses named by declaration). Implemented in: stages H0 #346, H1
-#350, H2 #354, H3 #359, H4 #366 and H5 #368, and the statements-module declaration and `palomar check`
-import warning that H0 planned, #371 (release to follow); tracked in
-[#320](https://github.com/lean-pkg/lean-pkg/issues/320).
+and question 8 the draft's own choice (hypotheses named by declaration). Implemented in: 0.22.0
+([doi:10.5281/zenodo.23719839](https://doi.org/10.5281/zenodo.23719839)), by stages H0 #346, H1 #350, H2 #354,
+H3 #359, H4 #366 and H5 #368, and the statements-module declaration and `palomar check` import warning that H0
+planned, #371; tracked in [#320](https://github.com/lean-pkg/lean-pkg/issues/320).
 
 ## Summary
 
