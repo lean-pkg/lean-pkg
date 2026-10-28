@@ -302,7 +302,10 @@ is, 2 on a usage error. Run it before the gated waves: a package can pass
 every lean-pkg gate and still be refused by Palomar, and porting to the
 module system changes build inputs. `gate --check` and `publish --dry-run`
 print a `palomar:` warning with the gap count and the command (JSON
-`palomar_check`); it never changes their verdict.
+`palomar_check`); it never changes their verdict. `gate --check` prints it
+only for a package that aims at Palomar (the same rule as `registry audit`,
+below); for any other its JSON `palomar_check` carries
+`skipped: "not aiming at Palomar"`.
 
 **Where else does the check run?**
 `lean-pkg registry audit` runs it for every package that aims at Palomar: one whose
