@@ -213,6 +213,7 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["registry", "migrate"], "registry migrate", True, True, False),
     (["registry", "migrate", "--dry-run"], "registry migrate", False, False, False),
     (["registry", "validate"], "registry validate", False, False, False),
+    (["registry", "recommend", "0.23.0"], "registry recommend", True, True, False),
     (["registry", "audit"], "registry audit", False, False, False),
     (["registry", "audit", "--write"], "registry audit", True, True, False),
     (["registry", "audit", "--fix"], "registry audit", True, True, False),                      # flag alias
@@ -339,7 +340,7 @@ def test_every_write_has_a_dry_or_read_counterpart_row():
                       "lease release", "lease renew", "update", "repo move", "repo export", "repo adopt", "gate",
                       "comparator attach", "publish",
                       "registry audit", "index add", "claims sync", "search", "formalization render",
-                      "palomar prepare"}
+                      "palomar prepare", "registry recommend"}
 
 
 # --- permanent aliases parse exactly like the canonical spelling ----------------------------------

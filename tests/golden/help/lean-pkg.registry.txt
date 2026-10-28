@@ -1,12 +1,14 @@
-usage: lean-pkg registry [-h] {board,init,migrate,validate,audit,wiki} ...
+usage: lean-pkg registry [-h] {board,init,migrate,validate,audit,recommend,wiki} ...
 
 positional arguments:
-  {board,init,migrate,validate,audit,wiki}
+  {board,init,migrate,validate,audit,recommend,wiki}
     board               curses TUI on a tty; static table otherwise
     init                bootstrap an empty registry and its event log
     migrate             upgrade the registry schema in place (additive; idempotent)
     audit               report expired leases, gh visibility, drift; read-only without --write
     validate            schema + enum + history sanity; exit 0/1
+    recommend           set the lean-pkg version this registry recommends; an older lean-pkg's
+                        writing commands then print a notice (offline; never a refusal)
     wiki                render a Markdown status page
 
 options:

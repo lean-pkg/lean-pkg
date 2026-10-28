@@ -533,6 +533,8 @@ def validate_registry(data) -> list[str]:
     version = data.get("version")
     if version not in SUPPORTED_REGISTRY_VERSIONS:
         errors.append(f"version must be one of {SUPPORTED_REGISTRY_VERSIONS}, got {version!r}")
+    from .recommended import shape_errors   # the top-level lean_pkg key (#388)
+    errors += shape_errors(data)
     pkgs = data.get("packages")
     if not isinstance(pkgs, dict):
         errors.append("packages must be a mapping")

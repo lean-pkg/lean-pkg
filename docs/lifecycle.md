@@ -403,13 +403,13 @@ Each event line is one JSON object: `ts`, `event`, `name`, plus
 event-specific fields. Event names: `registry-created`, `registered`,
 `updated`, `claimed`, `claim-refreshed`, `claim-forced`, `released`,
 `release-forced`, `lease-expired`, `gate-passed`, `regated`, `comparator-attached`,
-`promoted`, `audit-fix`, `registry-migrated`, `index-added` (event log only,
+`promoted`, `audit-fix`, `registry-migrated`, `registry-recommended`, `index-added` (event log only,
 not `history[]`), `evidence-retracted`, and the evidence events written
 by `record`: `consent-recorded`, `palomar-preflight-pass`, `palomar-submitted`,
 `palomar-review`, `palomar-registered`, `palomar-withdrawn`, `doi-minted`,
 `reservoir-listed`, `mathlib-pr-opened`, `mathlib-pr-merged`. Package events
 are also appended to the package's `history[]`; `index-added`,
-`prior-art-searched`, `registry-created` and `registry-migrated` are in the
+`prior-art-searched`, `registry-created`, `registry-migrated` and `registry-recommended` are in the
 event log only. Timestamps are UTC ISO-8601 with an offset, second
 precision; same-second events keep file order.
 

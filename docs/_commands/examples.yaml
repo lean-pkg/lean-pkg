@@ -140,6 +140,12 @@ lean-pkg registry validate:
   - cmd: lean-pkg registry validate
     say: Schema, enum and history sanity of the whole registry; exit 0 valid, 1 errors.
 
+lean-pkg registry recommend:
+  - cmd: lean-pkg registry recommend 0.23.0 --reason "lab on 0.23.0" --commit
+    say: Record that every machine using this registry should run lean-pkg 0.23.0 (the top-level lean_pkg.recommended key and a registry-recommended event), committed with the registry.
+    output: |
+      the registry recommends lean-pkg 0.23.0 (was 0.22.0); writing commands of an older lean-pkg print a notice (this is 0.23.0)
+
 lean-pkg registry audit:
   - cmd: lean-pkg registry audit
     say: Report expired leases, receipt and comparator drift and visibility mismatches; read-only.

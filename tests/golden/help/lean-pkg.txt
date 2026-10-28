@@ -55,8 +55,8 @@ PACKAGE AUTHOR: evidence, publication, the catalog
 COORDINATION AND MAINTENANCE: shared registries, leases, the registry file
   lease          leases for agents sharing a registry: claim, renew, release, list (the old
                  spellings claim, renew, release, leases keep working)
-  registry       the registry file itself: init, migrate, validate, audit, board, wiki (the old
-                 top-level spellings keep working)
+  registry       the registry file itself: init, migrate, validate, audit, board, recommend, wiki
+                 (the old top-level spellings keep working)
   repo           the package's checkout: move (relocate the record), export (a new single-commit
                  public repository), adopt (an existing one)
   index          the public catalog: add | check | render | migrate

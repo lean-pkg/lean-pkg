@@ -566,6 +566,18 @@ lean-pkg registry migrate --dry-run
 lean-pkg registry migrate                             # additive and idempotent
 ```
 
+## Recommend a lean-pkg version for a shared registry
+
+```bash
+lean-pkg registry recommend 0.23.0 --reason "lab on 0.23.0" --commit
+lean-pkg doctor                     # recommended: ok, or warn with the upgrade route
+```
+
+Whoever upgrades the lab records the release everyone should run. A machine still on an older lean-pkg
+then gets one stderr notice after each writing command (`gate`, `lease`, `register`, `update`, the receipt
+producers, ...), naming both versions and how to upgrade; it never refuses and reads no network, and a
+registry write's `--json` gains `lean_pkg_skew`. See [`registry recommend`](commands/registry-recommend.md).
+
 ## Render a status page
 
 ```bash

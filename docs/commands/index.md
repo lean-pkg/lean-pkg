@@ -94,12 +94,13 @@ registry adds [`lease claim`](lease-claim.md) before work. At any point
 | [`lean-pkg lease release`](lease-release.md) | release a lease (holder-only unless --force); exporting or adopting a repository is `repo export` / `repo adopt` |
 | [`lean-pkg lease renew`](lease-renew.md) | restart your own live lease from now (holder-only; refuses once it has lapsed: claim again) |
 | [`lean-pkg lease list`](lease-list.md) | held leases, soonest expiry first; read-only |
-| [`lean-pkg registry`](registry.md) | the registry file itself: init, migrate, validate, audit, board, wiki (the old top-level spellings keep working) |
+| [`lean-pkg registry`](registry.md) | the registry file itself: init, migrate, validate, audit, board, recommend, wiki (the old top-level spellings keep working) |
 | [`lean-pkg registry board`](registry-board.md) | curses TUI on a tty; static table otherwise |
 | [`lean-pkg registry init`](registry-init.md) | bootstrap an empty registry and its event log |
 | [`lean-pkg registry migrate`](registry-migrate.md) | upgrade the registry schema in place (additive; idempotent) |
 | [`lean-pkg registry audit`](registry-audit.md) | report expired leases, gh visibility, drift; read-only without --write |
 | [`lean-pkg registry validate`](registry-validate.md) | schema + enum + history sanity; exit 0/1 |
+| [`lean-pkg registry recommend`](registry-recommend.md) | set the lean-pkg version this registry recommends; an older lean-pkg's writing commands then print a notice (offline; never a refusal) |
 | [`lean-pkg registry wiki`](registry-wiki.md) | render a Markdown status page |
 | [`lean-pkg repo`](repo.md) | the package's checkout: move (relocate the record), export (a new single-commit public repository), adopt (an existing one) |
 | [`lean-pkg repo move`](repo-move.md) | relocate: point the record at another checkout, keeping name, history and claims (the same as `update NAME --path PATH`) |

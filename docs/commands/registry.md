@@ -8,7 +8,7 @@ title: lean-pkg registry
 
 # lean-pkg registry
 
-the registry file itself: init, migrate, validate, audit, board, wiki (the old top-level spellings keep working).
+the registry file itself: init, migrate, validate, audit, board, recommend, wiki (the old top-level spellings keep working).
 
 ## Usage
 
@@ -23,6 +23,7 @@ lean-pkg registry [--json] COMMAND
 - [`lean-pkg registry migrate`](registry-migrate.md): upgrade the registry schema in place (additive; idempotent)
 - [`lean-pkg registry audit`](registry-audit.md): report expired leases, gh visibility, drift; read-only without --write
 - [`lean-pkg registry validate`](registry-validate.md): schema + enum + history sanity; exit 0/1
+- [`lean-pkg registry recommend`](registry-recommend.md): set the lean-pkg version this registry recommends; an older lean-pkg's writing commands then print a notice (offline; never a refusal)
 - [`lean-pkg registry wiki`](registry-wiki.md): render a Markdown status page
 
 ## Exit codes
