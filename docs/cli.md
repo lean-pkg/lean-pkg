@@ -52,7 +52,10 @@ that write, decided from the parsed arguments: every write command, `index add`,
 `formalization --write`, `claims sync`, `search --record` and the TUI's keys
 (committed after each write); dry runs and read-only commands never fetch, and
 an explicit `--commit`/`--push` there prints `ignored: read-only command` on
-stderr. Before writing it requires the registry inside a git work tree
+stderr. The lease readers (`status`, `gate --check`, `lease list`, and the
+lease warning other commands print) name the registry commit they read
+(`as of registry <sha7>, committed 6h ago`) and warn on stderr when the clone
+is behind the `origin/<branch>` it last fetched (local refs only). Before writing it requires the registry inside a git work tree
 on a branch with the registry file and event log unmodified (the refusal names the
 uncommitted event, its agent and time, the package's lease holder, and the `git commit`
 that clears it), fetches `origin`

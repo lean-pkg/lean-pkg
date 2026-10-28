@@ -534,6 +534,14 @@ then `git push origin <branch>` after a rejection). `--no-commit`
 turns the mode off for one command, and `lean-pkg doctor --fetch` shows how
 the clone stands against `origin`.
 
+Reading is different: `status`, `gate --check` and `lease list` never fetch,
+so on a clone that is behind they show an old lease. Each lease line names the
+registry commit it came from (`as of registry 3f2a9c1, committed 6h ago`), and a
+clone behind the `origin/<branch>` it last fetched prints a warning with the
+`git pull --ff-only` that fixes it. A clone that was never fetched cannot know;
+`git pull --ff-only` (or `lean-pkg doctor --fetch`) before trusting a lease
+another machine may have changed.
+
 Writers on one host serialize on a lock file next to the registry,
 `lean-packages.yaml.lock`. It is created on first use and never deleted;
 keep it out of git:

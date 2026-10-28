@@ -304,6 +304,7 @@
       "pins_kept",
       "private_strings",
       "recorded",
+      "registry_state",
       "repo_override",
       "report_log",
       "resolved_paths",
@@ -317,7 +318,8 @@
     "keys": [
       "leases",
       "now",
-      "ok"
+      "ok",
+      "registry_state"
     ],
     "rc": 0,
     "type": "object"
@@ -575,6 +577,7 @@
       "ok",
       "package",
       "producer_skew",
+      "registry_state",
       "scope"
     ],
     "rc": 0,
