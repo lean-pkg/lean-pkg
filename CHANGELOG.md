@@ -9,6 +9,22 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `palomar check` reports a Challenge or Solution module root a dependency
+  shadows (#405; #404): when the top-level root of a comparator
+  configuration's `challenge_module` or `solution_module` is also a
+  top-level `R.lean` or `R/` of a dependency's source tree, the `error` gap
+  `challenge.module_root_shadowed` or `solution.module_root_shadowed`
+  (Palomar's own code). Still offline: each dependency `lake-manifest.json`
+  pins is read from its `.lake/packages/<name>` checkout only at the pinned
+  revision (a path dependency inside the repository from the commit), at its
+  root and each literal `srcDir`. A dependency not read is named in
+  `not_checked`, and a bare `Challenge`, `Solution` or `Main` root is then
+  the `warn` gap `challenge.module_root_generic` or
+  `solution.module_root_generic`; when every dependency was read,
+  `not_checked` drops the shadowing clause.
+
 ## [0.23.0] - 2026-10-29
 
 ### Added

@@ -389,3 +389,166 @@ def test_publish_ready_package_has_no_palomar_item(lp, tmp_path, capsys):
     data = json.loads(capsys.readouterr().out)
     assert data["palomar_check"]["ready"] is True and data["palomar_check"]["errors"] == 0
     assert not [i for i in data["checklist"] if i["label"].startswith("palomar: ")]
+
+
+# --------------------------------------------------------------------------
+# #404: a Challenge/Solution module root a dependency shadows
+
+def dep_checkout(src: Path, file_map: dict[str, str]) -> str:
+    """A dependency's git checkout at SRC (moved under .lake/packages later); its HEAD."""
+    src.mkdir(parents=True)
+    _git(src, "init", "-b", "main")
+    _git(src, "config", "maintenance.auto", "false")
+    for rel, text in file_map.items():
+        f = src / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+    _git(src, "add", "-A")
+    _git(src, "commit", "-qm", "dep")
+    return repo_head(src)
+
+
+def manifest(*pkgs: dict) -> str:
+    return json.dumps({"version": "1.1.0", "packagesDir": ".lake/packages", "name": "gamma", "lakeDir": ".lake",
+                       "packages": list(pkgs)}, indent=1) + "\n"
+
+
+def git_dep(name: str, rev: str) -> dict:
+    return {"type": "git", "name": name, "rev": rev, "url": f"https://example.invalid/{name}.git",
+            "scope": "", "inherited": False}
+
+
+def with_dep(tmp_path: Path, dep_files: dict[str, str], file_map: dict | None = None, name: str = "dep",
+             drift: bool = False) -> tuple[Path, Path]:
+    """The package pinning one git dependency NAME whose checkout (untracked, under .lake/packages) holds
+    DEP_FILES at the pinned rev (drift: one commit past it)."""
+    src = tmp_path / "dep-src"
+    rev = dep_checkout(src, dep_files)
+    fm = dict(file_map or files())
+    fm["lake-manifest.json"] = manifest(git_dep(name, rev))
+    fm[".gitignore"] = "/.lake\n"
+    repo, reg = make_pkg(tmp_path, fm)
+    dest = repo / ".lake" / "packages" / name
+    dest.parent.mkdir(parents=True)
+    src.rename(dest)
+    if drift:
+        (dest / "Later.lean").write_text("module\n")
+        _git(dest, "add", "-A")
+        _git(dest, "commit", "-qm", "later")
+    return repo, reg
+
+
+def shadow_clause(data: dict) -> bool:
+    return any("shadowed by a dependency" in x for x in data["not_checked"])
+
+
+def test_dependency_challenge_root_shadows_the_challenge(lp, tmp_path, capsys):
+    _repo, reg = with_dep(tmp_path, {"Challenge.lean": "module\n", "Dep.lean": "module\n"})
+    rc, data = run(lp, reg, capsys)
+    c = codes(data)
+    assert rc == 1 and data["ready"] is False
+    g = c["challenge.module_root_shadowed"]
+    assert g["severity"] == "error" and g["paths"] == ["comparator.json"]
+    assert "'Challenge'" in g["detail"] and "'dep'" in g["detail"] and ".lake/packages/dep" in g["detail"]
+    assert "comparator.json: challenge_module Challenge" in g["detail"]
+    assert "Gamma.Challenge" in g["fix"] and "lean-pkg new" in g["fix"]
+    assert set(g) == {"code", "severity", "paths", "detail", "fix"}
+    assert "solution.module_root_shadowed" not in c and "challenge.module_root_generic" not in c
+    assert not shadow_clause(data)                     # every dependency was read: the clause is gone
+    assert any("Challenge imports against the trusted dependencies" in x for x in data["not_checked"])
+    lp.main(["--registry", str(reg), "palomar", "check", "gamma"])
+    out = capsys.readouterr().out
+    assert "✗  challenge.module_root_shadowed: comparator.json: challenge_module Challenge" in out
+
+
+def test_dependency_solution_directory_shadows_the_solution(lp, tmp_path, capsys):
+    _repo, reg = with_dep(tmp_path, {"Solution/Basic.lean": "module\n"})
+    rc, data = run(lp, reg, capsys)
+    c = codes(data)
+    assert rc == 1 and c["solution.module_root_shadowed"]["severity"] == "error"
+    assert "solution_module Solution" in c["solution.module_root_shadowed"]["detail"]
+    assert "Gamma.Solution" in c["solution.module_root_shadowed"]["fix"]
+    assert "challenge.module_root_shadowed" not in c
+
+
+def test_dependency_src_dir_is_read(lp, tmp_path, capsys):
+    _repo, reg = with_dep(tmp_path, {"lakefile.toml": 'name = "dep"\nsrcDir = "src"\n',
+                                     "src/Challenge.lean": "module\n"})
+    rc, data = run(lp, reg, capsys)
+    assert rc == 1 and "challenge.module_root_shadowed" in codes(data)
+
+
+def test_no_collision_no_gap_and_the_scan_counts_as_checked(lp, tmp_path, capsys):
+    _repo, reg = with_dep(tmp_path, {"Dep.lean": "module\n", "Dep/Challenge.lean": "module\n"})
+    rc, data = run(lp, reg, capsys)
+    assert rc == 0 and data["gaps"] == [], data["gaps"]
+    assert not shadow_clause(data)
+
+
+def test_dependency_at_another_rev_is_skipped_with_a_note(lp, tmp_path, capsys):
+    _repo, reg = with_dep(tmp_path, {"Challenge.lean": "module\n"}, drift=True)
+    rc, data = run(lp, reg, capsys)
+    c = codes(data)
+    assert rc == 0 and "challenge.module_root_shadowed" not in c       # not read: never an error
+    assert c["challenge.module_root_generic"]["severity"] == "warn"
+    assert c["solution.module_root_generic"]["severity"] == "warn"
+    (clause,) = [x for x in data["not_checked"] if "shadowed by a dependency" in x]
+    assert "dependency scan incomplete" in clause and "dep: .lake/packages/dep is at" in clause
+    assert "lake-manifest.json pins" in clause
+
+
+def test_no_dependency_trees_and_a_bare_challenge_root_warns(lp, tmp_path, capsys):
+    rev = "a" * 40
+    fm = files(**{"lake-manifest.json": manifest(git_dep("dep", rev))})
+    _repo, reg = make_pkg(tmp_path, fm)
+    rc, data = run(lp, reg, capsys)
+    c = codes(data)
+    assert rc == 0 and data["ready"] is True
+    g = c["challenge.module_root_generic"]
+    assert g["severity"] == "warn" and g["paths"] == ["comparator.json"]
+    assert "bare top-level root 'Challenge'" in g["detail"] and "not checked out" in g["detail"]
+    assert "Gamma.Challenge" in g["fix"]
+    assert c["solution.module_root_generic"]["severity"] == "warn"
+    (clause,) = [x for x in data["not_checked"] if "shadowed by a dependency" in x]
+    assert "no dependency read" in clause and "dep: not checked out at .lake/packages/dep" in clause
+    lp.main(["--registry", str(reg), "palomar", "check", "gamma"])
+    out = capsys.readouterr().out
+    assert "WARN  challenge.module_root_generic: comparator.json: challenge_module Challenge" in out
+
+
+def test_no_dependency_trees_and_a_qualified_root_has_no_gap(lp, tmp_path, capsys):
+    cfg = dict(CONFIG, challenge_module="Gamma.Challenge", solution_module="Gamma.Solution")
+    fm = files(**{"lake-manifest.json": manifest(git_dep("dep", "a" * 40)),
+                  "comparator.json": json.dumps(cfg), "Challenge.lean": None, "Solution.lean": None,
+                  "Gamma/Challenge.lean": HEADED["Challenge.lean"], "Gamma/Solution.lean": HEADED["Solution.lean"]})
+    _repo, reg = make_pkg(tmp_path, fm)
+    rc, data = run(lp, reg, capsys)
+    assert rc == 0 and data["gaps"] == [], data["gaps"]
+    assert shadow_clause(data)                         # not read, so still listed, with the reason
+
+
+def test_new_scaffold_layout_has_no_root_gap(lp, tmp_path, capsys):
+    """`lean-pkg new` scaffolds MOD.Challenge and MOD.Solution: a dependency's Mathlib.lean and Mathlib/ never
+    shadow them, and its root is not generic when the trees are absent."""
+    from lean_pkg import scaffold
+    fm = scaffold.files("gamma", "Gamma", "Formalizer One", license_spdx="MIT")
+    _repo, reg = with_dep(tmp_path, {"Mathlib.lean": "module\n", "Mathlib/Logic.lean": "module\n",
+                                     "Challenge.lean": "module\n"}, file_map=fm, name="mathlib")
+    rc, data = run(lp, reg, capsys)
+    assert not [g for g in data["gaps"] if "module_root" in g["code"]], data["gaps"]
+    assert not shadow_clause(data)
+    _repo2, reg2 = make_pkg(tmp_path / "b", dict(fm, **{"lake-manifest.json": manifest(git_dep("mathlib", "b" * 40))}))
+    rc, data = run(lp, reg2, capsys)
+    assert not [g for g in data["gaps"] if "module_root" in g["code"]], data["gaps"]
+
+
+def test_path_dependency_in_the_repository_is_read_at_the_commit(lp, tmp_path, capsys):
+    fm = files(**{"lake-manifest.json": manifest({"type": "path", "name": "vend", "dir": "vendor/vend",
+                                                   "scope": "", "inherited": False}),
+                  "vendor/vend/lakefile.toml": 'name = "vend"\n',
+                  "vendor/vend/Solution.lean": "module\n"})
+    _repo, reg = make_pkg(tmp_path, fm)
+    rc, data = run(lp, reg, capsys)
+    c = codes(data)
+    assert rc == 1 and "vendor/vend" in c["solution.module_root_shadowed"]["detail"]
+    assert "challenge.module_root_shadowed" not in c and "challenge.module_root_generic" not in c

@@ -1,0 +1,29 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.23.0. Same keys as 0.23.0.yaml; the human page is docs/upgrades/0.24.0.md.
+# The name 0.24.0 is provisional (RELEASING.md, "The record's provisional name"): make cut-release
+# renames both files to the version it cuts, which make release-version prints.
+schema: lean-pkg-upgrade-record/1
+version: 0.24.0
+changes:
+  - pr: 405
+    id: palomar-check-module-root-shadowed
+    kind: behavior
+    area: palomar check
+    summary: >-
+      #404: palomar check reports a comparator configuration whose challenge_module or solution_module has a
+      top-level root R (the text before the first '.') that is also a top-level R.lean or R/ of a dependency's
+      source tree: the error gap challenge.module_root_shadowed or solution.module_root_shadowed, Palomar's own
+      code (its full preflight refuses it before any kernel runs). Still offline: each dependency
+      lake-manifest.json pins at the commit is read from its checkout under .lake/packages/<name>/ only when that
+      checkout's HEAD is the pinned rev (a path dependency inside the repository from the commit), at the
+      package root and each srcDir its lakefile states literally. A dependency not read is named in not_checked,
+      and a bare root Challenge, Solution or Main then gets the warn gap challenge.module_root_generic or
+      solution.module_root_generic. When every dependency was read, not_checked drops the shadowing clause.
+    action: >-
+      For the error, move the module under a package-qualified root such as MOD.Challenge (the layout lean-pkg
+      new scaffolds), set it in the configuration, rebuild, commit, re-run comparator-receipt and re-gate. The
+      warning never changes readiness or the exit code; run lake build so the dependencies are checked out at
+      their pins and re-run palomar check to settle it. A script that expects an empty gaps list for a bare
+      Challenge root, or an exact not_checked list, sees the change.
+    breaking: false
+    changelog: Added
