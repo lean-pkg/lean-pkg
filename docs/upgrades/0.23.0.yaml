@@ -111,6 +111,23 @@ changes:
       reads doctor's lines sees one more.
     breaking: false
     changelog: Added
+  - pr: 400
+    id: comparator-receipt-contracts-only-hint
+    kind: behavior
+    area: comparator
+    summary: >-
+      receipt comparator (comparator-receipt) ends a refusal whose judge log carries Lake's 'Challenge and solution
+      theorem statement do not match' or 'Const does not match between challenge and target' with one stderr line
+      'next: lean-pkg comparator check NAME --contracts-only' (issue 397), once per run, with --repo DIR when the
+      run's checkout is not the registered one; NAME from a best-effort read-only registry lookup (local_path,
+      else git remote), else the literal NAME and the docs section. stages.json, a kept attempt's attempt.json
+      and its --attempts --json row gain next_command (null otherwise). Display only: the comparison, the
+      checker, every verdict, the exit code and the receipt are unchanged; other failures get no line.
+    action: >-
+      Nothing required. On such a refusal, run the printed contracts-only diagnostic to see the first differing
+      field; a script that checks the key set of stages.json or --attempts --json exactly sees next_command.
+    breaking: false
+    changelog: Changed
   - pr: 399
     id: page-published-unanchored-manuscript
     kind: behavior

@@ -21,6 +21,15 @@ as `comparator-stages/attempts/NNN/` with an `attempt.json` (numbers never
 reused; lean-pkg never deletes or reads them back);
 `lean-pkg receipt comparator --attempts [DIR] [--json]` lists them; see
 [Attempts](../comparator.md#stages-and---prepare).
+A refusal because Lake reported a statement or constant mismatch
+(`Challenge and solution theorem statement do not match`,
+`Const does not match between challenge and target`) ends with one line
+`next: lean-pkg comparator check NAME --contracts-only` (`--repo DIR` when the
+run's checkout is not the registered one), printed once per run, and
+`stages.json` (and a kept attempt's `--attempts --json` row) records it as
+`next_command` (null otherwise); display only, the verdict is unchanged; see
+[Mechanisms](../comparator.md#mechanisms) and
+[a contracts-only diagnostic](../comparator.md#a-contracts-only-diagnostic).
 `lean-pkg receipt comparator --seal-sacct RECEIPT [--sacct-file F] [--user NAME] [--json]`
 (no host policy, after the Slurm job finished) corroborates the receipt's Slurm
 claim with the job's sacct record and seals it (`slurm_sacct`, and
