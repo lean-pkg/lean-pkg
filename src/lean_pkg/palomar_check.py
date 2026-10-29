@@ -3,8 +3,10 @@
 
 Lists every gap between the package, at one commit, and the mechanical rules Palomar's verifier
 applies before it builds anything. Each gap is {code, severity, paths, detail, fix}. Read-only and
-offline: it reads git objects at the commit (never the working tree), writes nothing, records no
-event and makes no network request.
+offline: it reads git objects at the commit (never the package's working tree), writes nothing,
+records no event and makes no network request. The one exception is the dependency scan (#404): a
+dependency's checkout under .lake/packages, a local build artifact, is read when its HEAD is the
+revision lake-manifest.json pins at the commit.
 
 The commit: `--rev REV`; else the commit the recorded gate receipt binds; else HEAD.
 
@@ -32,6 +34,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import posixpath
 import re
 import subprocess
 
@@ -86,6 +89,10 @@ NOT_CHECKED = [
     "Git LFS pointers; dependency pins and hosts in lake-manifest.json",
     "the build, the export and the comparator run itself",
 ]
+# #404: the shadowing clause of NOT_CHECKED[3], dropped when the dependency scan ran on every dependency
+_SHADOW_CLAUSE = "a Challenge module root shadowed by a dependency"
+# a bare root this generic is likely to be a dependency's top-level module too (#404)
+GENERIC_ROOTS = ("Challenge", "Solution", "Main")
 
 USAGE = "usage: lean-pkg palomar check NAME [--rev REV] [--config PATH] [--rules FILE] [--repo DIR] [--json]"
 
@@ -170,6 +177,8 @@ class Tree:
     def __init__(self, repo: pathlib.Path, commit: str, claims_file: str = "claims.yaml"):
         self.repo, self.commit, self.claims_file = repo, commit, claims_file
         self._statements: tuple[str | None, list[str]] | None = None
+        self._deps: dict | None = None
+        self.module_hint = "MOD"          # the package's root module, for a suggested module name (#404)
         p = core.git(repo, "rev-parse", "--show-prefix")
         self.prefix = p.stdout.strip() if p.returncode == 0 else ""
         p = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", "--full-tree", commit],
@@ -202,6 +211,12 @@ class Tree:
         if self._statements is None:
             self._statements = stm.at_commit(self.repo, self.claims_file, self.commit)
         return self._statements
+
+    def dependencies(self) -> dict:
+        """The dependency scan (#404), read once: dependency_scan(self)."""
+        if self._deps is None:
+            self._deps = dependency_scan(self)
+        return self._deps
 
     def blobs(self, paths: list[str]) -> dict[str, bytes]:
         """Many blobs in one `git cat-file --batch` (a package can have thousands of files)."""
@@ -385,6 +400,7 @@ def config_gaps(tree: Tree, policy: dict, rel: str) -> list[dict]:
         if src is not None and tree.project(src) not in tree.entries:
             gaps.append(_gap("comparator.path_missing", "error", f"{rel}: {key} {mod} has no source {src} "
                              f"tracked in the project", "commit it", [tree.project(src)]))
+    gaps += shadow_gaps(tree, rel, path, ch, so)
     csrc = _module_source(ch)
     blob = tree.blob(tree.project(csrc)) if csrc else None
     if blob is not None and (len(blob) > CHALLENGE_MAX_BYTES
@@ -443,6 +459,158 @@ def challenge_import_gaps(tree: Tree, rel: str, ch: str, csrc: str, blob: bytes)
                              f"conditional claims go in the one declared statements module ({stm.KEY} in "
                              f"{tree.claims_file}); commit, re-gate", [path]))
     return gaps
+
+
+# --------------------------------------------------------------------------
+# module roots a dependency shadows (#404)
+
+_SRC_DIR_TOML = re.compile(r'^\s*srcDir\s*=\s*"([^"\n]*)"', re.MULTILINE)
+_SRC_DIR_LEAN = re.compile(r'\bsrcDir\s*:=\s*"([^"\n]*)"')
+
+
+def _src_dirs(toml: str | None, lean: str | None) -> list[str]:
+    """The package root and every `srcDir` a lakefile states literally (package or lean_lib, each taken
+    relative to the package root; nesting a lean_lib srcDir under the package's is not modelled)."""
+    found = (_SRC_DIR_TOML.findall(toml) if toml is not None else _SRC_DIR_LEAN.findall(lean or ""))
+    out = ["."]
+    for d in found:
+        d = posixpath.normpath(d.strip() or ".")
+        if not d.startswith(("/", "..")) and d not in out:
+            out.append(d)
+    return out
+
+
+def _read(p: pathlib.Path) -> str | None:
+    try:
+        return p.read_text(encoding="utf-8", errors="replace") if p.is_file() else None
+    except OSError:
+        return None
+
+
+def dependency_scan(tree: Tree) -> dict:
+    """The source trees of the dependencies lake-manifest.json pins at the tree's commit, where the scan can
+    read them offline: {complete, reason, scanned: [(name, where, has_root)], pdir}. A git dependency is read
+    from its checkout `<project>/<packagesDir>/<name>/` (the working tree's build artifact, by default
+    .lake/packages) only when that checkout's HEAD is the pinned rev; a path dependency inside the repository
+    from the commit's tree. `complete` is True when every dependency was read; `reason` says why not."""
+    mpath = tree.project("lake-manifest.json")
+    out: dict = {"complete": False, "reason": None, "scanned": [], "pdir": ".lake/packages"}
+    raw = tree.blob(mpath)
+    if raw is None:
+        out["reason"] = f"no lake-manifest.json at {tree.commit[:12]}"
+        return out
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        doc = None
+    pkgs = doc.get("packages", []) if isinstance(doc, dict) else None
+    if not isinstance(pkgs, list):
+        out["reason"] = f"lake-manifest.json at {tree.commit[:12]} is not a manifest with a packages list"
+        return out
+    pdir = doc.get("packagesDir") if isinstance(doc.get("packagesDir"), str) else ".lake/packages"
+    pdir = posixpath.normpath(pdir)
+    if pdir.startswith(("/", "..")):
+        pdir = ".lake/packages"
+    out["pdir"] = pdir
+    notes: list[str] = []
+    for p in pkgs:
+        name = p.get("name") if isinstance(p, dict) else None
+        if not isinstance(name, str) or not name:
+            notes.append("a package entry without a name")
+            continue
+        if p.get("type") == "path":
+            d = posixpath.normpath(posixpath.join(tree.prefix or ".", str(p.get("dir") or "")))
+            if d.startswith(("/", "..")) or d == ".":
+                notes.append(f"{name}: path dependency {p.get('dir')!r} outside the repository")
+                continue
+            ent = tree.entries
+            srcs = _src_dirs(*((tree.blob(f"{d}/lakefile.toml") or b"").decode("utf-8", "replace")
+                                if f"{d}/lakefile.toml" in ent else None,
+                                (tree.blob(f"{d}/lakefile.lean") or b"").decode("utf-8", "replace")
+                                if f"{d}/lakefile.lean" in ent else None))
+            bases = [posixpath.normpath(f"{d}/{s}") for s in srcs]
+
+            def has(r, bases=bases, ent=ent):
+                return any(f"{b}/{r}.lean" in ent or any(k.startswith(f"{b}/{r}/") for k in ent) for b in bases)
+            out["scanned"].append((name, d, has))
+            continue
+        rev = p.get("rev")
+        where = f"{pdir}/{name}"
+        d = tree.repo / pdir / name
+        if not d.is_dir():
+            notes.append(f"{name}: not checked out at {where}")
+            continue
+        top = core.git(d, "rev-parse", "--show-toplevel")
+        try:
+            own = top.returncode == 0 and pathlib.Path(top.stdout.strip()).resolve() == d.resolve()
+        except OSError:
+            own = False
+        if not own:
+            notes.append(f"{name}: {where} is not a git checkout")
+            continue
+        head = core.git(d, "rev-parse", "HEAD").stdout.strip()
+        if not isinstance(rev, str) or head != rev:
+            notes.append(f"{name}: {where} is at {head[:12] or 'no commit'}, lake-manifest.json pins "
+                         f"{str(rev)[:12]}")
+            continue
+        srcs = _src_dirs(_read(d / "lakefile.toml"), _read(d / "lakefile.lean"))
+        bases = [d / s for s in srcs]
+
+        def has(r, bases=bases):
+            return any((b / f"{r}.lean").is_file() or (b / r).is_dir() for b in bases)
+        out["scanned"].append((name, where, has))
+    out["complete"] = not notes
+    if notes:
+        what = ("no dependency read" if not out["scanned"]
+                else f"{len(notes)} of {len(notes) + len(out['scanned'])} dependencies not read")
+        out["reason"] = (f"{what}: " + "; ".join(notes[:5]) + (f"; and {len(notes) - 5} more" if len(notes) > 5
+                                                                  else "")
+                         + f" (`lake build` checks them out at the pinned revisions under {pdir}/)")
+    return out
+
+
+def shadow_gaps(tree: Tree, rel: str, path: str, ch, so) -> list[dict]:
+    """#404: an error gap for each dependency whose source tree has a top-level `R.lean` or `R/`, R the top-level
+    root of challenge_module or solution_module (the resolver may take the dependency's file instead); without
+    every dependency's tree, a warn gap for a bare generic root (Challenge, Solution, Main)."""
+    gaps: list[dict] = []
+    deps = None
+    for key, mod in (("challenge_module", ch), ("solution_module", so)):
+        if not isinstance(mod, str) or not mod.strip():
+            continue
+        mod = mod.strip()
+        root, _, rest = mod.partition(".")
+        kind = key.split("_")[0]
+        qual = f"{tree.module_hint}.{rest or root}"
+        fix = (f"move the module under a package-qualified root, such as {qual} (the layout `lean-pkg new` "
+               f"scaffolds: MOD/Challenge.lean as MOD.Challenge, MOD/Solution.lean as MOD.Solution), and set "
+               f"{key} in {rel}; rebuild, commit, re-run comparator-receipt, re-gate")
+        deps = deps or tree.dependencies()
+        hits = [(name, where) for name, where, has in deps["scanned"] if has(root)]
+        for name, where in hits:
+            gaps.append(_gap(f"{kind}.module_root_shadowed", "error",
+                             f"{rel}: {key} {mod}: its top-level name {root!r} is also a top-level entry "
+                             f"({root}.lean or {root}/) of the dependency {name!r} ({where}), where the resolver "
+                             f"would look for its source", fix, [path]))
+        if not hits and not deps["complete"] and root in GENERIC_ROOTS:
+            gaps.append(_gap(f"{kind}.module_root_generic", "warn",
+                             f"{rel}: {key} {mod} has the bare top-level root {root!r}, a name dependencies also "
+                             f"use; the dependency scan could not rule out shadowing ({deps['reason']})",
+                             fix, [path]))
+    return gaps
+
+
+def not_checked(tree: Tree) -> list[str]:
+    """NOT_CHECKED, with the shadowing clause dropped when the dependency scan read every dependency and
+    carrying the reason when it did not (#404). Unchanged when no configuration asked for the scan."""
+    deps = tree._deps
+    if deps is None:
+        return list(NOT_CHECKED)
+    out = list(NOT_CHECKED)
+    clause = (f"{_SHADOW_CLAUSE} beyond the dependencies read" if deps["scanned"] else _SHADOW_CLAUSE) \
+        + f" (dependency scan incomplete: {deps['reason']})"
+    out[3] = out[3].replace(f"; {_SHADOW_CLAUSE};", ";" if deps["complete"] else f"; {clause};")
+    return out
 
 
 def headline_gaps(pkg: dict, tree: Tree, policy: dict, checked: list[str]) -> tuple[list[dict], dict | None]:
@@ -673,6 +841,8 @@ def resolve_commit(pkg: dict, repo: pathlib.Path, rev: str | None) -> tuple[str,
 def check(pkg: dict, repo: pathlib.Path, commit: str, policy: dict, source: dict,
           config: str | None = None) -> dict:
     tree = Tree(repo, commit, pkg.get("claims_file") or "claims.yaml")
+    # the root module `lean-pkg new` gives the name (scaffold.module_of: my-proof -> MyProof)
+    tree.module_hint = "".join(part[:1].upper() + part[1:] for part in str(pkg["name"]).split("-"))
     gaps, facts = source_gaps(tree, policy, pkg["name"])
     tc_gaps, tc = toolchain_gaps(tree, policy)
     gaps += tc_gaps + layout_gaps(tree)
@@ -689,7 +859,7 @@ def check(pkg: dict, repo: pathlib.Path, commit: str, policy: dict, source: dict
             **facts,
             "counts": {"error": errors, "warn": len(gaps) - errors}, "gaps": gaps,
             "rules": {**source, "toolchain_minimum": policy["toolchain"]["minimum"]},
-            "not_checked": NOT_CHECKED}
+            "not_checked": not_checked(tree)}
 
 
 def verdict(name: str, rep: dict) -> str:

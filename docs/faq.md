@@ -360,7 +360,10 @@ pass it with `--rules FILE` (lean-pkg never fetches it). The checks:
   `theorem_names`, `definition_names`, `permitted_axioms` and
   `enable_nanoda`, permits only the standard axioms, has its module sources
   tracked, and its Challenge is at most 1,000 lines and 100 KiB; non-empty
-  `definition_names` is a warning (compared by type, never by body);
+  `definition_names` is a warning (compared by type, never by body); the
+  top-level root of its `challenge_module` and `solution_module` is not also a
+  top-level module of a dependency (`challenge.module_root_shadowed`,
+  `solution.module_root_shadowed`; see below);
 - `formalization.yaml` is tracked, valid v0.4, free of placeholders, and has
   Palomar's metadata minimum (description, responsible maintainers, one to
   eight arXiv classes, sources with relationships, automation methods,
@@ -369,9 +372,27 @@ pass it with `--rules FILE` (lean-pkg never fetches it). The checks:
 - a GitHub repository, public, with the commit pushed (local refs).
 
 It does not run Lean's header parser, licensee, the taxonomy and ORCID
-lookups, the Challenge import and shadowing checks, or the build and
-comparator run; the JSON `not_checked` lists them. Like Palomar's browser
-preflight it predicts, it does not decide.
+lookups, the Challenge import check, or the build and comparator run; the
+JSON `not_checked` lists them, with the shadowing check when it could not
+read every dependency. Like Palomar's browser preflight it predicts, it does
+not decide.
+
+**Why is a bare `Challenge` module a problem?**
+Lean resolves a module by its top-level name, and Palomar's full preflight
+looks for `Challenge.lean` where that name leads. Several libraries export
+bare top-level `Challenge` or `Solution` modules themselves, so when one of
+the package's dependencies does, the resolver can take the dependency's file
+instead of the submitted statement; Palomar then refuses with
+`challenge.module_root_shadowed` before any kernel runs. `palomar check`
+looks for this offline: for each dependency `lake-manifest.json` pins, it
+reads the checkout under `.lake/packages/<name>/` (only at the pinned
+revision, so run `lake build` first) and reports an `error` gap when the
+dependency has a top-level `Challenge.lean` or `Challenge/` (and the same
+for the solution module), checking the package root and each `srcDir` its
+lakefile states literally. Without those checkouts it cannot tell, so a
+bare `Challenge`, `Solution` or `Main` root is a `warn` gap
+(`challenge.module_root_generic`). The fix is a package-qualified module,
+`MOD.Challenge` and `MOD.Solution`, the layout `lean-pkg new` scaffolds.
 
 **What header does a file need?**
 `module` as its first command, `public import` for every import its
