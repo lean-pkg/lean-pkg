@@ -1166,3 +1166,83 @@ def test_a_paper_page_names_the_compared_count_only_when_not_every_verified_resu
     assert NOT_COMPARED in side and "statement comparison" not in side
     assert ("- Verified: 2 of the 2 result(s) in Lean (for 1 of them a second checker also compared the "
             "statement).") in md
+
+
+# --- a result open only because its statement was not compared (issue 398: display only) ---
+
+BUILT_NOT_COMPARED = ("**Built, not compared.** Lean accepts the proof (the build passed), but its statement has "
+                      "not yet been compared by a second checker, which this result requires.")
+UNCOMPARED_CLAIM = EXPERIMENTAL_CLAIM.replace("status: experimental", "status: reusable")   # no config names it
+MISSING_CLAIM = """\
+- id: beta/gone
+  decl: Demo.gone
+  kind: theorem
+  summary: A declaration the file does not have.
+  file: Demo/Main.lean
+  status: experimental
+  superseded_by: null
+  depends_on: []
+"""
+
+
+def _uncompared_doc(*rows: tuple[str, list[str]]) -> dict:
+    doc = json.loads(json.dumps(COVERAGE))
+    for i, (title, ids) in enumerate(rows):
+        doc["rows"].insert(1 + i, {"paper": {"number": f"Theorem {3 + i}", "title": title},
+                                   "class": "same-assumptions", "claims": ids})
+    return doc
+
+
+def test_a_row_open_only_for_its_statement_comparison_says_built_not_compared(lp, env, capsys, tmp_path):
+    doc = _uncompared_doc(("Side fact", ["beta/baz-true"]), ("Both", ["beta/foo-le-bar", "beta/baz-true"]))
+    prepare(env, doc, extra={**TWO_CLAIMS, "claims.yaml": CLAIMS_YAML + UNCOMPARED_CLAIM})
+    (env.repo_b / "README.md").write_text("# Beta\n")
+    rc, a = page_json(lp, env, capsys, "--write", "--site", str(tmp_path / "site"), "--html",
+                      str(tmp_path / "v.html"))
+    md = a["markdown"]
+    assert rc == 0 and a["ledger_status"] == "open" and a["verified_rows"] == 1, a.get("problems")
+    assert _block(md, "Theorem 1: Main bound").startswith("\n**Verified.**") and COMPARED in md
+    for heading in ("Theorem 3: Side fact", "Theorem 4: Both"):
+        block = _block(md, heading)
+        assert block.startswith("\n" + BUILT_NOT_COMPARED + "\n"), block
+        assert "work in progress" not in block and "verified" not in block.split("**In the paper.**")[0].lower()
+    assert "work in progress" not in md and "Not yet verified" not in md
+    assert "- Verified: 1 of the 3 result(s) in Lean.\n" in md                     # counts unchanged
+    for text in ((tmp_path / "site" / "verification.md").read_text(), (tmp_path / "v.html").read_text()):
+        assert text.count("Built, not compared.") == 2 and "work in progress" not in text
+    assert "| open |" in (tmp_path / "site" / "coverage.md").read_text()            # the ledger's own word
+    assert BUILT_NOT_COMPARED in (env.repo_b / "README.md").read_text()
+    rc, _out, _err = run(lp, env, capsys, "page", "beta", "--check", "--site", str(tmp_path / "site"))
+    assert rc == 0
+
+
+def test_a_row_open_for_another_reason_keeps_not_yet_verified(lp, env, capsys):
+    doc = _uncompared_doc(("Mixed", ["beta/baz-true", "beta/gone"]))                # decl-missing beside it
+    prepare(env, doc, extra={**TWO_CLAIMS, "claims.yaml": CLAIMS_YAML + UNCOMPARED_CLAIM + MISSING_CLAIM})
+    rc, a = page_json(lp, env, capsys)
+    mixed = _block(a["markdown"], "Theorem 3: Mixed")
+    assert rc == 0 and "Built, not compared" not in a["markdown"], a.get("problems")
+    assert mixed.startswith("\n**Not yet verified.** lean-pkg's record of the checks says: open. Until it says "
+                            "verified, read the Lean statement below as work in progress.\n")
+    reg = read_reg(env)                                                             # no comparator receipt at all
+    reg["packages"]["beta"]["gate"]["comparator"] = None
+    write_reg(env, reg)
+    rc, a = page_json(lp, env, capsys)
+    assert rc == 0 and "Built, not compared" not in a["markdown"]
+    assert _block(a["markdown"], "Theorem 1: Main bound").startswith("\n**Not yet verified.**")
+
+
+def test_the_built_not_compared_line_needs_every_open_claim_open_only_for_the_comparison():
+    from lean_pkg import page
+    nc = {"code": "no-comparator-config", "detail": "x"}
+    by_id = {"a": {"status": "open", "diagnostics": [nc]}, "b": {"status": "verified", "diagnostics": []},
+             "c": {"status": "open", "diagnostics": [nc, {"code": "comparator-todo", "detail": "y"}]},
+             "d": {"status": "blocked", "diagnostics": [{"code": "depends-on-open", "detail": "a z"}]},
+             "e": {"status": "open", "diagnostics": [{"code": "decl-missing", "detail": "z"}]}}
+    assert page._only_uncompared({"claims": ["a", "b"]}, by_id)
+    for ids in (["b"], ["a", "c"], ["a", "d"], ["a", "e"], ["a", "missing"], []):
+        assert not page._only_uncompared({"claims": ids}, by_id), ids
+    assert page._status_line("open", False, None, True).startswith("**Built, not compared.**")
+    assert page._status_line("open", False).startswith("**Not yet verified.**")
+    assert page._status_line("blocked", False, None, True).startswith("**Not yet verified.**")
+    assert page._status_line("verified", True, None, True).startswith("**Verified.**")

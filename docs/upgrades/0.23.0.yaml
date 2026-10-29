@@ -171,6 +171,23 @@ changes:
       number sees the new layout.
     breaking: false
     changelog: Changed
+  - pr: 401
+    id: page-built-not-compared
+    kind: behavior
+    area: page
+    summary: >-
+      page (issue 398): a result block whose claims that are not verified are all open only for the ledger
+      reason no-comparator-config (gate and comparator receipts pass, no comparator configuration names the
+      declaration) reads '**Built, not compared.** Lean accepts the proof (the build passed), but its statement
+      has not yet been compared by a second checker, which this result requires.' instead of '**Not yet
+      verified.** ... read the Lean statement below as work in progress.', in the README block, --site and
+      --html. Display only: ledger statuses, verified counts, the coverage.md Ledger column and page --json
+      are unchanged; every other not-verified row keeps its wording.
+    action: >-
+      Nothing required. Re-run lean-pkg page NAME --write (and --site/--html) to refresh a committed page;
+      page --check reports the old wording as stale until then.
+    breaking: false
+    changelog: Fixed
 # Docs: proposals 0002, 0003, 0008 and 0009 marked implemented in 0.22.0 (status lines, the proposals table,
 # plan rows); no code changes (#384).
 no_author_change: [384]
