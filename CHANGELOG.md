@@ -119,18 +119,27 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   lease was EXPIRED and held by another agent while the live lease, pushed
   from the first machine, was the reporter's own.
 
-### Fixed
+- `receipt comparator` (`comparator-receipt`) points a statement or constant
+  mismatch refusal to the contracts-only diagnostic (#400; #397). When a
+  refused configuration's judge log carries Lake's `Challenge and solution
+  theorem statement do not match` or `Const does not match between challenge
+  and target`, the refusal ends with one stderr line `next: lean-pkg
+  comparator check NAME --contracts-only`, printed once per run however many
+  configurations or units failed that way, with `--repo DIR` when the run's
+  checkout is not the registered one. NAME comes from a best-effort,
+  read-only registry lookup (the package whose `local_path` is the checkout,
+  else the one whose `repo` is a git remote of it); with no match the line
+  keeps the literal `NAME` and names the docs section. `stages.json` gains
+  `next_command` (that command, `null` otherwise), as do a kept attempt's
+  `attempt.json` and its `--attempts --json` row. Display only: the
+  comparison, the checker, every verdict, the exit code and what the run
+  writes are unchanged; other failures (an illegal axiom, a missing theorem,
+  a build error, a judge that failed before judging, a timeout) get no such
+  line. Field report: the headers were byte-identical and the reporter
+  isolated module-local `_proof_1` names by hand, which the diagnostic
+  reports directly.
 
-- `page`: a result row whose claims that are not verified are open only
-  because no comparator configuration names them (ledger reason
-  `no-comparator-config`) now reads "**Built, not compared.** Lean accepts
-  the proof (the build passed), but its statement has not yet been compared
-  by a second checker, which this result requires." instead of "Not yet
-  verified ... read the Lean statement below as work in progress", which
-  told a reader the proof was unfinished (#401; #398). Display only: ledger
-  statuses, the verified counts and the *Ledger* column of `coverage.md` are
-  unchanged, and a row with any other open reason, or a blocked, unknown or
-  conditional claim, keeps the old wording.
+### Fixed
 
 - `page` no longer calls a published paper an unposted draft (#399; #396).
   When `coverage.yaml` `manuscript.version` is `unposted` and the registry
@@ -148,6 +157,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   renders as before, and `unposted` still needs `--allow-private-manuscript`.
   Field report: a companion to a journal paper whose exact source had no
   public anchor was rendered as "Manuscript not yet posted".
+
+- `page`: a result row whose claims that are not verified are open only
+  because no comparator configuration names them (ledger reason
+  `no-comparator-config`) now reads "**Built, not compared.** Lean accepts
+  the proof (the build passed), but its statement has not yet been compared
+  by a second checker, which this result requires." instead of "Not yet
+  verified ... read the Lean statement below as work in progress", which
+  told a reader the proof was unfinished (#401; #398). Display only: ledger
+  statuses, the verified counts and the *Ledger* column of `coverage.md` are
+  unchanged, and a row with any other open reason, or a blocked, unknown or
+  conditional claim, keeps the old wording.
 
 ### Documentation
 

@@ -104,6 +104,13 @@ PIN_RE = re.compile(r"^== (comparator|lean4export|nanoda_lib|landrun) @ ([0-9a-f
                     re.MULTILINE)
 PIN_KEYS = {"comparator": "comparator", "lean4export": "lean4export",
             "nanoda_lib": "nanoda", "landrun": "landrun"}
+# #397: Lake's two compare-step refusals (Lake/CLI/Check.lean, v4.35.0), the messages the contracts-only
+# diagnostic (`lean-pkg comparator check NAME --contracts-only`, comparator_contracts) reports from Lake's own
+# compareAt. A judge log carrying one gets a `next:` pointer to that diagnostic: display only; the verdict, the
+# comparison and the checker are unchanged.
+CONTRACT_MISMATCH_MESSAGES = ("Challenge and solution theorem statement do not match",
+                              "Const does not match between challenge and target")
+CONTRACTS_DOCS = "docs/comparator.md#a-contracts-only-diagnostic"   # = comparator_contracts.DOCS
 
 
 class RunnerError(Exception):
@@ -112,6 +119,59 @@ class RunnerError(Exception):
 
 class UsageError(RunnerError):
     """A refused invocation found only once the configurations are read (exit 2, nothing written)."""
+
+
+def contract_mismatch(log_text: str) -> str | None:
+    """The first line of a judge log carrying one of Lake's CONTRACT_MISMATCH_MESSAGES, else None."""
+    for ln in log_text.splitlines():
+        if any(m in ln for m in CONTRACT_MISMATCH_MESSAGES):
+            return ln.strip()
+    return None
+
+
+def registered_name(project: pathlib.Path, registry_args=None) -> tuple[str | None, bool]:
+    """(NAME, at_registered_path), best effort and read-only, for the `next:` pointer (#397): the one package
+    whose local_path is this checkout (True), else the one package whose repo is a git remote of it (False);
+    (None, False) when the registry is unreadable or no single package matches. Never raises; the registry
+    is the one lean-pkg resolves (--registry under `lean-pkg receipt comparator`, else LEAN_PKG_REGISTRY,
+    else the user-level default)."""
+    try:
+        import yaml
+        from . import core
+        from .gate import _same_remote
+        p = core.registry_path(registry_args if registry_args is not None else argparse.Namespace())
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) if p.is_file() else None
+        pkgs = data.get("packages") if isinstance(data, dict) else None
+        if not isinstance(pkgs, dict):
+            return None, False
+        here = project.resolve()
+        pkgs = {str(n): v for n, v in pkgs.items() if isinstance(v, dict)}
+        at = [n for n, v in pkgs.items() if v.get("local_path") and core.repo_path(v).resolve() == here]
+        if at:
+            return (at[0], True) if len(at) == 1 else (None, False)
+        out = git(project, "config", "--get-regexp", r"^remote\..*\.url$").stdout
+        urls = [ln.split(None, 1)[1] for ln in out.splitlines() if len(ln.split(None, 1)) == 2]
+        by_remote = [n for n, v in pkgs.items()
+                     if str(v.get("repo") or "").strip() and any(_same_remote(u, str(v["repo"])) for u in urls)]
+        if len(by_remote) == 1:
+            return by_remote[0], False
+    except Exception:   # noqa: BLE001 -- best effort: an unreadable registry means the NAME placeholder
+        pass
+    return None, False
+
+
+def contracts_next(project: pathlib.Path, registry_args=None) -> tuple[str, str]:
+    """(next_command, the text line's tail) after a statement or constant mismatch refusal (#397):
+    `lean-pkg comparator check NAME --contracts-only`, with `--repo DIR` unless the run used the registered
+    checkout; the literal NAME and the docs section when no registered package is this checkout."""
+    import shlex
+    name, registered = registered_name(project, registry_args)
+    cmd = f"lean-pkg comparator check {shlex.quote(name or 'NAME')} --contracts-only"
+    if not registered:
+        cmd += f" --repo {shlex.quote(str(project))}"
+    tail = "" if name else (f"  (NAME: this checkout's package in the registry; no registered package "
+                            f"matched it; see {CONTRACTS_DOCS})")
+    return cmd, tail
 
 
 def default_check_script():
@@ -1067,6 +1127,9 @@ class Stages:
         self.build_provenance: dict | None = None   # #56: {compiled, modules_built, prebuilt, source}
         self.pool: dict | None = None        # #60: stage 04's {judges, unit_size} (toolchain mechanism)
         self.olean_manifest: dict | None = None   # the root package's compiled modules after setup
+        self.contracts_next = None           # #397: () -> (next_command, tail), called on a mismatch refusal
+        self.next_command: str | None = None
+        self.next_tail = ""
         self.started_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
     def keep_attempt(self, reason: str) -> pathlib.Path | None:
@@ -1099,6 +1162,7 @@ class Stages:
                 **({"build_provenance": self.build_provenance} if self.build_provenance is not None else {}),
                 **({"olean_manifest": self.olean_manifest} if self.olean_manifest is not None else {}),
                 **(self.pool or {}),
+                "next_command": self.next_command,   # #397: display only; null unless a mismatch refusal
                 "started_at": self.started_at,
                 "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
         tmp = self.json.with_name(STAGES_FILE + ".tmp")
@@ -1126,11 +1190,13 @@ class Stages:
             with open(log, "a", encoding="utf-8") as fh:
                 fh.write(f"comparator-receipt: {e}\n")
             status = "partial" if isinstance(e, PartialStage) else "failed"
+            if getattr(e, "contract_mismatch", None) and self.contracts_next is not None:
+                self.next_command, self.next_tail = self.contracts_next()
             self.record(stage, status, getattr(e, "code", None), time.monotonic() - t0, str(e), log)
             msg = f"stage {tag} {status}: {e} (log: {log}; stages: {self.json})"
-            if isinstance(e, PartialStage):
-                raise PartialStage(msg, e.code) from None
-            raise RunnerError(msg) from None
+            err = PartialStage(msg, e.code) if isinstance(e, PartialStage) else RunnerError(msg)
+            err.next_command, err.next_tail = self.next_command, self.next_tail
+            raise err from None
         self.record(stage, status, code, time.monotonic() - t0, note, log)
         print(f"comparator-receipt: stage {tag}: {status}" + (f" ({note})" if note else ""),
               file=sys.stderr)
@@ -1255,6 +1321,7 @@ def keep_attempt(stages_dir: pathlib.Path, reason: str) -> pathlib.Path | None:
             "failed_stage": (data or {}).get("failed_stage"),
             "verdict": attempt_verdict(data, set(hashes)),
             "olean_manifest_sha256": om.get("sha256") if isinstance(om, dict) else None,
+            "next_command": (data or {}).get("next_command"),   # #397: additive
             "files": dict(sorted(hashes.items()))}
     (dest / ATTEMPT_FILE).write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     for p in sorted(dest.rglob("*"), reverse=True):          # files first, then directories
@@ -1287,7 +1354,8 @@ def list_attempts(where: pathlib.Path) -> dict:
                     key=lambda p: _attempt_number(p.name)):
         row = {"n": _attempt_number(d.name), "name": d.name, "verdict": None, "failed_stage": None,
                "commit": None, "started_at": None, "finished_at": None, "kept_at": None, "reason": None,
-               "olean_manifest_sha256": None, "files": 0, "bytes": 0, "intact": False, "problem": None}
+               "olean_manifest_sha256": None, "next_command": None, "files": 0, "bytes": 0, "intact": False,
+               "problem": None}
         try:
             meta = json.loads((d / ATTEMPT_FILE).read_text(encoding="utf-8"))
             if not isinstance(meta, dict) or meta.get("schema") != ATTEMPT_SCHEMA:
@@ -1297,7 +1365,7 @@ def list_attempts(where: pathlib.Path) -> dict:
             out["attempts"].append(row)
             continue
         for k in ("verdict", "failed_stage", "commit", "started_at", "finished_at", "kept_at", "reason",
-                  "olean_manifest_sha256"):
+                  "olean_manifest_sha256", "next_command"):
             row[k] = meta.get(k)
         files = meta.get("files") if isinstance(meta.get("files"), dict) else {}
         row["files"] = len(files)
@@ -1547,6 +1615,7 @@ class Stage04:
         self.progress = Progress(stages.dir / PARTIAL_FILE, self.slots, {
             **stages.binding, "mechanism": mechanism, "resume_command": resume_command})
         self.passed: dict[str, list[tuple[Unit, pathlib.Path]]] = {c: [] for c in self.configs}
+        self.mismatch: str | None = None             # #397: the first failed unit's Lake mismatch line
         self.legacy_output = ""
         self.slog: StageLog | None = None
         self.resume = resume
@@ -1647,6 +1716,7 @@ class Stage04:
         ok = j.returncode == 0 and (self.mechanism == "legacy" or comparator_pass(out, "toolchain"))
         if not ok:
             self.progress.mark(unit.slots, "failed")
+            self.mismatch = self.mismatch or contract_mismatch(out)
             self.failure = (unit, j.returncode, judged(out, self.mechanism, j.returncode), last_line(out),
                             judge_failure_reason(out, self.mechanism, j.returncode))
             self.say(f"{self.tag(unit)} failed (exit {j.returncode}) in {secs:.1f}s")
@@ -1714,8 +1784,10 @@ class Stage04:
                                + (f"; last line: {last}" if last else "") + "); this is a tool/environment "
                                "error, not a verdict on the proof; fix the tool or the project setup and rerun"
                                + (f" ({EXTERNAL_LINK_NOTE})" if reason and "resolving" in reason else ""))
-                raise StageError(f"{verdict}; {self.progress.summary()}; nothing written; partial report "
+                err = StageError(f"{verdict}; {self.progress.summary()}; nothing written; partial report "
                                  f"{self.progress.path}", rc)
+                err.contract_mismatch = self.mismatch   # #397: Stages.run turns it into the `next:` pointer
+                raise err
             self.assemble()
             self.progress.state = "complete"
             try:
@@ -1951,7 +2023,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt",
         resume: bool = True, judges: int = 1, slot_spec: str | None = None,
         estimate: int | None = None, unit_size: int | None = None, sample_explicit: bool = False,
-        force_sample: bool = False, ci: dict | None = None) -> dict:
+        force_sample: bool = False, ci: dict | None = None, registry_args=None) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     evidence = evidence or project / DEFAULT_EVIDENCE
@@ -2063,6 +2135,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
     stack_lines += thread_lines
     stages = Stages(evidence, binding, prepare)
     stages.resolution = resolution
+    stages.contracts_next = lambda: contracts_next(project, registry_args)   # #397
     recorded = recorded_text = None
     if mismatch is None:
         when = str(prior.get("updated_at") or "")
@@ -2717,9 +2790,11 @@ def run_main(args, argv: list[str], prog: str = "comparator-receipt") -> int:
                       resume=not args.no_resume, judges=judges, slot_spec=args.slots,
                       estimate=(args.sample or ESTIMATE_MIN_SAMPLE) if args.estimate else None,
                       unit_size=unit_size, sample_explicit=args.sample is not None,
-                      force_sample=args.force_sample, ci=ci)
+                      force_sample=args.force_sample, ci=ci, registry_args=args)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
+        if getattr(e, "next_command", None):   # #397: once per run, after the refusal
+            print(f"next: {e.next_command}{getattr(e, 'next_tail', '')}", file=sys.stderr)
         if isinstance(e, UsageError):
             return 2
         code = getattr(e, "code", None)

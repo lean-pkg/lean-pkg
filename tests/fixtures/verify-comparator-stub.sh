@@ -8,6 +8,7 @@
 # per call: the config argument and, for a JSON file, its theorem_names. STUB_FAIL_MATCH=<word> fails a
 # call whose config argument or theorem_names contain that word. STUB_HANG_MATCH=<word> makes such a call
 # print "stub hanging" and sleep (STUB_SLEEP, default 1 s) before its verdict, so a test can kill it.
+# STUB_FAIL_MESSAGE (#397): a failing call prints this line (e.g. Lake's mismatch message) instead of the default.
 set -euo pipefail
 cfg="${1:-comparator.json}"
 names="$(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["theorem_names"]))' "$cfg" 2>/dev/null || true)"
@@ -31,6 +32,6 @@ esac
 if [ "${STUB_MODE:-pass}" = pass ]; then
   echo "Your solution is okay!"
 else
-  echo "error: comparator rejected $cfg" >&2
+  echo "${STUB_FAIL_MESSAGE:-error: comparator rejected $cfg}" >&2
   exit 1
 fi
