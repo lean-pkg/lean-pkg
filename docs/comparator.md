@@ -1292,14 +1292,25 @@ lean-pkg comparator check NAME --contracts-only
 ```
 
 It takes minutes, it covers every configuration at once, and it runs no
-kernel. Fix every `differs` and `error` it reports before you start
+kernel. The receipt commands can run it for you, before anything is
+launched: `receipt systemd --run --contracts-preflight` checks before the
+unit is created, and `receipt slurm --contracts-preflight` checks before you
+submit the job. Each refuses, and runs and writes nothing, when a
+configuration differs, when a configured module is not built, or when the
+diagnostic cannot run
+([details](receipts.md#contracts-preflight---contracts-preflight)). Fix every `differs` and `error` it reports before you start
 `receipt systemd --run`, `receipt slurm` or a lab template's native and
 replay steps. Launched first, those spend hours on a source the comparator
 will refuse.
 
 `lean-pkg verify` already works in this order. Its first step is the
 comparator receipt, which builds and then compares, and only after it
-passes does verify start the lower-tier receipt. The recipe is for the
+passes does verify start the lower-tier receipt. Keep that order by hand
+too. The comparator receipt refuses untracked files, which include the
+lower-tier receipt's sidecars under `.lean-receipts/`, so a comparator
+receipt made after the lower tier needs a separate clean checkout
+([Receipt order](receipts.md#receipt-order-the-comparator-receipt-first)).
+The recipe is for the
 other paths, where you or a scheduler launch the lower tier yourselves. A
 match here is still not acceptance: only `lake comparator` inside a gate
 judges ([above](#a-contracts-only-diagnostic)).

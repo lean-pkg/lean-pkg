@@ -58,3 +58,21 @@ changes:
       Nothing. A script that reads the hint field of a difference sees text in a case where it was null before.
     breaking: false
     changelog: Changed
+  - pr: 409
+    id: receipt-contracts-preflight
+    kind: command
+    area: receipts, receipt slurm, comparator check
+    summary: >-
+      LO-20261030-04: opt-in --contracts-preflight runs the contracts-only diagnostic (comparator check
+      --contracts-only) on every comparator configuration of the checkout before receipt work. receipt systemd
+      --run --contracts-preflight checks before the unit is created; receipt slurm --contracts-preflight [--repo DIR]
+      is a mode of its own, run before the job is submitted (exit 0/1). A configuration that differs, a configured
+      module that is not built (the refusal names the lake build to run) and a diagnostic that cannot run refuse,
+      and nothing is run or written. A match prints a check line and never enters the receipt; --json carries
+      contracts_preflight. docs/receipts.md gains "Receipt order: the comparator receipt first" (comparator-receipt
+      refuses untracked files, which include a lower-tier receipt's sidecars) and "Contracts preflight".
+    action: >-
+      Nothing required. To use it, build the configured Challenge and Solution modules, then add
+      --contracts-preflight to receipt systemd --run, or run receipt slurm --contracts-preflight before sbatch.
+    breaking: false
+    changelog: Added

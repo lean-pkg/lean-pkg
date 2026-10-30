@@ -2094,9 +2094,33 @@ def preflight(args) -> int:
     return 0 if ok else 1
 
 
+def contracts_preflight(args) -> int:
+    """`receipt slurm --contracts-preflight [--repo DIR]` (LO-20261030-04): before submitting the job, the
+    contracts-only diagnostic of every comparator configuration of the checkout (default the current directory),
+    whose modules must be built here. Writes nothing; exit 0 when every configuration matches, else 1."""
+    from . import comparator_contracts as cc
+    extra = [f for f, v in (("--job", args.job), ("--log", args.log), ("--receipt-commit", args.commit_sha)) if v]
+    if extra:
+        raise core.UsageError(f"{', '.join(extra)}: not with --contracts-preflight (it runs before the job exists)")
+    repo = pathlib.Path(args.repo).resolve() if args.repo else pathlib.Path.cwd()
+    pre = cc.preflight(repo)
+    if getattr(args, "json_out", False):
+        core.print_json({"ok": pre["ok"], "contracts_preflight": True, "written": [], "checks": pre["checks"],
+                         "refusals": pre["refusals"], "report": pre["report"]})
+    else:
+        for line in pre["checks"]:
+            print(f"lean-pkg: receipt slurm: {line}")
+        for line in pre["refusals"]:
+            print(f"lean-pkg: receipt slurm: {line}", file=sys.stderr)
+        verdict = "PASS" if pre["ok"] else "REFUSED"
+        print(f"lean-pkg: receipt slurm: contracts preflight {verdict} (never acceptance; nothing written)")
+    return 0 if pre["ok"] else 1
+
+
 def cmd_receipt_slurm(args) -> int:
     modes = [f for f, v in (("--template", args.template), ("--check", args.check),
-                            ("--preflight-deps", args.preflight_deps)) if v]
+                            ("--preflight-deps", args.preflight_deps),
+                            ("--contracts-preflight", getattr(args, "contracts_preflight", False))) if v]
     if len(modes) > 1:
         raise core.UsageError(f"{' and '.join(modes)} do not combine")
     seal = bool(getattr(args, "seal_sacct", False))
@@ -2125,6 +2149,8 @@ def cmd_receipt_slurm(args) -> int:
     if args.preflight_deps:
         from . import deps_closure
         return deps_closure.cmd(args)
+    if getattr(args, "contracts_preflight", False):
+        return contracts_preflight(args)
     missing = [f for f, v in (("--job", args.job), ("--log", args.log), ("--receipt-commit", args.commit_sha)) if v is None]
     if missing:
         raise core.UsageError(f"receipt slurm needs {', '.join(missing)} (or --template, or --check on a job's files)")
@@ -2254,6 +2280,12 @@ def add_parsers(sub, add_json) -> None:
                    help="preflight the files of a finished (trial) job: every seal, stderr and log-line check, "
                         "each problem named; no sacct (unless --sacct-file), commit checks only with --receipt-commit; "
                         "writes nothing, exit 0/1")
+    s.add_argument("--contracts-preflight", action="store_true",
+                   help="before submitting: run the contracts-only diagnostic (`comparator check --contracts-only`) "
+                        "on every comparator configuration of --repo (default the current directory), whose "
+                        "modules must be built here; a configuration that differs, one whose modules are not "
+                        "built, or a diagnostic that cannot run refuses; writes nothing, exit 0/1 "
+                        "(docs/comparator.md, Before receipt work)")
     s.add_argument("--preflight-deps", action="store_true",
                    help="before submitting: check that the staged dependency cache (--deps-tar or --deps-dir) "
                         "holds, at the lake-manifest.json pins committed at --commit (default HEAD), the built "

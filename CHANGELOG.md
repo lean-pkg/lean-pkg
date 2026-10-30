@@ -25,6 +25,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `solution.module_root_generic`; when every dependency was read,
   `not_checked` drops the shadowing clause.
 
+- `receipt systemd --run --contracts-preflight` and `receipt slurm
+  --contracts-preflight` compare every comparator configuration before
+  receipt work (#409; LO-20261030-04). They run the contracts-only
+  diagnostic (`comparator check --contracts-only`) before the unit is
+  created, or before the job is submitted (a `receipt slurm` mode of its
+  own, `[--repo DIR]`, exit 0/1). A configuration that differs, a configured
+  module that is not built (the refusal names the `lake build` to run) and a
+  diagnostic that cannot run refuse, and nothing is run or written. A match
+  prints a check line and is never part of the receipt; `--json` carries
+  `contracts_preflight`. docs/receipts.md gains "Receipt order: the
+  comparator receipt first" (`comparator-receipt` refuses untracked files,
+  which include a lower-tier receipt's sidecars under `.lean-receipts/`) and
+  "Contracts preflight".
+
 ### Changed
 
 - `comparator check --contracts-only` names a `let` kept on one side (#408;

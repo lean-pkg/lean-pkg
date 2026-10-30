@@ -907,3 +907,102 @@ def test_require_tools_usage_errors(lp, repo, tmp_path, fake_systemd, capsys, ex
 def test_require_tools_is_only_for_run(lp, repo, tmp_path, capsys):
     assert run(lp, repo, Unit(tmp_path), "--require-tools", "rg") == 2
     assert "--require-tools is only for --run" in capsys.readouterr().err
+
+
+# --contracts-preflight (LO-20261030-04): the contracts-only diagnostic of every configuration, before the unit is
+# created; any configuration that does not match, or a diagnostic that cannot run, refuses and nothing is run
+
+def _report(*verdicts):
+    configs = []
+    for i, (verdict, detail, hint) in enumerate(verdicts):
+        configs.append({"config": f"comparator/config-{i}.json", "verdict": verdict, "detail": detail, "hint": hint})
+    return {"ok": all(v[0] == "match" for v in verdicts), "configs": configs, "acceptance": False, "evidence": False}
+
+
+@pytest.fixture
+def fake_contracts(monkeypatch):
+    from lean_pkg import comparator_contracts as cc
+    seen = []
+
+    def use(result):
+        def run(repo, *a, **k):
+            seen.append(str(repo))
+            if isinstance(result, Exception):
+                raise result
+            return result
+        monkeypatch.setattr(cc, "run", run)
+        return seen
+    return use
+
+
+@pytest.mark.parametrize("report, needles", [
+    (_report(("match", None, None), ("differs", "Challenge and solution theorem statement do not match: 'audit_let'",
+                                      "the Challenge keeps a `let` in its type")),
+     ["comparator/config-1.json: differs: Challenge and solution theorem statement do not match: 'audit_let' "
+      "(hint: the Challenge keeps a `let` in its type)", "1 of 2 comparator configuration(s) do not match"]),
+    (_report(("error", "module Challenge.Let is not built: run `lake build Challenge.Let` first", None)),
+     ["comparator/config-0.json: error: module Challenge.Let is not built: run `lake build Challenge.Let` first"]),
+])
+def test_contracts_preflight_refuses_and_creates_no_unit(lp, repo, tmp_path, fake_systemd, fake_contracts, capsys,
+                                                         report, needles):
+    _props, calls_made = fake_systemd
+    seen = fake_contracts(report)
+    rc, d = run_live(lp, repo, tmp_path, "--contracts-preflight", "--json")
+    assert rc == 1
+    data = json.loads(capsys.readouterr().out)
+    for needle in needles:
+        assert any(needle in r for r in data["refusals"]), data["refusals"]
+    assert any("nothing was run" in r for r in data["refusals"])
+    assert data["contracts_preflight"]["ok"] is False and data["contracts_preflight"]["report"] == report
+    assert seen == [str(repo)] and calls_made() == []
+    assert not (d / "verify.log").exists() and not (d / "verify.log.unit.properties").exists()
+    assert_nothing_written(repo)
+
+
+@pytest.mark.parametrize("error, needle", [
+    ("no comparator configuration in the checkout (comparator*.json or comparator/config*.json)",
+     "could not run (no comparator configuration in the checkout"),
+    ("bwrap is not installed: install it, or pass --no-sandbox to export unsandboxed",
+     "run `lean-pkg comparator check NAME --contracts-only --no-sandbox` by hand instead"),
+])
+def test_contracts_preflight_that_cannot_run_refuses(lp, repo, tmp_path, fake_systemd, fake_contracts, capsys,
+                                                     error, needle):
+    from lean_pkg import comparator_contracts as cc
+    _props, calls_made = fake_systemd
+    fake_contracts(cc.ContractsError(error))
+    rc, _d = run_live(lp, repo, tmp_path, "--contracts-preflight", "--json")
+    data = json.loads(capsys.readouterr().out)
+    assert rc == 1 and any(needle in r and r.endswith("nothing was run") for r in data["refusals"]), data["refusals"]
+    assert data["contracts_preflight"] == {"ok": False, "report": None}
+    assert calls_made() == []
+    assert_nothing_written(repo)
+
+
+def test_contracts_preflight_and_a_missing_tool_are_both_listed(lp, repo, tmp_path, fake_systemd, fake_contracts,
+                                                                capsys):
+    _props, calls_made = fake_systemd
+    fake_contracts(_report(("differs", "Const does not match between challenge and target 'f'", None)))
+    rc, _d = run_live(lp, repo, tmp_path, "--require-tools", "lp-no-such-tool-x", "--contracts-preflight", "--json")
+    refusals = json.loads(capsys.readouterr().out)["refusals"]
+    assert rc == 1 and calls_made() == []
+    assert any("--require-tools" in r for r in refusals) and any("--contracts-preflight" in r for r in refusals)
+
+
+def test_contracts_preflight_that_matches_runs_the_unit_and_stays_out_of_the_receipt(
+        lp, repo, tmp_path, fake_systemd, fake_contracts, capsys):
+    _props, calls_made = fake_systemd
+    fake_contracts(_report(("match", None, None), ("match", None, None)))
+    rc, _d = run_live(lp, repo, tmp_path, "--contracts-preflight", "--json")
+    cap = capsys.readouterr()
+    assert rc == 0, cap.err
+    data = json.loads(cap.out)
+    assert any("✓ contracts preflight: 2 comparator configuration(s) match (never acceptance" in c
+               for c in data["checks"])
+    assert data["contracts_preflight"]["ok"] is True and calls_made()[0][0] == "systemd-run"
+    receipt = Path(next(e["path"] for e in data["sealed"] if e["role"] == "receipt")).read_text()
+    assert "contracts" not in receipt                      # a preflight is never evidence
+
+
+def test_contracts_preflight_is_only_for_run(lp, repo, tmp_path, capsys):
+    assert run(lp, repo, Unit(tmp_path), "--contracts-preflight") == 2
+    assert "--contracts-preflight is only for --run" in capsys.readouterr().err

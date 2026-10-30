@@ -2,10 +2,10 @@ usage: lean-pkg receipt systemd [-h] --unit U --log PATH --receipt-commit SHA [-
                                 [--stderr PATH] [--properties-file F] [--run] [--memory-max BYTES]
                                 [--memory-swap-max BYTES] [--cpu-quota PCT] [--runtime-max SPAN]
                                 [--setenv NAME=VALUE] [--require-tools A,B,...]
-                                [--properties-out PATH] [--redact REGEX] [--checker TEXT]
-                                [--repo DIR] [--out PATH] [--compress-log] [--append-readme]
-                                [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
-                                [--json]
+                                [--contracts-preflight] [--properties-out PATH] [--redact REGEX]
+                                [--checker TEXT] [--repo DIR] [--out PATH] [--compress-log]
+                                [--append-readme] [--readme-heading TEXT] [--readme-line TEXT]
+                                [--tar-sha256 HEX] [--json]
                                 [-- CMD ...]
 
 positional arguments:
@@ -76,5 +76,11 @@ where the unit's terminal state comes from (default: `systemctl --user show U` n
                         resolved with `type -P` in the unit's PATH before the unit is created; a
                         missing one refuses and nothing is run. The resolved paths and SHA-256 are
                         printed (stderr) and in --json run_tools
+  --contracts-preflight
+                        --run: before the unit is created, run the contracts-only diagnostic
+                        (`comparator check --contracts-only`) on every comparator configuration of
+                        the checkout; a configuration that differs, one whose modules are not
+                        built, or a diagnostic that cannot run refuses, and nothing is run or
+                        written (docs/comparator.md, Before receipt work)
   --properties-out PATH
                         --run: where the captured properties go (default <log>.unit.properties)
