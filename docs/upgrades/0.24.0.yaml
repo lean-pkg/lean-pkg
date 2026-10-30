@@ -43,3 +43,18 @@ changes:
       runs; the origin label of a quoted dependency in comparator check output is the unescaped name.
     breaking: false
     changelog: Fixed
+  - pr: 408
+    id: contracts-only-let-hint
+    kind: behavior
+    area: comparator check
+    summary: >-
+      LO-20261030-04: comparator check --contracts-only adds a hint when the first differing subterm of a type or
+      value is a `let` on one side only (a Challenge that keeps a `let` alias the Solution unfolds, or the
+      reverse): the two are definitionally equal, but lake comparator compares the stored terms and refuses them.
+      Display only; the verdict, the counts and the exit code are unchanged. docs/comparator.md gains "A let kept
+      on one side" and "Before receipt work" (build the configured modules, run the contracts-only diagnostic,
+      then launch receipt systemd or slurm); how-to and the receipt systemd and slurm pages point to it.
+    action: >-
+      Nothing. A script that reads the hint field of a difference sees text in a case where it was null before.
+    breaking: false
+    changelog: Changed

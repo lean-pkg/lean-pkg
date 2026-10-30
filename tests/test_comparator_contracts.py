@@ -105,6 +105,24 @@ def test_hint_names_both_private_modules_and_never_changes_the_verdict():
         is None
 
 
+@pytest.mark.parametrize("field,challenge,solution,side", [
+    ("type", "let", "app of Eq (3 args)", "Challenge"),
+    ("value", "app of f (1 args)", "let", "Solution"),
+])
+def test_hint_names_a_let_kept_on_one_side(field, challenge, solution, side):
+    e = {"breadcrumb": ["audit"], "first_field": {"field": field, "path": ["body"], "challenge": challenge,
+                                                   "solution": solution}}
+    h = cc.hint(e)
+    assert h.startswith(f"the {side} keeps a `let` in its {field} (at body)") and cc.LET_DOCS in h
+
+
+def test_no_let_hint_when_both_or_neither_side_is_a_let_or_the_field_is_not_a_term():
+    for f in ({"field": "type", "challenge": "let", "solution": "let"},
+              {"field": "type", "challenge": "forall", "solution": "lam"},
+              {"field": "kind", "challenge": "let", "solution": "theorem"}):
+        assert cc.hint({"breadcrumb": ["a"], "first_field": f}) is None
+
+
 def test_helper_output_without_the_final_line_is_refused():
     rec = json.dumps({"config": "c.json", "verdict": "match"})
     assert cc.parse_helper(rec + "\n" + json.dumps({"done": True, "slots": 1}), 1)[0]["verdict"] == "match"
@@ -272,6 +290,8 @@ end Heat
     "Challenge/Statement.lean": "import Challenge.Ref.Pub\n"
                                 "theorem audit_statement (p : Nat) : Heat.heatPub p = p * p + 0 := sorry\n",
     "Challenge/Missing.lean": "theorem audit_missing : True := sorry\n",
+    # a statement that keeps a `let` alias the Solution's statement unfolds: equal after zeta, refused by Lake
+    "Challenge/Let.lean": "theorem audit_let (p : Nat) : let q := p + 1; q * q = q * q := sorry\n",
     "Heat/Cheat.lean": "namespace Heat\naxiom cheat : False\nend Heat\n",
     "Challenge/Axiom.lean": "theorem audit_axiom : 1 = 1 := sorry\n",
     "Solution.lean": """import Heat.Lq
@@ -285,9 +305,10 @@ theorem audit_omega (p : Nat) : Heat.bumpVal p = p + 1 := Heat.bumpVal_eq p
 theorem audit_public (p : Nat) : Heat.heatPub p = p * p := Heat.heatPub_eq p
 theorem audit_shared (p : Nat) : Heat.heatDefs p = Heat.heatDefs p + 0 := Heat.heatDefs_eq p
 theorem audit_statement (p : Nat) : Heat.heatPub p = p * p := Heat.heatPub_eq p
+theorem audit_let (p : Nat) : (p + 1) * (p + 1) = (p + 1) * (p + 1) := rfl
 """,
 }
-SLOTS = ("private", "omega", "public", "shared", "statement", "missing", "axiom")
+SLOTS = ("private", "omega", "public", "shared", "statement", "missing", "axiom", "let")
 
 
 @pytest.fixture(scope="module")
@@ -340,7 +361,8 @@ def test_lake_comparator_ground_truth_is_as_documented(built):
     statement mismatch and the missing theorem."""
     _, lake = built
     rc = {k.removeprefix("comparator/config-").removesuffix(".json"): v[0] for k, v in lake.items()}
-    assert rc == {"private": 1, "omega": 1, "public": 0, "shared": 0, "statement": 1, "missing": 1, "axiom": 1}, lake
+    assert rc == {"private": 1, "omega": 1, "public": 0, "shared": 0, "statement": 1, "missing": 1, "axiom": 1,
+                  "let": 1}, lake
 
 
 @pytest.mark.timeout(2400)  # real Lean: the module's two real builds (900 s each) plus the comparison
@@ -359,10 +381,10 @@ def test_real_verdicts_agree_with_lake_comparator(built):
                 assert e["detail"] == msg, (e, msg)
     assert got["comparator/config-missing.json"]["verdict"] == "error"
     assert res["acceptance"] is False and res["evidence"] is False and not res["ok"]
-    assert res["counts"] == {"match": 2, "differs": 4, "error": 1}
+    assert res["counts"] == {"match": 2, "differs": 5, "error": 1}
     # one shared export of Solution for all seven configurations; the missing name does not fail the others
     solution = [x for x in res["exports"] if x["module"] == "Solution"]
-    assert len(solution) == 1 and len(solution[0]["configs"]) == 7 and "error" not in solution[0], res["exports"]
+    assert len(solution) == 1 and len(solution[0]["configs"]) == 8 and "error" not in solution[0], res["exports"]
     assert got["comparator/config-missing.json"]["missing"] == ["solution: audit_missing"]
 
 
@@ -387,6 +409,10 @@ def test_real_failing_fixtures_report_the_first_field_and_the_breadcrumb(built):
     e = got["statement"]
     assert e["breadcrumb"] == ["audit_statement"] and e["reason"] == "statement" and e["consistent"]
     assert e["first_field"]["field"] == "type"
+    e = got["let"]                                     # the reported 5dc09f4 shape (LO-20261030-04)
+    assert e["reason"] == "statement" and e["first_field"]["field"] == "type"
+    assert e["first_field"]["challenge"] == "let" and e["first_field"]["solution"] != "let"
+    assert "keeps a `let`" in e["hint"] and "#a-let-kept-on-one-side" in e["hint"]
     e = got["axiom"]
     assert e["stage"] == "axioms" and e["detail"] == "Illegal axiom detected: 'Heat.cheat'" and e["consistent"]
     assert e["breadcrumb"] == ["audit_axiom", "Heat.cheat"] and e["reason"] == "illegal axiom"
@@ -403,7 +429,7 @@ def test_real_run_writes_nothing_a_receipt_or_gate_reads(built, lp, tmp_path, ca
     rc = lp.main(["--registry", str(reg), "comparator", "check", "demo", "--contracts-only", "--no-sandbox",
                   "--json"])
     out = json.loads(capsys.readouterr().out)
-    assert rc == 1 and out["counts"] == {"match": 2, "differs": 4, "error": 1}
+    assert rc == 1 and out["counts"] == {"match": 2, "differs": 5, "error": 1}
     assert _tree(d) == before and reg.read_bytes() == reg_before         # checkout and registry untouched
     assert not (tmp_path / "lean-package-events.jsonl").exists()          # no event
     assert len(made) == 1 and not Path(made[0]).exists()                 # the exports are gone

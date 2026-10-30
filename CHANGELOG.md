@@ -25,6 +25,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `solution.module_root_generic`; when every dependency was read,
   `not_checked` drops the shadowing clause.
 
+### Changed
+
+- `comparator check --contracts-only` names a `let` kept on one side (#408;
+  LO-20261030-04): when the first differing subterm of a type or value is a
+  `let` on one side only (a Challenge keeping a `let` alias that the
+  Solution's statement unfolds, or the reverse), the `hint` says that the two
+  are definitionally equal but `lake comparator` compares the stored terms,
+  and how to write them alike. Display only: the verdict, counts and exit
+  code are unchanged. docs/comparator.md gains "A `let` kept on one side" and
+  "Before receipt work" (build the configured modules and run the
+  contracts-only diagnostic before launching `receipt systemd` or `receipt
+  slurm`); docs/how-to.md and the two receipt command pages point to it.
+
 ### Fixed
 
 - A `lake-manifest.json` package name that Lake writes escaped

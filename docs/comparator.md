@@ -1174,7 +1174,9 @@ edges. It reports:
   name or `app of Fin.mk (2 args)`. It never prints a whole term, because a
   shared proof DAG printed as a tree can run to gigabytes;
 - a **hint** when a private or generated name is involved (`_private.<Module>.0.`,
-  `_proof_N`), pointing to [the patterns above](#private-helpers-and-copied-references).
+  `_proof_N`), pointing to [the patterns above](#private-helpers-and-copied-references),
+  or when one side keeps a `let` that the other unfolds
+  ([below](#a-let-kept-on-one-side)).
 
 A `consistent: false` entry says the walk did not end at the constant Lake's
 message names, so its breadcrumb is a guess (this has not been seen). The
@@ -1236,16 +1238,71 @@ Requirements and limits:
 Checked on Lean v4.35.0 against `lake comparator --config` on core-only
 fixtures, one configuration each, all sharing one Solution module
 (`tests/test_comparator_contracts.py` runs both when the toolchain is
-installed): a copy with a private helper (refused; the same message, and the
-two private names), the same text with a private helper whose `by omega`
-proofs the public definition reuses (refused; the two `_proof_2` names), a
-public helper (accepted), a shared definitions module with a private helper
-(accepted), a changed theorem statement (refused; field `type`), a Solution proof
-through an axiom outside `permitted_axioms` (refused by `checkAxioms`;
-breadcrumb to the axiom), and a theorem the Solution lacks (`lake comparator`
-fails in its export; here `error`). In
-every case the verdict agreed, and each refusal carried Lake's message
+installed):
+
+- a copy with a private helper: refused, with the same message and the two
+  private names;
+- the same text with a private helper whose `by omega` proofs the public
+  definition reuses: refused, naming the two `_proof_2` constants;
+- a public helper: accepted;
+- a shared definitions module with a private helper: accepted;
+- a changed theorem statement: refused, at field `type`;
+- a statement that keeps a `let` alias the Solution's statement unfolds:
+  refused, at field `type`, with the `let` hint;
+- a Solution proof through an axiom outside `permitted_axioms`: refused by
+  `checkAxioms`, with a breadcrumb to the axiom;
+- a theorem the Solution lacks: `lake comparator` fails in its export, and
+  here it is an `error`.
+
+In every case the verdict agreed, and each refusal carried Lake's message
 verbatim.
+
+#### A `let` kept on one side
+
+A Challenge that states `let q := p + 1; q * q = q * q` and a Solution that
+states `(p + 1) * (p + 1) = (p + 1) * (p + 1)` are definitionally equal: the
+`let` unfolds (zeta reduction) to the other statement. `lake comparator`
+still refuses the pair. It compares the stored terms with `Expr`'s `==`, and
+a `let` node is never equal to the term it would unfold to. The same holds
+for a definition's value, and for a `let` the Solution keeps and the
+Challenge unfolds. The contracts-only diagnostic names this case:
+
+```text
+  DIFFERS: comparator/config-let.json: Challenge and solution theorem statement do not match: 'audit_let'
+    breadcrumb: audit_let
+    first differing field: type at body: challenge let; solution app of Eq (3 args)
+    hint: the Challenge keeps a `let` in its type (at body) where the Solution has app of Eq (3 args): Lake compares the stored terms, not their unfolding, so a `let` one side keeps and the other unfolds never matches, however equal the two are definitionally; write the two the same way, for example by inlining the alias on the Challenge side (see docs/comparator.md#a-let-kept-on-one-side)
+```
+
+The fix is to write both sides the same way. Either inline the alias on the
+side that keeps it, or write the same `let` on the other side. Then rebuild
+and run the diagnostic again: it must report `match`. A proof that the two
+statements are equivalent (an `iff`, or `rfl` after unfolding) is good
+evidence that the edit changed nothing mathematically, but it does not
+change the verdict. Only the stored terms count.
+
+### Before receipt work
+
+The comparison is the cheapest check that can sink a gate, and the receipts
+are the most expensive work. So compare before any receipt is launched:
+
+```bash
+lake build <every challenge_module and solution_module of the configurations>
+lean-pkg comparator check NAME --contracts-only
+```
+
+It takes minutes, it covers every configuration at once, and it runs no
+kernel. Fix every `differs` and `error` it reports before you start
+`receipt systemd --run`, `receipt slurm` or a lab template's native and
+replay steps. Launched first, those spend hours on a source the comparator
+will refuse.
+
+`lean-pkg verify` already works in this order. Its first step is the
+comparator receipt, which builds and then compares, and only after it
+passes does verify start the lower-tier receipt. The recipe is for the
+other paths, where you or a scheduler launch the lower tier yourselves. A
+match here is still not acceptance: only `lake comparator` inside a gate
+judges ([above](#a-contracts-only-diagnostic)).
 
 ### Coverage at the gate-bound commit
 
