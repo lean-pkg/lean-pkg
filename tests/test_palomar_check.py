@@ -419,13 +419,14 @@ def git_dep(name: str, rev: str) -> dict:
 
 
 def with_dep(tmp_path: Path, dep_files: dict[str, str], file_map: dict | None = None, name: str = "dep",
-             drift: bool = False) -> tuple[Path, Path]:
+             drift: bool = False, manifest_name: str | None = None) -> tuple[Path, Path]:
     """The package pinning one git dependency NAME whose checkout (untracked, under .lake/packages) holds
-    DEP_FILES at the pinned rev (drift: one commit past it)."""
+    DEP_FILES at the pinned rev (drift: one commit past it). MANIFEST_NAME: the name as the manifest writes
+    it, when Lake escapes it (`«dep-x»` for the checkout dep-x)."""
     src = tmp_path / "dep-src"
     rev = dep_checkout(src, dep_files)
     fm = dict(file_map or files())
-    fm["lake-manifest.json"] = manifest(git_dep(name, rev))
+    fm["lake-manifest.json"] = manifest(git_dep(manifest_name or name, rev))
     fm[".gitignore"] = "/.lake\n"
     repo, reg = make_pkg(tmp_path, fm)
     dest = repo / ".lake" / "packages" / name
@@ -440,6 +441,25 @@ def with_dep(tmp_path: Path, dep_files: dict[str, str], file_map: dict | None = 
 
 def shadow_clause(data: dict) -> bool:
     return any("shadowed by a dependency" in x for x in data["not_checked"])
+
+
+def test_a_quoted_manifest_name_is_read_from_lakes_directory(lp, tmp_path, capsys):
+    # Lake writes `«dep-x»` in the manifest and checks it out as .lake/packages/dep-x (#406)
+    _repo, reg = with_dep(tmp_path, {"Challenge.lean": "module\n", "Dep.lean": "module\n"}, name="dep-x",
+                          manifest_name="«dep-x»")
+    rc, data = run(lp, reg, capsys)
+    g = codes(data)["challenge.module_root_shadowed"]
+    assert rc == 1 and g["severity"] == "error"
+    assert "'dep-x'" in g["detail"] and ".lake/packages/dep-x" in g["detail"] and "«" not in g["detail"]
+    assert not shadow_clause(data)                     # the quoted dependency was read
+
+
+def test_a_manifest_name_lake_would_not_write_is_not_read(lp, tmp_path, capsys):
+    _repo, reg = with_dep(tmp_path, {"Challenge.lean": "module\n"}, name="dep", manifest_name="«dep")
+    rc, data = run(lp, reg, capsys)
+    assert "challenge.module_root_shadowed" not in codes(data)
+    (clause,) = [x for x in data["not_checked"] if "shadowed by a dependency" in x]
+    assert "«dep: not a Lake package name" in clause
 
 
 def test_dependency_challenge_root_shadows_the_challenge(lp, tmp_path, capsys):

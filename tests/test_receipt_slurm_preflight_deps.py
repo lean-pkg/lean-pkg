@@ -307,3 +307,30 @@ def test_hard_links_read_as_their_target(lp, env, pkg, tmp_path, capsys):
     assert code == 1
     assert [m["module"] for m in out["missing"]] == ["Batteries.Logic"]     # followed through the link
     assert any("Dangling.lean: a hard link to a member that is not a regular file" in p for p in out["problems"])
+
+
+def _pins_of(tmp_path, packages):
+    repo = make_repo(tmp_path / "m", extra_files={"lake-manifest.json": json.dumps(
+        {"version": "1.2.0", "packages": packages, "name": "p", "lakeDir": ".lake"})})
+    problems: list[str] = []
+    names, pins = dc.manifest_pins(repo, repo_head(repo), problems)
+    return names, pins, problems
+
+
+def test_manifest_names_are_lakes_directory_names(tmp_path):
+    # Lake writes `«dep-x»` in the manifest and restores it to .lake/packages/dep-x (#406)
+    names, pins, problems = _pins_of(tmp_path, [
+        {"type": "git", "name": "«dep-x»", "rev": "a" * 40, "url": "u"},
+        {"type": "git", "name": "mathlib", "rev": "b" * 40, "url": "u"}])
+    assert problems == [] and names == ["dep-x", "mathlib"] and pins["dep-x"] == "a" * 40
+
+
+@pytest.mark.parametrize("packages,needle", [
+    ([{"type": "git", "name": "dep", "rev": "a" * 40}, {"type": "git", "name": "«dep»", "rev": "a" * 40}],
+     "package dep is listed twice"),
+    ([{"type": "git", "name": "«dep", "rev": "a" * 40}], "package name '«dep' is not a Lake package name"),
+    ([{"type": "git", "name": "«../x»", "rev": "a" * 40}], "package name '«../x»' is not a Lake package name"),
+])
+def test_manifest_names_lake_would_not_write_or_duplicates_are_problems(tmp_path, packages, needle):
+    names, _pins, problems = _pins_of(tmp_path, packages)
+    assert any(needle in p for p in problems), problems

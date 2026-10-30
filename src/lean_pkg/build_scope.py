@@ -81,6 +81,38 @@ def name_parts(value) -> list[tuple[str, ...]] | None:
     return out
 
 
+def lake_dir_name(value) -> str | None:
+    """A lake-manifest.json package `name` as Lake's directory name for it, or None when it is not a Lake
+    name. Lake writes the name with Lean's `ToJson Name` (`toString`, escaped: `«dep-with-hyphens»`) and
+    checks the package out under `name.toString (escape := false)` (Lake/Load/Materialize.lean, `dirName`):
+    each component without its «», the components joined by ".". A component is either «...» (no » inside)
+    or a nonempty run without ".", "«" or "»"; anything else (an unterminated «, a stray », an empty
+    component) is not decoded."""
+    if not isinstance(value, str) or not value:
+        return None
+    parts, i, n = [], 0, len(value)
+    while True:
+        if i < n and value[i] == "«":
+            j = value.find("»", i + 1)
+            if j < 0 or j == i + 1:
+                return None
+            parts.append(value[i + 1:j])
+            i = j + 1
+        else:
+            j = i
+            while j < n and value[j] not in ".«»":
+                j += 1
+            if j == i:
+                return None
+            parts.append(value[i:j])
+            i = j
+        if i == n:
+            return ".".join(parts)
+        if value[i] != ".":
+            return None
+        i += 1
+
+
 def glob_parts(value) -> list[tuple[str, ...]] | None:
     """`Foo`, `Foo.*`, `Foo.+` as module-name prefixes (every glob kind is read as a prefix: a superset)."""
     if not isinstance(value, str):

@@ -27,6 +27,7 @@ import re
 import tarfile
 from collections import deque
 
+from . import build_scope
 from . import core
 
 TOOLCHAIN_ROOTS = ("Init", "Std", "Lean", "Lake")
@@ -330,7 +331,14 @@ def manifest_pins(repo: pathlib.Path, commit: str, problems: list[str]) -> tuple
         if not isinstance(p, dict) or not p.get("name"):
             problems.append("lake-manifest.json: a package entry without a name")
             continue
-        name = str(p["name"])
+        # Lake's directory name for the escaped manifest name (`«dep-x»` is checked out as dep-x)
+        name = build_scope.lake_dir_name(str(p["name"]))
+        if name is None or "/" in name or "\\" in name or name in (".", ".."):
+            problems.append(f"lake-manifest.json: package name {str(p['name'])!r} is not a Lake package name")
+            continue
+        if name in pins:
+            problems.append(f"lake-manifest.json: package {name} is listed twice")
+            continue
         if p.get("type", "git") != "git":
             problems.append(f"manifest package {name}: type {p.get('type')!r} is not restored from a "
                             f"DEPS_TAR (only .lake/packages is), so its modules cannot be checked")

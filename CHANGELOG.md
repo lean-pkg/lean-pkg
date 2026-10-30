@@ -25,6 +25,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `solution.module_root_generic`; when every dependency was read,
   `not_checked` drops the shadowing clause.
 
+### Fixed
+
+- A `lake-manifest.json` package name that Lake writes escaped
+  (`«dep-with-hyphens»`, Lean's `ToJson Name`) is read as the directory Lake
+  checks it out under (`.lake/packages/dep-with-hyphens`, Lake's
+  `name.toString (escape := false)`) (#407; #406). `comparator check
+  --contracts-only` and the duplicate-constant probe, `palomar check`'s
+  dependency scan, `receipt slurm`'s dependency closure and `exercise
+  --project` looked for `.lake/packages/«dep-with-hyphens»` and called the
+  dependency not checked out. Two entries that decode to the same package,
+  and a name Lake would not write or one that decodes to a path, are refused.
+
 ## [0.23.0] - 2026-10-29
 
 ### Added

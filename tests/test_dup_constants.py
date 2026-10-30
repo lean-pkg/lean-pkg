@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from lean_pkg import build_scope
 from lean_pkg import cli
 from lean_pkg import comparator_receipt as cr
 from lean_pkg import dup_constants as dc
@@ -287,7 +288,8 @@ def test_manifest_resolves_path_and_subdir_packages(tmp_path):
     ({"type": "path", "name": "X"}, "has no dir"),
     ({"type": "git", "name": "Sub", "subDir": "../../../elsewhere"}, "leaves"),
     ({"type": "git", "name": "Sub", "subDir": 3}, "not a string"),
-    ({"type": "git", "name": "../Sub"}, "leaves"),
+    ({"type": "git", "name": "../Sub"}, "is not a Lake package name"),     # not a name Lake writes (#406)
+    ({"type": "git", "name": "«../Sub»"}, "is not a Lake package name"),   # decodes to a path: refused
     ({"type": "hg", "name": "X"}, "only git and path"),
     ({"type": "path", "name": "Nope", "dir": "vendor/Nope"}, "not checked out"),
 ])
@@ -318,6 +320,60 @@ def test_manifest_refuses_an_escaping_packages_dir(tmp_path):
     _manifest(tmp_path, [], packages_dir="../shared-packages")
     with pytest.raises(dc.ProbeError, match="packagesDir"):
         dc.manifest_packages(tmp_path)
+
+
+# Lake writes a package name escaped (`«dep-with-hyphens»`, Lean's ToJson Name) and checks it out under the
+# unescaped name (Lake/Load/Materialize.lean, dirName := name.toString (escape := false)) (#406)
+
+@pytest.mark.parametrize("value,want", [
+    ("mathlib", "mathlib"), ("plain.name", "plain.name"), ("«dep-with-hyphens»", "dep-with-hyphens"),
+    ("foo.«bar-baz»", "foo.bar-baz"), ("«a.b»", "a.b"), ("«x».y", "x.y"),
+    ("«x", None), ("a»", None), ("a«b»", None), ("«»", None), ("a..b", None), (".a", None), ("a.", None),
+    ("", None), (None, None), (3, None),
+])
+def test_lake_dir_name_is_lakes_unescaped_name(value, want):
+    assert build_scope.lake_dir_name(value) == want
+
+
+def test_manifest_resolves_a_quoted_name_to_lakes_directory(tmp_path):
+    (tmp_path / ".lake/packages/dep-with-hyphens").mkdir(parents=True)
+    (tmp_path / ".lake/packages/foo.bar-baz").mkdir(parents=True)
+    (tmp_path / ".lake/packages/plain").mkdir(parents=True)
+    _manifest(tmp_path, [{"type": "git", "name": "«dep-with-hyphens»", "url": "u", "rev": "r"},
+                         {"type": "git", "name": "foo.«bar-baz»", "url": "u", "rev": "r"},
+                         {"type": "git", "name": "plain", "url": "u", "rev": "r"}])
+    assert dc.manifest_packages(tmp_path) == {
+        "dep-with-hyphens": tmp_path / ".lake/packages/dep-with-hyphens" / dc.PKG_LIB,
+        "foo.bar-baz": tmp_path / ".lake/packages/foo.bar-baz" / dc.PKG_LIB,
+        "plain": tmp_path / ".lake/packages/plain" / dc.PKG_LIB}
+
+
+def test_manifest_refuses_a_plain_and_a_quoted_entry_for_one_package(tmp_path):
+    (tmp_path / ".lake/packages/dep").mkdir(parents=True)
+    _manifest(tmp_path, [{"type": "git", "name": "dep", "url": "u", "rev": "r"},
+                         {"type": "git", "name": "«dep»", "url": "u", "rev": "r"}])
+    with pytest.raises(dc.ProbeError, match="package dep is listed twice"):
+        dc.manifest_packages(tmp_path)
+
+
+@pytest.mark.parametrize("name", ["«dep", "dep»", "a«b»", "«»", "a..b", "«a/b»", "«..»", "«.»"])
+def test_manifest_refuses_a_name_lake_would_not_write(tmp_path, name):
+    (tmp_path / ".lake/packages/dep").mkdir(parents=True)
+    (tmp_path / ".lake/packages/a/b").mkdir(parents=True)
+    _manifest(tmp_path, [{"type": "git", "name": name, "url": "u", "rev": "r"}])
+    with pytest.raises(dc.ProbeError, match="is not a Lake package name"):
+        dc.manifest_packages(tmp_path)
+
+
+def test_manifest_keeps_the_symlink_guard_for_a_quoted_name(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    proj = tmp_path / "proj"
+    (proj / ".lake/packages").mkdir(parents=True)
+    (proj / ".lake/packages/dep-x").symlink_to(outside)
+    _manifest(proj, [{"type": "git", "name": "«dep-x»", "url": "u", "rev": "r"}])
+    with pytest.raises(dc.ProbeError, match="symlink"):
+        dc.manifest_packages(proj)
 
 
 def test_an_escaping_path_package_refuses_the_whole_run(tmp_path, capsys):
