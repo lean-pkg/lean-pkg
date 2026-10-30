@@ -50,6 +50,7 @@ NEVER = ("never acceptance: no kernel ran and nothing was written (no receipt, n
          "the checkout); only `lake comparator` in a gate judges")
 DOCS = "docs/comparator.md#a-contracts-only-diagnostic"
 PRIVATE_DOCS = "docs/comparator.md#private-helpers-and-copied-references"
+LET_DOCS = "docs/comparator.md#a-let-kept-on-one-side"
 
 # Lake v4.35.0 `Lake.CLI.Check.primitiveTargets` (also in scripts/ContractsOnly.lean; the test compares
 # both with the toolchain's source when it is installed).
@@ -144,6 +145,16 @@ def private_module(desc: str) -> tuple[str, str] | None:
 def hint(entry: dict) -> str | None:
     """A reading aid for a failing configuration; never part of the verdict."""
     f = entry.get("first_field") or {}
+    # a `let` on one side only (ContractsOnly.lean's descriptor of an Expr.letE node is "let"): definitionally
+    # equal after unfolding it, but Lake compares the stored terms with Expr's ==, so it never matches
+    lets = [side for side in ("challenge", "solution") if str(f.get(side, "")) == "let"]
+    if f.get("field") in ("type", "value") and len(lets) == 1:
+        side, other = lets[0], ("solution" if lets[0] == "challenge" else "challenge")
+        at = ".".join(str(x) for x in f.get("path") or []) or "its root"
+        return (f"the {side.capitalize()} keeps a `let` in its {f['field']} (at {at}) where the {other.capitalize()} "
+                f"has {f.get(other)}: Lake compares the stored terms, not their unfolding, so a `let` one side keeps "
+                f"and the other unfolds never matches, however equal the two are definitionally; write the two the "
+                f"same way, for example by inlining the alias on the {side.capitalize()} side (see {LET_DOCS})")
     a, b = private_module(str(f.get("challenge", ""))), private_module(str(f.get("solution", "")))
     if a and b and a[1] == b[1] and a[0] != b[0]:
         return (f"the same private name {a[1]} is owned by module {a[0]} on the Challenge side and {b[0]} on the "

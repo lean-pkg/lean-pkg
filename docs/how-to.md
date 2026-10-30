@@ -202,6 +202,13 @@ steps by hand, for a cluster, CI or a custom check
 
 ## Produce the lower-tier receipt
 
+Before you launch it, compare: `lake build` the configured Challenge and
+Solution modules, then run `lean-pkg comparator check NAME --contracts-only`.
+That takes minutes for every configuration at once, while a lower-tier run
+on a source the comparator will refuse takes hours
+([Before receipt work](comparator.md#before-receipt-work)). `verify` already
+compares first.
+
 Any executor works: a Slurm job, a CI run, a workstation. The receipt must
 bind the commit, the toolchain, the Mathlib rev, `sorry_count` (must be 0),
 the axioms, the SHA-256 of a frozen report, and the executor's job identity.
