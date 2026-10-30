@@ -51,6 +51,7 @@ NEVER = ("never acceptance: no kernel ran and nothing was written (no receipt, n
 DOCS = "docs/comparator.md#a-contracts-only-diagnostic"
 PRIVATE_DOCS = "docs/comparator.md#private-helpers-and-copied-references"
 LET_DOCS = "docs/comparator.md#a-let-kept-on-one-side"
+PREFLIGHT_DOCS = "docs/comparator.md#before-receipt-work"
 
 # Lake v4.35.0 `Lake.CLI.Check.primitiveTargets` (also in scripts/ContractsOnly.lean; the test compares
 # both with the toolchain's source when it is installed).
@@ -349,3 +350,33 @@ def text_lines(name: str, res: dict) -> list[str]:
     out.append(f"  {res['note']}")
     out.append(summary_line(name, res))
     return out
+
+
+def preflight(repo) -> dict:
+    """`--contracts-preflight` of `receipt systemd --run` and `receipt slurm` (LO-20261030-04): the contracts-only
+    diagnostic of every comparator configuration of REPO, before any receipt work. {ok, refusals, checks, report}:
+    ok only when every configuration matches. A difference, an `error` (among them a configured module that is not
+    built: its detail names the `lake build` to run) and a diagnostic that cannot run all refuse. Never acceptance
+    (a match is not a pass) and nothing is written, as for `comparator check --contracts-only`."""
+    try:
+        res = run(pathlib.Path(repo))
+    except ContractsError as e:
+        why = str(e)
+        if why.startswith("bwrap is not installed"):
+            why = ("bwrap is not installed, and the preflight exports only in its sandbox; on this host run "
+                   "`lean-pkg comparator check NAME --contracts-only --no-sandbox` by hand instead")
+        return {"ok": False, "checks": [], "report": None,
+                "refusals": [f"--contracts-preflight: the contracts-only diagnostic could not run ({why}); "
+                             f"nothing was run"]}
+    bad = [e for e in res["configs"] if e["verdict"] != "match"]
+    n = len(res["configs"])
+    if not bad:
+        return {"ok": True, "refusals": [], "report": res,
+                "checks": [f"✓ contracts preflight: {n} comparator configuration(s) match (never acceptance: "
+                           f"only lake comparator in a gate judges)"]}
+    refusals = [f"--contracts-preflight: {e['config']}: {e['verdict']}: {e['detail']}"
+                + (f" (hint: {e['hint']})" if e.get("hint") else "") for e in bad]
+    refusals.append(f"--contracts-preflight: {len(bad)} of {n} comparator configuration(s) do not match; nothing "
+                    f"was run. Fix them first: `lean-pkg comparator check NAME --contracts-only` shows each "
+                    f"breadcrumb ({PREFLIGHT_DOCS})")
+    return {"ok": False, "checks": [], "report": res, "refusals": refusals}

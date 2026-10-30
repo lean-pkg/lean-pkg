@@ -1,8 +1,9 @@
 usage: lean-pkg receipt slurm [-h] [--job J] [--log PATH] [--receipt-commit SHA] [--template]
-                              [--check] [--preflight-deps] [--deps-tar PATH] [--deps-dir DIR]
-                              [--entries GLOB] [--fill-plan DONOR] [--plan-out FILE]
-                              [--base-list FILE] [--stdout PATH] [--stderr PATH] [--redact REGEX]
-                              [--sacct-file F] [--seal-sacct] [--user NAME] [--artifacts DIR]
+                              [--check] [--contracts-preflight] [--preflight-deps]
+                              [--deps-tar PATH] [--deps-dir DIR] [--entries GLOB]
+                              [--fill-plan DONOR] [--plan-out FILE] [--base-list FILE]
+                              [--stdout PATH] [--stderr PATH] [--redact REGEX] [--sacct-file F]
+                              [--seal-sacct] [--user NAME] [--artifacts DIR]
                               [--artifacts-manifest NAME] [--checker TEXT] [--repo DIR]
                               [--out PATH] [--compress-log] [--append-readme]
                               [--readme-heading TEXT] [--readme-line TEXT] [--tar-sha256 HEX]
@@ -21,6 +22,13 @@ options:
   --check               preflight the files of a finished (trial) job: every seal, stderr and log-
                         line check, each problem named; no sacct (unless --sacct-file), commit
                         checks only with --receipt-commit; writes nothing, exit 0/1
+  --contracts-preflight
+                        before submitting: run the contracts-only diagnostic (`comparator check
+                        --contracts-only`) on every comparator configuration of --repo (default
+                        the current directory), whose modules must be built here; a configuration
+                        that differs, one whose modules are not built, or a diagnostic that cannot
+                        run refuses; writes nothing, exit 0/1 (docs/comparator.md, Before receipt
+                        work)
   --preflight-deps      before submitting: check that the staged dependency cache (--deps-tar or
                         --deps-dir) holds, at the lake-manifest.json pins committed at --commit
                         (default HEAD), the built .olean and .ilean of every external module in

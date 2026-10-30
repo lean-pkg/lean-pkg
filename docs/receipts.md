@@ -390,6 +390,10 @@ the CPUs and the cgroup memory limit, and says which comparator routes
 (judge, prepare, transfer) the host supports. See
 [Planning routes before sbatch](comparator.md#planning-routes-before-sbatch).
 Check a dependency tarball with `receipt slurm --preflight-deps` (below).
+Run `receipt slurm --contracts-preflight` on a checkout where the
+configured Challenge and Solution modules are built: it compares every
+comparator configuration before the job is submitted
+([Before receipt work](comparator.md#before-receipt-work)).
 
 ### Cheap checks first: gate order
 
@@ -413,7 +417,11 @@ Run the checks in order of cost, and stop at the first failure:
    after a transport.
 4. **The preflights**: the [run tools](#run-tools-preflight-the-projects-own-executables)
    list, `comparator host-check --routes` ([Before sbatch](#before-sbatch)),
-   and `receipt slurm --preflight-deps` for the dependency artifacts.
+   `receipt slurm --preflight-deps` for the dependency artifacts, and the
+   statement comparison of every comparator configuration
+   (`comparator check NAME --contracts-only`, or `--contracts-preflight` on
+   `receipt systemd --run` and `receipt slurm`;
+   [Before receipt work](comparator.md#before-receipt-work)).
 5. **Only then** the expensive steps: the build, the hashing, the unit or
    job, the full replay, the comparator.
 
@@ -432,6 +440,25 @@ what the receipt reads, and a pre-check that prints into them changes that
 contract. A policy that must be part of the evidence goes into the log
 between the existing lines, with the script and its hash named in the
 README entry. A policy that only saves time stays outside.
+
+### Receipt order: the comparator receipt first
+
+Produce the comparator receipt before the lower-tier receipt, at the same
+commit. `comparator-receipt` refuses a checkout with any untracked file.
+That includes the sidecars a lower-tier receipt leaves untracked under
+`.lean-receipts/` (the receipt, its redacted log, `unit.properties`)
+until they are committed. `receipt systemd`
+and `receipt slurm` allow untracked files under `.lean-receipts/`. So the
+comparator-first order needs no commit between the two receipts, and both
+bind one commit, which the gate requires. `lean-pkg verify` runs them in
+this order.
+
+When the lower tier has already run (a native-first maintenance run, say),
+do not delete or commit its sidecars to get past the refusal. Committing
+them moves HEAD off the commit both receipts must bind. Make the comparator
+receipt in a separate clean checkout of the same commit (`git worktree add`
+or a fresh clone), then copy its receipt beside the others. The guard stays
+as it is: every file the comparator reads is bound to the commit.
 
 ### A compressed sealed log (`--compress-log`)
 
@@ -1750,6 +1777,22 @@ own, those look like a clean run. Two field reports lost a run this way.
   execution evidence as qualified or incomplete, never as passed. Checks
   that do not depend on the unit (the compile log, the binding of the
   source to the commit) still stand and can be kept.
+
+### Contracts preflight (`--contracts-preflight`)
+
+`receipt systemd --run --contracts-preflight` runs the contracts-only
+diagnostic (`comparator check NAME --contracts-only`) on every comparator
+configuration of the checkout before the unit is created. The run is
+refused when a configuration differs, when a configured module is not
+built (the refusal names the `lake build` to run), or when the diagnostic
+cannot run. Then nothing is run and nothing is written. When every
+configuration matches, it prints
+`✓ contracts preflight: N comparator configuration(s) match` and the run
+starts as usual. Nothing about the preflight goes into the receipt, and a
+match is never acceptance. `--json` carries `contracts_preflight`
+{ok, report}. `receipt slurm --contracts-preflight [--repo DIR]` is the same
+check as a mode of its own, run before the job is submitted (exit 0/1,
+nothing written). See [Before receipt work](comparator.md#before-receipt-work).
 
 ### Run tools: preflight the project's own executables
 

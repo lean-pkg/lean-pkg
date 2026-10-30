@@ -682,6 +682,8 @@ def cmd_receipt_systemd(args) -> int:
     tools = tool_names(args.require_tools)
     if tools and not run:
         raise core.UsageError("--require-tools is only for --run (it is checked before the unit is created)")
+    if getattr(args, "contracts_preflight", False) and not run:
+        raise core.UsageError("--contracts-preflight is only for --run (it compares before the unit is created)")
     paths = {}
     for flag, value in (("--log", args.log), ("--stdout", args.stdout), ("--stderr", args.stderr)):
         if value is None:
@@ -723,7 +725,16 @@ def cmd_receipt_systemd(args) -> int:
         else:
             checks.append(f"✓ run tools: {len(resolved)} resolved in the unit's PATH (type -P) before the unit "
                           f"was created: {', '.join(tools)}")
-    if run and missing_tools:
+    contracts_refused = False
+    if run and getattr(args, "contracts_preflight", False):
+        # Before the unit exists: every comparator configuration must match (LO-20261030-04)
+        from . import comparator_contracts as cc
+        pre = cc.preflight(repo)
+        json_extra["contracts_preflight"] = {"ok": pre["ok"], "report": pre["report"]}
+        refusals += pre["refusals"]
+        checks += pre["checks"]
+        contracts_refused = not pre["ok"]
+    if run and (missing_tools or contracts_refused):
         text = None
     elif run:
         try:
@@ -864,6 +875,11 @@ def add_parser(rsub) -> None:
                           "with `type -P` in the unit's PATH before the unit is created; a missing one refuses "
                           "and nothing is run. The resolved paths and SHA-256 are printed (stderr) and in --json "
                           "run_tools")
+    src.add_argument("--contracts-preflight", action="store_true",
+                     help="--run: before the unit is created, run the contracts-only diagnostic (`comparator check "
+                          "--contracts-only`) on every comparator configuration of the checkout; a configuration "
+                          "that differs, one whose modules are not built, or a diagnostic that cannot run refuses, "
+                          "and nothing is run or written (docs/comparator.md, Before receipt work)")
     src.add_argument("--properties-out", default=None, metavar="PATH",
                      help="--run: where the captured properties go (default <log>.unit.properties)")
     s.add_argument("--redact", action="append", default=[], metavar="REGEX",
