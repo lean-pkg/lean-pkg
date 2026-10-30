@@ -30,7 +30,7 @@ changes:
   - pr: 407
     id: lake-manifest-quoted-package-names
     kind: behavior
-    area: comparator check, palomar check, receipt slurm, exercise
+    area: comparator check, palomar check, receipt slurm, lean-exercise
     summary: >-
       #406: a lake-manifest.json package name that Lake writes escaped (for example «dep-with-hyphens», from
       Lean's ToJson Name) is now read as the directory Lake checks it out under (.lake/packages/dep-with-hyphens,
