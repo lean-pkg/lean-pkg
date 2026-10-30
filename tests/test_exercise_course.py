@@ -149,6 +149,30 @@ def project(root: pathlib.Path, toolchain="leanprover/lean4:v4.35.0-rc2", mathli
     return p
 
 
+def _with_dep(p: pathlib.Path, manifest_name: str, dir_name: str) -> None:
+    man = json.loads((p / "lake-manifest.json").read_text())
+    man["packages"].append({"name": manifest_name, "type": "git", "url": "u", "rev": "c" * 40, "inputRev": "main",
+                            "inherited": False, "scope": ""})
+    (p / "lake-manifest.json").write_text(json.dumps(man))
+    (p / ".lake" / "packages" / dir_name / ".lake" / "build" / "lib" / "lean").mkdir(parents=True)
+
+
+def test_a_quoted_dependency_name_is_lakes_directory(tmp_path):
+    # Lake writes `«dep-x»` in the manifest and checks it out as .lake/packages/dep-x (#406)
+    p = project(tmp_path)
+    _with_dep(p, "«dep-x»", "dep-x")
+    got = ex.load_project(str(p))
+    assert (p / ".lake" / "packages" / "dep-x" / ".lake" / "build" / "lib" / "lean").resolve() in got["lean_path"]
+
+
+@pytest.mark.parametrize("name", ["«dep-x", "«a/b»", "«..»"])
+def test_a_dependency_name_lake_would_not_write_is_refused(tmp_path, name):
+    p = project(tmp_path)
+    _with_dep(p, name, "dep-x")
+    with pytest.raises(ex.Refusal, match="is not a Lake package name"):
+        ex.load_project(str(p))
+
+
 MATHLIB_CHALLENGE = "import Mathlib.Data.Real.Basic\ntheorem t (x : ℝ) : x + 0 = x := by sorry\n"
 MATHLIB_SOLUTION = "import Mathlib.Data.Real.Basic\ntheorem t (x : ℝ) : x + 0 = x := add_zero x\n"
 

@@ -25,6 +25,7 @@ import sys
 import tempfile
 import time
 
+from . import build_scope
 from . import comparator_receipt as cr
 from . import exercise_forbid as fb
 from . import lean_scan
@@ -278,9 +279,12 @@ def load_project(path: str) -> dict:
         if x.get("type") != "git":
             raise Refusal(f"--project {path}: dependency {x['name']} is a {x.get('type')} dependency; only "
                           f"git dependencies (as Mathlib's are) are supported")
-        d = real / x["name"]
+        dname = build_scope.lake_dir_name(x.get("name"))
+        if dname is None or "/" in dname or "\\" in dname or dname in (".", ".."):
+            raise Refusal(f"--project {path}: dependency name {x.get('name')!r} is not a Lake package name")
+        d = real / dname
         if not d.is_dir():
-            raise Refusal(f"--project {path}: dependency {x['name']} is not checked out; {hint}")
+            raise Refusal(f"--project {path}: dependency {dname} is not checked out; {hint}")
         rd = d.resolve()
         if not rd.is_relative_to(real):
             binds.append(rd)

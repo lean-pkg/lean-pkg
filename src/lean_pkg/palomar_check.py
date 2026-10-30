@@ -38,6 +38,7 @@ import posixpath
 import re
 import subprocess
 
+from . import build_scope
 from . import gate as gate_mod
 from . import core
 from . import lean_scan
@@ -518,6 +519,12 @@ def dependency_scan(tree: Tree) -> dict:
         if not isinstance(name, str) or not name:
             notes.append("a package entry without a name")
             continue
+        # Lake's directory name for the escaped manifest name (`«dep-x»` is checked out as dep-x)
+        dname = build_scope.lake_dir_name(name)
+        if dname is None or "/" in dname or "\\" in dname or dname in (".", ".."):
+            notes.append(f"{name}: not a Lake package name")
+            continue
+        name = dname
         if p.get("type") == "path":
             d = posixpath.normpath(posixpath.join(tree.prefix or ".", str(p.get("dir") or "")))
             if d.startswith(("/", "..")) or d == ".":

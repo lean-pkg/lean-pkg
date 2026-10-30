@@ -123,8 +123,10 @@ def _inside(base: pathlib.Path, rel: str, what: str) -> pathlib.Path:
 def manifest_packages(project: pathlib.Path) -> dict[str, pathlib.Path]:
     """{name: its .lake/build/lib/lean} for every package of the project's lake-manifest.json, read as data
     (no lakefile is run): a `git` package at <packagesDir>/<name>[/<subDir>], a `path` package at its
-    `dir`, relative to the manifest's directory. A dir or subDir that is absolute, leaves its base or goes
-    through a symlink is refused, as is a package that is not checked out."""
+    `dir`, relative to the manifest's directory. The name is Lake's unescaped one (`«dep-x»` is checked out
+    as `dep-x`, build_scope.lake_dir_name); two entries that decode to the same name, a name that does not
+    decode, and a dir or subDir that is absolute, leaves its base or goes through a symlink are refused, as
+    is a package that is not checked out."""
     man = project / "lake-manifest.json"
     if not man.is_file():
         return {}
@@ -140,7 +142,9 @@ def manifest_packages(project: pathlib.Path) -> dict[str, pathlib.Path]:
     for x in pkgs:
         if not isinstance(x, dict) or not isinstance(x.get("name"), str) or not x["name"]:
             raise ProbeError(f"{man}: a package entry without a name")
-        name, kind = x["name"], x.get("type")
+        name, kind = build_scope.lake_dir_name(x["name"]), x.get("type")
+        if name is None or "/" in name or "\\" in name or name in (".", ".."):
+            raise ProbeError(f"{man}: package name {x['name']!r} is not a Lake package name")
         if name in out:
             raise ProbeError(f"{man}: package {name} is listed twice")
         if kind == "path":
