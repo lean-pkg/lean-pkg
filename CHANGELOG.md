@@ -52,6 +52,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   contracts-only diagnostic before launching `receipt systemd` or `receipt
   slurm`); docs/how-to.md and the two receipt command pages point to it.
 
+- `page --write` no longer writes `lean-pkg-binding.yaml` (#410;
+  LO-20261030-05). On a gated package whose docs-only opt-in is only in the
+  registry record, it used to write the file into the working tree. The
+  file is a build input: added after the gated commit it unbinds the current
+  receipts, so it never belongs in the documentation commit, and a renderer
+  client could miss the side effect. `page --write` now prints the move as
+  deferred advice (run `lean-pkg update NAME --write-binding-file` and commit
+  the file on its own right before the next verify run). `--json` gains
+  `outputs[]` (the files of this documentation commit) and `deferred[]` (the
+  migration), and `binding_file` keeps its keys with `state: deferred`.
+  `page --write --write-binding-file` writes the file as before. The
+  registry-route step and its `WARN: deprecated` line are unchanged.
+
 ### Fixed
 
 - A `lake-manifest.json` package name that Lake writes escaped

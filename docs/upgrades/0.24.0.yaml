@@ -76,3 +76,22 @@ changes:
       --contracts-preflight to receipt systemd --run, or run receipt slurm --contracts-preflight before sbatch.
     breaking: false
     changelog: Added
+  - pr: 410
+    id: page-write-defers-binding-file
+    kind: behavior
+    area: page
+    summary: >-
+      LO-20261030-05: page --write on a gated package whose docs-only opt-in is only in the registry record no longer
+      writes lean-pkg-binding.yaml into the working tree. The file is a build input: added after the gated commit it
+      unbinds the current receipts until the next verify run, so it never belongs in the documentation commit, and a
+      renderer client could miss the side effect. page --write prints the move as deferred advice (run lean-pkg
+      update NAME --write-binding-file and commit the file on its own right before the next verify run); --json gains
+      outputs[] (the files of this documentation commit) and deferred[] (the migration {id, path, state, written,
+      command, when, advice}), and binding_file keeps its keys with state deferred. page --write --write-binding-file
+      writes the file as before. The registry route step (and its WARN) is unchanged.
+    action: >-
+      Nothing for a package author. A script that expects page --write to leave lean-pkg-binding.yaml in the working
+      tree passes --write-binding-file, or runs lean-pkg update NAME --write-binding-file right before the next
+      verify run; one that reads binding_file.written sees false with state deferred.
+    breaking: false
+    changelog: Changed

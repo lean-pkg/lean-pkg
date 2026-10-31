@@ -2342,7 +2342,8 @@ and `removal_rule`) appear:
 - in `update NAME --accept-docs-descendants` (`--no-accept-docs-descendants`,
   the veto, is not deprecated);
 - in `page --write`, which keeps the record's opt-in for a package without
-  the file at its gated commit and writes the file into the working tree
+  the file at its gated commit and prints the move to the file as deferred
+  advice (`deferred[]`); it writes the file only with `--write-binding-file`
   ([page](page.md)).
 
 A package with the file at X, or with neither, prints none of them. The

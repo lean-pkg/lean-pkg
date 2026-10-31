@@ -1677,6 +1677,14 @@ def cmd_page(args) -> int:
                                            trusted_root=getattr(args, "trusted_root", None))
     for w in warnings:
         print(f"lean-pkg: warning: {w}", file=core.sys.stderr)
+    if getattr(args, "write_binding_file", False) and not args.write:
+        raise core.UsageError("--write-binding-file goes with --write (it writes lean-pkg-binding.yaml beside the "
+                              "README; on its own use `lean-pkg update NAME --write-binding-file`)")
+    if (args.write or args.site or args.html or args.out) and not args.check:
+        # the files this run wrote for the documentation commit (README.md relative to the package directory);
+        # deferred[] (below) is never part of it (LO-20261030-05)
+        first = [payload["out"]] if payload.get("out") else [payload["readme"]] if args.write and payload.get("written") else []
+        payload["outputs"] = first + [f["path"] for f in payload.get("site_files") or [] if f.get("status") == "written"]
     if args.write and payload.get("written") and rc == 0:
         lines += docs_only_opt_in(args, reg, payload)
     if getattr(args, "json_out", False):
@@ -1694,9 +1702,13 @@ def docs_only_opt_in(args, reg: dict, payload: dict) -> list[str]:
     lean-pkg-binding.yaml at X decides when it is there (proposal 0002): nothing is done. Without it, the
     registry route (deprecated) keeps the receipts bound: when the record says nothing either way it is turned
     on through `lean-pkg update NAME --accept-docs-descendants --reason R`, its own invocation (its lock,
-    committed mode, `updated` event and deprecation WARN); a record `false` (the veto) is left alone. Then the
-    file is written into the working tree (never staged, never over an existing path) for the next verify
-    run, with the commit advice, and the payload carries the deprecation."""
+    committed mode, `updated` event and deprecation WARN); a record `false` (the veto) is left alone. The
+    payload carries the deprecation.
+
+    The file itself is a build input, committed on its own right before the next verify run, never with the
+    README (LO-20261030-05). So it is not written here unless asked (`--write-binding-file`, into the working
+    tree, never staged, never over an existing path): by default the migration is printed as deferred advice.
+    `deferred[]` holds it either way, apart from `outputs[]`, the files of this documentation commit."""
     from . import binding_file
     from . import verify as verify_mod
     pkg = core.get_pkg(reg, args.name)
@@ -1735,10 +1747,21 @@ def docs_only_opt_in(args, reg: dict, payload: dict) -> list[str]:
         print(binding_file.deprecation_line(dep), file=core.sys.stderr)
     payload["deprecations"] = [dep]
     globs = [g for g in (pkg.get("build_inputs") or []) if isinstance(g, str) and g.strip()]
-    state, problem = binding_file.write_into(repo, binding_file.render(True, globs))
     path = repo / binding_file.FILE
-    payload["binding_file"] = {"path": str(path), "state": state, "written": state == "written"}
+    command = f"lean-pkg update {args.name} --write-binding-file"
     advice = binding_file.commit_advice(c12)
+    if not getattr(args, "write_binding_file", False):
+        payload["binding_file"] = {"path": str(path), "state": "deferred", "written": False}
+        payload["deferred"] = [{"id": "binding-file", "path": str(path), "state": "deferred", "written": False,
+                                "command": command, "when": "right before the next verify run", "advice": advice}]
+        lines.append(f"{args.name}: deferred (not part of this documentation commit): {binding_file.FILE}, the "
+                     f"committed opt-in that replaces the deprecated registry route, is a build input. Right before "
+                     f"the next verify run, run `{command}` and {advice}")
+        return lines
+    state, problem = binding_file.write_into(repo, binding_file.render(True, globs))
+    payload["binding_file"] = {"path": str(path), "state": state, "written": state == "written"}
+    payload["deferred"] = [{"id": "binding-file", "path": str(path), "state": state, "written": state == "written",
+                            "command": command, "when": "right before the next verify run", "advice": advice}]
     if state == "written":
         lines.append(f"{args.name}: wrote {path} (docs_descendants: true"
                      + (f", build_inputs: {', '.join(globs)}" if globs else "")
@@ -1759,8 +1782,12 @@ def add_parsers(sub, add_json) -> None:
                         "the markers is untouched. For a gated package without lean-pkg-binding.yaml at the "
                         "gated commit it then keeps the receipts bound through the deprecated registry route "
                         "(when the record says nothing: `update NAME --accept-docs-descendants`, its own registry "
-                        "write; a record false is left alone), with a WARN, and writes lean-pkg-binding.yaml into "
-                        "the working tree (never staged or overwritten) to commit before the next verify run")
+                        "write; a record false is left alone), with a WARN, and prints the move to "
+                        "lean-pkg-binding.yaml as deferred advice (--json deferred[]): the file is a build input, "
+                        "committed on its own right before the next verify run")
+    s.add_argument("--write-binding-file", action="store_true",
+                   help="with --write: also write that lean-pkg-binding.yaml into the working tree (never staged or "
+                        "overwritten); commit it on its own right before the next verify run, never with README.md")
     s.add_argument("--check", action="store_true",
                    help="exit 1 when the README block is missing or stale, the lean-pkg credit is missing, or a "
                         "site sentence has no backing receipt (or, for GitHub Actions, no corroborated run: "
