@@ -4,8 +4,9 @@
 - `update NAME --write-binding-file` writes lean-pkg-binding.yaml from the record, and every refusal leaves the
   path as it was;
 - `new` writes the file, `new --evidence-only` leaves it out;
-- `page --write` keeps the registry route (with the WARN) only when the gated commit has no file, and writes
-  the file into the working tree, never over an existing path;
+- `page --write` keeps the registry route (with the WARN) only when the gated commit has no file; it prints the
+  move to the file as deferred advice (`deferred[]`, apart from `outputs[]`) and writes the file only with
+  `--write-binding-file`, into the working tree, never over an existing path (LO-20261030-05);
 - `WARN: deprecated:` and `deprecations[]` appear when the registry route admitted HEAD (gate, gate --check,
   comparator), whenever the opt-in exists only in the record (publish), and for update
   --accept-docs-descendants; a package that uses neither route, or the file, sees none of it."""
@@ -310,11 +311,34 @@ def test_publish_says_nothing_without_the_registry_only_opt_in(lp, env, capsys, 
 
 # --- page --write ------------------------------------------------------------------------------------------
 
-def test_page_write_registry_only_warns_and_writes_the_file(lp, env, capsys):
+def test_page_write_registry_only_warns_and_defers_the_file(lp, env, capsys):
+    # LO-20261030-05: the file is a build input; the documentation commit must not pick it up
     from .test_page import prepare
     bound = prepare(env)                                                     # record true, no file at X
     before = env.registry.read_text()
     rc, out, err = run(lp, env, capsys, "--json", "page", "beta", "--write")
+    data = json.loads(out)
+    assert rc == 0 and err.count(WARN) == 1 and "exists only in the registry record" in err
+    assert data["deprecations"][0]["id"] == "registry-docs-descendants"
+    assert data["binding_file"] == {"path": str(env.repo_b / FILE), "state": "deferred", "written": False}
+    assert data["outputs"] == ["README.md"]
+    (d,) = data["deferred"]
+    assert d["id"] == "binding-file" and d["written"] is False and d["path"] == str(env.repo_b / FILE)
+    assert d["command"] == "lean-pkg update beta --write-binding-file" and d["when"] == "right before the next verify run"
+    assert f"after {bound[:12]} unbinds the current receipts" in d["advice"]
+    assert not (env.repo_b / FILE).exists() and FILE not in status_of(env.repo_b)
+    assert env.registry.read_text() == before
+    (env.repo_b / "README.md").write_text("changed\n")
+    rc, text, _err = run(lp, env, capsys, "page", "beta", "--write")
+    assert rc == 0 and "deferred (not part of this documentation commit): lean-pkg-binding.yaml" in text
+    assert "run `lean-pkg update beta --write-binding-file`" in text and not (env.repo_b / FILE).exists()
+
+
+def test_page_write_binding_file_on_request_writes_it(lp, env, capsys):
+    from .test_page import prepare
+    bound = prepare(env)                                                     # record true, no file at X
+    before = env.registry.read_text()
+    rc, out, err = run(lp, env, capsys, "--json", "page", "beta", "--write", "--write-binding-file")
     data = json.loads(out)
     assert rc == 0 and err.count(WARN) == 1 and "exists only in the registry record" in err
     assert data["deprecations"][0]["id"] == "registry-docs-descendants"
@@ -323,8 +347,9 @@ def test_page_write_registry_only_warns_and_writes_the_file(lp, env, capsys):
     assert problems == [] and doc["docs_descendants"] is True
     assert status_of(env.repo_b) == f"?? {FILE}"                              # never staged
     assert env.registry.read_text() == before                                # the record already said true
+    assert data["outputs"] == ["README.md"] and data["deferred"][0]["written"] is True   # written, commit apart
     (env.repo_b / "README.md").write_text("changed\n")
-    rc, text, _err = run(lp, env, capsys, "page", "beta", "--write")
+    rc, text, _err = run(lp, env, capsys, "page", "beta", "--write", "--write-binding-file")
     assert rc == 0 and "is already in the working tree (not overwritten)" in text
     assert f"after {bound[:12]} unbinds the current receipts" in text
 
@@ -336,7 +361,8 @@ def test_page_write_without_a_record_turns_it_on_and_warns_once(lp, env, capsys)
     reg["packages"]["beta"]["docs_descendants"] = None
     write_reg(env, reg)
     rc, out, err = run(lp, env, capsys, "page", "beta", "--write")
-    assert rc == 0 and "turned on the docs-only exception" in out and f"wrote {env.repo_b / FILE}" in out
+    assert rc == 0 and "turned on the docs-only exception" in out and "deferred (not part of this" in out
+    assert not (env.repo_b / FILE).exists()
     assert err.count(WARN) == 1                                              # the update's, not a second one
     assert read_reg(env)["packages"]["beta"]["docs_descendants"] is True
 
@@ -350,6 +376,7 @@ def test_page_write_leaves_the_veto_alone(lp, env, capsys):
     rc, out, err = run(lp, env, capsys, "--json", "page", "beta", "--write")
     data = json.loads(out)
     assert rc == 0 and "deprecations" not in data and "binding_file" not in data and WARN not in err
+    assert "deferred" not in data and data["outputs"] == ["README.md"]
     assert not (env.repo_b / FILE).exists()
 
 
@@ -364,6 +391,7 @@ def test_page_write_with_the_file_at_the_gated_commit_does_nothing_about_the_opt
     rc, out, err = run(lp, env, capsys, "--json", "page", "beta", "--write")
     data = json.loads(out)
     assert rc == 0 and "deprecations" not in data and "binding_file" not in data and "docs_descendants" not in data
+    assert "deferred" not in data
     assert WARN not in err and env.registry.read_text() == before and status_of(env.repo_b) == ""
 
 
@@ -371,10 +399,17 @@ def test_page_write_never_overwrites_a_working_tree_file(lp, env, capsys):
     from .test_page import prepare
     prepare(env)
     (env.repo_b / FILE).write_text("schema: lean-pkg-binding/1\ndocs_descendants: false\n")
-    rc, out, _err = run(lp, env, capsys, "--json", "page", "beta", "--write")
+    rc, out, _err = run(lp, env, capsys, "--json", "page", "beta", "--write", "--write-binding-file")
     data = json.loads(out)
     assert rc == 0 and data["binding_file"]["state"] == "refused" and data["binding_file"]["written"] is False
     assert (env.repo_b / FILE).read_text() == "schema: lean-pkg-binding/1\ndocs_descendants: false\n"
+
+
+def test_write_binding_file_needs_write(lp, env, capsys):
+    from .test_page import prepare
+    prepare(env)
+    rc, _out, err = run(lp, env, capsys, "page", "beta", "--write-binding-file")
+    assert rc == 2 and "--write-binding-file goes with --write" in err and not (env.repo_b / FILE).exists()
 
 
 # --- new ------------------------------------------------------------------------------------------------

@@ -250,13 +250,28 @@ X through the registry route, which is deprecated: when the record says
 nothing either way it sets `docs_descendants: true` (its own
 `update --accept-docs-descendants` invocation and `updated` event), a record
 `false` (the veto) is left alone, and it prints `WARN: deprecated: ...`
-(`--json`: `deprecations[]`). It then writes `lean-pkg-binding.yaml` into
-the working tree, never staged and never over an existing path (`--json`:
-`binding_file {path, state, written}`). Commit README.md without it
-(`git add README.md`, not `git add -A`): a file added after X unbinds the current
-receipts until the next verify run, so commit it in a commit of its own
-right before that run. With the file at X, `page --write` does none of
-this.
+(`--json`: `deprecations[]`).
+
+It does **not** write `lean-pkg-binding.yaml`. The file is a build input:
+added after X it unbinds the current receipts until the next verify run, so
+it never belongs in the documentation commit. `page --write` prints the move
+as deferred advice instead: right before the next verify run, run
+`lean-pkg update NAME --write-binding-file` and commit the file in a commit
+of its own. `--json` keeps the two apart:
+
+- `outputs[]`: the files this run wrote for the documentation commit
+  (`README.md`, relative to the package directory, and any `--site` or
+  `--html` files);
+- `deferred[]`: the migration, never part of that commit, with the keys
+  `id` (`binding-file`), `path`, `state`, `written`, `command`, `when` and
+  `advice`. `binding_file` `{path, state, written}` stays, with
+  `state: deferred` when nothing was written.
+
+`page --write --write-binding-file` also writes the file into the working
+tree, never staged and never over an existing path (`deferred[].written`
+true). Commit README.md without it (`git add README.md`, not `git add -A`)
+and the file on its own right before the next verify run. With the file at
+X, `page --write` does none of this.
 
 ## coverage.yaml
 

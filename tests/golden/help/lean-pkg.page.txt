@@ -1,6 +1,6 @@
-usage: lean-pkg page [-h] [--write] [--check] [--out PATH] [--site DIR] [--html PATH] [--repo DIR]
-                     [--strict-preview] [--corroborate] [--attested] [--trusted-root FILE]
-                     [--allow-private-manuscript] [--agent AGENT] [--json]
+usage: lean-pkg page [-h] [--write] [--write-binding-file] [--check] [--out PATH] [--site DIR]
+                     [--html PATH] [--repo DIR] [--strict-preview] [--corroborate] [--attested]
+                     [--trusted-root FILE] [--allow-private-manuscript] [--agent AGENT] [--json]
                      name
 
 positional arguments:
@@ -13,9 +13,12 @@ options:
                         pkg-binding.yaml at the gated commit it then keeps the receipts bound
                         through the deprecated registry route (when the record says nothing:
                         `update NAME --accept-docs-descendants`, its own registry write; a record
-                        false is left alone), with a WARN, and writes lean-pkg-binding.yaml into
-                        the working tree (never staged or overwritten) to commit before the next
-                        verify run
+                        false is left alone), with a WARN, and prints the move to lean-pkg-
+                        binding.yaml as deferred advice (--json deferred[]): the file is a build
+                        input, committed on its own right before the next verify run
+  --write-binding-file  with --write: also write that lean-pkg-binding.yaml into the working tree
+                        (never staged or overwritten); commit it on its own right before the next
+                        verify run, never with README.md
   --check               exit 1 when the README block is missing or stale, the lean-pkg credit is
                         missing, or a site sentence has no backing receipt (or, for GitHub
                         Actions, no corroborated run: --corroborate); with --site/--html also when
