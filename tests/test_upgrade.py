@@ -380,3 +380,63 @@ def test_on_this_repository_when_its_history_is_present(lp, capsys):
     if head_has_record:
         ids = {e["id"] for e in out["behavior"]}
         assert {"receipt-sealed-log-required", "receipt-producer-fingerprint", "comparator-host-label"} <= ids
+
+
+# help_surface: only argparse's option lines (exactly two spaces) are options; a wrapped help-text or command-list
+# line that begins with a `--flag` mention is not (a phantom `receipt slurm --contracts-only` in the 0.24.0 delta)
+
+class _HelpTree:
+    def __init__(self, files: dict[str, str]):
+        self._files = files
+
+    def files(self):
+        return sorted(self._files)
+
+    def read(self, rel):
+        return self._files.get(rel)
+
+
+def test_help_surface_counts_only_option_lines_at_two_spaces():
+    text = textwrap.dedent("""\
+        usage: lean-pkg receipt slurm [-h] [--contracts-preflight] [--real]
+
+        options:
+          -h, --help            show this help message and exit
+          --contracts-preflight
+                                before submitting: run the contracts-only diagnostic (`comparator check
+                                --contracts-only`) on every comparator configuration
+          --real                `SLURM_TIME_FORMAT=... sacct -j J
+                                --format=JobID,State -P`
+        """)
+    top = textwrap.dedent("""\
+        commands:
+          report         read-only: a redacted bug report; dry run unless
+                         --yes (files it with gh issue create)
+
+        options:
+          --registry PATH  the registry file
+        """)
+    got = up.help_surface(_HelpTree({"tests/golden/help/lean-pkg.receipt.slurm.txt": text,
+                                     "tests/golden/help/lean-pkg.txt": top}))
+    assert got == {"receipt slurm": ["--contracts-preflight", "--help", "--real"], "": ["--registry"]}
+
+
+def _parser_options(parser, path):
+    """The option strings of the (sub)command at `path` in lean-pkg's own parser."""
+    import argparse
+    p = parser
+    for word in path.split():
+        sub = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        p = sub.choices[word]
+    return {o for a in p._actions for o in a.option_strings if o.startswith("--")}
+
+
+def test_every_option_help_surface_reads_is_an_option_of_that_command():
+    from lean_pkg.cli_parser import build_parser
+    parser = build_parser()
+    help_dir = ROOT / "tests" / "golden" / "help"
+    files = {f"tests/golden/help/{p.name}": p.read_text() for p in help_dir.glob("lean-pkg*.txt")}
+    surface = up.help_surface(_HelpTree(files))
+    assert surface, "no help goldens read"
+    phantoms = {path: sorted(set(opts) - _parser_options(parser, path)) for path, opts in surface.items()}
+    assert {k: v for k, v in phantoms.items() if v} == {}

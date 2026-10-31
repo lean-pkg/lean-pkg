@@ -211,7 +211,9 @@ def help_surface(tree: Tree) -> dict[str, list[str]] | None:
         text = tree.read(f) or ""
         opts = set()
         for line in text.splitlines():
-            m = re.match(r"^\s{2,}(?:-\w, )?(--[a-z0-9][a-z0-9-]*)", line)
+            # argparse lists an option at exactly two spaces; a wrapped help or command-list line that happens to
+            # begin with a `--flag` mention (`--contracts-only`), `--format=...`) sits deeper and is no option
+            m = re.match(r"^ {2}(?:-\w, )?(--[a-z0-9][a-z0-9-]*)", line)
             if m:
                 opts.add(m.group(1))
         out[path] = sorted(opts)
