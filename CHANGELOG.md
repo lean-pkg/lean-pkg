@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-30
+
 ### Added
 
 - `palomar check` reports a Challenge or Solution module root a dependency
@@ -88,6 +90,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   --project` looked for `.lake/packages/«dep-with-hyphens»` and called the
   dependency not checked out. Two entries that decode to the same package,
   and a name Lake would not write or one that decodes to a path, are refused.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.23.0] - 2026-10-29
 
