@@ -67,6 +67,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `doctor --upgrade-from` no longer reads a wrapped help-text line as an
+  option of the command (#411). It read each command's options from the help
+  goldens and counted any indented line that began with a `--flag`, so a
+  continuation line starting with a `--flag` mention became an option. The
+  0.23.0 to 0.24.0 delta listed a nonexistent
+  `receipt slurm --contracts-only`, and six older phantoms
+  (`new --license-spdx`, `--format` on `receipt comparator` and
+  `receipt slurm`, `repo --fresh-repo`, `lean-pkg --yes`,
+  `verify --regate`) had cancelled out. Only argparse's option lines, at
+  exactly two spaces, are read now. A test checks every option it reads
+  against the CLI parser.
+
 - A `lake-manifest.json` package name that Lake writes escaped
   (`«dep-with-hyphens»`, Lean's `ToJson Name`) is read as the directory Lake
   checks it out under (`.lake/packages/dep-with-hyphens`, Lake's

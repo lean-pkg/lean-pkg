@@ -95,3 +95,19 @@ changes:
       verify run; one that reads binding_file.written sees false with state deferred.
     breaking: false
     changelog: Changed
+  - pr: 411
+    id: upgrade-help-surface-option-lines
+    kind: behavior
+    area: doctor
+    summary: >-
+      doctor --upgrade-from reads each command's options from the help goldens; it counted any indented line that
+      began with a --flag as an option, so a wrapped help-text or command-list line that starts with a --flag mention
+      was read as an option the command has. The 0.23.0 to 0.24.0 delta listed a nonexistent receipt slurm
+      --contracts-only, and the goldens held six more such phantoms (new --license-spdx, receipt comparator and receipt
+      slurm --format, repo --fresh-repo, lean-pkg --yes, verify --regate), which cancelled out in older deltas. Only
+      argparse's option lines, at exactly two spaces, are read now.
+    action: >-
+      Nothing. A script that reads mechanical.commands.options from doctor --upgrade-from --json no longer sees
+      those phantom options.
+    breaking: false
+    changelog: Fixed
