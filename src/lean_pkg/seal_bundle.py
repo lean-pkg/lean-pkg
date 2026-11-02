@@ -4,7 +4,7 @@ A seal is a job (an external kernel replay, a fresh rebuild, an axiom audit) tha
 receipt already verified. Its bundle is the job script plus every input it binds by hash: the source
 archive, module lists and the package's helper scripts, with INPUT-SHA256SUMS over them. Assembled by hand,
 each seal edits the same lines (commit, tree, dependency pins, theorem counts, inline hashes) and can get
-one wrong (LO-20261030-09). Here every such value is derived from the receipts and the commit:
+one wrong (#414). Here every such value is derived from the receipts and the commit:
 
 - the commit from the first package's receipt; the tree is `git rev-parse COMMIT:./` of --repo;
 - each other package's receipt must name a commit whose tree for that package equals the bundled one,

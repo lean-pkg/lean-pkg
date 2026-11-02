@@ -1682,7 +1682,7 @@ def cmd_page(args) -> int:
                               "README; on its own use `lean-pkg update NAME --write-binding-file`)")
     if (args.write or args.site or args.html or args.out) and not args.check:
         # the files this run wrote for the documentation commit (README.md relative to the package directory);
-        # deferred[] (below) is never part of it (LO-20261030-05)
+        # deferred[] (below) is never part of it (#410)
         first = [payload["out"]] if payload.get("out") else [payload["readme"]] if args.write and payload.get("written") else []
         payload["outputs"] = first + [f["path"] for f in payload.get("site_files") or [] if f.get("status") == "written"]
     if args.write and payload.get("written") and rc == 0:
@@ -1706,7 +1706,7 @@ def docs_only_opt_in(args, reg: dict, payload: dict) -> list[str]:
     payload carries the deprecation.
 
     The file itself is a build input, committed on its own right before the next verify run, never with the
-    README (LO-20261030-05). So it is not written here unless asked (`--write-binding-file`, into the working
+    README (#410). So it is not written here unless asked (`--write-binding-file`, into the working
     tree, never staged, never over an existing path): by default the migration is printed as deferred advice.
     `deferred[]` holds it either way, apart from `outputs[]`, the files of this documentation commit."""
     from . import binding_file

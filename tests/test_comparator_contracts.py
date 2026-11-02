@@ -409,7 +409,7 @@ def test_real_failing_fixtures_report_the_first_field_and_the_breadcrumb(built):
     e = got["statement"]
     assert e["breadcrumb"] == ["audit_statement"] and e["reason"] == "statement" and e["consistent"]
     assert e["first_field"]["field"] == "type"
-    e = got["let"]                                     # the reported 5dc09f4 shape (LO-20261030-04)
+    e = got["let"]                                     # the reported 5dc09f4 shape (#408)
     assert e["reason"] == "statement" and e["first_field"]["field"] == "type"
     assert e["first_field"]["challenge"] == "let" and e["first_field"]["solution"] != "let"
     assert "keeps a `let`" in e["hint"] and "#a-let-kept-on-one-side" in e["hint"]

@@ -345,7 +345,7 @@ judged. An unfinished project is listed like this:
   pull request that replaces the entry; the index history is the project's
   verified timeline.
 
-The lab's own example is `total-coloring-lean`: a 700-theorem, sorry-free
+One example is `total-coloring-lean`: a 700-theorem, sorry-free
 library whose README states that it proves an auxiliary edge-coloring theorem
 and a Δ+3 total assignment, and does not prove Vizing's theorem or the
 conjecture. Its entry says exactly that. Its second pin added comparator

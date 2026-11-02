@@ -66,7 +66,7 @@ It adds what a check run does not keep or cannot know:
 - **A page a mathematician can read.** The
   [verification page](page.md) puts the paper's statement beside the Lean
   statement and lists what is *Not formalized*.
-- **A re-check without the lab.** `lean-pkg receipt check` lets a referee
+- **A re-check without the author's machines.** `lean-pkg receipt check` lets a referee
   validate the evidence from the public repository alone, with no registry
   ([Re-verify a page yourself](trust-model.md#re-verify-a-page-yourself)).
 - **The route to publication.** `palomar check` and `palomar prepare`

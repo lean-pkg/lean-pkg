@@ -952,7 +952,7 @@ def registry_not_found(path: pathlib.Path) -> str:
     """The refusal for a missing registry: where the path came from and how to make one."""
     src = _RESOLVED_SOURCE.get(str(path))
     return (f"registry not found: {path} (" + (f"resolved from {src}; " if src else "")
-            + f"create one with `lean-pkg init`, or set {REGISTRY_ENV} / ~/.lean-pkg/registry)")
+            + f"create one with `lean-pkg registry init`, or set {REGISTRY_ENV} / ~/.lean-pkg/registry)")
 
 
 def load_registry(path: pathlib.Path, *, check_version: bool = True) -> dict:

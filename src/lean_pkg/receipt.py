@@ -2095,7 +2095,7 @@ def preflight(args) -> int:
 
 
 def contracts_preflight(args) -> int:
-    """`receipt slurm --contracts-preflight [--repo DIR]` (LO-20261030-04): before submitting the job, the
+    """`receipt slurm --contracts-preflight [--repo DIR]` (#409): before submitting the job, the
     contracts-only diagnostic of every comparator configuration of the checkout (default the current directory),
     whose modules must be built here. Writes nothing; exit 0 when every configuration matches, else 1."""
     from . import comparator_contracts as cc

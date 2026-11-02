@@ -669,7 +669,7 @@ def rt_srcs(tmp_path, decl):
 
 def test_coercion_types_text_is_the_fallback_when_the_first_does_not_round_trip(lp, env, fake_lake, tmp_path,
                                                                                monkeypatch, capsys):
-    """Field report #5 (LO-20261016-35): `↑x` whose target Lean cannot infer. The second printed text
+    """Field report #5 (#160): `↑x` whose target Lean cannot infer. The second printed text
     (pp.coercions.types) is tried only after the first fails; the one that passes becomes the type."""
     synced(lp, env, capsys)
     script, out = tmp_path / "d.sh", tmp_path / "types.json"
@@ -801,7 +801,7 @@ theorem int_pow (z : Int) : (1 : Int) ^ 1 * z = z := by simp
 def double (n : Nat) : Nat := n + n
 theorem double_eq (n : Nat) : double n = n + n := rfl
 theorem univ_poly {α : Type u} (a : α) : a = a := rfl
--- field report #5, LO-20261016-35: one declaration per class the first round of options did not round-trip
+-- field report #5, #160: one declaration per class the first round of options did not round-trip
 theorem map_cast (l : List Nat) : List.map (fun n : Nat => (n : Int)) l = List.map (fun n : Nat => (n : Int)) l := rfl
 structure Fn where
   f : Nat → Nat
@@ -835,7 +835,7 @@ def test_real_lean_printed_types_re_elaborate_to_the_original(tmp_path):
     re-elaborate to the declarations' own types, syntactically. Negative controls: without
     pp.numericTypes the numerals and casts lose their types; without pp.funBinderTypes, the
     pp.coercions.types fallback, the Classical retry and the own-line `#guard_expr` text, the four
-    classes of LO-20261016-35 fail (or are only defeq) again."""
+    classes of #160 fail (or are only defeq) again."""
     from lean_pkg import comparator_types as ct
     pkg = tmp_path / "toy"
     (pkg / "Toy").mkdir(parents=True)
@@ -884,7 +884,7 @@ def test_real_lean_printed_types_re_elaborate_to_the_original(tmp_path):
     bad = sorted(d for d, r in res.items() if r["status"] != "ok")
     assert bad == ["Toy.cast_one", "Toy.coe_fun", "Toy.int_div", "Toy.int_sub"]    # coe_fun: no fallback text
     assert all(res[d]["failure"] == "round_trip" for d in bad)
-    # the options and checks before LO-20261016-35: no lambda binder types, no second text, no Classical
+    # the options and checks before #160: no lambda binder types, no second text, no Classical
     # retry, the `#guard_expr` text starting at column 12
     snip = no_alt(cfg["snippet"].replace("set_option pp.funBinderTypes true\n", ""))
     rt = cfg["roundtrip_snippet"].replace("#guard_expr\n    (__TYPE__)", "#guard_expr (__TYPE__)")

@@ -415,7 +415,7 @@ needs to elaborate back to the same term (for instance
 binder. A second text, printed with `pp.coercions.types` as well, is the
 fallback of the round-trip check below.
 
-Why `pp.numericTypes` (field report #5): without it a numeral's type is
+Why `pp.numericTypes` (a field report): without it a numeral's type is
 left to elaboration, which picks `ℕ` or another type than the original
 one. On Mathlib toys (19 statements) the options above without it printed
 12 statements that did not elaborate back to the declaration's type:
@@ -436,8 +436,8 @@ definitionally equal but different term), so it
 is not a global option; `pp.explicit` round-trips but prints every instance and is not
 readable as a Challenge.
 
-What remained (field report #5, a Mathlib package of 339 declarations: 25
-round-trip failures and 6 definitionally equal only, LO-20261016-35), by
+What remained (a field report, a Mathlib package of 339 declarations: 25
+round-trip failures and 6 definitionally equal only, #160), by
 cause, with what the driver does now:
 
 | class (count in the report) | printed | why it fails | fix |
@@ -1299,8 +1299,8 @@ submit the job. Each refuses, and runs and writes nothing, when a
 configuration differs, when a configured module is not built, or when the
 diagnostic cannot run
 ([details](receipts.md#contracts-preflight---contracts-preflight)). Fix every `differs` and `error` it reports before you start
-`receipt systemd --run`, `receipt slurm` or a lab template's native and
-replay steps. Launched first, those spend hours on a source the comparator
+`receipt systemd --run`, `receipt slurm` or a site's own native and
+replay job steps. Launched first, those spend hours on a source the comparator
 will refuse.
 
 `lean-pkg verify` already works in this order. Its first step is the
@@ -1415,7 +1415,7 @@ configuration), keyed by configuration path and definition name:
       "config_sha256": "<sha256 of comparator.json's bytes>",
       "definitions": {
         "MyProof.witness": {
-          "reviewer": "Le Chen",
+          "reviewer": "A. Reviewer",
           "date": "2026-10-07",
           "judged_as": "the solution body is the paper's witness; compared side by side"
         }
@@ -2507,7 +2507,7 @@ holds the host's label instead, recorded as `host_label`:
   and anyone who knows the name can recompute the label
   (`printf %s "$(hostname)" | tr A-Z a-z | sha256sum | cut -c1-12`);
 - or the label given with `--host-label LABEL` (or
-  `COMPARATOR_RECEIPT_HOST_LABEL`), for example `lab-workstation`.
+  `COMPARATOR_RECEIPT_HOST_LABEL`), for example `my-workstation`.
 
 **Receipts written before host labels** (lean-pkg 0.10.0 and earlier,
 without `--host-label`) name the host itself in `host`, `job_id` and
@@ -2610,7 +2610,7 @@ needs more stays on a cluster.
 `Slurm job <id>` in `host_policy` (and the bare job number in `job_id`) comes
 from `SLURM_JOB_ID`, which any shell can set. That is enough to *allow* a run,
 but not to back a cluster acknowledgment: a `coverage.yaml` `compute` job
-(the Easley sentence on the page) counts a comparator receipt only once its
+(a cluster's acknowledgment sentence on the page) counts a comparator receipt only once its
 claim is sealed with the job's accounting record. After the job has finished,
 where `sacct` sees it (the login node), run:
 
@@ -2678,15 +2678,10 @@ from elsewhere: see "A cluster without unprivileged user namespaces" below).
 `lean-pkg doctor` reports the same verdict on its `host` line, and its `tool comparator`
 line points at `host-check` when `bwrap` is missing. Which of your own hosts
 passes is a fact about your infrastructure: record it in your private registry
-notes, not in public documentation.
-
-The maintainer's lab runs the Slurm route on the Auburn University Easley
-Cluster: `SLURM_JOB_ID` jobs there produced lower-tier receipts (`lake build`
-plus axiom audit) and comparator receipts (statement comparison and kernel
-replay) while lean-pkg was developed. A package whose receipts came from
-Easley acknowledges it in its README (with the link, as in
-[Acknowledge the compute](paper-companion.md#acknowledge-the-compute)) and in
-`formalization.yaml`'s `acknowledgements` with the official sentence: "This work was completed in part with resources provided by the Auburn University Easley Cluster."
+notes, not in public documentation. A package whose receipts came from a
+site that asks to be acknowledged carries its sentence in the README and in
+`formalization.yaml`'s `acknowledgements`
+([Acknowledge the compute](paper-companion.md#acknowledge-the-compute)).
 
 ### A cluster without unprivileged user namespaces
 

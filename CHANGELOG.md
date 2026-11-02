@@ -11,9 +11,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
-- `lean-pkg seal-bundle` renders a seal job's bundle from receipts (#414;
-  LO-20261030-09): the package's job template filled with the commit and its
-  tree, the dependency revisions from `lake-manifest.json`, the module lists
+- `lean-pkg seal-bundle` renders a seal job's bundle from receipts (#414):
+  the package's job template filled with the commit and its tree, the dependency revisions from `lake-manifest.json`, the module lists
   (each umbrella's imports, which must equal its `.lean` files), the counts
   read from each receipt's sealed verify log and the inline hashes, plus a
   reproducible `source.tgz` and `INPUT-SHA256SUMS`. A second package's receipt
@@ -23,8 +22,23 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
-- `claims check` warns on a summary close to its limit (#412;
-  LO-20261030-10): a claim or manuscript-finding `summary` of 281 to 300
+- `doctor` on a new machine exits 0 (#416): with no registry configured
+  (no `--registry`, no `$LEAN_PKG_REGISTRY`, no `~/.lean-pkg/registry`) and
+  no `./lean-packages.yaml`, the registry line is `n/a registry: none yet`
+  with the `lean-pkg registry init` command, not a `warn` and exit 1. A
+  registry that was named and is missing or unreadable still fails. The
+  refusal for a missing registry names `lean-pkg registry init` (it said
+  the old spelling `lean-pkg init`).
+- Docs for newcomers (#416), from a walk through the quickstart in a new
+  Linux account: the install step gives elan's command and the Git identity
+  `lean-pkg new` needs, `cd ~/src` became `mkdir -p ~/src && cd ~/src`, and
+  the page records the time measured (about 4 minutes). Site
+  acknowledgments are general: `page.md`'s section is "Site
+  acknowledgments", with the built-in `easley` profile as its example.
+  Wording that assumed one research group's setup is gone, and
+  `scripts/private-boundary-check.sh` refuses its tooling names in the tree
+  (a tree-only list; the release records keep their wording).
+- `claims check` warns on a summary close to its limit (#412): a claim or manuscript-finding `summary` of 281 to 300
   characters passes with a `warn:` line, so a later small edit does not
   meet the 300-character refusal unannounced. `claims check --file` adds
   `warnings[]` to `--json`; with `NAME`, each package's report and the

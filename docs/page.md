@@ -68,7 +68,7 @@ results, then what the checks establish, and only then the receipts.
 | How this was checked | the claims ledger with its digest; the build check and the statement comparison, with their commits; *Receipts*: one row per receipt committed under `.lean-receipts/` (path, check, commit, date, Slurm job, SHA-256); *Reproduce*: toolchain, Mathlib revision, the commands, the expected `#print axioms` result |
 | Citation | authors, title, version and DOI from `CITATION.cff`, and the manuscript |
 | License | `license_spdx` and the license file |
-| Acknowledgments | the lean-pkg credit, always; the Easley sentence only [with evidence](#the-easley-acknowledgment) |
+| Acknowledgments | the lean-pkg credit, always; a site's sentence (such as a cluster's) only [with evidence](#site-acknowledgments) |
 
 The page never uses lean-pkg's internal words (tiers, evidence-only
 descendants, rule numbers, stage names); a test holds every output to that.
@@ -298,7 +298,7 @@ rows:
   - paper: {number: "Theorem 4.1", title: "Asymptotics"}
     class: outside
     note: "not formalized"
-compute:                              # optional; see the Easley acknowledgment
+compute:                              # optional; see Site acknowledgments
   - cluster: easley
     jobs: [slurm-123456]
 ```
@@ -350,7 +350,7 @@ rows:
   - title: "Main estimate"                     # one line, unique in the file
     claims: [my-library/main-estimate]         # at least one id in claims.yaml at HEAD
     note: "the headline bound"                 # optional
-compute:                                       # optional; the Easley rule is the same
+compute:                                       # optional; the site rule is the same
   - cluster: easley
     jobs: [slurm-123456]
 ```
@@ -404,7 +404,7 @@ no `--commit`). A live lease held by another agent refuses it unless you pass
 Run it in the companion's CI. `lean-pkg publish NAME --dry-run` carries the
 same check as one checklist line (JSON `page {status, adopted, problems}`). For
 a package with no `coverage.yaml` and no block, the line is a WARN, except for
-an unbacked Easley sentence, which is a failure.
+an unbacked site sentence, which is a failure.
 
 ### What `--check` covers, and what it does not
 
@@ -444,16 +444,20 @@ result outside the markers, check each sentence:
 5. Re-read every such sentence after each new gate and `page --write`: the
    block changes with the data, the prose does not.
 
-## The Easley acknowledgment
+## Site acknowledgments
 
-Easley is the first built-in [site profile](sites.md); every profile,
-including one a package commits under `lean-pkg-sites/`, follows the rule
-below with its own sentence and README pattern.
+A computing site often asks to be thanked in a fixed sentence: a cluster's
+"This work was completed in part with resources provided by ...". A
+[site profile](sites.md) holds that sentence and the README pattern that finds
+it. lean-pkg ships two built-in profiles (`easley`, a university cluster, and
+`github-actions`), and a package can commit its own under `lean-pkg-sites/`.
+Every profile follows the rule below with its own sentence; the examples use
+`easley`.
 
 A receipt does not record where its job ran: a Slurm receipt says
 `slurm-<J>`, and the job number alone does not name the cluster. The sentence
 therefore needs two things: an explicit declaration in `coverage.yaml`
-(`compute: [{cluster: easley, jobs: [...]}]`), and, for every listed job, a
+(`compute: [{cluster: easley, jobs: [...]}]`, the profile's name), and, for every listed job, a
 committed receipt whose job is that Slurm job. That is a lower-tier receipt
 with `job_id: slurm-<J>` (what `lean-pkg receipt slurm` writes) or a comparator
 receipt whose `host_policy` says it ran in Slurm job `<J>` and whose claim is
@@ -469,7 +473,7 @@ back the sentence: nothing in it shows the number is a Slurm job. The refusal
 names such a receipt. Write it with `lean-pkg receipt slurm --job <J>`, which
 checks sacct first, rather than editing `job_id` by hand.
 
-A repository whose gated commit already has a README with an Easley sentence
+A repository whose gated commit already has a README with a site's sentence
 adopts the page after the gate. Without `lean-pkg-binding.yaml` at the gated
 commit, only the registry route (deprecated, with a `WARN: deprecated:`
 line) keeps the current receipts bound, until the next verify run at a
@@ -633,7 +637,7 @@ is rendered again from a newer, corroborated run. Pin the lean-pkg version you r
 version may word a section differently, and the check then reports the
 committed files as stale until you render them again.
 
-Where the registry is at hand (the lab machine, a self-hosted runner, a
+Where the registry is at hand (a machine holding the registry, a self-hosted runner, a
 pre-push hook), a Makefile target is enough:
 
 ```make
@@ -697,7 +701,7 @@ runs it as the package's own dependency and includes none of its code.
 
 ## From lean-scope-page
 
-The lab script `lean-scope-page` (`init` and `lint` of hand-written
+The earlier script `lean-scope-page` (`init` and `lint` of hand-written
 `docs/scope/<slug>.md` pages) is superseded by `coverage.yaml` and
 `lean-pkg page`: the page is now rendered, so most of its rules hold by
 construction, and the rest are checks of the data. `coverage check` runs

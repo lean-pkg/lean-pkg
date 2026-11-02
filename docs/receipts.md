@@ -18,13 +18,9 @@ its cost. It is required at `promote`, so nothing becomes public without it.
 Both tiers must bind to the same commit.
 
 Either tier may run as a Slurm job (see [Host policy](comparator.md#host-policy)).
-The lab's Slurm receipts were produced on the [Auburn University Easley Cluster](https://hpc.auburn.edu/hpc/docs/hpcdocs/build/html/easley/intro.html);
-a package whose receipts show its gates ran there carries, in its README, the
-acknowledgment with that link:
-
-```markdown
-This work was completed in part with resources provided by the [Auburn University Easley Cluster](https://hpc.auburn.edu/hpc/docs/hpcdocs/build/html/easley/intro.html).
-```
+A package whose gates ran on a computing site that asks to be acknowledged
+carries the site's sentence in its README, backed by those receipts:
+[Site acknowledgments](page.md#site-acknowledgments).
 
 ## What a passing pair does and does not prove
 

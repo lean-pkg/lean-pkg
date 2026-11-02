@@ -1,4 +1,4 @@
-"""`receipt slurm --contracts-preflight` (LO-20261030-04): before a job is submitted, the contracts-only diagnostic
+"""`receipt slurm --contracts-preflight` (#409): before a job is submitted, the contracts-only diagnostic
 of every comparator configuration of the checkout. A configuration that differs, one whose modules are not built,
 and a diagnostic that cannot run all refuse (exit 1); nothing is written. The fabricated reports below stand in for
 `comparator_contracts.run`; the last test runs the real diagnostic on a tiny Lean project when the toolchain is

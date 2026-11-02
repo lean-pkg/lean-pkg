@@ -316,7 +316,7 @@ def _tokens(value) -> list[str]:
 
 def derived_patterns(pkg: dict) -> list[Pattern]:
     """User and host names from the record's own local_path, agent and workspace fields and its lease's
-    agent, workspace and contact (a session address such as `lab-desk/n14-paper` names a machine), derived
+    agent, workspace and contact (a session address such as `alice-laptop/paper-1` names a machine), derived
     now (never stored). Labels name the field, never the value."""
     found: dict[str, str] = {}
     try:

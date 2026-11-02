@@ -156,6 +156,27 @@ def test_boundary_check_scans_only_files_git_would_ship(tmp_path):
     assert bad.returncode == 1 and "notes.md" in bad.stdout + bad.stderr
 
 
+def test_boundary_check_tree_only_names_skip_release_records(tmp_path):
+    """The maintainer's tooling names (a messaging tool, a role, a session host, board ids) fail in the
+    shipped tree, but not in CHANGELOG.md or docs/upgrades/, the release records that already name them."""
+    import subprocess
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(ROOT), str(clone)], check=True)
+    script = str(ROOT / "scripts" / "private-boundary-check.sh")
+    names = ["am" + "sg send", "@lean" + "-ops", "lab" + "-desk/x", "LO" + "-20261101-01"]
+    for name in names:
+        (clone / "docs" / "plant.md").write_text(f"see {name}\n")
+        bad = subprocess.run(["bash", script, str(clone)], capture_output=True, text=True)
+        assert bad.returncode == 1 and "docs/plant.md" in bad.stderr, name
+    (clone / "docs" / "plant.md").unlink()
+    for rel in ("CHANGELOG.md", "docs/upgrades/0.0.1.yaml"):
+        with (clone / rel).open("a") as f:
+            f.write("".join(f"{n}\n" for n in names))
+    ok = subprocess.run(["bash", script, str(clone)], capture_output=True, text=True)
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    assert "+ 4 tree-only" in ok.stdout
+
+
 def test_governance_files_exist_and_agree():
     import subprocess, sys, tomllib
     for f in ("CHANGELOG.md", "SECURITY.md", "CITATION.cff", "MAINTAINERS.md", "Makefile",

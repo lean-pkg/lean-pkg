@@ -262,8 +262,8 @@ def build_parser():
                         f"re-claim keeps the lease's current ttl_hours; above {MAX_TTL_HOURS}: exit 2)")
     s.add_argument("--reason", default="")
     s.add_argument("--contact", default=None, metavar="TEXT",
-                   help=f"address of the holding session (e.g. an amsg address such as lab-desk/n14-paper or "
-                        f"@lean-ops), stored in the lease and shown by leases/status; one line, at most "
+                   help=f"address of the holding session (e.g. a session address such as alice-laptop/paper-1, "
+                        f"or a channel such as @proof-team), stored in the lease and shown by leases/status; one line, at most "
                         f"{LEASE_CONTACT_MAX} characters; a holder's re-claim without it keeps the lease's")
     s.add_argument("--force", action="store_true",
                    help="override a live lease; requires --reason")

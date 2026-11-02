@@ -20,7 +20,7 @@ def test_registry_not_found_names_source_and_fix_flag(lp, tmp_path, capsys):
     err = capsys.readouterr().err
     assert f"registry not found: {missing}" in err
     assert "resolved from flag" in err
-    assert "lean-pkg init" in err and "LEAN_PKG_REGISTRY" in err and "~/.lean-pkg/registry" in err
+    assert "lean-pkg registry init" in err and "LEAN_PKG_REGISTRY" in err and "~/.lean-pkg/registry" in err
 
 
 def test_registry_not_found_names_env_source(lp, tmp_path, monkeypatch, capsys):

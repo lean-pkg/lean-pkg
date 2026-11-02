@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""`lean-pkg seal-bundle` (LO-20261030-09): a seal job bundle rendered from receipts, and --check of one."""
+"""`lean-pkg seal-bundle` (#414): a seal job bundle rendered from receipts, and --check of one."""
 from __future__ import annotations
 
 import gzip
