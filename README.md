@@ -292,6 +292,7 @@ After the flip:
 | looking something up | [How to](docs/how-to.md) · [Command reference](docs/commands/index.md) · [CLI overview](docs/cli.md) · [Receipts and trust](docs/receipts.md) · [The comparator tier](docs/comparator.md) · [formalization.yaml](docs/formalization.md) · [The index](docs/index-catalog.md) · [Prior-art search](docs/prior-art.md) · [Lifecycle](docs/lifecycle.md) |
 | an agent | [llms.txt](llms.txt) · [AGENTS.md](AGENTS.md) · [Using lean-pkg with agents](docs/agents.md) · [Agent skills](skills/README.md) |
 | stuck | [FAQ](docs/faq.md) |
+| prefer to watch | [Video series](#video-series): eight short episodes, from why a green build is not a verified theorem to teaching with Lean exercises |
 
 From the terminal, `lean-pkg help` lists the commands and the help topics:
 `lean-pkg help exit-codes`, `help environment` and `help formatting` cover
@@ -299,6 +300,23 @@ exit codes, environment variables and `--json` output
 ([How to](docs/how-to.md#look-up-exit-codes-environment-variables-and-output-formats)).
 
 Documentation site: <https://lean-pkg.github.io/lean-pkg/>.
+
+### Video series
+
+[lean-pkg on YouTube](https://www.youtube.com/playlist?list=PLG2OKUkl58LM): eight short episodes on Le Chen's
+YouTube channel. Each episode follows one page of the documentation, linked
+beside it.
+
+| | Episode | Read alongside |
+|---|---|---|
+| 1 | [Why a green build is not a verified theorem](https://www.youtube.com/watch?v=iZWVtu78MjY&list=PLG2OKUkl58LM) | [Motivation](docs/motivation.md#the-gap-between-it-compiles-and-it-is-verified) |
+| 2 | [From pip install to a verified page](https://www.youtube.com/watch?v=fWzp5FtSlhE&list=PLG2OKUkl58LM) | [Quickstart](docs/quickstart.md) |
+| 3 | [Dynkin's π-λ theorem, end to end](https://www.youtube.com/watch?v=fK01e0UETwY&list=PLG2OKUkl58LM) | [Tutorial](docs/tutorial-pi-lambda.md) |
+| 4 | [Two receipts: what they let you believe](https://www.youtube.com/watch?v=8PLQH03eg20&list=PLG2OKUkl58LM) | [Receipts and trust](docs/receipts.md) |
+| 5 | [A paper with a Lean companion](https://www.youtube.com/watch?v=sYPyAHn41KI&list=PLG2OKUkl58LM) | [Paper companion](docs/paper-companion.md) |
+| 6 | [AI agents in the loop, a person signs the statement](https://www.youtube.com/watch?v=iQSSeX0azvI&list=PLG2OKUkl58LM) | [Using lean-pkg with agents](docs/agents.md) |
+| 7 | [Going public safely](https://www.youtube.com/watch?v=l_yMt6_brxU&list=PLG2OKUkl58LM) | [Promotion dry run](docs/getting-started.md#7-promotion-dry-run) |
+| 8 | [Teaching with Lean exercises](https://www.youtube.com/watch?v=lIXwD2GM3tQ&list=PLG2OKUkl58LM) | [Checking Lean exercises](docs/exercise.md) |
 
 ## For collaborators
 
