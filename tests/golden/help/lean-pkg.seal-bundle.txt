@@ -1,0 +1,25 @@
+usage: lean-pkg seal-bundle [-h] --spec PATH [--receipt KEY=PATH] [--repo DIR] [--pilot FILE]
+                            [--note TEXT] (--out DIR | --check DIR) [--json]
+
+Every value a hand-assembled seal edits is derived: the commit from the first package's receipt
+and its tree, each other package's receipt checked against the bundled tree (apart from .lean-
+receipts/), module lists from the umbrella imports (which must equal the .lean files), counts from
+each receipt's sealed verify log, dependency revisions from lake-manifest.json, and a reproducible
+source archive. The template's @@NAME@@ placeholders are filled; an unknown one is refused. Writes
+only --out; never a receipt or the registry.
+
+options:
+  -h, --help          show this help message and exit
+  --spec PATH         the package's seal-bundle/1 spec (YAML); its template and files are relative
+                      to it
+  --receipt KEY=PATH  the lower-tier receipt of each package in the spec (repeat per package); the
+                      first package's commit is the one bundled
+  --repo DIR          the package directory archived as the source (default: .); package dirs are
+                      relative to it
+  --pilot FILE        the modules the pilot run replays, one per line (required with --out; with
+                      --check the bundle's own list is used when omitted)
+  --note TEXT         one line filled into @@NOTE@@ (what this seal adds)
+  --out DIR           write the bundle into DIR, which must not exist
+  --check DIR         re-derive the bundle and compare DIR with it, file by file (exit 1 on a
+                      difference)
+  --json              machine-readable JSON on stdout

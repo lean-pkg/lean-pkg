@@ -266,6 +266,31 @@ receipt backs `compute: [{cluster: github-actions, jobs: [gha-R-A]}]`:
 [Writing the receipt in CI](sites.md#writing-the-receipt-in-ci) and
 [A lower-tier receipt from GitHub Actions](receipts.md#a-lower-tier-receipt-from-github-actions).
 
+## Re-check a receipt's commit with a seal job
+
+A seal is a later job that re-checks a commit a receipt already verified: an
+external kernel replay, a fresh rebuild, an exact-name axiom audit. Its bundle
+is the job script plus every input it binds by hash. `lean-pkg seal-bundle`
+derives each value a hand-assembled bundle would edit (the commit and its tree,
+the dependency revisions, the module lists, the theorem counts, the inline
+hashes) from the receipts and the commit, and fills them into the package's own
+template:
+
+```bash
+lean-pkg seal-bundle --spec seal/seal-bundle.yaml --receipt main=.lean-receipts/<main>.json \
+  --receipt contrib=contrib/.lean-receipts/<contrib>.json --pilot seal/pilot.txt --out /tmp/seal-<c7>
+lean-pkg seal-bundle --spec seal/seal-bundle.yaml --receipt main=... --receipt contrib=... --check DIR
+```
+
+The job body (the build, the audits, the replay loop, the site's paths) stays
+in the template, which lean-pkg never edits. A second package's receipt must
+have verified the tree being bundled (only its `.lean-receipts/` may differ),
+each umbrella's imports must equal its `.lean` files, and each count must be
+one value in its receipt's sealed log; otherwise nothing is written.
+`--check DIR` re-derives an existing bundle and names every difference: run it
+on a hand-made bundle before trusting a rendered one. The spec and the
+placeholders: [seal-bundle](commands/seal-bundle.md).
+
 ## Check that this machine can produce comparator receipts
 
 ```bash

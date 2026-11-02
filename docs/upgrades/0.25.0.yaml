@@ -18,4 +18,18 @@ changes:
       Nothing. Shorten a warned summary to 280 characters or fewer when convenient.
     breaking: false
     changelog: Changed
+  - pr: 414
+    id: seal-bundle
+    kind: command
+    area: seal-bundle
+    summary: >-
+      LO-20261030-09: lean-pkg seal-bundle renders the bundle of a seal job (a later kernel replay, rebuild or
+      audit of a commit a receipt verified) from the receipts, the commit and the package's own template: commit,
+      tree, dependency revisions, module lists, counts from the sealed verify logs, inline hashes, a reproducible
+      source.tgz and INPUT-SHA256SUMS. --check DIR re-derives an existing bundle and names each difference.
+    action: >-
+      Nothing. A package that assembles seal bundles by hand can write a seal-bundle/1 spec and a template,
+      run --check on its last hand-made bundle, then render the next one.
+    breaking: false
+    changelog: Added
 no_author_change: [413]

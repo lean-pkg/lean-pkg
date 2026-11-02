@@ -171,6 +171,9 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["palomar", "port-modules", "demo", "--write"], "palomar port-modules", False, False, False),  # .lean files only
     (["palomar", "port-modules", "demo", "--write", "--agent", "a"], "palomar port-modules", False, False, False),
     (["next", "demo"], "next", False, False, False),
+    (["seal-bundle", "--spec", "s.yaml", "--receipt", "main=r.json", "--pilot", "p", "--out", "d"],
+     "seal-bundle", False, False, False),                                          # writes only --out
+    (["seal-bundle", "--spec", "s.yaml", "--receipt", "main=r.json", "--check", "d"], "seal-bundle", False, False, False),
     (["report", "--command", "x"], "report", False, False, False),
     (["report", "--command", "x", "--yes"], "report", False, False, False),   # files an issue, not a registry write
     (["receipt", "slurm"], "receipt slurm", False, False, False),
