@@ -26,7 +26,7 @@ when its printed type passed the round-trip check (ROUNDTRIP_SNIPPET). Also addi
 #5): per result `round_trip_exact` (true when the re-elaborated type is syntactically the
 declaration's, `#guard_expr ... =ₛ ...`; false when it is only definitionally equal, with
 `round_trip_exact_error`), and `summary.round_trip_inexact` / `summary.resumed`. Also additive
-(LO-20261016-35): `round_trip_variant` / `round_trip_open` when the text that passed is the
+(#160): `round_trip_variant` / `round_trip_open` when the text that passed is the
 fallback (printed with pp.coercions.types, or checked under `open scoped Classical`), and
 `summary.round_trip_variant`.
 

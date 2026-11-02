@@ -6,7 +6,7 @@
 - `new` writes the file, `new --evidence-only` leaves it out;
 - `page --write` keeps the registry route (with the WARN) only when the gated commit has no file; it prints the
   move to the file as deferred advice (`deferred[]`, apart from `outputs[]`) and writes the file only with
-  `--write-binding-file`, into the working tree, never over an existing path (LO-20261030-05);
+  `--write-binding-file`, into the working tree, never over an existing path (#410);
 - `WARN: deprecated:` and `deprecations[]` appear when the registry route admitted HEAD (gate, gate --check,
   comparator), whenever the opt-in exists only in the record (publish), and for update
   --accept-docs-descendants; a package that uses neither route, or the file, sees none of it."""
@@ -312,7 +312,7 @@ def test_publish_says_nothing_without_the_registry_only_opt_in(lp, env, capsys, 
 # --- page --write ------------------------------------------------------------------------------------------
 
 def test_page_write_registry_only_warns_and_defers_the_file(lp, env, capsys):
-    # LO-20261030-05: the file is a build input; the documentation commit must not pick it up
+    # #410: the file is a build input; the documentation commit must not pick it up
     from .test_page import prepare
     bound = prepare(env)                                                     # record true, no file at X
     before = env.registry.read_text()

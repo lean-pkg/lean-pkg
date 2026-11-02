@@ -41,6 +41,19 @@ forbidden=(
   'Sisy''phus'
 )
 
+# Internal names of the maintainer's coordination tooling and fix board: a messaging tool, a role, a session
+# host, board item ids. Checked in the tree only (not with --history): the public history already holds them
+# in commit messages and released records, and a history rewrite of a public repository is not an option,
+# so a history scan would fail forever. Files that are release records keep their wording and are skipped
+# here: CHANGELOG.md and docs/upgrades/ (a released record is never rewritten). Written in halves as above.
+forbidden_tree=(
+  'am''sg'
+  'lean''-ops'
+  'lab''-desk'
+  'LO''-20'
+)
+tree_exempt=(CHANGELOG.md docs/upgrades/)
+
 # Public URLs that legitimately contain one of the strings above: the
 # maintainer's public university homepage, whose path carries a username.
 # Written in halves like the list above. A hit is allowed only if, after
@@ -50,19 +63,22 @@ allowed_public=(
 )
 
 patterns="$(mktemp)"
+tree_patterns="$(mktemp)"
 blob="$(mktemp)"
-trap 'rm -f "$patterns" "$blob"' EXIT
+trap 'rm -f "$patterns" "$tree_patterns" "$blob"' EXIT
 printf '%s\n' "${forbidden[@]}" > "$patterns"
+printf '%s\n' "${forbidden_tree[@]}" > "$tree_patterns"
 # Extra forbidden strings, one per line, from a file (the tests plant made-up names this way).
 if [ -n "${PRIVATE_BOUNDARY_EXTRA:-}" ]; then grep -v '^$' "$PRIVATE_BOUNDARY_EXTRA" >> "$patterns" || true; fi
 
-# grep_any FILE LABEL: the forbidden strings in FILE as "LABEL:LINE:text" lines. A text file is
-# grepped as is; a binary one (grep -I would skip it) through its printable runs, as "LABEL:binary:text".
+# grep_any FILE LABEL [PATTERNS]: the forbidden strings (PATTERNS, default the main list) in FILE as
+# "LABEL:LINE:text" lines. A text file is grepped as is; a binary one (grep -I would skip it) through its
+# printable runs, as "LABEL:binary:text".
 grep_any() {
-  local found
-  found="$(grep -nIiF -f "$patterns" -- "$1" || true)"
+  local found pf="${3:-$patterns}"
+  found="$(grep -nIiF -f "$pf" -- "$1" || true)"
   if [ -z "$found" ] && ! grep -qI '' -- "$1" 2>/dev/null && [ -s "$1" ]; then
-    found="$(LC_ALL=C tr -c '[:print:]\t\n' '\n' < "$1" | grep -iF -f "$patterns" | sed 's/^/binary:/' || true)"
+    found="$(LC_ALL=C tr -c '[:print:]\t\n' '\n' < "$1" | grep -iF -f "$pf" | sed 's/^/binary:/' || true)"
   fi
   [ -n "$found" ] && printf '%s\n' "$found" | sed "s#^#$2:#"
   return 0
@@ -136,9 +152,27 @@ if [ -n "$hits" ]; then
   hits="${kept%$'\n'}"
 fi
 
+# The tree-only list, on what git would ship now, release records skipped.
+if [ "$mode" = tree ] && git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  tree_hits=""
+  while IFS= read -r -d '' f; do
+    for ex in "${tree_exempt[@]}"; do
+      case "$f" in "$ex"|"$ex"*) continue 2 ;; esac
+    done
+    [ -f "$root/$f" ] && [ ! -L "$root/$f" ] || continue
+    found="$(grep_any "$root/$f" "$f" "$tree_patterns")"
+    [ -n "$found" ] && tree_hits="${tree_hits}${found}"$'\n'
+  done < <(git -C "$root" ls-files -z --cached --others --exclude-standard)
+  tree_hits="${tree_hits%$'\n'}"
+  if [ -n "$tree_hits" ]; then
+    hits="${hits:+$hits$'\n'}$tree_hits"
+  fi
+fi
+
 if [ -n "$hits" ]; then
   echo "private-boundary-check: FAIL ($mode): forbidden strings found:" >&2
   printf '%s\n' "$hits" >&2
   exit 1
 fi
-echo "private-boundary-check: OK ($mode: ${#forbidden[@]} forbidden strings, ${#allowed_public[@]} public-URL exception(s), none found under $root)"
+tree_note=""; [ "$mode" = tree ] && tree_note=" + ${#forbidden_tree[@]} tree-only"
+echo "private-boundary-check: OK ($mode: ${#forbidden[@]} forbidden strings${tree_note}, ${#allowed_public[@]} public-URL exception(s), none found under $root)"

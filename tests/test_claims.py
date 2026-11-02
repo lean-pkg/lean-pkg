@@ -538,7 +538,7 @@ def test_a_long_alias_and_summary_name_their_limits(cl):
                for e in errs), errs
 
 
-# LO-20261030-10: a summary of 281-300 characters passes but warns, so a later small edit does not hit the 301
+# #412: a summary of 281-300 characters passes but warns, so a later small edit does not hit the 301
 # refusal unannounced (field report: several summaries sat at 299). The 300 limit itself is unchanged.
 
 @pytest.mark.parametrize("n, warned", [(280, False), (281, True), (300, True)])

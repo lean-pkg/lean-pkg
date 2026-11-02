@@ -161,12 +161,12 @@ stderr note after the command (`LEAN_PKG_NO_ALIAS_NOTE=1` silences it).
 ## Lease holders
 
 A lease records `workspace`, `agent`, `claimed_at`, `ttl_hours` and `reason`, and, when the claim
-or a later `renew` passed `--contact TEXT`, a `contact`: free text naming the holding session (an
-amsg address such as `lab-desk/n14-paper`, or a channel such as `@lean-ops`). lean-pkg stores and
+or a later `renew` passed `--contact TEXT`, a `contact`: free text naming the holding session (a
+session address such as `alice-laptop/paper-1`, or a channel such as `@proof-team`). lean-pkg stores and
 shows the contact but never checks or uses it, and cannot map a holder to a live session by itself.
 The holder is whatever `--agent` (and `--workspace`) the claim passed, so:
 
-- Say how to reach you: `lean-pkg lease claim NAME --workspace W --agent A --contact lab-desk/n14-paper`;
+- Say how to reach you: `lean-pkg lease claim NAME --workspace W --agent A --contact alice-laptop/paper-1`;
   `renew NAME --agent A --contact TEXT` sets or replaces it later, `renew` without `--contact`
   keeps it, and `renew NAME --agent A --no-contact` clears it while keeping the lease. `release`
   drops it with the lease.

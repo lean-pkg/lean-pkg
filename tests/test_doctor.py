@@ -172,6 +172,32 @@ def test_doctor_exits_1_on_unreadable_registry(lp, env, fake_path, installed, ca
     assert any(line.startswith("warn registry:") for line in cap.out.splitlines())
 
 
+def test_doctor_on_a_new_machine_is_not_a_failure(lp, fake_path, installed, tmp_path, monkeypatch, capsys):
+    """Nothing configured (no --registry, no $LEAN_PKG_REGISTRY, no ~/.lean-pkg/registry) and no
+    ./lean-packages.yaml: a newcomer's first `doctor` says how to make a registry and exits 0."""
+    home = tmp_path / "lean-pkg-home"
+    monkeypatch.setenv("LEAN_PKG_HOME", str(home))
+    monkeypatch.delenv("LEAN_PKG_REGISTRY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    rc = lp.main(["doctor"])
+    out = capsys.readouterr().out.splitlines()
+    assert rc == 0
+    line = next(x for x in out if " registry:" in x)
+    assert line.startswith("n/a registry: none yet: `lean-pkg registry init` creates one at ")
+    assert str(home / "registry") in line and "[source: cwd]" in line
+
+
+def test_doctor_with_a_named_registry_that_is_missing_still_fails(lp, fake_path, installed, tmp_path, monkeypatch,
+                                                                  capsys):
+    """A path the user named (--registry or $LEAN_PKG_REGISTRY) that does not exist is a fault, and the refusal
+    names the current spelling of the command that makes one."""
+    monkeypatch.chdir(tmp_path)
+    rc = lp.main(["--registry", str(tmp_path / "nope.yaml"), "doctor"])
+    line = next(x for x in capsys.readouterr().out.splitlines() if " registry:" in x)
+    assert rc == 1 and line.startswith("warn registry:")
+    assert "`lean-pkg registry init`" in line and "`lean-pkg init`" not in line
+
+
 # --- review pass
 
 def test_doctor_without_git_on_path_does_not_crash(lp, env, tmp_path, monkeypatch, capsys):

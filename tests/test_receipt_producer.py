@@ -102,7 +102,7 @@ def _plant_bytecode(pkg: Path) -> str:
     cache.mkdir(exist_ok=True)
     (cache / f"receipt.{tag}.pyc").write_bytes(b"own")
     (cache / f"receipt.{tag}.opt-1.pyc").write_bytes(b"own-opt")
-    (cache / "receipt.cpython-310.pyc").write_bytes(b"foreign")             # LO-20261021-04: a 3.10 import
+    (cache / "receipt.cpython-310.pyc").write_bytes(b"foreign")             # #297: a 3.10 import
     (pkg / "stale.pyc").write_bytes(b"sourceless")
     (cache / "old.pyo").write_bytes(b"pyo")
     return tag

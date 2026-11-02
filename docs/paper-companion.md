@@ -276,9 +276,9 @@ the render is refused.
 ### Credits
 
 `lean-pkg page NAME --write` writes both credits below into the README's
-Acknowledgments (the Easley sentence only with a backing Slurm receipt), and
-`--check` fails when the lean-pkg credit is missing or an Easley sentence has
-no backing ([The verification page](page.md#the-easley-acknowledgment)). By
+Acknowledgments (a site's sentence, such as a cluster's, only with a backing receipt from that site), and
+`--check` fails when the lean-pkg credit is missing or a site sentence has
+no backing ([Site acknowledgments](page.md#site-acknowledgments)). By
 hand: give the companion's README an `## Acknowledgments` (or `## Tools`) section
 that names the tool used to develop and verify it, with the repository link
 and the concept DOI (which always resolves to the latest release):
@@ -295,21 +295,23 @@ same section.
 
 ### Acknowledge the compute
 
-When the receipts show the gates ran on the Auburn University Easley Cluster
-(a `receipt slurm` receipt in `.lean-receipts/` whose job ran on that
-cluster), put the official sentence, with the cluster name linked, in the
-companion's README:
+Many computing sites ask to be thanked in a fixed sentence when they produced
+results. When the receipts show the gates ran on such a site (a `receipt slurm`
+receipt in `.lean-receipts/` whose job ran on that cluster, declared
+under `compute:` in `coverage.yaml`), put the site's own sentence in the
+companion's README, with its name linked. For example, for the built-in
+`easley` [site profile](sites.md), a university cluster:
 
 ```markdown
 This work was completed in part with resources provided by the [Auburn University Easley Cluster](https://hpc.auburn.edu/hpc/docs/hpcdocs/build/html/easley/intro.html).
 ```
 
-Keep the wording verbatim ("in part" unless Easley was the only compute
-used). A companion whose receipts came from other hosts carries no such
-sentence: the acknowledgment is a statement about where the evidence was
-produced. Other clusters have their own required wording: describe yours
-in a [site profile](sites.md) and `lean-pkg page` renders and checks it the
-same way.
+Keep a site's wording verbatim (for this one, "in part" unless it was the
+only compute used). A companion whose receipts came from other hosts carries
+no such sentence: the acknowledgment is a statement about where the evidence
+was produced. For any other cluster, describe its required wording in a
+[site profile](sites.md), and `lean-pkg page` renders and checks it the same
+way ([Site acknowledgments](page.md#site-acknowledgments)).
 
 ## Consolidate several checkpoint packages into one
 

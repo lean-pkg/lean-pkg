@@ -159,7 +159,7 @@ separates what has shipped from what the Lean FRO has announced.
   symlinks, `.gitattributes` and others) is still drift. Lake build caches
   and compiled artifacts are never evidence.
 - **A bare job id presented as a cluster run.** A receipt whose `job_id` is a
-  bare number never backs the Easley acknowledgment; only `slurm-<J>`, which
+  bare number never backs a site acknowledgment; only `slurm-<J>`, which
   `receipt slurm` writes after `sacct`, or a comparator receipt whose Slurm
   claim `lean-pkg receipt comparator --seal-sacct` corroborated with `sacct`
   (`coverage.slurm_job_of`). A comparator receipt that only carries
@@ -212,9 +212,9 @@ separates what has shipped from what the Lean FRO has announced.
   the cluster, and a saved copy is text an author could write. The seal moves
   a comparator receipt's claim from "the shell had `SLURM_JOB_ID` set" to "an
   accounting record of that job, consistent with the run, was sealed", the
-  same bar as the lower tier. The Easley sentence on a page therefore means
-  "the author declares these jobs ran on Easley and kept receipts and
-  accounting records for them".
+  same bar as the lower tier. A site's sentence on a page (a cluster's
+  acknowledgment) therefore means "the author declares these jobs ran on that
+  site and kept receipts and accounting records for them".
 - **A fabricated GitHub Actions run, at level 1.** A receipt's `ci` block
   ([The `ci` block](formats.md#the-ci-block)) is checked offline for
   consistency only: with itself, the commit and the committed log. Every
@@ -277,7 +277,7 @@ separates what has shipped from what the Lean FRO has announced.
 You need only the public repository, a Linux machine, the Lean toolchain the
 package pins (elan installs it), `bwrap` for the comparator, and lean-pkg
 (`pipx install git+https://github.com/lean-pkg/lean-pkg.git`). No lean-pkg
-registry and no lab account. These steps were run end to end on a small
+registry and no shared account. These steps were run end to end on a small
 package with no Mathlib; with Mathlib add `lake exe cache get` before each
 build.
 

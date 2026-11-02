@@ -909,7 +909,7 @@ def test_require_tools_is_only_for_run(lp, repo, tmp_path, capsys):
     assert "--require-tools is only for --run" in capsys.readouterr().err
 
 
-# --contracts-preflight (LO-20261030-04): the contracts-only diagnostic of every configuration, before the unit is
+# --contracts-preflight (#409): the contracts-only diagnostic of every configuration, before the unit is
 # created; any configuration that does not match, or a diagnostic that cannot run, refuses and nothing is run
 
 def _report(*verdicts):

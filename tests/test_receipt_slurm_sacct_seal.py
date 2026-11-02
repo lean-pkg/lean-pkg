@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""`receipt slurm --seal-sacct` (LO-20261019-06): a lower-tier receipt read from `--sacct-file` rests on a file
+"""`receipt slurm --seal-sacct` (#294): a lower-tier receipt read from `--sacct-file` rests on a file
 any shell can write. With the flag the job's accounting record is sealed into the receipt exactly as
 `receipt comparator --seal-sacct` seals a comparator receipt (the same checks, the same normalized record,
 the same `slurm_sacct` block, schema slurm-sacct-seal/1), and every validator of a lower-tier receipt

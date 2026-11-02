@@ -353,7 +353,7 @@ def text_lines(name: str, res: dict) -> list[str]:
 
 
 def preflight(repo) -> dict:
-    """`--contracts-preflight` of `receipt systemd --run` and `receipt slurm` (LO-20261030-04): the contracts-only
+    """`--contracts-preflight` of `receipt systemd --run` and `receipt slurm` (#409): the contracts-only
     diagnostic of every comparator configuration of REPO, before any receipt work. {ok, refusals, checks, report}:
     ok only when every configuration matches. A difference, an `error` (among them a configured module that is not
     built: its detail names the `lake build` to run) and a diagnostic that cannot run all refuse. Never acceptance

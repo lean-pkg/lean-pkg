@@ -727,7 +727,7 @@ def cmd_receipt_systemd(args) -> int:
                           f"was created: {', '.join(tools)}")
     contracts_refused = False
     if run and getattr(args, "contracts_preflight", False):
-        # Before the unit exists: every comparator configuration must match (LO-20261030-04)
+        # Before the unit exists: every comparator configuration must match (#409)
         from . import comparator_contracts as cc
         pre = cc.preflight(repo)
         json_extra["contracts_preflight"] = {"ok": pre["ok"], "report": pre["report"]}

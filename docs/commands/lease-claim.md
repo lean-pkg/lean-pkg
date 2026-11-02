@@ -30,14 +30,14 @@ lean-pkg lease claim --workspace WORKSPACE --agent AGENT [--ttl HOURS] [--reason
 | `--agent AGENT` | Required. |
 | `--ttl HOURS` | lease TTL, 1..8760 (default: 24 for a new claim; a holder's re-claim keeps the lease's current ttl_hours; above 8760: exit 2) |
 | `--reason REASON` |   |
-| `--contact TEXT` | address of the holding session (e.g. an amsg address such as lab-desk/n14-paper or @lean-ops), stored in the lease and shown by leases/status; one line, at most 200 characters; a holder's re-claim without it keeps the lease's |
+| `--contact TEXT` | address of the holding session (e.g. a session address such as alice-laptop/paper-1, or a channel such as @proof-team), stored in the lease and shown by leases/status; one line, at most 200 characters; a holder's re-claim without it keeps the lease's |
 | `--force` | override a live lease; requires --reason |
 
 ## Details
 
 | Form | What it does | Key flags |
 |---|---|---|
-| `claim NAME` (alias `lease NAME`) | compare-and-swap lease, 24 h default for a new claim; the holder's re-claim refreshes it and keeps its TTL unless `--ttl` is given (event `claim-refreshed`, with the reason when given). `--contact TEXT` stores the holding session's address in the lease (`lease.contact`, e.g. an amsg address such as `lab-desk/n14-paper` or `@lean-ops`; see [Lease holders](../cli.md#lease-holders)); a holder's re-claim with it replaces the contact, without it keeps it; the events `claimed`, `claim-forced` and `claim-refreshed` carry `contact` when the lease has one. A contact is one line of at most 200 characters (empty, a newline or another control character, or longer: exit 2, nothing written). `--ttl` is 1 to 8760 hours (one year); a larger value exits 2 with nothing written | `--workspace W` `--agent A` `[--ttl HOURS]` `[--reason]` `[--contact TEXT]` `[--force]` |
+| `claim NAME` (alias `lease NAME`) | compare-and-swap lease, 24 h default for a new claim; the holder's re-claim refreshes it and keeps its TTL unless `--ttl` is given (event `claim-refreshed`, with the reason when given). `--contact TEXT` stores the holding session's address in the lease (`lease.contact`, e.g. a session address such as `alice-laptop/paper-1` or `@proof-team`; see [Lease holders](../cli.md#lease-holders)); a holder's re-claim with it replaces the contact, without it keeps it; the events `claimed`, `claim-forced` and `claim-refreshed` carry `contact` when the lease has one. A contact is one line of at most 200 characters (empty, a newline or another control character, or longer: exit 2, nothing written). `--ttl` is 1 to 8760 hours (one year); a larger value exits 2 with nothing written | `--workspace W` `--agent A` `[--ttl HOURS]` `[--reason]` `[--contact TEXT]` `[--force]` |
 
 ## JSON output
 
@@ -62,5 +62,5 @@ my-proof: lease claimed for alice@laptop until 2026-10-18T14:24:32+00:00
 The same, with an address where others can reach the holding session.
 
 ```bash
-lean-pkg lease claim my-proof --workspace laptop --agent alice --contact lab-desk/my-session
+lean-pkg lease claim my-proof --workspace laptop --agent alice --contact alice-laptop/my-session
 ```

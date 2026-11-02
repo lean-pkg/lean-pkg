@@ -180,7 +180,8 @@ def test_doctor_reports_source(lp, home, tmp_path, monkeypatch, capsys, no_insta
 def test_doctor_user_default_line(lp, home, tmp_path, capsys, no_install_probe):
     lines = _doctor_text(lp, capsys)
     assert lines["user-default"].startswith("n/a user-default:") and "not configured" in lines["user-default"]
-    assert lines["registry"].startswith("warn registry:") and lines["registry"].endswith("[source: cwd]")
+    # nothing configured and no ./lean-packages.yaml: a new machine, n/a with the command that makes one (#416)
+    assert lines["registry"].startswith("n/a registry: none yet:") and lines["registry"].endswith("[source: cwd]")
     repo = tmp_path / "registry-repo"
     _reg_file(repo / "lean-packages.yaml")
     (home / "registry").symlink_to(repo)
@@ -191,7 +192,7 @@ def test_doctor_user_default_line(lp, home, tmp_path, capsys, no_install_probe):
 
 def test_doctor_json_missing_registry_still_has_source(lp, home, capsys, no_install_probe):
     rc, checks = _doctor_json(lp, capsys)
-    assert rc == 1
-    assert checks["registry"]["level"] == "warn" and checks["registry"]["source"] == "cwd"
+    assert rc == 0                                   # a new machine is not a failure (#416)
+    assert checks["registry"]["level"] == "n/a" and checks["registry"]["source"] == "cwd"
     assert checks["user-default"]["level"] == "n/a"
     assert checks["events"]["source"] == "sibling"   # #18: the events line names its source too

@@ -4,7 +4,7 @@ title: Quickstart
 
 [&larr; lean-pkg documentation](index.md)
 
-*From `pip install` to a verified page, on your own machine, with no lab account.*
+*From `pip install` to a verified page, on your own machine, with no shared registry or cluster account.*
 
 This is the shortest honest path. It needs Linux (the comparator sandbox and
 the local receipt use Linux features), `git`, Python 3.11 or newer, and
@@ -17,11 +17,14 @@ directory with elan already installed: about **6 minutes** with Mathlib
 the first time (4.6 of them the first `lake update` and `lake exe cache get`),
 under 4 minutes once Mathlib's cache is on the machine, and under one minute
 with `--no-mathlib`. Installing elan and the Lean toolchain
-adds a few minutes more on a new machine.
+adds a few minutes more on a new machine. Re-measured 2026-11-02 in a new
+Linux account (no elan, no lean-pkg, no git identity), following this page
+command by command: about **4 minutes** in all, 2.2 of them `lake update` and
+`lake exe cache get` (the toolchain and Mathlib), 1.5 `verify`.
 
 Every command below is one you run; `verify` runs three more for you and
 prints each one first, so nothing is hidden. Steps marked *optional* are only
-for a lab or a cluster.
+for a group or a cluster.
 
 The same path with a real theorem, every step explained for a mathematician:
 [Tutorial: Dynkin's π-λ theorem, end to end](tutorial-pi-lambda.md).
@@ -29,8 +32,19 @@ The same path with a real theorem, every step explained for a mathematician:
 ## 1. Install
 
 ```bash
-pipx install git+https://github.com/lean-pkg/lean-pkg.git     # or: uv tool install ..., pip install ...
-lean-pkg comparator host-check                                # exit 0: this machine can judge
+curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y   # elan, Lean's installer (skip if `elan --version` works)
+source ~/.elan/env                                                 # or open a new terminal
+pipx install git+https://github.com/lean-pkg/lean-pkg.git        # or: uv tool install ..., pip install ...
+lean-pkg doctor                                                    # what this machine has; `n/a registry: none yet` is expected
+lean-pkg comparator host-check                                     # exit 0: this machine can judge
+```
+
+`lean-pkg new` and every commit below need a Git identity. A new machine or
+account has none; set it once:
+
+```bash
+git config --global user.name "Your Name"
+git config --global user.email you@example.org
 ```
 
 The host check ends with a line such as
@@ -41,7 +55,7 @@ first](comparator.md#checking-a-host-first) explains each one.
 ## 2. A new package
 
 ```bash
-cd ~/src
+mkdir -p ~/src && cd ~/src
 lean-pkg new my-proof --kind library
 ```
 
@@ -114,7 +128,7 @@ submit there.
 ## 3. A registry of your own
 
 The registry is a YAML file that records your packages and their evidence.
-Keep it private; it is yours, not the lab's.
+Keep it private: it is your own local registry.
 
 ```bash
 mkdir -p ~/.lean-pkg/registry
@@ -263,7 +277,7 @@ Then steps 3 to 5 above, with your package name. [Add the comparator tier to
 an existing package](existing-package-comparator.md) walks through step 1 in
 detail.
 
-## Optional: lab and cluster setups
+## Optional: group and cluster setups
 
 None of these are needed for the page above.
 
@@ -273,8 +287,9 @@ None of these are needed for the page above.
   one package; a single author can skip them.
 - *Slurm receipts* from a cluster (`lean-pkg receipt slurm --template`):
   [Receipts and trust](receipts.md#a-lower-tier-receipt-from-a-slurm-job).
-  The Easley acknowledgment on the page needs a Slurm receipt from that
-  cluster ([the Easley rule](page.md#the-easley-acknowledgment)).
+  A site acknowledgment on the page (a cluster's thank-you sentence, such as
+  the built-in `easley` profile's) needs a receipt from that site's scheduler
+  ([Site acknowledgments](page.md#site-acknowledgments)).
 - *Making the repository public*: `lean-pkg publish my-proof` (the read-only
   checklist), then `lean-pkg publish my-proof --yes`
   ([How to](how-to.md#get-listed-publish-checklist-reservoir-palomar)).

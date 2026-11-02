@@ -157,7 +157,7 @@ def test_claims_check_file(lp, tmp_path, capsys):
     assert any("claims[0].summary" in e for e in data["errors"])
     assert lp.main(["--registry", str(reg), "claims", "check", "--file", str(good), "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == {"ok": True, "path": str(good), "claims": 1, "errors": [],
-                                                   "warnings": []}   # LO-20261030-10: additive
+                                                   "warnings": []}   # #412: additive
     assert lp.main(["--registry", str(reg), "claims", "check", "beta", "--file", str(good)]) == 1
     assert "differs from 'beta'" in capsys.readouterr().out
     (tmp_path / "notyaml.yaml").write_text("a: [\n")

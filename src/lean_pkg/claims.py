@@ -390,7 +390,7 @@ def dump_claims(doc: dict) -> str:
 
 
 SUMMARY_LIMIT = 300      # a longer claim or finding summary is refused (_one_line)
-SUMMARY_WARN = 280       # LO-20261030-10: above this, `claims check` warns before the refusal
+SUMMARY_WARN = 280       # #412: above this, `claims check` warns before the refusal
 
 
 def summary_length_warnings(doc) -> list[str]:

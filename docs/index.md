@@ -42,7 +42,7 @@ its success gate, and lists what is still missing.
 
 | You are | Start with |
 |---|---|
-| **a mathematician who wants a verified page now** | [Quickstart](quickstart.md): `lean-pkg new`, two receipts, the gate and the page on your own machine, no lab account (about 6 minutes measured, Mathlib included) |
+| **a mathematician who wants a verified page now** | [Quickstart](quickstart.md): `lean-pkg new`, two receipts, the gate and the page on your own machine, no shared registry or cluster account (about 6 minutes measured, Mathlib included) |
 | **new here** | [Start here](newcomers.md): the reading path, then the [sample workflow](sample-workflow.md) |
 | **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
 | **writing a paper with a Lean companion** | [Develop a paper with its Lean companion](paper-companion.md): intermediate checkpoints, reuse, a coverage map |
@@ -77,7 +77,7 @@ undone in practice.
 
 ## Quick start
 
-The shortest path, from `pip install` to a verified page with no lab account, is the
+The shortest path, from `pip install` to a verified page with no shared registry or cluster account, is the
 [Quickstart](quickstart.md). The shared-registry setup for a group:
 
 Install the CLI once, then use one private Git-backed registry to coordinate

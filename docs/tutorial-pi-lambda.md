@@ -114,8 +114,8 @@ Codespace cannot do, or should not:
   public; do that from your own machine, after `lean-pkg public-safety`. A
   receipt made in a Codespace records the container as its host (`h-...`),
   which is a fair record of where it ran.
-- **Use a cluster or the lab registry.** There is no Slurm (`receipt slurm`)
-  and no lab registry; a Codespace is a single machine, like the
+- **Use a cluster or a shared registry.** There is no Slurm (`receipt slurm`)
+  and no shared registry; a Codespace is a single machine, like the
   workstation of this tutorial.
 - **Run the comparator in an unprivileged container.** If you rebuild the
   container without `"privileged": true`, `lean-pkg comparator host-check`

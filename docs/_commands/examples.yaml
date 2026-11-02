@@ -141,7 +141,7 @@ lean-pkg registry validate:
     say: Schema, enum and history sanity of the whole registry; exit 0 valid, 1 errors.
 
 lean-pkg registry recommend:
-  - cmd: lean-pkg registry recommend 0.23.0 --reason "lab on 0.23.0" --commit
+  - cmd: lean-pkg registry recommend 0.23.0 --reason "group on 0.23.0" --commit
     say: Record that every machine using this registry should run lean-pkg 0.23.0 (the top-level lean_pkg.recommended key and a registry-recommended event), committed with the registry.
     output: |
       the registry recommends lean-pkg 0.23.0 (was 0.22.0); writing commands of an older lean-pkg print a notice (this is 0.23.0)
@@ -230,7 +230,7 @@ lean-pkg lease claim:
     say: Take the 24-hour lease before working on the package, so other agents see who holds it.
     output: |
       my-proof: lease claimed for alice@laptop until 2026-10-18T14:24:32+00:00
-  - cmd: lean-pkg lease claim my-proof --workspace laptop --agent alice --contact lab-desk/my-session
+  - cmd: lean-pkg lease claim my-proof --workspace laptop --agent alice --contact alice-laptop/my-session
     say: The same, with an address where others can reach the holding session.
 
 lean-pkg lease renew:

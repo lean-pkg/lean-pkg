@@ -20,4 +20,4 @@ Read-only commands stay silent; `doctor` shows the same comparison as its `recom
 
 Versions compare on `X.Y.Z`: the running version's leading `X.Y.Z` is used, so an editable development build
 (`0.23.0.dev1`, `0.23.0+dirty`) counts as 0.23.0, and a running version with no leading `X.Y.Z` is never older.
-Equal or newer is silent. To stop the notice everywhere, recommend the release the lab runs.
+Equal or newer is silent. To stop the notice everywhere, recommend the release the group runs.
