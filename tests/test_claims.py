@@ -538,6 +538,81 @@ def test_a_long_alias_and_summary_name_their_limits(cl):
                for e in errs), errs
 
 
+# LO-20261030-10: a summary of 281-300 characters passes but warns, so a later small edit does not hit the 301
+# refusal unannounced (field report: several summaries sat at 299). The 300 limit itself is unchanged.
+
+@pytest.mark.parametrize("n, warned", [(280, False), (281, True), (300, True)])
+def test_a_summary_close_to_the_limit_warns_and_still_passes(cl, n, warned):
+    d = doc()
+    d["claims"][0]["summary"] = "s" * n
+    assert cl.validate_claims(d) == []
+    w = cl.summary_length_warnings(d)
+    if warned:
+        assert len(w) == 1 and w[0].startswith("claims[0] (") and f".summary is {n} characters, close to the " \
+            "300-character limit (a longer one is refused); shorten it to 280 or fewer" in w[0], w
+    else:
+        assert w == []
+
+
+def test_a_summary_over_the_limit_is_still_refused_and_not_also_warned(cl):
+    d = doc()
+    d["claims"][0]["summary"] = "s" * 301
+    assert any("it is 301 characters" in e for e in cl.validate_claims(d))
+    assert cl.summary_length_warnings(d) == []
+
+
+def test_a_manuscript_finding_summary_close_to_the_limit_warns(cl):
+    d = doc()
+    d["claims"][0]["manuscript_findings"] = [
+        {"id": "eq-3-7", "kind": "misprint", "location": {"label": "(3.7)", "tex_line": 412, "page": 9},
+         "summary": "f" * 290, "lean_evidence": [d["claims"][0]["decl"]], "fixed_in": None}]
+    w = cl.summary_length_warnings(d)
+    assert len(w) == 1 and ".manuscript_findings[0].summary is 290 characters" in w[0], w
+
+
+@pytest.mark.parametrize("bad", [None, 3, ["s" * 290], "a\n" + "s" * 285, "   "])
+def test_only_one_line_strings_are_measured(cl, bad):
+    d = doc()
+    d["claims"][0]["summary"] = bad
+    assert cl.summary_length_warnings(d) == []             # the schema errors speak for these
+    assert cl.summary_length_warnings({"claims": "not a list"}) == [] and cl.summary_length_warnings(None) == []
+
+
+def test_claims_check_file_prints_and_returns_the_warnings(lp, tmp_path, capsys):
+    d = doc()
+    d["claims"][0]["summary"] = "s" * 299
+    f = tmp_path / "claims.yaml"
+    f.write_text(yaml.safe_dump(d, sort_keys=False))
+    assert lp.main(["claims", "check", "--file", str(f)]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"PASS {f}: schema ok ({len(d['claims'])} claim(s)), 1 warning(s)"
+    assert out[1].startswith("  warn: claims[0] (") and "summary is 299 characters" in out[1]
+    assert lp.main(["--json", "claims", "check", "--file", str(f)]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["ok"] is True and data["errors"] == [] and len(data["warnings"]) == 1
+    d["claims"][0]["summary"] = "s" * 280
+    f.write_text(yaml.safe_dump(d, sort_keys=False))
+    assert lp.main(["--json", "claims", "check", "--file", str(f)]) == 0
+    assert json.loads(capsys.readouterr().out)["warnings"] == []
+
+
+def test_claims_check_of_a_package_warns_on_its_synced_summaries(lp, env, capsys):
+    long_summary = "A trivial demonstration bound used by the white-noise examples" + "," * 230 + "."
+    assert 281 <= len(long_summary) <= 300
+    commit_claims(env.repo_b, text=CLAIMS_YAML.replace(
+        "summary: A trivial demonstration bound used by the white-noise examples.", f"summary: '{long_summary}'"))
+    assert sync(lp, env) == 0
+    capsys.readouterr()
+    assert lp.main(["--registry", str(env.registry), "claims", "check", "beta"]) == 0
+    out = capsys.readouterr().out
+    assert f"  warn: claims[0] (beta/foo-le-bar).summary is {len(long_summary)} characters" in out
+    assert lp.main(["--registry", str(env.registry), "--json", "claims", "check", "beta"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    (pkg,) = data["packages"]
+    assert pkg["ok"] is True and len(pkg["warnings"]) == 1
+    assert any(w.startswith("beta: claims[0] (beta/foo-le-bar).summary is") for w in data["warnings"])
+
+
 # --- TODO placeholders and «quoted» names (review of the claims code) ------------------------------
 
 def test_sync_refuses_a_todo_decl_even_when_todo_occurs_in_the_file(lp, env, capsys):

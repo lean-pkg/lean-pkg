@@ -42,7 +42,7 @@ claims:
 | `id` | `<package>/<slug>`; the slug (`[a-z0-9][a-z0-9-]*`) names the mathematics, never the declaration, so a rename changes `decl` and keeps the id |
 | `decl` | the Lean declaration, a dotted name whose components may be «quoted» (`Demo.«foo bar»`); its last component («» kept whole) must occur in `file`. `TODO` (the `claims migrate` placeholder) is refused |
 | `kind` | `definition`, `lemma`, `theorem`, `construction` or `library` |
-| `summary` | one sentence: one line, at most 300 characters; one starting with `TODO` (the `claims migrate` placeholder) is refused |
+| `summary` | one sentence: one line, at most 300 characters; one starting with `TODO` (the `claims migrate` placeholder) is refused. `claims check` warns, never fails, on a summary of 281 to 300 characters, so a later edit does not meet the refusal unannounced |
 | `aliases`, `keywords` | free phrases, one line of at most 120 characters each; lowercase tags (`[a-z0-9-]`) |
 | `status` | `reusable`, `internal`, `experimental` or `superseded` |
 | `superseded_by` | the id that replaces a superseded claim (a claim is never deleted; supersession must not cycle) |
@@ -138,7 +138,7 @@ release that added them refuses them as unknown keys):
 | `id` | a slug (`[a-z0-9][a-z0-9-]*`), unique across every claim of the package |
 | `kind` | `misprint` or `proof-gap` |
 | `location` | `label` (required: the manuscript's theorem, lemma or equation label, one line of at most 120 characters), `tex_line` and `page` (each null or a positive integer); no other key |
-| `summary` | one sentence: one line, at most 300 characters |
+| `summary` | one sentence: one line, at most 300 characters (`claims check` warns above 280) |
 | `lean_evidence` | the declarations that show it: a Lean name (looked up in the claim's `file`) or `{decl, file}` for one in another file. Each must occur in its file at the commit being checked, exactly like `decl`: `claims sync` (HEAD), `claims check` (the synced commit), `gate` (the receipt's commit) and the ledger (`finding-evidence-missing`) |
 | `fixed_in` | null while the manuscript is unchanged, else the arXiv version that fixes it, `arXiv:<id>v<N>` (`arXiv:2501.01234v2`, `arXiv:math.PR/0601001v3`) |
 | `statement_basis` | null (the statement as printed), `as-printed` or `corrected`. A claim with a `misprint` finding is verified only for the corrected statement, so it must say `corrected`; `corrected` without a misprint finding is refused, since it names no correction |

@@ -1,0 +1,20 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.24.0. Same keys as 0.24.0.yaml; the human page is docs/upgrades/0.25.0.md.
+# The name 0.25.0 is provisional (RELEASING.md, "The record's provisional name"): make cut-release
+# renames both files to the version it cuts, which make release-version prints.
+schema: lean-pkg-upgrade-record/1
+version: 0.25.0
+changes:
+  - pr: 412
+    id: claims-summary-length-warning
+    kind: behavior
+    area: claims
+    summary: >-
+      LO-20261030-10: claims check warns (never fails) on a claim or manuscript-finding summary of 281 to 300
+      characters, so a later small edit does not meet the 300-character refusal unannounced. claims check --file
+      prints `warn:` lines and its --json gains warnings[]; with NAME each package's report and the top-level
+      warnings[] carry them. The 300-character refusal is unchanged.
+    action: >-
+      Nothing. Shorten a warned summary to 280 characters or fewer when convenient.
+    breaking: false
+    changelog: Changed
