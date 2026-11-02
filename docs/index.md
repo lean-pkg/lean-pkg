@@ -20,6 +20,9 @@ machine, and explains each idea (statement and proof, the kernel, axioms, the
 comparator, receipts, the gate, the page) where it is first needed. *Lean
 checks every step; you check the statement.*
 
+**Prefer to watch?** The [video series](#video-series) covers the same ground in eight
+short episodes; episode 3 walks through this tutorial.
+
 ## Choose your track
 
 lean-pkg leads to one of two final products, and the page certifies each one:
@@ -94,6 +97,23 @@ lean-pkg register my-proof --url git@github.com:you/my-proof.git --path src/my-p
 Continue with [Getting started](getting-started.md) for the initial registry
 commit, receipts, and promotion dry run. A future `lean-pkg registry init --global`
 will automate the registry bootstrap; it is not implemented yet.
+
+## Video series
+
+[lean-pkg on YouTube](https://www.youtube.com/playlist?list=PLG2OKUkl58LM): eight short episodes on Le Chen's
+YouTube channel, in order. Each follows one page of this site, linked beside
+it.
+
+| | Episode | Read alongside |
+|---|---|---|
+| 1 | [Why a green build is not a verified theorem](https://www.youtube.com/watch?v=iZWVtu78MjY&list=PLG2OKUkl58LM) | [Motivation](motivation.md#the-gap-between-it-compiles-and-it-is-verified) |
+| 2 | [From pip install to a verified page](https://www.youtube.com/watch?v=fWzp5FtSlhE&list=PLG2OKUkl58LM) | [Quickstart](quickstart.md) |
+| 3 | [Dynkin's π-λ theorem, end to end](https://www.youtube.com/watch?v=fK01e0UETwY&list=PLG2OKUkl58LM) | [Tutorial](tutorial-pi-lambda.md) |
+| 4 | [Two receipts: what they let you believe](https://www.youtube.com/watch?v=8PLQH03eg20&list=PLG2OKUkl58LM) | [Receipts and trust](receipts.md) |
+| 5 | [A paper with a Lean companion](https://www.youtube.com/watch?v=sYPyAHn41KI&list=PLG2OKUkl58LM) | [Paper companion](paper-companion.md) |
+| 6 | [AI agents in the loop, a person signs the statement](https://www.youtube.com/watch?v=iQSSeX0azvI&list=PLG2OKUkl58LM) | [Using lean-pkg with agents](agents.md) |
+| 7 | [Going public safely](https://www.youtube.com/watch?v=l_yMt6_brxU&list=PLG2OKUkl58LM) | [Promotion dry run](getting-started.md#7-promotion-dry-run) |
+| 8 | [Teaching with Lean exercises](https://www.youtube.com/watch?v=lIXwD2GM3tQ&list=PLG2OKUkl58LM) | [Checking Lean exercises](exercise.md) |
 
 ## Pages
 
