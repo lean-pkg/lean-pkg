@@ -44,4 +44,4 @@ changes:
       Nothing. A script that read doctor's exit 1 as "no registry here" checks the registry line instead.
     breaking: false
     changelog: Changed
-no_author_change: [413]
+no_author_change: [413, 415]

@@ -1,0 +1,3 @@
+# The sdist also carries the changelog and the citation file (setuptools includes the README, the license,
+# pyproject.toml and src/ itself).
+include CHANGELOG.md CITATION.cff
