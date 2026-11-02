@@ -333,6 +333,28 @@ is refused before anything is written. The steps by hand:
    fails, the commit stays local, the message says so, and running the same
    command again (or `make cut-release VERSION=X.Y.Z`) pushes it: a `main`
    ahead of `origin/main` by exactly that commit is resumed, not refused.
+8. Publish to PyPI, by hand: TestPyPI first, then PyPI. An upload cannot be
+   undone: PyPI never accepts the same version number twice, even after its
+   files are deleted. Run the `Publish to PyPI` workflow
+   (`gh workflow run publish.yml -f tag=vX.Y.Z -f index=testpypi`), check
+   `pipx install --index-url https://test.pypi.org/simple/
+   --pip-args='--extra-index-url https://pypi.org/simple/' lean-pkg==X.Y.Z`
+   in a fresh shell (`lean-pkg --version`, `lean-pkg doctor`), then run it
+   again with `-f index=pypi`. The workflow refuses a tag that is not the
+   version in `pyproject.toml`, builds the sdist from the tag and the wheel
+   from the unpacked sdist only, runs `twine check --strict` and an installed
+   smoke, and uploads through Trusted Publishing (no API token is stored).
+
+### Publish to PyPI: one-time setup
+
+Once per index, by the PyPI account that will own `lean-pkg` (two-factor
+authentication on): on pypi.org and on test.pypi.org, Account settings >
+Publishing > Add a new pending publisher, with project `lean-pkg`, owner
+`lean-pkg`, repository `lean-pkg`, workflow `publish.yml` and environment
+`pypi` (on test.pypi.org: `testpypi`). Then, in this repository's Settings >
+Environments, create `pypi` and `testpypi` with the maintainer as a required
+reviewer, so each upload also waits for an approval. The first upload creates
+the project; the pending publisher becomes its trusted publisher.
 
 ## Gates
 

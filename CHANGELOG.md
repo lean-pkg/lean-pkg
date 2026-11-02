@@ -38,6 +38,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   Wording that assumed one research group's setup is gone, and
   `scripts/private-boundary-check.sh` refuses its tooling names in the tree
   (a tree-only list; the release records keep their wording).
+- Packaging is ready for PyPI (#415): the long description is the new
+  `PYPI.md`, a short page whose links are all absolute (README.md's relative
+  links and images would break on PyPI); `project.urls`, keywords and
+  classifiers for Python 3.11 to 3.14; and a `Publish to PyPI` workflow, run
+  by hand only, that builds the sdist from a release tag and the wheel from
+  the unpacked sdist, checks both, and uploads through Trusted Publishing
+  (RELEASING.md, checklist step 8). Nothing is published yet.
 - `claims check` warns on a summary close to its limit (#412): a claim or manuscript-finding `summary` of 281 to 300
   characters passes with a `warn:` line, so a later small edit does not
   meet the 300-character refusal unannounced. `claims check --file` adds
