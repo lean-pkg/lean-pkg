@@ -389,6 +389,35 @@ def dump_claims(doc: dict) -> str:
                           allow_unicode=True, width=100)
 
 
+SUMMARY_LIMIT = 300      # a longer claim or finding summary is refused (_one_line)
+SUMMARY_WARN = 280       # LO-20261030-10: above this, `claims check` warns before the refusal
+
+
+def summary_length_warnings(doc) -> list[str]:
+    """WARN (never a failure) for each claim and manuscript-finding summary of SUMMARY_WARN + 1 to SUMMARY_LIMIT
+    characters (counted as _one_line counts them): still accepted, one small edit away from the refusal."""
+    out: list[str] = []
+    claims = doc.get("claims") if isinstance(doc, dict) else None
+    if not isinstance(claims, list):
+        return out
+
+    def check(s, where: str) -> None:
+        if isinstance(s, str) and s.strip() and "\n" not in s.strip() and SUMMARY_WARN < len(s) <= SUMMARY_LIMIT:
+            out.append(f"{where}.summary is {len(s)} characters, close to the {SUMMARY_LIMIT}-character limit "
+                       f"(a longer one is refused); shorten it to {SUMMARY_WARN} or fewer")
+
+    for i, c in enumerate(claims):
+        if not isinstance(c, dict):
+            continue
+        where = f"claims[{i}]" + (f" ({c['id']})" if isinstance(c.get("id"), str) else "")
+        check(c.get("summary"), where)
+        findings = c.get("manuscript_findings")
+        for j, f in enumerate(findings if isinstance(findings, list) else []):
+            if isinstance(f, dict):
+                check(f.get("summary"), f"{where}.manuscript_findings[{j}]")
+    return out
+
+
 def _one_line(s, limit: int = 300) -> bool:
     return isinstance(s, str) and bool(s.strip()) and "\n" not in s.strip() and len(s) <= limit
 
@@ -767,7 +796,8 @@ def do_claims_check(reg: dict, name: str | None) -> tuple[list[str], dict, int]:
         pkg = reg["packages"][n]
         claims = pkg.get("claims") or []
         commit = pkg.get("claims_synced_commit")
-        rep = {"name": n, "ok": True, "claims": len(claims), "failures": [], "notes": []}
+        rep = {"name": n, "ok": True, "claims": len(claims), "failures": [], "notes": [],
+               "warnings": summary_length_warnings({"claims": claims})}
         if not claims and commit is None and name is None:
             continue
         if name is not None:
@@ -798,11 +828,13 @@ def do_claims_check(reg: dict, name: str | None) -> tuple[list[str], dict, int]:
     lines = []
     for r in reports:
         lines.append(f"{'PASS' if r['ok'] else 'FAIL'} {r['name']} ({r['claims']} claim(s))")
-        lines += [f"  fail: {x}" for x in r["failures"]] + [f"  note: {x}" for x in r["notes"]]
+        lines += [f"  fail: {x}" for x in r["failures"]] + [f"  warn: {x}" for x in r["warnings"]] \
+            + [f"  note: {x}" for x in r["notes"]]
         if r.get("coverage") in ("none", "unsynced"):
             lines += coverage_lines(r["name"], r)
     lines.append(f"{len(reports)} package(s) checked: " + ("all pass" if ok else "FAILED"))
-    return lines, {"ok": ok, "packages": reports}, (0 if ok else 1)
+    warnings = [f"{r['name']}: {w}" for r in reports for w in r["warnings"]]
+    return lines, {"ok": ok, "packages": reports, "warnings": warnings}, (0 if ok else 1)
 
 
 def do_claims_check_file(path: str, name: str | None = None) -> tuple[list[str], dict, int]:
@@ -819,13 +851,19 @@ def do_claims_check_text(text: str, where: str, name: str | None = None) -> tupl
     `claims.yaml at <commit>` for verify's preflight)."""
     n, errors = schema_check_text(text, where, name)
     count = "?" if n is None else n
+    try:
+        warnings = summary_length_warnings(load_claims_text(text, where))
+    except core.Fail:                                  # unreadable: the schema check already says why
+        warnings = []
     if errors:
         lines = [f"FAIL {where}: {len(errors)} schema error(s) ({count} claim(s))"]
-        lines += [f"  fail: {e}" for e in errors]
+        lines += [f"  fail: {e}" for e in errors] + [f"  warn: {w}" for w in warnings]
         lines.append(f"FAIL {where}: fix the errors above before you commit the file you will gate")
     else:
-        lines = [f"PASS {where}: schema ok ({count} claim(s))"]
-    return lines, {"ok": not errors, "path": where, "claims": n, "errors": errors}, (1 if errors else 0)
+        lines = [f"PASS {where}: schema ok ({count} claim(s))" + (f", {len(warnings)} warning(s)" if warnings else "")]
+        lines += [f"  warn: {w}" for w in warnings]
+    return lines, {"ok": not errors, "path": where, "claims": n, "errors": errors, "warnings": warnings}, \
+        (1 if errors else 0)
 
 
 # --------------------------------------------------------------------------
@@ -1056,7 +1094,7 @@ def _with_reusable_warning(reg: dict, names: list, out: list[str], payload: dict
     """#6: WARN (never a failure) for each gated package with claims and none reusable."""
     from .claims_mark import no_reusable_warning
     warns = [w for n in names for w in [no_reusable_warning(n, reg["packages"][n])] if w]
-    payload = {**payload, "warnings": warns}
+    payload = {**payload, "warnings": list(payload.get("warnings") or []) + warns}
     lines = [f"WARN {w}" for w in warns]
     return ((out[:-1] + lines + out[-1:]) if last and out else out + lines), payload
 

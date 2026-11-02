@@ -9,6 +9,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Changed
+
+- `claims check` warns on a summary close to its limit (#412;
+  LO-20261030-10): a claim or manuscript-finding `summary` of 281 to 300
+  characters passes with a `warn:` line, so a later small edit does not
+  meet the 300-character refusal unannounced. `claims check --file` adds
+  `warnings[]` to `--json`; with `NAME`, each package's report and the
+  top-level `warnings[]` carry them. The refusal is unchanged.
+
 ## [0.24.0] - 2026-10-30
 
 ### Added
