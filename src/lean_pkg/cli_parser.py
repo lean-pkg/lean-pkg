@@ -755,6 +755,8 @@ def build_parser():
     receipt_mod.add_parsers(sub, add_json)
     from . import verify as verify_mod
     verify_mod.add_parsers(sub, add_json)
+    from . import seal_bundle as seal_bundle_mod
+    seal_bundle_mod.add_parsers(sub, add_json)
 
     from . import command_tree
     show_commit_flags_on_writes(ap)   # before the flag aliases: they annotate the help texts left shown

@@ -51,6 +51,9 @@ PACKAGE AUTHOR: evidence, publication, the catalog
                  on hits; publish --yes runs it)
   report         read-only: a redacted bug report in the repository's issue format; dry run unless
                  --yes (files it with gh issue create)
+  seal-bundle    render a hash-bound seal job bundle (job script, module lists, source archive,
+                 INPUT-SHA256SUMS) from lower-tier receipts and the package's template; --check
+                 DIR re-derives an existing bundle
 
 COORDINATION AND MAINTENANCE: shared registries, leases, the registry file
   lease          leases for agents sharing a registry: claim, renew, release, list (the old

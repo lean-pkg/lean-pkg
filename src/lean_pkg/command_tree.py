@@ -189,7 +189,7 @@ TIERS: dict[str, str] = {
     "register": "author", "update": "author", "record": "author", "gate": "author", "next": "author",
     "list": "author", "search": "author", "receipt": "author", "comparator": "author", "claims": "author",
     "coverage": "author", "formalization": "author", "palomar": "author", "reservoir": "author",
-    "blueprint": "author", "public-safety": "author", "report": "author",
+    "blueprint": "author", "public-safety": "author", "report": "author", "seal-bundle": "author",
     "lease": "coordination", "registry": "coordination", "repo": "coordination", "index": "coordination",
     "llms": "coordination",
 }

@@ -9,6 +9,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg seal-bundle` renders a seal job's bundle from receipts (#414;
+  LO-20261030-09): the package's job template filled with the commit and its
+  tree, the dependency revisions from `lake-manifest.json`, the module lists
+  (each umbrella's imports, which must equal its `.lean` files), the counts
+  read from each receipt's sealed verify log and the inline hashes, plus a
+  reproducible `source.tgz` and `INPUT-SHA256SUMS`. A second package's receipt
+  must have verified the bundled tree (only its `.lean-receipts/` may differ).
+  `--check DIR` re-derives an existing bundle and lists every difference.
+  Spec `seal-bundle/1`; writes only `--out`, never a receipt or the registry.
+
 ### Changed
 
 - `claims check` warns on a summary close to its limit (#412;

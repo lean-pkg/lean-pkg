@@ -84,6 +84,7 @@ registry adds [`lease claim`](lease-claim.md) before work. At any point
 | [`lean-pkg blueprint check`](blueprint-check.md) | run checkdecls on the blueprint's declaration list at HEAD and check claims.yaml against it; exit 0 nothing missing / 1; writes nothing |
 | [`lean-pkg public-safety`](public-safety.md) | read-only: scan the package's tree and git history for private patterns (exit 1 on hits; publish --yes runs it) |
 | [`lean-pkg report`](report.md) | read-only: a redacted bug report in the repository's issue format; dry run unless --yes (files it with gh issue create) |
+| [`lean-pkg seal-bundle`](seal-bundle.md) | render a hash-bound seal job bundle (job script, module lists, source archive, INPUT-SHA256SUMS) from lower-tier receipts and the package's template; --check DIR re-derives an existing bundle |
 
 ## COORDINATION AND MAINTENANCE: shared registries, leases, the registry file
 

@@ -347,6 +347,21 @@ lean-pkg receipt check:
   - cmd: lean-pkg receipt check --repo . --commit 0123456789abcdef0123456789abcdef01234567 --attested
     say: Also verify a GitHub Actions receipt's committed Sigstore bundle with gh attestation verify (level 3), which holds after the run's records expire.
 
+lean-pkg seal-bundle:
+  - cmd: lean-pkg seal-bundle --spec seal/seal-bundle.yaml --receipt main=.lean-receipts/0123456789ab-slurm-123.json --receipt contrib=contrib/.lean-receipts/0123456789ab-slurm-124.json --pilot seal/pilot.txt --note "the two-point bound" --out /tmp/seal-0123456
+    say: Render the bundle of a seal job (the package's template filled, the module lists, source.tgz, INPUT-SHA256SUMS) for the commit the main receipt verified; copy the directory to the cluster and submit its script.
+    output: |
+      seal-bundle: wrote /tmp/seal-0123456 (9 files; commit 0123456789ab, tree 89abcdef0123, main 12 module(s), contrib 5 module(s), NTHEOREMS_MAIN=140, NTHEOREMS_CONTRIB=35)
+        ...
+        note: contrib: the receipt's commit 0123456789ab has the bundled tree of contrib/ (apart from .lean-receipts/)
+        submit from a copy of /tmp/seal-0123456 on the cluster; nothing was written to the registry
+  - cmd: lean-pkg seal-bundle --spec seal/seal-bundle.yaml --receipt main=.lean-receipts/0123456789ab-slurm-123.json --receipt contrib=contrib/.lean-receipts/0123456789ab-slurm-124.json --check evidence/seal-0123456/inputs
+    say: Re-derive an existing (hand-made) bundle and list every file that differs, before a rendered one replaces it.
+    output: |
+      seal-bundle --check evidence/seal-0123456/inputs: PASS, 8/8 file(s) equal (commit 0123456789ab, tree 89abcdef0123, main 12 module(s), contrib 5 module(s), NTHEOREMS_MAIN=140, NTHEOREMS_CONTRIB=35)
+        note: modules-pilot.txt: taken from the checked bundle (a pilot list is a choice)
+        note: source.tgz: its hash is taken from the checked bundle's INPUT-SHA256SUMS (an archive made elsewhere is not rebuilt byte for byte; the script binds its tree)
+
 lean-pkg gate:
   - cmd: lean-pkg gate my-proof --receipt .lean-receipts/receipt.json --check
     say: Validate the receipt against HEAD and record nothing; exit 1 when gate would refuse it.
