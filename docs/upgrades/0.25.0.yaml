@@ -10,7 +10,7 @@ changes:
     kind: behavior
     area: claims
     summary: >-
-      #412: claims check warns (never fails) on a claim or manuscript-finding summary of 281 to 300
+      claims check warns (never fails) on a claim or manuscript-finding summary of 281 to 300
       characters, so a later small edit does not meet the 300-character refusal unannounced. claims check --file
       prints `warn:` lines and its --json gains warnings[]; with NAME each package's report and the top-level
       warnings[] carry them. The 300-character refusal is unchanged.
@@ -23,7 +23,7 @@ changes:
     kind: command
     area: seal-bundle
     summary: >-
-      #414: lean-pkg seal-bundle renders the bundle of a seal job (a later kernel replay, rebuild or
+      lean-pkg seal-bundle renders the bundle of a seal job (a later kernel replay, rebuild or
       audit of a commit a receipt verified) from the receipts, the commit and the package's own template: commit,
       tree, dependency revisions, module lists, counts from the sealed verify logs, inline hashes, a reproducible
       source.tgz and INPUT-SHA256SUMS. --check DIR re-derives an existing bundle and names each difference.
