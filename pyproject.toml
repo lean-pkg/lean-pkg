@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lean-pkg"
-version = "0.24.0"
+version = "0.25.0"
 description = "Lifecycle registry and trust gate for Lean 4 formalization packages: leases, receipt-bound gates, comparator (Palomar) evidence, one-way promotion."
 # PyPI renders the long description without the repository around it, so README.md's relative links and
 # images would break there: PYPI.md is a short page whose links are all absolute (tests/test_packaging.py).

@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-02
+
 ### Added
 
 - `lean-pkg seal-bundle` renders a seal job's bundle from receipts (#414):
@@ -50,6 +52,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   meet the 300-character refusal unannounced. `claims check --file` adds
   `warnings[]` to `--json`; with `NAME`, each package's report and the
   top-level `warnings[]` carry them. The refusal is unchanged.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.24.0] - 2026-10-30
 
