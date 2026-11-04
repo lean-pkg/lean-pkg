@@ -4,5 +4,19 @@
 # renames both files to the version it cuts, which make release-version prints.
 schema: lean-pkg-upgrade-record/1
 version: 0.26.0
-changes: []
+changes:
+  - pr: 418
+    id: types-namespace-relative-decl
+    kind: behavior
+    area: comparator config
+    summary: >-
+      comparator config --from-claims --challenge-from-type / --emit-script resolves a claim decl written
+      relative to its namespace (decl: baz inside namespace Demo) to the full constant name read from the
+      claim's file at HEAD, so Lean finds its type; the scaffold entry and the driver result carry it as
+      `name`, keyed by the unchanged `decl`. Before, every such claim was "unknown constant" and stayed TODO.
+    action: >-
+      Nothing. Re-run --challenge-from-type (or the emitted driver) for claims that stayed TODO with an
+      unknown constant. To have those claims credited as covered, write their full names in claims.yaml.
+    breaking: false
+    changelog: Fixed
 no_author_change: [417]

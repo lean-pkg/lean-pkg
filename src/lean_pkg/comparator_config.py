@@ -465,16 +465,26 @@ def do_config_from_claims(reg: dict, name: str, out: str, dry_run: bool, namespa
         from . import comparator_types as ct
         head = core.git_head(repo) or ""
         cfgd = None
+        # A decl written relative to its namespace (accepted by the declaration check) is asked of Lean by
+        # its full name, read from the claim's file at HEAD; the scaffold keeps it as `name`.
+        read = _reader(repo, head)
+        names = {}
+        for a, c in zip(added, sources, strict=False):
+            full = ct.resolve_decl(a["decl"], read(c["file"]) if isinstance(c.get("file"), str) else None)
+            if full != a["decl"]:
+                a["name"] = names[a["claim"]] = full
         if types.get("mode") in ("local", "emit"):
             jobs, timeout = ct.check_jobs_timeout(types.get("jobs"), types.get("timeout"))
-            cfgd = ct.driver_config(name, head, ct.lake_dir_rel(repo, types.get("lake_env")), sources, jobs, timeout)
+            cfgd = ct.driver_config(name, head, ct.lake_dir_rel(repo, types.get("lake_env")), sources, jobs, timeout,
+                                    names)
         if types.get("mode") == "emit":
-            decls = [{k: d[k] for k in ("decl", "claim", "module")} for d in cfgd["decls"]]
+            decls = [{k: d[k] for k in ("decl", "claim", "module", "name") if k in d} for d in cfgd["decls"]]
             path = ct.emit_path(repo, types["emit"])
             epay = {"ok": True, "name": name, "dry_run": dry_run, "script": str(path), "commit": head,
                     "decls": decls, "written": False, "claims_source": csource}
             elines = [summary, source_line(csource), f"{len(decls)} declaration(s) to elaborate at {head[:12]}:"] + \
-                [f"  {d['decl']}  ({d['module'] or 'no module: will be a type_error'})" for d in decls]
+                [f"  {d['decl']}" + (f" -> {d['name']}" if d.get("name") else "")
+                 + f"  ({d['module'] or 'no module: will be a type_error'})" for d in decls]
             if dry_run:
                 return elines + ["dry run: no driver written"], epay, None
             path.parent.mkdir(parents=True, exist_ok=True)

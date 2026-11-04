@@ -9,6 +9,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Fixed
+
+- `comparator config --from-claims --challenge-from-type` / `--emit-script`
+  found no type for a claim whose `decl` is written relative to its
+  namespace (`decl: baz` inside `namespace Demo`), which `claims sync`
+  accepts: Lean was asked for `baz` and answered "unknown constant" (a
+  package reported 0 of 46 filled). The scaffold now resolves such a decl,
+  from the claim's file at HEAD, to the one declaration whose qualified name
+  ends in it, asks Lean for that name, closes the Solution with
+  `exact @_root_.<full name>`, and records it as `name` beside `decl` (#418).
+  Crediting is unchanged: a claim counts as covered only with its fully
+  qualified `decl`.
+
 ## [0.25.0] - 2026-11-02
 
 ### Added

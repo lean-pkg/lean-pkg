@@ -898,3 +898,69 @@ def test_real_lean_printed_types_re_elaborate_to_the_original(tmp_path):
     have = res["Toy.have_app"]
     assert (have["status"], have["round_trip_exact"]) == ("ok", False) and "unexpected token" in \
         have["round_trip_exact_error"]
+
+
+# --- a decl written relative to its namespace (Article package field report, 2026-11-03) -------------------
+# `claims sync`'s declaration check looks only for a decl's last component in its file, so `decl: baz` for
+# `namespace Demo ... lemma baz` is accepted; the type driver asked Lean for `baz` and got "unknown constant"
+# for every such claim (0 of 46 filled). It now asks for the full name and keys the result by the decl.
+
+@pytest.mark.parametrize("decl,text,want", [
+    ("baz", LEAN, "Demo.baz"),                                             # relative to `namespace Demo`
+    ("Demo.baz", LEAN, "Demo.baz"),                                        # already full: unchanged
+    ("Inner.baz", "namespace A.Inner\ntheorem baz : True := trivial\nend A.Inner\n", "A.Inner.baz"),
+    ("top", "namespace N\ntheorem _root_.top : True := trivial\nend N\n", "top"),     # `_root_` kept
+    ("baz", "namespace A\ntheorem baz : True := trivial\nend A\nnamespace B\ntheorem baz : True := trivial\nend B\n",
+     "baz"),                                                               # ambiguous: left for Lean to report
+    ("gone", LEAN, "gone"),                                                # no such declaration
+    ("baz", None, "baz"),                                                  # file not readable at HEAD
+])
+def test_resolve_decl(decl, text, want):
+    from lean_pkg import comparator_types as ct
+    assert ct.resolve_decl(decl, text) == want
+
+
+def relative_claims():
+    doc = json.loads(json.dumps(CLAIMS))
+    for c in doc["claims"]:
+        if c["id"] == "beta/baz":
+            c["decl"] = "baz"                       # written relative to `namespace Demo`
+    return doc
+
+
+def test_relative_decl_is_elaborated_by_its_full_name(lp, env, fake_lake, tmp_path, capsys):
+    (env.repo_b / "lakefile.lean").write_text("import Lake\nopen Lake DSL\npackage beta\nlean_lib Demo\n")
+    commit_claims(env.repo_b, yaml.safe_dump(relative_claims(), sort_keys=False), lean=LEAN)
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 0   # the check accepts it
+    capsys.readouterr()
+    rc, cap = cc(lp, env, capsys, "--challenge-from-type", "--allow-partial", "--json")
+    assert rc == 0, cap.err
+    baz = todo_by_claim(env.repo_b)["beta/baz"]
+    assert baz["decl"] == "baz" and baz["name"] == "Demo.baz"
+    assert baz["type"] == "True" and baz["needs_restatement"] is False and "type_error" not in baz
+    assert baz["solution"].endswith("exact @_root_.Demo.baz")
+    asked = [json.loads(x)["args"][2] for x in (tmp_path / "lake.log").read_text().splitlines()]
+    assert asked, "the driver ran no Lean"
+    rts = [json.loads(x) for x in (tmp_path / "lake.log.rt").read_text().splitlines()]
+    assert any(r["decl"] == "Demo.baz" for r in rts)                      # the round trip names it fully
+    for other in ("beta/zap", "beta/wow"):                                 # already full: no `name` added
+        assert "name" not in todo_by_claim(env.repo_b)[other]
+
+
+def test_emit_lists_the_resolved_name(lp, env, fake_lake, tmp_path, capsys):
+    (env.repo_b / "lakefile.lean").write_text("import Lake\nopen Lake DSL\npackage beta\nlean_lib Demo\n")
+    commit_claims(env.repo_b, yaml.safe_dump(relative_claims(), sort_keys=False), lean=LEAN)
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "beta"]) == 0
+    capsys.readouterr()
+    script = tmp_path / "out" / "types.sh"
+    rc, cap = cc(lp, env, capsys, "--emit-script", str(script), "--json")
+    assert rc == 0, cap.err
+    decls = json.loads(cap.out)["decls"]
+    assert {"decl": "baz", "claim": "beta/baz", "module": "Demo.Main", "name": "Demo.baz"} in decls
+    assert all("name" not in d for d in decls if d["claim"] != "beta/baz")
+    rc, cap = cc(lp, env, capsys, "--emit-script", str(script))
+    assert rc == 0 and "  baz -> Demo.baz  (Demo.Main)" in cap.out
+    out = tmp_path / "types.json"
+    p = run_driver(env, script, out)
+    res = {r["decl"]: r for r in json.loads(out.read_text())["results"]}
+    assert res["baz"]["status"] == "ok" and res["baz"]["name"] == "Demo.baz", p.stderr

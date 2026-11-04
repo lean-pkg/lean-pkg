@@ -336,7 +336,22 @@ suffix gets no hint.
 `--challenge-from-type` fills each entry the scaffold adds with a starting
 point instead of two `TODO:` lines: the Challenge statement is the
 declaration's type as Lean pretty-prints it on the build host, and the
-Solution restates it and closes it with `exact @_root_.<decl>`:
+Solution restates it and closes it with `exact @_root_.<decl>`.
+
+A claim's `decl` may be written relative to its enclosing `namespace`
+(`decl: baz` for `namespace Demo ... lemma baz`): `claims sync` accepts it,
+since its declaration check looks only for the last component in the file.
+Lean needs the full name, so the scaffold reads the claim's file at HEAD and,
+when exactly one declaration there has a qualified name ending in `.baz`,
+asks Lean for that name (`Demo.baz`) and closes the Solution with
+`exact @_root_.Demo.baz`. The entry keeps the claim's `decl` and adds
+`name` (the full name); `--emit-script` lists it as `baz -> Demo.baz`, and the
+driver's result is still keyed by `decl`, with `name` beside it. No match, or
+more than one, leaves the name as written, and Lean reports it. This only
+finds the type: a configured theorem is still credited to a claim only when
+the claim's `decl` is the fully qualified name (above), so write the full name
+in `claims.yaml` for the claim to count as covered.
+
 
 ```json
 {
