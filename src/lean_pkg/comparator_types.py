@@ -50,6 +50,7 @@ import subprocess
 import tempfile
 
 from . import cli, gate as gate_mod
+from . import lean_scan
 from . import core
 from . import statements_module as stm
 
@@ -208,12 +209,15 @@ def one(entry, work, lake_dir, timeout):
     error), `resource` (the file table was exhausted: retried with fewer workers, an extraction error
     if it persists) or `extraction` (Lean did not run to completion: exit status, timeout, OS error)."""
     decl, module = entry["decl"], entry.get("module")
+    name = entry.get("name") or decl       # the full constant name; results stay keyed by the claim's decl
     res = {"decl": decl, "type": None, "status": "error", "error": None, "levels": [], "modules": [],
            "rc": None, "failure": "extraction"}
+    if name != decl:
+        res["name"] = name
     if not module:
         res.update(error="no Lean module for the claim's file " + str(entry.get("file")), failure="declaration")
         return res
-    src = SNIPPET.replace("__IMPORTS__", "import " + lean_ident(module)).replace("__NAME__", lean_name(decl))
+    src = SNIPPET.replace("__IMPORTS__", "import " + lean_ident(module)).replace("__NAME__", lean_name(name))
     f = pathlib.Path(work) / ("d%05d.lean" % entry["index"])
     try:
         f.write_text(src, encoding="utf-8")
@@ -271,10 +275,10 @@ def rt_attempt(res, typ, entry, module, work, lake_dir, timeout, n, classical):
     """One round-trip run of the printed text `typ` -> (outcome, fields, output); outcome is exact,
     defeq, failed or abort (timed out, OS error, file table exhausted: not a verdict on the text)."""
     src = (ROUNDTRIP.replace("__IMPORTS__", "import " + lean_ident(module))
-           .replace("__DECL__", res["decl"])
+           .replace("__DECL__", res.get("name") or res["decl"])
            .replace("__UNIVERSES__", ("universe " + " ".join(res["levels"])) if res["levels"] else "")
            .replace("__LEVELS__", (".{" + ", ".join(res["levels"]) + "}") if res["levels"] else "")
-           .replace("__IDENT__", lean_ident(res["decl"]))
+           .replace("__IDENT__", lean_ident(res.get("name") or res["decl"]))
            .replace("__TYPE__", typ.replace("\n", "\n      ")))
     if classical:
         src = src.replace("set_option autoImplicit false\n", "set_option autoImplicit false\n" + CLASSICAL)
@@ -641,13 +645,38 @@ def module_of(file: object, lake_rel: str) -> str | None:
     return ".".join(parts) if parts and all(parts) else None
 
 
+def resolve_decl(decl: str, text: str | None) -> str:
+    """The full constant name of a claim's `decl` in its file's text: `decl` itself when a declaration there
+    has exactly that qualified name, else the one declaration whose qualified name ends in `.decl` (a decl
+    written relative to its enclosing `namespace`, which `claims sync`'s declaration check accepts, since it
+    looks only for the last component). Unchanged when the file is unreadable, nothing matches, or several
+    declarations match: Lean then reports the name it was given. Namespaces as lean_scan.declarations tracks
+    them (one scope per component, `_root_.` names unprefixed)."""
+    if text is None or not DECL_RE.match(decl):
+        return decl
+    try:
+        quals = {q for _line, _kw, q, _doc, _src, _written in lean_scan.declarations(text)}
+    except lean_scan.ScanError:
+        return decl
+    if decl in quals:
+        return decl
+    hits = sorted(q for q in quals if q.endswith("." + decl))
+    return hits[0] if len(hits) == 1 else decl
+
+
 def driver_config(name: str, head: str, lake_rel: str, claims: list[dict], jobs: int | None,
-                  timeout: int) -> dict:
+                  timeout: int, names: dict[str, str] | None = None) -> dict:
+    """`names`: claim id -> the resolved constant name (resolve_decl), where it differs from the claim's
+    decl; the driver asks Lean for that name and keys its result by the decl."""
     decls = []
     for c in claims:
         decl = str(c.get("decl") or "")
-        decls.append({"decl": decl, "claim": str(c.get("id") or ""), "file": c.get("file"),
-                      "module": module_of(c.get("file"), lake_rel) if DECL_RE.match(decl) else None})
+        d = {"decl": decl, "claim": str(c.get("id") or ""), "file": c.get("file"),
+             "module": module_of(c.get("file"), lake_rel) if DECL_RE.match(decl) else None}
+        full = (names or {}).get(d["claim"])
+        if full and full != decl:
+            d["name"] = full
+        decls.append(d)
     return {"schema": SCHEMA, "package": name, "commit": head, "lake_dir": lake_rel, "jobs": jobs,
             "default_jobs": DEFAULT_JOBS, "timeout": timeout, "snippet": LEAN_SNIPPET,
             "roundtrip_snippet": ROUNDTRIP_SNIPPET, "decls": decls}
@@ -826,5 +855,5 @@ def fill(entry: dict, result: dict | None, summary: str, source: str, statements
         entry["restatement_reason"] = reason
     entry["challenge"] = challenge
     entry["solution"] = (f"{opens}{head} :\n    {body.replace(chr(10), chr(10) + '    ')} := by\n"
-                         f"  exact @_root_.{decl}")
+                         f"  exact @_root_.{entry.get('name') or decl}")
     return entry
