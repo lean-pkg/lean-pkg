@@ -61,4 +61,17 @@ changes:
       because coverage/1 is strict), so raise the lean-pkg pin of its CI before committing them.
     breaking: false
     changelog: Added
+  - pr: 423
+    id: status-recorded-commit
+    kind: behavior
+    area: status
+    summary: >-
+      status's scope.gate gains recorded_commit (from the latest gate-passed/regated event for gate.receipt)
+      and commit_source (checkout|recorded|null); without a readable receipt in a checkout, the text names the
+      recorded commit, labelled "recorded by the gate; ... not checked against one", instead of "unreadable".
+    action: >-
+      Nothing. A script that read history[-1].commit for this should read scope.gate.recorded_commit; commit
+      and readable are unchanged.
+    breaking: false
+    changelog: Added
 no_author_change: [417]
