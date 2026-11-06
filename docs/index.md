@@ -86,7 +86,7 @@ many independent research repositories:
 <img src="assets/global-registry.svg" alt="Architecture diagram: one private global registry coordinates many independent Lean project repositories; a chosen public snapshot can later flow through index review into the lean-pkg public index" style="max-width:100%;height:auto">
 
 ```bash
-pipx install git+https://github.com/lean-pkg/lean-pkg.git
+pipx install lean-pkg
 mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init
 lean-pkg --registry ~/.lean-pkg/registry/lean-packages.yaml registry init

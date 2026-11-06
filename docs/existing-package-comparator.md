@@ -61,7 +61,7 @@ access to it.
 
 ```bash
 gh auth setup-git
-pipx install git+https://github.com/lean-pkg/lean-pkg.git
+pipx install lean-pkg
 lean-pkg --version                                  # 0.4.1 or later
 git clone https://github.com/lean-pkg/lean-pkg.git ~/src/lean-pkg
 git clone https://github.com/<owner>/<package>.git ~/src/<package>

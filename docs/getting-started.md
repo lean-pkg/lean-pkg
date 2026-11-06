@@ -11,14 +11,16 @@ requirement for package provenance: receipts bind to Git commits and several
 checks inspect Git ancestry and working-tree state.
 
 ```bash
-pipx install git+https://github.com/lean-pkg/lean-pkg.git
+pipx install lean-pkg
 # or
-uv tool install git+https://github.com/lean-pkg/lean-pkg.git
+uv tool install lean-pkg
 # or, from a checkout, for development
 python3 -m pip install -e '.[test]'
 ```
 
-The repository is public, so the `https` URL needs no GitHub credentials.
+lean-pkg is on PyPI (<https://pypi.org/project/lean-pkg/>) from 0.25.0. To
+run the newest unreleased code, install from Git instead:
+`pipx install git+https://github.com/lean-pkg/lean-pkg.git`.
 The documentation site is <https://lean-pkg.github.io/lean-pkg/>; the same
 pages are the Markdown files under `docs/`. `lean-pkg doctor` exits 1 until
 a registry exists (see below); that is expected on a fresh install.

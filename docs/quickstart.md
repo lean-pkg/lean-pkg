@@ -34,7 +34,7 @@ The same path with a real theorem, every step explained for a mathematician:
 ```bash
 curl https://elan.lean-lang.org/elan-init.sh -sSf | sh -s -- -y   # elan, Lean's installer (skip if `elan --version` works)
 source ~/.elan/env                                                 # or open a new terminal
-pipx install git+https://github.com/lean-pkg/lean-pkg.git        # or: uv tool install ..., pip install ...
+pipx install lean-pkg                                              # or: uv tool install lean-pkg, pip install lean-pkg
 lean-pkg doctor                                                    # what this machine has; `n/a registry: none yet` is expected
 lean-pkg comparator host-check                                     # exit 0: this machine can judge
 ```
