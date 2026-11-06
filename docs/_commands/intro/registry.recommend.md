@@ -9,11 +9,13 @@ receipt producers `receipt slurm`, `systemd`, `ci` and `comparator`, outside the
 then prints one line on stderr:
 
 ```text
-lean-pkg: notice: this is lean-pkg 0.22.0; the registry recommends 0.23.0 (upgrade: pipx install --force 'git+https://github.com/lean-pkg/lean-pkg.git@v0.23.0')
+lean-pkg: notice: this is lean-pkg 0.24.0; the registry recommends 0.25.0 (upgrade: pipx install --force 'lean-pkg==0.25.0')
 ```
 
-The upgrade route is `git -C <checkout> pull --ff-only` for an editable install (a git checkout), else the
-documented `pipx` install pinned to the recommended release's tag. It is never a refusal and never changes the
+The upgrade route is `git -C <checkout> pull --ff-only` for an editable install (a git checkout), else a
+`pipx` install pinned to the recommended release: `pipx install --force 'lean-pkg==X.Y.Z'` from PyPI for 0.25.0
+and later, and for an older recommendation (not on PyPI) its git tag,
+`pipx install --force 'git+https://github.com/lean-pkg/lean-pkg.git@vX.Y.Z'`. It is never a refusal and never changes the
 exit code, output or JSON otherwise; a registry write's `--json` payload gains `lean_pkg_skew` {`running`,
 `recommended`}, absent when the running lean-pkg is not older. The check reads only the registry: no network.
 Read-only commands stay silent; `doctor` shows the same comparison as its `recommended` line.

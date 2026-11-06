@@ -19,6 +19,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   getting-started keeps the Git URL for running unreleased code. Lines that
   pin an older version (receipts.md's job install, page.md's CI example) and
   the upgrade notice of `registry recommend` are unchanged.
+- The upgrade notice of `registry recommend` (and doctor's `recommended`
+  line) installs from PyPI (#422): for a recommended release of 0.25.0 or
+  later the route is `pipx install --force 'lean-pkg==X.Y.Z'`, not
+  `pipx install --force 'git+https://github.com/lean-pkg/lean-pkg.git@vX.Y.Z'`.
+  A recommendation before 0.25.0, which is not on PyPI, keeps the git-tag
+  route, and an editable install keeps `git -C <checkout> pull --ff-only`.
 
 ### Fixed
 

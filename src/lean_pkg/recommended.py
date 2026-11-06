@@ -42,6 +42,8 @@ EVENT = "registry-recommended"
 VERSION_RE = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)")
 _LEADING_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 INSTALL_URL = "git+https://github.com/lean-pkg/lean-pkg.git"
+# The first release on PyPI. An older recommendation exists only as a git tag, so its route keeps INSTALL_URL.
+FIRST_ON_PYPI = (0, 25, 0)
 # The receipt producers' forms that write nothing (a template, a preflight, an estimate, a read of attempts).
 _RECEIPT_READ_ONLY_FLAGS = ("template", "check", "preflight_deps", "estimate")
 # The notices printed during the current top-level invocation: `verify` runs its steps (receipts, the gate) as
@@ -95,7 +97,8 @@ def skew(data, running: str | None = None) -> dict | None:
 
 def upgrade_route(rec: str) -> str:
     """How to upgrade, offline: `git -C <checkout> pull --ff-only` for an editable install (a git checkout),
-    else the documented pipx install pinned to the recommended release's tag."""
+    else a pipx install pinned to the recommended release: `lean-pkg==X.Y.Z` from PyPI from 0.25.0 on, the
+    release's git tag before that (those releases are not on PyPI)."""
     from . import cli   # install_detect lives there; cli imports this module only inside functions
     try:
         info = cli.install_detect(cli.package_dir())
@@ -103,6 +106,8 @@ def upgrade_route(rec: str) -> str:
         info = {"install": "unknown"}
     if info.get("install") == "editable":
         return f"git -C {shlex.quote(str(info['path']))} pull --ff-only"
+    if (parse(rec) or (0, 0, 0)) >= FIRST_ON_PYPI:
+        return f"pipx install --force 'lean-pkg=={rec}'"
     return f"pipx install --force '{INSTALL_URL}@v{rec}'"
 
 
