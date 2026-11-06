@@ -282,11 +282,13 @@ def bwrap_probe() -> tuple[str, str]:
 
 
 def host_checks() -> dict:
-    """{"checks": [{"item", "level" ok|warn|fail, "detail"}], "mechanisms": {"toolchain": bool,
+    """{"checks": [{"item", "level" ok|warn|fail, "detail", "required_by"}], "mechanisms": {"toolchain": bool,
     "legacy": bool}, "mechanism_detail": {m: {"ok", "needs", "failing", "palomar"}}, "can": bool,
     "palomar": bool, "verdict": str, "env_warnings": [names]}. Read-only. A mechanism is usable only
     when every one of its own requirements holds; the verdict names only those (#23.4). env_warnings
-    lists the repository-selecting Git variables set in the calling environment (#27; a warn check)."""
+    lists the repository-selecting Git variables set in the calling environment (#27; a warn check).
+    required_by lists the mechanisms whose requirements include the check ([] for an advisory check), so a
+    reader can tell a legacy-only failure from one that blocks the Palomar mechanism."""
     import platform
     checks: list[dict] = []
 
@@ -335,6 +337,8 @@ def host_checks() -> dict:
     by_item = {c["item"]: c for c in checks}
     needs = {"toolchain": ("kernel", "bwrap") + TOOLCHAIN_TOOLS_ON_PATH,
              "legacy": ("kernel", "landlock") + LEGACY_TOOLS}
+    for c in checks:
+        c["required_by"] = [m for m in ("toolchain", "legacy") if c["item"] in needs[m]]
     detail_by: dict = {}
     for m, items in needs.items():
         failing = [f"{i}: {by_item[i]['detail']}" for i in items if by_item[i]["level"] == "fail"]

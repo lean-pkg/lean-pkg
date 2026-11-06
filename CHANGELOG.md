@@ -42,6 +42,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   the checks `--regate` adds (status verified-private or public; the
   receipt's commit descends from the gated commit, or `--reason`), shown as
   a `regate:` line, and writes nothing. Help text only.
+- `comparator host-check` no longer reads like a failure on a judge-only
+  host (#425): when the `toolchain` mechanism (what Palomar runs) is usable,
+  a check only the `legacy` mechanism needs that is not `ok` prints as
+  `n/a ITEM: DETAIL (only the legacy mechanism needs it; toolchain is ok)`
+  (a missing `cargo`, a low Landlock ABI), and a failing legacy mechanism as
+  `mechanism legacy: n/a (not Palomar-predictive; not needed here: toolchain
+  is ok): ...`. With toolchain failing, nothing changes. Text only: in
+  `--json` every check keeps its `level` and gains `required_by`, the
+  mechanisms that need it (`[]` for an advisory check such as `lake-path`).
+  The verdict and exit code are unchanged.
 
 - The install docs use PyPI (#421): lean-pkg is on PyPI from 0.25.0, so
   README.md, the quickstart, getting-started, the documentation index, the

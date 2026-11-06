@@ -74,4 +74,18 @@ changes:
       and readable are unchanged.
     breaking: false
     changelog: Added
+  - pr: 425
+    id: host-check-legacy-na
+    kind: behavior
+    area: comparator host-check
+    summary: >-
+      With the toolchain mechanism usable, comparator host-check prints a check only the legacy mechanism
+      needs that is not ok (a missing cargo, a low Landlock ABI) as n/a, and a failing legacy mechanism as
+      `mechanism legacy: n/a (... not needed here: toolchain is ok)`; --json checks[] keep their level and gain
+      required_by [toolchain|legacy]. Verdict and exit code unchanged.
+    action: >-
+      Nothing. A script that grepped the text for "fail cargo" or "mechanism legacy: fail" to judge a host
+      reads the verdict line or --json (mechanisms, checks[].required_by) instead.
+    breaking: false
+    changelog: Changed
 no_author_change: [417, 424]

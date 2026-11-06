@@ -61,7 +61,7 @@ OTHER_AREAS = frozenset({
     "index add", "index check", "index render", "index entries", "blueprint", "stacks", "comparator check",
     "comparator config --coverage and --from-claims", "comparator config", "tests", "docs (receipts recipe)",
     "repo export", "publish", "search", "lean-exercise", "palomar port-modules",
-    "palomar prepare", "seal-bundle", "install", "coverage"})
+    "palomar prepare", "seal-bundle", "install", "coverage", "comparator host-check"})
 
 UNKNOWN_NOTE = ("the receipt records no `producer` (written before receipts recorded it, or by `receipt systemd` "
                 "without --run)")
