@@ -37,6 +37,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- `gate --help` says what `--check --regate` does (#424), the combination
+  `next` recommends: `--regate`'s entry adds that with `--check` it also runs
+  the checks `--regate` adds (status verified-private or public; the
+  receipt's commit descends from the gated commit, or `--reason`), shown as
+  a `regate:` line, and writes nothing. Help text only.
+
 - The install docs use PyPI (#421): lean-pkg is on PyPI from 0.25.0, so
   README.md, the quickstart, getting-started, the documentation index, the
   comparator and pi-lambda walkthroughs, the trust model and the agent

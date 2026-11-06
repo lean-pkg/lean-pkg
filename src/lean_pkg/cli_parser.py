@@ -513,7 +513,10 @@ def build_parser():
     s.add_argument("--regate", action="store_true",
                    help="re-gate a verified-private (or public) package on a new receipt in one step: event "
                         "regated {previous_commit, commit, job_id, reason}, status unchanged; the receipt's "
-                        "commit must descend from the gated commit unless --reason is given")
+                        "commit must descend from the gated commit unless --reason is given; with --check: "
+                        "also runs the checks --regate adds (status verified-private or public; the receipt's "
+                        "commit descends from the gated commit, or --reason is given), shown as a `regate:` "
+                        "line (JSON regate {previous_commit, non_descendant}), and writes nothing")
     s.add_argument("--reason", default=None, metavar="TEXT",
                    help="with --regate: accept a receipt commit that does not descend from the gated commit "
                         "(recorded with non_descendant: true)")
