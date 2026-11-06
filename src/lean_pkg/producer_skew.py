@@ -30,8 +30,9 @@ writers and readers (receipts, receipt slurm, receipt check, comparator receipts
 the gate, and what turns evidence into credited claims (claims, claims ledger, claims mark, coverage check,
 lean-pkg-signoff.json, palomar check, verify). OTHER_AREAS are the components that do not (the page and its
 renderers, the CLI surface, the registry, the index, scaffolding, diagnostics, docs and tests, and palomar
-prepare: its bundle copies the receipts, judged by the gate's own validators, and adds documentation; and
-seal-bundle, which writes a later job's inputs from receipts and never a receipt).
+prepare: its bundle copies the receipts, judged by the gate's own validators, and adds documentation;
+seal-bundle, which writes a later job's inputs from receipts and never a receipt; and coverage, the keys of
+coverage.yaml that describe a row and credit no claim, such as proposal 0010's conclusion).
 tests/test_producer_skew.py fails when a record uses a component in neither list, so a new area is
 classified when it first appears.
 """
@@ -60,7 +61,7 @@ OTHER_AREAS = frozenset({
     "index add", "index check", "index render", "index entries", "blueprint", "stacks", "comparator check",
     "comparator config --coverage and --from-claims", "comparator config", "tests", "docs (receipts recipe)",
     "repo export", "publish", "search", "lean-exercise", "palomar port-modules",
-    "palomar prepare", "seal-bundle"})
+    "palomar prepare", "seal-bundle", "coverage"})
 
 UNKNOWN_NOTE = ("the receipt records no `producer` (written before receipts recorded it, or by `receipt systemd` "
                 "without --run)")
