@@ -9,6 +9,23 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `coverage.yaml` paper rows may say how their Lean conclusion relates to
+  the paper's (proposal 0010, #419): `conclusion: full | weaker |
+  special-case` (absent means `full`) and `conclusion_scope`, one line saying
+  what the Lean proves (required for `weaker` and `special-case`, refused
+  otherwise; both refused on an `outside` row and on a library row). The
+  class still names only the hypotheses. `lean-pkg page` never calls a
+  verified weaker or special-case result the bare "Verified.": it says
+  "Verified: a weaker statement." or "Verified: a special case.", adds a
+  "Conclusion." line with the scope (also in `--site` and `--html`), and the
+  header's verified line counts them; `coverage check --json` gains
+  `conclusions` and `page --json` `verified_conclusions`. The schema string
+  stays `coverage/1`: nothing changes for files without the keys, and a file
+  that uses them needs this release or later (an older lean-pkg refuses
+  them). See docs/page.md, "A weaker conclusion or a special case".
+
 ### Changed
 
 - The install docs use PyPI (#421): lean-pkg is on PyPI from 0.25.0, so

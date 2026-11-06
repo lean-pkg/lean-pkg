@@ -43,4 +43,22 @@ changes:
       Nothing. A script that matched the notice's `git+https://...@vX.Y.Z` text matches `lean-pkg==X.Y.Z` too.
     breaking: false
     changelog: Changed
+  - pr: 419
+    id: coverage-conclusion-strength
+    kind: format
+    area: coverage, page
+    summary: >-
+      Proposal 0010: a paper row of coverage/1 may carry conclusion (full, weaker or special-case; absent means
+      full) and conclusion_scope (one line, what the Lean proves relative to the paper's result: required for
+      weaker and special-case, refused otherwise; both refused on an outside row and on a library row). The
+      class still names the hypotheses only. page never calls a verified weaker or special-case result the bare
+      "Verified.": it says "Verified: a weaker statement." or "Verified: a special case.", adds a "Conclusion."
+      line with the scope and counts them in the header's verified line; coverage check --json gains
+      conclusions and page --json gains verified_conclusions. The schema string stays coverage/1.
+    action: >-
+      Nothing for files without the keys: they validate and render byte for byte as before. A coverage.yaml that
+      uses conclusion or conclusion_scope needs this release or later (an older lean-pkg refuses the keys,
+      because coverage/1 is strict), so raise the lean-pkg pin of its CI before committing them.
+    breaking: false
+    changelog: Added
 no_author_change: [417]

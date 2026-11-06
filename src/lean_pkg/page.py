@@ -626,7 +626,38 @@ def _only_uncompared(r: dict, by_id: dict) -> bool:
         and all(d.get("code") in UNCOMPARED_CODES for d in x["diagnostics"]) for x in pending)
 
 
-def _status_line(word: str, compared: bool, conditional: str | None = None, uncompared: bool = False) -> str:
+# proposal 0010: the status word of a verified row whose Lean conclusion is not the paper's, and the
+# Conclusion line's lead; a row without `conclusion` (or with `full`) keeps the bare word, byte for byte
+VERIFIED_HEAD = {"weaker": "**Verified: a weaker statement.**", "special-case": "**Verified: a special case.**"}
+CONCLUSION_LEAD = {"weaker": "A weaker statement than the paper's", "special-case": "A special case of the paper's result"}
+CONCLUSION_CELL = {"weaker": "Weaker conclusion", "special-case": "Special case"}
+
+
+def _conclusion(r: dict) -> str | None:
+    """'weaker' or 'special-case' for a paper row that says its Lean conclusion is not the paper's (proposal
+    0010); None for full or absent, and for a library row (which refuses the key)."""
+    c = r.get("conclusion")
+    return c if c in VERIFIED_HEAD else None
+
+
+def _status_line(word: str, compared: bool, conditional: str | None = None, uncompared: bool = False,
+                 conclusion: str | None = None) -> str:
+    line = _bare_status_line(word, compared, conditional, uncompared)
+    if word == "verified" and conclusion in VERIFIED_HEAD and line.startswith("**Verified.**"):
+        line = VERIFIED_HEAD[conclusion] + line[len("**Verified.**"):]     # proposal 0010: never the bare word
+    return line
+
+
+def _conclusion_line(r: dict) -> list[str]:
+    """Proposal 0010: the **Conclusion.** paragraph of a weaker or special-case row, whatever its status; []
+    otherwise, so a row without the key renders as before."""
+    c = _conclusion(r)
+    if c is None:
+        return []
+    return [f"**Conclusion.** {CONCLUSION_LEAD[c]}: {_md(r['conclusion_scope'])}", ""]
+
+
+def _bare_status_line(word: str, compared: bool, conditional: str | None = None, uncompared: bool = False) -> str:
     if word == "conditional" and conditional:       # proposal 0003: never the word verified alone
         checks = ("every check of this result passed (the build, and the statement comparison)" if compared else
                   "every check that applies to this result passed (the build; its statement was not compared by "
@@ -794,7 +825,8 @@ def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, statement: str 
     sts = [_lean_statement(ctx, cid) for cid in r.get("claims") or []]
     compared = _row_compared(ctx, sts)
     cond = _conditional_text(ctx, r, by_id) if word == "conditional" else None
-    md = [f"### {heading}", "", _status_line(word, compared, cond, _only_uncompared(r, by_id)), "", *_internal_line(r, by_id)]
+    md = [f"### {heading}", "", _status_line(word, compared, cond, _only_uncompared(r, by_id), _conclusion(r)), "",
+          *_conclusion_line(r), *_internal_line(r, by_id)]
     if not ctx["library"]:
         md += ["**In the paper.**" + ("" if statement else " The statement is not quoted here; read it in the "
                                                           "paper."), ""]
@@ -867,6 +899,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
                "cannot check them until a version is posted.", ""]
     md += [_md(doc["summary"], lead=True), ""]
     blocks, words, n_compared = [], [], 0
+    weak = {c: 0 for c in VERIFIED_HEAD}                # proposal 0010: verified rows by conclusion
     for r in doc["rows"]:
         if ctx["library"]:
             b, w, c = _result_block(ctx, r, by_id, _md(r["title"], lead=True), r.get("statement"), None)
@@ -879,6 +912,8 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
         blocks += b
         words.append(w)
         n_compared += w == "verified" and c
+        if w == "verified" and _conclusion(r):
+            weak[_conclusion(r)] += 1
     n_verified = sum(w == "verified" for w in words)
     n_cond = sum(w == "conditional" for w in words)
     cond = f"; conditional (proved under the assumptions each names): {n_cond}" if n_cond else ""
@@ -901,7 +936,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
                f"- Results listed: {len(doc['rows'])}. In Lean with the paper's own hypotheses: "
                f"{counts['same-assumptions']}; in Lean with extra hypotheses, named below: "
                f"{counts['inputs-supplied']}; not formalized: {counts['outside']}.",
-               f"- Verified: {n_verified} of the {formal} result(s) in Lean{also}{cond}.", ""]
+               f"- Verified: {n_verified} of the {formal} result(s) in Lean{also}{_weaker_clause(weak)}{cond}.", ""]
         md += ["## The paper's results in Lean", "", *blocks]
         md += ["## Not formalized", ""]
         outside = [r for r in doc["rows"] if r["class"] == "outside"]
@@ -911,7 +946,19 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
         else:
             md.append(f"Nothing in the manuscript is excluded: {_md(doc['nothing_excluded']['reason'])}")
         md.append("")
-    return _body_rest(ctx, target, md, counts, n_verified, n_cond if keyed else None)
+    concl = weak if any("conclusion" in r for r in doc["rows"]) and not ctx["library"] else None
+    return _body_rest(ctx, target, md, counts, n_verified, n_cond if keyed else None, concl)
+
+
+def _weaker_clause(weak: dict[str, int]) -> str:
+    """Proposal 0010: how many verified results prove a weaker statement or a special case; '' when none."""
+    parts = []
+    if weak["weaker"]:
+        parts.append(f"{weak['weaker']} prove(s) a weaker statement than the paper's")
+    if weak["special-case"]:
+        parts.append(f"{weak['special-case']} a special case of it" if parts else
+                     f"{weak['special-case']} prove(s) a special case of the paper's result")
+    return f"; of the verified, {' and '.join(parts)}" if parts else ""
 
 
 def _claim_axioms_lines(value) -> list[str]:
@@ -980,7 +1027,7 @@ def _stack_lines(doc: dict, repo, warnings: list[str]) -> list[str]:
 
 
 def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_verified: int,
-               n_conditional: int | None = None) -> tuple[list[str], dict]:
+               n_conditional: int | None = None, conclusions: dict | None = None) -> tuple[list[str], dict]:
     """What the checks establish, How this was checked, and the citation, license and acknowledgments."""
     name, pkg, repo, doc = (ctx[k] for k in ("name", "pkg", "repo", "doc"))
     lower, comp, gate, cite, led = ctx["lower"], ctx["comp"], ctx["gate"], ctx["cite"], ctx["led"]
@@ -1125,6 +1172,8 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
     facts = {"rows": len(doc["rows"]), "counts": counts, "verified_rows": n_verified,
              # proposal 0003: only when a claim uses the keys, so every other page's facts are unchanged
              **({"conditional_rows": n_conditional} if n_conditional is not None else {}),
+             # proposal 0010: only when a row carries `conclusion`, so every other page's facts are unchanged
+             **({"verified_conclusions": conclusions} if conclusions is not None else {}),
              "ledger_status": pstatus, "ledger_digest": led["ledger_digest"],
              "private_manuscript": kind == "unposted", "manuscript": kind,
              # issue 396, additive: the record's paper.status, and the note when an unposted manuscript is a
@@ -1204,7 +1253,9 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
            "|---|---|---|---|---|---|---|---|"]
     for r in doc["rows"]:
         ids = list(r.get("claims") or [])
-        md.append(f"| {_md(r['paper']['number'])} | {_md(r['paper']['title'])} | {cov.CLASS_GLOSS[r['class']]} | "
+        gloss = cov.CLASS_GLOSS[r["class"]] + (f"<br>{CONCLUSION_CELL[_conclusion(r)]}: {_md(r['conclusion_scope'])}"
+                                               if _conclusion(r) else "")
+        md.append(f"| {_md(r['paper']['number'])} | {_md(r['paper']['title'])} | {gloss} | "
                   f"{'<br>'.join(f'`{_code(c)}`' for c in ids) or '—'} | "
                   f"{'<br>'.join(_decl_ref(claims[c], c, ctx['link_base']) for c in ids) or '—'} | "
                   f"{'<br>'.join(_status_cells(r, by_id)) or '—'} | "
