@@ -26,6 +26,9 @@ formalized" list and the status capsule from it; this module only parses and val
                                                  # may be {hypothesis: Name, text: TEXT} (proposal 0003): an
                                                  # assumption in the hypotheses of a claim the row names
         note: TEXT                               # optional
+        conclusion: full | weaker | special-case # optional (proposal 0010); absent means full; not on outside
+        conclusion_scope: TEXT                   # one line, what the Lean proves relative to the paper's result:
+                                                 # required for weaker and special-case, refused otherwise
     nothing_excluded: {reason: TEXT}             # only when no row is outside
     compute:                                     # optional: where the gates ran
       - cluster: easley
@@ -54,7 +57,9 @@ main results, named by its Lean declarations:
 
 Strict: unknown or missing keys, values outside the closed enums and duplicate mapping keys are
 refused. Classes: `same-assumptions` (the Lean statement carries the paper's hypotheses),
-`inputs-supplied` (it takes the named `inputs` as hypotheses), `outside` (no Lean counterpart).
+`inputs-supplied` (it takes the named `inputs` as hypotheses), `outside` (no Lean counterpart). A class
+names the hypotheses only; `conclusion` (proposal 0010) names the conclusion, independently: `full` (the
+paper's), `weaker` or `special-case`, the last two with a `conclusion_scope` line.
 """
 
 from __future__ import annotations
@@ -87,9 +92,12 @@ LIBRARY_NO_PAPER = {
     "nothing_excluded": "nothing_excluded: states that nothing of a manuscript is excluded, and a library "
                         "coverage (kind: library) has no manuscript; drop it",
 }
-LIBRARY_ROW_NO_PAPER = ("paper", "class", "inputs")
+LIBRARY_ROW_NO_PAPER = ("paper", "class", "inputs", "conclusion", "conclusion_scope")
 ROW_REQUIRED = ("paper", "class")
-ROW_OPTIONAL = ("claims", "inputs", "note")
+ROW_OPTIONAL = ("claims", "inputs", "note", "conclusion", "conclusion_scope")
+# proposal 0010: how a paper row's Lean conclusion relates to the paper's; an absent key means full
+CONCLUSIONS = ("full", "weaker", "special-case")
+SCOPED_CONCLUSIONS = ("weaker", "special-case")
 INPUT_KEYS = ("hypothesis", "text")             # an inputs entry that names a hypothesis (proposal 0003, H2)
 PAPER_REQUIRED = ("number", "title")
 PAPER_OPTIONAL = ("label", "statement")
@@ -465,6 +473,7 @@ def _paper_rows_errors(doc: dict, errors: list[str]) -> None:
         inputs = _inputs_list(r.get("inputs"), f"{w}.inputs", errors)
         if "note" in r and not _text(r["note"]):
             errors.append(f"{w}.note: must be one line of at most {TEXT_MAX} characters")
+        _conclusion_errors(r, cls, w, errors)
         if cls == "outside":
             n_outside += 1
             if claims:
@@ -489,6 +498,41 @@ def _paper_rows_errors(doc: dict, errors: list[str]) -> None:
     elif rows and not n_outside:
         errors.append("rows: no outside row: list what is not formalized (class outside), or state "
                       "nothing_excluded: {reason: ...}")
+
+
+def _conclusion_errors(r: dict, cls: str, w: str, errors: list[str]) -> None:
+    """Proposal 0010: `conclusion` in CONCLUSIONS (absent means full); `conclusion_scope`, one line, required for
+    weaker and special-case and refused otherwise; neither key on an outside row, which proves nothing."""
+    has_c, has_s = "conclusion" in r, "conclusion_scope" in r
+    if not (has_c or has_s):
+        return
+    if cls == "outside":
+        keys = ", ".join(k for k in ("conclusion", "conclusion_scope") if k in r)
+        errors.append(f"{w}: an outside row proves nothing, so it has no conclusion: drop {keys}")
+        return
+    c = r.get("conclusion")
+    if has_c and c not in CONCLUSIONS:
+        errors.append(f"{w}.conclusion: must be one of {', '.join(CONCLUSIONS)}, got {c!r}")
+        return
+    if c in SCOPED_CONCLUSIONS:
+        if not has_s:
+            errors.append(f"{w}: a row with conclusion: {c} names its conclusion_scope (one line: what the Lean "
+                          f"proves relative to the paper's result)")
+        elif not _text(r["conclusion_scope"]):
+            errors.append(f"{w}.conclusion_scope: must be one line of at most {TEXT_MAX} characters")
+    elif has_s:
+        errors.append(f"{w}.conclusion_scope: only with conclusion: weaker or special-case (without conclusion, "
+                      f"or with conclusion: full, the Lean proves the paper's conclusion and there is no scope "
+                      f"to state)")
+
+
+def conclusion_counts(doc: dict) -> dict[str, int] | None:
+    """Proposal 0010, `coverage check --json` conclusions: {full, weaker, special-case} over the paper rows with a
+    Lean counterpart (class not outside), an absent key counted as full; None for a library."""
+    if doc_kind(doc) != "paper":
+        return None
+    rows = [r for r in doc.get("rows") or [] if r.get("class") != "outside"]
+    return {c: sum(r.get("conclusion", "full") == c for r in rows) for c in CONCLUSIONS}
 
 
 def _library_keys(doc: dict, errors: list[str]) -> None:
@@ -1058,7 +1102,8 @@ def offline_payload(rep: dict, name, file: str, claims_file, comparator: list[st
     counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in CLASSES} if kind == "paper" else None
     mkind = manuscript_kind(doc["manuscript"]["version"]) if kind == "paper" else None
     return {"ok": not rep["errors"], "name": name, "file": file, "kind": kind,
-            "rows": len(doc["rows"]) if doc else None, "counts": counts, "manuscript": mkind,
+            "rows": len(doc["rows"]) if doc else None, "counts": counts,
+            "conclusions": conclusion_counts(doc) if kind == "paper" else None, "manuscript": mkind,
             "private_manuscript": (mkind == "unposted") if doc else None, "errors": rep["errors"],
             "warnings": rep["warnings"], "offline": True, "claims_file": claims_file, "comparator": comparator,
             "checks": rep["checks"], "skipped": rep["skipped"]}
@@ -1091,7 +1136,7 @@ def do_coverage_check_file(file: str, claims_path: str | None, comparator_paths:
     p = pathlib.Path(str(file)).expanduser()
     if not p.is_file():
         payload = {"ok": False, "name": None, "file": str(p), "kind": None, "rows": None, "counts": None,
-                   "manuscript": None, "private_manuscript": None, "errors": [f"{p}: no such file"],
+                   "conclusions": None, "manuscript": None, "private_manuscript": None, "errors": [f"{p}: no such file"],
                    "warnings": [], "offline": True, "claims_file": claims_path, "comparator": comparator_paths or [],
                    "checks": [], "skipped": []}
         verdict = f"{p}: coverage: INVALID (1 problem(s); offline)"
@@ -1203,7 +1248,7 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
         lines = str(e).split("\n")
         problems = [x.strip() for x in lines[1:]] or [lines[0]]
         payload = {"ok": False, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": None, "rows": None,
-                   "counts": None, "manuscript": None, "private_manuscript": None,
+                   "counts": None, "conclusions": None, "manuscript": None, "private_manuscript": None,
                    "errors": problems, "warnings": []}
         return [f"{name}: coverage: INVALID ({len(problems)} problem(s))", f"  {lines[0]}"] + \
             [f"  {x}" for x in problems if x != lines[0]], payload, 1
@@ -1212,14 +1257,16 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
                                                        else None, rel)
     if doc_kind(doc) == "library":
         payload = {"ok": True, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": "library",
-                   "rows": len(doc["rows"]), "counts": None, "manuscript": None, "private_manuscript": False,
+                   "rows": len(doc["rows"]), "counts": None, "conclusions": None, "manuscript": None,
+                   "private_manuscript": False,
                    "errors": [], "warnings": warnings}
         line = f"{name}: coverage: OK; library; {len(doc['rows'])} main result(s); no manuscript"
         return [line] + [f"  warning: {w}" for w in warnings], payload, 0
     counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in CLASSES}
     kind = manuscript_kind(doc["manuscript"]["version"])
     payload = {"ok": True, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": "paper",
-               "rows": len(doc["rows"]), "counts": counts, "manuscript": kind, "private_manuscript": kind == "unposted",
+               "rows": len(doc["rows"]), "counts": counts, "conclusions": conclusion_counts(doc), "manuscript": kind,
+               "private_manuscript": kind == "unposted",
                "errors": [], "warnings": warnings}
     line = (f"{name}: coverage: OK; {len(doc['rows'])} row(s): " + ", ".join(f"{n} {c}" for c, n in counts.items())
             + f"; manuscript {kind}" + (" (PRIVATE DRAFT, --allow-private-manuscript)" if kind == "unposted" else ""))

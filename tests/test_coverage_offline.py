@@ -196,8 +196,9 @@ def test_the_registered_form_is_unchanged(lp, env, capsys, tmp_path):
     prepare(env)
     rc, out, _err = page_run(lp, env, capsys, "--json", "coverage", "check", "beta")
     data = json.loads(out)
-    assert rc == 0 and sorted(data) == ["counts", "errors", "file", "kind", "manuscript", "name", "ok",
-                                        "private_manuscript", "rows", "warnings"]
+    # proposal 0010 added conclusions, additively (the golden json-keys records it too)
+    assert rc == 0 and sorted(data) == ["conclusions", "counts", "errors", "file", "kind", "manuscript", "name",
+                                        "ok", "private_manuscript", "rows", "warnings"]
     f = tmp_path / "cov.yaml"
     rows = COVERAGE["rows"]
     f.write_text(yaml.safe_dump(mutated(rows=[dict(rows[0], claims=["beta/nope"]), rows[1]]), sort_keys=False))
