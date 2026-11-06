@@ -64,6 +64,63 @@ def test_scope_without_evidence_and_with_a_hold(lp, env, capsys):
     assert "publication hold: publication hold since 2026-10-17T00:00:00+00:00 by vera: owner made it private" in out
 
 
+def test_checkout_commit_and_its_source(lp, env, capsys):
+    """With the checkout present the commit is read from the receipt there (commit_source checkout), whether or
+    not the history holds a gate event for it (the fixture's hand-written record has none)."""
+    rc, out = status(lp, env, capsys, "--json")
+    g = json.loads(out)["scope"]["gate"]
+    assert g["commit"] == env.receipt_b["commit"] and g["commit_source"] == "checkout"
+    assert g["recorded_commit"] is None
+    reg = read_reg(env)
+    pkg = reg["packages"]["beta"]
+    pkg.setdefault("history", []).append({"event": "gate-passed", "commit": env.receipt_b["commit"],
+                                          "receipt": pkg["gate"]["receipt"], "ts": "2026-11-01T00:00:00+00:00"})
+    write_reg(env, reg)
+    rc, out = status(lp, env, capsys, "--json")
+    g = json.loads(out)["scope"]["gate"]
+    assert (g["recorded_commit"], g["commit_source"]) == (env.receipt_b["commit"], "checkout")
+
+
+def absent_checkout(env, history_tail: list[dict]) -> str:
+    """The record as another host sees it: no checkout at local_path, the given events at the end of history."""
+    reg = read_reg(env)
+    pkg = reg["packages"]["beta"]
+    pkg["local_path"] = "no-such-dir/beta"
+    pkg["history"] = [e for e in pkg.get("history") or [] if e.get("event") not in ("gate-passed", "regated")]
+    pkg["history"] += history_tail
+    write_reg(env, reg)
+    return pkg["gate"]["receipt"]
+
+
+def test_absent_checkout_falls_back_to_the_recorded_commit(lp, env, capsys):
+    """Field request #27: from a host without the checkout, show the commit the gate recorded, labelled as such;
+    the event is matched by receipt, so a later event (a lease, an older receipt's gate) is not taken."""
+    receipt = read_reg(env)["packages"]["beta"]["gate"]["receipt"]
+    new, old = "b" * 40, "a" * 40
+    absent_checkout(env, [
+        {"event": "gate-passed", "commit": old, "receipt": ".lean-receipts/older.json", "ts": "2026-11-01T00:00:00+00:00"},
+        {"event": "regated", "commit": new, "receipt": receipt, "previous_commit": old,
+         "ts": "2026-11-02T00:00:00+00:00"},
+        {"event": "lease-claimed", "agent": "vera", "ts": "2026-11-03T00:00:00+00:00"}])
+    rc, out = status(lp, env, capsys, "--json")
+    g = json.loads(out)["scope"]["gate"]
+    assert (g["commit"], g["readable"], g["head"]) == (None, False, None)
+    assert (g["recorded_commit"], g["commit_source"]) == (new, "recorded")
+    rc, out = status(lp, env, capsys)
+    assert (f"gated source commit: {new[:12]} (recorded by the gate; {receipt} is missing or not JSON in the "
+            "checkout, so it is not checked against one)") in out
+
+
+def test_absent_checkout_without_a_matching_event_stays_unreadable(lp, env, capsys):
+    receipt = absent_checkout(env, [{"event": "gate-passed", "commit": "a" * 40, "receipt": ".lean-receipts/other.json",
+                                     "ts": "2026-11-01T00:00:00+00:00"}])
+    rc, out = status(lp, env, capsys, "--json")
+    g = json.loads(out)["scope"]["gate"]
+    assert (g["commit"], g["recorded_commit"], g["commit_source"]) == (None, None, None)
+    rc, out = status(lp, env, capsys)
+    assert f"gated source commit: unreadable ({receipt} is missing or not JSON in the checkout)" in out
+
+
 def test_fields_mode_is_unchanged(lp, env, capsys):
     rc, out = status(lp, env, capsys, "--fields", "status", "--json")
     assert "scope" not in json.loads(out)

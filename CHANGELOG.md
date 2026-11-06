@@ -25,6 +25,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   stays `coverage/1`: nothing changes for files without the keys, and a file
   that uses them needs this release or later (an older lean-pkg refuses
   them). See docs/page.md, "A weaker conclusion or a special case".
+- `status NAME` names the gated commit on a host without the checkout (#423):
+  `scope.gate` gains `recorded_commit`, the commit of the latest
+  `gate-passed` or `regated` event for the current `gate.receipt` (matched by
+  receipt, not by position), and `commit_source` (`checkout`, `recorded` or
+  null). When the receipt cannot be read from a checkout, the text line is
+  `gated source commit: <c12> (recorded by the gate; ... not checked
+  against one)` instead of `unreadable`. `commit` and `readable` keep their
+  meaning: read from the receipt in the checkout. Asked for by a field
+  report from a host that judges packages it has no checkout of.
 
 ### Changed
 
