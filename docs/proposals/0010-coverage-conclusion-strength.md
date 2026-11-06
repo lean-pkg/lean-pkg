@@ -1,7 +1,7 @@
 # 0010: The strength of a row's conclusion in coverage.yaml
 
-Status: draft. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-11-05.
-Decided: (date and maintainer, once accepted or declined). Implemented in: (release).
+Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-11-05.
+Decided: 2026-11-05, accepted by Le Chen (maintainer of record). Implemented in: (release).
 
 ## Summary
 
