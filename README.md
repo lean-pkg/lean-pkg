@@ -146,7 +146,7 @@ many independent Lean/Git research repositories.
 Today, bootstrap the shared registry explicitly:
 
 ```bash
-pipx install git+https://github.com/lean-pkg/lean-pkg.git
+pipx install lean-pkg
 
 mkdir -p ~/.lean-pkg/registry
 git -C ~/.lean-pkg/registry init

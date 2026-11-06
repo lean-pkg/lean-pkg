@@ -19,4 +19,16 @@ changes:
       unknown constant. To have those claims credited as covered, write their full names in claims.yaml.
     breaking: false
     changelog: Fixed
+  - pr: 421
+    id: install-from-pypi
+    kind: behavior
+    area: install
+    summary: >-
+      lean-pkg is on PyPI from 0.25.0, and the install docs (README, quickstart, getting-started, the agent
+      contract) say `pipx install lean-pkg`. Installing from the Git URL still works and gives unreleased code.
+    action: >-
+      Nothing. A pipx install made from the Git URL keeps upgrading from Git; to follow PyPI releases instead,
+      run `pipx uninstall lean-pkg && pipx install lean-pkg` once.
+    breaking: false
+    changelog: Changed
 no_author_change: [417]

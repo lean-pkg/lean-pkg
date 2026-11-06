@@ -9,6 +9,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Changed
+
+- The install docs use PyPI (#421): lean-pkg is on PyPI from 0.25.0, so
+  README.md, the quickstart, getting-started, the documentation index, the
+  comparator and pi-lambda walkthroughs, the trust model and the agent
+  contract's header (`lean-pkg llms`, llms.txt) say `pipx install lean-pkg`
+  instead of `pipx install git+https://github.com/lean-pkg/lean-pkg.git`.
+  getting-started keeps the Git URL for running unreleased code. Lines that
+  pin an older version (receipts.md's job install, page.md's CI example) and
+  the upgrade notice of `registry recommend` are unchanged.
+
 ### Fixed
 
 - `comparator config --from-claims --challenge-from-type` / `--emit-script`

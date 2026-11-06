@@ -276,7 +276,7 @@ separates what has shipped from what the Lean FRO has announced.
 
 You need only the public repository, a Linux machine, the Lean toolchain the
 package pins (elan installs it), `bwrap` for the comparator, and lean-pkg
-(`pipx install git+https://github.com/lean-pkg/lean-pkg.git`). No lean-pkg
+(`pipx install lean-pkg`). No lean-pkg
 registry and no shared account. These steps were run end to end on a small
 package with no Mathlib; with Mathlib add `lake exe cache get` before each
 build.

@@ -46,7 +46,7 @@ Lean below, took 15 minutes of wall clock.
 
 You need what [the quickstart](quickstart.md) needs: Linux, `git`, Python
 3.11 or newer, [elan](https://github.com/leanprover/elan), and lean-pkg
-installed (`pipx install git+https://github.com/lean-pkg/lean-pkg.git`).
+installed (`pipx install lean-pkg`).
 `lean-pkg comparator host-check` should end with a `verdict:` line saying the
 host can produce comparator receipts.
 
