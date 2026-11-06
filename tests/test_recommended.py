@@ -146,6 +146,26 @@ def test_notice_on_a_writing_command_when_older(lp, env, running, capsys):
             "--force 'git+https://github.com/lean-pkg/lean-pkg.git@v0.23.0')") in err
 
 
+def test_notice_installs_from_pypi_from_0_25_0_on(lp, env, running, capsys):
+    """0.25.0 is the first release on PyPI: from it on the route is `lean-pkg==X.Y.Z`, before it the git tag."""
+    recommend(env, "0.25.0")
+    assert claim(lp, env) == 0
+    assert ("lean-pkg: notice: this is lean-pkg 0.22.0; the registry recommends 0.25.0 (upgrade: pipx install "
+            "--force 'lean-pkg==0.25.0')") in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("rec, route", [
+    ("0.24.9", "pipx install --force 'git+https://github.com/lean-pkg/lean-pkg.git@v0.24.9'"),
+    ("0.25.0", "pipx install --force 'lean-pkg==0.25.0'"),
+    ("0.26.1", "pipx install --force 'lean-pkg==0.26.1'"),
+    ("1.0.0", "pipx install --force 'lean-pkg==1.0.0'"),
+])
+def test_upgrade_route_switches_to_pypi_at_0_25_0(monkeypatch, rec, route):
+    from lean_pkg import cli, recommended as rm
+    monkeypatch.setattr(cli, "install_detect", lambda d: {"install": "installed", "path": "/x"})
+    assert rm.upgrade_route(rec) == route
+
+
 def test_notice_names_the_checkout_for_an_editable_install(lp, env, running, monkeypatch, capsys, tmp_path):
     from lean_pkg import cli
     monkeypatch.setattr(cli, "install_detect", lambda d: {"install": "editable", "path": str(tmp_path / "co"),

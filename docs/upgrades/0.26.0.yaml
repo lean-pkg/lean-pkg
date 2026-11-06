@@ -31,4 +31,16 @@ changes:
       run `pipx uninstall lean-pkg && pipx install lean-pkg` once.
     breaking: false
     changelog: Changed
+  - pr: 422
+    id: recommend-notice-pypi
+    kind: behavior
+    area: registry
+    summary: >-
+      The upgrade route in the `registry recommend` notice and doctor's `recommended` line is
+      `pipx install --force 'lean-pkg==X.Y.Z'` (PyPI) when the recommended release is 0.25.0 or later; an
+      older recommendation keeps the git-tag route, an editable install `git -C <checkout> pull --ff-only`.
+    action: >-
+      Nothing. A script that matched the notice's `git+https://...@vX.Y.Z` text matches `lean-pkg==X.Y.Z` too.
+    breaking: false
+    changelog: Changed
 no_author_change: [417]
