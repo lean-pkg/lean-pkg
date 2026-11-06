@@ -2676,7 +2676,10 @@ on the candidate host before sending it work. It checks the kernel, the
 Landlock ABI, whether `bwrap` can create a user namespace, and the tools each
 mechanism needs, then prints `mechanism toolchain: ok|fail` and
 `mechanism legacy: ok|fail` (exit 0 when some mechanism can run, 1 when none
-can). A host that fails `mechanism toolchain` cannot produce `toolchain`
+can). When `mechanism toolchain` is ok, what only the legacy mechanism needs
+is printed as `n/a` rather than `fail` (a judge-only host without `cargo`
+reads clean); `--json` keeps each check's level and names the mechanisms that
+need it in `required_by`. A host that fails `mechanism toolchain` cannot produce `toolchain`
 receipts, the mechanism Palomar runs: the usual causes are a missing `bwrap`,
 or a kernel or AppArmor policy that forbids unprivileged user namespaces. Such
 a host may still produce `legacy` receipts if Landlock is available.

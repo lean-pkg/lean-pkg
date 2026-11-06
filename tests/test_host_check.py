@@ -121,6 +121,51 @@ def test_blocked_bwrap_leaves_legacy_and_the_verdict_says_palomar_needs_toolchai
     assert any(x.startswith("mechanism legacy: ok (not Palomar-predictive): every requirement met") for x in lines)
 
 
+def test_judge_only_host_prints_legacy_only_problems_as_na(lp, cr, monkeypatch, capsys):
+    """A field request: a judge-only host (no cargo, toolchain ok) printed `fail cargo` and `mechanism legacy:
+    fail` beside a positive verdict. With toolchain usable, what only legacy needs is n/a in the text; the JSON
+    keeps the level and names the mechanisms in required_by."""
+    host(cr, monkeypatch, abi=2, missing=("cargo",))
+    rc, cap = hc(lp, capsys)
+    lines = cap.out.splitlines()
+    assert rc == 0
+    assert "n/a cargo: not on PATH (only the legacy mechanism needs it; toolchain is ok)" in lines
+    assert any(x.startswith("n/a landlock: ABI 2:") and x.endswith("(only the legacy mechanism needs it; "
+                                                                    "toolchain is ok)") for x in lines)
+    assert ("mechanism legacy: n/a (not Palomar-predictive; not needed here: toolchain is ok): cargo: not on PATH"
+            in lines)
+    assert any(x.startswith("mechanism toolchain: ok (Palomar runs this)") for x in lines)
+    assert not any(x.startswith(("fail ", "warn landlock")) for x in lines)
+    rc, cap = hc(lp, capsys, "--json")
+    data = json.loads(cap.out)
+    by = {c["item"]: c for c in data["checks"]}
+    assert by["cargo"]["level"] == "fail" and by["cargo"]["required_by"] == ["legacy"]
+    assert by["landlock"]["level"] == "warn"
+    assert data["mechanisms"] == {"toolchain": True, "legacy": False}
+
+
+def test_required_by_names_each_checks_mechanisms(lp, cr, monkeypatch, capsys):
+    host(cr, monkeypatch)
+    rc, cap = hc(lp, capsys, "--json")
+    by = {c["item"]: c["required_by"] for c in json.loads(cap.out)["checks"]}
+    assert by["kernel"] == ["toolchain", "legacy"] and by["lean"] == ["toolchain", "legacy"]
+    assert by["bwrap"] == ["toolchain"] and by["python3"] == ["toolchain"]
+    assert by["landlock"] == ["legacy"] and by["go"] == ["legacy"] and by["git"] == ["legacy"]
+    assert by["lake-path"] == []
+
+
+def test_legacy_only_problems_stay_fail_when_toolchain_fails_too(lp, cr, monkeypatch, capsys):
+    """n/a only when toolchain is usable: on a host where toolchain fails, a missing cargo is a real failure,
+    and a check toolchain needs (bwrap) is never demoted."""
+    host(cr, monkeypatch, bwrap=("fail", "blocked"), missing=("cargo",))
+    rc, cap = hc(lp, capsys)
+    lines = cap.out.splitlines()
+    assert rc == 1
+    assert "fail cargo: not on PATH" in lines and "fail bwrap: blocked" in lines
+    assert any(x.startswith("mechanism legacy: fail (not Palomar-predictive): cargo") for x in lines)
+    assert not any(x.startswith("n/a ") for x in lines)
+
+
 def test_landlock_abi_4_is_enough_for_legacy_and_names_its_source(lp, cr, monkeypatch, capsys):
     host(cr, monkeypatch, abi=4)
     rc, cap = hc(lp, capsys, "--json")
