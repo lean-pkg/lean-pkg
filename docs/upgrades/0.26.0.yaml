@@ -74,4 +74,4 @@ changes:
       and readable are unchanged.
     breaking: false
     changelog: Added
-no_author_change: [417]
+no_author_change: [417, 424]
