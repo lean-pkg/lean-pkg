@@ -17,10 +17,10 @@ Also run as the program `comparator-receipt`: the same code and flags.
 ```text
 lean-pkg receipt comparator [--repo DIR] [--check CHECK]
                             [--mechanism {auto,toolchain,legacy}] [--verify VERIFY]
-                            [--evidence-dir DIR] [--prepare] [--from-prepared DIR]
-                            [--no-resume] [--judges N] [--unit-size K] [--slots SPEC]
-                            [--estimate] [--sample K] [--force-sample]
-                            [--verify-oleans [DIR]] [--attempts [DIR]]
+                            [--out PATH] [--evidence-dir DIR] [--prepare]
+                            [--from-prepared DIR] [--no-resume] [--judges N]
+                            [--unit-size K] [--slots SPEC] [--estimate] [--sample K]
+                            [--force-sample] [--verify-oleans [DIR]] [--attempts [DIR]]
                             [--seal-sacct RECEIPT] [--sacct-file F] [--user NAME]
                             [--json] [--host-label LABEL] [--json]
 ```
@@ -35,7 +35,8 @@ Run comparator-check.sh and write a comparator receipt. The same code and flags 
 | `--check CHECK` | comparator-check.sh to run (env COMPARATOR_CHECK; default: the copy shipped with lean-pkg) |
 | `--mechanism {auto,toolchain,legacy}` | toolchain: `lake comparator` with the toolchain's bundled kernels (Lean v4.35.0-rc2+, what Palomar runs); legacy: the pinned comparator/lean4export/nanoda/landrun stack; auto (default): toolchain when available, else legacy. Choices: `auto`, `toolchain`, `legacy`. |
 | `--verify VERIFY` | verify-comparator.sh for the toolchain mechanism (env COMPARATOR_VERIFY; default: the vendored PalomarTemplate copy) |
-| `--evidence-dir DIR` | where the stage logs and stages.json go, kept on failure (default: &lt;project&gt;/.lake/comparator-receipt; its comparator-stages/ subdirectory); outside the project its path is written as &lt;evidence&gt; in every log and receipt |
+| `--out PATH` | write the receipt to PATH and its per-configuration logs beside it, instead of &lt;project&gt;/.lean-receipts/: a probe or rehearsal receipt kept out of the package tree. The receipt still names its logs .lean-receipts/&lt;c12&gt;-comparator-&lt;config&gt;.log, so copying the files into .lean-receipts/ later makes it a receipt the gate reads. PATH must not exist and its directory must; not with --prepare or --estimate |
+| `--evidence-dir DIR` | where the stage logs and stages.json go (only those: the receipt goes to &lt;project&gt;/.lean-receipts/ unless --out), kept on failure (default: &lt;project&gt;/.lake/comparator-receipt; its comparator-stages/ subdirectory); outside the project its path is written as &lt;evidence&gt; in every log and receipt |
 | `--prepare` | run only the setup stages (dependency checkout, Mathlib cache, build of the configured modules); idempotent; a later run at the same commit, toolchain and config hash skips them and runs only the comparison |
 | `--from-prepared DIR` | reuse the completed setup recorded in DIR (an evidence directory or its stages.json); refuses when it was prepared for another commit/toolchain/config |
 | `--no-resume` | judge every slot again, ignoring the slots this commit and config hash already accepted (cached under &lt;evidence-dir&gt;/comparator-stages/04-slots/) |
@@ -55,9 +56,16 @@ Run comparator-check.sh and write a comparator receipt. The same code and flags 
 
 ## Details
 
-`lean-pkg receipt comparator [--repo DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
+`lean-pkg receipt comparator [--repo DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--out PATH] [--prepare | --from-prepared DIR]` is the separate console
 script that produces comparator receipts; see
-[The comparator tier](../comparator.md). `COMPARATOR_RECEIPT_STACK=unlimited|<kB>`
+[The comparator tier](../comparator.md).
+The receipt and its per-configuration logs go to `.lean-receipts/` in the checkout;
+`--evidence-dir DIR` moves only the stage logs and `stages.json`. `--out PATH` writes
+the receipt to `PATH` and its logs beside it instead, so a probe or rehearsal
+receipt stays out of the package tree; the receipt still names its logs
+`.lean-receipts/<c12>-comparator-<config>.log`, so copying the files there later
+makes it a receipt the gate reads. `PATH` must not exist (its directory must); not
+with `--prepare` or `--estimate`. `COMPARATOR_RECEIPT_STACK=unlimited|<kB>`
 raises the soft stack limit of its `lake`/`lean` children (never above the hard
 limit; recorded as the receipt's `stack_limit`); it warns when the soft limit is
 8 MiB or less; see [Stack limit](../comparator.md#stages-and---prepare).
