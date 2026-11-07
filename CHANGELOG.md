@@ -30,6 +30,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `receipt systemd --run` accepts systemd's own value forms (#434):
+  `--runtime-max` takes any finite systemd time span, such as `1h 30min`
+  (the form systemd prints; it was refused) or `1.5h`, and a bare
+  `--cpu-quota 200` is read as `200%` (it reached `systemd-run`, which
+  refused it). When `systemd-run` itself fails, the refusal names it and no
+  longer adds "the unit wrote no verify log", which read like a verify
+  failure.
 - `public-safety` no longer turns common workflow words into private
   patterns (#432). A record's or lease's `workspace` is free text, and each of
   its tokens became a blocking pattern: a lease taken with the workspace

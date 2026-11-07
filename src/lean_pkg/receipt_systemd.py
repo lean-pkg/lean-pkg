@@ -106,6 +106,25 @@ POLL_SECONDS = 2.0
 PRODUCER_CHECK_SECONDS = 60.0
 SYSTEMCTL_TIMEOUT = 60
 _CAP_RE = re.compile(r"[0-9][0-9.]*[A-Za-z%]*")
+# --runtime-max: a finite systemd time span, as systemd.time(7) writes it: one or more number-unit parts,
+# optionally separated by spaces (`4h`, `90min`, `1h 30min`, `1h30min`, `1.5h`); a bare number is seconds.
+_SPAN_UNITS = frozenset({"", "us", "usec", "ms", "msec", "s", "sec", "second", "seconds", "m", "min", "minute",
+                         "minutes", "h", "hr", "hour", "hours", "d", "day", "days", "w", "week", "weeks", "M",
+                         "month", "months", "y", "year", "years"})
+_SPAN_PART_RE = re.compile(r"\s*([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]*)")
+# --cpu-quota: a percentage; a bare number is read as one (`200` -> `200%`), as systemd itself requires the %.
+_QUOTA_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)(%?)")
+
+
+def timespan_ok(value) -> bool:
+    """True for a finite systemd time span (systemd.time(7) units; parts may be separated by spaces)."""
+    s, pos, parts = str(value or "").strip(), 0, 0
+    while pos < len(s):
+        m = _SPAN_PART_RE.match(s, pos)
+        if m is None or m.end() == pos or m.group(2) not in _SPAN_UNITS:
+            return False
+        pos, parts = m.end(), parts + 1
+    return parts > 0
 _UNIT_RE = re.compile(r"[A-Za-z0-9:_.@\\-]+")
 _HOST_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _TOOL_RE = re.compile(r"[A-Za-z0-9_.+][A-Za-z0-9_.+-]*")
@@ -663,9 +682,18 @@ def cmd_receipt_systemd(args) -> int:
     if run:
         for flag in ("memory_max", "memory_swap_max", "cpu_quota", "runtime_max"):
             v = getattr(args, flag)
-            if not _CAP_RE.fullmatch(v or ""):
+            if flag == "runtime_max":
+                ok, example = timespan_ok(v), "4h, 90min or '1h 30min'"
+            elif flag == "cpu_quota":
+                ok, example = bool(_QUOTA_RE.fullmatch((v or "").strip())), "400% or 200"
+            else:
+                ok, example = bool(_CAP_RE.fullmatch(v or "")), DEFAULT_CAPS[flag]
+            if not ok:
                 raise core.UsageError(f"--{flag.replace('_', '-')} {v!r}: a finite systemd value (e.g. "
-                                      f"{DEFAULT_CAPS[flag]}) is required; the unit is bounded")
+                                      f"{example}) is required; the unit is bounded")
+        q = _QUOTA_RE.fullmatch(args.cpu_quota.strip())
+        args.cpu_quota = q.group(1) + "%"            # systemd's CPUQuota= needs the %: `200` means 200%
+        args.runtime_max = " ".join(args.runtime_max.split())
         for kv in args.setenv or []:
             if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", kv):
                 raise core.UsageError(f"--setenv {kv!r}: expected NAME=VALUE")
@@ -778,7 +806,9 @@ def cmd_receipt_systemd(args) -> int:
     job_id = f"systemd-user:{unit}:{inv}@{host}"
     gate_mod.receipt_job_slug(job_id)
     if summary is None or not paths["--log"].is_file():
-        if "--log" in paths and not paths["--log"].is_file():
+        # When systemd-run itself failed (the unit never started), the refusal above says so; a missing log
+        # is then no news and read like a verify failure (a field report), so it is not added.
+        if "--log" in paths and not paths["--log"].is_file() and not (run and text is None):
             refusals.append(f"--log {paths['--log'].name}: the unit wrote no verify log there")
         return _refuse_early(args, job_id if summary else None, refusals, checks, json_extra)
     for flag in ("--stdout", "--stderr"):
@@ -864,9 +894,11 @@ def add_parser(rsub) -> None:
                      help=f"--run: MemorySwapMax (default {DEFAULT_CAPS['memory_swap_max']}, so the memory cap "
                           "is an OOM kill, not swapping)")
     src.add_argument("--cpu-quota", default=DEFAULT_CAPS["cpu_quota"], metavar="PCT",
-                     help=f"--run: CPUQuota (default {DEFAULT_CAPS['cpu_quota'].replace('%', '%%')})")
+                     help=f"--run: CPUQuota, a percentage; a bare number is read as one (200 -> 200%%) "
+                          f"(default {DEFAULT_CAPS['cpu_quota'].replace('%', '%%')})")
     src.add_argument("--runtime-max", default=DEFAULT_CAPS["runtime_max"], metavar="SPAN",
-                     help=f"--run: RuntimeMaxSec (default {DEFAULT_CAPS['runtime_max']})")
+                     help=f"--run: RuntimeMaxSec, a finite systemd time span such as 4h, 90min or "
+                          f"'1h 30min' (default {DEFAULT_CAPS['runtime_max']})")
     src.add_argument("--setenv", action="append", default=[], metavar="NAME=VALUE",
                      help="--run: an extra environment variable for the unit (repeatable; PATH is passed; "
                           "LAKE_CACHE_DIR=<fresh empty dir> and LAKE_ARTIFACT_CACHE=false unless named here)")
