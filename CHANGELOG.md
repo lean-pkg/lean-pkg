@@ -18,6 +18,15 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   literal text while github.com shows them rendered. Write the tag as
   `<details markdown="1">`. `page --check --site --json` gains `html_blocks[]`
   ([docs/page.md](docs/page.md#hand-written-pages-beside-the-generated-ones)).
+- Index: `markovprocess-pilot` re-pinned at `6e94db2aea80` (#429), the commit
+  that moves its MarkovProcess dependency to `2486404` (its upstream `main`,
+  Lean and Mathlib v4.35.0). Re-gated with lean-pkg 0.26.0 at that commit:
+  lower tier `receipt systemd --run` of `verify.sh`, comparator receipt
+  (toolchain mechanism, all 3 configurations pass). Entry replaced with `index
+  add --from-registry` (headline and its `judged_as`, field tags, consent and
+  notes kept; the `built_on` pin is `2486404`; the DOIs add release v0.1.2,
+  which Zenodo filed under a new concept DOI), and `index check` re-derives it
+  from the bytes at the pin.
 
 ### Documentation
 

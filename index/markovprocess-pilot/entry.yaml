@@ -2,15 +2,15 @@ schema: index-entry/2
 name: markovprocess-pilot
 repo: https://github.com/chenle02/markovprocess-pilot
 pin:
-  commit: 1548828e63c86f2c3f360ac46ab91ec78ba45276
+  commit: 6e94db2aea807cc4880fefe01a9ddde973bec770
   tag: null
-lean_toolchain: leanprover/lean4:v4.35.0-rc2
-mathlib_rev: 065356127b1dc0016f66b7283ce0ce2c4055aa55
+lean_toolchain: leanprover/lean4:v4.35.0
+mathlib_rev: 56a005855ea17e0b0958f73ec801ae140b0a1679
 license_spdx: Apache-2.0
 trust: comparator
 receipts:
-  lower: .lean-receipts/1548828e63c8-systemd-user-markovprocess-pilot-verify.service-96338b242ff948769d8cfa2cf9380d41-h-2db2e0fa6029.json
-  comparator: .lean-receipts/1548828e63c8-comparator.json
+  lower: .lean-receipts/6e94db2aea80-systemd-user-markovprocess-pilot-verify.service-29eeda03cfa04698a38dac4199f5b9e0-h-f985343177f7.json
+  comparator: .lean-receipts/6e94db2aea80-comparator.json
 headline:
 - name: MarkovProcessPilot.integral_eval_exitTimeTrunc_Ioo
   file: MarkovProcessPilot/BrownianExit.lean
@@ -27,11 +27,14 @@ claims:
   trust: comparator
 palomar: []
 doi:
-  concept: 10.5281/zenodo.23452511
+  concept: 10.5281/zenodo.24026992
   versions:
   - doi: 10.5281/zenodo.23452512
     tag: v0.1.1
     commit: 1adfea7e35530ec8d3ba3f4ac4e7a0dd85020bf0
+  - doi: 10.5281/zenodo.24026993
+    tag: v0.1.2
+    commit: 9818893edfc7324c64fef25d33d77d40e398aea3
 reservoir: null
 formalization_yaml: null
 built_on:
@@ -40,7 +43,7 @@ built_on:
   authors:
   - Scott Armstrong
   license: Apache-2.0
-  pin: 666cda029098a1106914fc9fa7abd1727573284a
+  pin: 2486404169c10c774164626503aba4ed7c1f0da5
   relation: depends-on
   note: Supplies the Brownian motion, exit times and Dynkin's formula; one helper lemma (mem_of_lt_exitTimeTrunc)
     is adapted from it with its copyright notice.
@@ -50,11 +53,11 @@ fields:
 consent:
   recorded: true
 added:
-  at: '2026-10-18T13:02:46+00:00'
+  at: '2026-11-07T04:22:59+00:00'
   by: chenle02
 notes: 'Consumer pilot of Scott Armstrong''s MarkovProcess (scottnarmstrong/MarkovProcess), which supplies
   the Brownian motion, exit times and Dynkin''s formula; one helper lemma is adapted from it with his
-  notice. Both reusable claims are judged by lake comparator (toolchain mechanism, Lean v4.35.0-rc2: con-ron,
+  notice. Both reusable claims are judged by lake comparator (toolchain mechanism, Lean v4.35.0: con-ron,
   NanoDa and Lean''s kernel) through Mathlib-only Challenges named by judged_as in claims.yaml. The headline''s
   Challenge (Audit/Exit/Challenge.lean, exit_mean) is quantified over any law that is Brownian in Mathlib''s
   sense. The bridge claim''s Challenge (Audit/BrownianKernel/Challenge.lean, exists_unique_brownian_kernel)
