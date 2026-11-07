@@ -28,6 +28,17 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   which Zenodo filed under a new concept DOI), and `index check` re-derives it
   from the bytes at the pin.
 
+### Fixed
+
+- `public-safety` no longer turns common workflow words into private
+  patterns (#432). A record's or lease's `workspace` is free text, and each of
+  its tokens became a blocking pattern: a lease taken with the workspace
+  "public-allow commit" made `commit` private, and one package then reported
+  172 false hits, because every receipt and log says "commit". Words such as
+  `commit`, `push`, `receipt`, `gate`, `lean`, `notes` or `refresh` (git, Lean
+  and lean-pkg vocabulary, and everyday English) are no longer derived; an
+  identifier in the same text, such as a machine name, still is.
+
 ### Documentation
 
 - Fourteen links on the documentation site returned 404 (#427): a relative
