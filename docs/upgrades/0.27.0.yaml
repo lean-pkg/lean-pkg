@@ -44,4 +44,4 @@ changes:
 # Documentation only: the 10 wrapped relative .md links in the released 0.17.0, 0.18.1, 0.19.0 and 0.20.0 pages
 # now have one-line link text (line breaks moved, no word changed; RELEASING.md, "Released records"), with tests
 # that a released page keeps its words and that no relative .md link text crosses lines (#431).
-no_author_change: [427, 429, 430, 431]
+no_author_change: [427, 429, 430, 431, 436]
