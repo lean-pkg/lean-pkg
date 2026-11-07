@@ -13,7 +13,10 @@ options:
                         registry pointer (event updated); a file differing only in derived keys is
                         refreshed, one whose kept keys differ is refused without --force
   --no-registry         with --write: write the file only; the registry is not updated (no
-                        pointer, no event), so this is not a registry write (no lock, no --commit)
+                        pointer, no event), so this is not a registry write (no lock, no
+                        --commit). The lease is still checked: the file is written into the
+                        package's checkout, so another agent's live lease refuses unless --agent
+                        HOLDER (or --force --reason TEXT)
   --out PATH            write the render here instead; the registry is untouched
   --force               with --write: overwrite a file whose kept keys differ from the render;
                         with --reason also override a live lease held by another agent
@@ -32,7 +35,8 @@ options:
                         the receipts at DIR's committed HEAD; the gate receipt's facts only when
                         bound to that HEAD. DIR must be a git work tree, and when it has remotes
                         one must be the package's repo; not with --write
-  --agent AGENT         lease holder, if one is live (for the registry update)
+  --agent AGENT         lease holder, if one is live (for the registry update and, with --no-
+                        registry, the file write into the checkout)
   --json                machine-readable JSON on stdout
   --commit              write commands: pull --ff-only, then commit the registry files (default:
                         $LEAN_PKG_COMMIT=1)
