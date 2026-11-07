@@ -11,6 +11,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `receipt comparator --out PATH` (`comparator-receipt --out`) writes the
+  receipt to `PATH` and its per-configuration logs beside it, instead of
+  `.lean-receipts/` in the checkout, so a probe or rehearsal receipt stays
+  out of the package tree (#435). The receipt still names its logs under
+  `.lean-receipts/`, so copying the files there makes it a receipt the gate
+  reads. `PATH` must not exist; not with `--prepare` or `--estimate`. The
+  help now says that `--evidence-dir` moves only the stage logs and
+  `stages.json`
+  ([receipt comparator](docs/commands/receipt-comparator.md)).
+- `gate --expect-branch NAME` (#438): a release branch gated before its merge
+  is now stated as intended. When the checkout is on `NAME`, the `WARN:
+  evaluating branch NAME, not the default D` becomes a note; on another
+  branch a `WARN` names both. Never a refusal; `gate --check` repeats the flag
+  in its `next:` command ([gate](docs/commands/gate.md)).
 - Non-vacuity witnesses on coverage rows (proposal 0011, #437): a `claims.yaml`
   `witness` is accepted on any claim, not only a conditional one, and a claim
   that sets only `witness` keeps its status when the facts to judge it are
@@ -23,6 +37,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   or later. See docs/page.md, "Hypotheses that can be met (a witness)".
 
 ### Changed
+
+- `formalization render --help` says that `--write --no-registry` still
+  checks the lease (#436): the command writes `formalization.yaml` into the
+  package's checkout, so another agent's live lease refuses unless `--agent
+  HOLDER` (or `--force --reason`), although nothing is written to the
+  registry. Help text only; the check is unchanged.
 
 - `page --check --site DIR` also reads the hand-written pages under `DIR`
   (#428): an HTML block (`<details>`, `<div>`, `<section>`, ...) that holds

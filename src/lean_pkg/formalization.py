@@ -1015,7 +1015,9 @@ def add_parsers(sub, add_json) -> None:
                         "refreshed, one whose kept keys differ is refused without --force")
     s.add_argument("--no-registry", action="store_true",
                    help="with --write: write the file only; the registry is not updated (no pointer, no "
-                        "event), so this is not a registry write (no lock, no --commit)")
+                        "event), so this is not a registry write (no lock, no --commit). The lease is still "
+                        "checked: the file is written into the package's checkout, so another agent's live "
+                        "lease refuses unless --agent HOLDER (or --force --reason TEXT)")
     s.add_argument("--out", default=None, metavar="PATH",
                    help="write the render here instead; the registry is untouched")
     s.add_argument("--force", action="store_true",
@@ -1037,7 +1039,9 @@ def add_parsers(sub, add_json) -> None:
                         "saved): claims, comparator configurations, the kept keys and the receipts at DIR's "
                         "committed HEAD; the gate receipt's facts only when bound to that HEAD. DIR must be a "
                         "git work tree, and when it has remotes one must be the package's repo; not with --write")
-    s.add_argument("--agent", default=None, help="lease holder, if one is live (for the registry update)")
+    s.add_argument("--agent", default=None,
+                   help="lease holder, if one is live (for the registry update and, with --no-registry, the "
+                        "file write into the checkout)")
     add_json(s)
     render = s
     a = fsub.add_parser(

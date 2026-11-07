@@ -499,6 +499,10 @@ def build_parser():
     s.add_argument("--refuse-dirty", action="store_true",
                    help="refuse when tracked files are modified in the checkout; default is a WARN "
                         "line (receipts are always checked against the bound commit)")
+    s.add_argument("--expect-branch", default=None, metavar="NAME",
+                   help="the checkout is meant to be on branch NAME (a release branch gated before its "
+                        "merge): when it is, the `evaluating branch NAME, not the default` WARN becomes a "
+                        "note; when it is not, a WARN names both. Never a refusal; repeated in --check's next:")
     s.add_argument("--refresh-formalization", action="store_true",
                    help="after the gate, regenerate the package's formalization.yaml (derived keys, "
                         "including status.evidence; kept keys survive) and set its registry pointer; "

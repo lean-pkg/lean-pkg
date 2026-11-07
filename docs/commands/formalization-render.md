@@ -28,14 +28,14 @@ lean-pkg formalization render [--write] [--no-registry] [--out PATH] [--force]
 |---|---|
 | `NAME` | the package |
 | `--write` | write &lt;repo&gt;/&lt;formalization_yaml or formalization.yaml&gt; and set the registry pointer (event updated); a file differing only in derived keys is refreshed, one whose kept keys differ is refused without --force |
-| `--no-registry` | with --write: write the file only; the registry is not updated (no pointer, no event), so this is not a registry write (no lock, no --commit) |
+| `--no-registry` | with --write: write the file only; the registry is not updated (no pointer, no event), so this is not a registry write (no lock, no --commit). The lease is still checked: the file is written into the package's checkout, so another agent's live lease refuses unless --agent HOLDER (or --force --reason TEXT) |
 | `--out PATH` | write the render here instead; the registry is untouched |
 | `--force` | with --write: overwrite a file whose kept keys differ from the render; with --reason also override a live lease held by another agent |
 | `--reason REASON` | with --write --force: why another agent's lease is overridden (recorded in the updated event) |
 | `--author NAME` | project.authors entry (repeatable); otherwise kept from the file, else consent\[] owners/authors, else a placeholder |
 | `--headline-config PATH` | the headline comparator configuration (the paper's main results) for this render; --write also records it (registry headline_config). Default: the registry field, else comparator.headline.json when tracked. status.main_results then lists its theorems only, each covered by the gate-bound comparator receipt (else refused) |
 | `--repo DIR` | read the checkout DIR instead of the registered local_path, for this call only (never saved): claims, comparator configurations, the kept keys and the receipts at DIR's committed HEAD; the gate receipt's facts only when bound to that HEAD. DIR must be a git work tree, and when it has remotes one must be the package's repo; not with --write |
-| `--agent AGENT` | lease holder, if one is live (for the registry update) |
+| `--agent AGENT` | lease holder, if one is live (for the registry update and, with --no-registry, the file write into the checkout) |
 
 ## Details
 

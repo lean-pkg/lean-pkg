@@ -33,7 +33,7 @@ import zlib
 import yaml
 
 from .core import (
-    _ACTOR, ancestor_attribute_changes, bound_tree, branch_notice, checker_paths, CLAIMS_COMMIT_FIRST,
+    _ACTOR, ancestor_attribute_changes, bound_tree, branch_notice, branch_state, checker_paths, CLAIMS_COMMIT_FIRST,
     COMPARATOR_CONFIG_FIELDS, COMPARATOR_FIELDS, COMPARATOR_LIST_FIELDS, COMPARATOR_MECHANISMS,
     comparator_pass, COMPARATOR_PASS_LINE, COMPARATOR_SCHEMAS, COMPARATOR_TOOLCHAIN_DIGESTS, COMPARATOR_TOOLS,
     DEFAULT_AXIOMS, docs_build_input, DOCS_PATHS_MAX, events_path, evidence_symlinks, Fail, formalization_rel,
@@ -572,7 +572,7 @@ def dirty_tracked(repo: pathlib.Path) -> list[str]:
     return [x[3:] for x in p.stdout.splitlines() if x.strip()]
 
 
-def dirty_guard(repo: pathlib.Path, name: str, refuse: bool) -> list[str]:
+def dirty_guard(repo: pathlib.Path, name: str, refuse: bool, expect_branch: str | None = None) -> list[str]:
     """Evidence is judged at the bound commit, never the working tree; a dirty checkout is a WARN
     on stderr (the lab's workflow edits while gating) or, with --refuse-dirty, a refusal. A checkout
     off its default branch (or detached) is a second stderr WARN, never a refusal (#48)."""
@@ -585,6 +585,17 @@ def dirty_guard(repo: pathlib.Path, name: str, refuse: bool) -> list[str]:
             raise Fail(f"--refuse-dirty: {msg}; commit or stash them first")
         print(f"WARN: {msg} (--refuse-dirty refuses)", file=sys.stderr)
     notice = branch_notice(repo)
+    if expect_branch:   # a field request: a release branch gated before its merge, on purpose
+        st = branch_state(repo)
+        if st["current"] == expect_branch:
+            if notice:
+                print(f"lean-pkg: note: evaluating branch {expect_branch} as intended (--expect-branch); "
+                      f"the default is {st['default']}", file=sys.stderr)
+            notice = None
+        else:
+            here = f"branch {st['current']}" if st["current"] else "a detached HEAD"
+            print(f"WARN: --expect-branch {expect_branch}, but the checkout is on {here}", file=sys.stderr)
+            notice = None
     if notice:   # #48: informational, never a refusal; evidence commits are often made detached
         print(f"WARN: {notice}", file=sys.stderr)
     return dirty
@@ -1534,10 +1545,12 @@ def pin_changes_text(changes: dict) -> str:
 def do_gate(reg_path, reg, events_p, name, receipt_arg,
             comparator_arg=None, refuse_private: bool = False,
             refuse_dirty: bool = False, formalization_path: str | None = None,
-            regate: bool = False, reason: str | None = None) -> tuple[list[str], dict]:
+            regate: bool = False, reason: str | None = None,
+            expect_branch: str | None = None) -> tuple[list[str], dict]:
     return _with_private_warnings(_do_gate, reg_path, reg, events_p, name, receipt_arg,
                                   comparator_arg, refuse_private, refuse_dirty=refuse_dirty,
-                                  formalization_path=formalization_path, regate=regate, reason=reason)
+                                  formalization_path=formalization_path, regate=regate, reason=reason,
+                                  expect_branch=expect_branch)
 
 
 def toolchain_advisories_of(receipt) -> list[dict]:
@@ -1552,21 +1565,22 @@ def toolchain_advisories_of(receipt) -> list[dict]:
 
 def do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: bool = False,
                   refuse_dirty: bool = False, regate: bool = False,
-                  reason: str | None = None) -> tuple[list[str], dict]:
+                  reason: str | None = None, expect_branch: str | None = None) -> tuple[list[str], dict]:
     return _with_private_warnings(_do_gate_check, reg, name, receipt_arg, comparator_arg, refuse_private,
-                                  refuse_dirty=refuse_dirty, regate=regate, reason=reason)
+                                  refuse_dirty=refuse_dirty, regate=regate, reason=reason,
+                                  expect_branch=expect_branch)
 
 
 def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: bool = False,
                    private_sink=None, refuse_dirty: bool = False, regate: bool = False,
-                   reason: str | None = None) -> tuple[list[str], dict]:
+                   reason: str | None = None, expect_branch: str | None = None) -> tuple[list[str], dict]:
     """`gate NAME --receipt R --check` (#26.2): every validation `gate` makes, against HEAD; writes
     nothing, records no event, works at any status. The mirror of `comparator --check`."""
     pkg = get_pkg(reg, name)
     repo = repo_path(pkg)
     if not repo.is_dir():
         raise Fail(f"{name}: local_path does not exist: {repo}")
-    dirty = dirty_guard(repo, name, refuse_dirty)
+    dirty = dirty_guard(repo, name, refuse_dirty, expect_branch)
     resolved: list[dict] = []
     rp, receipt = load_json_object(locate_evidence_arg(receipt_arg, "receipt", name, repo, resolved), "receipt")
     cp = comp = None
@@ -1639,7 +1653,8 @@ def _do_gate_check(reg, name, receipt_arg, comparator_arg=None, refuse_private: 
 def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
              refuse_private: bool = False, private_sink=None,
              refuse_dirty: bool = False, formalization_path: str | None = None,
-             regate: bool = False, reason: str | None = None) -> tuple[list[str], dict]:
+             regate: bool = False, reason: str | None = None,
+             expect_branch: str | None = None) -> tuple[list[str], dict]:
     """formalization_path (#26.4): the formalization.yaml `--refresh-formalization` is about to own and
     point the registry at; when no pointer is recorded yet, the evidence rule's derived-only exception
     is judged for that path (the refresh records it as the pointer right after the gate)."""
@@ -1649,7 +1664,7 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
         raise Fail(f"{name}: local_path does not exist: {repo}")
     vpkg = pkg if (formalization_rel(pkg) or not formalization_path) \
         else {**pkg, "formalization_yaml": formalization_path}
-    dirty = dirty_guard(repo, name, refuse_dirty)
+    dirty = dirty_guard(repo, name, refuse_dirty, expect_branch)
     resolved: list[dict] = []
     rp, receipt = load_json_object(locate_evidence_arg(receipt_arg, "receipt", name, repo, resolved), "receipt")
     cp = comp = None
@@ -2028,7 +2043,8 @@ def do_gate_refresh(reg_path, reg, events_p, args) -> tuple[list[str], dict, lis
     out, payload = do_gate(reg_path, reg, events_p, args.name, args.receipt, args.comparator,
                            refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
                            formalization_path=fz.target_rel(get_pkg(reg, args.name)),
-                           regate=getattr(args, "regate", False), reason=getattr(args, "reason", None))
+                           regate=getattr(args, "regate", False), reason=getattr(args, "reason", None),
+                           expect_branch=getattr(args, "expect_branch", None))
     gated = payload.get("event") in ("gate-passed", "regated")
     pkg = get_pkg(reg, args.name)
     if not gated:
@@ -2065,6 +2081,8 @@ def gate_next_command(args, payload: dict, regate: bool, reason: str | None) -> 
         parts += ["--reason", q(reason)]
     parts += [f for f, on in (("--refuse-private", args.refuse_private),
                               ("--refuse-dirty", args.refuse_dirty)) if on]
+    if getattr(args, "expect_branch", None):
+        parts += ["--expect-branch", q(args.expect_branch)]
     agent = getattr(args, "agent", None)
     parts += ["--agent", q(agent) if agent is not None else "AGENT"]
     return " ".join(parts)
@@ -2104,7 +2122,8 @@ def cmd_gate(args) -> int:
                 print(note, file=sys.stderr)
         out, payload = do_gate_check(reg, args.name, args.receipt, args.comparator,
                                      refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
-                                     regate=regate, reason=reason)
+                                     regate=regate, reason=reason,
+                                     expect_branch=getattr(args, "expect_branch", None))
         payload["repo_override"] = override
         payload["registry_state"] = rstate
         from . import palomar_check   # advisory (feature request #6): never changes the verdict; no WARN
@@ -2129,7 +2148,8 @@ def cmd_gate(args) -> int:
         out, payload = do_gate(reg_path, reg, events_p,
                                args.name, args.receipt, args.comparator,
                                refuse_private=args.refuse_private, refuse_dirty=args.refuse_dirty,
-                               regate=regate, reason=reason)
+                               regate=regate, reason=reason,
+                               expect_branch=getattr(args, "expect_branch", None))
     from .toolchain_advisories import warn_line   # #237: a warning, never a refusal
     for view in payload.get("toolchain_advisories") or []:
         print(warn_line(view), file=sys.stderr)

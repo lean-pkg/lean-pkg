@@ -86,4 +86,28 @@ changes:
       Nothing. Workarounds such as `--runtime-max 90min --cpu-quota 200%` keep working.
     breaking: false
     changelog: Fixed
-no_author_change: [427, 429, 430, 431]
+  - pr: 435
+    id: comparator-receipt-out
+    kind: behavior
+    area: receipts
+    summary: >-
+      receipt comparator / comparator-receipt gain --out PATH: the receipt goes to PATH and its logs beside
+      it, not into .lean-receipts/ (a probe or rehearsal receipt kept out of the package tree); the receipt
+      keeps its .lean-receipts/ log names. --evidence-dir's help says it covers the stage logs only.
+    action: >-
+      Nothing. Pass --out PATH to keep a probe receipt out of the checkout instead of moving it afterwards.
+    breaking: false
+    changelog: Added
+  - pr: 438
+    id: gate-expect-branch
+    kind: behavior
+    area: gate
+    summary: >-
+      gate gains --expect-branch NAME: a checkout on NAME (a release branch gated before its merge) gets a note
+      instead of the off-default-branch WARN; on another branch a WARN names both; never a refusal; --check's
+      next: repeats it.
+    action: >-
+      Nothing. Pass --expect-branch NAME when gating a release branch on purpose.
+    breaking: false
+    changelog: Added
+no_author_change: [427, 429, 430, 431, 436]
