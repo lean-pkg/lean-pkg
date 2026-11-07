@@ -198,8 +198,8 @@ does against your checkout, and never commits or pushes: commit the files
 under `.lean-receipts/` yourself (the bundle too) (an evidence-only descendant), then
 name the job under `compute` as above. A re-run writes `gha-<run>-2`; pass
 `--attempt N` when a run has more than one receipt artifact. Every refusal
-and the built-in redactions are in [Receipts and
-trust](receipts.md#a-lower-tier-receipt-from-github-actions).
+and the built-in redactions are in
+[Receipts and trust](receipts.md#a-lower-tier-receipt-from-github-actions).
 
 ## No cluster at all
 

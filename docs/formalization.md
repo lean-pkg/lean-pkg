@@ -170,8 +170,8 @@ the paper (else the single `formalizes` entry without an id) to
 e-print's hashes in `data/source-baselines/`. `sources` is a kept key, so a
 later render keeps the id. The acknowledgements line still follows the
 registry's `source_paper`; the command prints the `update` that aligns it. The
-whole flow, its refusals and the record: [Anchoring to an arXiv
-version](paper-companion.md#anchoring-to-an-arxiv-version).
+whole flow, its refusals and the record:
+[Anchoring to an arXiv version](paper-companion.md#anchoring-to-an-arxiv-version).
 
 ## The kept view
 

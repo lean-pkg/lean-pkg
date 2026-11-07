@@ -49,8 +49,8 @@ git config --global user.email you@example.org
 
 The host check ends with a line such as
 `verdict: this host can produce comparator receipts with: toolchain`. If it
-fails, read its `fail` lines first; [Checking a host
-first](comparator.md#checking-a-host-first) explains each one.
+fails, read its `fail` lines first;
+[Checking a host first](comparator.md#checking-a-host-first) explains each one.
 
 ## 2. A new package
 
@@ -264,8 +264,8 @@ Your project needs, at one commit, what `lean-pkg new` writes:
    after registering. A project with many results:
    `lean-pkg comparator config --from-claims NAME` drafts the configuration from `claims.yaml`.
 2. `claims.yaml` (check it with `lean-pkg claims check --file claims.yaml`),
-   `coverage.yaml` (`kind: library`, or a paper's rows; see [The
-   verification page](page.md#coverageyaml)), `CITATION.cff`, a license
+   `coverage.yaml` (`kind: library`, or a paper's rows; see
+   [The verification page](page.md#coverageyaml)), `CITATION.cff`, a license
    file, and REUSE information (`REUSE.toml`, `LICENSES/`) for the
    licence lint.
 3. A verify script. The quickest is to copy `verify.sh` and `MOD/Axioms.lean`
@@ -273,16 +273,16 @@ Your project needs, at one commit, what `lean-pkg new` writes:
    (`lean-pkg new scratch-copy --kind library --dir ../scratch-copy`) and edit `MODULES` and the `#print axioms` lines to name
    your modules and theorems.
 
-Then steps 3 to 5 above, with your package name. [Add the comparator tier to
-an existing package](existing-package-comparator.md) walks through step 1 in
+Then steps 3 to 5 above, with your package name.
+[Add the comparator tier to an existing package](existing-package-comparator.md) walks through step 1 in
 detail.
 
 ## Optional: group and cluster setups
 
 None of these are needed for the page above.
 
-- *A shared, Git-backed registry* for a group: [Getting
-  started](getting-started.md#recommended-layout-one-registry-many-projects).
+- *A shared, Git-backed registry* for a group:
+  [Getting started](getting-started.md#recommended-layout-one-registry-many-projects).
 - *Leases* (`lean-pkg lease claim`, `lease release`) when several people or agents work on
   one package; a single author can skip them.
 - *Slurm receipts* from a cluster (`lean-pkg receipt slurm --template`):
