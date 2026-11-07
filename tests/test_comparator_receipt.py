@@ -50,7 +50,7 @@ def project(tmp_path: Path) -> Path:
 
 
 def run_runner(project: Path, mode: str = "pass", allow: bool = True,
-               extra_env: dict | None = None):
+               extra_env: dict | None = None, args: tuple = ()):
     env = subprocess_env({"COMPARATOR_CHECK": str(STUB), "STUB_MODE": mode,
                           "COMPARATOR_FAKE_LAKE_OK": "0"})   # hermetic: never probe a real toolchain
     env.pop("SLURM_JOB_ID", None)
@@ -61,7 +61,7 @@ def run_runner(project: Path, mode: str = "pass", allow: bool = True,
         env.pop("COMPARATOR_RECEIPT_ALLOW_HOST", None)
     if extra_env:
         env.update(extra_env)
-    return subprocess.run(RECEIPT_CLI, cwd=project, env=env,
+    return subprocess.run([*RECEIPT_CLI, *args], cwd=project, env=env,
                           capture_output=True, text=True)
 
 
@@ -210,6 +210,36 @@ def test_dirty_paths_keeps_a_modified_tracked_receipt(project: Path, cr):
     (rd / f"{head2[:12]}-comparator.json").write_text("{}\n")    # untracked, same commit: exempt
     assert cr.dirty_paths(project, project / ".lake" / "comparator-receipt") == [
         f".lean-receipts/{f.name}"]
+
+
+def test_runner_out_keeps_the_receipt_out_of_the_tree(project: Path, tmp_path: Path):
+    """A field request: --evidence-dir moved only the stage logs, and a probe receipt still landed in
+    .lean-receipts/. --out writes the receipt to PATH and its logs beside it; nothing goes into the tree,
+    and the receipt still names its logs under .lean-receipts/, so copied there it is a normal receipt."""
+    head = git(project, "rev-parse", "HEAD")
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    out = probe / "rehearsal-comparator.json"
+    r = run_runner(project, args=("--out", str(out), "--evidence-dir", str(tmp_path / "ev")))
+    assert r.returncode == 0, r.stderr
+    assert not (project / ".lean-receipts").exists() and git(project, "status", "--porcelain") == ""
+    rec = json.loads(out.read_text())
+    (cfg,) = rec["configs"]
+    assert cfg["log"] == f".lean-receipts/{head[:12]}-comparator-comparator.log"
+    log = probe / f"{head[:12]}-comparator-comparator.log"
+    assert log.is_file() and cfg["log_sha256"] == hashlib.sha256(log.read_bytes()).hexdigest()
+
+
+def test_runner_out_refusals_write_nothing(project: Path, tmp_path: Path):
+    taken = tmp_path / "taken.json"
+    taken.write_text("{}\n")
+    for args, needle in ((("--out", str(taken)), "already exists"),
+                         (("--out", str(tmp_path / "missing" / "r.json")), "its directory does not exist"),
+                         (("--out", str(tmp_path / "p.json"), "--prepare"), "--prepare and --estimate")):
+        r = run_runner(project, args=args)
+        assert r.returncode != 0 and needle in r.stderr, (args, r.stderr)
+    assert not (project / ".lean-receipts").exists() and not (tmp_path / "p.json").exists()
+    assert taken.read_text() == "{}\n"
 
 
 def test_runner_refuses_without_comparator_config(project: Path):

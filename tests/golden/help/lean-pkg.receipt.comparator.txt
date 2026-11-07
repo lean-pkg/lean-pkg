@@ -1,9 +1,9 @@
 usage: lean-pkg receipt comparator [-h] [--repo DIR] [--check CHECK]
                                    [--mechanism {auto,toolchain,legacy}] [--verify VERIFY]
-                                   [--evidence-dir DIR] [--prepare] [--from-prepared DIR]
-                                   [--no-resume] [--judges N] [--unit-size K] [--slots SPEC]
-                                   [--estimate] [--sample K] [--force-sample]
-                                   [--verify-oleans [DIR]] [--attempts [DIR]]
+                                   [--out PATH] [--evidence-dir DIR] [--prepare]
+                                   [--from-prepared DIR] [--no-resume] [--judges N]
+                                   [--unit-size K] [--slots SPEC] [--estimate] [--sample K]
+                                   [--force-sample] [--verify-oleans [DIR]] [--attempts [DIR]]
                                    [--seal-sacct RECEIPT] [--sacct-file F] [--user NAME] [--json]
                                    [--host-label LABEL]
 
@@ -23,7 +23,14 @@ options:
                         when available, else legacy
   --verify VERIFY       verify-comparator.sh for the toolchain mechanism (env COMPARATOR_VERIFY;
                         default: the vendored PalomarTemplate copy)
-  --evidence-dir DIR    where the stage logs and stages.json go, kept on failure (default:
+  --out PATH            write the receipt to PATH and its per-configuration logs beside it,
+                        instead of <project>/.lean-receipts/: a probe or rehearsal receipt kept
+                        out of the package tree. The receipt still names its logs .lean-
+                        receipts/<c12>-comparator-<config>.log, so copying the files into .lean-
+                        receipts/ later makes it a receipt the gate reads. PATH must not exist and
+                        its directory must; not with --prepare or --estimate
+  --evidence-dir DIR    where the stage logs and stages.json go (only those: the receipt goes to
+                        <project>/.lean-receipts/ unless --out), kept on failure (default:
                         <project>/.lake/comparator-receipt; its comparator-stages/ subdirectory);
                         outside the project its path is written as <evidence> in every log and
                         receipt
