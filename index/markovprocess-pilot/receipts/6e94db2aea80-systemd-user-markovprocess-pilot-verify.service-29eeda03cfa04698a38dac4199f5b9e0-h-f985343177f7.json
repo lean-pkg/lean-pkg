@@ -1,0 +1,38 @@
+{
+  "schema": "lower-receipt/1",
+  "commit": "6e94db2aea807cc4880fefe01a9ddde973bec770",
+  "lean_toolchain": "leanprover/lean4:v4.35.0",
+  "mathlib_rev": "56a005855ea17e0b0958f73ec801ae140b0a1679",
+  "sorry_count": 0,
+  "axioms": [
+    "Classical.choice",
+    "Quot.sound",
+    "propext"
+  ],
+  "report_sha256": "5a3a6fc497e213d73fcc6fce74184f084fc7f6c51713c0a137bb70e9aa205527",
+  "job_id": "systemd-user:markovprocess-pilot-verify.service:29eeda03cfa04698a38dac4199f5b9e0@h-f985343177f7",
+  "checker": "verify.sh (lake build MarkovProcessPilot Audit.Exit.Solution Audit.Smoke.Solution Audit.BrownianKernel.Solution; lake env lean scripts/Axioms.lean; claim axioms)",
+  "generated_at": "2026-11-07T03:05:44Z",
+  "job_stdout_sha256": "0d850e9e725af42d150a9bb31608a5b86ce5900a06f6e717f014f555bbba1b6c",
+  "manifest_sha256": "c137fb1867999a66643eda325e1645519b3f52fcd413275108e065aa6dc8cc51",
+  "log_commit_bound": true,
+  "claim_axioms": {
+    "checked": 2,
+    "nonstandard": [],
+    "missing": []
+  },
+  "producer": {
+    "lean_pkg": "0.26.0",
+    "install": "installed",
+    "commit": null,
+    "dirty": null,
+    "sources_sha256": "d402a48002898b79fbe4e64f679670d74710a6e4d4465e517693c8ad477fdf5e",
+    "source_files": 97,
+    "python": "3.12.3",
+    "bytecode_tag": "cpython-312",
+    "bytecode_files": 82,
+    "bytecode_sha256": "0f9f6d4145b71a76bc060dfc78275bc04bf704d7ca452c80ec2a316fca10fdda",
+    "other_bytecode_files": 0
+  },
+  "unit_properties_sha256": "5860cf3a42af642947089fed3b968407f6a0326fdc075ce2216f6bd6f83661ee"
+}

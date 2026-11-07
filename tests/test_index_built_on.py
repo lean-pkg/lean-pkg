@@ -217,7 +217,7 @@ def test_repository_credits(idx):
     (mp,) = e["built_on"]
     assert mp["url"] == "https://github.com/scottnarmstrong/MarkovProcess"
     assert mp["authors"] == ["Scott Armstrong"] and mp["relation"] == "depends-on"
-    assert mp["pin"] == "666cda029098a1106914fc9fa7abd1727573284a"
+    assert mp["pin"] == "2486404169c10c774164626503aba4ed7c1f0da5"   # #429: MarkovProcess main, 2026-11-04
     assert "[MarkovProcess](https://github.com/scottnarmstrong/MarkovProcess) by Scott Armstrong" in \
         (ROOT / "index" / "README.md").read_text()
 
