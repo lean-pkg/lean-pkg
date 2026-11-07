@@ -1,7 +1,7 @@
 usage: lean-pkg gate [-h] --receipt RECEIPT [--comparator PATH] [--refuse-private]
-                     [--refuse-dirty] [--refresh-formalization] [--agent AGENT] [--check]
-                     [--regate] [--reason TEXT] [--repo DIR] [--json] [--commit] [--push]
-                     [--no-commit]
+                     [--refuse-dirty] [--expect-branch NAME] [--refresh-formalization]
+                     [--agent AGENT] [--check] [--regate] [--reason TEXT] [--repo DIR] [--json]
+                     [--commit] [--push] [--no-commit]
                      name
 
 positional arguments:
@@ -15,6 +15,10 @@ options:
                         default is a WARN line and the receipt is kept
   --refuse-dirty        refuse when tracked files are modified in the checkout; default is a WARN
                         line (receipts are always checked against the bound commit)
+  --expect-branch NAME  the checkout is meant to be on branch NAME (a release branch gated before
+                        its merge): when it is, the `evaluating branch NAME, not the default` WARN
+                        becomes a note; when it is not, a WARN names both. Never a refusal;
+                        repeated in --check's next:
   --refresh-formalization
                         after the gate, regenerate the package's formalization.yaml (derived keys,
                         including status.evidence; kept keys survive) and set its registry
