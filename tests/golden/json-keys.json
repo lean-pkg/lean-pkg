@@ -615,6 +615,7 @@
       "cleared",
       "dry_run",
       "event",
+      "kept_by_hash",
       "name",
       "new_path",
       "next_commands",

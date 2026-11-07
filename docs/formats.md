@@ -381,7 +381,7 @@ stands for one key per field `update` changed, holding its old value.
 | `publication-withdrawn` | `update --withdraw-publication` | `status_from`, `status_to`, `visibility_from`, `visibility_to`, `reason`, `by`, `github_visibility`, `promoted_commit`, `forced` |
 | `publication-hold-released` | `update --release-publication-hold` | `reason`, `hold`, `by`, `forced` |
 | `audit-fix` | `registry audit --write` | `field`, `old`, `new`, `source` |
-| `relocated` | `repo move` | `old_path`, `new_path`, `reason`, `cleared`, `agent`, `redetected` |
+| `relocated` | `repo move` | `old_path`, `new_path`, `reason`, `cleared`, `kept_by_hash` (only when a receipt was kept because its bytes match the old checkout's copy), `agent`, `redetected` |
 | `status-changed` | `repo move` (when the status moves) | `status_from`, `status_to`, `reason` |
 | `palomar-prepared` | `palomar prepare` | `commit`, `bundle`, `bundle_sha256` |
 | `claims-synced` | `claims sync` | `commit`, `file`, `claims` |

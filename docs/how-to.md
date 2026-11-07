@@ -174,11 +174,19 @@ The path is `$HOME`-relative, like `register --path`. `update` refuses the
 current path, a path another package already holds, and a live lease held by
 another agent (the holder passes `--agent`; `--force` is not accepted). It
 never touches the file system; a path absent on this host is recorded with a
-note. Evidence bound to a commit survives only when the new checkout's HEAD
-is that commit (or an evidence-only descendant of it): otherwise the gate
-receipt, the comparator receipt and the cached claims are cleared, a
-`verified-private` package returns to `gate-pending`, and the `relocated`
-event lists what was cleared. Without `--redetect`, `lean_toolchain` and
+note. Evidence bound to a commit survives when the new checkout's HEAD is
+that commit (or an evidence-only descendant of it). It also survives, kept
+by hash, when HEAD has moved on but the new checkout still holds the gated
+commit in its history and each receipt file there is byte-identical to the
+copy at the old checkout, the one the gate checked (the old checkout must
+be on this host to compare). This is the case of a scratch clone used to
+rehearse a re-gate: the package stays `verified-private`, and `next:` names
+`lean-pkg gate NAME --check --regate --receipt R` for the new HEAD.
+Otherwise the gate receipt, the comparator receipt and the cached claims are
+cleared, a `verified-private` package returns to `gate-pending`, and the
+`relocated` event lists what was cleared (and `kept_by_hash` what was kept
+by hash). The claims cache follows HEAD alone: run `lean-pkg claims sync`
+after a move to another commit. Without `--redetect`, `lean_toolchain` and
 `mathlib_pin` are left as recorded.
 
 ## Verify a package in one step

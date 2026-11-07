@@ -5,7 +5,9 @@ usage: lean-pkg repo move [-h] [--reason REASON] [--agent AGENT] [--force] [--dr
 positional arguments:
   name
   HOME-RELATIVE    the new checkout (event relocated; commit-bound evidence not bound to the new
-                   HEAD is cleared)
+                   HEAD is cleared, unless the new checkout holds the gated commit in its history
+                   and each receipt there is byte-identical to the old checkout's copy (kept by
+                   hash, JSON kept_by_hash))
 
 options:
   -h, --help       show this help message and exit

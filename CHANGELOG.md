@@ -11,6 +11,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- `update NAME --path NEW` keeps verified evidence it can check (#426): a
+  gate or comparator receipt that is not bound to the new HEAD is kept, by
+  hash, when the new checkout holds the receipt's commit in its history (an
+  ancestor of HEAD), that commit is the one the gate event recorded, and the
+  receipt file at the new path is byte-identical to the copy at the old
+  checkout, the one the gate checked (so the old checkout must be on this
+  host). The package then stays `verified-private`, JSON and the `relocated`
+  event list it in `kept_by_hash`, and `next:` names `lean-pkg gate NAME
+  --check --regate --receipt R` for the new HEAD. This makes a scratch clone
+  usable for rehearsing a re-gate against a scratch registry copy, without
+  editing the registry file by hand. Anything that cannot be checked is
+  cleared as before; the claims cache still follows HEAD alone.
 - `coverage.yaml` paper rows may say how their Lean conclusion relates to
   the paper's (proposal 0010, #419): `conclusion: full | weaker |
   special-case` (absent means `full`) and `conclusion_scope`, one line saying
