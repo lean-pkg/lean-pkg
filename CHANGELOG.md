@@ -37,6 +37,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   dirty-tree check, so the lower-tier receipt made for the same commit just
   before no longer has to be moved aside and back (both tiers bind HEAD). A
   modified tracked receipt, or a receipt for another commit, still counts.
+- `receipt systemd --run` accepts systemd's own value forms (#434):
+  `--runtime-max` takes any finite systemd time span, such as `1h 30min`
+  (the form systemd prints; it was refused) or `1.5h`, and a bare
+  `--cpu-quota 200` is read as `200%` (it reached `systemd-run`, which
+  refused it). When `systemd-run` itself fails, the refusal names it and no
+  longer adds "the unit wrote no verify log", which read like a verify
+  failure.
 - `public-safety` no longer turns common workflow words into private
   patterns (#432). A record's or lease's `workspace` is free text, and each of
   its tokens became a blocking pattern: a lease taken with the workspace

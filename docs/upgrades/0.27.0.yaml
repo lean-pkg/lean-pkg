@@ -56,4 +56,16 @@ changes:
       Nothing. Drop the move-aside step: run receipt systemd, then receipt comparator, then commit both.
     breaking: false
     changelog: Fixed
+  - pr: 434
+    id: receipt-systemd-cap-values
+    kind: behavior
+    area: receipts
+    summary: >-
+      receipt systemd --run accepts any finite systemd time span for --runtime-max (`1h 30min`, `1.5h`),
+      reads a bare --cpu-quota number as a percentage (`200` -> `200%`), and when systemd-run itself fails
+      reports that without the misleading "the unit wrote no verify log".
+    action: >-
+      Nothing. Workarounds such as `--runtime-max 90min --cpu-quota 200%` keep working.
+    breaking: false
+    changelog: Fixed
 no_author_change: [427, 429, 430, 431]
