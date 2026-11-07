@@ -179,6 +179,39 @@ def test_runner_refuses_dirty_tree_names_files(project: Path):
     assert not (project / ".lean-receipts").exists()
 
 
+def test_runner_accepts_untracked_receipts_of_the_same_commit(project: Path):
+    """A field request: the lower-tier receipt is written for HEAD just before the comparator run, and both
+    tiers must bind HEAD. Its untracked files (.lean-receipts/<c12>-* and the README receipt systemd writes)
+    do not make the tree dirty; a receipt for another commit, or any other untracked file, still does."""
+    head = git(project, "rev-parse", "HEAD")
+    rd = project / ".lean-receipts"
+    rd.mkdir()
+    (rd / f"{head[:12]}-systemd-user-x.service-abc-h-0123456789ab.json").write_text("{}\n")
+    (rd / f"{head[:12]}-systemd-user-x.service-abc-h-0123456789ab-verify.redacted.log").write_text("log\n")
+    (rd / "README.md").write_text("receipts\n")
+    r = run_runner(project)
+    assert r.returncode == 0, r.stderr
+    assert (rd / f"{head[:12]}-comparator.json").is_file()
+    (rd / "0123456789ab-systemd-user-x.service-abc-h-0123456789ab.json").write_text("{}\n")
+    r = run_runner(project)
+    assert r.returncode == 1 and "0123456789ab-systemd" in r.stderr and "dirty tree" in r.stderr
+
+
+def test_dirty_paths_keeps_a_modified_tracked_receipt(project: Path, cr):
+    head = git(project, "rev-parse", "HEAD")
+    rd = project / ".lean-receipts"
+    rd.mkdir()
+    f = rd / f"{head[:12]}-systemd-user-x.service-abc-h-0123456789ab.json"
+    f.write_text("{}\n")
+    git(project, "add", "-A")
+    git(project, "commit", "-q", "-m", "receipt")
+    head2 = git(project, "rev-parse", "HEAD")
+    f.write_text('{"changed": true}\n')                         # a tracked receipt edited: still dirty
+    (rd / f"{head2[:12]}-comparator.json").write_text("{}\n")    # untracked, same commit: exempt
+    assert cr.dirty_paths(project, project / ".lake" / "comparator-receipt") == [
+        f".lean-receipts/{f.name}"]
+
+
 def test_runner_refuses_without_comparator_config(project: Path):
     (project / "comparator.json").unlink()
     git(project, "add", "-A")
