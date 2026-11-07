@@ -11,7 +11,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Documentation
 
-- Fifteen links on the documentation site returned 404 (#427): a relative
+- Fourteen links on the documentation site returned 404 (#427): a relative
   `.md` link whose text wrapped onto the next line was published unconverted,
   because jekyll-relative-links matches link text on one line. The text of
   each such link is now on one line, and the proposal 0003 prototype link
