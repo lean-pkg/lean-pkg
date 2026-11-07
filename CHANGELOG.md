@@ -11,6 +11,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- Non-vacuity witnesses on coverage rows (proposal 0011, #437): a `claims.yaml`
+  `witness` is accepted on any claim, not only a conditional one, and a claim
+  that sets only `witness` keeps its status when the facts to judge it are
+  missing. A `coverage.yaml` row (paper or library) may name the `witness` of
+  one of its claims; `lean-pkg page` then says **Hypotheses can be met.**
+  with the probe's state (checked, not yet checked, wrong type), the header
+  counts the verified results with a checked witness, and `coverage check
+  --json` gains `witnesses`, `page --json` `verified_with_witness`. Files
+  without the key render as before; a file that uses it needs this release
+  or later. See docs/page.md, "Hypotheses that can be met (a witness)".
+
+## [0.27.0] - 2026-11-07
+
+### Added
+
 - `receipt comparator --out PATH` (`comparator-receipt --out`) writes the
   receipt to `PATH` and its per-configuration logs beside it, instead of
   `.lean-receipts/` in the checkout, so a probe or rehearsal receipt stays
@@ -25,16 +40,6 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   evaluating branch NAME, not the default D` becomes a note; on another
   branch a `WARN` names both. Never a refusal; `gate --check` repeats the flag
   in its `next:` command ([gate](docs/commands/gate.md)).
-- Non-vacuity witnesses on coverage rows (proposal 0011, #437): a `claims.yaml`
-  `witness` is accepted on any claim, not only a conditional one, and a claim
-  that sets only `witness` keeps its status when the facts to judge it are
-  missing. A `coverage.yaml` row (paper or library) may name the `witness` of
-  one of its claims; `lean-pkg page` then says **Hypotheses can be met.**
-  with the probe's state (checked, not yet checked, wrong type), the header
-  counts the verified results with a checked witness, and `coverage check
-  --json` gains `witnesses`, `page --json` `verified_with_witness`. Files
-  without the key render as before; a file that uses it needs this release
-  or later. See docs/page.md, "Hypotheses that can be met (a witness)".
 
 ### Changed
 
@@ -102,6 +107,10 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   breaks moved. A released record keeps its words; a test compares each
   released page with its tag, and another refuses relative `.md` link text
   that crosses a line (RELEASING.md, "Released records").
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
+
+Zenodo version DOI: [10.5281/zenodo.24041994](https://doi.org/10.5281/zenodo.24041994)
 
 ## [0.26.0] - 2026-11-06
 

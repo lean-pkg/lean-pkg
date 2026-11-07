@@ -23,24 +23,6 @@ changes:
       Markdown inside. Nothing to do for a site without such blocks, or without --site.
     breaking: true
     changelog: Changed
-  - pr: 437
-    id: coverage-row-witness
-    kind: format
-    area: claims, claims ledger, coverage, page
-    summary: >-
-      Proposal 0011: a claims.yaml witness is accepted on any claim, not only a conditional one, and a claim that
-      sets only witness keeps its status when the facts to judge the witness are missing (the witness is then
-      unchecked, with why). coverage/1 rows (paper and library) gain an optional witness, the claims.yaml witness
-      of one of the row's claims; refused on an outside row and when it is not such a witness. page shows
-      "Hypotheses can be met." with the ledger's state (checked, not yet checked, wrong type), a header clause
-      and one sentence in the reading note; coverage check --json gains witnesses, page --json
-      verified_with_witness when a row names a witness.
-    action: >-
-      Nothing for files without the key: they validate and render as before. A claims.yaml that sets witness on
-      a claim without hypotheses, or a coverage.yaml that uses the row key, needs this release or later (an older
-      lean-pkg refuses both), so raise the lean-pkg pin of its CI before committing them.
-    breaking: false
-    changelog: Added
 # Documentation only: 14 relative .md links whose text wrapped across a line were published unconverted
 # (jekyll-relative-links matches one-line link text) and 404ed on the site; the 0003 prototype directory
 # link had no index page (#427).
