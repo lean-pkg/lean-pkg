@@ -39,6 +39,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   (#430): proposal 0003's `witness` on any claim with a hypothesis, a row
   `witness` key, and a page line saying the result's hypotheses can be met
   ([docs/proposals](docs/proposals/README.md)).
+- The ten wrapped links left in the released upgrade pages 0.17.0, 0.18.1,
+  0.19.0 and 0.20.0 now convert on the site too (#431): only their line
+  breaks moved. A released record keeps its words; a test compares each
+  released page with its tag, and another refuses relative `.md` link text
+  that crosses a line (RELEASING.md, "Released records").
 
 ## [0.26.0] - 2026-11-06
 

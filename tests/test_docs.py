@@ -88,6 +88,58 @@ def test_no_inline_code_spans_cross_lines():
     assert bad == [], "inline code spans must not cross lines (GitHub renders them badly): " + ", ".join(bad)
 
 
+# jekyll-relative-links matches link text on one line: a relative .md link whose text wraps is published unconverted
+# (href="receipts.md#x") and 404s on the site (#427 fixed 14, #431 the 10 in released upgrade pages).
+_WRAPPED_MD_LINK = re.compile(r"\[([^\[\]\n]+\n[ \t]*[^\[\]\n]+)\]\((?!https?:)([^)\s]+?\.md(?:#[^)\s]*)?)\)")
+
+
+def test_no_relative_md_link_text_crosses_lines():
+    bad = [f"{md.relative_to(ROOT)}: {m.group(2)}" for md in sorted((ROOT / "docs").rglob("*.md"))
+           for m in _WRAPPED_MD_LINK.finditer(md.read_text())]
+    assert bad == [], "a relative .md link must have its text on one line (the site leaves it unconverted): " + \
+        ", ".join(bad)
+
+
+# A released upgrade page keeps the words it had at its release tag (RELEASING.md, "Released records"): line breaks
+# may move (#431 moved them so 10 wrapped links convert), words may not. A page whose words changed after its
+# release for a documented reason is pinned here to the SHA-256 of its current words, so any further change fails.
+_RELEASED_PAGE_ALLOWED = {
+    "0.19.0": ("834ac6d718b6dcbbe8c93d259c5dd81bcf674c753db7ef4b88341e3e7cf926ac",
+               "7e89a88 removed a duplicate #285 row after the release"),
+}
+
+
+def test_released_upgrade_pages_keep_their_words():
+    import hashlib
+    import subprocess
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(ROOT), *a], capture_output=True, text=True)
+
+    checked, bad = [], []
+    for page in sorted((ROOT / "docs" / "upgrades").glob("[0-9]*.md")):
+        v = page.stem
+        if git("rev-parse", "--verify", "-q", f"refs/tags/v{v}").returncode:
+            continue                                              # the provisional record: not released yet
+        old = git("show", f"v{v}:docs/upgrades/{v}.md")
+        if old.returncode:
+            continue                                              # named otherwise at its tag (before 0.15.0)
+        checked.append(v)
+        now = page.read_text().split()
+        if now == old.stdout.split():
+            continue
+        pin = _RELEASED_PAGE_ALLOWED.get(v)
+        if pin and hashlib.sha256(" ".join(now).encode()).hexdigest() == pin[0]:
+            continue
+        bad.append(v)
+    if not git("tag", "-l", "v0.2*").stdout.strip():
+        import pytest
+        pytest.skip("no release tags in this checkout (a shallow clone)")
+    assert len(checked) >= 5, f"too few released pages compared with their tags: {checked}"
+    assert bad == [], f"released upgrade pages whose words changed since their tag: {bad} (RELEASING.md, " \
+        f"\"Released records\": only line breaks may move)"
+
+
 def test_citation_cff_matches_pyproject():
     import tomllib, yaml
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
