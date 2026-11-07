@@ -1636,7 +1636,11 @@ separately.
 The runner wraps the script so that evidence is either complete or absent:
 
 - refuses to run on a dirty tree, naming the files, and refuses when there
-  is no configuration;
+  is no configuration. Untracked receipts of the commit being receipted
+  (`.lean-receipts/<c12>-*` for HEAD, and the `.lean-receipts/README.md` that
+  `receipt systemd` writes) do not count: the lower-tier receipt made for the
+  same commit just before can stay where it is, and both tiers bind HEAD. A
+  modified tracked receipt, or a receipt for another commit, still does;
 - runs in stages, each with a durable log (see "Stages and `--prepare`" below);
 - runs the script with its per-configuration logs in a temporary directory;
 - parses the tool pins from the script's own output;
