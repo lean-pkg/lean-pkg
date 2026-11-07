@@ -24,7 +24,7 @@ lean-pkg repo move [--reason REASON] [--agent AGENT] [--force] [--dry-run]
 | Argument or flag | Description |
 |---|---|
 | `NAME` |   |
-| `HOME-RELATIVE` | the new checkout (event relocated; commit-bound evidence not bound to the new HEAD is cleared) |
+| `HOME-RELATIVE` | the new checkout (event relocated; commit-bound evidence not bound to the new HEAD is cleared, unless the new checkout holds the gated commit in its history and each receipt there is byte-identical to the old checkout's copy (kept by hash, JSON kept_by_hash)) |
 | `--reason REASON` | required |
 | `--agent AGENT` | lease holder, if one is live |
 | `--force` | override a live lease held by another agent; needs --reason |

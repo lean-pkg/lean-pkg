@@ -103,7 +103,8 @@ options:
   --force               override a live lease held by another agent; needs --reason
   --path HOME-RELATIVE  relocate: move local_path to another checkout, keeping name, history and
                         claims (needs --reason; event relocated; commit-bound evidence not bound
-                        to the new HEAD is cleared)
+                        to the new HEAD is cleared, unless the new checkout holds the gated commit
+                        and the receipts are byte-identical to the old checkout's)
   --withdraw-publication
                         the owner made a promoted (public) repository private again: record it
                         (needs --reason; refused while gh still reports it public). status public

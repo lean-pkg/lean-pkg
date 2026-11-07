@@ -95,12 +95,33 @@ def test_relocate_keeps_gate_when_new_head_matches(lp, env, tmp_path):
     assert lp.main(["--registry", str(env.registry), "validate"]) == 0
 
 
-def test_relocate_clears_gate_and_demotes_when_head_differs(lp, env, tmp_path, capsys):
-    new = tmp_path / "beta-dedicated"
+def beta_receipts(env) -> list[str]:
+    gate = read_reg(env)["packages"]["beta"]["gate"]
+    return [r for r in (gate["receipt"], gate["comparator"]) if r]
+
+
+def differ_receipts(env, new) -> None:
+    """Make the receipts at the new path differ in bytes (same JSON) from the old checkout's, so a test of
+    the cleared path is not kept by hash (option A)."""
+    for rel in beta_receipts(env):
+        (new / rel).write_text((new / rel).read_text() + "\n")
+
+
+def ahead_copy(env, tmp_path, name="beta-dedicated"):
+    """A copy of beta's checkout, receipts included, with one source commit past the gated commit."""
+    new = tmp_path / name
     shutil.copytree(env.repo_b, new)
     (new / "Extra.lean").write_text("-- new source\n")
     _git(new, "add", "Extra.lean")
     _git(new, "commit", "-m", "source change")
+    return new
+
+
+def test_relocate_clears_gate_and_demotes_when_head_differs(lp, env, tmp_path, capsys):
+    """HEAD past the receipt commit and the receipts at the new path not byte-identical to the old checkout's:
+    nothing shows the evidence is the same, so it is cleared (option A keeps it only when the bytes match)."""
+    new = ahead_copy(env, tmp_path)
+    differ_receipts(env, new)                         # same JSON, different bytes
     assert run(lp, env, "beta", "--path", str(new), "--reason", "split", "--json") == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["cleared"] == ["gate.receipt", "gate.comparator"]
@@ -116,6 +137,63 @@ def test_relocate_clears_gate_and_demotes_when_head_differs(lp, env, tmp_path, c
     assert events[-1]["status_to"] == "gate-pending"
     assert [h["event"] for h in pkg["history"][-2:]] == ["relocated", "status-changed"]
     assert lp.main(["--registry", str(env.registry), "validate"]) == 0
+
+
+def test_relocate_keeps_verified_evidence_by_hash_when_head_is_ahead(lp, env, tmp_path, capsys):
+    """A field request (option A): rehearsing a writing gate against a scratch clone. The clone's HEAD is past
+    the gated commit, so the receipt is not bound to HEAD, but the gated commit is in its history and both
+    receipts are byte-identical to the old checkout's: the evidence and verified-private are kept, and next:
+    names the re-gate check for the new HEAD."""
+    new = ahead_copy(env, tmp_path)
+    before = read_reg(env)["packages"]["beta"]["gate"]
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "rehearsal clone", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["cleared"] == [] and payload["status"] is None
+    assert payload["kept_by_hash"] == ["gate.receipt", "gate.comparator"]
+    assert payload["binding"]["receipt"]["by"] == "hash"
+    assert "same bytes as at the old checkout" in payload["binding"]["receipt"]["verdict"]
+    assert any(c.startswith("lean-pkg gate beta --check --regate --receipt R") for c in payload["next_commands"])
+    pkg = read_reg(env)["packages"]["beta"]
+    assert pkg["gate"] == before and pkg["status"] == "verified-private" and pkg["local_path"] == str(new)
+    ev = read_events(env)[-1]
+    assert ev["event"] == "relocated" and ev["kept_by_hash"] == ["gate.receipt", "gate.comparator"]
+    assert lp.main(["--registry", str(env.registry), "validate"]) == 0
+
+
+def test_relocate_keep_by_hash_needs_the_old_checkout_here(lp, env, tmp_path, capsys):
+    """No copy to compare with (the old checkout is not on this host): nothing is kept, as before."""
+    new = ahead_copy(env, tmp_path)
+    shutil.rmtree(env.repo_b)
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "r", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["cleared"] == ["gate.receipt", "gate.comparator"] and payload["kept_by_hash"] == []
+    assert "the old checkout is not on this host" in payload["binding"]["receipt"]["verdict"]
+
+
+def test_relocate_keep_by_hash_needs_the_gated_commit_in_history(lp, env, tmp_path, capsys):
+    """Same receipt bytes in an unrelated repository (the gated commit is not in its history): cleared."""
+    new = make_repo(tmp_path / "unrelated")
+    for rel in beta_receipts(env):
+        (new / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(env.repo_b / rel, new / rel)
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "r", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["cleared"] == ["gate.receipt", "gate.comparator"] and payload["kept_by_hash"] == []
+    assert "is not in the new checkout's history" in payload["binding"]["receipt"]["verdict"]
+
+
+def test_relocate_keep_by_hash_needs_the_recorded_gate_commit(lp, env, tmp_path, capsys):
+    """The receipt at both paths names a commit other than the one the gate event recorded: cleared."""
+    new = ahead_copy(env, tmp_path)
+    reg = read_reg(env)
+    pkg = reg["packages"]["beta"]
+    pkg.setdefault("history", []).append({"event": "gate-passed", "commit": "f" * 40, "receipt": pkg["gate"]["receipt"],
+                                          "ts": "2026-11-01T00:00:00+00:00"})
+    write_reg(env, reg)
+    assert run(lp, env, "beta", "--path", str(new), "--reason", "r", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert "gate.receipt" in payload["cleared"] and payload["kept_by_hash"] == []
+    assert "is not the gated commit ffffffffffff the registry recorded" in payload["binding"]["receipt"]["verdict"]
 
 
 def test_relocate_claims_cache_kept_only_when_head_matches(lp, env, tmp_path):
@@ -197,6 +275,7 @@ def test_relocate_dry_run_block_names_verdict_and_next_gate(lp, env, tmp_path, c
     (new / "Extra.lean").write_text("-- new source\n")
     _git(new, "add", "Extra.lean")
     _git(new, "commit", "-m", "source change")
+    differ_receipts(env, new)
     assert run(lp, env, "beta", "--path", str(new), "--reason", "split", "--dry-run") == 0
     out = capsys.readouterr().out.splitlines()
     i = out.index(next(l for l in out if l.startswith("DRY RUN")))
@@ -237,6 +316,7 @@ def test_relocate_dry_run_explains_the_missing_pointer(lp, env, tmp_path, capsys
     _formalization_descendant(lp, env, capsys, pointer=False)
     new = tmp_path / "beta-moved"
     shutil.copytree(env.repo_b, new)
+    differ_receipts(env, new)
     assert run(lp, env, "beta", "--path", str(new), "--reason", "move", "--dry-run", "--json") == 0
     payload = json.loads(capsys.readouterr().out)
     fz = payload["binding"]["formalization"]
@@ -266,6 +346,7 @@ def test_relocate_dry_run_kept_key_change_proposes_a_regate_with_refresh(lp, env
     _formalization_descendant(lp, env, capsys, pointer=True, edit=edit)
     new = tmp_path / "beta-moved"
     shutil.copytree(env.repo_b, new)
+    differ_receipts(env, new)
     assert run(lp, env, "beta", "--path", str(new), "--reason", "move", "--dry-run", "--json") == 0
     payload = json.loads(capsys.readouterr().out)
     assert "project.description" in payload["binding"]["formalization"]["verdict"]

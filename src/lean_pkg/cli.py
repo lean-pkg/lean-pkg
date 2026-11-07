@@ -99,7 +99,7 @@ import datetime as dt
 import fnmatch  # noqa: F401  a cli attribute for one release (#317); core.py uses it
 import fcntl  # noqa: F401  a cli attribute for one release (#317); core.py uses it
 import gzip  # noqa: F401  a cli attribute for one release (#317); gate.py uses it
-import hashlib  # noqa: F401  a cli attribute for one release (#317); gate.py uses it
+import hashlib  # also a cli attribute for one release (#317); gate.py uses it
 import io
 import json
 import os
@@ -1223,6 +1223,34 @@ def _bound_at(repo: pathlib.Path, head: str | None, rel,
     return ok, commit, (note or f"commit {commit[:12]} is HEAD")
 
 
+def _kept_by_hash(old_abs: pathlib.Path | None, new_abs: pathlib.Path, head: str | None, rel: str,
+                  commit: str | None, recorded: str | None) -> tuple[bool, str]:
+    """A field request (option A): a receipt not bound to the new HEAD is still the same evidence when the new
+    checkout holds the gated commit and the receipt there is byte-identical to the one at the old checkout, the
+    copy the gate checked. (kept, verdict). The old checkout must be on this host: with no copy to compare,
+    nothing is kept."""
+    if not head:
+        return False, "no git HEAD at the new path"
+    if old_abs is None or not old_abs.is_dir():
+        return False, "the old checkout is not on this host, so the receipt cannot be compared with it"
+    a, b = old_abs / rel, new_abs / rel
+    if any(p.is_symlink() or not p.is_file() for p in (a, b)):
+        return False, f"{rel} is not a regular file at both the old and the new path"
+    ha, hb = (hashlib.sha256(p.read_bytes()).hexdigest() for p in (a, b))
+    if ha != hb:
+        return False, f"{rel} differs from the copy at the old checkout"
+    if not (commit and _HEX40.fullmatch(commit)):
+        return False, "the receipt names no 40-hex commit"
+    if recorded and recorded != commit:
+        return False, f"the receipt's commit {commit[:12]} is not the gated commit {recorded[:12]} the registry recorded"
+    if git(new_abs, "cat-file", "-e", f"{commit}^{{commit}}").returncode != 0:
+        return False, f"commit {commit[:12]} is not in the new checkout's history"
+    if commit != head and not _is_ancestor(new_abs, commit, head):
+        return False, f"commit {commit[:12]} is not an ancestor of HEAD {head[:12]}"
+    return True, (f"same bytes as at the old checkout (sha256 {ha[:12]}); commit {commit[:12]} is in the new "
+                  f"checkout's history" + ("" if commit == head else f", an ancestor of HEAD {head[:12]}"))
+
+
 def relocate_binding(name: str, pkg: dict, repo: pathlib.Path, head: str | None, new: str,
                      receipt: dict | None, comparator: dict | None, claims_cleared: bool,
                      reason: str) -> tuple[dict, list[str], list[str]]:
@@ -1264,6 +1292,9 @@ def relocate_binding(name: str, pkg: dict, repo: pathlib.Path, head: str | None,
         else:
             nxt.append(f"lean-pkg gate {name} --receipt R" + (" --refresh-formalization" if fz_tracked else "")
                        + f"   # R: a lower-tier receipt bound to HEAD {h12}")
+    if receipt and receipt["kept"] and receipt.get("by") == "hash" and head and receipt["commit"] != head:
+        nxt.append(f"lean-pkg gate {name} --check --regate --receipt R   # R: a lower-tier receipt bound to HEAD "
+                   f"{h12}; the kept evidence is for {str(receipt['commit'])[:12]}")
     if comparator and not comparator["kept"] and not (nxt and nxt[0].startswith(f"lean-pkg update {name} --formalization")):
         nxt += [f"comparator-receipt --repo {repo}   # at HEAD {h12}",
                 f"lean-pkg comparator {name} --receipt .lean-receipts/{h12}-comparator.json"]
@@ -1325,11 +1356,22 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
         notes.append(f"no git HEAD at {new_abs}; commit-bound evidence cannot be confirmed here")
 
     cleared: list[str] = []
+    kept_by_hash: list[str] = []
     gate = copy.deepcopy(pkg.get("gate") or {})
     b_receipt = b_comp = None
+    old_abs = HOME / pathlib.Path(old) if old else None
+    recorded = recorded_gate_commit(pkg)
     if gate.get("receipt"):
         kept, commit, verdict = _bound_at(new_abs, head, gate["receipt"], formalization_rel(pkg), pkg)
         b_receipt = {"path": gate["receipt"], "commit": commit, "kept": kept, "verdict": verdict}
+        if not kept and present:
+            hkept, hverdict = _kept_by_hash(old_abs, new_abs, head, gate["receipt"], commit, recorded)
+            if hkept:
+                kept = True
+                kept_by_hash.append("gate.receipt")
+                b_receipt.update(kept=True, by="hash", verdict=hverdict)
+            else:
+                b_receipt["verdict"] = f"{verdict}; not kept by hash either: {hverdict}"
         if not kept:
             cleared.append("gate.receipt")
             notes.append(f"gate.receipt cleared: {gate['receipt']} (commit {str(commit)[:12]}) "
@@ -1337,6 +1379,13 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
             gate["receipt"] = None
     if gate.get("comparator"):
         ckept, ccommit, cverdict = _bound_at(new_abs, head, gate["comparator"], formalization_rel(pkg), pkg)
+        if not ckept and present and gate.get("receipt"):
+            hkept, hverdict = _kept_by_hash(old_abs, new_abs, head, gate["comparator"], ccommit, None)
+            if hkept:
+                ckept, cverdict = True, hverdict
+                kept_by_hash.append("gate.comparator")
+            else:
+                cverdict = f"{cverdict}; not kept by hash either: {hverdict}"
         kept = bool(gate.get("receipt")) and ckept
         b_comp = {"path": gate["comparator"], "commit": ccommit, "kept": kept,
                   "verdict": cverdict if gate.get("receipt") else "the lower-tier receipt is cleared"}
@@ -1375,8 +1424,12 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
 
     binding, next_commands, block = relocate_binding(name, pkg, new_abs, head, new, b_receipt, b_comp,
                                                      "claims" in cleared, reason)
+    if kept_by_hash:
+        notes.append(f"kept by hash: {', '.join(kept_by_hash)} (byte-identical to the old checkout's copy; the "
+                     f"gated commit is in the new checkout's history)")
     payload = {"ok": True, "name": name, "event": "relocated", "old_path": old,
-               "new_path": new, "cleared": cleared, "notes": notes, "dry_run": bool(dry_run),
+               "new_path": new, "cleared": cleared, "kept_by_hash": kept_by_hash, "notes": notes,
+               "dry_run": bool(dry_run),
                "status": ({"from": old_status, "to": new_status}
                           if new_status != old_status else None),
                "redetected": redetected, "binding": binding, "next_commands": next_commands}
@@ -1405,6 +1458,8 @@ def do_relocate(reg_path, reg, events_p, name, *, new_path, reason, agent,
         if field in tp:
             pkg[field] = tp[field]
     fields = {"old_path": old, "new_path": new, "reason": reason, "cleared": cleared}
+    if kept_by_hash:
+        fields["kept_by_hash"] = kept_by_hash
     if agent:
         fields["agent"] = agent
     if redetected:
@@ -3121,7 +3176,7 @@ register  add a package; dedupes by name AND resolved local_path (~/ expanded, s
 update    set fields (--notes over non-empty notes: exit 2, nothing written, unless --replace-notes, which replaces, prints the old value, event notes_replaced + notes_from; --append-note TEXT --agent A appends `YYYY-MM-DD (A): TEXT` and prints only `appended note: <line>` (--json changes.notes keeps from/to), not with --notes); manual status moves and --force need --reason (else exit 1; a refusal lists the allowed moves); empty --url/--owner-project refused; --license-spdx takes an SPDX expression (MIT OR Apache-2.0); --paper-arxiv ID / --paper-status unpublished|preprint|published set the optional paper {arxiv, status} (an id alone: preprint). --source-paper-title T --source-paper-author A (repeatable) --source-paper-arxiv ID --source-paper-doi DOI / --ai-tool T --ai-role R (repeatable): optional source_paper {title, authors[], arxiv, doi} / ai_assistance {tools[], roles[]}, rendered as formalization.yaml acknowledgements lines (never project.authors; no consent needed). --namespace-note TEXT [--namespace NS]: namespace_notes {NS: TEXT} (default NS: those shared with another package); audit duplicate-namespace is info once all sharers have one. --track palomar|doi-only --reason R: the optional DOI track (see record doi-minted). --accept-docs-descendants | --no-accept-docs-descendants --reason R: the optional docs_descendants true/false (opt in to the docs-only rule, see gate; --accept-docs-descendants is deprecated: stderr "WARN: deprecated: ..." and JSON deprecations[] {id registry-docs-descendants, message, replacement, earliest_removal 1.0.0, removal_rule}; the veto is not); --write-binding-file: write lean-pkg-binding.yaml into the package dir from the record's docs_descendants: true and build_inputs (the migration; never staged, the registry not written, not a registry write for committed mode; record not opted in: nothing written, exit 0; identical file: no-op; a different file, a symlink or a dir: exit 1, untouched; --dry-run prints it; with a field, --status or --path: exit 2; JSON {ok, name, event binding-file-written|binding-file-unchanged|binding-file-dry-run|binding-file-not-opted-in|binding-file-refused, state, path, written, dry_run, docs_descendants, build_inputs, content, advice, problem}; commit it on its own right before the next verify run: a file added after the receipt commit unbinds the current receipts until then); --build-inputs GLOB,GLOB --reason R: the optional build_inputs list ('' clears); --headline-config REL: the optional headline_config (the headline comparator configuration formalization renders as status.main_results; '' clears); these three accept --dry-run (event update-dry-run, nothing written). register/update/record: schema errors already in the registry (e.g. another package's) go to stderr as pre-existing, not blocking.
   ex: lean-pkg update my-lean --status gate-pending --reason "check job 4242 submitted"
   --withdraw-publication --reason TEXT [--agent A] [--dry-run]: record the owner's privacy withdrawal of a public package (see the transitions; event publication-withdrawn {status_from, status_to, visibility_from, visibility_to, reason, by, github_visibility, promoted_commit, forced}; JSON status/visibility {from, to}, publication_hold, github_visibility, github_check). --release-publication-hold --reason TEXT [--agent A] [--dry-run]: lift it, status/visibility unchanged (event publication-hold-released {reason, hold, by, forced}). Each on its own (other fields: exit 2).   |   --path NEW --reason TEXT [--agent A] [--redetect] [--dry-run]: relocate (same name, history, claims; event relocated). Same path: no-op,
-  exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
+  exit 0. Refuses another package's path, a foreign live lease (no --force). Gate/claims not bound to NEW's HEAD are cleared (`cleared`), except that a gate/comparator receipt is kept by hash (`kept_by_hash` in JSON and the event; status unchanged) when NEW holds its commit in history, an ancestor of HEAD, the commit is the one the gate event recorded, and the receipt file at NEW is byte-identical to the one at the old checkout, which must be on this host; next: then names `lean-pkg gate NAME --check --regate --receipt R` for the new HEAD (a scratch clone for rehearsing a re-gate). Output ends with a binding block (receipt commit vs new HEAD, evidence-only verdict, formalization.yaml exception) + `next:` commands (or "nothing to re-gate"); JSON binding{} + next_commands[].
 lease claim  (old spellings: claim, lease NAME) CAS lease; refuses if another agent holds an unexpired lease (names holder + expiry). Any other command naming a package whose lease has lapsed, or lapses within 2h, prints stderr `WARN: NAME lease: EXPIRED ... | expires in ...` with the claim/renew that keeps it (not claim/renew/release/leases/audit/status), stamped `(as of registry SHA7, committed AGE ago)` in a registry git clone and followed by the registry-clone-behind WARN when the clone is behind its last-fetched origin/BRANCH. Writes take a file lock on <registry>.lock (sibling); safe across processes on one host.
   flags: --workspace W --agent A (required) [--ttl HOURS: 1..8760, 24 new; a holder's re-claim keeps its TTL; above 8760: exit 2, nothing written] [--reason TEXT] [--contact TEXT: address of the holding session (e.g. alice-laptop/paper-1, @proof-team), stored as lease.contact; one line, <= 200 chars, else exit 2; a re-claim without it keeps it] [--force (needs --reason)]
   ex: lean-pkg lease claim my-lean --workspace w3 --agent vera --reason "chapter 2"

@@ -394,7 +394,8 @@ def build_parser():
     s.add_argument("--path", default=None, metavar="HOME-RELATIVE",
                    help="relocate: move local_path to another checkout, keeping name, history "
                         "and claims (needs --reason; event relocated; commit-bound evidence "
-                        "not bound to the new HEAD is cleared)")
+                        "not bound to the new HEAD is cleared, unless the new checkout holds the gated commit "
+                        "and the receipts are byte-identical to the old checkout's)")
     g = s.add_mutually_exclusive_group()
     g.add_argument("--withdraw-publication", dest="withdraw_publication", action="store_true",
                    help="the owner made a promoted (public) repository private again: record it (needs --reason; "
@@ -419,7 +420,7 @@ def build_parser():
     s.add_argument("name")
     s.add_argument("path", metavar="HOME-RELATIVE",
                    help="the new checkout (event relocated; commit-bound evidence not bound to the new HEAD is "
-                        "cleared)")
+                        "cleared, unless the new checkout holds the gated commit in its history and each receipt there is byte-identical to the old checkout's copy (kept by hash, JSON kept_by_hash))")
     s.add_argument("--reason", default="", help="required")
     s.add_argument("--agent", default=None, help="lease holder, if one is live")
     s.add_argument("--force", action="store_true",

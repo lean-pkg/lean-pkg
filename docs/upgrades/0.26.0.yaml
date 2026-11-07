@@ -88,4 +88,20 @@ changes:
       reads the verdict line or --json (mechanisms, checks[].required_by) instead.
     breaking: false
     changelog: Changed
+  - pr: 426
+    id: relocate-keeps-verified-evidence
+    kind: behavior
+    area: registry
+    summary: >-
+      update NAME --path keeps a gate/comparator receipt not bound to the new HEAD when the new checkout holds
+      its commit (an ancestor of HEAD, the commit the gate event recorded) and the receipt file is
+      byte-identical to the old checkout's copy (on this host); the package stays verified-private, and JSON and
+      the relocated event gain kept_by_hash. Before, any receipt not bound to the new HEAD was cleared and a
+      verified-private package returned to gate-pending.
+    action: >-
+      Nothing. A relocation onto a checkout whose HEAD is past the gated commit may now keep the evidence and
+      the status; re-gate the new HEAD as before (`gate NAME --check --regate --receipt R`, then the writing
+      gate). A script that rewrote local_path in a registry copy to rehearse a re-gate can use update --path.
+    breaking: false
+    changelog: Added
 no_author_change: [417, 424]

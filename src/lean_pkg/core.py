@@ -111,7 +111,7 @@ EVENT_KEYS: dict[str, tuple[str, ...]] = {
                               "github_visibility", "promoted_commit", "forced"),
     "publication-hold-released": ("reason", "hold", "by", "forced"),
     "audit-fix": ("field", "old", "new", "source"),
-    "relocated": ("old_path", "new_path", "reason", "cleared", "agent", "redetected"),
+    "relocated": ("old_path", "new_path", "reason", "cleared", "kept_by_hash", "agent", "redetected"),
     "status-changed": ("status_from", "status_to", "reason"),
     "palomar-prepared": ("commit", "bundle", "bundle_sha256"),
     "claims-synced": ("commit", "file", "claims"),
