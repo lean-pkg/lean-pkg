@@ -184,7 +184,8 @@
       "ok",
       "private_manuscript",
       "rows",
-      "warnings"
+      "warnings",
+      "witnesses"
     ],
     "rc": 0,
     "type": "object"
@@ -206,7 +207,8 @@
       "private_manuscript",
       "rows",
       "skipped",
-      "warnings"
+      "warnings",
+      "witnesses"
     ],
     "rc": 0,
     "type": "object"

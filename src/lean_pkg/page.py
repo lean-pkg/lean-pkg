@@ -188,7 +188,7 @@ def _conditional_tag(led: dict) -> str:
 def _conditional_gloss(led: dict) -> str:
     """The coverage table's gloss of *conditional* (proposal 0003), only when a claim uses the keys."""
     return ("; *conditional* means they close it only under its hypotheses, some of which may be outstanding "
-            "(an outstanding assumption is not proved)" if "conditional" in led["counts"] else "")
+            "(an outstanding assumption is not proved)" if led["counts"].get("conditional") else "")
 
 
 def _cell(s) -> str:
@@ -657,6 +657,40 @@ def _conclusion_line(r: dict) -> list[str]:
     return [f"**Conclusion.** {CONCLUSION_LEAD[c]}: {_md(r['conclusion_scope'])}", ""]
 
 
+# proposal 0011: the line a row with `witness` shows after its hypotheses, by the ledger's state of the headline
+# claim's witness; a row without the key shows nothing new
+WITNESS_SENTENCE = ("A witness shows that a result's hypotheses can be met under the package's own definitions; "
+                    "whether those definitions are the paper's objects is part of your comparison.")
+WITNESS_CELL = {"checked": "Witness: checked", "unchecked": "Witness: not yet checked", "mismatch": "Witness: wrong type"}
+
+
+def _witness(ctx: dict, r: dict, by_id: dict) -> tuple[str, str, str | None] | None:
+    """Proposal 0011: (state, the witness declaration, why not yet checked) of a row that names a witness."""
+    if not isinstance(r.get("witness"), str):
+        return None
+    w = (by_id.get(cov.witness_headline(r, ctx["claims"])) or {}).get("witness") or {}
+    decl = (ctx["claims"].get(r["witness"]) or {}).get("decl") or r["witness"]
+    return w.get("state", "unchecked"), decl, w.get("why")
+
+
+def _witness_line(ctx: dict, r: dict, by_id: dict) -> list[str]:
+    """Proposal 0011: the **Hypotheses can be met.** paragraph; [] for a row without `witness`."""
+    wi = _witness(ctx, r, by_id)
+    if wi is None:
+        return []
+    state, decl, why = wi
+    if state == "checked":
+        line = ("**Hypotheses can be met.** Lean proves that some instance satisfies all of them together "
+                f"(`{_code(decl)}`, checked by lean-pkg's probe against the Challenge).")
+    elif state == "mismatch":
+        line = (f"**Hypotheses can be met:** the named witness `{_code(decl)}` does not have the expected type, "
+                f"so nothing is shown.")
+    else:
+        line = (f"**Hypotheses can be met:** claimed by `{_code(decl)}`, not yet checked"
+                + (f" ({_md(why[:200])})" if why else "") + ".")
+    return [line, ""]
+
+
 def _bare_status_line(word: str, compared: bool, conditional: str | None = None, uncompared: bool = False) -> str:
     if word == "conditional" and conditional:       # proposal 0003: never the word verified alone
         checks = ("every check of this result passed (the build, and the statement comparison)" if compared else
@@ -838,6 +872,7 @@ def _result_block(ctx: dict, r: dict, by_id: dict, heading: str, statement: str 
         md += _lean_block(ctx, st)
     if hypotheses:
         md += [hypotheses, ""]
+    md += _witness_line(ctx, r, by_id)
     md += _depends_lines(ctx, sts)
     if r.get("note"):
         md += [f"**Note.** {_md(r['note'])}", ""]
@@ -874,8 +909,10 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     by_id = {r["id"]: r for r in led["claims"]}
     keyed = "conditional" in led["counts"]          # proposal 0003: a claim uses hypotheses
     trust = LIBRARY_TRUST_LINE if ctx["library"] else TRUST_LINE
+    witnessed = any("witness" in r for r in doc["rows"])    # proposal 0011: a row names a witness
     md: list[str] = ["## Verification at a glance", "",
-                     trust + (f" {CONDITIONAL_SENTENCE}" if keyed and led["counts"]["conditional"] else ""), ""]
+                     trust + (f" {CONDITIONAL_SENTENCE}" if keyed and led["counts"]["conditional"] else "")
+                     + (f" {WITNESS_SENTENCE}" if witnessed else ""), ""]
     md += _statements_line(ctx)
     if ctx["preview"]:
         pv = ctx["preview"]
@@ -900,6 +937,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     md += [_md(doc["summary"], lead=True), ""]
     blocks, words, n_compared = [], [], 0
     weak = {c: 0 for c in VERIFIED_HEAD}                # proposal 0010: verified rows by conclusion
+    n_witnessed = 0                                     # proposal 0011: verified rows with a checked witness
     for r in doc["rows"]:
         if ctx["library"]:
             b, w, c = _result_block(ctx, r, by_id, _md(r["title"], lead=True), r.get("statement"), None)
@@ -914,6 +952,7 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
         n_compared += w == "verified" and c
         if w == "verified" and _conclusion(r):
             weak[_conclusion(r)] += 1
+        n_witnessed += w == "verified" and (_witness(ctx, r, by_id) or ("",))[0] == "checked"
     n_verified = sum(w == "verified" for w in words)
     n_cond = sum(w == "conditional" for w in words)
     cond = f"; conditional (proved under the assumptions each names): {n_cond}" if n_cond else ""
@@ -921,13 +960,15 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
     # the verified results also had their statement compared whenever that is not all of them
     also = (f" (for {n_compared} of them a second checker also compared the statement)"
             if n_compared < n_verified else "")
+    witness_clause = (f"; {n_witnessed} of the verified have a checked witness that their hypotheses can be met"
+                      if witnessed else "")
     if target != "readme":
         blocks += [f"Every result with each of its claims, in one table: [Coverage]"
                    f"({'coverage.md' if target == 'site' else '#coverage'}).", ""]
     if ctx["library"]:
         counts = None
         n = len(doc["rows"])
-        md += [f"- Main results: {n}; verified: {n_verified} of {n}{also}{cond}.", ""]
+        md += [f"- Main results: {n}; verified: {n_verified} of {n}{also}{witness_clause}{cond}.", ""]
         md += ["## Main results", "", *blocks]
     else:
         counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in cov.CLASSES}
@@ -936,7 +977,8 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
                f"- Results listed: {len(doc['rows'])}. In Lean with the paper's own hypotheses: "
                f"{counts['same-assumptions']}; in Lean with extra hypotheses, named below: "
                f"{counts['inputs-supplied']}; not formalized: {counts['outside']}.",
-               f"- Verified: {n_verified} of the {formal} result(s) in Lean{also}{_weaker_clause(weak)}{cond}.", ""]
+               f"- Verified: {n_verified} of the {formal} result(s) in Lean{also}{_weaker_clause(weak)}"
+               f"{witness_clause}{cond}.", ""]
         md += ["## The paper's results in Lean", "", *blocks]
         md += ["## Not formalized", ""]
         outside = [r for r in doc["rows"] if r["class"] == "outside"]
@@ -947,7 +989,8 @@ def _body(ctx: dict, target: str) -> tuple[list[str], dict]:
             md.append(f"Nothing in the manuscript is excluded: {_md(doc['nothing_excluded']['reason'])}")
         md.append("")
     concl = weak if any("conclusion" in r for r in doc["rows"]) and not ctx["library"] else None
-    return _body_rest(ctx, target, md, counts, n_verified, n_cond if keyed else None, concl)
+    return _body_rest(ctx, target, md, counts, n_verified, n_cond if keyed else None, concl,
+                      n_witnessed if witnessed else None)
 
 
 def _weaker_clause(weak: dict[str, int]) -> str:
@@ -1027,7 +1070,8 @@ def _stack_lines(doc: dict, repo, warnings: list[str]) -> list[str]:
 
 
 def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_verified: int,
-               n_conditional: int | None = None, conclusions: dict | None = None) -> tuple[list[str], dict]:
+               n_conditional: int | None = None, conclusions: dict | None = None,
+               n_witnessed: int | None = None) -> tuple[list[str], dict]:
     """What the checks establish, How this was checked, and the citation, license and acknowledgments."""
     name, pkg, repo, doc = (ctx[k] for k in ("name", "pkg", "repo", "doc"))
     lower, comp, gate, cite, led = ctx["lower"], ctx["comp"], ctx["gate"], ctx["cite"], ctx["led"]
@@ -1174,6 +1218,8 @@ def _body_rest(ctx: dict, target: str, md: list[str], counts: dict | None, n_ver
              **({"conditional_rows": n_conditional} if n_conditional is not None else {}),
              # proposal 0010: only when a row carries `conclusion`, so every other page's facts are unchanged
              **({"verified_conclusions": conclusions} if conclusions is not None else {}),
+             # proposal 0011: only when a row names a witness
+             **({"verified_with_witness": n_witnessed} if n_witnessed is not None else {}),
              "ledger_status": pstatus, "ledger_digest": led["ledger_digest"],
              "private_manuscript": kind == "unposted", "manuscript": kind,
              # issue 396, additive: the record's paper.status, and the note when an unposted manuscript is a
@@ -1255,6 +1301,8 @@ def _coverage_lines(ctx: dict, target: str) -> list[str]:
         ids = list(r.get("claims") or [])
         gloss = cov.CLASS_GLOSS[r["class"]] + (f"<br>{CONCLUSION_CELL[_conclusion(r)]}: {_md(r['conclusion_scope'])}"
                                                if _conclusion(r) else "")
+        wi = _witness(ctx, r, by_id)
+        gloss += f"<br>{WITNESS_CELL[wi[0]]}" if wi else ""
         md.append(f"| {_md(r['paper']['number'])} | {_md(r['paper']['title'])} | {gloss} | "
                   f"{'<br>'.join(f'`{_code(c)}`' for c in ids) or '—'} | "
                   f"{'<br>'.join(_decl_ref(claims[c], c, ctx['link_base']) for c in ids) or '—'} | "
@@ -1284,12 +1332,19 @@ def _library_coverage_lines(ctx: dict, target: str) -> list[str]:
         ids = list(r["claims"])
         md.append(f"| {_md(r['title'])} | {'<br>'.join(f'`{_code(c)}`' for c in ids)} | "
                   f"{'<br>'.join(_decl_ref(claims[c], c, ctx['link_base']) for c in ids)} | "
-                  f"{'<br>'.join(_status_cells(r, by_id))} | {_md(r['note']) if r.get('note') else '—'} |")
+                  f"{'<br>'.join(_status_cells(r, by_id))} | {_library_note_cell(ctx, r, by_id)} |")
     md += ["", "One line per main result of `coverage.yaml`. *Ledger*: the status `lean-pkg claims ledger` gives "
                "each claim, in the order of the claims; only *verified* means the recorded "
                f"receipts close the claim{_conditional_gloss(led)}.", "",
            f"Back to [Verification]({'verification.md' if target == 'site' else '#verification'})."]
     return md
+
+
+def _library_note_cell(ctx: dict, r: dict, by_id: dict) -> str:
+    """A library row's Note cell; a row naming a witness (proposal 0011) leads with its state."""
+    wi = _witness(ctx, r, by_id)
+    parts = ([WITNESS_CELL[wi[0]]] if wi else []) + ([_md(r["note"])] if r.get("note") else [])
+    return "<br>".join(parts) or "—"
 
 
 def _scan(pkg: dict, repo, outputs: dict[str, str]) -> None:

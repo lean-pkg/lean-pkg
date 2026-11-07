@@ -9,6 +9,19 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- Non-vacuity witnesses on coverage rows (proposal 0011, #433): a `claims.yaml`
+  `witness` is accepted on any claim, not only a conditional one, and a claim
+  that sets only `witness` keeps its status when the facts to judge it are
+  missing. A `coverage.yaml` row (paper or library) may name the `witness` of
+  one of its claims; `lean-pkg page` then says **Hypotheses can be met.**
+  with the probe's state (checked, not yet checked, wrong type), the header
+  counts the verified results with a checked witness, and `coverage check
+  --json` gains `witnesses`, `page --json` `verified_with_witness`. Files
+  without the key render as before; a file that uses it needs this release
+  or later. See docs/page.md, "Hypotheses that can be met (a witness)".
+
 ### Changed
 
 - `page --check --site DIR` also reads the hand-written pages under `DIR`

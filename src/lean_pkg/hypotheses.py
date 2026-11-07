@@ -534,7 +534,11 @@ def evaluate(claims: list[dict], fx: dict, *, stage: str, bound: str | None, com
             s["diags"].append(("hypothesis-open", f"{h}: outstanding at {c12}; {why}"))
         s["hypotheses"] = rows
     for cid, s in out.items():
-        if s["unchecked"]:
+        if s["unchecked"] and claims_mod.uses_conditional_keys(by_id.get(cid)) == ["witness"] and s["witness"]:
+            # proposal 0011: a claim that sets only `witness` is not conditional, so a witness the facts cannot
+            # judge leaves it as it is; the page says why the witness is not yet checked
+            s["witness"]["why"] = "; ".join(dict.fromkeys(s["unchecked"]))
+        elif s["unchecked"]:
             s["diags"].append(("hypotheses-unchecked",
                                f"{cid} sets {', '.join(claims_mod.uses_conditional_keys(by_id[cid])) or 'hypotheses'}"
                                f", but the facts to judge them are missing (proposal 0003): "
