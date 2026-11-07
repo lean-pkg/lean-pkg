@@ -1,7 +1,14 @@
 
-`lean-pkg receipt comparator [--repo DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--prepare | --from-prepared DIR]` is the separate console
+`lean-pkg receipt comparator [--repo DIR] [--check SCRIPT] [--mechanism M] [--evidence-dir DIR] [--out PATH] [--prepare | --from-prepared DIR]` is the separate console
 script that produces comparator receipts; see
-[The comparator tier](../comparator.md). `COMPARATOR_RECEIPT_STACK=unlimited|<kB>`
+[The comparator tier](../comparator.md).
+The receipt and its per-configuration logs go to `.lean-receipts/` in the checkout;
+`--evidence-dir DIR` moves only the stage logs and `stages.json`. `--out PATH` writes
+the receipt to `PATH` and its logs beside it instead, so a probe or rehearsal
+receipt stays out of the package tree; the receipt still names its logs
+`.lean-receipts/<c12>-comparator-<config>.log`, so copying the files there later
+makes it a receipt the gate reads. `PATH` must not exist (its directory must); not
+with `--prepare` or `--estimate`. `COMPARATOR_RECEIPT_STACK=unlimited|<kB>`
 raises the soft stack limit of its `lake`/`lean` children (never above the hard
 limit; recorded as the receipt's `stack_limit`); it warns when the soft limit is
 8 MiB or less; see [Stack limit](../comparator.md#stages-and---prepare).
