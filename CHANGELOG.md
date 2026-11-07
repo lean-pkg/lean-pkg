@@ -11,6 +11,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Changed
 
+- `formalization render --help` says that `--write --no-registry` still
+  checks the lease (#436): the command writes `formalization.yaml` into the
+  package's checkout, so another agent's live lease refuses unless `--agent
+  HOLDER` (or `--force --reason`), although nothing is written to the
+  registry. Help text only; the check is unchanged.
+
 - `page --check --site DIR` also reads the hand-written pages under `DIR`
   (#428): an HTML block (`<details>`, `<div>`, `<section>`, ...) that holds
   Markdown without a `markdown` attribute exits 1, naming the file and line,
