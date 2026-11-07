@@ -95,6 +95,23 @@ whose file name is not its version, an older record that was never released,
 and an unreleased record listing a pull request that already shipped (the
 rename was missed).
 
+### Released records
+
+A released record keeps its words: `docs/upgrades/X.Y.Z.yaml` and `.md`
+say what that release said, and the private-boundary check skips them
+because their wording never changes. On a released page, line breaks may
+move and words may not; `tests/test_docs.py::test_released_upgrade_pages_keep_their_words`
+compares each page's words with the page at its tag `vX.Y.Z`.
+
+- #431 moved line breaks in the 0.17.0, 0.18.1, 0.19.0 and 0.20.0 pages:
+  ten relative `.md` links had their text wrapped across a line, which
+  jekyll-relative-links leaves unconverted, so they 404ed on the site. No
+  word changed.
+- 0.19.0's page lost a duplicate #285 row after its release (7e89a88); the
+  test pins that page to the SHA-256 of its current words. A future change
+  of words in a released record needs the same: a documented reason here
+  and a pin in the test.
+
 ### The breaking-entries file
 
 `src/lean_pkg/data/upgrade-breaking.yaml` lists every record entry with

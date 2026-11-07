@@ -45,7 +45,8 @@ forbidden=(
 # host, board item ids. Checked in the tree only (not with --history): the public history already holds them
 # in commit messages and released records, and a history rewrite of a public repository is not an option,
 # so a history scan would fail forever. Files that are release records keep their wording and are skipped
-# here: CHANGELOG.md and docs/upgrades/ (a released record is never rewritten). Written in halves as above.
+# here: CHANGELOG.md and docs/upgrades/ (a released record keeps its words; only line breaks may move: RELEASING.md,
+# "Released records"). Written in halves as above.
 forbidden_tree=(
   'am''sg'
   'lean''-ops'

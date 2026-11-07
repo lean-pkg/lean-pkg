@@ -35,6 +35,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   because jekyll-relative-links matches link text on one line. The text of
   each such link is now on one line, and the proposal 0003 prototype link
   opens the directory on GitHub, since Pages serves no listing for it.
+- The ten wrapped links left in the released upgrade pages 0.17.0, 0.18.1,
+  0.19.0 and 0.20.0 now convert on the site too (#431): only their line
+  breaks moved. A released record keeps its words; a test compares each
+  released page with its tag, and another refuses relative `.md` link text
+  that crosses a line (RELEASING.md, "Released records").
 
 ## [0.26.0] - 2026-11-06
 
