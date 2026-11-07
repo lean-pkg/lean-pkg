@@ -26,5 +26,6 @@ changes:
 # Documentation only: 14 relative .md links whose text wrapped across a line were published unconverted
 # (jekyll-relative-links matches one-line link text) and 404ed on the site; the 0003 prototype directory
 # link had no index page (#427).
-# Docs: proposal 0011 (non-vacuity witnesses on coverage rows) drafted; no code changes (#430).
-no_author_change: [427, 430]
+# Docs: proposal 0011 (non-vacuity witnesses on coverage rows) drafted and marked accepted 2026-11-07;
+# no code changes (#430).
+no_author_change: [427, 429, 430]
