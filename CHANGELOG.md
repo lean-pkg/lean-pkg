@@ -9,6 +9,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `gate --expect-branch NAME` (#438): a release branch gated before its merge
+  is now stated as intended. When the checkout is on `NAME`, the `WARN:
+  evaluating branch NAME, not the default D` becomes a note; on another
+  branch a `WARN` names both. Never a refusal; `gate --check` repeats the flag
+  in its `next:` command ([gate](docs/commands/gate.md)).
+
 ### Changed
 
 - `page --check --site DIR` also reads the hand-written pages under `DIR`
