@@ -23,7 +23,7 @@ changes:
       Markdown inside. Nothing to do for a site without such blocks, or without --site.
     breaking: true
     changelog: Changed
-  - pr: 433
+  - pr: 437
     id: coverage-row-witness
     kind: format
     area: claims, claims ledger, coverage, page

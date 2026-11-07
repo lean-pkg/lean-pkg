@@ -11,7 +11,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
-- Non-vacuity witnesses on coverage rows (proposal 0011, #433): a `claims.yaml`
+- Non-vacuity witnesses on coverage rows (proposal 0011, #437): a `claims.yaml`
   `witness` is accepted on any claim, not only a conditional one, and a claim
   that sets only `witness` keeps its status when the facts to judge it are
   missing. A `coverage.yaml` row (paper or library) may name the `witness` of
