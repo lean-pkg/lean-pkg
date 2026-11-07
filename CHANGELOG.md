@@ -30,6 +30,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Fixed
 
+- `receipt comparator` (`comparator-receipt`) no longer refuses a tree that
+  is dirty only because of the receipts of the commit being receipted
+  (#433): untracked `.lean-receipts/<c12>-*` files for HEAD and the
+  `.lean-receipts/README.md` that `receipt systemd` writes are exempt from the
+  dirty-tree check, so the lower-tier receipt made for the same commit just
+  before no longer has to be moved aside and back (both tiers bind HEAD). A
+  modified tracked receipt, or a receipt for another commit, still counts.
 - `public-safety` no longer turns common workflow words into private
   patterns (#432). A record's or lease's `workspace` is free text, and each of
   its tokens became a blocking pattern: a lease taken with the workspace

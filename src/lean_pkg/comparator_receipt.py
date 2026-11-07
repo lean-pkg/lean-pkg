@@ -1972,7 +1972,10 @@ def run_estimate(project, configs, mechanism, check, verify, stages, commit, jud
 
 
 def dirty_paths(project: pathlib.Path, evidence: pathlib.Path) -> list[str]:
-    """Modified or untracked paths, ignoring the stage evidence directory when it lies in the project."""
+    """Modified or untracked paths, ignoring the stage evidence directory when it lies in the project, and
+    the untracked receipts of the commit being receipted: `.lean-receipts/<HEAD c12>-*` and
+    `.lean-receipts/README.md` (a field request: the lower-tier receipt is written for the same commit just
+    before, and both tiers must bind it; a tracked receipt file that is modified still counts)."""
     st = git(project, "status", "--porcelain", "--untracked-files=all")
     if st.returncode != 0:
         raise RunnerError(f"{project}: not a git repository ({st.stderr.strip()})")
@@ -1980,10 +1983,17 @@ def dirty_paths(project: pathlib.Path, evidence: pathlib.Path) -> list[str]:
         ev = evidence.resolve().relative_to(project.resolve()).as_posix()
     except ValueError:
         ev = None
+    head = git(project, "rev-parse", "HEAD").stdout.strip()
+    prefix = git(project, "rev-parse", "--show-prefix").stdout.strip()   # porcelain paths are repo-relative
+    receipts = f"{prefix}.lean-receipts/"
+    same_commit = f"{receipts}{head[:12]}-" if re.fullmatch(r"[0-9a-f]{40}", head) else None
     out = []
     for line in st.stdout.splitlines():
-        path = line[3:].strip('"')
-        if ev and (path == ev or path.startswith(ev + "/")):
+        code, path = line[:2], line[3:].strip('"')
+        rel = path[len(prefix):] if prefix and path.startswith(prefix) else path
+        if ev and (rel == ev or rel.startswith(ev + "/")):
+            continue
+        if code == "??" and same_commit and (path.startswith(same_commit) or path == receipts + "README.md"):
             continue
         out.append(path)
     return out
