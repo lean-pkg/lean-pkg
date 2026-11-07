@@ -20,6 +20,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   help now says that `--evidence-dir` moves only the stage logs and
   `stages.json`
   ([receipt comparator](docs/commands/receipt-comparator.md)).
+- `gate --expect-branch NAME` (#438): a release branch gated before its merge
+  is now stated as intended. When the checkout is on `NAME`, the `WARN:
+  evaluating branch NAME, not the default D` becomes a note; on another
+  branch a `WARN` names both. Never a refusal; `gate --check` repeats the flag
+  in its `next:` command ([gate](docs/commands/gate.md)).
 
 ### Changed
 

@@ -80,4 +80,16 @@ changes:
       Nothing. Pass --out PATH to keep a probe receipt out of the checkout instead of moving it afterwards.
     breaking: false
     changelog: Added
+  - pr: 438
+    id: gate-expect-branch
+    kind: behavior
+    area: gate
+    summary: >-
+      gate gains --expect-branch NAME: a checkout on NAME (a release branch gated before its merge) gets a note
+      instead of the off-default-branch WARN; on another branch a WARN names both; never a refusal; --check's
+      next: repeats it.
+    action: >-
+      Nothing. Pass --expect-branch NAME when gating a release branch on purpose.
+    breaking: false
+    changelog: Added
 no_author_change: [427, 429, 430, 431, 436]

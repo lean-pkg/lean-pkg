@@ -128,6 +128,32 @@ def test_gate_warns_off_the_default_branch_and_still_gates(lp, env, tmp_path, ca
     assert read_reg(env)["packages"]["alpha"]["status"] == "verified-private"
 
 
+def test_gate_expect_branch_turns_the_warn_into_a_note(lp, env, tmp_path, capsys):
+    """A field request: a release branch gated before its merge, on purpose. --expect-branch NAME states
+    it: on NAME the branch WARN becomes a note; elsewhere a WARN names both; never a refusal."""
+    on(env.repo_a, branch="feature/x")
+    p = write_receipt(tmp_path, make_receipt(env.repo_a))
+    reg = ["--registry", str(env.registry)]
+    assert lp.main([*reg, "gate", "alpha", "--receipt", str(p), "--expect-branch", "feature/x"]) == 0
+    err = capsys.readouterr().err
+    assert "WARN: evaluating branch" not in err
+    assert "note: evaluating branch feature/x as intended (--expect-branch); the default is main" in err
+    assert read_reg(env)["packages"]["alpha"]["status"] == "verified-private"
+
+
+def test_gate_expect_branch_mismatch_warns_and_check_repeats_it(lp, env, tmp_path, capsys):
+    on(env.repo_a, branch="feature/x")
+    p = write_receipt(tmp_path, make_receipt(env.repo_a))
+    reg = ["--registry", str(env.registry)]
+    rc = lp.main([*reg, "gate", "alpha", "--receipt", str(p), "--check", "--expect-branch", "release/1.0",
+                  "--json"])
+    assert rc == 0
+    cap = capsys.readouterr()
+    assert "WARN: --expect-branch release/1.0, but the checkout is on branch feature/x" in cap.err
+    assert "evaluating branch feature/x, not the default" not in cap.err
+    assert "--expect-branch release/1.0" in json.loads(cap.out)["next_command"]
+
+
 def test_gate_on_the_default_branch_has_no_branch_warn(lp, env, tmp_path, capsys):
     on(env.repo_a)
     p = write_receipt(tmp_path, make_receipt(env.repo_a))
