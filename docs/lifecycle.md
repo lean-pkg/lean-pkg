@@ -196,7 +196,7 @@ one.
 | `comparator-todo` | open | the declaration is only a scaffold `TODO` entry (`comparator config --from-claims`) |
 | `depends-on-open` | blocked | a `depends_on` claim in this package is not verified |
 | `depends-on-unknown` | unknown | a `depends_on` claim is in another package or not in this claims file |
-| `hypotheses-unchecked` | open | the claim sets `hypotheses`, `discharges` or `witness` ([conditional claims](prior-art.md#conditional-claims)), but the sealed verify log at the gate-bound commit lacks the facts to judge them: no `hyp-probe/1` section (a verify script without the probe: regenerate it and re-gate), a part of the probe that did not run, a skipped corollary search, or a claim judged by more than one comparator name |
+| `hypotheses-unchecked` | open | the claim sets `hypotheses` or `discharges`, with or without `witness` (a claim that sets only `witness` is not conditional and keeps its status; its witness is then `unchecked` with a `why`, proposal 0011) ([conditional claims](prior-art.md#conditional-claims)), but the sealed verify log at the gate-bound commit lacks the facts to judge them: no `hyp-probe/1` section (a verify script without the probe: regenerate it and re-gate), a part of the probe that did not run, a skipped corollary search, or a claim judged by more than one comparator name |
 | `hypothesis-not-in-type` | failed | a listed hypothesis is not an explicit binder of the declaration's type at the gate-bound commit (renamed, dropped or implicit), or, at the promote stage, of its Challenge theorem |
 | `hypothesis-inadmissible` | failed | a listed hypothesis is an `axiom`, `opaque` or `theorem` constant, not a `def` or an inductive `Prop` |
 | `hypothesis-open` | conditional | a listed hypothesis has no discharge at the gate-bound commit; the detail names it and says why |
@@ -246,7 +246,10 @@ Lean printed in the bound build. Nothing is stored; every call recomputes.
 - `witness` gives the row `{claim, state: checked|unchecked|mismatch}`:
   `checked` when the facts hold `hyp-witness` for the two credited Challenge
   theorems, `unchecked` (no diagnostic) when they are not both compared or
-  at the gate stage, `mismatch` with `witness-type-mismatch` otherwise.
+  at the gate stage, `mismatch` with `witness-type-mismatch` otherwise. Any
+  claim may set `witness`, conditional or not (proposal 0011). For a claim
+  that sets only `witness`, missing facts give `unchecked` with `why` (the
+  reason, which the page shows) instead of `hypotheses-unchecked`.
 - `counts` gains `conditional`, `--json` gains `conditional_required` (the
   required claims that are conditional) and `outstanding_hypotheses`, and
   `ledger_digest` covers the new row keys, all only when some claim uses the

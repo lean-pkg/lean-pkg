@@ -154,9 +154,15 @@ def test_a_superseded_discharge_target_is_followed(cl):
                                 "discharged ones, ['Hyp.B', 'Hyp.C']")
 
 
+def test_a_witness_needs_no_hypotheses_key(cl):
+    """Proposal 0011: a claim that is not conditional may name a witness (its hypotheses are the theorem's own
+    Prop binders, which the probe reads); it stays out of the conditional keys' other rules."""
+    assert errors_of(cl, lambda cs: cs[1].update(witness="p/wit")) == []
+    x = c("proof-a", witness="p/wit")
+    assert cl.uses_conditional_keys(x) == ["witness"]
+
+
 @pytest.mark.parametrize("change, needle", [
-    (lambda cs: cs[1].update(witness="p/wit"),
-     "claims[1] (p/proof-a): witness is set but the claim has no hypotheses"),
     (lambda cs: cs[0].update(witness="p/main"), "claims[0] (p/main): witness names the claim itself"),
     (lambda cs: cs[0].update(witness="p/thing"), "p/main: witness 'p/thing' has kind 'definition'"),
     (lambda cs: cs[0].update(witness="p/nope"), "p/main: witness 'p/nope' is not a claim in this file"),

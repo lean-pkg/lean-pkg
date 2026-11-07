@@ -62,7 +62,7 @@ results, then what the checks establish, and only then the receipts.
 | Section | What it says |
 |---|---|
 | Verification at a glance | one fixed line, *How to read this page*: Lean has checked every step; it cannot check that a Lean statement says what the paper says, so the reader compares, for each result, the paper's statement with the Lean statement. Then the `summary` sentence, the manuscript, the number of results by class and how many the ledger closes. The registry status is not shown: it changes on promote, while the page is committed at one commit |
-| The paper's results in Lean (*Main results* for a library) | one block per formalized result, headed by its number and title: whether it is verified; **Conclusion** (only for a row whose Lean conclusion is [weaker than the paper's or a special case](#a-weaker-conclusion-or-a-special-case)); **In the paper** (the `paper.statement` TeX in a `latex` code block, or a pointer to the paper); **In Lean** (the declaration, linked at the gate-bound commit, and its statement in a `lean` code block); **Hypotheses** (the paper's own, or the paper's plus the named `inputs`); **Definitions checked by a person** (definition holes and who signed them off); **Axioms**; **Note** |
+| The paper's results in Lean (*Main results* for a library) | one block per formalized result, headed by its number and title: whether it is verified; **Conclusion** (only for a row whose Lean conclusion is [weaker than the paper's or a special case](#a-weaker-conclusion-or-a-special-case)); **In the paper** (the `paper.statement` TeX in a `latex` code block, or a pointer to the paper); **In Lean** (the declaration, linked at the gate-bound commit, and its statement in a `lean` code block); **Hypotheses** (the paper's own, or the paper's plus the named `inputs`); **Hypotheses can be met** (only for a row that names a [witness](#hypotheses-that-can-be-met-a-witness)); **Definitions checked by a person** (definition holes and who signed them off); **Axioms**; **Note** |
 | Not formalized | every `outside` row, or the `nothing_excluded` reason |
 | What the checks establish | in plain words: every proof is checked by Lean (no `sorry`, which axioms); the statements shown are the ones proved (the comparator); and what no tool checks. The full account: [Trust model](trust-model.md) |
 | How this was checked | the claims ledger with its digest; the build check and the statement comparison, with their commits; *Receipts*: one row per receipt committed under `.lean-receipts/` (path, check, commit, date, Slurm job, SHA-256); *Reproduce*: toolchain, Mathlib revision, the commands, the expected `#print axioms` result |
@@ -193,6 +193,61 @@ SCOPE". `page --json` carries `verified_conclusions` `{weaker, special-case}`
 when some row sets `conclusion`. A row without the key, or with
 `conclusion: full`, renders exactly as before. The keys are the authors' description, like
 the class and the note: no tool checks a scope against the Lean statement.
+
+### Hypotheses that can be met (a witness)
+
+A theorem whose hypotheses can never hold together proves anything. A row
+shows that they can be met by naming a witness
+([proposal 0011](proposals/0011-nonvacuity-witness-on-coverage-rows.md); [keys](#coverageyaml)): a claim whose Lean
+statement is exactly `∃` over the headline theorem's parameters, in order, of
+the `∧` of all its hypotheses, in order (the probe's `hyp-witness` fact,
+[formats](formats.md)). Name it twice: as `witness` on the headline claim in
+`claims.yaml`, and as `witness` on the row.
+
+```yaml
+# claims.yaml
+  - id: demo/lfpp-converges
+    decl: Demo.lfpp_converges              # ∀ γ h, 0 < γ → γ < 2 → IsGFF h → Converges γ h
+    witness: demo/lfpp-converges-nonvacuous
+  - id: demo/lfpp-converges-nonvacuous
+    decl: Demo.lfpp_converges_nonvacuous   # ∃ γ h, 0 < γ ∧ γ < 2 ∧ IsGFF h
+# coverage.yaml
+  - paper: {number: "Theorem 1.1", title: "Convergence of LFPP"}
+    class: same-assumptions
+    claims: [demo/lfpp-converges]
+    witness: demo/lfpp-converges-nonvacuous
+```
+
+The row's block then carries, after its hypotheses, one of:
+
+- "**Hypotheses can be met.** Lean proves that some instance satisfies all of
+  them together (`WITNESS`, checked by lean-pkg's probe against the
+  Challenge).";
+- "**Hypotheses can be met:** claimed by `WITNESS`, not yet checked
+  (REASON).";
+- "**Hypotheses can be met:** the named witness `WITNESS` does not have the
+  expected type, so nothing is shown."
+
+The state is the claims ledger's (`lean-pkg claims ledger`): *checked* needs
+the probe's facts in the sealed verify log and a comparator configuration
+that credits both theorems. Also:
+
+- the header adds "N of the verified have a checked witness that their
+  hypotheses can be met";
+- the reading note adds that a witness shows the hypotheses can be met under
+  the package's own definitions, and that whether those are the paper's
+  objects stays the reader's comparison;
+- the *Correspondence* cell of `coverage.md` (the *Note* cell of a library)
+  says "Witness: checked", "Witness: not yet checked" or "Witness: wrong
+  type";
+- `page --json` carries `verified_with_witness`.
+
+A row without the key renders exactly as before.
+
+A claim that sets only `witness` (no `hypotheses`) is not conditional. When
+the facts to judge its witness are missing, the claim keeps its status and only
+the witness is *not yet checked*. A witness of the wrong type is
+`witness-type-mismatch`, a failed claim, as for a conditional claim.
 
 ### Conditional results
 
@@ -339,6 +394,7 @@ compute:                              # optional; see Site acknowledgments
 | `rows[].class` | `same-assumptions` (the Lean statement carries the paper's hypotheses), `inputs-supplied` (it also takes the named `inputs` as hypotheses), `outside` (no Lean counterpart) |
 | `rows[].conclusion` | optional ([proposal 0010](proposals/0010-coverage-conclusion-strength.md)): how the Lean conclusion relates to the paper's, independently of `class` (which names the hypotheses): `full` (the paper's conclusion; an absent key means `full`), `weaker` (a strictly weaker statement) or `special-case` (the result for a special case of the paper's setting). Refused on an `outside` row. The page says "Verified: a weaker statement." or "Verified: a special case." instead of "Verified." ([above](#a-weaker-conclusion-or-a-special-case)). An older lean-pkg refuses the key (coverage/1 is strict) |
 | `rows[].conclusion_scope` | one line, at most 400 characters: what the Lean proves relative to the paper's result. Required when `conclusion` is `weaker` or `special-case`, refused when it is absent or `full`, refused on an `outside` row. Shown as the **Conclusion.** line. An older lean-pkg refuses the key |
+| `rows[].witness` | optional ([proposal 0011](proposals/0011-nonvacuity-witness-on-coverage-rows.md)): a claim id, the `witness` in `claims.yaml` of one of the row's `claims` (its headline); refused on an `outside` row. Shown as **Hypotheses can be met** with the ledger's state of that witness ([a witness](#hypotheses-that-can-be-met-a-witness)) |
 | `rows[].claims` | ids in `claims.yaml` at `HEAD`; at least one for the first two classes, none for `outside`; a superseded claim is refused |
 | `rows[].inputs` | required for `inputs-supplied`, refused for `same-assumptions`. Each entry is one line of text, or `{hypothesis: Name, text: one line}` with exactly those keys ([proposal 0003](proposals/0003-conditional-claims-and-discharge.md)): `Name` is the fully qualified name of an assumption in the `hypotheses` of some claim the row names ([conditional claims](prior-art.md#conditional-claims)), each named once; `coverage check` (both forms) refuses any other. The page shows the text and the name. An older lean-pkg refuses the mapping (coverage/1 is strict) |
 | `nothing_excluded` | `{reason: TEXT}`, only when no row is `outside`. One of the two is required: a page always says where the formalization stops |
@@ -387,6 +443,7 @@ compute:                                       # optional; the site rule is the 
 |---|---|
 | refused | `manuscript` and `nothing_excluded` (each would state a manuscript), and a row's `paper`, `class`, `inputs`, `conclusion` or `conclusion_scope` |
 | `rows[].statement` | optional TeX, as `paper.statement` for a paper; shown as **In words** |
+| `rows[].witness` | optional, as for a paper row ([proposal 0011](proposals/0011-nonvacuity-witness-on-coverage-rows.md)) |
 | `rows[].title`, `rows[].claims`, `rows[].note` | one line each; at least one claim id, each in `claims.yaml` at `HEAD`, none superseded, each claim's `file` committed |
 | comparator | as for a paper: every theorem the recorded comparator receipt compares is the declaration of a claim some row names, so the rows account for everything the page says was compared |
 | `compute`, `lean_pkg_version`, `stack`, `summary` | as above |

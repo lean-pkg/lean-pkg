@@ -29,6 +29,8 @@ formalized" list and the status capsule from it; this module only parses and val
         conclusion: full | weaker | special-case # optional (proposal 0010); absent means full; not on outside
         conclusion_scope: TEXT                   # one line, what the Lean proves relative to the paper's result:
                                                  # required for weaker and special-case, refused otherwise
+        witness: NAME/claim-id                   # optional (proposal 0011): the claims.yaml witness of one of
+                                                 # the row's claims (its headline); not on outside
     nothing_excluded: {reason: TEXT}             # only when no row is outside
     compute:                                     # optional: where the gates ran
       - cluster: easley
@@ -51,6 +53,7 @@ main results, named by its Lean declarations:
         claims: [NAME/claim-id, ...]             # at least one id in claims.yaml at HEAD
         note: TEXT                               # optional
         statement: TEX                           # optional: the result in mathematical words
+        witness: NAME/claim-id                   # optional, as above (proposal 0011)
     compute: ...                                 # as above (the Easley rule is the same)
     lean_pkg_version: ...                        # as above
     stack: ...                                   # as above
@@ -59,7 +62,9 @@ Strict: unknown or missing keys, values outside the closed enums and duplicate m
 refused. Classes: `same-assumptions` (the Lean statement carries the paper's hypotheses),
 `inputs-supplied` (it takes the named `inputs` as hypotheses), `outside` (no Lean counterpart). A class
 names the hypotheses only; `conclusion` (proposal 0010) names the conclusion, independently: `full` (the
-paper's), `weaker` or `special-case`, the last two with a `conclusion_scope` line.
+paper's), `weaker` or `special-case`, the last two with a `conclusion_scope` line. `witness` (proposal
+0011) names a claim the probe checks to have exactly the type `∃` over the headline theorem's parameters of
+all its hypotheses, so the page can say the hypotheses can be met.
 """
 
 from __future__ import annotations
@@ -84,7 +89,7 @@ LIBRARY_TOP_REQUIRED = ("schema", "package", "kind", "summary", "rows")
 LIBRARY_TOP_OPTIONAL = ("compute", "lean_pkg_version", "stack")
 STACK_NAME_RE = re.compile(r"^lts-\d{4}\.(?:04|10)$")   # proposal 0004: lts-YYYY.MM, cut in April and October
 LIBRARY_ROW_REQUIRED = ("title", "claims")
-LIBRARY_ROW_OPTIONAL = ("note", "statement")
+LIBRARY_ROW_OPTIONAL = ("note", "statement", "witness")
 # keys of a paper coverage that a library refuses by name: each would state a manuscript, or a relation to one
 LIBRARY_NO_PAPER = {
     "manuscript": "manuscript: a library coverage names no manuscript (kind: library); a package that formalizes "
@@ -94,10 +99,13 @@ LIBRARY_NO_PAPER = {
 }
 LIBRARY_ROW_NO_PAPER = ("paper", "class", "inputs", "conclusion", "conclusion_scope")
 ROW_REQUIRED = ("paper", "class")
-ROW_OPTIONAL = ("claims", "inputs", "note", "conclusion", "conclusion_scope")
+ROW_OPTIONAL = ("claims", "inputs", "note", "conclusion", "conclusion_scope", "witness")
 # proposal 0010: how a paper row's Lean conclusion relates to the paper's; an absent key means full
 CONCLUSIONS = ("full", "weaker", "special-case")
 SCOPED_CONCLUSIONS = ("weaker", "special-case")
+# proposal 0011: a row's `witness` names the claims.yaml witness of its headline claim; the ledger's states of it
+WITNESS_STATES = ("checked", "unchecked", "mismatch")
+WITNESS_ID_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)/([a-z0-9][a-z0-9-]*)$")   # claims.CLAIM_ID_RE
 INPUT_KEYS = ("hypothesis", "text")             # an inputs entry that names a hypothesis (proposal 0003, H2)
 PAPER_REQUIRED = ("number", "title")
 PAPER_OPTIONAL = ("label", "statement")
@@ -474,6 +482,7 @@ def _paper_rows_errors(doc: dict, errors: list[str]) -> None:
         if "note" in r and not _text(r["note"]):
             errors.append(f"{w}.note: must be one line of at most {TEXT_MAX} characters")
         _conclusion_errors(r, cls, w, errors)
+        _witness_shape_errors(r, cls, w, errors)
         if cls == "outside":
             n_outside += 1
             if claims:
@@ -526,6 +535,50 @@ def _conclusion_errors(r: dict, cls: str, w: str, errors: list[str]) -> None:
                       f"to state)")
 
 
+def _witness_shape_errors(r: dict, cls: str | None, w: str, errors: list[str]) -> None:
+    """Proposal 0011: a row's `witness` is a claim id; an outside row, which names no claims, has none. That it
+    is the witness of one of the row's claims is checked against claims.yaml (witness_problems)."""
+    if "witness" not in r:
+        return
+    if cls == "outside":
+        errors.append(f"{w}: an outside row has no Lean statement, so no hypotheses to witness: drop witness")
+    elif not (isinstance(r["witness"], str) and WITNESS_ID_RE.match(r["witness"])):
+        errors.append(f"{w}.witness: must be a claim id <package>/<slug>, got {r['witness']!r}")
+
+
+def witness_headline(r: dict, claims: dict[str, dict]) -> str | None:
+    """Proposal 0011: the claim of row `r` whose claims.yaml `witness` is the row's witness (its headline)."""
+    w = r.get("witness")
+    return next((cid for cid in r.get("claims") or [] if isinstance(w, str)
+                 and (claims.get(cid) or {}).get("witness") == w), None)
+
+
+def witness_problems(doc: dict, claims: dict[str, dict], where: str) -> list[str]:
+    """Proposal 0011: each row's `witness` is the `witness` of a claim the row names (claims.yaml, read from
+    `where`), so the probe's check of that witness is the check the page reports."""
+    errors: list[str] = []
+    for i, r in enumerate(doc.get("rows") or []):
+        if isinstance(r.get("witness"), str) and witness_headline(r, claims) is None:
+            ids = [cid for cid in r.get("claims") or [] if cid in claims]
+            errors.append(f"rows[{i}].witness: {r['witness']!r} is not the witness of any claim the row names "
+                          f"({', '.join(ids) or 'none'}) in {where}; set witness: {r['witness']} on the claim "
+                          f"whose hypotheses stand for the result")
+    return errors
+
+
+def witness_counts(doc: dict, claims: dict[str, dict] | None = None, by_id: dict | None = None) -> dict:
+    """Proposal 0011, `coverage check --json` witnesses: {rows, checked, unchecked, mismatch}: the rows that name
+    a witness, and the ledger's state of each headline claim's witness (`by_id`, ledger rows by claim id); the
+    states are null without a ledger (offline)."""
+    rows = [r for r in doc.get("rows") or [] if "witness" in r]
+    out: dict = {"rows": len(rows), **{s: None for s in WITNESS_STATES}}
+    if by_id is None or claims is None:
+        return out
+    states = [((by_id.get(witness_headline(r, claims)) or {}).get("witness") or {}).get("state", "unchecked")
+              for r in rows]
+    return {**out, **{s: states.count(s) for s in WITNESS_STATES}}
+
+
 def conclusion_counts(doc: dict) -> dict[str, int] | None:
     """Proposal 0010, `coverage check --json` conclusions: {full, weaker, special-case} over the paper rows with a
     Lean counterpart (class not outside), an absent key counted as full; None for a library."""
@@ -574,6 +627,7 @@ def _library_rows_errors(doc: dict, errors: list[str]) -> None:
             errors.append(f"{w}.note: must be one line of at most {TEXT_MAX} characters")
         if "statement" in r:
             _statement_errors(r["statement"], f"{w}.statement", errors)
+        _witness_shape_errors(r, None, w, errors)
 
 
 # --------------------------------------------------------------------------
@@ -798,6 +852,7 @@ def check_against(doc: dict, claims: dict[str, dict], claims_rel: str, repo: pat
     """(errors, warnings) of a schema-valid document against the package: claim ids, receipts, versions."""
     errors = claim_id_problems(doc, claims, f"{claims_rel} at HEAD")
     errors += input_hypothesis_problems(doc, claims, f"{claims_rel} at HEAD")
+    errors += witness_problems(doc, claims, f"{claims_rel} at HEAD")
     warnings: list[str] = []
     if repo is not None:
         _backed, problems = compute_backing(doc, repo)
@@ -1020,6 +1075,8 @@ def offline_check(text: str, where: str, *, claims_text: str | None = None, clai
         _add("claim ids", "skipped", why)
         if valid and any(isinstance(x, dict) for r in doc["rows"] for x in r.get("inputs") or []):
             _add("input hypotheses", "skipped", why)
+        if valid and any("witness" in r for r in doc["rows"]):
+            _add("row witnesses", "skipped", why)
         _add("reusable claims", "skipped", why)
     else:
         p = claim_id_problems(doc, claims, claims_where)
@@ -1028,6 +1085,10 @@ def offline_check(text: str, where: str, *, claims_text: str | None = None, clai
             p = input_hypothesis_problems(doc, claims, claims_where)    # only when an input names a hypothesis
             _add("input hypotheses", "fail" if p else "pass",
                  "each {hypothesis, text} input is a hypothesis of a claim its row names", p)
+        if any("witness" in r for r in doc["rows"]):
+            p = witness_problems(doc, claims, claims_where)             # proposal 0011: only when a row names one
+            _add("row witnesses", "fail" if p else "pass",
+                 "each row's witness is the witness of a claim the row names", p)
         named = {cid for r in doc["rows"] for cid in r.get("claims") or []}
         unnamed = [cid for cid, c in claims.items() if c.get("status") == "reusable" and cid not in named]
         if unnamed:
@@ -1103,7 +1164,8 @@ def offline_payload(rep: dict, name, file: str, claims_file, comparator: list[st
     mkind = manuscript_kind(doc["manuscript"]["version"]) if kind == "paper" else None
     return {"ok": not rep["errors"], "name": name, "file": file, "kind": kind,
             "rows": len(doc["rows"]) if doc else None, "counts": counts,
-            "conclusions": conclusion_counts(doc) if kind == "paper" else None, "manuscript": mkind,
+            "conclusions": conclusion_counts(doc) if kind == "paper" else None,
+            "witnesses": witness_counts(doc) if doc else None, "manuscript": mkind,
             "private_manuscript": (mkind == "unposted") if doc else None, "errors": rep["errors"],
             "warnings": rep["warnings"], "offline": True, "claims_file": claims_file, "comparator": comparator,
             "checks": rep["checks"], "skipped": rep["skipped"]}
@@ -1136,7 +1198,8 @@ def do_coverage_check_file(file: str, claims_path: str | None, comparator_paths:
     p = pathlib.Path(str(file)).expanduser()
     if not p.is_file():
         payload = {"ok": False, "name": None, "file": str(p), "kind": None, "rows": None, "counts": None,
-                   "conclusions": None, "manuscript": None, "private_manuscript": None, "errors": [f"{p}: no such file"],
+                   "conclusions": None, "witnesses": None, "manuscript": None, "private_manuscript": None,
+                   "errors": [f"{p}: no such file"],
                    "warnings": [], "offline": True, "claims_file": claims_path, "comparator": comparator_paths or [],
                    "checks": [], "skipped": []}
         verdict = f"{p}: coverage: INVALID (1 problem(s); offline)"
@@ -1240,6 +1303,19 @@ def package_checkout(reg: dict, name: str) -> tuple[dict, pathlib.Path]:
     return pkg, repo
 
 
+def _registered_witness_counts(pkg: dict, doc: dict, claims: dict[str, dict]) -> dict:
+    """Proposal 0011: witness_counts with the ledger's states; the ledger is computed only when a row names a
+    witness, so every other check costs what it did, and a ledger that cannot be computed gives null states."""
+    if not any("witness" in r for r in doc.get("rows") or []):
+        return witness_counts(doc, claims, {})
+    from . import ledger as ledger_mod
+    try:
+        led = ledger_mod.ledger_for(pkg)
+    except core.Fail:
+        return witness_counts(doc)
+    return witness_counts(doc, claims, {r["id"]: r for r in led.get("claims") or []})
+
+
 def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: bool) -> tuple[list[str], dict, int]:
     pkg, repo = package_checkout(reg, name)
     try:
@@ -1248,8 +1324,8 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
         lines = str(e).split("\n")
         problems = [x.strip() for x in lines[1:]] or [lines[0]]
         payload = {"ok": False, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": None, "rows": None,
-                   "counts": None, "conclusions": None, "manuscript": None, "private_manuscript": None,
-                   "errors": problems, "warnings": []}
+                   "counts": None, "conclusions": None, "witnesses": None, "manuscript": None,
+                   "private_manuscript": None, "errors": problems, "warnings": []}
         return [f"{name}: coverage: INVALID ({len(problems)} problem(s))", f"  {lines[0]}"] + \
             [f"  {x}" for x in problems if x != lines[0]], payload, 1
     rel = (pkg.get("gate") or {}).get("receipt")
@@ -1257,7 +1333,8 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
                                                        else None, rel)
     if doc_kind(doc) == "library":
         payload = {"ok": True, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": "library",
-                   "rows": len(doc["rows"]), "counts": None, "conclusions": None, "manuscript": None,
+                   "rows": len(doc["rows"]), "counts": None, "conclusions": None,
+                   "witnesses": _registered_witness_counts(pkg, doc, claims), "manuscript": None,
                    "private_manuscript": False,
                    "errors": [], "warnings": warnings}
         line = f"{name}: coverage: OK; library; {len(doc['rows'])} main result(s); no manuscript"
@@ -1265,7 +1342,8 @@ def do_coverage_check(reg: dict, name: str, file: str | None, allow_private: boo
     counts = {c: sum(r["class"] == c for r in doc["rows"]) for c in CLASSES}
     kind = manuscript_kind(doc["manuscript"]["version"])
     payload = {"ok": True, "name": name, "file": file or DEFAULT_COVERAGE_FILE, "kind": "paper",
-               "rows": len(doc["rows"]), "counts": counts, "conclusions": conclusion_counts(doc), "manuscript": kind,
+               "rows": len(doc["rows"]), "counts": counts, "conclusions": conclusion_counts(doc),
+               "witnesses": _registered_witness_counts(pkg, doc, claims), "manuscript": kind,
                "private_manuscript": kind == "unposted",
                "errors": [], "warnings": warnings}
     line = (f"{name}: coverage: OK; {len(doc['rows'])} row(s): " + ", ".join(f"{n} {c}" for c, n in counts.items())

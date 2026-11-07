@@ -46,7 +46,8 @@ CLAIM_STATUSES = ("reusable", "internal", "experimental", "superseded")
 # `hypotheses`, `discharges`, `witness` (proposal 0003, stage H2, #320): a conditional claim names the assumptions
 # its declaration takes as explicit binders; a corollary claim says which hypotheses of another claim it removes,
 # and with which proof claims; a witness claim shows that the hypotheses can hold together. Same package only
-# (open question 2). The ledger does not evaluate them yet: a claim using any of them is `hypotheses-unchecked`.
+# (open question 2). Proposal 0011: `witness` is accepted on any claim, conditional or not; a claim that sets
+# only `witness` stays verified when the facts to judge it are missing (its witness is then `unchecked`).
 OPTIONAL_CLAIM_KEYS = ("statement_basis", "manuscript_findings", "judged_as", "hypotheses", "discharges", "witness")
 CONDITIONAL_KEYS = ("hypotheses", "discharges", "witness")
 DISCHARGE_KEYS = ("claim", "hypotheses", "proofs")
@@ -310,9 +311,8 @@ def _conditional_errors(c: dict, where: str) -> list[str]:
         elif w == cid:
             errors.append(f"{where} ({cid}): witness names the claim itself; a witness is another claim showing "
                           f"that the hypotheses can hold together")
-        if not (isinstance(hyps, list) and hyps):
-            errors.append(f"{where} ({cid}): witness is set but the claim has no hypotheses; a witness shows "
-                          f"that the hypotheses of a conditional claim can hold together")
+        # proposal 0011: any claim whose theorem has a hypothesis may name a witness, not only a conditional
+        # one; a declaration with no hypothesis at all is caught by the probe (witness-type-mismatch)
     return errors
 
 
