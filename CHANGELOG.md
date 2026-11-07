@@ -9,6 +9,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `receipt comparator --out PATH` (`comparator-receipt --out`) writes the
+  receipt to `PATH` and its per-configuration logs beside it, instead of
+  `.lean-receipts/` in the checkout, so a probe or rehearsal receipt stays
+  out of the package tree (#435). The receipt still names its logs under
+  `.lean-receipts/`, so copying the files there makes it a receipt the gate
+  reads. `PATH` must not exist; not with `--prepare` or `--estimate`. The
+  help now says that `--evidence-dir` moves only the stage logs and
+  `stages.json`
+  ([receipt comparator](docs/commands/receipt-comparator.md)).
+
 ### Changed
 
 - `page --check --site DIR` also reads the hand-written pages under `DIR`

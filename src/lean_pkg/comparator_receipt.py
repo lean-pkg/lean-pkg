@@ -2037,7 +2037,8 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         from_prepared: pathlib.Path | None = None, resume_command: str = "comparator-receipt",
         resume: bool = True, judges: int = 1, slot_spec: str | None = None,
         estimate: int | None = None, unit_size: int | None = None, sample_explicit: bool = False,
-        force_sample: bool = False, ci: dict | None = None, registry_args=None) -> dict:
+        force_sample: bool = False, ci: dict | None = None, registry_args=None,
+        out: pathlib.Path | None = None) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
     evidence = evidence or project / DEFAULT_EVIDENCE
@@ -2277,9 +2278,11 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         def receipt_stage(stage_log: pathlib.Path):
             result.update(write_receipt(project, configs, log_dir, commit, mechanism, toolchain, tools,
                                         host_policy, pathlib.Path(tmp), stages.summary(),
-                                        extra=result["extra"], config_extra=result["config_extra"], ci=ci))
+                                        extra=result["extra"], config_extra=result["config_extra"], ci=ci,
+                                        out=out))
             stage_log.write_text(f"wrote {result['receipt']} and {len(configs)} log(s)\n", encoding="utf-8")
-            return "ok", 0, f".lean-receipts/{commit[:12]}-comparator.json"
+            return "ok", 0, (redact(result["receipt"]) if out is not None
+                             else f".lean-receipts/{commit[:12]}-comparator.json")
 
         stages.run("receipt", receipt_stage)
     return {"receipt": result["receipt"], "commit": commit, "configs": len(configs),
@@ -2290,7 +2293,7 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
                   mechanism: str, toolchain: str, tools: dict, host_policy: str, tmp: pathlib.Path,
                   stage_summary: list[dict], extra: dict | None = None,
                   config_extra: dict | None = None, dest: pathlib.Path | None = None,
-                  ci: dict | None = None) -> dict:
+                  ci: dict | None = None, out: pathlib.Path | None = None) -> dict:
     """The receipt and its logs, all or nothing, into <project>/.lean-receipts/ -- or, for a partial
     (--slots) run, into dest (the stage directory, never the repository), suffixed `.partial`. `ci`
     (github_actions_ci): the run's block; the job id becomes gha-<run_id>-<run_attempt>, and a block that fails
@@ -2316,7 +2319,13 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
         red = tmp / f"redacted-{name}.log"            # #41: the committed log never names host paths
         red.write_bytes(redact_bytes(src_log.read_bytes()))
         src_log = red
-        staged.append((src_log, (dest / log_rel) if partial else (project / log_rel)))
+        if partial:
+            log_dst = dest / log_rel
+        elif out is not None:      # --out: the logs beside the receipt, under their .lean-receipts/ names
+            log_dst = out.parent / pathlib.Path(log_rel).name
+        else:
+            log_dst = project / log_rel
+        staged.append((src_log, log_dst))
         entries.append({
             "path": cfg_rel,
             "sha256": sha256_file(project / cfg_rel),
@@ -2365,8 +2374,8 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
                               + "; nothing written")
     rec_tmp = tmp / "receipt.json"
     rec_tmp.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
-    rec_dir = dest if partial else project / ".lean-receipts"
-    rec_path = rec_dir / f"{commit[:12]}-comparator{sfx}.json"
+    rec_dir = dest if partial else (out.parent if out is not None else project / ".lean-receipts")
+    rec_path = rec_dir / f"{commit[:12]}-comparator{sfx}.json" if (partial or out is None) else out
     staged.append((rec_tmp, rec_path))
     # Everything passed: now, and only now, write into the repo — all or nothing.
     created_dir = not rec_dir.exists()
@@ -2393,7 +2402,7 @@ def write_receipt(project: pathlib.Path, configs: list[str], log_dir: pathlib.Pa
                 rec_dir.rmdir()
             except OSError:
                 pass
-        raise RunnerError(f"could not write evidence into .lean-receipts/ ({e}); "
+        raise RunnerError(f"could not write evidence into {redact(str(rec_dir))}/ ({e}); "
                           f"nothing written") from None
     return {"receipt": str(rec_path)}
 
@@ -2589,8 +2598,15 @@ def add_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--verify", default=os.environ.get(VERIFY_ENV) or None,
                     help="verify-comparator.sh for the toolchain mechanism (env COMPARATOR_VERIFY; "
                          "default: the vendored PalomarTemplate copy)")
+    ap.add_argument("--out", default=None, metavar="PATH",
+                    help="write the receipt to PATH and its per-configuration logs beside it, instead of "
+                         "<project>/.lean-receipts/: a probe or rehearsal receipt kept out of the package tree. "
+                         "The receipt still names its logs .lean-receipts/<c12>-comparator-<config>.log, so "
+                         "copying the files into .lean-receipts/ later makes it a receipt the gate reads. PATH "
+                         "must not exist and its directory must; not with --prepare or --estimate")
     ap.add_argument("--evidence-dir", default=None, metavar="DIR",
-                    help="where the stage logs and stages.json go, kept on failure "
+                    help="where the stage logs and stages.json go (only those: the receipt goes to "
+                         "<project>/.lean-receipts/ unless --out), kept on failure "
                          f"(default: <project>/{DEFAULT_EVIDENCE.as_posix()}; its {STAGES_DIR}/ subdirectory); "
                          "outside the project its path is written as <evidence> in every log and receipt")
     ap.add_argument("--prepare", action="store_true",
@@ -2791,6 +2807,15 @@ def run_main(args, argv: list[str], prog: str = "comparator-receipt") -> int:
         project = pathlib.Path(args.project).resolve()
         evidence = pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else None
         prepared = pathlib.Path(args.from_prepared).expanduser().resolve() if args.from_prepared else None
+        out = pathlib.Path(args.out).expanduser().resolve() if args.out else None
+        if out is not None:
+            if args.prepare or args.estimate:
+                raise RunnerError("--out names where the receipt is written; --prepare and --estimate write "
+                                  "none; nothing written")
+            if out.exists() or out.is_symlink():
+                raise RunnerError(f"--out {args.out}: already exists; the receipt is written fresh; nothing written")
+            if not out.parent.is_dir():
+                raise RunnerError(f"--out {args.out}: its directory does not exist; nothing written")
         # --estimate --json: stdout carries only the JSON document; the run's stage lines, judge output
         # and warnings go to stderr (field report: progress lines before the JSON broke json.loads)
         with chatter_to_stderr(bool(args.json)), \
@@ -2804,7 +2829,7 @@ def run_main(args, argv: list[str], prog: str = "comparator-receipt") -> int:
                       resume=not args.no_resume, judges=judges, slot_spec=args.slots,
                       estimate=(args.sample or ESTIMATE_MIN_SAMPLE) if args.estimate else None,
                       unit_size=unit_size, sample_explicit=args.sample is not None,
-                      force_sample=args.force_sample, ci=ci, registry_args=args)
+                      force_sample=args.force_sample, ci=ci, registry_args=args, out=out)
     except RunnerError as e:
         print(f"comparator-receipt: {e}", file=sys.stderr)
         if getattr(e, "next_command", None):   # #397: once per run, after the refusal
