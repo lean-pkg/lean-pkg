@@ -542,6 +542,8 @@ def test_run_in_a_nested_package_still_refuses_a_change_inside_it(lp, nested, tm
 @pytest.mark.parametrize("extra, needle", [
     (("--runtime-max", "infinity"), "a finite systemd value"),
     (("--memory-max", ""), "a finite systemd value"),
+    (("--runtime-max", "1x"), "a finite systemd value"),
+    (("--cpu-quota", "200x"), "a finite systemd value"),
     (("--setenv", "1BAD"), "expected NAME=VALUE"),
     (("--properties-file", "x"), "--run and --properties-file are exclusive"),
 ])
@@ -577,6 +579,28 @@ def test_run_failing_to_start_is_refused(lp, repo, tmp_path, fake_systemd, capsy
     data = json.loads(capsys.readouterr().out)
     assert data["ok"] is False and any("systemd-run exited 1" in r for r in data["refusals"])
     assert_nothing_written(repo)
+
+
+def test_run_accepts_systemd_timespans_and_a_bare_cpu_quota(lp, repo, tmp_path, fake_systemd, capsys):
+    """A field report: `--runtime-max "1h 30min"` (the form systemd itself prints) was refused, and a bare
+    `--cpu-quota 200` reached systemd-run, which wants 200%. Both are accepted now; the quota gains the %."""
+    _props, calls_made = fake_systemd
+    rc, _d = run_live(lp, repo, tmp_path, "--runtime-max", "1h  30min", "--cpu-quota", "200")
+    assert rc == 0, capsys.readouterr().err
+    start = calls_made()[0]
+    assert "RuntimeMaxSec=1h 30min" in start and "CPUQuota=200%" in start
+
+
+def test_run_failing_to_start_does_not_also_report_a_missing_log(lp, repo, tmp_path, fake_systemd, capsys):
+    """When systemd-run itself fails the unit never ran: the refusal names systemd-run, and the missing
+    verify log, which read like a verify failure, is not reported on top of it."""
+    bindir = tmp_path / "bin"
+    (bindir / "systemd-run").write_text("#!/bin/sh\necho \"CPU quota '200' invalid.\" >&2\nexit 1\n")
+    rc, _d = run_live(lp, repo, tmp_path, "--json")
+    assert rc == 1
+    refusals = json.loads(capsys.readouterr().out)["refusals"]
+    assert any("systemd-run exited 1" in r and "CPU quota" in r for r in refusals)
+    assert not any("wrote no verify log" in r for r in refusals)
 
 
 def test_report_does_not_rerun_receipt_systemd(lp):
