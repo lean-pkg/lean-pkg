@@ -66,8 +66,10 @@ where the unit's terminal state comes from (default: `systemctl --user show U` n
   --memory-swap-max BYTES
                         --run: MemorySwapMax (default 0, so the memory cap is an OOM kill, not
                         swapping)
-  --cpu-quota PCT       --run: CPUQuota (default 400%)
-  --runtime-max SPAN    --run: RuntimeMaxSec (default 4h)
+  --cpu-quota PCT       --run: CPUQuota, a percentage; a bare number is read as one (200 -> 200%)
+                        (default 400%)
+  --runtime-max SPAN    --run: RuntimeMaxSec, a finite systemd time span such as 4h, 90min or '1h
+                        30min' (default 4h)
   --setenv NAME=VALUE   --run: an extra environment variable for the unit (repeatable; PATH is
                         passed; LAKE_CACHE_DIR=<fresh empty dir> and LAKE_ARTIFACT_CACHE=false
                         unless named here)
