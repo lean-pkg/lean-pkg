@@ -299,6 +299,72 @@ def test_repo_override_checks_another_checkout(lp, env, capsys, tmp_path):
     assert rc == 2 and "--repo" in err
 
 
+# --- hand-written pages: HTML blocks the site would publish as literal text --------------------------
+
+_TABLE_IN_DETAILS = "<details>\n<summary>Sign-off</summary>\n\n| Item | Scope |\n|---|---|\n| Status | ok |\n\n</details>\n"
+
+
+def test_check_with_site_fails_on_markdown_in_an_html_block_without_the_attribute(lp, env, capsys, tmp_path):
+    """kramdown (GitHub Pages) and md_in_html (MkDocs) publish a table inside <details> as literal rows unless the
+    tag carries a markdown attribute; github.com renders it, so only the check catches it (27 and 57 such blocks
+    shipped on two companion sites)."""
+    prepare(env)
+    assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
+    rc, _a, d = site(lp, env, capsys, tmp_path)
+    assert rc == 0
+    (d / "what-is-proved.md").write_text("# What is proved\n\n" + _TABLE_IN_DETAILS)
+    before = files(tmp_path)
+    rc, a, _d = site(lp, env, capsys, tmp_path, "--check")
+    assert rc == 1 and len(a["problems"]) == 1 and files(tmp_path) == before        # --check writes nothing
+    assert "what-is-proved.md:3: <details> holds Markdown" in a["problems"][0]
+    assert 'write <details markdown="1">' in a["problems"][0]
+    assert a["html_blocks"] == [{"path": str(d / "what-is-proved.md"), "line": 3, "tag": "details",
+                                 "sample": "| Item | Scope |"}]
+    rc, out, _err = run(lp, env, capsys, "page", "beta", "--check", "--site", str(d), "--html",
+                        str(tmp_path / "page.html"))
+    assert rc == 1 and out.splitlines()[0].startswith("beta: page: STALE")
+    for tag in ('<details markdown="1">', "<details markdown>"):                    # both forms render
+        (d / "what-is-proved.md").write_text(_TABLE_IN_DETAILS.replace("<details>", tag))
+        rc, a, _d = site(lp, env, capsys, tmp_path, "--check")
+        assert rc == 0 and a["problems"] == [] and a["html_blocks"] == [], tag
+
+
+def test_html_block_check_reads_subdirectories_and_skips_examples_and_private_dirs(lp, env, capsys, tmp_path):
+    prepare(env)
+    assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
+    rc, _a, d = site(lp, env, capsys, tmp_path)
+    assert rc == 0
+    (d / "guide.md").write_text("```markdown\n" + _TABLE_IN_DETAILS + "```\n\n"          # an example: not read
+                                "<div class=\"hero\">\n<p>HTML only</p>\n</div>\n")    # no Markdown inside
+    (d / "_tools").mkdir()
+    (d / "_tools" / "notes.md").write_text(_TABLE_IN_DETAILS)                            # Jekyll skips _dirs
+    rc, a, _d = site(lp, env, capsys, tmp_path, "--check")
+    assert rc == 0 and a["html_blocks"] == []
+    (d / "evidence").mkdir()
+    (d / "evidence" / "README.md").write_text("<section>\n- a list item\n</section>\n")
+    rc, a, _d = site(lp, env, capsys, tmp_path, "--check")
+    assert rc == 1 and [(b["path"], b["tag"]) for b in a["html_blocks"]] == [
+        (str(d / "evidence" / "README.md"), "section")]
+
+
+def test_html_block_check_runs_only_with_site(lp, env, capsys, tmp_path):
+    """Without --site there is no site directory to read: the README check and its --json are unchanged."""
+    prepare(env)
+    assert run(lp, env, capsys, "page", "beta", "--write")[0] == 0
+    rc, a = page_json(lp, env, capsys, "--check")
+    assert rc == 0 and "html_blocks" not in a
+
+
+def test_html_block_findings_unit():
+    from lean_pkg.html_blocks import findings
+    assert findings(_TABLE_IN_DETAILS) == [(1, "details", "| Item | Scope |")]
+    assert findings("<details><summary>x</summary>\n```lean\ntheorem t : True := trivial\n```\n</details>\n") \
+        == [(1, "details", "```lean")]
+    assert findings("<div>\nplain prose, no markup\n</div>\n") == []
+    assert findings("<details>\n<summary>s</summary>\n</details>\n\n| a | b |\n") == []   # after the block: fine
+    assert findings("<div>\nsee **this**\n</div>\n") == [(1, "div", "see **this**")]
+
+
 # --- the shipped CI snippets ------------------------------------------------------------------------
 
 def test_the_ci_snippets_in_the_docs_parse():
