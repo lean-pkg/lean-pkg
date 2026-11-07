@@ -169,6 +169,34 @@ def test_lease_contact_tokens_are_derived_patterns_and_never_printed(lp, tmp_pat
     assert "registry lease.contact" in payload["patterns_source"]["derived"]
 
 
+def test_common_workflow_words_in_a_workspace_are_not_derived_patterns(lp, tmp_path, capsys):
+    """A lease workspace is free text: "public-allow commit" made `commit` a blocking pattern and reported
+    172 false hits on one package, whose every receipt says "commit". Common workflow words are never
+    derived; an identifier in the same text (a machine name) still is."""
+    from lean_pkg import public_safety as ps
+    lease = {"workspace": "public-allow commit", "agent": "w3", "claimed_at": "2026-01-01T00:00:00+00:00",
+             "ttl_hours": 24, "reason": "", "contact": None}
+    pats = ps.derived_patterns({"local_path": "/srv/pkg", "agent": "w3",
+                                "workspace": "Heronfield: notes refresh + index re-pin", "lease": lease})
+    toks = {p.rx.pattern for p in pats}
+    word = lambda t: r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])"
+    assert word("Heronfield") in toks and word("public-allow") in toks and word("re-pin") in toks
+    for common in ("commit", "notes", "refresh", "index"):
+        assert word(common) not in toks, common
+    receipt = '{"commit": "abc", "checker": "verify.sh"}\n'
+    repo = make_repo(tmp_path / "pkg-repo", extra_files={"Main.lean": "-- commit the receipt, then push\n",
+                                                         "receipt.json": receipt})
+    reg = make_env(tmp_path, repo, workspace=None, agent="w3", lease=lease)
+    assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 0
+    assert json.loads(capsys.readouterr().out)["hits"] == []
+    (repo / "Main.lean").write_text("-- built on Heronfield\n")
+    _git(repo, "commit", "-q", "-am", "edit")
+    reg = make_env(tmp_path, repo, workspace="Heronfield: notes refresh", agent="w3", lease=lease)
+    assert run(lp, reg, "public-safety", "pkg", "--json", "--no-history") == 1
+    hits = json.loads(capsys.readouterr().out)["hits"]
+    assert {h["pattern"] for h in hits} == {"registry workspace"} and "Heronfield" not in json.dumps(hits)
+
+
 def test_derived_user_from_home_local_path(lp):
     from lean_pkg import public_safety as ps
     pats = ps.derived_patterns({"local_path": "/home/jdoe/src/pkg", "agent": "w3", "workspace": None})

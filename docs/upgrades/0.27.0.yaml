@@ -44,6 +44,22 @@ changes:
 # Documentation only: 14 relative .md links whose text wrapped across a line were published unconverted
 # (jekyll-relative-links matches one-line link text) and 404ed on the site; the 0003 prototype directory
 # link had no index page (#427).
+  - pr: 432
+    id: public-safety-derived-common-words
+    kind: behavior
+    area: public-safety
+    summary: >-
+      public-safety derives no pattern from a common workflow word (commit, push, receipt, gate, lean,
+      notes, refresh, ...) in a record's or lease's agent, workspace or contact: a lease workspace
+      "public-allow commit" had made every "commit" in the receipts a blocking hit (172 on one package).
+      Identifiers in the same text (a machine name) are still derived.
+    action: >-
+      Nothing. A scan that failed only on such a word now passes; real names in those fields are still caught.
+    breaking: false
+    changelog: Fixed
 # Docs: proposal 0011 (non-vacuity witnesses on coverage rows) drafted and marked accepted 2026-11-07;
 # no code changes (#430).
-no_author_change: [427, 429, 430]
+# Documentation only: the 10 wrapped relative .md links in the released 0.17.0, 0.18.1, 0.19.0 and 0.20.0 pages
+# now have one-line link text (line breaks moved, no word changed; RELEASING.md, "Released records"), with tests
+# that a released page keeps its words and that no relative .md link text crosses lines (#431).
+no_author_change: [427, 429, 430, 431]

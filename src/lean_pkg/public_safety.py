@@ -143,6 +143,26 @@ BLOCK, WARN = "block", "warn"
 PATH_READABLE = ("approvals-ref", "notes-ref", "private-file-ref", "todo-private", "latex-label")
 DERIVED_MIN_LEN = 4
 DERIVED_STOPWORDS = {"none", "null", "test", "main", "local", "default", "force", "true", "false"}
+# Common words of a package's own workflow (git, Lean, lean-pkg) and everyday English. A lease's or record's
+# workspace is free text ("public-allow commit"), and a word like these names no machine or person but sits in
+# every receipt, log and commit message: as a derived pattern it only produced false hits (172 on one
+# package for the word `commit`). Compared case-insensitively, a whole token only: `Heronfield`,
+# `alice-laptop` or `node12` stay blocking.
+DERIVED_COMMON_WORDS = frozenset({
+    # git
+    "commit", "commits", "push", "pull", "merge", "rebase", "branch", "clone", "fetch", "checkout", "stash",
+    "worktree", "release", "tags", "diff",
+    # Lean and Lake
+    "lean", "lake", "mathlib", "toolchain", "build", "builds", "theorem", "lemma", "proof", "proofs",
+    # lean-pkg's own vocabulary
+    "receipt", "receipts", "gate", "regate", "comparator", "record", "index", "update", "notes", "claims",
+    "lease", "verify", "check", "docs", "page", "public", "private", "allow", "audit", "publish", "promote",
+    "export", "registry", "evidence", "package", "repin", "bump",
+    # everyday English
+    "with", "from", "into", "after", "before", "then", "this", "that", "work", "task", "step", "done", "only",
+    "also", "more", "file", "files", "repo", "code", "data", "tests", "refresh", "rerun", "fresh", "review",
+    "sync", "fixes", "pins",
+})
 _RUN_RE = re.compile(r"\S+")
 
 
@@ -309,7 +329,8 @@ def _tokens(value) -> list[str]:
     out = []
     for tok in re.split(r"[\s/@:]+", str(value or "")):
         tok = tok.strip()
-        if len(tok) >= DERIVED_MIN_LEN and tok.casefold() not in DERIVED_STOPWORDS and re.search(r"[A-Za-z]", tok):
+        if len(tok) >= DERIVED_MIN_LEN and tok.casefold() not in DERIVED_STOPWORDS \
+                and tok.casefold() not in DERIVED_COMMON_WORDS and re.search(r"[A-Za-z]", tok):
             out.append(tok)
     return out
 
