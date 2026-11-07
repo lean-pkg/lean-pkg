@@ -4,7 +4,25 @@
 # renames both files to the version it cuts, which make release-version prints.
 schema: lean-pkg-upgrade-record/1
 version: 0.27.0
-changes: []
+changes:
+  - pr: 428
+    id: page-check-site-html-blocks
+    kind: behavior
+    area: page
+    summary: >-
+      page --check --site DIR also reads every hand-written *.md under DIR (outside _*, .*, site/,
+      node_modules/ and vendor/ directories). A <details>, <div>, <section>, <aside>, <article> or
+      <blockquote> block that holds Markdown (a table row, fence, list item, heading, quote, or inline
+      emphasis, code or link) without a markdown attribute is a problem (exit 1), naming the file and line:
+      GitHub Pages (kramdown) and MkDocs (md_in_html) publish such a block as literal text, while github.com
+      renders it, so it passed review. Fenced code is never read. page --check --site --json gains
+      html_blocks[] {path, line, tag, sample}; other page modes print the same JSON as before. Two companion sites had shipped 27 and 57 such blocks.
+    action: >-
+      Before relying on page --check --site in CI, run it once: for each block it names, write the opening
+      tag as <details markdown="1"> (a bare markdown attribute also works) and keep a blank line before the
+      Markdown inside. Nothing to do for a site without such blocks, or without --site.
+    breaking: true
+    changelog: Changed
 # Documentation only: 14 relative .md links whose text wrapped across a line were published unconverted
 # (jekyll-relative-links matches one-line link text) and 404ed on the site; the 0003 prototype directory
 # link had no index page (#427).

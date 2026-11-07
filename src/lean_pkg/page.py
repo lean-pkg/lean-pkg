@@ -1600,6 +1600,10 @@ def do_page(reg: dict, name: str, *, write: bool, check: bool, out: str | None, 
         status = site_status(targets, outputs, baseline)
         payload["site_files"] = [{"path": shown, "status": st} for shown, st, _p in status]
         problems += [x for _s, _st, x in status if x]
+        if site is not None:                             # the hand-written pages beside the rendered ones
+            from .html_blocks import site_problems
+            block_problems, payload["html_blocks"] = site_problems(site)
+            problems += block_problems
         said = _override_problems(problems, override, [shown for shown, st, _p in status if st == "stale"])
         # option C (#291): under a preview, a difference that comes only from the preview is a warning (the
         # committed files are receipt-bound by design) unless --strict-preview; every other problem still fails

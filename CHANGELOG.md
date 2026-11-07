@@ -9,6 +9,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Changed
+
+- `page --check --site DIR` also reads the hand-written pages under `DIR`
+  (#428): an HTML block (`<details>`, `<div>`, `<section>`, ...) that holds
+  Markdown without a `markdown` attribute exits 1, naming the file and line,
+  because GitHub Pages and MkDocs publish its tables and code fences as
+  literal text while github.com shows them rendered. Write the tag as
+  `<details markdown="1">`. `page --check --site --json` gains `html_blocks[]`
+  ([docs/page.md](docs/page.md#hand-written-pages-beside-the-generated-ones)).
+
 ### Documentation
 
 - Fourteen links on the documentation site returned 404 (#427): a relative

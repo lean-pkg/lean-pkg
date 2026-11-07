@@ -556,6 +556,39 @@ are compared and nothing is written. Neither writes the registry.
 Add `verification.md` and `coverage.md` to the `nav` of `mkdocs.yml`
 yourself; lean-pkg never edits it.
 
+### Hand-written pages beside the generated ones
+
+`--check --site DIR` also reads the pages you write yourself: every `*.md`
+under `DIR`, outside directories whose name starts with `_` or `.` and
+outside `site/`, `node_modules/` and `vendor/`. A block-level HTML element
+(`<details>`, `<div>`, `<section>`, `<aside>`, `<article>`, `<blockquote>`)
+whose opening tag has no `markdown` attribute, and that holds Markdown
+(a table row, a code fence, a list item, a heading, a quote, or inline
+emphasis, code or a link), is a problem: `--check` exits 1 and names the
+file and line.
+
+GitHub Pages renders with kramdown and MkDocs with `md_in_html`; both treat
+the inside of such a block as raw HTML unless the tag says `markdown="1"`
+(a bare `markdown` works too). The table or code fence is then published as
+literal `| a | b |` rows and three backticks. github.com shows the same file
+correctly, so the page looks right in review; folded `<details>` hide it on
+the site as well, until a reader opens one. Write the tag as:
+
+```markdown
+<details markdown="1">
+<summary>Complete Lean type</summary>
+
+| Item | Scope |
+|---|---|
+| Status | Verified |
+
+</details>
+```
+
+Lines inside a fenced code block are never read, so a page can show such
+a block as an example, as this one does. With `--json` the findings are
+`html_blocks[]` {path, line, tag, sample}, a key only `--check --site` prints.
+
 ## In CI
 
 `page --check` reads the lean-pkg registry record of the package (its
