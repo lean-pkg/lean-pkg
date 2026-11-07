@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-11-07
+
 ### Added
 
 - `receipt comparator --out PATH` (`comparator-receipt --out`) writes the
@@ -92,6 +94,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   breaks moved. A released record keeps its words; a test compares each
   released page with its tag, and another refuses relative `.md` link text
   that crosses a line (RELEASING.md, "Released records").
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.26.0] - 2026-11-06
 
