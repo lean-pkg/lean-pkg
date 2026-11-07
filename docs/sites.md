@@ -129,17 +129,8 @@ corroborated against GitHub's public record (level 2, below). Without
 `--corroborate` a README that carries that sentence fails `page --check`
 and the page line of `publish --dry-run`, with a hint to add the flag. The
 profile's `mention_pattern` is narrow on purpose
-(`Verification ran on [GitHub Actions`): a CI badge or "tests run on GitHub
-Actions" is not a claim and is never refused.
-
-**Level 2 renders the sentence.** `lean-pkg page NAME --corroborate` (and
-`page --check --corroborate`, `publish NAME --dry-run --corroborate`) asks
-the public GitHub REST API about every listed `gha-` job: the attempt the
-receipt names completed with success on the receipt's commit, in the
-package's repository (by numeric id, from the registry's repository URL),
-on a GitHub-hosted runner, running lean-pkg's pinned `verify.yml`, and it
-wrote exactly the committed receipt and log bytes
-([every check](receipts.md#corroborating-the-run-level-2---corroborate)).
+(`Verification ran on
+[GitHub Actions`): a CI badge or "tests run on GitHub Actions" is not a claim and is never refused. **Level 2 renders the sentence.** `lean-pkg page NAME --corroborate` (and `page --check --corroborate`, `publish NAME --dry-run --corroborate`) asks the public GitHub REST API about every listed `gha-` job: the attempt the receipt names completed with success on the receipt's commit, in the package's repository (by numeric id, from the registry's repository URL), on a GitHub-hosted runner, running lean-pkg's pinned `verify.yml`, and it wrote exactly the committed receipt and log bytes ([every check](receipts.md#corroborating-the-run-level-2---corroborate)).
 When every listed job reaches level 2 the Acknowledgments carry
 
 > Verification ran on [GitHub Actions](https://docs.github.com/en/actions) hosted runners ([run 11622958301 attempt 1](https://github.com/OWNER/REPO/actions/runs/11622958301/attempts/1)).
@@ -198,8 +189,8 @@ does against your checkout, and never commits or pushes: commit the files
 under `.lean-receipts/` yourself (the bundle too) (an evidence-only descendant), then
 name the job under `compute` as above. A re-run writes `gha-<run>-2`; pass
 `--attempt N` when a run has more than one receipt artifact. Every refusal
-and the built-in redactions are in [Receipts and
-trust](receipts.md#a-lower-tier-receipt-from-github-actions).
+and the built-in redactions are in
+[Receipts and trust](receipts.md#a-lower-tier-receipt-from-github-actions).
 
 ## No cluster at all
 

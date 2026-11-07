@@ -208,8 +208,8 @@ Level 1 is consistency with the receipt, the commit and the committed log:
 the strength of a `slurm-<J>` receipt, and as forgeable, since every value
 is text the author could write ([Trust model](trust-model.md#not-covered-lean-pkg-relies-on-honesty-here)).
 It backs a `compute` job but never puts the GitHub Actions sentence on the
-page: that needs a corroborated run (level 2, `--corroborate`; [Corroborating
-the run](receipts.md#corroborating-the-run-level-2---corroborate)). A receipt with a `gha-` job id and no `ci` block still passes
+page: that needs a corroborated run (level 2, `--corroborate`;
+[Corroborating the run](receipts.md#corroborating-the-run-level-2---corroborate)). A receipt with a `gha-` job id and no `ci` block still passes
 `gate` and backs no `compute` job.
 
 ### The attestation bundle

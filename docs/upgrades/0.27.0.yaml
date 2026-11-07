@@ -1,0 +1,11 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.26.0. Same keys as 0.26.0.yaml; the human page is docs/upgrades/0.27.0.md.
+# The name 0.27.0 is provisional (RELEASING.md, "The record's provisional name"): make cut-release
+# renames both files to the version it cuts, which make release-version prints.
+schema: lean-pkg-upgrade-record/1
+version: 0.27.0
+changes:
+# Documentation only: 15 relative .md links whose text wrapped across a line were published unconverted
+# (jekyll-relative-links matches one-line link text) and 404ed on the site; the 0003 prototype directory
+# link had no index page (#427).
+no_author_change: [427]

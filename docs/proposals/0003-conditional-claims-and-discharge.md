@@ -30,7 +30,7 @@ It covers the changes to `claims/1` (additive keys), the ledger, `coverage/1`
 (`inputs` that name hypotheses), a Lean-side check whose output goes into the
 sealed verify log, and the threat model. A small core-Lean prototype of the
 discharge rule, with the real output of `lake comparator`, is in
-[0003/prototype](0003/prototype/) and [below](#prototype).
+[0003/prototype](https://github.com/lean-pkg/lean-pkg/tree/main/docs/proposals/0003/prototype) and [below](#prototype).
 
 ## Motivation
 
@@ -554,7 +554,7 @@ format for one, and its maintainers have not been asked.
 
 ## Prototype
 
-[0003/prototype](0003/prototype/) is a core-Lean project (no Mathlib, about
+[0003/prototype](https://github.com/lean-pkg/lean-pkg/tree/main/docs/proposals/0003/prototype) is a core-Lean project (no Mathlib, about
 300 lines of Lean, most of it the probe and the refusal cases). It is not
 built by lean-pkg's CI. `bash run.sh` copies it into a new temporary
 directory, runs everything there, and deletes the copy.

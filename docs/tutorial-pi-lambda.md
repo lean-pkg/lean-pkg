@@ -415,8 +415,8 @@ FAIL: 1/2 theorem(s) accepted (sandboxed, leanprover/lean4:v4.35.0-rc2)
 
 The comparator does not decide whether one statement implies the other. It
 asks whether they are the same, so the Challenge you read is the theorem that
-was proved, word for word. (See [Do not weaken the
-statement](comparator.md#do-not-weaken-the-statement).) It cannot tell you
+was proved, word for word. (See
+[Do not weaken the statement](comparator.md#do-not-weaken-the-statement).) It cannot tell you
 whether the Challenge says what Billingsley says. That was step 3.
 
 ## 6. Receipts and the gate: `verify`
@@ -431,13 +431,13 @@ anyone can re-run it and compare. lean-pkg has two kinds:
 - the **lower-tier receipt**: a fresh build from nothing, the `sorry` count
   and the axioms, run by the scaffold's `verify.sh` inside a capped systemd
   user unit, so that the operating system, not your script, reports how it
-  ran ([`receipt systemd`](commands/receipt-systemd.md), [the
-  details](receipts.md#a-lower-tier-receipt-from-a-systemd-unit)).
+  ran ([`receipt systemd`](commands/receipt-systemd.md),
+  [the details](receipts.md#a-lower-tier-receipt-from-a-systemd-unit)).
 
 
 First a registry of your own (the registry is the file that records your
-packages and their evidence; [the
-quickstart](quickstart.md#3-a-registry-of-your-own) keeps it under
+packages and their evidence;
+[the quickstart](quickstart.md#3-a-registry-of-your-own) keeps it under
 `~/.lean-pkg/registry`). For a trial run, a throwaway one is enough:
 
 ```bash
@@ -673,8 +673,8 @@ receipt check: PASS pi-lambda at ff6e3c27425b (tier comparator; 14 passed, 0 ski
   PASS page: trust boundary: sorry count, axioms and comparator counts as the receipts record them
 ```
 
-Rebuilding and re-running the comparator are the remaining steps of [Re-verify
-a page yourself](trust-model.md#re-verify-a-page-yourself). And the referee,
+Rebuilding and re-running the comparator are the remaining steps of
+[Re-verify a page yourself](trust-model.md#re-verify-a-page-yourself). And the referee,
 like you, still reads `Challenge.lean` against the book.
 
 ## 8. Before publishing: the checklist
@@ -709,8 +709,8 @@ licence lint passes because `lean-pkg new` wrote `REUSE.toml` and
 `LICENSES/`, which cover every file, the receipts included.) Run `lean-pkg public-safety pi-lambda` too
 ([`public-safety`](commands/public-safety.md)): on this run it flagged the
 comparator receipt's `host`, `host_policy` and `job_id` fields, which record
-the machine's name. Decide about those before anything is public; [Scan for
-private strings](how-to.md#scan-for-private-strings-before-publishing) and
+the machine's name. Decide about those before anything is public;
+[Scan for private strings](how-to.md#scan-for-private-strings-before-publishing) and
 [the publish checklist](how-to.md#get-listed-publish-checklist-reservoir-palomar)
 take it from here. This tutorial stops at the checklist.
 

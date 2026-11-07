@@ -158,8 +158,7 @@ a second checker also compared the statement").
 A claim with status `internal` (a step of the formalization, not a result
 offered for reuse) is verified only when the statement comparison judged it:
 a theorem or lemma that a configuration of a passing comparator receipt,
-bound to the gate-bound commit, names by its declaration ([the ledger's
-rule](lifecycle.md#claims-ledger)), with the same gate evidence any other
+bound to the gate-bound commit, names by its declaration ([the ledger's rule](lifecycle.md#claims-ledger)), with the same gate evidence any other
 claim needs. A verified internal claim is therefore always one whose
 statement was compared. Otherwise its ledger status is `out-of-scope`, and a
 row naming it is not verified. A result block that names an internal claim
