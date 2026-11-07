@@ -27,7 +27,7 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   each such link is now on one line, and the proposal 0003 prototype link
   opens the directory on GitHub, since Pages serves no listing for it.
 - Proposal 0011, non-vacuity witnesses on coverage rows, is open as a draft
-  (#429): proposal 0003's `witness` on any claim with a hypothesis, a row
+  (#430): proposal 0003's `witness` on any claim with a hypothesis, a row
   `witness` key, and a page line saying the result's hypotheses can be met
   ([docs/proposals](docs/proposals/README.md)).
 
