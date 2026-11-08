@@ -9,6 +9,8 @@
   A registry and trust gate for Lean 4 formalization packages: know which packages exist, who holds each one, and what evidence binds it to a verified commit, before anything becomes public.
 </p>
 
+<p align="center"><sub>lean-pkg is unrelated to <code>leanpkg</code>, the build tool of Lean 3.</sub></p>
+
 <p align="center">
   <a href="https://github.com/lean-pkg/lean-pkg/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/lean-pkg/lean-pkg/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>

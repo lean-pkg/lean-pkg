@@ -22,6 +22,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   without the key render as before; a file that uses it needs this release
   or later. See docs/page.md, "Hypotheses that can be met (a witness)".
 
+### Documentation
+
+- The README, the documentation's front page and llms.txt say in one line that
+  lean-pkg is unrelated to `leanpkg`, the build tool of Lean 3, after the
+  names were found to be confusable (#439).
+
 ## [0.27.0] - 2026-11-07
 
 ### Added
