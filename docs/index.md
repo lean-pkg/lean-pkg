@@ -13,6 +13,7 @@ public without two receipts, and the second one is re-derived from bytes.
 
 Source and issues: <https://github.com/lean-pkg/lean-pkg>. License:
 Apache-2.0. Machine-readable entry: [llms.txt](llms.txt).
+lean-pkg is unrelated to `leanpkg`, the build tool of Lean 3.
 
 **Start here:** [Tutorial: Dynkin's π-λ theorem, end to end](tutorial-pi-lambda.md)
 takes one textbook theorem from its statement to a verified page on your own

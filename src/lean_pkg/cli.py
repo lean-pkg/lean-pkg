@@ -3318,6 +3318,7 @@ LLMS_TXT_HEADER = """\
 # lean-pkg — llms.txt
 
 > Registry and trust gate for Lean 4 formalization packages. Install: `pipx install lean-pkg`.
+> lean-pkg is unrelated to `leanpkg`, the build tool of Lean 3.
 > Human docs: https://lean-pkg.github.io/lean-pkg/ (source: docs/), README.md, DESIGN.md. Tests: `python3 -m pip install -e '.[test]' && python3 -m pytest -q`.
 > The block below is the exact output of `lean-pkg llms` (written by `make docs`; tests/test_docs.py checks it byte for byte).
 
