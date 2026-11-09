@@ -48,7 +48,7 @@ def test_unknown_target_is_refused_before_cache_and_build(project: Path, flags):
     assert calls == ["lake env true"]                      # no cache-get, no build, no judge
     assert _probes(project) == ["lake --no-build build Challenge", "lake --no-build build Solution"]
     assert not (project / ".lean-receipts").exists()
-    log = (project / ".lake/comparator-receipt/comparator-stages/01-checkout.log").read_text()
+    log = (project / ".lean-pkg-evidence/comparator-receipt/comparator-stages/01-checkout.log").read_text()
     assert "lake-target: Challenge: unknown (exit 1)" in log and "lake-target: Solution: ready (exit 0)" in log
 
 
@@ -57,7 +57,7 @@ def test_needs_rebuild_is_not_refused(project: Path):
     r, calls = _run(project, "--prepare", LAKE_STUB_STALE="Challenge Solution")
     assert r.returncode == 0, r.stderr
     assert "lake build Challenge Solution" in calls
-    log = (project / ".lake/comparator-receipt/comparator-stages/01-checkout.log").read_text()
+    log = (project / ".lean-pkg-evidence/comparator-receipt/comparator-stages/01-checkout.log").read_text()
     assert "lake-target: Challenge: rebuild (exit 3)" in log
 
 

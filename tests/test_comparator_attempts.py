@@ -18,7 +18,7 @@ from .test_comparator_receipt import (_lake_project, _receipt, _stages, cr, git,
                                       run_staged)
 from .test_comparator_stage import calls, receipt, run, stage_dir, two_configs
 
-STAGES = Path(".lake") / "comparator-receipt" / "comparator-stages"
+STAGES = Path(".lean-pkg-evidence") / "comparator-receipt" / "comparator-stages"
 
 
 def _attempts(project: Path) -> Path:
@@ -171,7 +171,7 @@ def test_attempts_listing_is_read_only_and_deterministic(project: Path):
     assert [a["verdict"] for a in data["attempts"]] == ["failed", "failed"]
     assert all(a["intact"] and a["problem"] is None for a in data["attempts"])
     assert str(project) not in one.stdout
-    for where in (project / ".lake" / "comparator-receipt", project / STAGES, _attempts(project)):
+    for where in (project / ".lean-pkg-evidence" / "comparator-receipt", project / STAGES, _attempts(project)):
         assert json.loads(_list(project, str(where), "--json").stdout)["attempts"] == data["attempts"]
     text = _list(project)
     assert text.returncode == 0 and "attempts: 2 kept" in text.stdout

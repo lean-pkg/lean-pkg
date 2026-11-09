@@ -15,7 +15,7 @@ from .test_comparator_receipt import (LAKE_STUB, STUB, STUB_TC, _ignored_lake, _
                                       git, project, run_staged)
 
 OLEANS = {"LAKE_STUB_OLEANS": "Challenge Solution"}
-STAGES = Path(".lake") / "comparator-receipt" / "comparator-stages"
+STAGES = Path(".lean-pkg-evidence") / "comparator-receipt" / "comparator-stages"
 
 
 def _olean(project: Path, mod: str) -> Path:

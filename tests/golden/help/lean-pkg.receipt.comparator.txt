@@ -31,9 +31,11 @@ options:
                         its directory must; not with --prepare or --estimate
   --evidence-dir DIR    where the stage logs and stages.json go (only those: the receipt goes to
                         <project>/.lean-receipts/ unless --out), kept on failure (default:
-                        <project>/.lake/comparator-receipt; its comparator-stages/ subdirectory);
-                        outside the project its path is written as <evidence> in every log and
-                        receipt
+                        <project>/.lean-pkg-evidence/comparator-receipt, git-ignored, outside
+                        .lake so `lake clean` keeps it; an earlier run's
+                        <project>/.lake/comparator-receipt is used in place until moved; its
+                        comparator-stages/ subdirectory); outside the project its path is written
+                        as <evidence> in every log and receipt
   --prepare             run only the setup stages (dependency checkout, Mathlib cache, build of
                         the configured modules); idempotent; a later run at the same commit,
                         toolchain and config hash skips them and runs only the comparison

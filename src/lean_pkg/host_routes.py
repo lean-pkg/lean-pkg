@@ -269,7 +269,8 @@ def _route(name, ok, needs, failing, reason, commands, notes=()):
 
 def routes_report(hc: dict) -> dict:
     """The additive `--routes` keys for a host_checks() result."""
-    from .comparator_receipt import ALLOWED_HOSTS_ENV, BUILD_SOURCE_ENV, DEFAULT_EVIDENCE, TOOLCHAIN_FLOOR
+    from .comparator_receipt import (ALLOWED_HOSTS_ENV, BUILD_SOURCE_ENV, DEFAULT_EVIDENCE, LEGACY_EVIDENCE,
+                                     TOOLCHAIN_FLOOR)
     tmpl = template_host_tools()
     names = list(CORE_EXECUTABLES) + [t for t in tmpl if t not in CORE_EXECUTABLES]
     exes = {n: type_p(n) for n in names}
@@ -310,6 +311,9 @@ def routes_report(hc: dict) -> dict:
     t_notes = list(common_notes)
     if judge["supported"]:
         t_notes.append("this host can judge itself; the transfer is needed only to judge elsewhere")
+    t_notes.append(f"the commands pack the default evidence directory {DEFAULT_EVIDENCE.as_posix()}; evidence an "
+                   f"earlier lean-pkg left under {LEGACY_EVIDENCE.as_posix()} is packed with "
+                   f"-C {LEGACY_EVIDENCE.parent.as_posix()} instead, or moved first")
     transfer = _route("transfer", not tf, ("kernel",) + PREPARE_TOOLS + TRANSFER_TOOLS, tf,
                       ("; ".join(tf) if tf else
                        "this host can be the build side: prepare here, pack .lake/build and the evidence "

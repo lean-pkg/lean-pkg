@@ -22,6 +22,22 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   without the key render as before; a file that uses it needs this release
   or later. See docs/page.md, "Hypotheses that can be met (a witness)".
 
+### Changed
+
+- The comparator runner's default evidence directory moved out of `.lake/`,
+  which `lake clean` and disk cleanups delete whole (#442): stage logs,
+  `stages.json`, the olean manifest, unit logs and the read-only
+  `attempts/NNN/` now go to `<project>/.lean-pkg-evidence/comparator-receipt/`.
+  The runner creates `.lean-pkg-evidence/` with a `.gitignore` holding `*`
+  (git ignores the directory, that file included) and a `README` saying what
+  it holds, and never rewrites either. Evidence an earlier run left under
+  `.lake/comparator-receipt` is used in place by a run, `--attempts` and
+  `--verify-oleans` while the new default does not exist, with one stderr
+  line giving the `mv` that keeps it; lean-pkg never moves or deletes
+  evidence. `--evidence-dir` is unchanged; `comparator host-check --routes`
+  packs the new directory and notes the old one. See docs/comparator.md,
+  "Stages and `--prepare`" (where the evidence lives).
+
 ### Fixed
 
 - `lean-pkg page` no longer calls an internal result "work in progress" when

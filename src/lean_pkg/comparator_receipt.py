@@ -712,7 +712,51 @@ SETUP_STAGES = STAGES[:3]
 STAGES_DIR = "comparator-stages"
 STAGES_FILE = "stages.json"
 STAGES_SCHEMA = "comparator-stages/1"
-DEFAULT_EVIDENCE = pathlib.Path(".lake") / "comparator-receipt"   # under the project; .lake is gitignored
+# The default evidence directory sits in the project but outside .lake, which `lake clean` and disk cleanups
+# delete whole (a cleanup took a package's stage logs on 2026-11-09). Its parent ignores itself for git (a
+# .gitignore holding `*`, which also matches the .gitignore) and carries a README saying what it holds. Evidence
+# a run left at the legacy default under .lake is used in place while the new default does not exist; lean-pkg
+# never moves or deletes it, and prints the command that moves it.
+EVIDENCE_ROOT = pathlib.Path(".lean-pkg-evidence")
+DEFAULT_EVIDENCE = EVIDENCE_ROOT / "comparator-receipt"
+LEGACY_EVIDENCE = pathlib.Path(".lake") / "comparator-receipt"     # the default before 0.28.0
+EVIDENCE_GITIGNORE = "# written by lean-pkg: git ignores everything here, this file included\n*\n"
+EVIDENCE_README = """\
+Written by lean-pkg (comparator-receipt). Do not delete this directory with build cleanups.
+
+It holds the comparator runner's evidence for this checkout: the stage logs and stages.json of the
+last run (comparator-receipt/comparator-stages/), the olean manifest, the per-unit judge logs and,
+under comparator-stages/attempts/NNN/, read-only records of earlier runs. lean-pkg never deletes an
+attempt; prune one by hand (docs/comparator.md, "Stages and --prepare"). The committed receipts live in
+.lean-receipts/, not here. git ignores this directory (its .gitignore holds `*`).
+"""
+
+
+def default_evidence(project: pathlib.Path) -> tuple[pathlib.Path, str | None]:
+    """The evidence directory to use when --evidence-dir is not given, and a notice when it is the legacy one:
+    <project>/.lake/comparator-receipt is used in place while it holds stage files and the new default does not
+    exist, so a resume, --attempts or --verify-oleans still finds an earlier run's evidence."""
+    new, old = project / DEFAULT_EVIDENCE, project / LEGACY_EVIDENCE
+    if not new.exists() and (old / STAGES_DIR).is_dir():
+        return old, (f"using the evidence under {LEGACY_EVIDENCE.as_posix()}/ (the default before 0.28.0, which "
+                     f"`lake clean` deletes); to keep it, move it: mkdir -p {EVIDENCE_ROOT.as_posix()} && "
+                     f"mv {LEGACY_EVIDENCE.as_posix()} {DEFAULT_EVIDENCE.as_posix()}")
+    return new, None
+
+
+def ensure_evidence_root(project: pathlib.Path, evidence: pathlib.Path) -> None:
+    """Create <project>/.lean-pkg-evidence/ with its .gitignore and README when evidence is the new default;
+    an existing file is never rewritten, and any other evidence directory is left alone."""
+    root = project / EVIDENCE_ROOT
+    if evidence.resolve() != (project / DEFAULT_EVIDENCE).resolve():
+        return
+    root.mkdir(parents=True, exist_ok=True)
+    for name, text in ((".gitignore", EVIDENCE_GITIGNORE), ("README", EVIDENCE_README)):
+        f = root / name
+        if not f.exists():
+            f.write_text(text)
+
+
 LAKE_CMD_ENV = "COMPARATOR_LAKE"   # the lake the setup stages run (default: `lake` on PATH)
 DONE = ("ok", "skipped", "prepared")
 
@@ -2041,7 +2085,10 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
         out: pathlib.Path | None = None) -> dict:
     if not (project / "lean-toolchain").is_file():
         raise RunnerError(f"{project}: not a Lake project (no lean-toolchain)")
-    evidence = evidence or project / DEFAULT_EVIDENCE
+    if evidence is None:
+        evidence, legacy = default_evidence(project)
+        if legacy:
+            print(f"comparator-receipt: {legacy}", file=sys.stderr)
     set_redactions(project, evidence=evidence)   # #41: no checkout/evidence/HOME/TMPDIR path reaches a log or receipt
     for what, where in (("--from-prepared", from_prepared), ("--evidence-dir", evidence)):
         if where is not None and in_attempt(where):   # a kept attempt is never reused, resumed or rewritten
@@ -2148,6 +2195,7 @@ def run(project: pathlib.Path, check: pathlib.Path, host_policy: str = "",
     except ValueError as e:
         raise RunnerError(f"{e}; nothing written") from e
     stack_lines += thread_lines
+    ensure_evidence_root(project, evidence)
     stages = Stages(evidence, binding, prepare)
     stages.resolution = resolution
     stages.contracts_next = lambda: contracts_next(project, registry_args)   # #397
@@ -2504,7 +2552,7 @@ def verify_oleans(project: pathlib.Path, where: pathlib.Path) -> dict:
 def verify_oleans_main(args) -> int:
     project = pathlib.Path(args.project).resolve()
     where = pathlib.Path(args.verify_oleans).expanduser().resolve() if args.verify_oleans else \
-        (pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else project / DEFAULT_EVIDENCE)
+        (pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else default_evidence(project)[0])
     try:
         res = verify_oleans(project, where)
     except RunnerError as e:
@@ -2523,7 +2571,7 @@ def verify_oleans_main(args) -> int:
 def attempts_main(args) -> int:
     project = pathlib.Path(args.project).resolve()
     where = pathlib.Path(args.attempts).expanduser().resolve() if args.attempts else \
-        (pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else project / DEFAULT_EVIDENCE)
+        (pathlib.Path(args.evidence_dir).expanduser().resolve() if args.evidence_dir else default_evidence(project)[0])
     set_redactions(project, evidence=where)
     res = list_attempts(where)
     if args.json:
@@ -2607,7 +2655,9 @@ def add_arguments(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--evidence-dir", default=None, metavar="DIR",
                     help="where the stage logs and stages.json go (only those: the receipt goes to "
                          "<project>/.lean-receipts/ unless --out), kept on failure "
-                         f"(default: <project>/{DEFAULT_EVIDENCE.as_posix()}; its {STAGES_DIR}/ subdirectory); "
+                         f"(default: <project>/{DEFAULT_EVIDENCE.as_posix()}, git-ignored, outside .lake so "
+                         f"`lake clean` keeps it; an earlier run's <project>/{LEGACY_EVIDENCE.as_posix()} is used in "
+                         f"place until moved; its {STAGES_DIR}/ subdirectory); "
                          "outside the project its path is written as <evidence> in every log and receipt")
     ap.add_argument("--prepare", action="store_true",
                     help="run only the setup stages (dependency checkout, Mathlib cache, build of the "

@@ -1692,8 +1692,28 @@ in its sandbox, after `Resolving dependencies` and before `Building`, or exits
 2 because it could not start) is reported as "the judge tool failed before
 judging ... a tool/environment error, not a verdict on the proof", never as
 "did not accept the solution". `--evidence-dir DIR` moves them. The default is
-`<project>/.lake/comparator-receipt`, which the runner leaves out of its
-dirty-tree check.
+`<project>/.lean-pkg-evidence/comparator-receipt`, which the runner leaves out
+of its dirty-tree check.
+
+**Where the evidence lives.** The default sits outside `.lake/`, because
+`lake clean` and disk cleanups delete `.lake/` whole (a cleanup took a
+package's stage logs that way). The runner creates
+`<project>/.lean-pkg-evidence/` with a `.gitignore` holding `*`, so git
+ignores the directory and that file too, and a `README` saying what the
+directory holds; it never rewrites either file. Up to 0.27.0 the default was
+`<project>/.lake/comparator-receipt`. While that directory holds stage files
+and the new default does not exist, a run without `--evidence-dir` (and
+`--attempts`, `--verify-oleans`) uses it in place and prints one line naming
+the move:
+
+```
+mkdir -p .lean-pkg-evidence && mv .lake/comparator-receipt .lean-pkg-evidence/comparator-receipt
+```
+
+lean-pkg never moves or deletes evidence itself. The new default survives
+`lake clean` and `rm -rf .lake`, but not `git clean -fdx`, which also removes
+ignored files; to keep evidence from that too, pass `--evidence-dir` outside
+the checkout.
 
 The judge in the `comparator` stage streams too. It runs with stdin from
 `/dev/null`, its stdout and stderr merged into one pipe that a reader thread
@@ -1772,8 +1792,8 @@ into an attempt is refused before anything runs. Receipts, `comparator --check`
 and `gate --check` bind the current run only, and an attempt's partial receipt
 is never evidence. The attempts sit inside `comparator-stages/`, so the
 ignored-evidence report, `public-safety` and `repo export` treat them
-like the stage logs (the default evidence directory is under `.lake/`, which
-neither git nor `--fresh-repo` carries).
+like the stage logs (the default evidence directory ignores itself for git, so
+neither git nor `--fresh-repo` carries it).
 
 `lean-pkg receipt comparator --attempts [DIR] [--json]` lists them read-only and needs
 no host policy. DIR is an evidence directory, its `comparator-stages/` or its
@@ -1785,7 +1805,7 @@ file changed, went missing or was added.
 Disk: an attempt holds the stage logs, so a build log or many unit logs can
 make it large. Nothing prunes attempts automatically. To prune by hand, make
 the attempt writable first, then remove it:
-`chmod -R u+w .lake/comparator-receipt/comparator-stages/attempts/003 && rm -rf .lake/comparator-receipt/comparator-stages/attempts/003`
+`chmod -R u+w .lean-pkg-evidence/comparator-receipt/comparator-stages/attempts/003 && rm -rf .lean-pkg-evidence/comparator-receipt/comparator-stages/attempts/003`
 (`du -sh .../attempts/*` shows the sizes). Leave `attempts/NEXT` in place so
 that numbers stay unique.
 
@@ -1850,7 +1870,7 @@ cached, so the real run skips them.
 
 Reading the estimate from a script. The machine-readable source is the
 artifact `<evidence-dir>/comparator-stages/04-comparator.estimate.json`
-(default evidence directory `<project>/.lake/comparator-receipt/`; the text
+(default evidence directory `<project>/.lean-pkg-evidence/comparator-receipt/`; the text
 output's last line, `estimate: PATH`, names it). It is written once the
 sample is judged, is the same document `--json` prints, and stays on disk
 after the run, so a wrapper that keeps only the exit status can still read
@@ -2275,7 +2295,7 @@ lean-pkg receipt comparator --prepare
 
 # 5. after: nothing downloaded, nothing changed, nothing rebuilt that should not be
 grep -E 'No files to download|Attempting to download' \
-  .lake/comparator-receipt/comparator-stages/02-cache-get.log
+  .lean-pkg-evidence/comparator-receipt/comparator-stages/02-cache-get.log
 ( cd "$MATHLIB_CACHE_DIR" && sha256sum --quiet -c "$WORK/ltar.sha256" )
 ( cd "$MATHLIB_CACHE_DIR" && find . -maxdepth 1 -type f -name '*.ltar' -printf '%f %s\n' | sort ) \
   | diff - "$WORK/ltar.sizes"
@@ -2768,7 +2788,7 @@ What is supported:
    ```
 
    `$CLUSTER_EVIDENCE` is a copy of the job's evidence directory
-   (`.lake/comparator-receipt` of the cluster checkout, or the job's
+   (`.lean-pkg-evidence/comparator-receipt` of the cluster checkout, or the job's
    `--evidence-dir`); `--verify-oleans` exits 1 when one of the copied oleans
    differs from what the job's build stage recorded.
    The judge (export and kernel replay) is the expensive part and runs on

@@ -71,6 +71,8 @@ def test_userns_absent_judge_unsupported_prepare_and_transfer_supported(lp, cr, 
     assert any("--prepare" in c for c in r["prepare"]["commands"])
     assert any("sha256sum" in c for c in r["transfer"]["commands"])
     assert any(c.startswith("comparator-receipt --verify-oleans ") for c in r["transfer"]["commands"])
+    assert any("-C .lean-pkg-evidence comparator-receipt" in c for c in r["transfer"]["commands"])
+    assert any(".lake/comparator-receipt" in n and "-C .lake" in n for n in r["transfer"]["notes"])
     text = json.dumps(data).lower()
     for bad in ("--mechanism legacy", "disable the sandbox", "fake bwrap", "comparator_fake_lake_ok"):
         assert bad not in text
