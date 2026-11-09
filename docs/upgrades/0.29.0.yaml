@@ -8,5 +8,5 @@ changes: []
 # Docs: proposal 0011 marked implemented in 0.28.0 (its status line and the proposals table); no code
 # changes (#443).
 # Docs: proposal 0010 marked implemented in 0.26.0 (its status line and the proposals table); no code
-# changes (#444).
-no_author_change: [443, 444]
+# changes (#445).
+no_author_change: [443, 445]
