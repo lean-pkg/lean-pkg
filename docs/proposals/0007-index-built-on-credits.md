@@ -1,8 +1,10 @@
 # 0007: Credits for the libraries an index entry builds on (`built_on`)
 
-Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-18.
+Status: implemented. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-18.
 Decided: accepted 2026-10-18 by Le Chen, after #267 had merged as its implementation (the proposal step was
-skipped by mistake; recorded here). Implemented in: (release).
+skipped by mistake; recorded here). Implemented in: 0.15.0
+([doi:10.5281/zenodo.23455207](https://doi.org/10.5281/zenodo.23455207)), by #267 (the `built_on` field) and
+#269 (the `index check` warning decided under open question 2).
 
 ## Summary
 

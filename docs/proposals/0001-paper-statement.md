@@ -1,7 +1,8 @@
 # 0001: The paper's statement in coverage.yaml
 
-Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
-Decided: accepted 2026-10-17 by Le Chen (see Decision below). Implemented in: (release).
+Status: implemented. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-10-17.
+Decided: accepted 2026-10-17 by Le Chen (see Decision below). Implemented in: 0.11.0
+([doi:10.5281/zenodo.23441261](https://doi.org/10.5281/zenodo.23441261)), by #211.
 
 ## Summary
 

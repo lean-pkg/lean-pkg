@@ -9,4 +9,6 @@ changes: []
 # changes (#443).
 # Docs: proposal 0010 marked implemented in 0.26.0 (its status line and the proposals table); no code
 # changes (#445).
-no_author_change: [443, 445]
+# Docs: proposals 0001, 0005, 0006 and 0007 marked implemented in the releases that shipped them
+# (0.11.0, 0.14.0, 0.14.0, 0.15.0; their status lines and the proposals table); no code changes (#448).
+no_author_change: [443, 445, 448]
