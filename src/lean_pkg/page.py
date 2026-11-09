@@ -614,16 +614,32 @@ def _row_compared(ctx: dict, sts: list[dict]) -> bool:
 UNCOMPARED_CODES = frozenset({"no-comparator-config"})
 
 
-def _only_uncompared(r: dict, by_id: dict) -> bool:
-    """True when the row is not verified and every claim of it that is not verified is open solely because no
-    statement comparison names it (issue 398: display only, the ledger's status stays open). A claim not in the
-    ledger, blocked, unknown, failed, conditional or out of scope, or open for any other reason, keeps the
-    default wording."""
+def _open_uncompared(x: dict | None) -> bool:
+    """Issue 398: open solely because no statement comparison names the declaration."""
+    return bool(x and x.get("status") == "open" and x.get("diagnostics")
+                and all(d.get("code") in UNCOMPARED_CODES for d in x["diagnostics"]))
+
+
+def _internal_unjudged(x: dict | None) -> bool:
+    """An internal theorem or lemma (not superseded) with a clean build record that is out of scope only because
+    no passing comparator judged its declaration (claims ledger): the build accepted it, and only the statement
+    comparison that would count it as verified is missing. A diagnostic of any kind keeps the default wording."""
+    return bool(x and x.get("status") == "out-of-scope" and x.get("claim_status") == "internal"
+                and x.get("kind") in ("theorem", "lemma") and not x.get("diagnostics"))
+
+
+def _only_uncompared(r: dict, by_id: dict) -> str | bool:
+    """Whether the row is not verified and every claim of it that is not verified lacks only a statement
+    comparison (display only; the ledger's status and the counts stay as they are). "required" when each is
+    open solely because no comparison names it (issue 398); "internal" when at least one is an internal claim
+    no comparator judged (_internal_unjudged) and the rest are either kind; False otherwise. A claim not in
+    the ledger, blocked, unknown, failed, conditional, superseded, or open or out of scope for any other
+    reason keeps the default wording."""
     pending = [by_id.get(cid) for cid in r.get("claims") or []]
     pending = [x for x in pending if not x or x.get("status") != "verified"]
-    return bool(pending) and all(
-        x and x.get("status") == "open" and x.get("diagnostics")
-        and all(d.get("code") in UNCOMPARED_CODES for d in x["diagnostics"]) for x in pending)
+    if not pending or not all(_open_uncompared(x) or _internal_unjudged(x) for x in pending):
+        return False
+    return "internal" if any(_internal_unjudged(x) for x in pending) else "required"
 
 
 # proposal 0010: the status word of a verified row whose Lean conclusion is not the paper's, and the
@@ -640,7 +656,7 @@ def _conclusion(r: dict) -> str | None:
     return c if c in VERIFIED_HEAD else None
 
 
-def _status_line(word: str, compared: bool, conditional: str | None = None, uncompared: bool = False,
+def _status_line(word: str, compared: bool, conditional: str | None = None, uncompared: str | bool = False,
                  conclusion: str | None = None) -> str:
     line = _bare_status_line(word, compared, conditional, uncompared)
     if word == "verified" and conclusion in VERIFIED_HEAD and line.startswith("**Verified.**"):
@@ -691,7 +707,8 @@ def _witness_line(ctx: dict, r: dict, by_id: dict) -> list[str]:
     return [line, ""]
 
 
-def _bare_status_line(word: str, compared: bool, conditional: str | None = None, uncompared: bool = False) -> str:
+def _bare_status_line(word: str, compared: bool, conditional: str | None = None,
+                      uncompared: str | bool = False) -> str:
     if word == "conditional" and conditional:       # proposal 0003: never the word verified alone
         checks = ("every check of this result passed (the build, and the statement comparison)" if compared else
                   "every check that applies to this result passed (the build; its statement was not compared by "
@@ -704,6 +721,9 @@ def _bare_status_line(word: str, compared: bool, conditional: str | None = None,
     if word == "verified":
         return ("**Verified.** Lean accepts the proof, and lean-pkg's record shows every check that applies to "
                 "this result passed (the build; its statement was not compared by a second checker).")
+    if uncompared == "internal" and word not in ("verified", "conditional"):
+        return ("**Built, not compared.** Lean accepts the proof (the build passed), but its statement has not "
+                "been compared by a second checker, which lean-pkg needs before it counts the result as verified.")
     if word == "open" and uncompared:
         return ("**Built, not compared.** Lean accepts the proof (the build passed), but its statement has not "
                 "yet been compared by a second checker, which this result requires.")

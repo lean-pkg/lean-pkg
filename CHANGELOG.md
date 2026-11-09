@@ -22,6 +22,20 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   without the key render as before; a file that uses it needs this release
   or later. See docs/page.md, "Hypotheses that can be met (a witness)".
 
+### Fixed
+
+- `lean-pkg page` no longer calls an internal result "work in progress" when
+  the build accepted it and only the statement comparison is missing (#441).
+  A result block whose claims that are not verified are all internal theorems
+  or lemmas that no comparator configuration judged, with no other problem
+  recorded (or open only for `no-comparator-config`, issue 398), now reads
+  "**Built, not compared.** Lean accepts the proof (the build passed), but its
+  statement has not been compared by a second checker, which lean-pkg needs
+  before it counts the result as verified." Display only: the ledger status
+  (`out-of-scope`), the verified counts and `page --json` are unchanged, and
+  an internal definition or a claim with any other problem keeps "Not yet
+  verified".
+
 ### Documentation
 
 - The README, the documentation's front page and llms.txt say in one line that

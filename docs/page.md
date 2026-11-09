@@ -131,20 +131,35 @@ the block calls the paper verified.
 
 Such a row reads "**Not yet verified.** lean-pkg's record of the checks says:
 open. Until it says verified, read the Lean statement below as work in
-progress.", with one exception. When every claim of the row that is not
-verified is `open` for the single ledger reason `no-comparator-config` (the
-gate and comparator receipts pass at the gate-bound commit, but no comparator
-configuration names the declaration), the proof is built and only the
-statement comparison a `reusable` claim needs is missing, so the row reads:
+progress.", with two exceptions, both for a proof that is built where only
+the statement comparison is missing.
+
+When every claim of the row that is not verified is `open` for the single
+ledger reason `no-comparator-config` (the gate and comparator receipts pass
+at the gate-bound commit, but no comparator configuration names the
+declaration), the statement comparison a `reusable` claim needs is missing, so
+the row reads:
 
 > **Built, not compared.** Lean accepts the proof (the build passed), but its
 > statement has not yet been compared by a second checker, which this result
 > requires.
 
-This is wording only: the ledger status stays `open`, the row is not counted
-as verified, and the *Ledger* column of `coverage.md` still shows `open`. A
-claim open for any other reason (a `comparator-todo` entry among them), or
-`blocked`, `unknown` or `conditional`, keeps the row on "Not yet verified".
+When at least one of those claims is instead an `internal` theorem or lemma
+that is `out-of-scope` only because no passing comparator configuration
+judged it (no diagnostic at all: the gate receipt passes at the gate-bound
+commit and the declaration is there), and the others are of either kind, the
+row reads:
+
+> **Built, not compared.** Lean accepts the proof (the build passed), but its
+> statement has not been compared by a second checker, which lean-pkg needs
+> before it counts the result as verified.
+
+Both are wording only: the ledger status stays `open` or `out-of-scope`, the
+row is not counted as verified, and the *Ledger* column of `coverage.md` still
+shows the ledger's word. A claim open for any other reason (a
+`comparator-todo` entry among them), an internal definition (no comparator
+judges a definition), or a claim `blocked`, `unknown` or `conditional`, keeps
+the row on "Not yet verified".
 
 The comparator tier is required only for `reusable` claims, so a row can be
 *verified* without a statement comparison. A verified row says "(the build,
