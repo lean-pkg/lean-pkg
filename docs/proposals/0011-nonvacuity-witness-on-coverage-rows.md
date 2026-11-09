@@ -1,7 +1,8 @@
 # 0011: Non-vacuity witnesses on coverage rows
 
-Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-11-07.
-Decided: 2026-11-07, accepted by Le Chen (maintainer of record). Implemented in: (release).
+Status: implemented. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-11-07.
+Decided: 2026-11-07, accepted by Le Chen (maintainer of record). Implemented in: 0.28.0
+([doi:10.5281/zenodo.24085127](https://doi.org/10.5281/zenodo.24085127)), by #437.
 
 ## Summary
 
