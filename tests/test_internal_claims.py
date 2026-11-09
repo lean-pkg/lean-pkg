@@ -106,3 +106,67 @@ def test_the_page_marks_a_verified_internal_claim(lp, env, capsys, tmp_path):
     assert a["verified_rows"] == 1 and a["ledger_status"] == "unknown"        # nothing required: unchanged
     cov = (tmp_path / "site" / "coverage.md").read_text()
     assert "| verified (internal) |" in cov
+
+
+# --- an internal claim no comparator judged reads "Built, not compared", not "work in progress" (field report) ---
+
+BUILT_INTERNAL = ("**Built, not compared.** Lean accepts the proof (the build passed), but its statement has not "
+                  "been compared by a second checker, which lean-pkg needs before it counts the result as verified.")
+
+
+def test_an_internal_claim_no_comparator_judged_says_built_not_compared(lp, env, capsys, tmp_path):
+    from .test_page import EXPERIMENTAL_CLAIM, TWO_CLAIMS, _block, _uncompared_doc, run
+    unjudged = EXPERIMENTAL_CLAIM.replace("status: experimental", "status: internal")    # no config names it
+    doc = _uncompared_doc(("Side fact", ["beta/baz-true"]), ("Both", ["beta/foo-le-bar", "beta/baz-true"]))
+    prepare(env, doc, extra={**TWO_CLAIMS, "claims.yaml": CLAIMS_YAML + unjudged})
+    (env.repo_b / "README.md").write_text("# Beta\n")
+    rc, a = page_json(lp, env, capsys, "--write", "--site", str(tmp_path / "site"), "--html",
+                      str(tmp_path / "v.html"))
+    md = a["markdown"]
+    assert rc == 0 and a["verified_rows"] == 1, a.get("problems")                    # counts unchanged
+    for heading in ("Theorem 3: Side fact", "Theorem 4: Both"):
+        block = _block(md, heading)
+        assert block.startswith("\n" + BUILT_INTERNAL + "\n"), block
+        assert "**Internal.** `beta/baz-true`" in block
+    assert "work in progress" not in md and "Not yet verified" not in md
+    assert "- Verified: 1 of the 3 result(s) in Lean" in md
+    assert "| out-of-scope (internal) |" in (tmp_path / "site" / "coverage.md").read_text()  # the ledger's word
+    for text in ((tmp_path / "site" / "verification.md").read_text(), (tmp_path / "v.html").read_text()):
+        assert text.count("Built, not compared.") == 2 and "work in progress" not in text
+    assert BUILT_INTERNAL in (env.repo_b / "README.md").read_text()
+    rc, _out, _err = run(lp, env, capsys, "page", "beta", "--check", "--site", str(tmp_path / "site"))
+    assert rc == 0
+
+
+def test_an_internal_definition_keeps_not_yet_verified(lp, env, capsys):
+    # the comparator judges no definition, so "not compared" would promise a check that never comes; a
+    # superseded claim cannot appear in a coverage row at all (coverage check: name its successor)
+    from .test_page import EXPERIMENTAL_CLAIM, TWO_CLAIMS, _block, _uncompared_doc
+    other = (EXPERIMENTAL_CLAIM.replace("status: experimental", "status: internal")
+             .replace("kind: theorem", "kind: definition"))
+    prepare(env, _uncompared_doc(("Side fact", ["beta/baz-true"])),
+            extra={**TWO_CLAIMS, "claims.yaml": CLAIMS_YAML + other})
+    rc, a = page_json(lp, env, capsys)
+    assert rc == 0 and "Built, not compared" not in a["markdown"], a
+    assert _block(a["markdown"], "Theorem 3: Side fact").startswith("\n**Not yet verified.**")
+
+
+def test_the_internal_built_not_compared_line_needs_a_clean_internal_theorem():
+    from lean_pkg import page
+    nc = {"code": "no-comparator-config", "detail": "x"}
+
+    def oos(**kw):
+        return {"status": "out-of-scope", "claim_status": "internal", "kind": "theorem", "diagnostics": [], **kw}
+    by_id = {"i": oos(), "l": oos(kind="lemma"), "o": {"status": "open", "diagnostics": [nc]},
+             "v": {"status": "verified", "diagnostics": []}, "d": oos(kind="definition"),
+             "s": oos(claim_status="superseded"), "g": oos(diagnostics=[{"code": "no-checkout", "detail": "z"}]),
+             "b": {"status": "blocked", "diagnostics": [{"code": "depends-on-open", "detail": "o z"}]}}
+    for ids in (["i"], ["l", "v"], ["i", "o"], ["i", "l", "v"]):
+        assert page._only_uncompared({"claims": ids}, by_id) == "internal", ids
+    assert page._only_uncompared({"claims": ["o", "v"]}, by_id) == "required"
+    for ids in (["d"], ["s"], ["g"], ["i", "b"], ["i", "missing"], ["v"], []):
+        assert not page._only_uncompared({"claims": ids}, by_id), ids
+    assert page._status_line("out-of-scope", False, None, "internal") == BUILT_INTERNAL
+    assert page._status_line("open, out-of-scope", False, None, "internal") == BUILT_INTERNAL
+    assert page._status_line("out-of-scope", False).startswith("**Not yet verified.**")
+    assert page._status_line("open", False, None, "required").endswith("which this result requires.")

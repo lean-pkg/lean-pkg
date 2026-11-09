@@ -23,4 +23,22 @@ changes:
       lean-pkg refuses both), so raise the lean-pkg pin of its CI before committing them.
     breaking: false
     changelog: Added
+  - pr: 441
+    id: page-internal-built-not-compared
+    kind: behavior
+    area: page
+    summary: >-
+      page: a result block whose claims that are not verified are all internal theorems or lemmas that no
+      passing comparator configuration judged (claims ledger out-of-scope, no diagnostic), possibly beside
+      claims open only for no-comparator-config, reads '**Built, not compared.** Lean accepts the proof (the
+      build passed), but its statement has not been compared by a second checker, which lean-pkg needs before
+      it counts the result as verified.' instead of '**Not yet verified.** ... read the Lean statement below as
+      work in progress.', in the README block, --site and --html. Display only: ledger statuses, verified
+      counts, the coverage.md Ledger column and page --json are unchanged; an internal definition, and a claim
+      with any diagnostic, keep the old wording.
+    action: >-
+      Nothing required. Re-run lean-pkg page NAME --write (and --site/--html) to refresh a committed page;
+      page --check reports the old wording as stale until then.
+    breaking: false
+    changelog: Fixed
 no_author_change: [439, 440]
