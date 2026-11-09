@@ -16,6 +16,10 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - Proposal 0010, the strength of a row's conclusion in coverage.yaml, is
   marked implemented in 0.26.0 (#445), in its status line and the proposals
   table.
+- Proposals 0001 (the paper's statement), 0005 (per-claim axioms), 0006 (the
+  claim-to-comparator mapping) and 0007 (`built_on` credits) are marked
+  implemented in the releases that shipped them, 0.11.0, 0.14.0, 0.14.0 and
+  0.15.0 (#448), in their status lines and the proposals table.
 
 ## [0.28.0] - 2026-11-09
 

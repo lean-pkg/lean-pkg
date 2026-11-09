@@ -1,8 +1,9 @@
 # 0005: Per-claim axioms read from the built environment
 
-Status: accepted. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-17.
+Status: implemented. Author: Claude, the lean-pkg operations agent, drafting for Le Chen. Created: 2026-10-17.
 Decided: accepted 2026-10-18 by Le Chen, with the answers recorded under Open questions. Implemented in:
-(release).
+0.14.0 ([doi:10.5281/zenodo.23445755](https://doi.org/10.5281/zenodo.23445755)), by #262; since 0.21.0
+(#299) a `#print axioms` that names fewer axioms than the walk is reported, not refused.
 
 ## Summary
 
