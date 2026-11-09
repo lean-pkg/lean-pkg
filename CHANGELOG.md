@@ -24,6 +24,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   write them. Without `NAME`, or with `--no-registry`, it runs in the checkout
   with no registry (the CI form). See docs/site.md, a new guide.
 
+- Every line lean-pkg appends to the event log names the lean-pkg that
+  wrote it (proposal 0013, #447): an additive `producer` key
+  `{lean_pkg, install, commit, dirty}`, with the release, the install kind
+  (`installed`, `editable` or `unknown`, as `--version` detects it) and, for
+  an editable checkout, its full `HEAD` and whether it was modified. Event
+  lines stay `v: 1`, so an older lean-pkg reads them as before; a line
+  without the key was written before and means producer unknown. The key
+  carries no path, host or user name and is not copied into `history[]`.
+  See docs/formats.md, "Event log".
+
 ### Documentation
 
 - Proposal 0011, non-vacuity witnesses on coverage rows, is marked

@@ -23,6 +23,21 @@ changes:
       checkout, the form a package's CI can run); docs/site.md explains each check.
     breaking: false
     changelog: Added
+  - pr: 447
+    id: event-line-producer
+    kind: format
+    area: registry
+    summary: >-
+      Proposal 0013: every event-log line lean-pkg writes carries an additive key producer {lean_pkg,
+      install, commit, dirty}: the release, the install kind (installed, editable or unknown), and for an
+      editable checkout its full HEAD and whether tracked files were modified (null otherwise). Event lines
+      stay v 1; a line without the key (written before) means producer unknown. No path, host or user name;
+      not copied into history[]; no reader changes.
+    action: >-
+      Nothing for lean-pkg users: an older lean-pkg ignores the key. A script that checks the exact key set
+      of event lines must accept producer.
+    breaking: false
+    changelog: Added
 # Docs: proposal 0011 marked implemented in 0.28.0 (its status line and the proposals table); no code
 # changes (#443).
 # Docs: proposal 0010 marked implemented in 0.26.0 (its status line and the proposals table); no code

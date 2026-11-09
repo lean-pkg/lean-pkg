@@ -20,6 +20,7 @@ import collections
 import contextlib
 import datetime as dt
 import fnmatch
+import functools
 import fcntl
 import hashlib
 import json
@@ -76,7 +77,10 @@ RETRACT_EVENT = "retract"   # `record NAME retract`: append-only correction of a
 # it (written before) is version 0, read exactly as before. A reader that interprets events skips a line
 # of a newer (or unreadable) version and says so; it never guesses at it.
 EVENT_LINE_VERSION = 1
-EVENT_LINE_KEYS = ("ts", "event", "name", "v")
+# Proposal 0013: every line lean-pkg writes since 0.29.0 also carries `producer` {lean_pkg, install, commit,
+# dirty}, the lean-pkg that wrote it (event_producer), additive within version 1; a line without it was
+# written before and means producer unknown. It is not copied into history[].
+EVENT_LINE_KEYS = ("ts", "event", "name", "producer", "v")
 # Events written only to the log (no history[] entry, no `actor` unless listed); every other event is a
 # package event written by record(), which may also carry `actor` (the --agent of the invocation, #21.3).
 LOG_ONLY_EVENTS = ("registry-created", "registry-migrated", "registry-recommended", "index-added",
@@ -1276,9 +1280,53 @@ def materialize_snapshot(args, commit: str, tmp: pathlib.Path) -> str:
 
 
 def _event_line(ts: str, name, event: str, **fields) -> str:
-    """One event-log line: EVENT_LINE_KEYS (`v` last, so no field can replace it) and the event's fields."""
-    return json.dumps({"ts": ts, "event": event, "name": name, **fields, "v": EVENT_LINE_VERSION},
-                      sort_keys=True) + "\n"
+    """One event-log line: EVENT_LINE_KEYS (`producer` and `v` last, so no field can replace them) and the
+    event's fields."""
+    return json.dumps({"ts": ts, "event": event, "name": name, **fields, "producer": event_producer(),
+                       "v": EVENT_LINE_VERSION}, sort_keys=True) + "\n"
+
+
+def install_detect(d: pathlib.Path) -> dict:
+    """Which build is running, local and fast (no network, no fetch): {"install": "editable" | "installed" |
+    "unknown", "path", "commit", "dirty"}. editable when the package's __init__.py is tracked by a git checkout
+    (path: the checkout; commit: its short HEAD; dirty: modified tracked files); installed for a wheel or pipx
+    install (path: the package directory; commit and dirty null); unknown when git is not on PATH. The one
+    detection behind `doctor`'s install line and `--version`."""
+    info = {"install": "unknown", "path": str(d), "commit": None, "dirty": None}
+    if shutil.which("git") is None:
+        return info
+    top = registry_git(d, "rev-parse", "--show-toplevel")
+    tracked = registry_git(d, "ls-files", "--error-unmatch", "__init__.py").returncode == 0
+    if top.returncode != 0 or not top.stdout.strip() or not tracked:
+        info["install"] = "installed"   # not tracked: e.g. site-packages that sit inside a checkout
+        return info
+    root = pathlib.Path(top.stdout.strip())
+    # --no-optional-locks: a read-only probe must not refresh (rewrite) the checkout's .git/index
+    st = registry_git(root, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
+    info.update(install="editable", path=str(root),
+                commit=registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?",
+                dirty=bool(st.stdout.strip()) if st.returncode == 0 else None)
+    return info
+
+
+def event_producer() -> dict:
+    """Proposal 0013: the lean-pkg writing event lines, {lean_pkg, install, commit, dirty}: the head of a
+    receipt's `producer` without its hashes, and no path. install is install_detect's kind; commit is the
+    full HEAD of an editable checkout (null for an installed release, whose version names its tag); dirty
+    likewise. Computed once per process (_event_producer); each call returns a fresh copy."""
+    return dict(_event_producer())
+
+
+@functools.lru_cache(maxsize=1)
+def _event_producer() -> dict:
+    version = getattr(sys.modules.get(__package__ or "lean_pkg"), "__version__", None)   # no import (core rule)
+    info = install_detect(pathlib.Path(__file__).resolve().parent)
+    commit = None
+    if info["install"] == "editable":
+        p = registry_git(pathlib.Path(info["path"]), "--no-optional-locks", "rev-parse", "HEAD")
+        head = p.stdout.strip() if p.returncode == 0 else ""
+        commit = head if _HEX40.fullmatch(head) else None
+    return {"lean_pkg": version, "install": info["install"], "commit": commit, "dirty": info["dirty"]}
 
 
 def _write_event_lines(events_p: pathlib.Path, lines: list[str]) -> None:

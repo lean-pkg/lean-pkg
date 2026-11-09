@@ -178,7 +178,7 @@ conclusion, immutable workflow/control revision, runner identity, and resources.
 partial manifest, pre-terminal marker, or prior-candidate receipt is not gate evidence.
 
 EVENT LINE SCHEMA (one JSON object per line, keys sorted; package events also go to history[]; index-added, prior-art-searched, registry-* are log-only; every event name and its keys: docs/formats.md "Event log")
-v       1 (the line's version, since 0.22.0); a line without v is version 0, read as before; a newer or unreadable v is not interpreted (the claim prior-art note skips it with a stderr warning naming the upgrade)
+v       1 (the line's version, since 0.22.0); a line without v is version 0, read as before; a newer or unreadable v is not interpreted (the claim prior-art note skips it with a stderr warning naming the upgrade); producer {lean_pkg, install installed|editable|unknown, commit (full HEAD of an editable checkout, else null), dirty} since 0.29.0 (proposal 0013): the lean-pkg that wrote the line, no path, not in history[]; absent = producer unknown
 ts      UTC ISO-8601 with offset, second precision (all written times; dates are UTC; same-second order = file order; naive = legacy UTC, doctor warns)
 event   one of: registry-created, registry-migrated, registry-recommended, registered, updated, claimed, claim-refreshed, claim-forced,
         released, release-forced, lease-expired, gate-passed, regated, promoted, publication-withdrawn, publication-hold-released, audit-fix, relocated, status-changed,
