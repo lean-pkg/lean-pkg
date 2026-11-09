@@ -9,6 +9,11 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Documentation
+
+- Proposal 0011, non-vacuity witnesses on coverage rows, is marked
+  implemented in 0.28.0 (#443), in its status line and the proposals table.
+
 ## [0.28.0] - 2026-11-09
 
 ### Added
