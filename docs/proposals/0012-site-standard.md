@@ -35,9 +35,9 @@ navigation by hand. Everything else is assembled by hand, and package sites have
 
 Building by hand fails in known ways:
 
-- **Drift.** Counts, versions and commits written by hand go stale. One public site still says "Source API
-  0.11.0", "142 public theorems", "51 reusable claims" and "15 modules" while its repository is at 0.12.0
-  with 160 inventory entries, 56 claim ids and 16 modules. `page --check` sees only the README block and the
+- **Drift.** Counts, versions and commits written by hand go stale. On 2026-11-08 one public site said
+  "Source API 0.11.0", "142 public theorems", "51 reusable claims" and "15 modules" while its repository was
+  at 0.12.0 with 160 inventory entries, 56 claim ids and 16 modules. `page --check` sees only the README block and the
   two generated pages; the drift lives in the landing page, the README prose, `llms.txt` and the
   `CITATION.cff` abstract.
 - **Copies that diverge.** Sites serve two `llms.txt` files (root and `docs/`) that differ, and `docs/source/`
@@ -63,26 +63,43 @@ root):
 
 | Kind | Detected by | Where the head (noindex, mathematics) goes | Navigation |
 |---|---|---|---|
-| `jekyll` | `DIR/_config.yml`, no `.nojekyll` | `DIR/_layouts/default.html`, which lean-pkg writes (`theme: null`) | the landing page's links |
-| `mkdocs` | `mkdocs.yml` at the repository root naming `DIR` as `docs_dir` | `overrides/main.html`, blocks `extrahead` and `scripts` | `nav` in `mkdocs.yml` |
+| `jekyll` | `DIR/_config.yml`, no `.nojekyll` | the layout the pages use, `DIR/_layouts/default.html` (`theme: null`) | the landing page's links |
+| `mkdocs` | `mkdocs.yml` at the repository root whose `docs_dir` is `DIR` (MkDocs' default is `docs`, so a file without the key is a site of `docs/`) | the `custom_dir` override, `main.html`, blocks `extrahead` and `scripts`; MathJax and the fence converter there or in `extra_javascript` | `nav` in `mkdocs.yml` |
 | `static` | `DIR/.nojekyll` | each served `.html` file | the landing page's links |
 
 A site opts in with one key that its host ignores: `lean_pkg_site: 1` in `_config.yml` (`jekyll`), under
 `extra:` in `mkdocs.yml` (`mkdocs`), or in a small `DIR/lean-pkg-site.yaml` (`static`). `site check` runs on
-any site, opted in or not; `site render` and `site init` act only on a `jekyll` or `mkdocs` site. A `static`
-site is checked but never rendered: `render` names it and exits 1, because every page there is a hand-built
-file that lean-pkg would have to rewrite whole. No lean-pkg file format changes: the registry,
-`coverage.yaml`, receipts and index entries are untouched.
+any site, opted in or not. On a `static` site, `site render` fills only marked blocks inside the served
+`.html` files (an HTML comment marks a block there as anywhere else) and never writes a whole file, because
+every page there is a hand-built file; `site init` does not create `static` sites. No lean-pkg file format
+changes: the registry, `coverage.yaml`, receipts and index entries are untouched.
+
+A site made by hand has a head without lean-pkg's block. lean-pkg never rewrites a head it did not write:
+`site check` accepts the noindex meta tag itself, with or without the block, and `site render` on a head
+without the block names the file, prints the block to paste into it, and exits 1. `site init` writes a head
+that has the block already.
 
 For a `jekyll` site, lean-pkg owns a minimal layout instead of relying on a theme's head include: the
 pages-themes include `_includes/head-custom.html`, minima includes `custom-head.html`, and a `theme: null`
 site includes neither, so a tag written there would never reach the page. The layout pins MathJax 3.2.2
-with its integrity hash and carries the `latex`-fence converter, as the working sites do. For an `mkdocs`
-site, the generated configuration sets `pymdownx.arithmatex: {generic: true}` and `pymdownx.highlight:
-{pygments_lang_class: true}` (without it a `latex` fence has no `language-latex` class), and two fixes the
+with its integrity hash and loads the fence converter, as the working sites do. For an `mkdocs` site, the
+generated configuration sets `pymdownx.arithmatex: {generic: true}` (for `$...$` and `\(...\)` in prose) and
+`pymdownx.highlight: {pygments_lang_class: true}` (without it a `latex` fence has no `language-latex`
+class), loads MathJax and the fence converter (arithmatex does not convert fences), and adds two fixes the
 field sites needed: a `partials/source.html` without `data-md-component="source"` (Material's repository
 widget calls the GitHub API anonymously and fails on a private repository), and `.md-typeset td code
 {word-break: normal; overflow-wrap: normal}`, so long Lean names are not split mid-name at phone width.
+
+### The fence converter
+
+lean-pkg's pages put a paper's formula in a ```` ```latex ```` code fence, which GitHub shows as source. On
+the site, a small script lean-pkg owns turns each `pre > code.language-latex` into a display formula and
+keeps the TeX source behind a toggle. It ships as a file in the site (`assets/lean-pkg-math.js`), never from
+a CDN, and it configures MathJax with the `require` and `autoload` extensions disabled, so that the text of
+a statement cannot load MathJax extensions. On MkDocs Material, which replaces the page without reloading
+it, the script typesets again on each `document$` emission but skips the first, because typesetting a page
+twice blanks every formula. `site render` writes the file and `site check` compares it with the version
+lean-pkg ships.
 
 ### `lean-pkg site check NAME [--dir DIR] [--json]`
 
@@ -93,13 +110,14 @@ Offline and read-only, on every kind. Exit 0 when every check passes, 1 when one
   `jekyll` and `mkdocs` sites);
 - **links**: the landing page (or `nav`) links to every generated page;
 - **hand-written pages**: the `page --check --site` rule for Markdown inside HTML blocks;
-- **counts**: a hand-written page, the README outside its generated block, `llms.txt` or the `CITATION.cff`
-  abstract states a count, a lean-pkg version or a commit outside a generated block (see *Generated
-  blocks*); an exemption comment naming its source is reported but passes;
-- **mathematics**: the head the kind uses loads MathJax and the fence converter (`jekyll`), or the MkDocs
-  settings above are present (`mkdocs`); a `static` site with neither is reported, not failed;
-- **noindex**: the marker is in the head the pages actually use (the layout, the override, or every served
-  `.html` file): present while the record's visibility is `private`, absent once it is public;
+- **counts**: a hand-written page (Markdown or, on a `static` site, served `.html`), the README outside its
+  generated block, `llms.txt` or the `CITATION.cff` abstract states a count, a version or a commit outside a
+  generated block (see *Generated blocks*);
+- **mathematics**: the head the pages use loads MathJax and the fence converter (every kind), and, for
+  `mkdocs`, the two settings above are present; a `static` site with neither is reported, not failed;
+- **noindex**: the noindex meta tag is in the head the pages actually use (the layout, the override, or
+  every served `.html` file), with or without lean-pkg's block: present while the package is private,
+  absent once it is public;
 - **served files**: every file the host would serve is a generated page, a hand-written page or an asset.
   Copies of build inputs (`claims.yaml`, `coverage.yaml`, Lean sources) fail, with the advice to link
   `blob/<commit>` instead; other files are listed. On a `static` site, the check warns that `.nojekyll`
@@ -110,14 +128,15 @@ Offline and read-only, on every kind. Exit 0 when every check passes, 1 when one
 
 `--json`: `{ok, dir, kind, opt_in, stale[], links {missing[]}, html_blocks[], counts[], exemptions[], math
 {problems[]}, noindex {expected, present, files[]}, served {build_input_copies[], unclassified[]},
-shadowing_index_html, binding {docs_descendant, reason}, problems[]}`.
+shadowing_index_html, binding {docs_descendant, reason}, snapshot {source, stale}, problems[]}`.
 
 ### `lean-pkg site check NAME --live URL`
 
 The same command with the network, never run by `publish`. It fetches, without a browser: every generated
 page, `llms.txt` and `CITATION.cff` (each must return HTTP 200); the noindex meta tag in the served HTML,
 expected exactly as offline; and the commit GitHub Pages last deployed (`pages/builds/latest`), which must be
-the current commit or an ancestor that differs from it only outside `DIR`. These are the failures only a
+the current commit or an ancestor that differs from it only in files the site does not read: outside `DIR`
+for `jekyll` and `static`, and outside `DIR`, `mkdocs.yml`, the `custom_dir` and any `hooks` for `mkdocs`. These are the failures only a
 live check catches: pages that return 404 under `.nojekyll` although a preview passed, Markdown blocks
 served raw for weeks while github.com showed them correctly, and a workflow-deployed site never deployed.
 Layout checks at phone, tablet and desktop width need a browser and are left to a later proposal.
@@ -125,13 +144,16 @@ Layout checks at phone, tablet and desktop width need a browser and are left to 
 ### Generated blocks
 
 Hand-written text stays hand-written; numbers move into blocks lean-pkg fills. A block is delimited by
-`<!-- lean-pkg:site:BLOCK -->` and `<!-- lean-pkg:site:end -->` in a Markdown page, in the README, or in
-`llms.txt`. The blocks are the status capsule, the counts (claims, verified, conditional and excluded scopes
-from `coverage.yaml` and the claims ledger), the lean-pkg version and the commit the receipts bind, the
-install line and the citation line. A count lean-pkg cannot derive yet (one taken from a coverage map
-outside the repository, or from a cluster receipt) is either moved into `coverage.yaml` as rows that name
-claim ids, or kept in hand-written text behind `<!-- lean-pkg:site:exempt SOURCE -->`, which `site check`
-reports with its source.
+`<!-- lean-pkg:site:BLOCK -->` and `<!-- lean-pkg:site:end -->` in a Markdown page, a served `.html` file, the
+README, or `llms.txt`. The blocks are the status capsule, the counts (claims, verified, conditional and
+excluded scopes from `coverage.yaml` and the claims ledger, theorems in the inventory), the package and
+lean-pkg versions and the commit the receipts bind, the install line and the citation line.
+
+A count lean-pkg cannot derive yet (one taken from a coverage map outside the repository, or from a cluster
+receipt) is either moved into `coverage.yaml` as rows that name claim ids, or kept in hand-written text
+behind `<!-- lean-pkg:site:exempt SOURCE -->`, which `site check` reports with its source. An exemption does
+not cover a quantity lean-pkg derives: when the exempt text counts claims, scopes or inventory theorems, or
+states the package version, `site check` compares the value and fails when it differs.
 
 A page rendered from a commit no gate receipt binds (a draft) gets a generated banner saying so, inside the
 block, so that the page and the banner cannot disagree.
@@ -139,7 +161,7 @@ block, so that the page and the banner cannot disagree.
 ### `lean-pkg site render NAME [--dir DIR] [--check] [--json]`
 
 On an opted-in `jekyll` or `mkdocs` site, writes atomically, from the record, the recorded receipts,
-`coverage.yaml`, `CITATION.cff` and `LICENSE`:
+`coverage.yaml`, `CITATION.cff` and `LICENSE` (on a `static` site, only the marked blocks):
 
 | File | Content |
 |---|---|
@@ -147,7 +169,9 @@ On an opted-in `jekyll` or `mkdocs` site, writes atomically, from the record, th
 | `cite.md` | the preferred citation and the software citation from `CITATION.cff`, and the DOIs the record holds |
 | `license.md` | the SPDX license and a link to `LICENSE`, and the acknowledgments `page` derives from `coverage.yaml` |
 | every file with `lean-pkg:site:` blocks | only those blocks; the text around them is kept |
-| the head (`_layouts/default.html` or `overrides/main.html`) | only its marked block: the noindex tags while the record is private, empty once public |
+| the head (the layout or the override) | only its marked block: the noindex tags while the record is private, empty once public; a head without the block is reported with the block to paste |
+| `assets/lean-pkg-math.js` | the fence converter |
+| `lean-pkg-site.json` (package directory) | the record snapshot (*Running the check in CI*) |
 
 `render` never overwrites a whole file that does not begin with lean-pkg's `Generated by` note: a
 hand-written `verification.md` under the same name is reported, and `render` exits 1 until the author
@@ -178,11 +202,21 @@ fixes above. An existing file is never overwritten; the command lists it with wh
 
 ### Running the check in CI
 
-A package's CI cannot read a private registry, and `site check` needs the record's visibility and license.
-CI runs `site render --check`, which compares committed files with what they would be and needs only the
-committed outputs, and `site check --no-registry`, which runs every check that does not need the record and
-reports the noindex and license checks as `n/a`. The global `--registry` keeps working for a CI that can
-read the registry.
+A package's CI cannot read a private registry, and most of the checks need the record: **current** (the
+generated pages are rendered from it), **noindex** (the visibility), **binding** and **served files** (the
+`build_inputs` and the `docs_descendants` veto), the license line and `cite.md` (`license_spdx`, the DOIs).
+So `site render` also writes a record snapshot, `lean-pkg-site.json` in the package directory: exactly the
+record fields the site uses (name, visibility, `license_spdx`, the DOIs, `build_inputs`,
+`docs_descendants`, and the recorded receipts' paths and hashes), committed with the site.
+
+- `site render --check --no-registry` and `site check --no-registry` read the snapshot in place of the
+  record, so CI runs every check, the noindex included, against the committed snapshot.
+- `site check` with the registry also compares the snapshot with the record and fails when it is stale; the
+  snapshot goes stale exactly when the site needs a re-render (after `promote`, after a new DOI), so the
+  re-render that fixes the site fixes the snapshot.
+- Without a snapshot, `--no-registry` reports every check above as `n/a` and names it.
+
+The global `--registry` keeps working for a CI that can read the registry.
 
 ### Subdirectory packages
 
@@ -206,11 +240,11 @@ Each phase is its own pull request with its own record entry:
 
 1. `site check` (offline, all three kinds) and `docs/site.md`. Every existing site can use it at once.
 2. `site render`: the generated pages, the generated blocks (counts, version, commit, `llms.txt`), the
-   noindex block and the draft banner; `site check --live URL`.
+   noindex block, the fence converter, the record snapshot and the draft banner; `site check --live URL`.
 3. `site init`, the `publish` item and warning, and the `promote` lines.
 
-`init` comes last because every site that needs the standard exists already; it writes the noindex in the
-same phase it creates a site, so no private site is ever created without one.
+`init` comes last because every site that needs the standard exists already. From phase 1, `site check`
+reports a private site without the noindex; from phase 3, `site init` writes it into every site it creates.
 
 ## Compatibility and migration
 
@@ -219,8 +253,9 @@ same phase it creates a site, so no private site is ever created without one.
 - A site that does not opt in is only read: `site check` reports on it and `publish` warns.
 - To adopt the standard, a `jekyll` or `mkdocs` site runs `site check`, renames any hand-written page that
   takes a generated name, moves its counts into generated blocks (or marks an exemption), removes served
-  copies of build inputs, adds the opt-in key, runs `site render`, and commits. A `static` site is checked as
-  it is; rendering it means moving to one of the other kinds, which is the author's decision.
+  copies of build inputs, pastes the noindex block into its head if `render` asks, adds the opt-in key, runs
+  `site render`, and commits. A `static` site does the same with marked blocks in its `.html` files; lean-pkg
+  never rewrites its pages whole.
 - An older lean-pkg ignores the keys, the blocks and the generated files.
 - `publish --json` gains the `site` key; no existing key changes. New help pages for `site`; the golden help
   and JSON-key files gain them (`tests/golden`).
@@ -238,10 +273,18 @@ honor it, others need not, it does not cover plain-text files, and it does not r
 site.
 
 A commit made by `site render` after the gate (removing the noindex after `promote`, or refreshing a count)
-keeps the receipts bound only when it is a docs-only descendant of the gated commit X (docs/receipts.md):
-`lean-pkg-binding.yaml` with `docs_descendants: true` must have been committed at X (the file is read at X
-and nowhere else, so adding it later does not help), and the commit must change no build input (the record's
-`build_inputs`, which may list `coverage.yaml`, the README or `docs/*.md`). `site check` and `promote`'s
+keeps the receipts bound only when the new HEAD is a docs-only descendant of the gated commit X
+(docs/receipts.md, "Docs-only descendants"):
+
+- `lean-pkg-binding.yaml` with `docs_descendants: true` must be in X's tree. The file is read at X and
+  nowhere else, so adding it later does not help; it is committed in a commit of its own right before the
+  verify run, never together with other edits.
+- No build input under the package directory may change between X and the new HEAD. The build inputs are
+  the default set (owned `*.lean`, `lakefile.*`, `lake-manifest.json`, `lean-toolchain`, `claims.yaml`, the
+  binding file itself) plus the binding file's and the record's `build_inputs`, which may list
+  `coverage.yaml`, the README or `docs/*.md`.
+
+`site check` and `promote`'s
 `next:` lines report which case applies; when the commit is not a docs-only descendant, the package needs a
 re-gate. An offline pass also does not mean the live site changed: for a site deployed by a workflow run by
 hand, the commit deploys nothing until the workflow runs, which `--live` detects.
@@ -265,14 +308,13 @@ hand, the commit deploys nothing until the workflow runs, which `--live` detects
 
 ## Open questions
 
-1. Whether `render` should ever convert a `static` site, or leave that to the author with `docs/site.md`.
+1. Whether `render` should ever convert a `static` site to another kind, or leave that to the author with
+   `docs/site.md`.
 2. The exact list of quantities the count rule recognizes outside generated blocks (proposed: integers next
    to the words the generated blocks use, lean-pkg and package versions, and hexadecimal commits of 7 or
    more characters).
 3. Whether the browser layout checks (overflow, MathJax errors, broken Lean names at three widths) come in
    a later proposal or stay outside lean-pkg.
-4. Whether `site check --no-registry` should read the visibility from a committed file, so that CI can
-   check the noindex too.
 
 ## AI assistance
 
