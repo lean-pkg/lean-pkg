@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-09
+
 ### Added
 
 - Non-vacuity witnesses on coverage rows (proposal 0011, #437): a `claims.yaml`
@@ -57,6 +59,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 - The README, the documentation's front page and llms.txt say in one line that
   lean-pkg is unrelated to `leanpkg`, the build tool of Lean 3, after the
   names were found to be confusable (#439).
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.27.0] - 2026-11-07
 
