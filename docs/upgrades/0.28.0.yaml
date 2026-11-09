@@ -23,4 +23,4 @@ changes:
       lean-pkg refuses both), so raise the lean-pkg pin of its CI before committing them.
     breaking: false
     changelog: Added
-no_author_change: [439]
+no_author_change: [439, 440]
