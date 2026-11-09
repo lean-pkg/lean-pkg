@@ -1,7 +1,7 @@
 # 0012: A package site standard
 
-Status: draft. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-11-08.
-Revised: 2026-11-09, after a field review. Decided: (date and maintainer, once accepted or declined).
+Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-11-08.
+Revised: 2026-11-09, after a field review. Decided: 2026-11-09, accepted by Le Chen (maintainer of record).
 Implemented in: (release).
 
 ## Summary
