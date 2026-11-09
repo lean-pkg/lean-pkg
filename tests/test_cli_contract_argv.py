@@ -143,6 +143,8 @@ ARGV_TABLE: list[tuple[list[str], str, bool, bool, bool]] = [
     (["publish", "demo", "--yes", "--dry-run"], "publish", False, False, False),   # the promotion checklist only
     (["publish", "demo", "--yes", "--agent", "a", "--skip-public-safety"], "publish", True, True, False),
     (["coverage", "check", "demo"], "coverage check", False, False, False),
+    (["site", "check", "demo"], "site check", False, False, False),
+    (["site", "check", "--no-registry", "--dir", "docs"], "site check", False, False, False),
     (["coverage", "check", "demo", "--file", "f", "--allow-private-manuscript"], "coverage check", False, False, False),
     # the offline form (#328): no NAME, no registry
     (["coverage", "check", "--file", "f", "--claims", "c", "--comparator", "x", "--comparator", "y"],
@@ -308,7 +310,7 @@ def test_argv_table_matches_predicates(row, ap, lp, monkeypatch):
 def test_argv_table_covers_every_command_path(ap):
     """A new command (nested ones included) needs a row."""
     paths = {" ".join(n.path) for n in command_tree(ap) if n.path}
-    paths -= {"index", "claims", "reservoir", "blueprint", "palomar", "receipt", "coverage",   # groups: a verb is required
+    paths -= {"index", "claims", "reservoir", "blueprint", "palomar", "receipt", "coverage", "site",   # groups: a verb is required
               "lease", "registry", "repo", "comparator", "formalization"}
     covered = {row[1] for row in ARGV_TABLE}
     assert sorted(paths - covered) == [], "add ARGV_TABLE rows for these commands"

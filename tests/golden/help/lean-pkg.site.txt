@@ -1,0 +1,11 @@
+usage: lean-pkg site [-h] [--json] {check} ...
+
+positional arguments:
+  {check}
+    check     read-only: check the site in DIR (default docs): generated pages current and linked,
+              Markdown inside HTML blocks, mathematics, the noindex while private, the files it
+              serves, a shadowing index.html; hand-written counts are warnings; exit 0/1
+
+options:
+  -h, --help  show this help message and exit
+  --json      machine-readable JSON on stdout

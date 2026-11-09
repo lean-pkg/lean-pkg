@@ -4,7 +4,25 @@
 # renames both files to the version it cuts, which make release-version prints.
 schema: lean-pkg-upgrade-record/1
 version: 0.29.0
-changes: []
+changes:
+  - pr: 444
+    id: site-check
+    kind: command
+    area: site check
+    summary: >-
+      New read-only command lean-pkg site check [NAME] [--dir DIR] [--repo DIR] [--no-registry], proposal
+      0012 phase 1: checks a package's documentation site (default docs/) of any kind, Jekyll, MkDocs or a
+      static site served as committed (.nojekyll). Exit 1 on a generated page (verification.md, coverage.md)
+      stale against page --site or not linked, Markdown inside an HTML block, mathematics with no MathJax in
+      the head, the noindex meta tag missing while the record's visibility is private or present once public,
+      a served copy of a build input, or an index.html shadowing index.md; hand-written counts, versions and
+      commits, the opt-in key and a hand-written page under a generated name are warnings. Without NAME or
+      with --no-registry, no registry is read and the record checks are listed as not checked.
+    action: >-
+      Nothing required. To check a site: lean-pkg site check NAME (or site check --no-registry in the
+      checkout, the form a package's CI can run); docs/site.md explains each check.
+    breaking: false
+    changelog: Added
 # Docs: proposal 0011 marked implemented in 0.28.0 (its status line and the proposals table); no code
 # changes (#443).
 no_author_change: [443]

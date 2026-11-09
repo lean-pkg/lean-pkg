@@ -47,6 +47,7 @@ its success gate, and lists what is still missing.
 | **new here** | [Start here](newcomers.md): the reading path, then the [sample workflow](sample-workflow.md) |
 | **evaluating it** | [Motivation](motivation.md) and the [FAQ](faq.md) |
 | **writing a paper with a Lean companion** | [Develop a paper with its Lean companion](paper-companion.md): intermediate checkpoints, reuse, a coverage map |
+| **checking a package's documentation site** | [The site standard](site.md): `lean-pkg site check` reads a Jekyll, MkDocs or static GitHub Pages site offline: generated pages current and linked, mathematics, the noindex while private, the files it serves (proposal 0012) |
 | **writing the public README of a companion** | [The verification page](page.md): `lean-pkg coverage check` and `lean-pkg page --write/--check` render, from data, each result with the paper's statement beside the Lean statement, what the checks establish, the receipts and the credits |
 | **using the tool** | [How to](how-to.md), the [command reference](commands/index.md) (every command and subcommand, with examples), the [CLI overview](cli.md) (global flags) and [Prior-art search](prior-art.md) |
 | **refereeing or auditing a package** | [Trust model](trust-model.md): what each artifact certifies, what it does not, and how to re-verify a page yourself; then [Receipts and trust](receipts.md), [The comparator tier](comparator.md), [formalization.yaml](formalization.md), [The index](index-catalog.md), [Lifecycle](lifecycle.md) |

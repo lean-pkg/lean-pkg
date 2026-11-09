@@ -626,7 +626,11 @@ and leave `README.md` alone unless `--write` is given too. With `--check` they
 are compared and nothing is written. Neither writes the registry.
 
 Add `verification.md` and `coverage.md` to the `nav` of `mkdocs.yml`
-yourself; lean-pkg never edits it.
+yourself (or link them from the landing page of a Jekyll or static site);
+lean-pkg never edits it. `lean-pkg site check` reads the whole site around
+these two pages: whether they are current and linked, the mathematics, the
+noindex while the package is private, and the files the site serves
+([The site standard](site.md)).
 
 ### Hand-written pages beside the generated ones
 

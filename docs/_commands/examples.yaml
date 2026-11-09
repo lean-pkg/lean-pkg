@@ -429,6 +429,16 @@ lean-pkg claims check:
   - cmd: lean-pkg claims check --file claims.yaml
     say: Schema-check a working-copy claims.yaml without the registry.
 
+lean-pkg site check:
+  - cmd: lean-pkg site check my-proof
+    say: Check the package's documentation site in docs/ (Jekyll, MkDocs or static) against the registry record.
+  - cmd: lean-pkg site check --no-registry
+    say: The CI form, in the checkout; the checks that need the record are listed as not checked.
+    output: |
+      site check: (no registry): OK; jekyll site in docs/, not opted in; 0 problem(s), 3 warning(s)
+        ! not opted in: add `lean_pkg_site: 1` to docs/_config.yml (proposal 0012)
+        ...
+
 lean-pkg coverage check:
   - cmd: lean-pkg coverage check my-proof
     say: Validate coverage.yaml committed at HEAD (the paper-to-Lean map that page renders).
