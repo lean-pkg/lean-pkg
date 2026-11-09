@@ -74,7 +74,7 @@ def start(project: Path, *flags: str, extra: dict | None = None, stdin=subproces
 
 
 def stage_dir(project: Path) -> Path:
-    return project / ".lake" / "comparator-receipt" / "comparator-stages"
+    return project / ".lean-pkg-evidence" / "comparator-receipt" / "comparator-stages"
 
 
 def stage_log(project: Path) -> str:

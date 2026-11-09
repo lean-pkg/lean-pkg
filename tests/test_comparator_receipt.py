@@ -208,7 +208,7 @@ def test_dirty_paths_keeps_a_modified_tracked_receipt(project: Path, cr):
     head2 = git(project, "rev-parse", "HEAD")
     f.write_text('{"changed": true}\n')                         # a tracked receipt edited: still dirty
     (rd / f"{head2[:12]}-comparator.json").write_text("{}\n")    # untracked, same commit: exempt
-    assert cr.dirty_paths(project, project / ".lake" / "comparator-receipt") == [
+    assert cr.dirty_paths(project, project / ".lean-pkg-evidence" / "comparator-receipt") == [
         f".lean-receipts/{f.name}"]
 
 
@@ -560,7 +560,7 @@ def run_staged(project: Path, *flags: str, fail: str = "", stub_mode: str = "pas
 
 
 def _stages(project: Path) -> dict:
-    return json.loads((project / ".lake" / "comparator-receipt" / "comparator-stages"
+    return json.loads((project / ".lean-pkg-evidence" / "comparator-receipt" / "comparator-stages"
                        / "stages.json").read_text())
 
 
@@ -574,7 +574,7 @@ def test_stages_logged_for_every_stage_and_summarised_in_receipt(project: Path):
     assert all(e["status"] == "ok" and e["exit"] == 0 for e in st["stages"])
     assert st["failed_stage"] is None and st["setup_complete"] is True
     assert st["git_env_scrubbed"] == []                     # #27: nothing leaked, nothing scrubbed
-    d = project / ".lake" / "comparator-receipt" / "comparator-stages"
+    d = project / ".lean-pkg-evidence" / "comparator-receipt" / "comparator-stages"
     for n, s in enumerate(["checkout", "cache-get", "build", "comparator", "receipt"], 1):
         assert (d / f"{n:02d}-{s}.log").is_file()
     assert "Your solution is okay!" in (d / "04-comparator.log").read_text()
@@ -603,7 +603,7 @@ def test_failed_stage_keeps_its_log_and_is_named(project: Path):
     r, calls = run_staged(project, fail="env")
     assert r.returncode == 1
     assert calls == ["lake env true"]
-    log = project / ".lake" / "comparator-receipt" / "comparator-stages" / "01-checkout.log"
+    log = project / ".lean-pkg-evidence" / "comparator-receipt" / "comparator-stages" / "01-checkout.log"
     assert "stage 01-checkout failed" in r.stderr and str(log) in r.stderr
     assert "could not clone mathlib" in log.read_text()
     st = _stages(project)

@@ -41,4 +41,26 @@ changes:
       page --check reports the old wording as stale until then.
     breaking: false
     changelog: Fixed
+  - pr: 442
+    id: comparator-evidence-outside-lake
+    kind: behavior
+    area: comparator receipts, comparator host-check
+    summary: >-
+      comparator-receipt (and lean-pkg receipt comparator): the default evidence directory is
+      <project>/.lean-pkg-evidence/comparator-receipt/, outside .lake, which lake clean and disk cleanups
+      delete whole; the runner creates .lean-pkg-evidence/ with a .gitignore holding * (git ignores the
+      directory and that file) and a README, never rewriting either. Evidence under the old default
+      .lake/comparator-receipt is used in place by a run, --attempts and --verify-oleans while the new default
+      does not exist, with one stderr line giving the mv command; nothing is moved or deleted. --evidence-dir
+      is unchanged. comparator host-check --routes packs the new directory in its transfer commands and notes
+      the old one. Paths quoted in new stage and unit logs read <checkout>/.lean-pkg-evidence/... instead of
+      <checkout>/.lake/comparator-receipt/...; receipts, hashes and bindings are unchanged.
+    action: >-
+      Nothing required. To keep an earlier run's evidence from lake clean, move it once: mkdir -p
+      .lean-pkg-evidence && mv .lake/comparator-receipt .lean-pkg-evidence/comparator-receipt. A script that
+      reads .lake/comparator-receipt directly should read .lean-pkg-evidence/comparator-receipt (or pass
+      --evidence-dir). git clean -fdx still removes ignored files; use --evidence-dir outside the checkout to
+      keep evidence from that too.
+    breaking: false
+    changelog: Changed
 no_author_change: [439, 440]
