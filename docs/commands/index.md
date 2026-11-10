@@ -70,6 +70,8 @@ registry adds [`lease claim`](lease-claim.md) before work. At any point
 | [`lean-pkg claims rebase`](claims-rebase.md) | move claims.yaml and coverage.yaml to a new manuscript version: carry unchanged statements re-keyed from the new .aux, list the rest for review; writes only --out-dir; never changes a status |
 | [`lean-pkg coverage`](coverage.md) | coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main results) `page` renders |
 | [`lean-pkg coverage check`](coverage-check.md) | validate coverage.yaml against claims.yaml and the receipts at HEAD; exit 0/1; read-only (--file without NAME: offline, no registry) |
+| [`lean-pkg site`](site.md) | a package's documentation site (proposal 0012): `site check` reads it offline (Jekyll, MkDocs or a static site served as committed) |
+| [`lean-pkg site check`](site-check.md) | read-only: check the site in DIR (default docs): generated pages current and linked, Markdown inside HTML blocks, mathematics, the noindex while private, the files it serves, a shadowing index.html; hand-written counts are warnings; exit 0/1 |
 | [`lean-pkg formalization`](formalization.md) | formalization.yaml (v0.4, what Palomar reads): render it from the registry and the repo at HEAD; anchor the companion to one arXiv version |
 | [`lean-pkg formalization render`](formalization-render.md) | render formalization.yaml (v0.4, what Palomar reads) from the registry and the repo at HEAD; stdout unless --write/--out (`formalization NAME` is the same) |
 | [`lean-pkg formalization anchor`](formalization-anchor.md) | bind the companion to one posted arXiv version (writes package files, never the registry) |

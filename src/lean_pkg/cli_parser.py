@@ -745,6 +745,8 @@ def build_parser():
     publish_mod.add_parsers(sub, add_json)
     from . import coverage as coverage_mod
     coverage_mod.add_parsers(sub, add_json)
+    from . import site_check as site_mod
+    site_mod.add_parsers(sub, add_json)
     from . import page as page_mod
     page_mod.add_parsers(sub, add_json)
     from . import reservoir as reservoir_mod

@@ -9,6 +9,21 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `lean-pkg site check [NAME] [--dir DIR] [--no-registry]`, phase 1 of the
+  accepted site standard (proposal 0012, #444): a read-only check of a
+  package's documentation site of any kind, a Jekyll site, an MkDocs site or
+  a static site served as committed (`.nojekyll`). It fails on a generated
+  page (`verification.md`, `coverage.md`) that is stale or not linked,
+  Markdown inside an HTML block, mathematics with no MathJax in the head, the
+  noindex meta tag missing while the package is private (or left once it is
+  public), a served copy of a build input, and an `index.html` shadowing
+  `index.md`. Counts, versions and commits written by hand outside generated
+  blocks, and the opt-in key, are warnings until `site render` (phase 2) can
+  write them. Without `NAME`, or with `--no-registry`, it runs in the checkout
+  with no registry (the CI form). See docs/site.md, a new guide.
+
 ### Documentation
 
 - Proposal 0011, non-vacuity witnesses on coverage rows, is marked

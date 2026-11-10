@@ -1,0 +1,19 @@
+usage: lean-pkg site check [-h] [--dir DIR] [--repo DIR] [--no-registry]
+                           [--allow-private-manuscript] [--json]
+                           [name]
+
+positional arguments:
+  name
+
+options:
+  -h, --help            show this help message and exit
+  --dir DIR             the site directory, relative to the repository root (default: docs)
+  --repo DIR            with NAME: check this checkout of the package instead of the registered
+                        local_path
+  --no-registry         read no registry record: the repository is the current directory; the
+                        checks that need the record (generated pages current, the noindex against
+                        the visibility) are reported as not checked (the form a package's CI runs)
+  --allow-private-manuscript
+                        as for page: render the generated pages of a package whose manuscript is
+                        unposted
+  --json                machine-readable JSON on stdout

@@ -41,6 +41,8 @@ PACKAGE AUTHOR: evidence, publication, the catalog
                  reusable results)
   coverage       coverage.yaml (coverage/1): the paper-to-Lean map (or a library's main results)
                  `page` renders
+  site           a package's documentation site (proposal 0012): `site check` reads it offline
+                 (Jekyll, MkDocs or a static site served as committed)
   formalization  formalization.yaml (v0.4, what Palomar reads): render it from the registry and
                  the repo at HEAD; anchor the companion to one arXiv version
   palomar        Palomar: prepare (build a submission bundle), check (read-only readiness), port-
