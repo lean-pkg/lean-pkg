@@ -134,6 +134,7 @@ if __name__ == "__main__":
 # the supported interface (AGENTS.md), so removing them later is not a deprecation under RELEASING.md.
 # Code in core.py and in the command modules reads core's globals: rebinding or monkeypatching one of these
 # names here is not seen there (tests patch both: conftest.patch_core).
+from .core import event_producer, _event_producer, install_detect  # noqa: F401  proposal 0013 (core)
 from .core import (  # noqa: F401  re-exports, one release (#317)
     _ACTOR, ancestor_attribute_changes, append_event, BOARD_HEADER, bound_tree, branch_notice, branch_state,
     BULK_FIELDS, check_event_logs_appendable, checker_paths, CLAIMS_COMMIT_FIRST, COMPARATOR_CONFIG_FIELDS,
@@ -3297,7 +3298,7 @@ conclusion, immutable workflow/control revision, runner identity, and resources.
 partial manifest, pre-terminal marker, or prior-candidate receipt is not gate evidence.
 
 EVENT LINE SCHEMA (one JSON object per line, keys sorted; package events also go to history[]; index-added, prior-art-searched, registry-* are log-only; every event name and its keys: docs/formats.md "Event log")
-v       1 (the line's version, since 0.22.0); a line without v is version 0, read as before; a newer or unreadable v is not interpreted (the claim prior-art note skips it with a stderr warning naming the upgrade)
+v       1 (the line's version, since 0.22.0); a line without v is version 0, read as before; a newer or unreadable v is not interpreted (the claim prior-art note skips it with a stderr warning naming the upgrade); producer {lean_pkg, install installed|editable|unknown, commit (full HEAD of an editable checkout, else null), dirty} since 0.29.0 (proposal 0013): the lean-pkg that wrote the line, no path, not in history[]; absent = producer unknown
 ts      UTC ISO-8601 with offset, second precision (all written times; dates are UTC; same-second order = file order; naive = legacy UTC, doctor warns)
 event   one of: registry-created, registry-migrated, registry-recommended, registered, updated, claimed, claim-refreshed, claim-forced,
         released, release-forced, lease-expired, gate-passed, regated, promoted, publication-withdrawn, publication-hold-released, audit-fix, relocated, status-changed,
@@ -4591,29 +4592,6 @@ def commit_now(ctx: dict) -> str:
     ctx["lines_before"] = _count_lines(ctx["events"])
     lines = [line for line in buf.getvalue().splitlines() if line.strip()]
     return lines[-1].removeprefix("lean-pkg: ") if lines else ""
-
-
-def install_detect(d: pathlib.Path) -> dict:
-    """Which build is running, local and fast (no network, no fetch): {"install": "editable" | "installed" |
-    "unknown", "path", "commit", "dirty"}. editable when the package's __init__.py is tracked by a git checkout
-    (path: the checkout; commit: its short HEAD; dirty: modified tracked files); installed for a wheel or pipx
-    install (path: the package directory; commit and dirty null); unknown when git is not on PATH. The one
-    detection behind `doctor`'s install line and `--version`."""
-    info = {"install": "unknown", "path": str(d), "commit": None, "dirty": None}
-    if shutil.which("git") is None:
-        return info
-    top = registry_git(d, "rev-parse", "--show-toplevel")
-    tracked = registry_git(d, "ls-files", "--error-unmatch", "__init__.py").returncode == 0
-    if top.returncode != 0 or not top.stdout.strip() or not tracked:
-        info["install"] = "installed"   # not tracked: e.g. site-packages that sit inside a checkout
-        return info
-    root = pathlib.Path(top.stdout.strip())
-    # --no-optional-locks: a read-only probe must not refresh (rewrite) the checkout's .git/index
-    st = registry_git(root, "--no-optional-locks", "status", "--porcelain", "--untracked-files=no")
-    info.update(install="editable", path=str(root),
-                commit=registry_git(root, "rev-parse", "--short", "HEAD").stdout.strip() or "?",
-                dirty=bool(st.stdout.strip()) if st.returncode == 0 else None)
-    return info
 
 
 def version_line(version: str, info: dict) -> str:

@@ -343,7 +343,17 @@ it needs as missing facts: the claims that use `hypotheses`, `discharges` or `wi
 appended and never rewritten. Every line has `ts` (UTC ISO-8601 with an
 offset, second precision), `event`, `name` (the package, or null) and,
 since 0.22.0, `v: 1`. A line without `v` (written before) is version 0 and
-is read as before. A reader that interprets events (the prior-art note of
+is read as before. Since 0.29.0 every line also carries `producer`, the
+lean-pkg that wrote it ([proposal 0013](proposals/0013-event-producer.md)):
+`{lean_pkg, install, commit, dirty}`, where `lean_pkg` is its release,
+`install` is `installed`, `editable` or `unknown` (the detection behind
+`lean-pkg --version`), and `commit` and `dirty` are the full `HEAD` of an
+editable checkout and whether its tracked files were modified (null for an
+installed release, whose version names its tag). The key is additive within
+version 1: an older reader ignores it, and a line without it (written
+before) means producer unknown. It carries no path, host or user name, is
+not copied into `history[]`, and, like every line of the log, is a record,
+not evidence. A reader that interprets events (the prior-art note of
 `lease claim`) skips a line whose `v` is newer than 1, or is not a
 non-negative integer, and prints one warning naming the upgrade; a reader
 that only shows lines (the board's last event, the pending-change summary

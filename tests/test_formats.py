@@ -138,6 +138,56 @@ def test_event_lines_carry_v_1_and_history_entries_do_not(lp, env, capsys):
     assert hist["event"] == "claimed" and "v" not in hist
 
 
+def test_event_lines_name_their_producer_and_history_entries_do_not(lp, env, capsys):
+    """Proposal 0013: every line carries producer {lean_pkg, install, commit, dirty}, no path; history[] not."""
+    from lean_pkg import __version__
+    assert lp.main(["--registry", str(env.registry), "lease", "claim", "alpha", "--agent", "vera",
+                    "--workspace", "w1"]) == 0
+    assert lp.main(["--registry", str(env.registry), "lease", "release", "alpha", "--agent", "vera"]) == 0
+    lines = read_events(env)
+    assert len(lines) == 2
+    for line in lines:
+        prod = line["producer"]
+        assert set(prod) == {"lean_pkg", "install", "commit", "dirty"} and prod["lean_pkg"] == __version__
+        assert prod["install"] in ("installed", "editable", "unknown")
+        assert prod["commit"] is None or re.fullmatch(r"[0-9a-f]{40}", prod["commit"])
+        assert prod["install"] == "editable" or prod["commit"] is None
+        assert "/" not in json.dumps(prod)                        # no path, host or user name
+    hist = lp.get_pkg(lp.load_registry(env.registry), "alpha")["history"]
+    assert all("producer" not in h for h in hist)
+
+
+def test_the_producer_is_computed_once_and_returned_as_a_copy(lp, monkeypatch):
+    from lean_pkg import core
+    calls = []
+    core._event_producer.cache_clear()
+    real = core.install_detect
+    monkeypatch.setattr(core, "install_detect", lambda d: calls.append(d) or real(d))
+    a = lp.event_producer()
+    a["lean_pkg"] = "tampered"
+    b = lp.event_producer()
+    assert len(calls) == 1 and b["lean_pkg"] != "tampered"
+    core._event_producer.cache_clear()
+
+
+def test_an_installed_release_records_no_commit(lp, monkeypatch):
+    from lean_pkg import core
+    core._event_producer.cache_clear()
+    monkeypatch.setattr(core, "install_detect",
+                        lambda d: {"install": "installed", "path": str(d), "commit": None, "dirty": None})
+    try:
+        line = json.loads(lp._event_line("2026-11-09T00:00:00+00:00", "demo", "claimed", agent="a"))
+        assert line["producer"]["install"] == "installed" and line["producer"]["commit"] is None
+        assert line["producer"]["dirty"] is None
+    finally:
+        core._event_producer.cache_clear()
+
+
+def test_a_field_cannot_replace_producer(lp):
+    line = json.loads(lp._event_line("2026-11-09T00:00:00+00:00", "demo", "claimed", producer="x", agent="a"))
+    assert isinstance(line["producer"], dict) and line["producer"]["lean_pkg"]
+
+
 def test_a_field_cannot_replace_v(lp):
     line = json.loads(lp._event_line("2026-10-26T00:00:00+00:00", "demo", "claimed", v=7, agent="a"))
     assert line["v"] == lp.EVENT_LINE_VERSION
