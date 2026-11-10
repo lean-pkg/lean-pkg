@@ -270,7 +270,26 @@ def check_unit(props: dict, unit: str) -> tuple[dict | None, list[str], list[str
     if not refusals:
         checks.append(f"✓ unit: {unit} invocation {inv[:12]}… on {summary['host']}: Result=success, exited 0")
     checks.append(f"· resources: {resources(summary)}")
+    if (warn := memory_warning(summary)) is not None:
+        checks.append(f"! {warn}")
     return summary, refusals, checks
+
+
+MEMORY_WARN_FRACTION = 0.8   # a field report: a 32-module package peaked at 7.3 GiB under the 8G default
+
+
+def memory_warning(s: dict) -> str | None:
+    """A warning, never a refusal, when the unit's MemoryPeak exceeded MEMORY_WARN_FRACTION of its MemoryMax:
+    a slightly larger build under the same cap is OOM-killed (Result=oom-kill, no receipt). It names --memory-max
+    and a cap of 1.5 times the peak, rounded up to whole GiB. None when either value is unknown or the cap is
+    infinity."""
+    peak, cap = _int(s.get("memory_peak")), _int(s.get("memory_max"))
+    if not peak or not cap or peak <= MEMORY_WARN_FRACTION * cap:
+        return None
+    suggest = -(-peak * 3 // (2 << 30))            # ceil(1.5 * peak / GiB)
+    return (f"memory: peak {_bytes(peak)} is {100 * peak / cap:.0f}% of MemoryMax {_bytes(cap)}; a slightly larger "
+            f"build under this cap is OOM-killed (Result=oom-kill, no receipt): raise it with --memory-max, e.g. "
+            f"--memory-max {suggest}G")
 
 
 def _bytes(v) -> str:
@@ -800,6 +819,9 @@ def cmd_receipt_systemd(args) -> int:
         refusals += problems
         checks += unit_checks
     json_extra["unit"] = summary
+    json_extra["memory_warning"] = memory_warning(summary) if summary else None
+    if json_extra["memory_warning"]:
+        print(f"lean-pkg: receipt systemd: WARN {json_extra['memory_warning']}", file=sys.stderr)
     s = summary or {}
     host = s.get("host") or "unknown-host"
     inv = s.get("invocation_id") or "unknown"

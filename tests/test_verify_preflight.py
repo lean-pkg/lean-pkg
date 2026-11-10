@@ -194,3 +194,16 @@ def test_an_unreadable_tree_skips_the_scan_silently(lp, vpkg, capsys, monkeypatc
     rc, out, err = run(lp, capsys, "--registry", str(reg), "--json", "verify", "v", "--dry-run")
     pre = json.loads(out)["steps"][0]["output"]
     assert rc == 0 and pre["module_imports"] == [] and pre["warnings"] == [] and "warning" not in err
+
+
+def test_verify_passes_memory_max_to_the_lower_tier_receipt(lp, vpkg, capsys, monkeypatch, tmp_path):
+    reg, repo = vpkg
+    commit(repo, {"claims.yaml": CLAIMS, "Demo/Main.lean": LEAN})
+    calls, _ = fake_steps(monkeypatch, repo)
+    verify(lp, capsys, reg, tmp_path, "--memory-max", "12G")
+    lower = next(c for c in calls if "systemd" in c)
+    i = lower.index("--memory-max")
+    assert lower[i + 1] == "12G" and i < lower.index("--run")          # a receipt systemd flag, before --run --
+    calls.clear()
+    verify(lp, capsys, reg, tmp_path)
+    assert all("--memory-max" not in c for c in calls)                   # absent: receipt systemd's 8G default

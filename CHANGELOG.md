@@ -24,6 +24,13 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   after a gate, `claims_synced_commit` stayed null until a separate
   `claims sync`, which nothing said. `gate --json` gains `next_command`
   (that command, or `null`). Printed, never run.
+- `receipt systemd --run` warns when the unit's `MemoryPeak` exceeds 80%
+  of its `MemoryMax`, naming `--memory-max` and a cap of 1.5 times the peak
+  (#452): a 32-module package peaked at 7.3 GiB under the 8G default, and a
+  slightly larger build would have been OOM-killed with no receipt. The
+  receipt is written as before; `--json` gains `memory_warning`.
+  `lean-pkg verify --memory-max BYTES` passes the cap to its `receipt
+  systemd` step.
 
 ## [0.29.0] - 2026-11-09
 
