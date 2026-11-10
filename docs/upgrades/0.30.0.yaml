@@ -33,4 +33,18 @@ changes:
       the gated claims. A script that reads the last line of gate's text output now sees the next: line.
     breaking: false
     changelog: Added
+  - pr: 452
+    id: receipt-systemd-memory-warning
+    kind: behavior
+    area: receipt systemd, verify
+    summary: >-
+      receipt systemd (--run, and reading a finished unit) prints a warning, never a refusal, when the unit's
+      MemoryPeak exceeds 80% of its MemoryMax, naming --memory-max and a cap of 1.5 times the peak rounded up
+      to whole GiB; --json gains memory_warning (null otherwise); the receipt is unchanged. lean-pkg verify
+      gains --memory-max BYTES, passed to its receipt systemd step.
+    action: >-
+      Nothing required. When the warning appears, re-run with --memory-max (receipt systemd --run, or lean-pkg
+      verify) before the package grows past the cap.
+    breaking: false
+    changelog: Added
 no_author_change: []

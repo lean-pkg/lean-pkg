@@ -372,6 +372,7 @@ def cmd_verify(args) -> int:
     log = work / "verify.log"
     lower_argv = ["receipt", "systemd", "--unit", unit, "--receipt-commit", head, "--log", str(log),
                   "--stdout", str(work / "unit.out"), "--stderr", str(work / "unit.err"), "--repo", str(repo),
+                  *(["--memory-max", args.memory_max] if getattr(args, "memory_max", None) else []),
                   "--run", "--", "bash", script, str(log)]
     regate = p["status"] in REGATE_FROM
     if args.dry_run:
@@ -487,6 +488,9 @@ def add_parsers(sub, add_json) -> None:
     s.add_argument("--judges", type=int, default=None, metavar="N",
                    help="comparator judge processes (`receipt comparator --judges N`)")
     s.add_argument("--agent", default=None, help="the agent acting: passed to the status move and the gate")
+    s.add_argument("--memory-max", default=None, metavar="BYTES",
+                   help="passed to `receipt systemd --run` as its MemoryMax (default there 8G): raise it when a "
+                        "receipt run warns that its memory peak was near the cap")
     s.add_argument("--reason", default=None, metavar="TEXT",
                    help="re-gate only: accept a commit that does not descend from the gated one (`gate --regate "
                         "--reason`)")

@@ -1030,3 +1030,26 @@ def test_contracts_preflight_that_matches_runs_the_unit_and_stays_out_of_the_rec
 def test_contracts_preflight_is_only_for_run(lp, repo, tmp_path, capsys):
     assert run(lp, repo, Unit(tmp_path), "--contracts-preflight") == 2
     assert "--contracts-preflight is only for --run" in capsys.readouterr().err
+
+
+# --- near the memory cap: a warning naming --memory-max (field report: 7.3 GiB under the 8G default) ---
+
+def test_a_memory_peak_near_the_cap_warns_and_names_memory_max(lp, repo, tmp_path, capsys):
+    near = props_text(MemoryPeak=str(int(7.3 * (1 << 30))))
+    assert run(lp, repo, Unit(tmp_path, props=near), "--json", cmd="local") == 0       # a warning, not a refusal
+    cap = capsys.readouterr()
+    data = json.loads(cap.out)
+    assert data["ok"] is True and data["memory_warning"].startswith("memory: peak 7.3 GiB is 91% of MemoryMax 8.0 GiB")
+    assert "--memory-max 11G" in data["memory_warning"]
+    assert "WARN memory: peak 7.3 GiB" in cap.err
+    assert any(c.startswith("! memory: peak") for c in data["checks"])
+
+
+def test_a_peak_under_the_threshold_or_no_cap_does_not_warn(lp, repo, tmp_path, capsys):
+    from lean_pkg import receipt_systemd as rs
+    assert run(lp, repo, Unit(tmp_path), "--json", cmd="local") == 0                   # 1.5 GiB of 8 GiB
+    assert json.loads(capsys.readouterr().out)["memory_warning"] is None
+    g = 1 << 30
+    assert rs.memory_warning({"memory_peak": str(8 * g * 8 // 10), "memory_max": str(8 * g)}) is None   # exactly 80%
+    assert rs.memory_warning({"memory_peak": str(7 * g), "memory_max": "infinity"}) is None
+    assert rs.memory_warning({"memory_peak": None, "memory_max": str(8 * g)}) is None
