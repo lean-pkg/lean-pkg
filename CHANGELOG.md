@@ -9,6 +9,16 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+### Added
+
+- `gate` (not `gate --check`) and `update` take their `--agent` from
+  `$LEAN_PKG_AGENT` when none is given (#449): an agent working under its
+  own lease no longer has every first `gate` or `update` refused until it
+  passes `--agent HOLDER`. The value is checked against a live lease exactly
+  as a typed `--agent` is, so it never gets past another agent's lease; a
+  typed `--agent` wins, and an empty value counts as unset. See
+  `lean-pkg help environment`.
+
 ## [0.29.0] - 2026-11-09
 
 ### Added

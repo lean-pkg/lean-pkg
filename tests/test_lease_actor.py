@@ -89,3 +89,48 @@ def test_claims_sync_refuses_another_agents_lease(lp, env, capsys):
 def test_search_agent_needs_record(lp, env, capsys):
     assert cli(lp, env, "search", "foo", "--offline", "--agent", "max") == 2
     assert "--agent is only used with --record" in capsys.readouterr().err
+
+
+# --- LEAN_PKG_AGENT: the --agent of gate and update when none is given (field request) ---
+
+def test_update_takes_the_holder_from_lean_pkg_agent(lp, env, capsys, monkeypatch):
+    set_lease(env, "beta", agent="vera")
+    upd = ["update", "beta", "--notes", "a note", "--reason", "r"]
+    assert cli(lp, env, *upd) == 1                                     # no agent: refused, as before
+    assert "lease held by vera" in capsys.readouterr().err
+    monkeypatch.setenv("LEAN_PKG_AGENT", "vera")
+    assert cli(lp, env, *upd) == 0
+    monkeypatch.setenv("LEAN_PKG_AGENT", "max")                        # never gets past another lease
+    assert cli(lp, env, *upd) == 1
+    assert "lease held by vera" in capsys.readouterr().err
+    assert cli(lp, env, *upd, "--agent", "vera") == 0                  # a typed --agent wins
+    monkeypatch.setenv("LEAN_PKG_AGENT", "  ")                         # empty counts as unset
+    assert cli(lp, env, *upd) == 1
+
+
+def test_gate_takes_the_actor_from_lean_pkg_agent(lp, env, tmp_path, capsys, monkeypatch):
+    set_lease(env, "alpha", agent="vera")
+    p = write_receipt(tmp_path, make_receipt(env.repo_a))
+    monkeypatch.setenv("LEAN_PKG_AGENT", "max")
+    assert cli(lp, env, "gate", "alpha", "--receipt", str(p)) == 1
+    assert "lease held by vera, not max" in capsys.readouterr().err
+    monkeypatch.setenv("LEAN_PKG_AGENT", "vera")
+    assert cli(lp, env, "gate", "alpha", "--receipt", str(p)) == 0
+    assert read_reg(env)["packages"]["alpha"]["history"][-1]["actor"] == "vera"
+    assert "lease held by" not in capsys.readouterr().err               # no holder warning: the actor is known
+
+
+def test_gate_check_ignores_lean_pkg_agent(lp, env, tmp_path, capsys, monkeypatch):
+    set_lease(env, "alpha", agent="vera")
+    p = write_receipt(tmp_path, make_receipt(env.repo_a))
+    monkeypatch.setenv("LEAN_PKG_AGENT", "max")
+    cli(lp, env, "gate", "alpha", "--receipt", str(p), "--check")
+    err = capsys.readouterr().err
+    assert "not max" not in err and "--agent" not in err.split("next:")[0]
+
+
+def test_default_agent(lp, monkeypatch):
+    monkeypatch.delenv("LEAN_PKG_AGENT", raising=False)
+    assert lp.default_agent(None) is None and lp.default_agent("a") == "a"
+    monkeypatch.setenv("LEAN_PKG_AGENT", " b ")
+    assert lp.default_agent(None) == "b" and lp.default_agent("a") == "a"

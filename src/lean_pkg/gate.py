@@ -32,6 +32,7 @@ import zlib
 
 import yaml
 
+from .core import default_agent  # noqa: E402  the --agent default (LEAN_PKG_AGENT)
 from .core import (
     _ACTOR, ancestor_attribute_changes, bound_tree, branch_notice, branch_state, checker_paths, CLAIMS_COMMIT_FIRST,
     COMPARATOR_CONFIG_FIELDS, COMPARATOR_FIELDS, COMPARATOR_LIST_FIELDS, COMPARATOR_MECHANISMS,
@@ -2089,6 +2090,8 @@ def gate_next_command(args, payload: dict, regate: bool, reason: str | None) -> 
 
 
 def cmd_gate(args) -> int:
+    if not getattr(args, "check", False):                 # --check does not use --agent
+        args.agent = default_agent(getattr(args, "agent", None))   # --agent, else $LEAN_PKG_AGENT
     reg_path, events_p = registry_path(args), events_path(args)
     regate, reason = getattr(args, "regate", False), getattr(args, "reason", None)
     if reason is not None:

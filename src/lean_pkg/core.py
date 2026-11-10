@@ -42,6 +42,9 @@ import yaml
 
 HOME = pathlib.Path.home()
 REGISTRY_ENV = "LEAN_PKG_REGISTRY"
+# The --agent of `gate` and `update` when none is given (a field request: an agent working under its own
+# lease had every first gate or update refused until it passed --agent HOLDER). Read by default_agent().
+AGENT_ENV = "LEAN_PKG_AGENT"
 REGISTRY_VERSION = 3                    # schema version written by `init` and `migrate`
 SUPPORTED_REGISTRY_VERSIONS = (1, 2, 3) # readable by every command; older files lack the keys below
 V2_PACKAGE_DEFAULTS = {
@@ -1402,6 +1405,15 @@ def flush_events(reg: dict) -> None:
 # #21.3: the agent a gate/comparator/record/promote --yes/claims sync/search --record invocation acts as
 # (its --agent), set by lease_actor() for this invocation; record() stores it as `actor`.
 _ACTOR: dict = {"agent": None}
+
+
+def default_agent(agent: str | None) -> str | None:
+    """--agent when given, else $LEAN_PKG_AGENT (stripped; empty counts as unset), else None. Used by `gate`
+    (not `gate --check`, which does not use --agent) and `update`: the value is checked against the live
+    lease exactly as a typed --agent is, so it never gets past another agent's lease."""
+    if agent:
+        return agent
+    return (os.environ.get(AGENT_ENV) or "").strip() or None
 
 
 def lease_actor(reg: dict, name: str | None, agent: str | None, what: str) -> str | None:
