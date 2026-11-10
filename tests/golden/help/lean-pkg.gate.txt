@@ -26,7 +26,8 @@ options:
   --agent AGENT         the agent acting (recorded as the event's actor); another agent's live
                         lease then refuses; with --refresh-formalization: the live lease holder
                         (the file write needs it); with --check: not used (a stderr note), carried
-                        into the printed next: command
+                        into the printed next: command; default: $LEAN_PKG_AGENT (not with
+                        --check)
   --check               validate only, against HEAD (with --comparator: both tiers); write
                         nothing, record nothing (works at any status), like `comparator --check`;
                         when it passes, prints the writing gate to run next (next:, JSON

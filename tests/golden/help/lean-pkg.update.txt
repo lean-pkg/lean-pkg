@@ -99,7 +99,7 @@ options:
                         promote's
   --reason REASON       required for --status and --force
   --redetect            re-read lean_toolchain and mathlib_pin from the repo
-  --agent AGENT         lease holder, if one is live
+  --agent AGENT         lease holder, if one is live (default: $LEAN_PKG_AGENT)
   --force               override a live lease held by another agent; needs --reason
   --path HOME-RELATIVE  relocate: move local_path to another checkout, keeping name, history and
                         claims (needs --reason; event relocated; commit-bound evidence not bound

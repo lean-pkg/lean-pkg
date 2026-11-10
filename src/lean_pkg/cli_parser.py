@@ -388,7 +388,7 @@ def build_parser():
     s.add_argument("--reason", default="", help="required for --status and --force")
     s.add_argument("--redetect", action="store_true",
                    help="re-read lean_toolchain and mathlib_pin from the repo")
-    s.add_argument("--agent", default=None, help="lease holder, if one is live")
+    s.add_argument("--agent", default=None, help="lease holder, if one is live (default: $LEAN_PKG_AGENT)")
     s.add_argument("--force", action="store_true",
                    help="override a live lease held by another agent; needs --reason")
     s.add_argument("--path", default=None, metavar="HOME-RELATIVE",
@@ -510,7 +510,8 @@ def build_parser():
     s.add_argument("--agent", default=None,
                    help="the agent acting (recorded as the event's actor); another agent's live lease then "
                         "refuses; with --refresh-formalization: the live lease holder (the file write needs it); "
-                        "with --check: not used (a stderr note), carried into the printed next: command")
+                        "with --check: not used (a stderr note), carried into the printed next: command; "
+                        "default: $LEAN_PKG_AGENT (not with --check)")
     s.add_argument("--check", action="store_true",
                    help="validate only, against HEAD (with --comparator: both tiers); write nothing, record "
                         "nothing (works at any status), like `comparator --check`; when it passes, prints the "

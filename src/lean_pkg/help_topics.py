@@ -22,6 +22,10 @@ ENVIRONMENT: list[tuple[str, list[tuple[str, str, str]]]] = [
         ("LEAN_PKG_REGISTRY",
          "the registry file, or a directory holding lean-packages.yaml; --registry wins",
          "~/.lean-pkg/registry when it exists, else ./lean-packages.yaml"),
+        ("LEAN_PKG_AGENT",
+         "the --agent of gate (not gate --check) and update when none is given; checked against a live "
+         "lease exactly as a typed --agent is; empty counts as unset",
+         "unset: no agent"),
         ("LEAN_PKG_HOME",
          "base directory of the user-level default registry (<base>/registry)",
          "~/.lean-pkg"),

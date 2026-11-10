@@ -67,7 +67,7 @@ lean-pkg update [--automation AUTOMATION] [--notes TEXT] [--replace-notes]
 | `--status {scratch,active,gate-pending,verified-private,public,upstreamed,archived}` | manual transitions only; verified-private is gate's and public is promote's. Choices: `scratch`, `active`, `gate-pending`, `verified-private`, `public`, `upstreamed`, `archived`. |
 | `--reason REASON` | required for --status and --force |
 | `--redetect` | re-read lean_toolchain and mathlib_pin from the repo |
-| `--agent AGENT` | lease holder, if one is live |
+| `--agent AGENT` | lease holder, if one is live (default: $LEAN_PKG_AGENT) |
 | `--force` | override a live lease held by another agent; needs --reason |
 | `--path HOME-RELATIVE` | relocate: move local_path to another checkout, keeping name, history and claims (needs --reason; event relocated; commit-bound evidence not bound to the new HEAD is cleared, unless the new checkout holds the gated commit and the receipts are byte-identical to the old checkout's) |
 | `--withdraw-publication` | the owner made a promoted (public) repository private again: record it (needs --reason; refused while gh still reports it public). status public -&gt; verified-private (active when never gated), visibility private, publication_hold {reason, at, by}; promotion history kept; promote refuses while held; gate/regate keep the hold; --dry-run supported |

@@ -1,0 +1,22 @@
+# Curated upgrade record (schema lean-pkg-upgrade-record/1) for the next release, kept current as pull
+# requests merge after 0.29.0. Same keys as 0.29.0.yaml; the human page is docs/upgrades/0.30.0.md.
+# The name 0.30.0 is provisional (RELEASING.md, "The record's provisional name"): make cut-release
+# renames both files to the version it cuts, which make release-version prints.
+schema: lean-pkg-upgrade-record/1
+version: 0.30.0
+changes:
+  - pr: 449
+    id: agent-env-default
+    kind: behavior
+    area: gate, cli
+    summary: >-
+      gate (not gate --check) and update take their --agent from $LEAN_PKG_AGENT when none is given; the
+      value is checked against a live lease exactly as a typed --agent is, so it never gets past another
+      agent's lease, and a typed --agent wins. Empty counts as unset. Listed in lean-pkg help environment.
+    action: >-
+      Nothing required. An agent that works under its own lease can export LEAN_PKG_AGENT=HOLDER instead of
+      passing --agent HOLDER on every gate and update. A shell that already exports LEAN_PKG_AGENT for
+      another purpose now gives gate and update an agent: unset it there if that is not wanted.
+    breaking: false
+    changelog: Added
+no_author_change: []

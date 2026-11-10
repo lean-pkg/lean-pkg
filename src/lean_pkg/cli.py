@@ -135,6 +135,7 @@ if __name__ == "__main__":
 # Code in core.py and in the command modules reads core's globals: rebinding or monkeypatching one of these
 # names here is not seen there (tests patch both: conftest.patch_core).
 from .core import event_producer, _event_producer, install_detect  # noqa: F401  proposal 0013 (core)
+from .core import AGENT_ENV, default_agent  # noqa: F401  the --agent default of gate and update
 from .core import (  # noqa: F401  re-exports, one release (#317)
     _ACTOR, ancestor_attribute_changes, append_event, BOARD_HEADER, bound_tree, branch_notice, branch_state,
     BULK_FIELDS, check_event_logs_appendable, checker_paths, CLAIMS_COMMIT_FIRST, COMPARATOR_CONFIG_FIELDS,
@@ -3607,6 +3608,7 @@ def cmd_leases(args) -> int:
 
 
 def cmd_update(args) -> int:
+    args.agent = default_agent(args.agent)               # --agent, else $LEAN_PKG_AGENT
     reg_path, events_p = registry_path(args), events_path(args)
     sets = {}
     for field in ("automation", "notes", "upstream_target", "reaudit_after",
