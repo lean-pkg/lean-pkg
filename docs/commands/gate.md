@@ -55,7 +55,7 @@ Exit 1 is also a negative answer here:
 
 Top-level keys of `--json`, as recorded in the golden contract (tests/golden/json-keys.json):
 
-- `gate` (exit 0): `claims_schema`, `commit`, `dirty`, `event`, `gate`, `ignored_evidence`, `name`, `ok`, `pins`, `pins_kept`, `private_strings`, `receipt`, `report_log`, `resolved_paths`, `rl_hint`, `rl_reminder`, `status`, `status_unchanged`, `toolchain_advisories`
+- `gate` (exit 0): `claims_schema`, `commit`, `dirty`, `event`, `gate`, `ignored_evidence`, `name`, `next_command`, `ok`, `pins`, `pins_kept`, `private_strings`, `receipt`, `report_log`, `resolved_paths`, `rl_hint`, `rl_reminder`, `status`, `status_unchanged`, `toolchain_advisories`
 - `gate-check` (exit 0): `checks`, `claims_schema`, `commit`, `comparator`, `dirty`, `event`, `head`, `name`, `next_command`, `ok`, `palomar_check`, `pins`, `pins_kept`, `private_strings`, `recorded`, `registry_state`, `repo_override`, `report_log`, `resolved_paths`, `status`, `toolchain_advisories`
 
 ## Examples
