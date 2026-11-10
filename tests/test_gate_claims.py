@@ -6,6 +6,7 @@ schema-checks a working copy."""
 from __future__ import annotations
 
 import json
+import subprocess
 
 from .conftest import CLAIMS_YAML, commit_claims, make_receipt, read_events, read_reg, write_receipt
 
@@ -164,3 +165,35 @@ def test_claims_check_file(lp, tmp_path, capsys):
     assert lp.main(["--registry", str(reg), "claims", "check", "--file", str(tmp_path / "notyaml.yaml")]) == 1
     assert "not valid YAML" in capsys.readouterr().out
     assert not reg.parent.exists()
+
+
+# --- the writing gate's next step: claims sync when the registry's claims cache is not at the commit ---
+
+def test_gate_prints_claims_sync_as_next_until_the_cache_is_synced(lp, env, tmp_path, capsys):
+    commit_claims(env.repo_a, ALPHA_CLAIMS)
+    assert gate(lp, env, tmp_path) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert "next: lean-pkg claims sync alpha   (the registry's claims cache is not synced" in out[-1]
+    assert read_reg(env)["packages"]["alpha"].get("claims_synced_commit") is None  # printed, never run
+    assert lp.main(["--registry", str(env.registry), "claims", "sync", "alpha"]) == 0
+    from lean_pkg import gate as gate_mod
+    pkg = read_reg(env)["packages"]["alpha"]
+    commit = subprocess.run(["git", "-C", str(env.repo_a), "rev-parse", "HEAD"], capture_output=True,
+                            text=True, check=True).stdout.strip()
+    cs = {"checked": True}
+    assert pkg["claims_synced_commit"] == commit                                  # synced at HEAD = the commit
+    assert gate_mod.claims_sync_next("alpha", pkg, env.repo_a, commit, cs) is None
+    assert gate_mod.claims_sync_next("alpha", {**pkg, "claims_synced_commit": "0" * 40}, env.repo_a, commit,
+                                     cs) == "lean-pkg claims sync alpha"
+    assert gate_mod.claims_sync_next("alpha", {}, env.repo_a, commit, {"checked": False}) is None
+
+
+def test_gate_next_carries_the_agent_and_json(lp, env, tmp_path, capsys):
+    commit_claims(env.repo_a, ALPHA_CLAIMS)
+    assert gate(lp, env, tmp_path, "--agent", "vera", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["next_command"] == "lean-pkg claims sync alpha --agent vera"
+
+
+def test_gate_without_a_claims_file_has_no_next(lp, env, tmp_path, capsys):
+    assert gate(lp, env, tmp_path, "--json") == 0
+    assert json.loads(capsys.readouterr().out)["next_command"] is None

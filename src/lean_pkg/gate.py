@@ -1820,6 +1820,10 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
         out.append(f"{name}: pins updated from the receipt: {pin_changes_text(pins)}")
     out += pins_kept_lines(name, pins_kept, commit)
     out.append(RL_REMINDER.format(name=name))
+    nxt = claims_sync_next(name, pkg, repo, commit, cs)
+    if nxt is not None:
+        out.append(f"next: {nxt}   (the registry's claims cache is not synced to this commit; "
+                   f"`status` and the claims ledger read it)")
     ignored = attached_ignored_evidence(pkg, repo)
     payload = {"ok": True, "name": name, "event": event,
                "status": new_status, "gate": pkg["gate"],
@@ -1834,7 +1838,21 @@ def _do_gate(reg_path, reg, events_p, name, receipt_arg, comparator_arg=None,
         payload.update(previous_commit=prev_commit, non_descendant=non_descendant, reason=reason or "")
     if comp_rel:
         payload["comparator"] = comp_rel
+    payload["next_command"] = nxt
     return out, payload
+
+
+def claims_sync_next(name: str, pkg: dict, repo: pathlib.Path, commit: str, cs: dict) -> str | None:
+    """The writing gate's next step (a field report: claims_synced_commit stayed null after a gate until a
+    separate `claims sync`): `lean-pkg claims sync NAME` (with the invocation's --agent) when a claims file
+    is tracked at the gated commit and the registry's claims cache was read neither at that commit nor at
+    the checkout's HEAD; None otherwise. Printed and returned as next_command, never run."""
+    if not (cs or {}).get("checked"):
+        return None
+    if pkg.get("claims_synced_commit") in (commit, git_head(repo)):
+        return None
+    agent = _ACTOR.get("agent")
+    return f"lean-pkg claims sync {name}" + (f" --agent {agent}" if agent else "")
 
 
 def attached_ignored_evidence(pkg: dict, repo: pathlib.Path) -> list[dict]:

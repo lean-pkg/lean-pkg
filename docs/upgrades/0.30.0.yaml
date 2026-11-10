@@ -19,4 +19,18 @@ changes:
       another purpose now gives gate and update an agent: unset it there if that is not wanted.
     breaking: false
     changelog: Added
+  - pr: 450
+    id: gate-next-claims-sync
+    kind: behavior
+    area: gate
+    summary: >-
+      The writing gate prints `next: lean-pkg claims sync NAME` (with the invocation's --agent) when a claims
+      file is tracked at the gated commit and the registry's claims cache (claims_synced_commit) was read
+      neither at that commit nor at HEAD; gate --json gains next_command, that command or null. Printed,
+      never run; nothing else changes.
+    action: >-
+      Nothing required. Run the printed claims sync after a gate so that status and the claims ledger read
+      the gated claims. A script that reads the last line of gate's text output now sees the next: line.
+    breaking: false
+    changelog: Added
 no_author_change: []

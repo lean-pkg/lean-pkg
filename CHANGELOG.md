@@ -18,6 +18,12 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   as a typed `--agent` is, so it never gets past another agent's lease; a
   typed `--agent` wins, and an empty value counts as unset. See
   `lean-pkg help environment`.
+- The writing `gate` ends with `next: lean-pkg claims sync NAME` (with its
+  `--agent`) when the package tracks a claims file at the gated commit and
+  the registry's claims cache was read neither there nor at `HEAD` (#450):
+  after a gate, `claims_synced_commit` stayed null until a separate
+  `claims sync`, which nothing said. `gate --json` gains `next_command`
+  (that command, or `null`). Printed, never run.
 
 ## [0.29.0] - 2026-11-09
 
