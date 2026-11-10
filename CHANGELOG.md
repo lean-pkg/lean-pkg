@@ -9,6 +9,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-09
+
 ### Added
 
 - `lean-pkg site check [NAME] [--dir DIR] [--no-registry]`, phase 1 of the
@@ -45,6 +47,8 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   claim-to-comparator mapping) and 0007 (`built_on` credits) are marked
   implemented in the releases that shipped them, 0.11.0, 0.14.0, 0.14.0 and
   0.15.0 (#448), in their status lines and the proposals table.
+
+public-safety (make public-safety, --strict, history): 0 hit(s) (0 tree, 0 history); 0 blocking, 0 warning(s)
 
 ## [0.28.0] - 2026-11-09
 
