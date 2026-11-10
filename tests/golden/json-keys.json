@@ -275,6 +275,7 @@
       "gate",
       "ignored_evidence",
       "name",
+      "next_command",
       "ok",
       "pins",
       "pins_kept",

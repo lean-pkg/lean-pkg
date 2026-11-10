@@ -192,7 +192,7 @@ from .gate import (  # noqa: F401  re-exports, one release (#317)
     COMPARATOR_CONFIG_RE, copy_comparator, dirty_guard, dirty_tracked, do_comparator, _do_comparator, do_gate,
     _do_gate, do_gate_check, _do_gate_check, do_gate_refresh, docs_admission, docs_admission_line,
     docs_only_descendant, escaping_symlinks, evidence_dest_problem, evidence_only_descendant, _file_sha256,
-    formalization_derived_only, gate_next_command, gunzip_digest, gzip_deterministic, head_comparator_configs,
+    formalization_derived_only, claims_sync_next, gate_next_command, gunzip_digest, gzip_deterministic, head_comparator_configs,
     load_json_object, locate_evidence_arg, manifest_mathlib, _move_record_hint, NO_MATHLIB, outside_path_deps,
     package_binding, package_descendant,
     path_dep_tree_problems, pin_changes_text, pins_kept_lines, plan_comparator_copy, plan_report_log_copy,
