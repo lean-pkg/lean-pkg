@@ -70,6 +70,7 @@ A new version of any lean-pkg format is a schema change: it starts as a
 | Event log | `lean-package-events.jsonl` | `v: 1` on each line | 0 (a line without `v`) and 1; a line with a newer or unreadable `v` is not interpreted, and the reader says so | none: the log is append-only, old lines stay as written |
 | Claims | `claims.yaml` | `schema: claims/1` | `claims/1` | `lean-pkg claims migrate` (a legacy `claims.json` to a `claims/1` skeleton) |
 | Coverage | `coverage.yaml` | `schema: coverage/1` | `coverage/1` | none needed yet |
+| Declared controls | `lean-pkg-controls.yaml` | `schema: controls/1` | `controls/1`, strictly, in a fixed line shape the verify job reads with awk ([Declared controls](#declared-controls-controls1)) | none needed yet |
 | Lower-tier receipt | `.lean-receipts/<c12>-<job>.json` | `schema: lower-receipt/1` | 0 (no `schema` key: every receipt written before 0.22.0) and `lower-receipt/1`; a newer `lower-receipt/N` is refused ("upgrade lean-pkg"), any other value is refused | none: evidence is never rewritten |
 | Comparator receipt | `.lean-receipts/<c12>-comparator.json` | `schema: comparator-receipt/2` | `comparator-receipt/1` (legacy mechanism implied) and `/2` | none: evidence is never rewritten |
 | Comparator estimate | printed JSON (`receipt comparator --estimate`) | `schema: comparator-estimate/2` | not read back as evidence (`receipt check` skips it) | none needed |
@@ -336,6 +337,67 @@ and `hyp-skip` are never refusals. The claims ledger reads a section the write-t
 no section, a `hyp-error` of the part it needs, a failed Challenge build or a `hyp-skip` of the theorem
 it needs as missing facts: the claims that use `hypotheses`, `discharges` or `witness` are then
 `hypotheses-unchecked`, never discharged. Only the decl part is needed at the gate stage.
+
+## Declared controls (`controls/1`)
+
+**Written since the first implementation stage of
+[proposal 0014](proposals/0014-declared-controls.md)** (accepted); `verify`'s preflight checks the
+declaration. The gate does not read the section yet: that, and the counts on `page`, `status` and the catalog,
+are the next stage, so a failed control does not yet refuse anything.
+
+A package may commit `lean-pkg-controls.yaml` beside `claims.yaml`. Since the verify job reads it with awk (a
+job has no Python), it keeps one line shape, which `verify`'s preflight and
+`python3 -m lean_pkg.controls --file lean-pkg-controls.yaml` check: `schema: controls/1`, then `controls:`,
+then per control `  - id: ID` and its other keys one per line, indented four spaces; a list is a flow list
+`[A, B]`; `expect` is double-quoted with no `"` or backslash inside.
+
+| Key | Kinds | Meaning |
+|---|---|---|
+| `id` | all | unique, `[a-z0-9][a-z0-9-]*` |
+| `kind` | all | `must-fail` (must not compile, for a non-setup reason), `refutes` (must compile and prove the listed theorems, each a negation), `compiles` (must compile cleanly) |
+| `file` | all | a relative path to a tracked `.lean` file; one control per file |
+| `expect` | `must-fail` | a substring of the first error message (all its lines) |
+| `theorem` | `refutes`, required | a theorem name or a flow list of names |
+| `targets` | all | package declarations the control must use |
+| `timeout` | all | seconds, 1 to 3600 (default 300); a timeout is a failure |
+| `note` | all | one line; a refutation false only through a library's junk value (`Γ 0 = 0`, `x / 0 = 0`) must say so here |
+
+The verify scripts (`receipt slurm --template`, and the `verify.sh` that `lean-pkg new` writes) run each
+control **one at a time**, after the hypotheses section and before the seal, as
+`timeout T lean --run ControlsProbe.lean KIND FILE .lake/build ...` in the package directory (so the package's
+toolchain's `lean` runs) with the LEAN_PATH the script checked. `ControlsProbe.lean`, lean-pkg's core-Lean
+program, elaborates the file through the same processor as `lean FILE` (a `module` header behaves the same)
+and prints its facts; the job adds the control's id, file hash and time:
+
+```text
+== lean-pkg controls (controls/1) ==
+ctl-decl: {"v":1,"file":"lean-pkg-controls.yaml","sha256":"<64 hex>","controls":6,"toolchain":"leanprover/lean4:v4.35.0"}
+ctl: {"v":1,"id":"neg-wrong-bound","kind":"must-fail","file":"controls/WrongBound.lean","sha256":"<64 hex>","seconds":2.0,"exit":1,"errors":1,"first_error":"omega could not prove the goal: ...","first_kind":"[anonymous]","setup_error":null,"expect":"matched","sorry":false,"targets":{"Cx.double":"statement"},"ok":true,"message":null}
+ctl: {"v":1,"id":"ref-double","kind":"refutes","file":"refutations/DoubleNotLt.lean","sha256":"<64 hex>","seconds":1.9,"exit":0,"errors":0,"first_error":null,"first_kind":null,"setup_error":null,"expect":"absent","sorry":false,"theorems":{"Refutations.double_not_lt":{"found":true,"negation":true,"axioms":["propext"]}},"other_axioms":["Quot.sound","propext"],"targets":{"Cx.double":"negation"},"ok":true,"message":null}
+ctl-done: {"v":1,"ran":6,"passed":3,"failed":3,"seconds":11.7}
+```
+
+- **Messages**: every snapshot's messages, with severity and `kind` (a named error's kind is its name plus
+  `._namedError`). `first_error` is the first error message's text, path prefixes removed, at most 400
+  characters; `errors` counts the error messages.
+- **Setup errors**, checked on every error message (case-insensitive patterns, and error names matching the
+  kind with or without `._namedError`): `unknown (identifier|constant|namespace|tactic|module)`,
+  `invalid field`, `unexpected token`, `unexpected end of input`, `unknown option`, `unknown attribute`,
+  `object file .* does not exist`, `\(deterministic\) timeout`, `deterministic timeout`,
+  `maximum recursion`; `lean.unknownIdentifier`, `lean.invalidField`, `lean.invalidDottedIdent`. A match
+  fails the control, whatever its kind (`SETUP_PATTERNS` in `lean_pkg/controls.py`; the probe's copy is
+  checked against it on the recorded first errors).
+- **Negation**: after the theorem's binders, the head is `Not` or `Ne`, or the conclusion is `False`.
+- **Targets**: a declaration whose module's `.olean` lies under the package's `.lake/build` (any `lean_lib`).
+  For `must-fail`, it must occur among the elaborated terms of the command that reports the first error
+  (`statement` or `proof`); there is no imports fallback. For `refutes` and `compiles`, in a declaration the
+  file adds (`negation` when in a listed theorem, else `other`), or in a command's terms (`other`).
+- **Axioms**: the standard three only (`propext`, `Quot.sound`, `Classical.choice`), for every declaration of
+  a `refutes` or `compiles` file; `sorry` (a warning or `sorryAx`) fails it.
+- A control whose file is missing, or whose probe exits non-zero or times out, gets a `ctl:` line with
+  `"ok": false` and a `message`. No declaration: no section.
+
+`report_sha256` seals the section; the receipt schema does not change.
 
 ## Event log
 

@@ -1,0 +1,7 @@
+# Fixture for tests/test_controls_probe.py (proposal 0014): core Lean only, no Mathlib.
+# The tests copy it to a temporary directory and build it there; nothing is built here.
+name = "cx"
+defaultTargets = ["Cx"]
+
+[[lean_lib]]
+name = "Cx"

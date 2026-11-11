@@ -11,6 +11,18 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
 
 ### Added
 
+- Declared controls, first stage of proposal 0014 (#453): a package may commit
+  `lean-pkg-controls.yaml` (`controls/1`) listing `must-fail`, `refutes` and
+  `compiles` controls. The verify scripts (`receipt slurm --template` and the
+  `verify.sh` that `lean-pkg new` writes) run each control alone, after the
+  hypotheses section, through lean-pkg's `ControlsProbe.lean`, which
+  elaborates the file as `lean FILE` does, and seal a `controls/1` section in
+  the verify log: per control the exit, the first error message, setup
+  errors, `expect`, negation and axioms of the listed theorems, and where each
+  target occurs. `lean-pkg verify`'s preflight refuses a declaration the job
+  could not read. The gate does not read the section yet (the next stage).
+  See docs/formats.md, "Declared controls".
+
 - `gate` (not `gate --check`) and `update` take their `--agent` from
   `$LEAN_PKG_AGENT` when none is given (#449): an agent working under its
   own lease no longer has every first `gate` or `update` refused until it

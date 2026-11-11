@@ -47,6 +47,23 @@ changes:
       verify) before the package grows past the cap.
     breaking: false
     changelog: Added
+  - pr: 453
+    id: declared-controls-section
+    kind: format
+    area: receipts, verify
+    summary: >-
+      Proposal 0014, first stage: a new optional file lean-pkg-controls.yaml (schema controls/1, a fixed
+      line shape) declares must-fail, refutes and compiles controls. The verify scripts (receipt slurm
+      --template, and the verify.sh lean-pkg new writes) run each control alone through lean-pkg's
+      ControlsProbe.lean and append a controls/1 section to the sealed verify log (ctl-decl, one ctl line per
+      control, ctl-done); report_sha256 covers it; the receipt schema does not change. lean-pkg verify's
+      preflight refuses a declaration that fails the schema. The gate does not read the section yet.
+    action: >-
+      Nothing for a package without the file. To declare controls, commit lean-pkg-controls.yaml (check it
+      with python3 -m lean_pkg.controls --file), and regenerate a package's verify.sh (or use the current
+      receipt slurm template) so that the job runs them; an older verify script ignores the file.
+    breaking: false
+    changelog: Added
 # Docs: proposal 0014 (declared controls in the sealed verify log) added, accepted; nothing implemented
 # (#451).
 no_author_change: [451]
