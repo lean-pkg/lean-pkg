@@ -44,6 +44,14 @@ full policy, and the criteria for 1.0.0, are in RELEASING.md, "When to tag".
   `lean-pkg verify --memory-max BYTES` passes the cap to its `receipt
   systemd` step.
 
+### Fixed
+
+- `comparator config --challenge-from-type` (the type driver) prints a deep
+  statement whole (#454). Lean's `pp.deepTerms` is false by default, so a
+  statement nested deeper than 50 printed with an elided `⋯`, which the
+  round-trip check refused; the driver now sets `pp.deepTerms true` and a
+  large `pp.maxSteps`.
+
 ## [0.29.0] - 2026-11-09
 
 ### Added
