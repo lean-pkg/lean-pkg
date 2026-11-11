@@ -47,4 +47,6 @@ changes:
       verify) before the package grows past the cap.
     breaking: false
     changelog: Added
-no_author_change: []
+# Docs: proposal 0014 (declared controls in the sealed verify log) added, accepted; nothing implemented
+# (#451).
+no_author_change: [451]
