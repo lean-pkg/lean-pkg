@@ -1,7 +1,8 @@
 # 0014: Declared controls in the sealed verify log, checked by the gate
 
-Status: draft. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-11-10.
-Revised: 2026-11-10, after two field reviews. Decided: (date and maintainer, once accepted or declined).
+Status: accepted. Author: drafted by the AI operations agent at Le Chen's request. Created: 2026-11-10.
+Revised: 2026-11-10, after two field reviews. Decided: 2026-11-09, accepted by Le Chen (maintainer of
+record), as written, after three field reviews (the last: accept).
 Implemented in: (release).
 
 ## Summary
